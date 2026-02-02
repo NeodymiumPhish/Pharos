@@ -493,10 +493,12 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
             verticalScrollbarSize: 10,
             horizontalScrollbarSize: 10,
           },
-          padding: { top: 10, bottom: 100 },
+          padding: { top: 10, bottom: 50 },
           contextmenu: true,
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,
+          acceptSuggestionOnEnter: 'off', // Only accept suggestions with Tab
+          acceptSuggestionOnCommitCharacter: false, // Don't accept on commit characters like space
           wordWrap: editorSettings.wordWrap ? 'on' : 'off',
           automaticLayout: true,
           tabSize: editorSettings.tabSize,
