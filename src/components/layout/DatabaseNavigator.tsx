@@ -48,7 +48,7 @@ export function DatabaseNavigator({
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const delta = moveEvent.clientX - startX;
-        const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + delta));
+        const newWidth = Math.round(Math.max(minWidth, Math.min(maxWidth, startWidth + delta)));
         onWidthChange(newWidth);
       };
 

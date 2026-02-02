@@ -22,12 +22,14 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [localSettings, setLocalSettings] = useState(settings);
 
   // Sync local settings when dialog opens
   useEffect(() => {
     if (isOpen) {
       setLocalSettings(settings);
+      setSaveError(null);
     }
   }, [isOpen, settings]);
 
@@ -51,6 +53,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
+    setSaveError(null);
     try {
       await tauri.saveSettings(localSettings);
       updateTheme(localSettings.theme);
@@ -59,6 +62,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
       onClose();
     } catch (err) {
       console.error('Failed to save settings:', err);
+      setSaveError(String(err));
     } finally {
       setIsSaving(false);
     }
@@ -310,22 +314,29 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-theme-border-primary">
-          <button
-            onClick={onClose}
-            disabled={isSaving}
-            className="px-4 py-2 rounded bg-theme-bg-hover hover:bg-theme-bg-active text-theme-text-secondary disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Save
-          </button>
+        <div className="flex flex-col gap-2 p-4 border-t border-theme-border-primary">
+          {saveError && (
+            <div className="text-xs text-red-500 bg-red-500/10 px-3 py-2 rounded">
+              {saveError}
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={isSaving}
+              className="px-4 py-2 rounded bg-theme-bg-hover hover:bg-theme-bg-active text-theme-text-secondary disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 flex items-center gap-2"
+            >
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save
+            </button>
+          </div>
         </div>
       </div>
     </div>

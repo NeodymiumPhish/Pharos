@@ -165,6 +165,7 @@ export interface AppSettings {
   query: QuerySettings;
   ui: UISettings;
   keyboard: KeyboardSettings;
+  emptyFolders?: string[]; // Explicitly created folders that have no queries
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

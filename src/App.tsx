@@ -6,6 +6,7 @@ import { QueryWorkspace } from '@/components/layout/QueryWorkspace';
 import { StatusBar } from '@/components/ui/StatusBar';
 import { AddConnectionDialog } from '@/components/dialogs/AddConnectionDialog';
 import { SettingsDialog } from '@/components/dialogs/SettingsDialog';
+import { AboutDialog } from '@/components/dialogs/AboutDialog';
 import { useWindowDrag } from '@/hooks/useWindowDrag';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -16,6 +17,7 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isAddConnectionOpen, setIsAddConnectionOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [schemaRefreshTrigger, setSchemaRefreshTrigger] = useState(0);
   const { startDrag } = useWindowDrag();
   const setConnections = useConnectionStore((state) => state.setConnections);
@@ -45,12 +47,16 @@ function App() {
 
   // Listen for menu events from Tauri
   useEffect(() => {
-    const unlistenPromise = listen('menu-settings', () => {
+    const unlistenSettings = listen('menu-settings', () => {
       setIsSettingsOpen(true);
+    });
+    const unlistenAbout = listen('menu-about', () => {
+      setIsAboutOpen(true);
     });
 
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenSettings.then((unlisten) => unlisten());
+      unlistenAbout.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -100,6 +106,10 @@ function App() {
       <SettingsDialog
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+      />
+      <AboutDialog
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
       />
     </div>
   );

@@ -109,5 +109,26 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  return invoke('save_settings', { settings });
+  // Ensure UI settings are integers (Rust expects u32)
+  const sanitizedSettings = {
+    ...settings,
+    ui: {
+      ...settings.ui,
+      navigatorWidth: Math.round(settings.ui.navigatorWidth),
+      savedQueriesWidth: Math.round(settings.ui.savedQueriesWidth),
+      resultsPanelHeight: Math.round(settings.ui.resultsPanelHeight),
+      editorSplitPosition: Math.round(settings.ui.editorSplitPosition),
+    },
+    editor: {
+      ...settings.editor,
+      fontSize: Math.round(settings.editor.fontSize),
+      tabSize: Math.round(settings.editor.tabSize),
+    },
+    query: {
+      ...settings.query,
+      defaultLimit: Math.round(settings.query.defaultLimit),
+      timeoutSeconds: Math.round(settings.query.timeoutSeconds),
+    },
+  };
+  return invoke('save_settings', { settings: sanitizedSettings });
 }

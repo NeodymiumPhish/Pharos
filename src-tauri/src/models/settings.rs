@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -83,12 +84,34 @@ impl Default for UISettings {
     }
 }
 
+/// Keyboard shortcut configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyboardShortcut {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub key: String,
+    pub modifiers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KeyboardSettings {
+    #[serde(default)]
+    pub shortcuts: HashMap<String, KeyboardShortcut>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: ThemeMode,
     pub editor: EditorSettings,
     pub query: QuerySettings,
     pub ui: UISettings,
+    #[serde(default)]
+    pub keyboard: KeyboardSettings,
+    #[serde(default)]
+    pub empty_folders: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -98,6 +121,8 @@ impl Default for AppSettings {
             editor: EditorSettings::default(),
             query: QuerySettings::default(),
             ui: UISettings::default(),
+            keyboard: KeyboardSettings::default(),
+            empty_folders: Vec::new(),
         }
     }
 }

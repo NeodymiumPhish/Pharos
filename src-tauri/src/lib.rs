@@ -74,6 +74,11 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             match event.id().as_ref() {
+                "about" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("menu-about", ());
+                    }
+                }
                 "settings" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.emit("menu-settings", ());

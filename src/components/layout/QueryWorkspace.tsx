@@ -189,7 +189,7 @@ export function QueryWorkspace() {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const newPosition = ((e.clientY - rect.top) / rect.height) * 100;
-      setSplitPosition(Math.max(20, Math.min(80, newPosition)));
+      setSplitPosition(Math.round(Math.max(20, Math.min(80, newPosition))));
     };
 
     const handleMouseUp = () => {
@@ -310,7 +310,7 @@ export function QueryWorkspace() {
 
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - libraryResizeStartX.current;
-      const newWidth = Math.max(140, Math.min(500, libraryResizeStartWidth.current + delta));
+      const newWidth = Math.round(Math.max(140, Math.min(500, libraryResizeStartWidth.current + delta)));
       setLibraryWidth(newWidth);
     };
 

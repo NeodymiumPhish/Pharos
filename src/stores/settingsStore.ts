@@ -14,11 +14,13 @@ interface SettingsState {
   updateUISettings: (ui: Partial<UISettings>) => void;
   updateKeyboardSettings: (keyboard: Partial<KeyboardSettings>) => void;
   updateShortcut: (id: string, shortcut: Partial<KeyboardShortcut>) => void;
+  updateEmptyFolders: (folders: string[]) => void;
   resetShortcuts: () => void;
   resetToDefaults: () => void;
 
   // Getters
   getEffectiveTheme: () => 'light' | 'dark';
+  getEmptyFolders: () => string[];
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -115,6 +117,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }));
   },
 
+  updateEmptyFolders: (folders) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        emptyFolders: folders,
+      },
+    }));
+  },
+
   resetToDefaults: () => {
     set({ settings: DEFAULT_SETTINGS });
   },
@@ -129,5 +140,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       return 'dark'; // Default to dark if can't detect
     }
     return settings.theme;
+  },
+
+  getEmptyFolders: () => {
+    return get().settings.emptyFolders ?? [];
   },
 }));
