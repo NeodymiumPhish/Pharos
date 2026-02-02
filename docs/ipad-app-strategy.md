@@ -43,7 +43,338 @@ From the existing Pharos codebase, the following can be directly reused:
 | `lib/types.ts` | 100% | TypeScript interfaces are platform-agnostic |
 | SQL validation logic | 100% | Pure TypeScript functions |
 | Theme system | 70% | CSS variables → React Native StyleSheet |
-| Monaco Editor | 0% | Replace with `react-native-code-editor` |
+| `SqlAutocomplete.ts` | 85% | Completion logic reusable, provider interface differs |
+| Monaco Editor | 0% | Replace with CodeMirror 6 via WebView |
+
+---
+
+## Query Editor Strategy: CodeMirror 6 via WebView
+
+### Decision Rationale
+
+The desktop app uses Monaco Editor, which provides excellent features but is not suitable for iPad:
+
+| Factor | Monaco (Desktop) | CodeMirror 6 (iPad) |
+|--------|------------------|---------------------|
+| **Bundle Size** | ~2MB | ~200KB |
+| **Touch Support** | Limited | First-class mobile support |
+| **iOS Keyboard** | Compatibility issues | Native integration |
+| **Selection Handles** | Mouse-optimized | Touch-optimized |
+| **Performance** | Excellent on desktop | Lighter, faster on mobile |
+
+**Decision**: Keep Monaco for desktop, use CodeMirror 6 via WebView for iPad.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        React Native App                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │                     QueryEditor.tsx                             │ │
+│  │  ┌──────────────────────────────────────────────────────────┐  │ │
+│  │  │                    WebView Component                      │  │ │
+│  │  │  ┌────────────────────────────────────────────────────┐  │  │ │
+│  │  │  │              CodeMirror 6 Editor                    │  │  │ │
+│  │  │  │                                                     │  │  │ │
+│  │  │  │  • SQL Language Mode                                │  │  │ │
+│  │  │  │  • Custom Pharos Theme                              │  │  │ │
+│  │  │  │  • Schema-Aware Autocomplete                        │  │  │ │
+│  │  │  │  • Touch-Optimized Selection                        │  │  │ │
+│  │  │  │                                                     │  │  │ │
+│  │  │  └────────────────────────────────────────────────────┘  │  │ │
+│  │  └──────────────────────────────────────────────────────────┘  │ │
+│  │                           ▲                                     │ │
+│  │                           │ postMessage / onMessage             │ │
+│  │                           ▼                                     │ │
+│  │  ┌──────────────────────────────────────────────────────────┐  │ │
+│  │  │                   Bridge Layer                            │  │ │
+│  │  │  • Content sync (SQL text)                                │  │ │
+│  │  │  • Schema metadata injection                              │  │ │
+│  │  │  • Theme updates                                          │  │ │
+│  │  │  • Cursor position events                                 │  │ │
+│  │  │  • Execute/Save command triggers                          │  │ │
+│  │  └──────────────────────────────────────────────────────────┘  │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### WebView HTML Template
+
+The editor will be loaded from a bundled HTML file:
+
+```
+assets/
+└── editor/
+    ├── index.html          # Main editor HTML
+    ├── codemirror.bundle.js # CodeMirror 6 + extensions
+    ├── sql-mode.js         # SQL language support
+    ├── pharos-theme.js     # Custom theme matching desktop
+    └── bridge.js           # React Native communication
+```
+
+### Bridge Communication Protocol
+
+```typescript
+// React Native → WebView (injected JavaScript)
+interface EditorCommands {
+  setContent: (sql: string) => void;
+  setSchema: (metadata: SchemaMetadata) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
+  setReadOnly: (readOnly: boolean) => void;
+  focus: () => void;
+  format: () => void;
+  getContent: () => void;  // Triggers contentChanged message
+}
+
+// WebView → React Native (postMessage)
+interface EditorEvents {
+  type: 'contentChanged';
+  payload: { sql: string; };
+} | {
+  type: 'cursorChanged';
+  payload: { line: number; column: number; };
+} | {
+  type: 'execute';  // Cmd+Enter pressed
+  payload: {};
+} | {
+  type: 'save';     // Cmd+S pressed
+  payload: {};
+} | {
+  type: 'ready';    // Editor initialized
+  payload: {};
+}
+```
+
+### Shared Code: Autocomplete Logic
+
+The SQL autocomplete logic from `SqlAutocomplete.ts` can be adapted for CodeMirror:
+
+```typescript
+// shared/sql-completions.ts (used by both desktop and iPad)
+
+export const SQL_KEYWORDS = [
+  'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'ILIKE',
+  // ... (existing keywords from SqlAutocomplete.ts)
+];
+
+export const SQL_FUNCTIONS = [
+  'count', 'sum', 'avg', 'min', 'max', 'array_agg', 'string_agg',
+  // ... (existing functions from SqlAutocomplete.ts)
+];
+
+export interface SchemaMetadata {
+  schemas: SchemaInfo[];
+  tables: Map<string, TableInfo[]>;
+  columns: Map<string, ColumnInfo[]>;
+}
+
+// Platform-agnostic completion generation
+export function generateCompletions(
+  context: { textBefore: string; word: string },
+  metadata: SchemaMetadata | null
+): Completion[] {
+  // ... completion logic (extract from current Monaco provider)
+}
+```
+
+**Desktop (Monaco)**: Wraps `generateCompletions` in Monaco's `CompletionItemProvider`
+**iPad (CodeMirror)**: Wraps `generateCompletions` in CodeMirror's `autocompletion` extension
+
+### CodeMirror 6 Configuration
+
+```typescript
+// assets/editor/codemirror-setup.ts
+
+import { EditorState } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
+import { sql, PostgreSQL } from '@codemirror/lang-sql';
+import { autocompletion } from '@codemirror/autocomplete';
+import { oneDark } from '@codemirror/theme-one-dark';
+
+export function createEditor(container: HTMLElement) {
+  const state = EditorState.create({
+    doc: '',
+    extensions: [
+      // SQL language with PostgreSQL dialect
+      sql({ dialect: PostgreSQL }),
+
+      // Custom Pharos theme (dark)
+      pharosTheme,
+
+      // Schema-aware autocomplete
+      autocompletion({
+        override: [schemaAwareCompletion],
+        activateOnTyping: true,
+      }),
+
+      // Touch-friendly settings
+      EditorView.lineWrapping,
+      EditorState.tabSize.of(2),
+
+      // Keyboard shortcuts
+      keymap.of([
+        { key: 'Mod-Enter', run: () => { postExecute(); return true; } },
+        { key: 'Mod-s', run: () => { postSave(); return true; } },
+      ]),
+
+      // Content change listener
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          postContentChanged(update.state.doc.toString());
+        }
+      }),
+    ],
+  });
+
+  return new EditorView({ state, parent: container });
+}
+```
+
+### Theme Parity
+
+The CodeMirror theme will match the Monaco theme for visual consistency:
+
+```typescript
+// assets/editor/pharos-theme.ts
+
+import { EditorView } from '@codemirror/view';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
+
+export const pharosDarkTheme = EditorView.theme({
+  '&': {
+    backgroundColor: 'transparent',
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontFamily: 'SF Mono, Menlo, monospace',
+    fontSize: '14px',
+  },
+  '.cm-content': {
+    caretColor: '#528bff',
+    padding: '12px 0',
+  },
+  '.cm-cursor': {
+    borderLeftColor: '#528bff',
+    borderLeftWidth: '2px',
+  },
+  '.cm-selectionBackground': {
+    backgroundColor: 'rgba(82, 139, 255, 0.3)',
+  },
+  '.cm-gutters': {
+    backgroundColor: 'transparent',
+    color: 'rgba(255, 255, 255, 0.3)',
+    border: 'none',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: 'rgba(30, 30, 30, 0.95)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '8px',
+    backdropFilter: 'blur(20px)',
+  },
+}, { dark: true });
+
+export const pharosSyntaxHighlight = syntaxHighlighting(HighlightStyle.define([
+  { tag: tags.keyword, color: '#FF79C6', fontWeight: 'bold' },
+  { tag: tags.string, color: '#F1FA8C' },
+  { tag: tags.number, color: '#BD93F9' },
+  { tag: tags.comment, color: '#6272A4', fontStyle: 'italic' },
+  { tag: tags.operator, color: '#FF79C6' },
+  { tag: tags.function(tags.variableName), color: '#50FA7B' },
+  { tag: tags.typeName, color: '#8BE9FD' },
+]));
+```
+
+### React Native Component
+
+```typescript
+// components/editor/QueryEditor.tsx
+
+import React, { useRef, useCallback } from 'react';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useEditorStore } from '@/stores/editorStore';
+import { useConnectionStore } from '@/stores/connectionStore';
+
+const EDITOR_HTML = require('@/assets/editor/index.html');
+
+export function QueryEditor() {
+  const webViewRef = useRef<WebView>(null);
+  const { activeTab, updateTabSql } = useEditorStore();
+  const { schemaMetadata } = useConnectionStore();
+
+  const handleMessage = useCallback((event: WebViewMessageEvent) => {
+    const message = JSON.parse(event.nativeEvent.data);
+
+    switch (message.type) {
+      case 'contentChanged':
+        updateTabSql(activeTab.id, message.payload.sql);
+        break;
+      case 'execute':
+        executeQuery();
+        break;
+      case 'save':
+        openSaveDialog();
+        break;
+      case 'ready':
+        // Inject initial content and schema
+        injectContent(activeTab.sql);
+        injectSchema(schemaMetadata);
+        break;
+    }
+  }, [activeTab, schemaMetadata]);
+
+  const injectContent = (sql: string) => {
+    webViewRef.current?.injectJavaScript(
+      `window.editor.setContent(${JSON.stringify(sql)}); true;`
+    );
+  };
+
+  const injectSchema = (metadata: SchemaMetadata) => {
+    webViewRef.current?.injectJavaScript(
+      `window.editor.setSchema(${JSON.stringify(metadata)}); true;`
+    );
+  };
+
+  return (
+    <WebView
+      ref={webViewRef}
+      source={EDITOR_HTML}
+      onMessage={handleMessage}
+      style={{ flex: 1, backgroundColor: 'transparent' }}
+      scrollEnabled={false}
+      keyboardDisplayRequiresUserAction={false}
+      hideKeyboardAccessoryView={false}
+    />
+  );
+}
+```
+
+### Touch Optimizations
+
+CodeMirror 6 includes mobile-friendly features that we'll leverage:
+
+| Feature | Implementation |
+|---------|----------------|
+| **Native selection handles** | Built-in iOS selection UI |
+| **Touch scrolling** | Hardware-accelerated via WebView |
+| **Tap to position cursor** | Native touch event handling |
+| **Long-press for selection** | iOS standard behavior |
+| **Autocomplete touch targets** | CSS: min-height 44px per item |
+| **Pinch to zoom** | Disabled (fixed font size) |
+
+### Performance Considerations
+
+| Concern | Mitigation |
+|---------|-----------|
+| **WebView initialization** | Pre-warm WebView on app launch |
+| **Large documents** | CodeMirror handles 10K+ lines efficiently |
+| **Bridge latency** | Batch updates, debounce content sync |
+| **Memory** | Single WebView instance, reused across tabs |
+| **Keyboard lag** | `keyboardDisplayRequiresUserAction={false}` |
 
 ---
 
@@ -324,9 +655,9 @@ src/
 │   │   └── ColumnInfo.tsx           # Column metadata view
 │   │
 │   ├── editor/
-│   │   ├── QueryEditor.tsx          # SQL editor (CodeMirror-based)
+│   │   ├── QueryEditor.tsx          # WebView wrapper for CodeMirror
 │   │   ├── QueryTabs.tsx            # Tab management
-│   │   ├── AutoComplete.tsx         # SQL autocomplete popover
+│   │   ├── EditorBridge.ts          # WebView ↔ React Native messaging
 │   │   └── ActionBar.tsx            # Run/Save/Format buttons
 │   │
 │   ├── results/
@@ -347,6 +678,17 @@ src/
 │       ├── IconButton.tsx           # Touch-friendly icon button
 │       └── StatusBar.tsx            # Connection/execution status
 │
+├── assets/
+│   └── editor/                      # CodeMirror 6 WebView bundle
+│       ├── index.html               # Editor HTML template
+│       ├── codemirror.bundle.js     # Built CodeMirror + extensions
+│       ├── pharos-theme.js          # Syntax highlighting theme
+│       └── bridge.js                # postMessage communication
+│
+├── shared/                          # Code shared with desktop app
+│   ├── sql-completions.ts           # Keywords, functions, completion logic
+│   └── types.ts                     # SchemaInfo, TableInfo, ColumnInfo
+│
 ├── stores/                          # Zustand stores (port from web)
 │   ├── editorStore.ts
 │   ├── connectionStore.ts
@@ -364,8 +706,11 @@ src/
 │   └── useKeyboard.ts               # Keyboard visibility handling
 │
 └── lib/
-    ├── types.ts                     # Shared types (from web)
+    ├── types.ts                     # iPad-specific types
     └── theme.ts                     # Theme configuration
+
+scripts/
+└── build-editor.js                  # esbuild script for CodeMirror bundle
 ```
 
 ### Component Hierarchy
@@ -547,32 +892,42 @@ const keyboardShortcuts = {
 - [ ] Implement PostgreSQL connection service
 - [ ] Basic navigation structure (two tabs)
 - [ ] Glass-morphism theme system
+- [ ] Extract shared SQL completion logic to `shared/sql-completions.ts`
 
-### Phase 2: Query Interface (3-4 weeks)
+### Phase 2: Query Editor (2-3 weeks)
+
+- [ ] Build CodeMirror 6 editor bundle (esbuild)
+- [ ] Create editor HTML template with Pharos theme
+- [ ] Implement WebView bridge communication
+- [ ] Port autocomplete logic to CodeMirror format
+- [ ] Add keyboard shortcuts (Cmd+Enter, Cmd+S)
+- [ ] Test touch interactions and iOS keyboard
+
+### Phase 3: Query Interface (3-4 weeks)
 
 - [ ] Connection list component
 - [ ] Schema tree browser
-- [ ] Query editor with syntax highlighting
+- [ ] Integrate CodeMirror editor component
 - [ ] Query tabs management
 - [ ] Basic query execution
 - [ ] Results preview component
 
-### Phase 3: Results Interface (2-3 weeks)
+### Phase 4: Results Interface (2-3 weeks)
 
 - [ ] Full-screen results grid with virtualization
 - [ ] Column resizing and reordering
 - [ ] Cell selection and copy
 - [ ] Export functionality (CSV, JSON)
-- [ ] Sliding query sidebar
+- [ ] Sliding query sidebar with embedded editor
 
-### Phase 4: Saved Queries (1-2 weeks)
+### Phase 5: Saved Queries (1-2 weeks)
 
 - [ ] Saved queries panel
 - [ ] Folder organization
 - [ ] Query save/load functionality
 - [ ] Local SQLite persistence
 
-### Phase 5: Polish & Testing (2-3 weeks)
+### Phase 6: Polish & Testing (2-3 weeks)
 
 - [ ] iPad multitasking support
 - [ ] External keyboard shortcuts
@@ -580,7 +935,7 @@ const keyboardShortcuts = {
 - [ ] Performance optimization
 - [ ] Beta testing and bug fixes
 
-### Phase 6: App Store Preparation (1 week)
+### Phase 7: App Store Preparation (1 week)
 
 - [ ] App icons and screenshots
 - [ ] App Store metadata
@@ -613,13 +968,24 @@ const keyboardShortcuts = {
     "@react-navigation/bottom-tabs": "^6.5.0",
     "zustand": "^4.5.0",
     "@shopify/flash-list": "^1.6.0",
-    "react-native-code-editor": "^1.3.0",
+    "react-native-webview": "^13.6.0",
     "expo-sqlite": "^13.0.0",
     "react-native-gesture-handler": "^2.14.0",
     "react-native-reanimated": "^3.6.0"
+  },
+  "devDependencies": {
+    "@codemirror/state": "^6.4.0",
+    "@codemirror/view": "^6.24.0",
+    "@codemirror/lang-sql": "^6.6.0",
+    "@codemirror/autocomplete": "^6.12.0",
+    "@codemirror/language": "^6.10.0",
+    "@lezer/highlight": "^1.2.0",
+    "esbuild": "^0.20.0"
   }
 }
 ```
+
+> **Note**: CodeMirror packages are dev dependencies used to build the bundled editor HTML asset. The runtime uses `react-native-webview` to host the pre-built editor.
 
 ### Database Connectivity
 
