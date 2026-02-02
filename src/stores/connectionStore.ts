@@ -1,0 +1,128 @@
+import { create } from 'zustand';
+import type { Connection, ConnectionConfig, ConnectionStatus } from '@/lib/types';
+
+interface ConnectionState {
+  // All saved connections (using Record for better Zustand compatibility)
+  connections: Record<string, Connection>;
+
+  // Currently active/selected connection ID
+  activeConnectionId: string | null;
+
+  // Selected schema per connection (connectionId -> schemaName)
+  selectedSchemas: Record<string, string | null>;
+
+  // Actions
+  setConnections: (configs: ConnectionConfig[]) => void;
+  addConnection: (config: ConnectionConfig) => void;
+  removeConnection: (id: string) => void;
+  updateConnectionStatus: (id: string, status: ConnectionStatus, error?: string, latency?: number) => void;
+  setActiveConnection: (id: string | null) => void;
+  setSelectedSchema: (connectionId: string, schema: string | null) => void;
+
+  // Getters
+  getConnection: (id: string) => Connection | undefined;
+  getActiveConnection: () => Connection | undefined;
+  getConnectedConnections: () => Connection[];
+  getConnectionsList: () => Connection[];
+  getSelectedSchema: (connectionId: string) => string | null;
+  getActiveSelectedSchema: () => string | null;
+}
+
+export const useConnectionStore = create<ConnectionState>((set, get) => ({
+  connections: {},
+  activeConnectionId: null,
+  selectedSchemas: {},
+
+  setConnections: (configs) => {
+    const connections: Record<string, Connection> = {};
+    configs.forEach((config) => {
+      connections[config.id] = {
+        config,
+        status: 'disconnected',
+      };
+    });
+    set({ connections });
+  },
+
+  addConnection: (config) => {
+    set((state) => ({
+      connections: {
+        ...state.connections,
+        [config.id]: {
+          config,
+          status: 'disconnected',
+        },
+      },
+    }));
+  },
+
+  removeConnection: (id) => {
+    set((state) => {
+      const { [id]: removed, ...rest } = state.connections;
+      return {
+        connections: rest,
+        activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
+      };
+    });
+  },
+
+  updateConnectionStatus: (id, status, error, latency) => {
+    set((state) => {
+      const connection = state.connections[id];
+      if (!connection) return state;
+      return {
+        connections: {
+          ...state.connections,
+          [id]: {
+            ...connection,
+            status,
+            error,
+            latency,
+          },
+        },
+      };
+    });
+  },
+
+  setActiveConnection: (id) => {
+    set({ activeConnectionId: id });
+  },
+
+  setSelectedSchema: (connectionId, schema) => {
+    set((state) => ({
+      selectedSchemas: {
+        ...state.selectedSchemas,
+        [connectionId]: schema,
+      },
+    }));
+  },
+
+  getConnection: (id) => {
+    return get().connections[id];
+  },
+
+  getActiveConnection: () => {
+    const { connections, activeConnectionId } = get();
+    if (!activeConnectionId) return undefined;
+    return connections[activeConnectionId];
+  },
+
+  getConnectedConnections: () => {
+    const { connections } = get();
+    return Object.values(connections).filter((c) => c.status === 'connected');
+  },
+
+  getConnectionsList: () => {
+    return Object.values(get().connections);
+  },
+
+  getSelectedSchema: (connectionId) => {
+    return get().selectedSchemas[connectionId] ?? null;
+  },
+
+  getActiveSelectedSchema: () => {
+    const { activeConnectionId, selectedSchemas } = get();
+    if (!activeConnectionId) return null;
+    return selectedSchemas[activeConnectionId] ?? null;
+  },
+}));
