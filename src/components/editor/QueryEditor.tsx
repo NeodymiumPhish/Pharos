@@ -105,6 +105,9 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
     'editorSuggestWidget.background': '#1e1e1e',
     'editorSuggestWidget.border': '#454545',
     'editorSuggestWidget.selectedBackground': '#04395e',
+    // Sticky scroll - make opaque so it's legible over underlying text
+    'editorStickyScroll.background': '#1e1e1e',
+    'editorStickyScrollHover.background': '#2a2a2a',
   },
 };
 
@@ -141,6 +144,9 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
     'editorSuggestWidget.background': '#F3F3F3',
     'editorSuggestWidget.border': '#C8C8C8',
     'editorSuggestWidget.selectedBackground': '#D6EBFF',
+    // Sticky scroll - make opaque so it's legible over underlying text
+    'editorStickyScroll.background': '#F3F3F3',
+    'editorStickyScrollHover.background': '#E8E8E8',
   },
 };
 
@@ -151,6 +157,7 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
+  const foldingProviderRef = useRef<IDisposable | null>(null);
   const schemaMetadataRef = useRef<SchemaMetadata | null>(null);
   const validationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabIdRef = useRef(tabId);
@@ -293,6 +300,69 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
         createCompletionProvider(() => schemaMetadataRef.current)
       );
 
+      // Register custom SQL folding range provider for SQL clauses
+      foldingProviderRef.current = monaco.languages.registerFoldingRangeProvider('sql', {
+        provideFoldingRanges(model) {
+          const ranges: { start: number; end: number; kind?: number }[] = [];
+          const lineCount = model.getLineCount();
+
+          // SQL keywords that start foldable sections
+          const sectionKeywords = /^\s*(WITH|SELECT|FROM|WHERE|GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT|UNION|INTERSECT|EXCEPT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|VALUES)\b/i;
+
+          // Track parentheses for folding blocks like VALUES (...), subqueries, etc.
+          const parenStack: { line: number; col: number }[] = [];
+
+          // Track SQL section starts
+          let currentSectionStart: number | null = null;
+
+          for (let lineNum = 1; lineNum <= lineCount; lineNum++) {
+            const lineContent = model.getLineContent(lineNum);
+
+            // Check for SQL section keywords
+            if (sectionKeywords.test(lineContent)) {
+              // End previous section if exists and spans multiple lines
+              if (currentSectionStart !== null && lineNum > currentSectionStart + 1) {
+                ranges.push({
+                  start: currentSectionStart,
+                  end: lineNum - 1,
+                  kind: monaco.languages.FoldingRangeKind.Region,
+                });
+              }
+              currentSectionStart = lineNum;
+            }
+
+            // Track parentheses for multi-line blocks
+            for (let i = 0; i < lineContent.length; i++) {
+              const char = lineContent[i];
+              if (char === '(') {
+                parenStack.push({ line: lineNum, col: i });
+              } else if (char === ')' && parenStack.length > 0) {
+                const openParen = parenStack.pop()!;
+                // Only create fold if parentheses span multiple lines
+                if (lineNum > openParen.line) {
+                  ranges.push({
+                    start: openParen.line,
+                    end: lineNum,
+                    kind: monaco.languages.FoldingRangeKind.Region,
+                  });
+                }
+              }
+            }
+          }
+
+          // Close final section if it exists
+          if (currentSectionStart !== null && lineCount > currentSectionStart) {
+            ranges.push({
+              start: currentSectionStart,
+              end: lineCount,
+              kind: monaco.languages.FoldingRangeKind.Region,
+            });
+          }
+
+          return ranges;
+        },
+      });
+
       // Track cursor position - use tabIdRef to always get the current tabId
       editor.onDidChangeCursorPosition((e) => {
         updateCursorPosition(tabIdRef.current, e.position.lineNumber, e.position.column);
@@ -347,11 +417,14 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
     }
   }, [theme, getEffectiveTheme]);
 
-  // Cleanup completion provider and validation timeout on unmount
+  // Cleanup providers and validation timeout on unmount
   useEffect(() => {
     return () => {
       if (completionProviderRef.current) {
         completionProviderRef.current.dispose();
+      }
+      if (foldingProviderRef.current) {
+        foldingProviderRef.current.dispose();
       }
       if (validationTimeoutRef.current) {
         clearTimeout(validationTimeoutRef.current);
@@ -403,12 +476,14 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
         options={{
           fontSize: editorSettings.fontSize,
           fontFamily: editorSettings.fontFamily,
-          fontLigatures: true,
+          fontLigatures: false,
           minimap: { enabled: editorSettings.minimap },
           scrollBeyondLastLine: false,
           lineNumbers: editorSettings.lineNumbers ? 'on' : 'off',
           glyphMargin: false,
           folding: true,
+          foldingStrategy: 'auto',
+          showFoldingControls: 'always',
           lineDecorationsWidth: 10,
           lineNumbersMinChars: 3,
           renderLineHighlight: 'line',
@@ -418,7 +493,7 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
             verticalScrollbarSize: 10,
             horizontalScrollbarSize: 10,
           },
-          padding: { top: 10, bottom: 10 },
+          padding: { top: 10, bottom: 100 },
           contextmenu: true,
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,

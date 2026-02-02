@@ -320,7 +320,48 @@ fn extract_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str) -> 
         "BIT" | "VARBIT" | "BIT VARYING" => {}
         // Interval
         "INTERVAL" => {
-            // sqlx doesn't have built-in interval support, use string fallback
+            if let Ok(v) = row.try_get::<Option<sqlx::postgres::types::PgInterval>, _>(index) {
+                return match v {
+                    Some(interval) => {
+                        // Format interval as human-readable string
+                        let mut parts = Vec::new();
+                        if interval.months != 0 {
+                            let years = interval.months / 12;
+                            let months = interval.months % 12;
+                            if years != 0 {
+                                parts.push(format!("{} year{}", years, if years.abs() != 1 { "s" } else { "" }));
+                            }
+                            if months != 0 {
+                                parts.push(format!("{} mon{}", months, if months.abs() != 1 { "s" } else { "" }));
+                            }
+                        }
+                        if interval.days != 0 {
+                            parts.push(format!("{} day{}", interval.days, if interval.days.abs() != 1 { "s" } else { "" }));
+                        }
+                        if interval.microseconds != 0 {
+                            let total_secs = interval.microseconds / 1_000_000;
+                            let hours = total_secs / 3600;
+                            let mins = (total_secs % 3600) / 60;
+                            let secs = total_secs % 60;
+                            let micros = interval.microseconds % 1_000_000;
+
+                            if hours != 0 || mins != 0 || secs != 0 || micros != 0 {
+                                if micros != 0 {
+                                    parts.push(format!("{:02}:{:02}:{:02}.{:06}", hours, mins, secs, micros.abs()));
+                                } else {
+                                    parts.push(format!("{:02}:{:02}:{:02}", hours, mins, secs));
+                                }
+                            }
+                        }
+                        if parts.is_empty() {
+                            serde_json::Value::String("00:00:00".to_string())
+                        } else {
+                            serde_json::Value::String(parts.join(" "))
+                        }
+                    }
+                    None => serde_json::Value::Null,
+                };
+            }
         }
         // Geometric types - fall through to string
         "POINT" | "LINE" | "LSEG" | "BOX" | "PATH" | "POLYGON" | "CIRCLE" => {}

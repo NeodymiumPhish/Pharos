@@ -1,0 +1,7 @@
+node_modules
+dist
+design_requirements
+.DS_Store
+.claude/
+.notes
+dist/
