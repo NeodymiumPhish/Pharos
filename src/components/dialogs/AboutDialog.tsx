@@ -35,7 +35,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
           <h1 className="text-xl font-semibold text-theme-text-primary">Pharos</h1>
 
           {/* Version */}
-          <p className="text-sm text-theme-text-tertiary mt-1">Version 0.9.0</p>
+          <p className="text-sm text-theme-text-tertiary mt-1">Version 0.9.1</p>
 
           {/* Description */}
           <p className="text-xs text-theme-text-muted mt-4 text-center">
