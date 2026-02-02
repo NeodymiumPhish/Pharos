@@ -13,7 +13,12 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import * as tauri from '@/lib/tauri';
 import type { SavedQuery } from '@/lib/types';
 
-export function QueryWorkspace() {
+interface QueryWorkspaceProps {
+  isResultsExpanded?: boolean;
+  onToggleResultsExpand?: () => void;
+}
+
+export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: QueryWorkspaceProps) {
   const activeConnection = useConnectionStore((state) => state.getActiveConnection());
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const selectedSchema = useConnectionStore((state) => state.getActiveSelectedSchema());
@@ -329,7 +334,8 @@ export function QueryWorkspace() {
 
   return (
     <div className="h-full w-full flex flex-col bg-theme-bg-surface overflow-hidden" ref={containerRef}>
-      {/* Top section: Saved Queries + Editor */}
+      {/* Top section: Saved Queries + Editor - hidden when results are expanded */}
+      {!isResultsExpanded && (
       <div className="flex min-h-0 overflow-hidden" style={{ height: `${splitPosition}%` }}>
         {/* Query Library Sidebar */}
         {showQueryLibrary && (
@@ -486,8 +492,10 @@ export function QueryWorkspace() {
           </div>
         </div>
       </div>
+      )}
 
-      {/* Resize handle - full width */}
+      {/* Resize handle - full width - hidden when expanded */}
+      {!isResultsExpanded && (
       <div
         onMouseDown={handleMouseDown}
         className={cn(
@@ -495,11 +503,12 @@ export function QueryWorkspace() {
           isResizing ? 'bg-theme-bg-active' : 'hover:bg-theme-bg-hover'
         )}
       />
+      )}
 
-      {/* Results pane - full width */}
+      {/* Results pane - full width, full height when expanded */}
       <div
-        className="bg-theme-bg-elevated overflow-hidden min-w-0"
-        style={{ height: `${100 - splitPosition}%` }}
+        className="bg-theme-bg-elevated overflow-hidden min-w-0 flex-1"
+        style={isResultsExpanded ? undefined : { height: `${100 - splitPosition}%`, flex: 'none' }}
       >
         <ResultsGrid
           ref={resultsRef}
@@ -512,6 +521,8 @@ export function QueryWorkspace() {
           canPin={!!activeTab?.results}
           onPin={() => activeTab && pinResults(activeTab.id)}
           onUnpin={unpinResults}
+          isExpanded={isResultsExpanded}
+          onToggleExpand={onToggleResultsExpand}
         />
       </div>
 

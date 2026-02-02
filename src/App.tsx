@@ -19,6 +19,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [schemaRefreshTrigger, setSchemaRefreshTrigger] = useState(0);
+  const [isResultsExpanded, setIsResultsExpanded] = useState(false);
   const { startDrag } = useWindowDrag();
   const setConnections = useConnectionStore((state) => state.setConnections);
   const setSettings = useSettingsStore((state) => state.setSettings);
@@ -80,18 +81,23 @@ function App() {
           onSchemaRefresh={handleSchemaRefresh}
         />
 
-        {/* Database Navigator */}
-        <DatabaseNavigator
-          width={sidebarWidth}
-          onWidthChange={setSidebarWidth}
-          minWidth={200}
-          maxWidth={500}
-          refreshTrigger={schemaRefreshTrigger}
-        />
+        {/* Database Navigator - hidden when results are expanded */}
+        {!isResultsExpanded && (
+          <DatabaseNavigator
+            width={sidebarWidth}
+            onWidthChange={setSidebarWidth}
+            minWidth={200}
+            maxWidth={500}
+            refreshTrigger={schemaRefreshTrigger}
+          />
+        )}
 
         {/* Query Workspace */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          <QueryWorkspace />
+          <QueryWorkspace
+            isResultsExpanded={isResultsExpanded}
+            onToggleResultsExpand={() => setIsResultsExpanded(!isResultsExpanded)}
+          />
         </div>
       </div>
 

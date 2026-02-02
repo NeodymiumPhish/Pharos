@@ -1,6 +1,6 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { QueryResults } from '@/stores/editorStore';
 
@@ -14,6 +14,8 @@ interface ResultsGridProps {
   canPin?: boolean;
   onPin?: () => void;
   onUnpin?: () => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
 // Cell selection as a rectangular range
@@ -104,7 +106,7 @@ function calculateColumnWidth(
 }
 
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
-  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin },
+  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand },
   ref
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -468,6 +470,15 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       {/* Toolbar - fixed, doesn't scroll */}
       <div className="flex items-center justify-between px-3 py-1 border-b border-theme-border-primary flex-shrink-0 flex-grow-0">
         <div className="flex items-center gap-2">
+          {onToggleExpand && (
+            <button
+              onClick={onToggleExpand}
+              className="p-1 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
+              title={isExpanded ? "Collapse results" : "Expand results"}
+            >
+              {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
           <span className="text-xs text-theme-text-secondary">
             {results.rowCount.toLocaleString()} row{results.rowCount !== 1 ? 's' : ''}
             {results.hasMore && '+'}
