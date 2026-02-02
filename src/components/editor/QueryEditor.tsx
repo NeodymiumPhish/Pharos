@@ -302,7 +302,7 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
 
       // Register custom SQL folding range provider for SQL clauses
       foldingProviderRef.current = monaco.languages.registerFoldingRangeProvider('sql', {
-        provideFoldingRanges(model) {
+        provideFoldingRanges(model: editor.ITextModel) {
           const ranges: { start: number; end: number; kind?: number }[] = [];
           const lineCount = model.getLineCount();
 

@@ -16,6 +16,14 @@ interface ResultsGridProps {
   onUnpin?: () => void;
 }
 
+// Cell selection as a rectangular range
+interface CellSelection {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+
 export interface ResultsGridRef {
   copyToClipboard: () => Promise<void>;
   exportCSV: () => void;
@@ -105,6 +113,11 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingColumn, setResizingColumn] = useState<string | null>(null);
 
+  // Cell selection state
+  const [selection, setSelection] = useState<CellSelection | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const justFinishedSelectingRef = useRef(false);
+
   // Calculate initial column widths based on content
   const initialColumnWidths = useMemo(() => {
     if (!results) return {};
@@ -163,6 +176,62 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, [effectiveColumnWidths]);
+
+  // Cell selection handlers
+  const handleCellMouseDown = useCallback((rowIndex: number, colIndex: number, e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent text selection
+
+    if (e.shiftKey && selection) {
+      // Extend existing selection from anchor to clicked cell
+      setSelection({
+        ...selection,
+        endRow: rowIndex,
+        endCol: colIndex,
+      });
+    } else {
+      // New selection
+      setSelection({
+        startRow: rowIndex,
+        startCol: colIndex,
+        endRow: rowIndex,
+        endCol: colIndex,
+      });
+    }
+    setIsSelecting(true);
+  }, [selection]);
+
+  const handleCellMouseEnter = useCallback((rowIndex: number, colIndex: number) => {
+    if (!isSelecting || !selection) return;
+    setSelection(prev => prev ? { ...prev, endRow: rowIndex, endCol: colIndex } : null);
+  }, [isSelecting, selection]);
+
+  // Check if a cell is within the selection
+  const isCellSelected = useCallback((rowIndex: number, colIndex: number): boolean => {
+    if (!selection) return false;
+    const minRow = Math.min(selection.startRow, selection.endRow);
+    const maxRow = Math.max(selection.startRow, selection.endRow);
+    const minCol = Math.min(selection.startCol, selection.endCol);
+    const maxCol = Math.max(selection.startCol, selection.endCol);
+    return rowIndex >= minRow && rowIndex <= maxRow && colIndex >= minCol && colIndex <= maxCol;
+  }, [selection]);
+
+  // Stop selection when mouse is released (document-level listener)
+  useEffect(() => {
+    if (!isSelecting) return;
+
+    const handleMouseUp = () => {
+      setIsSelecting(false);
+      // Mark that we just finished selecting so click handler doesn't clear selection
+      justFinishedSelectingRef.current = true;
+      // Reset the flag after a short delay (after click event fires)
+      setTimeout(() => {
+        justFinishedSelectingRef.current = false;
+      }, 0);
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, [isSelecting]);
 
   // Calculate dynamic row height based on content when showing newlines or wrapping
   const getRowHeight = useCallback((index: number): number => {
@@ -242,6 +311,72 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     const text = `${header}\n${rows}`;
     await navigator.clipboard.writeText(text);
   }, [results]);
+
+  // Copy only selected cells with their column headers
+  const handleCopySelection = useCallback(async () => {
+    if (!results || !selection) return;
+
+    const minRow = Math.min(selection.startRow, selection.endRow);
+    const maxRow = Math.max(selection.startRow, selection.endRow);
+    const minCol = Math.min(selection.startCol, selection.endCol);
+    const maxCol = Math.max(selection.startCol, selection.endCol);
+
+    // Get selected columns
+    const selectedColumns = results.columns.slice(minCol, maxCol + 1);
+
+    // Header row
+    const header = selectedColumns.map(c => c.name).join('\t');
+
+    // Data rows
+    const rows = results.rows.slice(minRow, maxRow + 1).map(row =>
+      selectedColumns.map(col => formatCellValue(row[col.name])).join('\t')
+    ).join('\n');
+
+    await navigator.clipboard.writeText(`${header}\n${rows}`);
+  }, [results, selection]);
+
+  // Copy button: copy selection if present, otherwise copy all
+  const handleCopyButtonClick = useCallback(async () => {
+    if (selection) {
+      await handleCopySelection();
+    } else {
+      await handleCopyToClipboard();
+    }
+  }, [selection, handleCopySelection, handleCopyToClipboard]);
+
+  // Keyboard handler for Cmd+C and Escape
+  useEffect(() => {
+    const container = parentRef.current;
+    if (!container) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selection) {
+        e.preventDefault();
+        handleCopySelection();
+      } else if (e.key === 'Escape' && selection) {
+        e.preventDefault();
+        setSelection(null);
+      }
+    };
+
+    container.addEventListener('keydown', handleKeyDown);
+    return () => container.removeEventListener('keydown', handleKeyDown);
+  }, [selection, handleCopySelection]);
+
+  // Clear selection when clicking header or empty area
+  const handleHeaderClick = useCallback(() => {
+    setSelection(null);
+  }, []);
+
+  // Clear selection when clicking empty area in the scroll container
+  const handleContainerClick = useCallback((e: React.MouseEvent) => {
+    // Don't clear if we just finished a drag selection
+    if (justFinishedSelectingRef.current) return;
+    // Only clear if clicking directly on the container, not on a cell
+    if (e.target === e.currentTarget) {
+      setSelection(null);
+    }
+  }, []);
 
   const handleExportCSV = useCallback(() => {
     if (!results) return;
@@ -394,12 +529,12 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             Lines
           </button>
           <button
-            onClick={handleCopyToClipboard}
+            onClick={handleCopyButtonClick}
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
-            title="Copy to clipboard"
+            title={selection ? "Copy selected cells" : "Copy all to clipboard"}
           >
             <Copy className="w-3 h-3" />
-            Copy
+            {selection ? 'Copy Selection' : 'Copy'}
           </button>
           <button
             onClick={handleExportCSV}
@@ -414,18 +549,19 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
       {/* Table - scrollable area */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <div ref={parentRef} className="h-full overflow-auto">
+        <div ref={parentRef} className="h-full overflow-auto outline-none" tabIndex={0} onClick={handleContainerClick}>
           {/* Inner container - sets the scrollable width */}
-          <div style={{ width: Math.max(totalTableWidth, 1), minWidth: totalTableWidth }}>
+          <div style={{ width: Math.max(totalTableWidth, 1), minWidth: totalTableWidth }} onClick={handleContainerClick}>
             {/* Header row - sticky */}
             <div
               className="sticky top-0 z-10 bg-theme-bg-elevated flex border-b border-theme-border-primary"
               style={{ width: totalTableWidth }}
+              onClick={handleHeaderClick}
             >
               {results.columns.map((col) => (
                 <div
                   key={col.name}
-                  className="relative px-2 py-1 text-left text-[11px] font-medium text-theme-text-secondary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 group"
+                  className="relative px-2 py-1 text-left text-[11px] font-medium text-theme-text-secondary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 group cursor-default"
                   style={{ width: effectiveColumnWidths[col.name], minWidth: effectiveColumnWidths[col.name] }}
                 >
                   <div className="flex items-center gap-1.5">
@@ -452,6 +588,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                 position: 'relative',
                 width: totalTableWidth,
               }}
+              onClick={handleContainerClick}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const row = results.rows[virtualRow.index];
@@ -468,17 +605,20 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    {results.columns.map((col) => (
+                    {results.columns.map((col, colIndex) => (
                       <div
                         key={col.name}
                         className={cn(
-                          'px-2 py-0.5 text-[11px] font-mono border-b border-r border-theme-border-primary flex-shrink-0 text-left overflow-hidden',
+                          'px-2 py-0.5 text-[11px] font-mono border-b border-r border-theme-border-primary flex-shrink-0 text-left overflow-hidden cursor-cell select-none',
                           wrapText ? 'break-words' : 'text-ellipsis',
                           wrapText || showNewlines ? 'whitespace-pre-wrap' : 'whitespace-nowrap',
-                          getCellClassName(row[col.name])
+                          getCellClassName(row[col.name]),
+                          isCellSelected(virtualRow.index, colIndex) && 'bg-blue-500/20 outline outline-1 -outline-offset-1 outline-blue-500/50'
                         )}
                         style={{ width: effectiveColumnWidths[col.name], minWidth: effectiveColumnWidths[col.name] }}
                         title={formatCellValue(row[col.name])}
+                        onMouseDown={(e) => handleCellMouseDown(virtualRow.index, colIndex, e)}
+                        onMouseEnter={() => handleCellMouseEnter(virtualRow.index, colIndex)}
                       >
                         {getDisplayValue(row[col.name], showNewlines)}
                       </div>
