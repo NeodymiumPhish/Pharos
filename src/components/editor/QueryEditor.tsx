@@ -153,6 +153,12 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
   const completionProviderRef = useRef<IDisposable | null>(null);
   const schemaMetadataRef = useRef<SchemaMetadata | null>(null);
   const validationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tabIdRef = useRef(tabId);
+
+  // Keep tabIdRef in sync with the current tabId prop
+  useEffect(() => {
+    tabIdRef.current = tabId;
+  }, [tabId]);
 
   const tab = useEditorStore((state) => state.getTab(tabId));
   const updateTabSql = useEditorStore((state) => state.updateTabSql);
@@ -287,10 +293,16 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
         createCompletionProvider(() => schemaMetadataRef.current)
       );
 
-      // Track cursor position
+      // Track cursor position - use tabIdRef to always get the current tabId
       editor.onDidChangeCursorPosition((e) => {
-        updateCursorPosition(tabId, e.position.lineNumber, e.position.column);
+        updateCursorPosition(tabIdRef.current, e.position.lineNumber, e.position.column);
       });
+
+      // Set initial cursor position (important for newly mounted editors)
+      const initialPosition = editor.getPosition();
+      if (initialPosition) {
+        updateCursorPosition(tabIdRef.current, initialPosition.lineNumber, initialPosition.column);
+      }
 
       // Register all app keyboard shortcuts in Monaco
       // This ensures shortcuts work when the editor has focus
@@ -321,7 +333,7 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
       // Focus the editor
       editor.focus();
     },
-    [tabId, updateCursorPosition, getEffectiveTheme]
+    [updateCursorPosition, getEffectiveTheme]
   );
 
   // Update Monaco theme when settings change
@@ -364,12 +376,17 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
     [tabId, updateTabSql, triggerValidation]
   );
 
-  // Focus editor when tab becomes active
+  // Focus editor and update cursor position when tab becomes active
   useEffect(() => {
     if (editorRef.current) {
       editorRef.current.focus();
+      // Update cursor position for the new tab
+      const position = editorRef.current.getPosition();
+      if (position) {
+        updateCursorPosition(tabId, position.lineNumber, position.column);
+      }
     }
-  }, [tabId]);
+  }, [tabId, updateCursorPosition]);
 
   if (!tab) {
     return null;

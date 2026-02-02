@@ -27,6 +27,7 @@ export interface QueryTab {
   executionTime: number | null;
   validation: ValidationState;
   savedQueryName: string | null; // Name from saved query, preserved through execution
+  savedQueryId: string | null; // ID of the saved query this tab was opened from
 }
 
 export interface QueryResults {
@@ -45,10 +46,11 @@ export interface ColumnDef {
 interface EditorState {
   tabs: QueryTab[];
   activeTabId: string | null;
+  pinnedResultsTabId: string | null;
 
   // Actions
   createTab: (connectionId: string | null) => string;
-  createTabWithContent: (connectionId: string | null, name: string, sql: string, isSavedQuery?: boolean) => string;
+  createTabWithContent: (connectionId: string | null, name: string, sql: string, savedQueryId?: string | null) => string;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabSql: (tabId: string, sql: string) => void;
@@ -60,6 +62,8 @@ interface EditorState {
   clearTabResults: (tabId: string) => void;
   setTabValidation: (tabId: string, validation: ValidationState) => void;
   setTabValidating: (tabId: string, isValidating: boolean) => void;
+  pinResults: (tabId: string) => void;
+  unpinResults: () => void;
 
   // Getters
   getActiveTab: () => QueryTab | undefined;
@@ -96,6 +100,7 @@ function extractTableName(sql: string): string | null {
 export const useEditorStore = create<EditorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  pinnedResultsTabId: null,
 
   createTab: (connectionId) => {
     const id = `tab-${Date.now()}-${tabCounter++}`;
@@ -113,6 +118,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       executionTime: null,
       validation: { isValid: true, isValidating: false, error: null },
       savedQueryName: null,
+      savedQueryId: null,
     };
 
     set((state) => ({
@@ -123,7 +129,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return id;
   },
 
-  createTabWithContent: (connectionId, name, sql, isSavedQuery = false) => {
+  createTabWithContent: (connectionId, name, sql, savedQueryId = null) => {
     const id = `tab-${Date.now()}-${tabCounter++}`;
     const newTab: QueryTab = {
       id,
@@ -138,7 +144,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       error: null,
       executionTime: null,
       validation: { isValid: true, isValidating: false, error: null },
-      savedQueryName: isSavedQuery ? name : null,
+      savedQueryName: savedQueryId ? name : null,
+      savedQueryId,
     };
 
     set((state) => ({
@@ -165,7 +172,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }
       }
 
-      return { tabs: newTabs, activeTabId: newActiveTabId };
+      // Auto-unpin if the closed tab was pinned
+      const newPinnedResultsTabId = state.pinnedResultsTabId === tabId ? null : state.pinnedResultsTabId;
+
+      return { tabs: newTabs, activeTabId: newActiveTabId, pinnedResultsTabId: newPinnedResultsTabId };
     });
   },
 
@@ -270,6 +280,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           : t
       ),
     }));
+  },
+
+  pinResults: (tabId) => {
+    set({ pinnedResultsTabId: tabId });
+  },
+
+  unpinResults: () => {
+    set({ pinnedResultsTabId: null });
   },
 
   getActiveTab: () => {

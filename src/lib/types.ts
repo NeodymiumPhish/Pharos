@@ -119,6 +119,7 @@ export interface UISettings {
   navigatorWidth: number;
   savedQueriesWidth: number;
   resultsPanelHeight: number;
+  editorSplitPosition: number; // Percentage (0-100) for editor vs results split
 }
 
 // Keyboard shortcuts types
@@ -184,8 +185,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ui: {
     navigatorWidth: 260,
-    savedQueriesWidth: 240,
+    savedQueriesWidth: 180,
     resultsPanelHeight: 300,
+    editorSplitPosition: 40,
   },
   keyboard: {
     shortcuts: DEFAULT_SHORTCUTS,

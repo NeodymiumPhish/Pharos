@@ -9,7 +9,8 @@ interface SaveQueryDialogProps {
   onClose: () => void;
   sql: string;
   initialName?: string;
-  queryId?: string; // If provided, update existing query
+  queryId?: string; // If provided, update existing query (legacy prop)
+  existingSavedQueryId?: string; // ID of saved query this tab was opened from
 }
 
 export function SaveQueryDialog({
@@ -18,6 +19,7 @@ export function SaveQueryDialog({
   sql,
   initialName = '',
   queryId,
+  existingSavedQueryId,
 }: SaveQueryDialogProps) {
   const [name, setName] = useState(initialName);
   const [folder, setFolder] = useState('');
@@ -25,20 +27,27 @@ export function SaveQueryDialog({
   const [newFolderName, setNewFolderName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveMode, setSaveMode] = useState<'update' | 'new'>('update');
 
-  const { createQuery, updateQuery, getFolders } = useSavedQueryStore();
+  const { createQuery, updateQuery, getFolders, getQuery } = useSavedQueryStore();
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const folders = getFolders();
+
+  // The effective query ID to update (either from legacy prop or from existing saved query)
+  const effectiveQueryId = queryId ?? existingSavedQueryId;
+  const existingQuery = effectiveQueryId ? getQuery(effectiveQueryId) : null;
 
   useEffect(() => {
     if (isOpen) {
       setName(initialName);
-      setFolder('');
+      setFolder(existingQuery?.folder ?? '');
       setShowNewFolder(false);
       setNewFolderName('');
       setError(null);
+      // Default to update mode if this is an existing saved query
+      setSaveMode(effectiveQueryId ? 'update' : 'new');
     }
-  }, [isOpen, initialName]);
+  }, [isOpen, initialName, effectiveQueryId, existingQuery?.folder]);
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
@@ -52,9 +61,9 @@ export function SaveQueryDialog({
     const finalFolder = showNewFolder ? newFolderName.trim() : folder;
 
     try {
-      if (queryId) {
+      if (saveMode === 'update' && effectiveQueryId) {
         await updateQuery({
-          id: queryId,
+          id: effectiveQueryId,
           name: name.trim(),
           folder: finalFolder || undefined,
           sql,
@@ -73,7 +82,7 @@ export function SaveQueryDialog({
     } finally {
       setIsSaving(false);
     }
-  }, [name, folder, showNewFolder, newFolderName, sql, queryId, activeConnectionId, createQuery, updateQuery, onClose]);
+  }, [name, folder, showNewFolder, newFolderName, sql, saveMode, effectiveQueryId, activeConnectionId, createQuery, updateQuery, onClose]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -105,7 +114,7 @@ export function SaveQueryDialog({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-theme-border-primary">
           <h2 className="text-lg font-semibold text-theme-text-primary">
-            {queryId ? 'Update Query' : 'Save Query'}
+            {saveMode === 'update' && effectiveQueryId ? 'Update Query' : 'Save Query'}
           </h2>
           <button
             onClick={onClose}
@@ -117,6 +126,39 @@ export function SaveQueryDialog({
 
         {/* Body */}
         <div className="px-5 py-4 space-y-4">
+          {/* Save Mode Toggle - only show if this is an existing saved query */}
+          {effectiveQueryId && (
+            <div>
+              <label className="block text-sm font-medium text-theme-text-secondary mb-1.5">
+                Save Option
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSaveMode('update')}
+                  className={cn(
+                    'flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    saveMode === 'update'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-theme-bg-surface border border-theme-border-primary text-theme-text-secondary hover:bg-theme-bg-hover'
+                  )}
+                >
+                  Update Existing
+                </button>
+                <button
+                  onClick={() => setSaveMode('new')}
+                  className={cn(
+                    'flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                    saveMode === 'new'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-theme-bg-surface border border-theme-border-primary text-theme-text-secondary hover:bg-theme-bg-hover'
+                  )}
+                >
+                  Save as New
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Name */}
           <div>
             <label className="block text-sm font-medium text-theme-text-secondary mb-1.5">
@@ -241,7 +283,7 @@ export function SaveQueryDialog({
             )}
           >
             <Save className="w-4 h-4" />
-            {isSaving ? 'Saving...' : queryId ? 'Update' : 'Save'}
+            {isSaving ? 'Saving...' : saveMode === 'update' && effectiveQueryId ? 'Update' : 'Save'}
           </button>
         </div>
       </div>

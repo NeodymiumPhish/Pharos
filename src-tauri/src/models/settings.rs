@@ -64,14 +64,21 @@ pub struct UISettings {
     pub navigator_width: u32,
     pub saved_queries_width: u32,
     pub results_panel_height: u32,
+    #[serde(default = "default_editor_split_position")]
+    pub editor_split_position: u32,
+}
+
+fn default_editor_split_position() -> u32 {
+    40
 }
 
 impl Default for UISettings {
     fn default() -> Self {
         UISettings {
             navigator_width: 260,
-            saved_queries_width: 240,
+            saved_queries_width: 180,
             results_panel_height: 300,
+            editor_split_position: 40,
         }
     }
 }

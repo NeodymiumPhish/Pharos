@@ -1,6 +1,6 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { QueryResults } from '@/stores/editorStore';
 
@@ -9,6 +9,11 @@ interface ResultsGridProps {
   error: string | null;
   executionTime: number | null;
   isExecuting: boolean;
+  isPinned?: boolean;
+  pinnedTabName?: string;
+  canPin?: boolean;
+  onPin?: () => void;
+  onUnpin?: () => void;
 }
 
 export interface ResultsGridRef {
@@ -91,7 +96,7 @@ function calculateColumnWidth(
 }
 
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
-  { results, error, executionTime, isExecuting },
+  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin },
   ref
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -327,14 +332,41 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     <div className="h-full w-full flex flex-col overflow-hidden" style={{ maxWidth: '100%' }}>
       {/* Toolbar - fixed, doesn't scroll */}
       <div className="flex items-center justify-between px-3 py-1 border-b border-theme-border-primary flex-shrink-0 flex-grow-0">
-        <span className="text-xs text-theme-text-secondary">
-          {results.rowCount.toLocaleString()} row{results.rowCount !== 1 ? 's' : ''}
-          {results.hasMore && '+'}
-          {executionTime !== null && (
-            <span className="text-theme-text-tertiary ml-1.5">({executionTime}ms)</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-theme-text-secondary">
+            {results.rowCount.toLocaleString()} row{results.rowCount !== 1 ? 's' : ''}
+            {results.hasMore && '+'}
+            {executionTime !== null && (
+              <span className="text-theme-text-tertiary ml-1.5">({executionTime}ms)</span>
+            )}
+          </span>
+          {isPinned && pinnedTabName && (
+            <span className="text-xs text-amber-500 flex items-center gap-1">
+              <Pin className="w-3 h-3" />
+              Pinned to: {pinnedTabName}
+            </span>
           )}
-        </span>
+        </div>
         <div className="flex items-center gap-0.5">
+          {isPinned ? (
+            <button
+              onClick={onUnpin}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+              title="Unpin results"
+            >
+              <PinOff className="w-3 h-3" />
+              Unpin
+            </button>
+          ) : canPin ? (
+            <button
+              onClick={onPin}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
+              title="Pin these results while working in other tabs"
+            >
+              <Pin className="w-3 h-3" />
+              Pin
+            </button>
+          ) : null}
           <button
             onClick={() => setWrapText(!wrapText)}
             className={cn(

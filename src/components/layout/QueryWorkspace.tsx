@@ -8,6 +8,7 @@ import { SaveQueryDialog } from '@/components/dialogs/SaveQueryDialog';
 import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useEditorStore } from '@/stores/editorStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import * as tauri from '@/lib/tauri';
 import type { SavedQuery } from '@/lib/types';
@@ -39,16 +40,86 @@ export function QueryWorkspace() {
   const createTabWithContent = useEditorStore((state) => state.createTabWithContent);
   const closeTab = useEditorStore((state) => state.closeTab);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const pinnedResultsTabId = useEditorStore((state) => state.pinnedResultsTabId);
+  const pinResults = useEditorStore((state) => state.pinResults);
+  const unpinResults = useEditorStore((state) => state.unpinResults);
 
-  const [splitPosition, setSplitPosition] = useState(40);
+  // Determine which tab's results to display (pinned tab takes precedence)
+  const displayTab = pinnedResultsTabId
+    ? tabs.find((t) => t.id === pinnedResultsTabId)
+    : activeTab;
+
+  // UI layout settings from persisted store
+  const uiSettings = useSettingsStore((state) => state.settings.ui);
+  const updateUISettings = useSettingsStore((state) => state.updateUISettings);
+  const settings = useSettingsStore((state) => state.settings);
+  const isSettingsLoaded = useSettingsStore((state) => state.isLoaded);
+
+  // Local state derived from persisted settings (with defaults for missing values)
+  const DEFAULT_SPLIT_POSITION = 40;
+  const DEFAULT_LIBRARY_WIDTH = 180;
+
+  const [splitPosition, setSplitPosition] = useState(uiSettings.editorSplitPosition ?? DEFAULT_SPLIT_POSITION);
+  const [libraryWidth, setLibraryWidth] = useState(uiSettings.savedQueriesWidth ?? DEFAULT_LIBRARY_WIDTH);
+  const hasInitializedFromSettings = useRef(false);
+
+  // Sync local state when settings are loaded from disk
+  useEffect(() => {
+    if (isSettingsLoaded && !hasInitializedFromSettings.current) {
+      hasInitializedFromSettings.current = true;
+      // Use nullish coalescing to handle missing fields from older settings files
+      setSplitPosition(uiSettings.editorSplitPosition ?? DEFAULT_SPLIT_POSITION);
+      setLibraryWidth(uiSettings.savedQueriesWidth ?? DEFAULT_LIBRARY_WIDTH);
+    }
+  }, [isSettingsLoaded, uiSettings.editorSplitPosition, uiSettings.savedQueriesWidth]);
+
   const [closedTabs, setClosedTabs] = useState<Array<{ name: string; sql: string }>>([]);
   const resultsRef = useRef<ResultsGridRef>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showQueryLibrary, setShowQueryLibrary] = useState(true);
-  const [libraryWidth, setLibraryWidth] = useState(180);
   const [isResizingLibrary, setIsResizingLibrary] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Debounced save for UI settings
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persist layout changes with debouncing (only after initial load)
+  useEffect(() => {
+    // Don't save until settings have been loaded and initialized
+    if (!hasInitializedFromSettings.current) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      // Only save if values have changed from stored settings
+      if (
+        splitPosition !== uiSettings.editorSplitPosition ||
+        libraryWidth !== uiSettings.savedQueriesWidth
+      ) {
+        updateUISettings({
+          editorSplitPosition: splitPosition,
+          savedQueriesWidth: libraryWidth,
+        });
+        // Save to disk
+        tauri.saveSettings({
+          ...settings,
+          ui: {
+            ...settings.ui,
+            editorSplitPosition: splitPosition,
+            savedQueriesWidth: libraryWidth,
+          },
+        });
+      }
+    }, 500);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [splitPosition, libraryWidth, uiSettings.editorSplitPosition, uiSettings.savedQueriesWidth, updateUISettings, settings]);
 
   useEffect(() => {
     if (isConnected && tabs.length === 0 && activeConnectionId) {
@@ -61,6 +132,9 @@ export function QueryWorkspace() {
 
     const sql = activeTab.sql.trim();
     if (!sql) return;
+
+    // Unpin any pinned results so the new query results are visible
+    unpinResults();
 
     const queryId = `query-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setTabExecuting(activeTab.id, true, queryId);
@@ -85,7 +159,7 @@ export function QueryWorkspace() {
     } catch (err) {
       setTabError(activeTab.id, err instanceof Error ? err.message : String(err));
     }
-  }, [activeTab, activeConnectionId, isConnected, selectedSchema, setTabExecuting, setTabResults, setTabError]);
+  }, [activeTab, activeConnectionId, isConnected, selectedSchema, unpinResults, setTabExecuting, setTabResults, setTabError]);
 
   const handleCancel = useCallback(async () => {
     if (!activeTab || !activeConnectionId || !activeTab.queryId) return;
@@ -148,7 +222,7 @@ export function QueryWorkspace() {
     const last = closedTabs[closedTabs.length - 1];
     if (last && activeConnectionId) {
       setClosedTabs((prev) => prev.slice(0, -1));
-      createTabWithContent(activeConnectionId, last.name, last.sql, false);
+      createTabWithContent(activeConnectionId, last.name, last.sql, null);
     }
   }, [closedTabs, activeConnectionId, createTabWithContent]);
 
@@ -216,22 +290,28 @@ export function QueryWorkspace() {
 
   const handleQuerySelect = useCallback(
     (query: SavedQuery) => {
-      createTabWithContent(activeConnectionId, query.name, query.sql, true);
+      createTabWithContent(activeConnectionId, query.name, query.sql, query.id);
     },
     [activeConnectionId, createTabWithContent]
   );
 
+  const libraryResizeStartX = useRef(0);
+  const libraryResizeStartWidth = useRef(0);
+
   const handleLibraryMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    libraryResizeStartX.current = e.clientX;
+    libraryResizeStartWidth.current = libraryWidth;
     setIsResizingLibrary(true);
-  }, []);
+  }, [libraryWidth]);
 
   useEffect(() => {
     if (!isResizingLibrary) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = e.clientX - 48; // Account for server rail width (48px)
-      setLibraryWidth(Math.max(140, Math.min(300, newWidth)));
+      const delta = e.clientX - libraryResizeStartX.current;
+      const newWidth = Math.max(140, Math.min(500, libraryResizeStartWidth.current + delta));
+      setLibraryWidth(newWidth);
     };
 
     const handleMouseUp = () => {
@@ -423,10 +503,15 @@ export function QueryWorkspace() {
       >
         <ResultsGrid
           ref={resultsRef}
-          results={activeTab?.results ?? null}
-          error={activeTab?.error ?? null}
-          executionTime={activeTab?.executionTime ?? null}
-          isExecuting={activeTab?.isExecuting ?? false}
+          results={displayTab?.results ?? null}
+          error={displayTab?.error ?? null}
+          executionTime={displayTab?.executionTime ?? null}
+          isExecuting={displayTab?.isExecuting ?? false}
+          isPinned={!!pinnedResultsTabId}
+          pinnedTabName={displayTab?.name}
+          canPin={!!activeTab?.results}
+          onPin={() => activeTab && pinResults(activeTab.id)}
+          onUnpin={unpinResults}
         />
       </div>
 
@@ -436,6 +521,7 @@ export function QueryWorkspace() {
         onClose={() => setShowSaveDialog(false)}
         sql={activeTab?.sql || ''}
         initialName={activeTab?.name || ''}
+        existingSavedQueryId={activeTab?.savedQueryId ?? undefined}
       />
     </div>
   );
