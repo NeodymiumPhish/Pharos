@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, SavedQuery, UpdateSavedQuery};
+use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, SavedQuery, SslMode, UpdateSavedQuery};
 
 /// Initialize the SQLite database and create tables if they don't exist
 pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
@@ -13,7 +13,7 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
     // Create tables
     conn.execute_batch(
         r#"
-        -- Connection configurations
+        -- Connection configurations (passwords stored in OS keychain, not here)
         CREATE TABLE IF NOT EXISTS connections (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -21,10 +21,66 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             port INTEGER NOT NULL,
             database TEXT NOT NULL,
             username TEXT NOT NULL,
-            password TEXT NOT NULL,
+            ssl_mode TEXT NOT NULL DEFAULT 'prefer',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        "#,
+    )?;
+
+    // Migration: Check if old schema with password column exists and migrate
+    let has_password_column: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'password'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if has_password_column {
+        // Migrate: recreate table without password column
+        conn.execute_batch(
+            r#"
+            -- Create new table without password column
+            CREATE TABLE IF NOT EXISTS connections_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                database TEXT NOT NULL,
+                username TEXT NOT NULL,
+                ssl_mode TEXT NOT NULL DEFAULT 'prefer',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Copy data from old table (excluding password)
+            INSERT OR IGNORE INTO connections_new (id, name, host, port, database, username, ssl_mode, created_at, updated_at)
+            SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer'), created_at, updated_at
+            FROM connections;
+
+            -- Drop old table and rename new one
+            DROP TABLE connections;
+            ALTER TABLE connections_new RENAME TO connections;
+            "#,
+        )?;
+    } else {
+        // Migration: Add ssl_mode column if it doesn't exist (for databases without password but missing ssl_mode)
+        let has_ssl_mode: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'ssl_mode'")?
+            .query_row([], |row| row.get::<_, i64>(0))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+
+        if !has_ssl_mode {
+            conn.execute(
+                "ALTER TABLE connections ADD COLUMN ssl_mode TEXT NOT NULL DEFAULT 'prefer'",
+                [],
+            )?;
+        }
+    }
+
+    conn.execute_batch(
+        r#"
 
         -- Schema metadata cache
         CREATE TABLE IF NOT EXISTS schema_cache (
@@ -87,11 +143,11 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
     Ok(conn)
 }
 
-/// Save a connection configuration to the database
+/// Save a connection configuration to the database (password stored separately in keychain)
 pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteResult<()> {
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, password, updated_at)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, updated_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
@@ -99,7 +155,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             port = excluded.port,
             database = excluded.database,
             username = excluded.username,
-            password = excluded.password,
+            ssl_mode = excluded.ssl_mode,
             updated_at = CURRENT_TIMESTAMP
         "#,
         (
@@ -109,19 +165,25 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             config.port,
             &config.database,
             &config.username,
-            &config.password,
+            &config.ssl_mode.to_string(),
         ),
     )?;
     Ok(())
 }
 
-/// Load all connection configurations from the database
+/// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, password FROM connections ORDER BY name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode FROM connections ORDER BY name",
     )?;
 
     let configs = stmt.query_map([], |row| {
+        let ssl_mode_str: String = row.get(6)?;
+        let ssl_mode = match ssl_mode_str.as_str() {
+            "disable" => SslMode::Disable,
+            "require" => SslMode::Require,
+            _ => SslMode::Prefer,
+        };
         Ok(ConnectionConfig {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -129,7 +191,8 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             port: row.get(3)?,
             database: row.get(4)?,
             username: row.get(5)?,
-            password: row.get(6)?,
+            password: String::new(), // Password loaded from keychain separately
+            ssl_mode,
         })
     })?;
 

@@ -1,4 +1,6 @@
 // Connection types
+export type SslMode = 'disable' | 'prefer' | 'require';
+
 export interface ConnectionConfig {
   id: string;
   name: string;
@@ -7,6 +9,7 @@ export interface ConnectionConfig {
   database: string;
   username: string;
   password: string;
+  sslMode?: SslMode;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';

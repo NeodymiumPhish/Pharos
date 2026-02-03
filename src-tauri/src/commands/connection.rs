@@ -1,8 +1,44 @@
 use tauri::State;
 
-use crate::db::{postgres, sqlite};
+use crate::db::{credentials, postgres, sqlite};
 use crate::models::{ConnectionConfig, ConnectionInfo, ConnectionStatus, TestConnectionResult};
 use crate::state::AppState;
+
+/// Sanitize error messages to remove sensitive data like passwords
+fn sanitize_error(error: &str) -> String {
+    // Remove anything that looks like a postgres connection URL
+    let mut sanitized = error.to_string();
+
+    // Replace postgres:// URLs with credentials hidden
+    if sanitized.contains("postgres://") {
+        // Pattern: postgres://user:pass@host:port/db
+        if let Some(start) = sanitized.find("postgres://") {
+            if let Some(at_pos) = sanitized[start..].find('@') {
+                let end = start + at_pos + 1;
+                sanitized = format!(
+                    "{}postgres://[credentials]@{}",
+                    &sanitized[..start],
+                    &sanitized[end..]
+                );
+            }
+        }
+    }
+
+    // Also remove any password= parameters
+    while let Some(start) = sanitized.find("password=") {
+        let after = &sanitized[start + 9..];
+        let end_offset = after
+            .find(|c: char| c.is_whitespace() || c == '&' || c == '"' || c == '\'' || c == ';')
+            .unwrap_or(after.len());
+        sanitized = format!(
+            "{}password=[hidden]{}",
+            &sanitized[..start],
+            &after[end_offset..]
+        );
+    }
+
+    sanitized
+}
 
 /// Save a new connection configuration
 #[tauri::command]
@@ -10,13 +46,18 @@ pub async fn save_connection(
     config: ConnectionConfig,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Save to SQLite
+    // Store password securely in OS keychain
+    if !config.password.is_empty() {
+        credentials::store_password(&config.id, &config.password)?;
+    }
+
+    // Save metadata to SQLite (without password)
     {
         let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
         sqlite::save_connection(&db, &config).map_err(|e| e.to_string())?;
     }
 
-    // Update in-memory cache
+    // Update in-memory cache (with password for active use)
     state.set_config(config);
 
     Ok(())
@@ -35,6 +76,9 @@ pub async fn delete_connection(
         }
     }
 
+    // Delete password from keychain
+    credentials::delete_password(&connection_id)?;
+
     // Delete from SQLite
     {
         let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
@@ -50,10 +94,17 @@ pub async fn delete_connection(
 /// Load all saved connection configurations
 #[tauri::command]
 pub async fn load_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionConfig>, String> {
-    let configs = {
+    let mut configs = {
         let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
         sqlite::load_connections(&db).map_err(|e| e.to_string())?
     };
+
+    // Load passwords from keychain
+    for config in &mut configs {
+        if let Ok(Some(password)) = credentials::get_password(&config.id) {
+            config.password = password;
+        }
+    }
 
     // Update in-memory cache
     for config in &configs {
@@ -110,7 +161,7 @@ pub async fn connect_postgres(
             port: config.port,
             database: config.database,
             status: ConnectionStatus::Error,
-            error: Some(e.to_string()),
+            error: Some(sanitize_error(&e.to_string())),
             latency_ms: None,
         }),
     }
@@ -140,7 +191,7 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
         Err(e) => Ok(TestConnectionResult {
             success: false,
             latency_ms: None,
-            error: Some(e.to_string()),
+            error: Some(sanitize_error(&e.to_string())),
         }),
     }
 }

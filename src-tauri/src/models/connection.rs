@@ -1,6 +1,26 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SslMode {
+    Disable,
+    #[default]
+    Prefer,
+    Require,
+}
+
+impl std::fmt::Display for SslMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SslMode::Disable => write!(f, "disable"),
+            SslMode::Prefer => write!(f, "prefer"),
+            SslMode::Require => write!(f, "require"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConnectionConfig {
     pub id: String,
     pub name: String,
@@ -8,7 +28,12 @@ pub struct ConnectionConfig {
     pub port: u16,
     pub database: String,
     pub username: String,
+    /// Password is stored securely in OS keychain, not in this struct for persistence.
+    /// This field is only used for transit between frontend and backend.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    #[serde(default)]
+    pub ssl_mode: SslMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

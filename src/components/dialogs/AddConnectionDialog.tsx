@@ -97,9 +97,10 @@ export function AddConnectionDialog({ isOpen, onClose }: AddConnectionDialogProp
       });
       setTestResult(null);
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       setTestResult({
         success: false,
-        message: `Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        message: `Failed to save: ${errorMessage}`,
       });
     } finally {
       setIsSaving(false);
