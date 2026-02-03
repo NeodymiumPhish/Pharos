@@ -394,10 +394,26 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
           keybinding = monaco.KeyMod.Alt | keybinding;
         }
 
-        // Register the shortcut to emit a custom event
-        editor.addCommand(keybinding, () => {
-          emitShortcutEvent(shortcutId);
-        });
+        // For Escape key, use a context-aware keybinding that only triggers
+        // when the suggest widget is NOT visible. This allows Escape to first
+        // close autocomplete, and only cancel the query when autocomplete isn't showing.
+        if (shortcut.key.toLowerCase() === 'escape' && shortcut.modifiers.length === 0) {
+          editor.addAction({
+            id: `pharos.${shortcutId}`,
+            label: shortcut.label,
+            keybindings: [keybinding],
+            // Only trigger when suggest widget is not visible
+            precondition: '!suggestWidgetVisible',
+            run: () => {
+              emitShortcutEvent(shortcutId);
+            },
+          });
+        } else {
+          // Register the shortcut to emit a custom event
+          editor.addCommand(keybinding, () => {
+            emitShortcutEvent(shortcutId);
+          });
+        }
       }
 
       // Focus the editor

@@ -90,7 +90,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/target/release/bundle/dmg/*.dmg
-          draft: true
+          draft: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Homebrew cask update
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.HOMEBREW_PAT }}" \
+            https://api.github.com/repos/NeodymiumPhish/homebrew-pharos/dispatches \
+            -d '{"event_type":"release-published","client_payload":{"version":"${{ steps.version.outputs.version }}"}}'
