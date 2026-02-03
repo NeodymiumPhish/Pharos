@@ -513,7 +513,7 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
           contextmenu: true,
           quickSuggestions: true,
           suggestOnTriggerCharacters: true,
-          acceptSuggestionOnEnter: 'off', // Only accept suggestions with Tab
+          acceptSuggestionOnEnter: 'on', // Accept suggestions with Enter or Tab
           acceptSuggestionOnCommitCharacter: false, // Don't accept on commit characters like space
           wordWrap: editorSettings.wordWrap ? 'on' : 'off',
           automaticLayout: true,
