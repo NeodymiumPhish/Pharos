@@ -11,7 +11,8 @@ import { useEditorStore } from '@/stores/editorStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import * as tauri from '@/lib/tauri';
-import type { SavedQuery } from '@/lib/types';
+import type { SavedQuery, TableInfo, ColumnInfo } from '@/lib/types';
+import type { SchemaMetadata } from '@/components/editor/SqlAutocomplete';
 
 interface QueryWorkspaceProps {
   isResultsExpanded?: boolean;
@@ -86,6 +87,9 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const [isResizingLibrary, setIsResizingLibrary] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Schema metadata for autocomplete
+  const [schemaMetadata, setSchemaMetadata] = useState<SchemaMetadata | null>(null);
+
   // Debounced save for UI settings
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -131,6 +135,48 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       createTab(activeConnectionId);
     }
   }, [isConnected, tabs.length, activeConnectionId, createTab]);
+
+  // Load schema metadata for autocomplete when connected or selected schema changes
+  useEffect(() => {
+    if (!isConnected || !activeConnectionId) {
+      setSchemaMetadata(null);
+      return;
+    }
+
+    const loadMetadata = async () => {
+      try {
+        // Load schemas
+        const schemas = await tauri.getSchemas(activeConnectionId);
+
+        // Determine which schemas to load tables/columns for
+        const schemasToLoad = selectedSchema
+          ? schemas.filter(s => s.name === selectedSchema)
+          : schemas;
+
+        const tables = new Map<string, TableInfo[]>();
+        const columns = new Map<string, ColumnInfo[]>();
+
+        // Load tables and columns for relevant schemas
+        for (const schema of schemasToLoad) {
+          const schemaTables = await tauri.getTables(activeConnectionId, schema.name);
+          tables.set(schema.name, schemaTables);
+
+          // Load columns for each table
+          for (const table of schemaTables) {
+            const tableColumns = await tauri.getColumns(activeConnectionId, schema.name, table.name);
+            columns.set(`${schema.name}.${table.name}`, tableColumns);
+          }
+        }
+
+        setSchemaMetadata({ schemas, tables, columns });
+      } catch (err) {
+        console.error('Failed to load schema metadata for autocomplete:', err);
+        setSchemaMetadata(null);
+      }
+    };
+
+    loadMetadata();
+  }, [isConnected, activeConnectionId, selectedSchema]);
 
   const handleExecute = useCallback(async () => {
     if (!activeTab || !activeConnectionId || !isConnected) return;
@@ -481,7 +527,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           {/* Editor pane */}
           <div className="flex-1 bg-theme-bg-surface overflow-hidden">
             {activeTabId ? (
-              <QueryEditor tabId={activeTabId} />
+              <QueryEditor tabId={activeTabId} schemaMetadata={schemaMetadata} />
             ) : (
               <div className="h-full flex items-center justify-center text-theme-text-muted text-sm">
                 {isConnected
