@@ -11,7 +11,7 @@ interface ExportDataDialogProps {
   connectionId: string;
   schema: string;
   table: string;
-  type: 'table' | 'view';
+  type: 'table' | 'view' | 'foreign-table';
 }
 
 export function ExportDataDialog({
@@ -152,6 +152,7 @@ export function ExportDataDialog({
           <div className="text-sm text-theme-text-secondary">
             Export from: <span className="font-mono text-theme-text-primary">{schema}.{table}</span>
             {type === 'view' && <span className="ml-2 text-cyan-400">(view)</span>}
+            {type === 'foreign-table' && <span className="ml-2 text-orange-400">(foreign table)</span>}
           </div>
 
           {/* Column selection */}

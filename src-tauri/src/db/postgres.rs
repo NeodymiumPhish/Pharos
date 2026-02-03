@@ -72,22 +72,32 @@ pub async fn get_schemas(pool: &PgPool) -> Result<Vec<SchemaInfo>, sqlx::Error> 
 
 /// Get all tables and views in a schema
 pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
+    // Use pg_catalog directly to get all relation types including foreign tables
+    // information_schema.tables doesn't reliably include foreign tables
     let rows = sqlx::query(
         r#"
         SELECT
-            t.table_name,
-            t.table_type,
-            COALESCE(
-                (SELECT reltuples::bigint
-                 FROM pg_class c
-                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                 WHERE n.nspname = t.table_schema AND c.relname = t.table_name),
-                0
-            ) as row_estimate
-        FROM information_schema.tables t
-        WHERE t.table_schema = $1
-          AND t.table_type IN ('BASE TABLE', 'VIEW')
-        ORDER BY t.table_type, t.table_name
+            c.relname as table_name,
+            CASE c.relkind
+                WHEN 'r' THEN 'BASE TABLE'
+                WHEN 'v' THEN 'VIEW'
+                WHEN 'm' THEN 'VIEW'
+                WHEN 'f' THEN 'FOREIGN TABLE'
+                ELSE 'BASE TABLE'
+            END as table_type,
+            COALESCE(c.reltuples::bigint, 0) as row_estimate
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1
+          AND c.relkind IN ('r', 'v', 'm', 'f')
+        ORDER BY
+            CASE c.relkind
+                WHEN 'r' THEN 1
+                WHEN 'f' THEN 2
+                WHEN 'v' THEN 3
+                WHEN 'm' THEN 4
+            END,
+            c.relname
         "#,
     )
     .bind(schema_name)
@@ -101,10 +111,10 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
             TableInfo {
                 name: row.get("table_name"),
                 schema_name: schema_name.to_string(),
-                table_type: if table_type_str == "VIEW" {
-                    TableType::View
-                } else {
-                    TableType::Table
+                table_type: match table_type_str.as_str() {
+                    "VIEW" => TableType::View,
+                    "FOREIGN TABLE" => TableType::ForeignTable,
+                    _ => TableType::Table,
                 },
                 row_count_estimate: row.try_get("row_estimate").ok(),
             }

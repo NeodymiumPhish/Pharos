@@ -12,6 +12,8 @@ pub struct SchemaInfo {
 pub enum TableType {
     Table,
     View,
+    #[serde(rename = "foreign-table")]
+    ForeignTable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

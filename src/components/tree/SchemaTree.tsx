@@ -8,6 +8,7 @@ import {
   Eye,
   Key,
   Type,
+  Globe,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { TreeNode, TreeNodeType } from '@/lib/types';
@@ -28,6 +29,7 @@ const iconMap: Record<TreeNodeType, React.ComponentType<{ className?: string }>>
   views: Folder,
   table: Table,
   view: Eye,
+  'foreign-table': Globe,
   column: Type,
 };
 
@@ -46,6 +48,8 @@ function TreeNodeIcon({ type, isPrimaryKey }: { type: TreeNodeType; isPrimaryKey
       ? 'text-emerald-400'
       : type === 'view'
       ? 'text-cyan-400'
+      : type === 'foreign-table'
+      ? 'text-orange-400'
       : 'text-neutral-400';
 
   return <Icon className={cn('w-3.5 h-3.5', colorClass)} />;
@@ -61,7 +65,7 @@ interface TreeNodeRowProps {
 
 function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNodeRowProps) {
   const hasChildren = node.children && node.children.length > 0;
-  const canExpand = hasChildren || ['database', 'schema', 'tables', 'views', 'table'].includes(node.type);
+  const canExpand = hasChildren || ['database', 'schema', 'tables', 'views', 'table', 'foreign-table'].includes(node.type);
 
   const handleClick = () => {
     if (canExpand) {
@@ -71,8 +75,8 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    // Only show context menu for tables and views
-    if (node.type === 'table' || node.type === 'view') {
+    // Only show context menu for tables, views, and foreign tables
+    if (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') {
       e.preventDefault();
       onContextMenu(node, e.clientX, e.clientY);
     }
