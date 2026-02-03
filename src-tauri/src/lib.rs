@@ -157,6 +157,11 @@ pub fn run() {
             // Settings commands
             commands::load_settings,
             commands::save_settings,
+            // Table commands
+            commands::clone_table,
+            commands::validate_csv_for_import,
+            commands::import_csv,
+            commands::export_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

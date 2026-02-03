@@ -52,6 +52,24 @@ body,
   color: var(--text-primary);
 }
 
+/* Native app behavior - disable browser context menu and text selection on non-interactive elements */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection in specific interactive elements */
+input,
+textarea,
+[contenteditable="true"],
+.monaco-editor,
+.selectable,
+pre,
+code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

@@ -16,6 +16,7 @@ interface SchemaTreeProps {
   nodes: TreeNode[];
   onNodeExpand?: (node: TreeNode) => void;
   onNodeSelect?: (node: TreeNode) => void;
+  onNodeContextMenu?: (node: TreeNode, x: number, y: number) => void;
   showSchemaInLabel?: boolean;
 }
 
@@ -55,9 +56,10 @@ interface TreeNodeRowProps {
   level: number;
   onExpand: (node: TreeNode) => void;
   onSelect: (node: TreeNode) => void;
+  onContextMenu: (node: TreeNode, x: number, y: number) => void;
 }
 
-function TreeNodeRow({ node, level, onExpand, onSelect }: TreeNodeRowProps) {
+function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNodeRowProps) {
   const hasChildren = node.children && node.children.length > 0;
   const canExpand = hasChildren || ['database', 'schema', 'tables', 'views', 'table'].includes(node.type);
 
@@ -68,6 +70,14 @@ function TreeNodeRow({ node, level, onExpand, onSelect }: TreeNodeRowProps) {
     onSelect(node);
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    // Only show context menu for tables and views
+    if (node.type === 'table' || node.type === 'view') {
+      e.preventDefault();
+      onContextMenu(node, e.clientX, e.clientY);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -76,6 +86,7 @@ function TreeNodeRow({ node, level, onExpand, onSelect }: TreeNodeRowProps) {
       )}
       style={{ paddingLeft: `${level * 10 + 6}px` }}
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
     >
       {/* Expand/collapse chevron */}
       <div className="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0">
@@ -109,23 +120,26 @@ function TreeNodeList({
   level,
   onExpand,
   onSelect,
+  onContextMenu,
 }: {
   nodes: TreeNode[];
   level: number;
   onExpand: (node: TreeNode) => void;
   onSelect: (node: TreeNode) => void;
+  onContextMenu: (node: TreeNode, x: number, y: number) => void;
 }) {
   return (
     <>
       {nodes.map((node) => (
         <div key={node.id}>
-          <TreeNodeRow node={node} level={level} onExpand={onExpand} onSelect={onSelect} />
+          <TreeNodeRow node={node} level={level} onExpand={onExpand} onSelect={onSelect} onContextMenu={onContextMenu} />
           {node.isExpanded && node.children && (
             <TreeNodeList
               nodes={node.children}
               level={level + 1}
               onExpand={onExpand}
               onSelect={onSelect}
+              onContextMenu={onContextMenu}
             />
           )}
         </div>
@@ -134,7 +148,7 @@ function TreeNodeList({
   );
 }
 
-export function SchemaTree({ nodes, onNodeExpand, onNodeSelect, showSchemaInLabel: _showSchemaInLabel }: SchemaTreeProps) {
+export function SchemaTree({ nodes, onNodeExpand, onNodeSelect, onNodeContextMenu, showSchemaInLabel: _showSchemaInLabel }: SchemaTreeProps) {
   const handleExpand = useCallback(
     (node: TreeNode) => {
       onNodeExpand?.(node);
@@ -149,6 +163,13 @@ export function SchemaTree({ nodes, onNodeExpand, onNodeSelect, showSchemaInLabe
     [onNodeSelect]
   );
 
+  const handleContextMenu = useCallback(
+    (node: TreeNode, x: number, y: number) => {
+      onNodeContextMenu?.(node, x, y);
+    },
+    [onNodeContextMenu]
+  );
+
   if (nodes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-32 text-theme-text-tertiary text-sm p-6">
@@ -159,7 +180,7 @@ export function SchemaTree({ nodes, onNodeExpand, onNodeSelect, showSchemaInLabe
 
   return (
     <div className="py-1">
-      <TreeNodeList nodes={nodes} level={0} onExpand={handleExpand} onSelect={handleSelect} />
+      <TreeNodeList nodes={nodes} level={0} onExpand={handleExpand} onSelect={handleSelect} onContextMenu={handleContextMenu} />
     </div>
   );
 }

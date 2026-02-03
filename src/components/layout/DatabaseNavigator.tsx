@@ -1,10 +1,16 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, ChevronDown, RefreshCw, Database } from 'lucide-react';
+import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
 import * as tauri from '@/lib/tauri';
 import type { TreeNode, SchemaInfo } from '@/lib/types';
+
+interface TableContextMenuTarget {
+  node: TreeNode;
+  x: number;
+  y: number;
+}
 
 interface DatabaseNavigatorProps {
   width: number;
@@ -12,6 +18,9 @@ interface DatabaseNavigatorProps {
   minWidth?: number;
   maxWidth?: number;
   refreshTrigger?: number;
+  onCloneTable?: (schema: string, table: string, type: 'table' | 'view') => void;
+  onImportData?: (schema: string, table: string) => void;
+  onExportData?: (schema: string, table: string, type: 'table' | 'view') => void;
 }
 
 export function DatabaseNavigator({
@@ -20,12 +29,17 @@ export function DatabaseNavigator({
   minWidth = 200,
   maxWidth = 500,
   refreshTrigger,
+  onCloneTable,
+  onImportData,
+  onExportData,
 }: DatabaseNavigatorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isResizing, setIsResizing] = useState(false);
   const [isSchemaDropdownOpen, setIsSchemaDropdownOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<TableContextMenuTarget | null>(null);
   const resizerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const activeConnection = useConnectionStore((state) => state.getActiveConnection());
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
@@ -77,6 +91,56 @@ export function DatabaseNavigator({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isSchemaDropdownOpen]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [contextMenu]);
+
+  const handleNodeContextMenu = useCallback((node: TreeNode, x: number, y: number) => {
+    setContextMenu({ node, x, y });
+  }, []);
+
+  const handleCloneTable = useCallback(() => {
+    if (contextMenu?.node.metadata?.schemaName && contextMenu?.node.metadata?.tableName) {
+      onCloneTable?.(
+        contextMenu.node.metadata.schemaName,
+        contextMenu.node.metadata.tableName,
+        contextMenu.node.type as 'table' | 'view'
+      );
+      setContextMenu(null);
+    }
+  }, [contextMenu, onCloneTable]);
+
+  const handleImportData = useCallback(() => {
+    if (contextMenu?.node.metadata?.schemaName && contextMenu?.node.metadata?.tableName) {
+      onImportData?.(
+        contextMenu.node.metadata.schemaName,
+        contextMenu.node.metadata.tableName
+      );
+      setContextMenu(null);
+    }
+  }, [contextMenu, onImportData]);
+
+  const handleExportData = useCallback(() => {
+    if (contextMenu?.node.metadata?.schemaName && contextMenu?.node.metadata?.tableName) {
+      onExportData?.(
+        contextMenu.node.metadata.schemaName,
+        contextMenu.node.metadata.tableName,
+        contextMenu.node.type as 'table' | 'view'
+      );
+      setContextMenu(null);
+    }
+  }, [contextMenu, onExportData]);
 
   const loadSchemaTree = useCallback(async (connectionId: string) => {
     setIsLoadingSchema(true);
@@ -385,10 +449,46 @@ export function DatabaseNavigator({
           <SchemaTree
             nodes={displayNodes}
             onNodeExpand={handleNodeExpand}
+            onNodeContextMenu={handleNodeContextMenu}
             showSchemaInLabel={!selectedSchema}
           />
         )}
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {contextMenu.node.type === 'table' && (
+            <>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={handleCloneTable}
+              >
+                <Copy className="w-4 h-4" />
+                Clone Table
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={handleImportData}
+              >
+                <Upload className="w-4 h-4" />
+                Import Data
+              </button>
+            </>
+          )}
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+            onClick={handleExportData}
+          >
+            <Download className="w-4 h-4" />
+            Export Data
+          </button>
+        </div>
+      )}
 
       {/* Resize handle */}
       <div
