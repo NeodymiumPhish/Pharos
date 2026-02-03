@@ -20,7 +20,7 @@ interface DatabaseNavigatorProps {
   refreshTrigger?: number;
   onCloneTable?: (schema: string, table: string, type: 'table' | 'view') => void;
   onImportData?: (schema: string, table: string) => void;
-  onExportData?: (schema: string, table: string, type: 'table' | 'view') => void;
+  onExportData?: (schema: string, table: string, type: 'table' | 'view' | 'foreign-table') => void;
 }
 
 export function DatabaseNavigator({
@@ -136,7 +136,7 @@ export function DatabaseNavigator({
       onExportData?.(
         contextMenu.node.metadata.schemaName,
         contextMenu.node.metadata.tableName,
-        contextMenu.node.type as 'table' | 'view'
+        contextMenu.node.type as 'table' | 'view' | 'foreign-table'
       );
       setContextMenu(null);
     }
@@ -182,12 +182,27 @@ export function DatabaseNavigator({
               },
             }));
 
+          const foreignTableNodes: TreeNode[] = tables
+            .filter((t) => t.tableType === 'foreign-table')
+            .map((table) => ({
+              id: `${connectionId}-${schema.name}-${table.name}-foreign`,
+              label: table.name,
+              type: 'foreign-table' as const,
+              isExpanded: false,
+              children: [],
+              metadata: {
+                connectionId,
+                schemaName: schema.name,
+                tableName: table.name,
+              },
+            }));
+
           return {
             id: `${connectionId}-${schema.name}`,
             label: schema.name,
             type: 'schema' as const,
             isExpanded: false,
-            children: [...tableNodes, ...viewNodes],
+            children: [...tableNodes, ...viewNodes, ...foreignTableNodes],
             metadata: {
               connectionId,
               schemaName: schema.name,
@@ -246,7 +261,7 @@ export function DatabaseNavigator({
   const handleNodeExpand = useCallback(
     async (node: TreeNode) => {
       if (
-        (node.type === 'table' || node.type === 'view') &&
+        (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') &&
         node.children?.length === 0 &&
         !node.isExpanded
       ) {

@@ -29,7 +29,7 @@ function App() {
   // Table operation dialog state
   const [cloneTarget, setCloneTarget] = useState<{ schema: string; table: string; type: 'table' | 'view' } | null>(null);
   const [importTarget, setImportTarget] = useState<{ schema: string; table: string } | null>(null);
-  const [exportTarget, setExportTarget] = useState<{ schema: string; table: string; type: 'table' | 'view' } | null>(null);
+  const [exportTarget, setExportTarget] = useState<{ schema: string; table: string; type: 'table' | 'view' | 'foreign-table' } | null>(null);
 
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const [isResultsExpanded, setIsResultsExpanded] = useState(false);

@@ -31,7 +31,7 @@ export interface SchemaInfo {
 
 export interface TableInfo {
   name: string;
-  tableType: 'table' | 'view';
+  tableType: 'table' | 'view' | 'foreign-table';
   columns: ColumnInfo[];
 }
 
@@ -44,7 +44,7 @@ export interface ColumnInfo {
 }
 
 // Tree node types for the navigator
-export type TreeNodeType = 'connection' | 'database' | 'schema' | 'tables' | 'views' | 'table' | 'view' | 'column';
+export type TreeNodeType = 'connection' | 'database' | 'schema' | 'tables' | 'views' | 'table' | 'view' | 'foreign-table' | 'column';
 
 export interface TreeNode {
   id: string;
