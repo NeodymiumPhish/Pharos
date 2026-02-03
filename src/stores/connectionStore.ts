@@ -14,6 +14,7 @@ interface ConnectionState {
   // Actions
   setConnections: (configs: ConnectionConfig[]) => void;
   addConnection: (config: ConnectionConfig) => void;
+  updateConnection: (config: ConnectionConfig) => void;
   removeConnection: (id: string) => void;
   updateConnectionStatus: (id: string, status: ConnectionStatus, error?: string, latency?: number) => void;
   setActiveConnection: (id: string | null) => void;
@@ -54,6 +55,22 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         },
       },
     }));
+  },
+
+  updateConnection: (config) => {
+    set((state) => {
+      const existing = state.connections[config.id];
+      if (!existing) return state;
+      return {
+        connections: {
+          ...state.connections,
+          [config.id]: {
+            ...existing,
+            config,
+          },
+        },
+      };
+    });
   },
 
   removeConnection: (id) => {

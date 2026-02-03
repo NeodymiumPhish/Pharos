@@ -168,6 +168,55 @@ export interface AppSettings {
   emptyFolders?: string[]; // Explicitly created folders that have no queries
 }
 
+// Table operation types
+export interface CloneTableOptions {
+  sourceSchema: string;
+  sourceTable: string;
+  targetSchema: string;
+  targetTable: string;
+  includeData: boolean;
+}
+
+export interface CloneTableResult {
+  success: boolean;
+  rowsCopied: number | null;
+}
+
+export interface CsvValidationResult {
+  valid: boolean;
+  rowCount: number;
+  columnCount: number;
+  csvHeaders: string[] | null;
+  tableColumns: string[];
+  error: string | null;
+}
+
+export interface ImportCsvOptions {
+  schemaName: string;
+  tableName: string;
+  filePath: string;
+  hasHeaders: boolean;
+}
+
+export interface ImportCsvResult {
+  success: boolean;
+  rowsImported: number;
+}
+
+export interface ExportCsvOptions {
+  schemaName: string;
+  tableName: string;
+  columns: string[];
+  includeHeaders: boolean;
+  nullAsEmpty: boolean;
+  filePath: string;
+}
+
+export interface ExportCsvResult {
+  success: boolean;
+  rowsExported: number;
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'auto',
   editor: {

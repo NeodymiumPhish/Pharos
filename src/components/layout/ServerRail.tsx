@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, Database, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, Database, Power, PowerOff, RefreshCw, Trash2, Pencil } from 'lucide-react';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -8,6 +8,7 @@ import type { Connection } from '@/lib/types';
 
 interface ServerRailProps {
   onAddConnection: () => void;
+  onEditConnection: (connection: Connection) => void;
   onSchemaRefresh?: (connectionId: string) => void;
 }
 
@@ -16,6 +17,7 @@ function ConnectionIcon({
   isActive,
   onConnect,
   onDisconnect,
+  onEdit,
   onRefresh,
   onDelete,
 }: {
@@ -23,6 +25,7 @@ function ConnectionIcon({
   isActive: boolean;
   onConnect: (connection: Connection) => void;
   onDisconnect: (connection: Connection) => void;
+  onEdit: (connection: Connection) => void;
   onRefresh: (connection: Connection) => void;
   onDelete: (connection: Connection) => void;
 }) {
@@ -136,6 +139,16 @@ function ConnectionIcon({
             <RefreshCw className="w-4 h-4" />
             Refresh Schema
           </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+            onClick={() => {
+              onEdit(connection);
+              setContextMenu(null);
+            }}
+          >
+            <Pencil className="w-4 h-4" />
+            Edit Connection
+          </button>
           <div className="my-1 border-t border-theme-border-primary" />
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-400 hover:bg-theme-bg-hover transition-colors"
@@ -156,7 +169,7 @@ function ConnectionIcon({
   );
 }
 
-export function ServerRail({ onAddConnection, onSchemaRefresh }: ServerRailProps) {
+export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh }: ServerRailProps) {
   const connections = useConnectionStore((state) => Object.values(state.connections));
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const updateConnectionStatus = useConnectionStore((state) => state.updateConnectionStatus);
@@ -246,6 +259,7 @@ export function ServerRail({ onAddConnection, onSchemaRefresh }: ServerRailProps
             isActive={activeConnectionId === connection.config.id}
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
+            onEdit={onEditConnection}
             onRefresh={handleRefresh}
             onDelete={handleDelete}
           />

@@ -1,5 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { ConnectionConfig, SchemaInfo, TableInfo, ColumnInfo, AppSettings } from './types';
+import type {
+  ConnectionConfig,
+  SchemaInfo,
+  TableInfo,
+  ColumnInfo,
+  AppSettings,
+  CloneTableOptions,
+  CloneTableResult,
+  CsvValidationResult,
+  ImportCsvOptions,
+  ImportCsvResult,
+  ExportCsvOptions,
+  ExportCsvResult,
+} from './types';
 
 // Connection commands
 export async function saveConnection(config: ConnectionConfig): Promise<void> {
@@ -131,4 +144,42 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     },
   };
   return invoke('save_settings', { settings: sanitizedSettings });
+}
+
+// Table operation commands
+export async function cloneTable(
+  connectionId: string,
+  options: CloneTableOptions
+): Promise<CloneTableResult> {
+  return invoke('clone_table', { connectionId, options });
+}
+
+export async function validateCsvForImport(
+  connectionId: string,
+  schemaName: string,
+  tableName: string,
+  filePath: string,
+  hasHeaders: boolean
+): Promise<CsvValidationResult> {
+  return invoke('validate_csv_for_import', {
+    connectionId,
+    schemaName,
+    tableName,
+    filePath,
+    hasHeaders,
+  });
+}
+
+export async function importCsv(
+  connectionId: string,
+  options: ImportCsvOptions
+): Promise<ImportCsvResult> {
+  return invoke('import_csv', { connectionId, options });
+}
+
+export async function exportCsv(
+  connectionId: string,
+  options: ExportCsvOptions
+): Promise<ExportCsvResult> {
+  return invoke('export_csv', { connectionId, options });
 }
