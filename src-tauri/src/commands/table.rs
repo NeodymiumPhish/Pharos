@@ -2,10 +2,49 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Column, Row};
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 use tauri::State;
 
 use crate::db::postgres;
 use crate::state::AppState;
+
+/// Validate that a file path is safe (not attempting path traversal)
+fn validate_file_path(path: &str) -> Result<(), String> {
+    let path = Path::new(path);
+
+    // Must be absolute path
+    if !path.is_absolute() {
+        return Err("File path must be absolute".to_string());
+    }
+
+    // Check for path traversal attempts
+    let canonical = path.canonicalize()
+        .map_err(|_| "Invalid file path")?;
+
+    // Ensure the canonical path doesn't contain suspicious patterns
+    let path_str = canonical.to_string_lossy();
+    if path_str.contains("..") {
+        return Err("Invalid file path: contains traversal".to_string());
+    }
+
+    // On macOS/Linux, allow common user-accessible directories
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let allowed_prefixes = [
+            format!("{}/", home),
+            "/tmp/".to_string(),
+            "/var/folders/".to_string(), // macOS temp directories
+        ];
+
+        let is_allowed = allowed_prefixes.iter().any(|prefix| path_str.starts_with(prefix));
+        if !is_allowed {
+            return Err("File path not in allowed directory".to_string());
+        }
+    }
+
+    Ok(())
+}
 
 // ============================================================================
 // Clone Table
@@ -115,6 +154,9 @@ pub async fn validate_csv_for_import(
         .get_pool(&connection_id)
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
+    // Validate file path for security
+    validate_file_path(&file_path)?;
+
     // Validate identifiers
     validate_identifier(&schema_name)?;
     validate_identifier(&table_name)?;
@@ -217,7 +259,7 @@ pub struct ImportCsvResult {
     pub rows_imported: u64,
 }
 
-/// Import CSV data into a table
+/// Import CSV data into a table using parameterized queries
 #[tauri::command]
 pub async fn import_csv(
     connection_id: String,
@@ -228,6 +270,9 @@ pub async fn import_csv(
         .get_pool(&connection_id)
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
+    // Validate file path for security
+    validate_file_path(&options.file_path)?;
+
     // Validate identifiers
     validate_identifier(&options.schema_name)?;
     validate_identifier(&options.table_name)?;
@@ -237,8 +282,22 @@ pub async fn import_csv(
         .await
         .map_err(|e| format!("Failed to get table columns: {}", e))?;
 
-    let column_names: Vec<String> = columns.iter().map(|c| format!("\"{}\"", c.name)).collect();
+    let num_columns = columns.len();
+    let column_names: Vec<String> = columns.iter().map(|c| format!("\"{}\"", escape_identifier(&c.name))).collect();
     let column_list = column_names.join(", ");
+
+    // Build parameterized placeholders ($1, $2, $3, ...)
+    let placeholders: Vec<String> = (1..=num_columns).map(|i| format!("${}", i)).collect();
+    let placeholder_list = placeholders.join(", ");
+
+    // Build the INSERT statement with parameters
+    let insert_sql = format!(
+        "INSERT INTO \"{}\".\"{}\" ({}) VALUES ({})",
+        escape_identifier(&options.schema_name),
+        escape_identifier(&options.table_name),
+        column_list,
+        placeholder_list
+    );
 
     // Open and read the CSV file
     let file = File::open(&options.file_path)
@@ -252,63 +311,39 @@ pub async fn import_csv(
     let mut tx = pool.begin().await.map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
     let mut rows_imported: u64 = 0;
-    let batch_size = 100;
-    let mut batch_values: Vec<String> = Vec::with_capacity(batch_size);
 
     for result in reader.records() {
         let record = result.map_err(|e| format!("Failed to read CSV row: {}", e))?;
 
-        // Build value string for this row
-        let values: Vec<String> = record
-            .iter()
-            .map(|v| {
-                if v.is_empty() {
-                    "NULL".to_string()
-                } else {
-                    // Escape single quotes for SQL
-                    format!("'{}'", v.replace('\'', "''"))
-                }
-            })
-            .collect();
-
-        batch_values.push(format!("({})", values.join(", ")));
-
-        // Execute batch when full
-        if batch_values.len() >= batch_size {
-            let insert_sql = format!(
-                r#"INSERT INTO "{}"."{}" ({}) VALUES {}"#,
-                options.schema_name,
-                options.table_name,
-                column_list,
-                batch_values.join(", ")
-            );
-
-            let result = sqlx::query(&insert_sql)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| format!("Failed to insert batch: {}", e))?;
-
-            rows_imported += result.rows_affected();
-            batch_values.clear();
+        // Verify column count matches
+        if record.len() != num_columns {
+            tx.rollback().await.ok();
+            return Err(format!(
+                "CSV row has {} columns but table has {} columns",
+                record.len(),
+                num_columns
+            ));
         }
-    }
 
-    // Insert remaining rows
-    if !batch_values.is_empty() {
-        let insert_sql = format!(
-            r#"INSERT INTO "{}"."{}" ({}) VALUES {}"#,
-            options.schema_name,
-            options.table_name,
-            column_list,
-            batch_values.join(", ")
-        );
+        // Build query with bound parameters
+        let mut query = sqlx::query(&insert_sql);
 
-        let result = sqlx::query(&insert_sql)
-            .execute(&mut *tx)
+        for value in record.iter() {
+            if value.is_empty() {
+                query = query.bind(None::<String>);
+            } else {
+                query = query.bind(value);
+            }
+        }
+
+        query.execute(&mut *tx)
             .await
-            .map_err(|e| format!("Failed to insert final batch: {}", e))?;
+            .map_err(|_| {
+                // Don't leak detailed error info
+                format!("Failed to insert row {}: database error", rows_imported + 1)
+            })?;
 
-        rows_imported += result.rows_affected();
+        rows_imported += 1;
     }
 
     // Commit transaction
@@ -353,6 +388,9 @@ pub async fn export_csv(
         .get_pool(&connection_id)
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
+    // Validate file path for security
+    validate_file_path(&options.file_path)?;
+
     // Validate identifiers
     validate_identifier(&options.schema_name)?;
     validate_identifier(&options.table_name)?;
@@ -365,7 +403,7 @@ pub async fn export_csv(
         "*".to_string()
     } else {
         options.columns.iter()
-            .map(|c| format!("\"{}\"", c))
+            .map(|c| format!("\"{}\"", escape_identifier(c)))
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -373,8 +411,8 @@ pub async fn export_csv(
     let select_sql = format!(
         "SELECT {} FROM \"{}\".\"{}\"",
         column_list,
-        options.schema_name,
-        options.table_name
+        escape_identifier(&options.schema_name),
+        escape_identifier(&options.table_name)
     );
 
     // Execute query
@@ -430,27 +468,34 @@ pub async fn export_csv(
 // ============================================================================
 
 /// Validate an identifier (schema, table, or column name) to prevent SQL injection
+/// Uses strict whitelist approach: only ASCII alphanumeric and underscores allowed
 fn validate_identifier(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Identifier cannot be empty".to_string());
     }
 
-    // Allow alphanumeric, underscores, hyphens, and spaces
-    // PostgreSQL allows more, but this is a reasonable subset
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ') {
-        return Err(format!("Invalid identifier: {}", name));
+    if name.len() > 63 {
+        return Err("Identifier too long (max 63 characters)".to_string());
     }
 
-    // Check for common SQL injection patterns
-    let lower = name.to_lowercase();
-    let dangerous = ["--", ";", "drop", "delete", "insert", "update", "truncate", "alter", "create"];
-    for pattern in dangerous {
-        if lower.contains(pattern) {
-            return Err(format!("Invalid identifier contains dangerous pattern: {}", name));
-        }
+    // Strict whitelist: only ASCII alphanumeric and underscores
+    // First character must be a letter or underscore
+    let first_char = name.chars().next().unwrap();
+    if !first_char.is_ascii_alphabetic() && first_char != '_' {
+        return Err(format!("Invalid identifier '{}': must start with a letter or underscore", name));
+    }
+
+    // Remaining characters must be alphanumeric or underscore
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("Invalid identifier '{}': only letters, numbers, and underscores allowed", name));
     }
 
     Ok(())
+}
+
+/// Escape a PostgreSQL identifier by doubling any double-quotes
+fn escape_identifier(name: &str) -> String {
+    name.replace('"', "\"\"")
 }
 
 /// Extract a value from a row as a CSV-friendly string

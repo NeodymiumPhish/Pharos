@@ -54,13 +54,17 @@ pub async fn execute_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        // Validate schema name to prevent SQL injection
-        // Allow alphanumeric, underscores, and hyphens (common in UUID-based schema names)
-        if !schema_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name".to_string());
+        // Strict validation: only allow alphanumeric and underscores
+        // This prevents SQL injection via quoted identifier escapes
+        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err("Invalid schema name: only letters, numbers, and underscores allowed".to_string());
         }
-        // Quote the schema name to handle special characters like hyphens
-        let set_schema_sql = format!("SET search_path TO \"{}\", public", schema_name);
+        if schema_name.is_empty() || schema_name.len() > 63 {
+            return Err("Invalid schema name: must be 1-63 characters".to_string());
+        }
+        // Use double-quote escaping for the identifier (escape any " as "")
+        let escaped_schema = schema_name.replace('"', "\"\"");
+        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
         sqlx::query(&set_schema_sql)
             .execute(&mut *conn)
             .await

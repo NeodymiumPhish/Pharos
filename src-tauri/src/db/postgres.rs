@@ -4,12 +4,26 @@ use std::time::{Duration, Instant};
 
 use crate::models::{ColumnInfo, ConnectionConfig, SchemaInfo, TableInfo, TableType};
 
+/// Build a connection string with proper URL encoding and SSL mode
+fn build_connection_string(config: &ConnectionConfig) -> String {
+    // URL encode username and password to handle special characters safely
+    let username = urlencoding::encode(&config.username);
+    let password = urlencoding::encode(&config.password);
+
+    format!(
+        "postgres://{}:{}@{}:{}/{}?sslmode={}",
+        username,
+        password,
+        config.host,
+        config.port,
+        config.database,
+        config.ssl_mode
+    )
+}
+
 /// Create a PostgreSQL connection pool for the given configuration
 pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Error> {
-    let connection_string = format!(
-        "postgres://{}:{}@{}:{}/{}",
-        config.username, config.password, config.host, config.port, config.database
-    );
+    let connection_string = build_connection_string(config);
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -22,10 +36,7 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
 
 /// Test a PostgreSQL connection and return latency
 pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Error> {
-    let connection_string = format!(
-        "postgres://{}:{}@{}:{}/{}",
-        config.username, config.password, config.host, config.port, config.database
-    );
+    let connection_string = build_connection_string(config);
 
     let start = Instant::now();
 
