@@ -27,7 +27,18 @@ export async function loadConnections(): Promise<ConnectionConfig[]> {
   return invoke('load_connections');
 }
 
-export async function connectPostgres(connectionId: string): Promise<{ latency: number }> {
+export interface ConnectionInfo {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  database: string;
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
+  error?: string;
+  latency_ms?: number;
+}
+
+export async function connectPostgres(connectionId: string): Promise<ConnectionInfo> {
   return invoke('connect_postgres', { connectionId });
 }
 
