@@ -3,7 +3,7 @@ import { X, Settings, Monitor, Sun, Moon, Loader2, Keyboard, RotateCcw, Edit2 } 
 import { cn } from '@/lib/cn';
 import { useSettingsStore } from '@/stores/settingsStore';
 import * as tauri from '@/lib/tauri';
-import type { ThemeMode, EditorSettings, QuerySettings, KeyboardShortcut, ShortcutModifier } from '@/lib/types';
+import type { ThemeMode, EditorSettings, QuerySettings, UISettings, KeyboardShortcut, ShortcutModifier } from '@/lib/types';
 import { DEFAULT_SHORTCUTS } from '@/lib/types';
 import { formatShortcut } from '@/hooks/useKeyboardShortcuts';
 
@@ -19,6 +19,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const updateTheme = useSettingsStore((state) => state.updateTheme);
   const updateEditorSettings = useSettingsStore((state) => state.updateEditorSettings);
   const updateQuerySettings = useSettingsStore((state) => state.updateQuerySettings);
+  const updateUISettings = useSettingsStore((state) => state.updateUISettings);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [isSaving, setIsSaving] = useState(false);
@@ -51,6 +52,13 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     }));
   };
 
+  const handleUIChange = <K extends keyof UISettings>(key: K, value: UISettings[K]) => {
+    setLocalSettings((prev) => ({
+      ...prev,
+      ui: { ...prev.ui, [key]: value },
+    }));
+  };
+
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     setSaveError(null);
@@ -59,6 +67,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
       updateTheme(localSettings.theme);
       updateEditorSettings(localSettings.editor);
       updateQuerySettings(localSettings.query);
+      updateUISettings(localSettings.ui);
       onClose();
     } catch (err) {
       console.error('Failed to save settings:', err);
@@ -66,7 +75,7 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
     } finally {
       setIsSaving(false);
     }
-  }, [localSettings, updateTheme, updateEditorSettings, updateQuerySettings, onClose]);
+  }, [localSettings, updateTheme, updateEditorSettings, updateQuerySettings, updateUISettings, onClose]);
 
   if (!isOpen) return null;
 
@@ -149,6 +158,15 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                       ? 'Always use light theme'
                       : 'Always use dark theme'}
                 </p>
+              </div>
+
+              <div className="pt-4 border-t border-theme-border-primary">
+                <ToggleSetting
+                  label="Show Empty Schemas"
+                  description="Display schemas with no tables in the navigator"
+                  checked={localSettings.ui.showEmptySchemas}
+                  onChange={(v) => handleUIChange('showEmptySchemas', v)}
+                />
               </div>
             </div>
           )}

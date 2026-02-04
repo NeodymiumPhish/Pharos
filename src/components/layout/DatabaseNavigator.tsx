@@ -3,6 +3,7 @@ import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download } from
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import * as tauri from '@/lib/tauri';
 import type { TreeNode, SchemaInfo } from '@/lib/types';
 
@@ -47,6 +48,7 @@ export function DatabaseNavigator({
     activeConnectionId ? state.getSelectedSchema(activeConnectionId) : null
   );
   const setSelectedSchema = useConnectionStore((state) => state.setSelectedSchema);
+  const showEmptySchemas = useSettingsStore((state) => state.settings.ui.showEmptySchemas);
 
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
   const [treeNodes, setTreeNodes] = useState<TreeNode[]>([]);
@@ -146,7 +148,6 @@ export function DatabaseNavigator({
     setIsLoadingSchema(true);
     try {
       const fetchedSchemas = await tauri.getSchemas(connectionId);
-      setSchemas(fetchedSchemas);
 
       const schemaNodes: TreeNode[] = await Promise.all(
         fetchedSchemas.map(async (schema) => {
@@ -211,13 +212,23 @@ export function DatabaseNavigator({
         })
       );
 
-      setTreeNodes(schemaNodes);
+      // Filter out empty schemas unless setting is enabled
+      const filteredSchemaNodes = showEmptySchemas
+        ? schemaNodes
+        : schemaNodes.filter((node) => node.children && node.children.length > 0);
+
+      // Derive schemas list for dropdown from filtered nodes
+      const filteredSchemaNames = new Set(filteredSchemaNodes.map((node) => node.label));
+      const filteredSchemas = fetchedSchemas.filter((s) => filteredSchemaNames.has(s.name));
+
+      setSchemas(filteredSchemas);
+      setTreeNodes(filteredSchemaNodes);
     } catch (err) {
       console.error('Failed to load schema:', err);
     } finally {
       setIsLoadingSchema(false);
     }
-  }, []);
+  }, [showEmptySchemas]);
 
   const loadTableColumns = useCallback(async (node: TreeNode) => {
     if (!node.metadata?.connectionId || !node.metadata?.schemaName || !node.metadata?.tableName) {
