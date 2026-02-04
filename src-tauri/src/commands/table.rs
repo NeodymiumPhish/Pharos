@@ -468,7 +468,8 @@ pub async fn export_csv(
 // ============================================================================
 
 /// Validate an identifier (schema, table, or column name) to prevent SQL injection
-/// Uses strict whitelist approach: only ASCII alphanumeric and underscores allowed
+/// Uses strict whitelist approach: only ASCII alphanumeric, underscores, and hyphens allowed
+/// PostgreSQL allows these characters in quoted identifiers
 fn validate_identifier(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Identifier cannot be empty".to_string());
@@ -478,16 +479,16 @@ fn validate_identifier(name: &str) -> Result<(), String> {
         return Err("Identifier too long (max 63 characters)".to_string());
     }
 
-    // Strict whitelist: only ASCII alphanumeric and underscores
-    // First character must be a letter or underscore
+    // Strict whitelist: ASCII alphanumeric, underscores, and hyphens
+    // First character must be a letter, underscore, or hyphen (PostgreSQL allows this in quoted identifiers)
     let first_char = name.chars().next().unwrap();
-    if !first_char.is_ascii_alphabetic() && first_char != '_' {
-        return Err(format!("Invalid identifier '{}': must start with a letter or underscore", name));
+    if !first_char.is_ascii_alphabetic() && first_char != '_' && first_char != '-' {
+        return Err(format!("Invalid identifier '{}': must start with a letter, underscore, or hyphen", name));
     }
 
-    // Remaining characters must be alphanumeric or underscore
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!("Invalid identifier '{}': only letters, numbers, and underscores allowed", name));
+    // Remaining characters must be alphanumeric, underscore, or hyphen
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("Invalid identifier '{}': only letters, numbers, underscores, and hyphens allowed", name));
     }
 
     Ok(())
