@@ -50,6 +50,10 @@ export async function testConnection(config: ConnectionConfig): Promise<{ succes
   return invoke('test_connection', { config });
 }
 
+export async function reorderConnections(connectionIds: string[]): Promise<void> {
+  return invoke('reorder_connections', { connectionIds });
+}
+
 // Schema introspection commands
 export async function getSchemas(connectionId: string): Promise<SchemaInfo[]> {
   return invoke('get_schemas', { connectionId });

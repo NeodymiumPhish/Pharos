@@ -5,6 +5,9 @@ interface ConnectionState {
   // All saved connections (using Record for better Zustand compatibility)
   connections: Record<string, Connection>;
 
+  // Connection order (array of connection IDs in display order)
+  connectionOrder: string[];
+
   // Currently active/selected connection ID
   activeConnectionId: string | null;
 
@@ -19,30 +22,35 @@ interface ConnectionState {
   updateConnectionStatus: (id: string, status: ConnectionStatus, error?: string, latency?: number) => void;
   setActiveConnection: (id: string | null) => void;
   setSelectedSchema: (connectionId: string, schema: string | null) => void;
+  reorderConnections: (connectionIds: string[]) => void;
 
   // Getters
   getConnection: (id: string) => Connection | undefined;
   getActiveConnection: () => Connection | undefined;
   getConnectedConnections: () => Connection[];
   getConnectionsList: () => Connection[];
+  getOrderedConnections: () => Connection[];
   getSelectedSchema: (connectionId: string) => string | null;
   getActiveSelectedSchema: () => string | null;
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: {},
+  connectionOrder: [],
   activeConnectionId: null,
   selectedSchemas: {},
 
   setConnections: (configs) => {
     const connections: Record<string, Connection> = {};
+    const connectionOrder: string[] = [];
     configs.forEach((config) => {
       connections[config.id] = {
         config,
         status: 'disconnected',
       };
+      connectionOrder.push(config.id);
     });
-    set({ connections });
+    set({ connections, connectionOrder });
   },
 
   addConnection: (config) => {
@@ -54,6 +62,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           status: 'disconnected',
         },
       },
+      connectionOrder: [...state.connectionOrder, config.id],
     }));
   },
 
@@ -78,6 +87,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const { [id]: removed, ...rest } = state.connections;
       return {
         connections: rest,
+        connectionOrder: state.connectionOrder.filter((cid) => cid !== id),
         activeConnectionId: state.activeConnectionId === id ? null : state.activeConnectionId,
       };
     });
@@ -114,6 +124,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }));
   },
 
+  reorderConnections: (connectionIds) => {
+    set({ connectionOrder: connectionIds });
+  },
+
   getConnection: (id) => {
     return get().connections[id];
   },
@@ -131,6 +145,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   getConnectionsList: () => {
     return Object.values(get().connections);
+  },
+
+  getOrderedConnections: () => {
+    const { connections, connectionOrder } = get();
+    return connectionOrder
+      .map((id) => connections[id])
+      .filter((c): c is Connection => c !== undefined);
   },
 
   getSelectedSchema: (connectionId) => {

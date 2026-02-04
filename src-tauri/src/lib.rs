@@ -139,6 +139,7 @@ pub fn run() {
             commands::disconnect_postgres,
             commands::test_connection,
             commands::get_connection_status,
+            commands::reorder_connections,
             // Metadata commands
             commands::get_schemas,
             commands::get_tables,
