@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Column, Row};
+use sqlx::{Column, Row, ValueRef};
 use std::time::Instant;
 use std::sync::atomic::Ordering;
 use tauri::State;
@@ -403,6 +403,52 @@ fn extract_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str) -> 
     serde_json::Value::Null
 }
 
+/// Parse PostgreSQL array string format into JSON values
+/// Handles format like: elem1,elem2,NULL,"quoted value"
+fn parse_pg_array_string(s: &str) -> Vec<serde_json::Value> {
+    let mut elements = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for c in s.chars() {
+        match c {
+            '"' if !in_quotes => in_quotes = true,
+            '"' if in_quotes => in_quotes = false,
+            ',' if !in_quotes => {
+                elements.push(pg_element_to_json(&current));
+                current.clear();
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if !current.is_empty() || !s.is_empty() {
+        elements.push(pg_element_to_json(&current));
+    }
+
+    elements
+}
+
+/// Convert a single PostgreSQL array element to JSON value
+fn pg_element_to_json(s: &str) -> serde_json::Value {
+    let trimmed = s.trim();
+    if trimmed.eq_ignore_ascii_case("null") {
+        serde_json::Value::Null
+    } else if let Ok(n) = trimmed.parse::<i64>() {
+        serde_json::Value::Number(n.into())
+    } else if let Ok(n) = trimmed.parse::<f64>() {
+        serde_json::Number::from_f64(n)
+            .map(serde_json::Value::Number)
+            .unwrap_or_else(|| serde_json::Value::String(trimmed.to_string()))
+    } else if trimmed == "t" || trimmed == "true" {
+        serde_json::Value::Bool(true)
+    } else if trimmed == "f" || trimmed == "false" {
+        serde_json::Value::Bool(false)
+    } else {
+        serde_json::Value::String(trimmed.to_string())
+    }
+}
+
 /// Extract array values from PostgreSQL array types
 fn extract_array_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str) -> serde_json::Value {
     // Determine the base type (remove leading underscore or trailing [])
@@ -518,12 +564,24 @@ fn extract_array_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &st
         };
     }
 
-    // Last resort: try as raw string representation
-    if let Ok(v) = row.try_get::<Option<String>, _>(index) {
-        return match v {
-            Some(s) => serde_json::Value::String(s),
-            None => serde_json::Value::Null,
-        };
+    // Last resort: get raw PostgreSQL text representation and parse it
+    if let Ok(value_ref) = row.try_get_raw(index) {
+        if value_ref.is_null() {
+            return serde_json::Value::Null;
+        }
+        if let Ok(s) = value_ref.as_str() {
+            // Parse PostgreSQL array format: {elem1,elem2,NULL,...}
+            if s.starts_with('{') && s.ends_with('}') {
+                let inner = &s[1..s.len()-1];
+                if inner.is_empty() {
+                    return serde_json::Value::Array(vec![]);
+                }
+                let elements = parse_pg_array_string(inner);
+                return serde_json::Value::Array(elements);
+            }
+            // Not an array format, return as string
+            return serde_json::Value::String(s.to_string());
+        }
     }
 
     serde_json::Value::Null
