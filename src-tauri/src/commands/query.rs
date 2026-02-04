@@ -54,10 +54,10 @@ pub async fn execute_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        // Strict validation: only allow alphanumeric and underscores
-        // This prevents SQL injection via quoted identifier escapes
-        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err("Invalid schema name: only letters, numbers, and underscores allowed".to_string());
+        // Strict validation: allow alphanumeric, underscores, and hyphens
+        // PostgreSQL allows these in quoted identifiers
+        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err("Invalid schema name: only letters, numbers, underscores, and hyphens allowed".to_string());
         }
         if schema_name.is_empty() || schema_name.len() > 63 {
             return Err("Invalid schema name: must be 1-63 characters".to_string());
