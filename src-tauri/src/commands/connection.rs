@@ -139,9 +139,11 @@ pub async fn connect_postgres(
         });
     }
 
-    // Create the connection pool
+    // Create the connection pool and measure latency
+    let start = std::time::Instant::now();
     match postgres::create_pool(&config).await {
         Ok(pool) => {
+            let latency = start.elapsed().as_millis() as u64;
             state.add_pool(connection_id.clone(), pool);
             Ok(ConnectionInfo {
                 id: config.id,
@@ -151,7 +153,7 @@ pub async fn connect_postgres(
                 database: config.database,
                 status: ConnectionStatus::Connected,
                 error: None,
-                latency_ms: None,
+                latency_ms: Some(latency),
             })
         }
         Err(e) => Ok(ConnectionInfo {

@@ -180,11 +180,18 @@ export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh 
       updateConnectionStatus(connection.config.id, 'connecting');
 
       try {
-        await tauri.connectPostgres(connection.config.id);
-        updateConnectionStatus(connection.config.id, 'connected');
-        onSchemaRefresh?.(connection.config.id);
+        const result = await tauri.connectPostgres(connection.config.id);
+
+        if (result.status === 'connected') {
+          updateConnectionStatus(connection.config.id, 'connected', undefined, result.latency_ms);
+          onSchemaRefresh?.(connection.config.id);
+        } else if (result.status === 'error') {
+          updateConnectionStatus(connection.config.id, 'error', result.error || 'Connection failed');
+        } else {
+          updateConnectionStatus(connection.config.id, result.status);
+        }
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Connection failed';
+        const errorMessage = err instanceof Error ? err.message : String(err);
         updateConnectionStatus(connection.config.id, 'error', errorMessage);
       }
     },

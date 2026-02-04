@@ -19,14 +19,18 @@ export function StatusBar() {
         {activeConnection ? (
           <div className="flex items-center gap-2">
             <div className={cn('w-2 h-2 rounded-full', statusColors[activeConnection.status])} />
-            <span className="text-theme-text-secondary">
+            <span className={cn(
+              activeConnection.status === 'error' ? 'text-red-400' : 'text-theme-text-secondary'
+            )}>
               {activeConnection.status === 'connected'
                 ? activeConnection.config.name
                 : activeConnection.status === 'connecting'
                 ? `Connecting to ${activeConnection.config.name}...`
+                : activeConnection.status === 'error'
+                ? `Failed to connect to ${activeConnection.config.name}`
                 : `${activeConnection.config.name} (disconnected)`}
             </span>
-            {activeConnection.latency !== undefined && activeConnection.status === 'connected' && (
+            {typeof activeConnection.latency === 'number' && activeConnection.status === 'connected' && (
               <span className="text-theme-text-tertiary">{activeConnection.latency}ms</span>
             )}
           </div>
