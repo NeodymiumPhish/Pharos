@@ -308,6 +308,18 @@ export function DatabaseNavigator({
     }
   }, [activeConnection?.config.id, activeConnection?.status, loadSchemaTree, refreshTrigger]);
 
+  // Auto-select 'public' schema if it's the only one with tables
+  useEffect(() => {
+    if (
+      activeConnectionId &&
+      selectedSchema === null &&
+      schemas.length === 1 &&
+      schemas[0].name === 'public'
+    ) {
+      setSelectedSchema(activeConnectionId, 'public');
+    }
+  }, [activeConnectionId, selectedSchema, schemas, setSelectedSchema]);
+
   // Filter tree nodes based on selected schema and search query
   const filteredTreeNodes = useMemo(() => {
     let filtered = treeNodes;
