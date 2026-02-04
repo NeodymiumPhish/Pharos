@@ -67,7 +67,7 @@ if (!cargoToml.includes(newCargoVersion)) {
 // Update AboutDialog.tsx
 const aboutDialogPath = join(root, 'src/components/dialogs/AboutDialog.tsx');
 let aboutDialog = readFileSync(aboutDialogPath, 'utf-8');
-const aboutVersionRegex = /Version \d+\.\d+\.\d+/;
+const aboutVersionRegex = /Version \d+\.\d+\.\d+(-\w+)?/;
 const newAboutVersion = `Version ${version}`;
 if (!aboutDialog.includes(newAboutVersion)) {
   aboutDialog = aboutDialog.replace(aboutVersionRegex, newAboutVersion);
@@ -80,7 +80,7 @@ if (!aboutDialog.includes(newAboutVersion)) {
 // Update StatusBar.tsx
 const statusBarPath = join(root, 'src/components/ui/StatusBar.tsx');
 let statusBar = readFileSync(statusBarPath, 'utf-8');
-const statusVersionRegex = /Pharos v\d+\.\d+\.\d+/;
+const statusVersionRegex = /Pharos v\d+\.\d+\.\d+(-\w+)?/;
 const newStatusVersion = `Pharos v${version}`;
 if (!statusBar.includes(newStatusVersion)) {
   statusBar = statusBar.replace(statusVersionRegex, newStatusVersion);

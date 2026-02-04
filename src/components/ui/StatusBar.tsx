@@ -46,7 +46,7 @@ export function StatusBar() {
             {activeTab.executionTime !== null && ` · ${activeTab.executionTime}ms`}
           </span>
         )}
-        <span>Pharos v1.1.0</span>
+        <span>Pharos v0.0.0-dev</span>
       </div>
     </div>
   );

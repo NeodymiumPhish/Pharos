@@ -1,6 +1,6 @@
 {
   "name": "pharos",
-  "version": "1.1.0",
+  "version": "0.0.0-dev",
   "description": "A high-performance PostgreSQL client with Liquid Glass UI",
   "type": "module",
   "scripts": {
