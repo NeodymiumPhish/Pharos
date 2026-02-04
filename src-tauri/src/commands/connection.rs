@@ -198,6 +198,17 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
     }
 }
 
+/// Reorder connections
+#[tauri::command]
+pub async fn reorder_connections(
+    connection_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    sqlite::reorder_connections(&db, &connection_ids).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Get connection status
 #[tauri::command]
 pub async fn get_connection_status(

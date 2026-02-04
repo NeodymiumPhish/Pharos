@@ -22,6 +22,7 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             database TEXT NOT NULL,
             username TEXT NOT NULL,
             ssl_mode TEXT NOT NULL DEFAULT 'prefer',
+            sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
@@ -49,13 +50,14 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
                 database TEXT NOT NULL,
                 username TEXT NOT NULL,
                 ssl_mode TEXT NOT NULL DEFAULT 'prefer',
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
             -- Copy data from old table (excluding password)
-            INSERT OR IGNORE INTO connections_new (id, name, host, port, database, username, ssl_mode, created_at, updated_at)
-            SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer'), created_at, updated_at
+            INSERT OR IGNORE INTO connections_new (id, name, host, port, database, username, ssl_mode, sort_order, created_at, updated_at)
+            SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer'), 0, created_at, updated_at
             FROM connections;
 
             -- Drop old table and rename new one
@@ -77,6 +79,20 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
                 [],
             )?;
         }
+    }
+
+    // Migration: Add sort_order column if it doesn't exist
+    let has_sort_order: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'sort_order'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_sort_order {
+        conn.execute(
+            "ALTER TABLE connections ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
     }
 
     conn.execute_batch(
@@ -145,10 +161,19 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
 
 /// Save a connection configuration to the database (password stored separately in keychain)
 pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteResult<()> {
+    // Get the next sort_order value for new connections
+    let next_order: i32 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -166,6 +191,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.database,
             &config.username,
             &config.ssl_mode.to_string(),
+            next_order,
         ),
     )?;
     Ok(())
@@ -174,7 +200,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode FROM connections ORDER BY name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
@@ -202,6 +228,17 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
 /// Delete a connection configuration from the database
 pub fn delete_connection(conn: &Connection, connection_id: &str) -> SqliteResult<()> {
     conn.execute("DELETE FROM connections WHERE id = ?1", [connection_id])?;
+    Ok(())
+}
+
+/// Update the sort order of connections
+pub fn reorder_connections(conn: &Connection, connection_ids: &[String]) -> SqliteResult<()> {
+    for (index, id) in connection_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE connections SET sort_order = ?1 WHERE id = ?2",
+            (index as i32, id),
+        )?;
+    }
     Ok(())
 }
 

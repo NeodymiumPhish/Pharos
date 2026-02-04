@@ -12,23 +12,33 @@ interface ServerRailProps {
   onSchemaRefresh?: (connectionId: string) => void;
 }
 
-function ConnectionIcon({
-  connection,
-  isActive,
-  onConnect,
-  onDisconnect,
-  onEdit,
-  onRefresh,
-  onDelete,
-}: {
+interface ConnectionIconProps {
   connection: Connection;
   isActive: boolean;
+  isDragging: boolean;
+  isDragOver: boolean;
   onConnect: (connection: Connection) => void;
   onDisconnect: (connection: Connection) => void;
   onEdit: (connection: Connection) => void;
   onRefresh: (connection: Connection) => void;
   onDelete: (connection: Connection) => void;
-}) {
+  onDragStart: (e: React.MouseEvent, connectionId: string) => void;
+  setRef: (connectionId: string, element: HTMLDivElement | null) => void;
+}
+
+function ConnectionIcon({
+  connection,
+  isActive,
+  isDragging,
+  isDragOver,
+  onConnect,
+  onDisconnect,
+  onEdit,
+  onRefresh,
+  onDelete,
+  onDragStart,
+  setRef,
+}: ConnectionIconProps) {
   const setActiveConnection = useConnectionStore((state) => state.setActiveConnection);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -69,33 +79,52 @@ function ConnectionIcon({
 
   return (
     <>
-      <button
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
+      <div
+        ref={(el) => setRef(connection.config.id, el)}
         className={cn(
-          'relative w-9 h-11 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all duration-200',
-          'hover:bg-theme-bg-hover',
-          isActive ? 'bg-theme-bg-active ring-1 ring-theme-border-secondary' : 'bg-transparent'
+          'relative transition-all duration-150',
+          isDragging && 'opacity-40 scale-95',
+          isDragOver && 'pt-3'
         )}
       >
-        <div className="relative">
-          <Database className={cn('w-4 h-4', isActive ? 'text-theme-text-primary' : 'text-theme-text-secondary')} />
-          <div
-            className={cn(
-              'absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-[1.5px] ring-theme-bg-elevated',
-              statusColors[connection.status]
-            )}
-          />
-        </div>
-        <span
+        {/* Drop indicator line */}
+        {isDragOver && (
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-7 h-1 bg-blue-500 rounded-full" />
+        )}
+        <button
+          onClick={handleClick}
+          onContextMenu={handleContextMenu}
+          onMouseDown={(e) => {
+            // Only start drag on left mouse button
+            if (e.button === 0) {
+              onDragStart(e, connection.config.id);
+            }
+          }}
           className={cn(
-            'text-[8px] font-medium truncate max-w-[36px] text-center leading-tight',
-            isActive ? 'text-theme-text-primary' : 'text-theme-text-tertiary'
+            'relative w-9 h-11 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all duration-200',
+            'hover:bg-theme-bg-hover cursor-grab active:cursor-grabbing',
+            isActive ? 'bg-theme-bg-active ring-1 ring-theme-border-secondary' : 'bg-transparent'
           )}
         >
-          {connection.config.name}
-        </span>
-      </button>
+          <div className="relative">
+            <Database className={cn('w-4 h-4', isActive ? 'text-theme-text-primary' : 'text-theme-text-secondary')} />
+            <div
+              className={cn(
+                'absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-[1.5px] ring-theme-bg-elevated',
+                statusColors[connection.status]
+              )}
+            />
+          </div>
+          <span
+            className={cn(
+              'text-[8px] font-medium truncate max-w-[36px] text-center leading-tight',
+              isActive ? 'text-theme-text-primary' : 'text-theme-text-tertiary'
+            )}
+          >
+            {connection.config.name}
+          </span>
+        </button>
+      </div>
 
       {/* Context Menu */}
       {contextMenu && (
@@ -170,10 +199,23 @@ function ConnectionIcon({
 }
 
 export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh }: ServerRailProps) {
-  const connections = useConnectionStore((state) => Object.values(state.connections));
+  const connections = useConnectionStore((state) => state.connections);
+  const connectionOrder = useConnectionStore((state) => state.connectionOrder);
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const updateConnectionStatus = useConnectionStore((state) => state.updateConnectionStatus);
   const removeConnection = useConnectionStore((state) => state.removeConnection);
+  const reorderConnections = useConnectionStore((state) => state.reorderConnections);
+
+  // Derive ordered connections from state
+  const orderedConnections = connectionOrder
+    .map((id) => connections[id])
+    .filter((c): c is Connection => c !== undefined);
+
+  // Mouse-based drag and drop (more reliable in Tauri than HTML5 drag API)
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const connectionRefsRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const handleConnect = useCallback(
     async (connection: Connection) => {
@@ -255,23 +297,136 @@ export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh 
     [removeConnection]
   );
 
+  // Mouse-based drag start
+  const handleDragStart = useCallback((e: React.MouseEvent, connectionId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggedId(connectionId);
+    setDragPosition({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  // Store connection element refs
+  const setConnectionRef = useCallback((connectionId: string, element: HTMLDivElement | null) => {
+    if (element) {
+      connectionRefsRef.current.set(connectionId, element);
+    } else {
+      connectionRefsRef.current.delete(connectionId);
+    }
+  }, []);
+
+  // Mouse-based drag tracking (document level)
+  useEffect(() => {
+    if (!draggedId) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setDragPosition({ x: e.clientX, y: e.clientY });
+
+      // Find which connection the mouse is over
+      let foundConnectionId: string | null = null;
+      let closestDistance = Infinity;
+
+      connectionRefsRef.current.forEach((element, connId) => {
+        if (element && connId !== draggedId) {
+          const rect = element.getBoundingClientRect();
+          const centerY = rect.top + rect.height / 2;
+
+          // Check if cursor is within horizontal bounds
+          if (e.clientX >= rect.left - 10 && e.clientX <= rect.right + 10) {
+            // Find the connection whose center is closest to the cursor
+            const distance = Math.abs(e.clientY - centerY);
+            if (distance < closestDistance && distance < 40) {
+              closestDistance = distance;
+              foundConnectionId = connId;
+            }
+          }
+        }
+      });
+
+      setDragOverId(foundConnectionId);
+    };
+
+    const handleMouseUp = async () => {
+      if (draggedId && dragOverId !== null && draggedId !== dragOverId) {
+        const newOrder = [...connectionOrder];
+        const sourceIndex = newOrder.indexOf(draggedId);
+        const targetIndex = newOrder.indexOf(dragOverId);
+
+        if (sourceIndex !== -1 && targetIndex !== -1) {
+          // Remove from old position
+          newOrder.splice(sourceIndex, 1);
+          // Insert at new position
+          newOrder.splice(targetIndex, 0, draggedId);
+
+          // Update local state immediately
+          reorderConnections(newOrder);
+
+          // Persist to backend
+          try {
+            await tauri.reorderConnections(newOrder);
+          } catch (err) {
+            console.error('Failed to persist connection order:', err);
+          }
+        }
+      }
+
+      setDraggedId(null);
+      setDragOverId(null);
+      setDragPosition(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggedId, dragOverId, connectionOrder, reorderConnections]);
+
   return (
     <div className="w-[48px] flex flex-col items-center bg-theme-bg-elevated border-r border-theme-border-primary">
       {/* Connection icons */}
       <div className="flex-1 flex flex-col items-center gap-1 overflow-y-auto py-2 no-drag">
-        {connections.map((connection) => (
+        {orderedConnections.map((connection) => (
           <ConnectionIcon
             key={connection.config.id}
             connection={connection}
             isActive={activeConnectionId === connection.config.id}
+            isDragging={draggedId === connection.config.id}
+            isDragOver={dragOverId === connection.config.id && draggedId !== connection.config.id}
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
             onEdit={onEditConnection}
             onRefresh={handleRefresh}
             onDelete={handleDelete}
+            onDragStart={handleDragStart}
+            setRef={setConnectionRef}
           />
         ))}
       </div>
+
+      {/* Drag indicator overlay */}
+      {draggedId && dragPosition && (
+        <div className="fixed inset-0 z-40 pointer-events-none">
+          <div
+            className={cn(
+              'absolute px-2 py-1 rounded text-xs shadow-lg whitespace-nowrap',
+              'transform -translate-x-1/2',
+              dragOverId !== null
+                ? 'bg-blue-600 text-white border border-blue-500'
+                : 'bg-theme-bg-elevated text-theme-text-secondary border border-theme-border-secondary'
+            )}
+            style={{
+              left: dragPosition.x,
+              top: dragPosition.y + 16,
+            }}
+          >
+            {dragOverId !== null
+              ? `Move ${connections[draggedId]?.config.name || 'connection'}`
+              : 'Drag to reorder...'}
+          </div>
+        </div>
+      )}
 
       {/* Add connection button */}
       <div className="py-2 border-t border-theme-border-primary">
