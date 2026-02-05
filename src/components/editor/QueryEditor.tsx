@@ -77,20 +77,21 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,
   rules: [
-    { token: 'keyword', foreground: 'C586C0' },
-    { token: 'keyword.sql', foreground: 'C586C0' },
-    { token: 'string', foreground: 'CE9178' },
-    { token: 'string.sql', foreground: 'CE9178' },
-    { token: 'number', foreground: 'B5CEA8' },
-    { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-    { token: 'operator', foreground: 'D4D4D4' },
-    { token: 'identifier', foreground: '9CDCFE' },
-    { token: 'type', foreground: '4EC9B0' },
-    { token: 'predefined', foreground: '4FC1FF' },
+    // Brighter colors for transparent background with vibrancy
+    { token: 'keyword', foreground: 'FF79C6' }, // Bright pink
+    { token: 'keyword.sql', foreground: 'FF79C6' },
+    { token: 'string', foreground: 'F1FA8C' }, // Bright yellow
+    { token: 'string.sql', foreground: 'F1FA8C' },
+    { token: 'number', foreground: 'BD93F9' }, // Bright purple
+    { token: 'comment', foreground: '6272A4', fontStyle: 'italic' }, // Muted blue-gray
+    { token: 'operator', foreground: 'FFFFFF' }, // White
+    { token: 'identifier', foreground: 'F8F8F2' }, // Off-white
+    { token: 'type', foreground: '8BE9FD' }, // Cyan
+    { token: 'predefined', foreground: '50FA7B' }, // Bright green
   ],
   colors: {
     'editor.background': '#00000000', // Transparent
-    'editor.foreground': '#D4D4D4',
+    'editor.foreground': '#F8F8F2', // Bright off-white
     'editor.lineHighlightBackground': '#ffffff10',
     'editor.selectionBackground': '#264F78',
     'editor.inactiveSelectionBackground': '#3A3D41',
@@ -102,9 +103,13 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
     'editorIndentGuide.background1': '#404040',
     'editorIndentGuide.activeBackground1': '#707070',
     'editorWidget.background': '#1e1e1e',
-    'editorSuggestWidget.background': '#1e1e1e',
+    'editorSuggestWidget.background': '#252526',
     'editorSuggestWidget.border': '#454545',
+    'editorSuggestWidget.foreground': '#CCCCCC',
+    'editorSuggestWidget.highlightForeground': '#18A0FB',
     'editorSuggestWidget.selectedBackground': '#04395e',
+    'editorSuggestWidget.selectedForeground': '#FFFFFF',
+    'editorSuggestWidget.focusHighlightForeground': '#18A0FB',
     // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#1e1e1e',
     'editorStickyScrollHover.background': '#2a2a2a',
@@ -116,20 +121,21 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
   base: 'vs',
   inherit: true,
   rules: [
-    { token: 'keyword', foreground: 'AF00DB' },
-    { token: 'keyword.sql', foreground: 'AF00DB' },
-    { token: 'string', foreground: 'A31515' },
-    { token: 'string.sql', foreground: 'A31515' },
-    { token: 'number', foreground: '098658' },
-    { token: 'comment', foreground: '008000', fontStyle: 'italic' },
-    { token: 'operator', foreground: '000000' },
-    { token: 'identifier', foreground: '001080' },
-    { token: 'type', foreground: '267F99' },
-    { token: 'predefined', foreground: '0000FF' },
+    // Darker, more saturated colors for transparent background with vibrancy
+    { token: 'keyword', foreground: '8700AF' }, // Dark purple
+    { token: 'keyword.sql', foreground: '8700AF' },
+    { token: 'string', foreground: 'B8000F' }, // Dark red
+    { token: 'string.sql', foreground: 'B8000F' },
+    { token: 'number', foreground: '005C3E' }, // Dark teal
+    { token: 'comment', foreground: '5A6A73', fontStyle: 'italic' }, // Gray
+    { token: 'operator', foreground: '1A1A1A' }, // Near black
+    { token: 'identifier', foreground: '1A1A1A' }, // Near black for readability
+    { token: 'type', foreground: '007068' }, // Dark cyan
+    { token: 'predefined', foreground: '0550AE' }, // Dark blue
   ],
   colors: {
     'editor.background': '#00000000', // Transparent
-    'editor.foreground': '#000000',
+    'editor.foreground': '#1A1A1A', // Near black
     'editor.lineHighlightBackground': '#00000008',
     'editor.selectionBackground': '#ADD6FF',
     'editor.inactiveSelectionBackground': '#E5EBF1',
@@ -141,9 +147,13 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
     'editorIndentGuide.background1': '#D3D3D3',
     'editorIndentGuide.activeBackground1': '#939393',
     'editorWidget.background': '#F3F3F3',
-    'editorSuggestWidget.background': '#F3F3F3',
+    'editorSuggestWidget.background': '#FFFFFF',
     'editorSuggestWidget.border': '#C8C8C8',
-    'editorSuggestWidget.selectedBackground': '#D6EBFF',
+    'editorSuggestWidget.foreground': '#333333',
+    'editorSuggestWidget.highlightForeground': '#0066BF',
+    'editorSuggestWidget.selectedBackground': '#0060C0',
+    'editorSuggestWidget.selectedForeground': '#FFFFFF',
+    'editorSuggestWidget.focusHighlightForeground': '#9DDDFF',
     // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#F3F3F3',
     'editorStickyScrollHover.background': '#E8E8E8',
