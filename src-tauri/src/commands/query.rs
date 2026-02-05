@@ -1,7 +1,8 @@
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Row, ValueRef};
-use std::time::Instant;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 use tauri::State;
 
 use crate::state::AppState;
@@ -71,20 +72,39 @@ pub async fn execute_query(
             .map_err(|e| format!("Failed to set schema: {}", e))?;
     }
 
-    // Execute the query on the same connection
-    let result = sqlx::query(&sql)
-        .fetch_all(&mut *conn)
-        .await;
+    // Use streaming fetch - only consume up to limit+1 rows
+    let mut stream = sqlx::query(&sql).fetch(&mut *conn);
+    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::with_capacity((limit + 1) as usize);
+    let mut fetch_error: Option<String> = None;
 
-    // Unregister the query now that it's done
-    state.unregister_query(&query_id);
+    while let Some(row_result) = stream.next().await {
+        // Check for cancellation
+        if cancelled.load(Ordering::SeqCst) {
+            drop(stream);
+            state.unregister_query(&query_id);
+            return Err("Query was cancelled".to_string());
+        }
 
-    // Check if cancelled
-    if cancelled.load(Ordering::SeqCst) {
-        return Err("Query was cancelled".to_string());
+        match row_result {
+            Ok(row) => {
+                rows.push(row);
+                if rows.len() > limit as usize {
+                    break;
+                }
+            }
+            Err(e) => {
+                fetch_error = Some(e.to_string());
+                break;
+            }
+        }
     }
 
-    let rows = result.map_err(|e| e.to_string())?;
+    drop(stream);
+    state.unregister_query(&query_id);
+
+    if let Some(err) = fetch_error {
+        return Err(err);
+    }
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -109,11 +129,11 @@ pub async fn execute_query(
         })
         .collect();
 
-    // Convert rows to JSON
-    let total_rows = rows.len();
-    let has_more = total_rows > limit as usize;
-    let row_limit = std::cmp::min(total_rows, limit as usize);
+    // Determine if there are more rows
+    let has_more = rows.len() > limit as usize;
+    let row_limit = std::cmp::min(rows.len(), limit as usize);
 
+    // Convert rows to JSON
     let json_rows: Vec<serde_json::Value> = rows
         .into_iter()
         .take(row_limit)
@@ -130,7 +150,7 @@ pub async fn execute_query(
     Ok(QueryResult {
         columns,
         rows: json_rows,
-        row_count: total_rows,
+        row_count: row_limit,
         execution_time_ms,
         has_more,
     })

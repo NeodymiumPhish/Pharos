@@ -192,7 +192,8 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
 
     try {
       // Pass the selected schema to set search_path before executing
-      const result = await tauri.executeQuery(activeConnectionId, sql, queryId, undefined, selectedSchema);
+      const limit = settings.query.defaultLimit;
+      const result = await tauri.executeQuery(activeConnectionId, sql, queryId, limit, selectedSchema);
 
       setTabResults(
         activeTab.id,
@@ -210,7 +211,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     } catch (err) {
       setTabError(activeTab.id, err instanceof Error ? err.message : String(err));
     }
-  }, [activeTab, activeConnectionId, isConnected, selectedSchema, unpinResults, setTabExecuting, setTabResults, setTabError]);
+  }, [activeTab, activeConnectionId, isConnected, selectedSchema, settings.query.defaultLimit, unpinResults, setTabExecuting, setTabResults, setTabError]);
 
   const handleCancel = useCallback(async () => {
     if (!activeTab || !activeConnectionId || !activeTab.queryId) return;

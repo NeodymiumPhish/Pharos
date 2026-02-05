@@ -67,12 +67,11 @@ export interface TreeNode {
 
 // Query types (for future phases)
 export interface QueryResult {
-  columns: string[];
+  columns: { name: string; data_type: string }[];
   rows: Record<string, unknown>[];
-  rowCount: number;
-  executionTime: number;
-  hasMore: boolean;
-  cursorId?: string;
+  row_count: number;
+  execution_time_ms: number;
+  has_more: boolean;
 }
 
 export interface SavedQuery {
