@@ -13,6 +13,7 @@ import { SettingsDialog } from '@/components/dialogs/SettingsDialog';
 import { AboutDialog } from '@/components/dialogs/AboutDialog';
 import { useWindowDrag } from '@/hooks/useWindowDrag';
 import { useConnectionStore } from '@/stores/connectionStore';
+import { useEditorStore } from '@/stores/editorStore';
 import type { Connection } from '@/lib/types';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTheme } from '@/hooks/useTheme';
@@ -78,6 +79,18 @@ function App() {
     setSchemaRefreshTrigger((prev) => prev + 1);
   };
 
+  const handleViewRows = (schema: string, table: string, limit: number | null) => {
+    if (!activeConnectionId) return;
+
+    const sql = limit !== null
+      ? `SELECT * FROM "${schema}"."${table}" LIMIT ${limit};`
+      : `SELECT * FROM "${schema}"."${table}";`;
+
+    const tabName = limit !== null ? `${table} (${limit})` : table;
+
+    useEditorStore.getState().createTabWithContent(activeConnectionId, tabName, sql);
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-theme-bg-surface">
       {/* Traffic lights area - unified top bar */}
@@ -106,6 +119,7 @@ function App() {
             onCloneTable={(schema, table, type) => setCloneTarget({ schema, table, type })}
             onImportData={(schema, table) => setImportTarget({ schema, table })}
             onExportData={(schema, table, type) => setExportTarget({ schema, table, type })}
+            onViewRows={handleViewRows}
           />
         )}
 

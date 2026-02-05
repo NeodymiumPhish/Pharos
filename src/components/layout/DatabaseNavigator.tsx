@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download } from 'lucide-react';
+import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -22,6 +22,7 @@ interface DatabaseNavigatorProps {
   onCloneTable?: (schema: string, table: string, type: 'table' | 'view') => void;
   onImportData?: (schema: string, table: string) => void;
   onExportData?: (schema: string, table: string, type: 'table' | 'view' | 'foreign-table') => void;
+  onViewRows?: (schema: string, table: string, limit: number | null) => void;
 }
 
 export function DatabaseNavigator({
@@ -33,6 +34,7 @@ export function DatabaseNavigator({
   onCloneTable,
   onImportData,
   onExportData,
+  onViewRows,
 }: DatabaseNavigatorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isResizing, setIsResizing] = useState(false);
@@ -143,6 +145,17 @@ export function DatabaseNavigator({
       setContextMenu(null);
     }
   }, [contextMenu, onExportData]);
+
+  const handleViewRows = useCallback((limit: number | null) => {
+    if (contextMenu?.node.metadata?.schemaName && contextMenu?.node.metadata?.tableName) {
+      onViewRows?.(
+        contextMenu.node.metadata.schemaName,
+        contextMenu.node.metadata.tableName,
+        limit
+      );
+      setContextMenu(null);
+    }
+  }, [contextMenu, onViewRows]);
 
   const loadSchemaTree = useCallback(async (connectionId: string) => {
     setIsLoadingSchema(true);
@@ -500,6 +513,26 @@ export function DatabaseNavigator({
           className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
+          {/* View rows options for tables, views, and foreign tables */}
+          {(contextMenu.node.type === 'table' || contextMenu.node.type === 'view' || contextMenu.node.type === 'foreign-table') && (
+            <>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={() => handleViewRows(1000)}
+              >
+                <Table className="w-4 h-4" />
+                View 1000 Rows
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={() => handleViewRows(null)}
+              >
+                <Eye className="w-4 h-4" />
+                View All Rows
+              </button>
+              <div className="my-1 border-t border-theme-border-primary" />
+            </>
+          )}
           {contextMenu.node.type === 'table' && (
             <>
               <button
