@@ -46,9 +46,10 @@ pub async fn save_connection(
     config: ConnectionConfig,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Store password securely in OS keychain
+    // Store password securely in OS keychain and update cache
     if !config.password.is_empty() {
-        credentials::store_password(&config.id, &config.password)?;
+        let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
+        credentials::store_password_with_cache(&config.id, &config.password, &mut cache)?;
     }
 
     // Save metadata to SQLite (without password)
@@ -76,8 +77,11 @@ pub async fn delete_connection(
         }
     }
 
-    // Delete password from keychain
-    credentials::delete_password(&connection_id)?;
+    // Delete password from keychain and update cache
+    {
+        let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
+        credentials::delete_password_with_cache(&connection_id, &mut cache)?;
+    }
 
     // Delete from SQLite
     {
@@ -99,9 +103,9 @@ pub async fn load_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
         sqlite::load_connections(&db).map_err(|e| e.to_string())?
     };
 
-    // Load passwords from keychain
+    // Load passwords from in-memory cache (populated at startup)
     for config in &mut configs {
-        if let Ok(Some(password)) = credentials::get_password(&config.id) {
+        if let Some(password) = state.get_cached_password(&config.id) {
             config.password = password;
         }
     }
