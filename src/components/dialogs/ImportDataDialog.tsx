@@ -83,7 +83,11 @@ export function ImportDataDialog({
     if (filePath) {
       handleValidate();
     }
-  }, [filePath, hasHeaders, handleValidate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filePath, hasHeaders]);
+  // Note: handleValidate intentionally excluded - we only want validation
+  // to trigger when the user selects a file or changes hasHeaders, not
+  // when schema/table props change (which would use stale filePath)
 
   const handleImport = useCallback(async () => {
     if (!filePath || !validation?.valid) return;
