@@ -46,6 +46,94 @@ fn validate_file_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Map a PostgreSQL data type to a type suitable for casting from text.
+/// This allows CSV text values to be properly converted to the target column type.
+fn map_data_type_for_cast(data_type: &str) -> &str {
+    let dt = data_type.to_lowercase();
+
+    // Handle array types - they need special handling
+    if dt.starts_with('_') || dt.ends_with("[]") {
+        return data_type;
+    }
+
+    // Map common types - most can be cast directly from text
+    match dt.as_str() {
+        // Numeric types
+        "smallint" | "int2" => "smallint",
+        "integer" | "int" | "int4" => "integer",
+        "bigint" | "int8" => "bigint",
+        "real" | "float4" => "real",
+        "double precision" | "float8" => "double precision",
+        "numeric" | "decimal" => "numeric",
+        "smallserial" | "serial2" => "smallint",
+        "serial" | "serial4" => "integer",
+        "bigserial" | "serial8" => "bigint",
+
+        // Monetary
+        "money" => "money",
+
+        // Character types
+        "character varying" | "varchar" => "text",
+        "character" | "char" => "text",
+        "text" => "text",
+        "citext" => "citext",
+
+        // Binary
+        "bytea" => "bytea",
+
+        // Date/time types
+        "timestamp" | "timestamp without time zone" => "timestamp",
+        "timestamp with time zone" | "timestamptz" => "timestamptz",
+        "date" => "date",
+        "time" | "time without time zone" => "time",
+        "time with time zone" | "timetz" => "timetz",
+        "interval" => "interval",
+
+        // Boolean
+        "boolean" | "bool" => "boolean",
+
+        // Geometric types
+        "point" => "point",
+        "line" => "line",
+        "lseg" => "lseg",
+        "box" => "box",
+        "path" => "path",
+        "polygon" => "polygon",
+        "circle" => "circle",
+
+        // Network types
+        "cidr" => "cidr",
+        "inet" => "inet",
+        "macaddr" => "macaddr",
+        "macaddr8" => "macaddr8",
+
+        // Bit string types
+        "bit" => "bit",
+        "bit varying" | "varbit" => "varbit",
+
+        // UUID
+        "uuid" => "uuid",
+
+        // JSON types
+        "json" => "json",
+        "jsonb" => "jsonb",
+
+        // XML
+        "xml" => "xml",
+
+        // Range types
+        "int4range" => "int4range",
+        "int8range" => "int8range",
+        "numrange" => "numrange",
+        "tsrange" => "tsrange",
+        "tstzrange" => "tstzrange",
+        "daterange" => "daterange",
+
+        // For unknown types, use the original type and let PostgreSQL handle it
+        _ => data_type,
+    }
+}
+
 // ============================================================================
 // Clone Table
 // ============================================================================
@@ -286,8 +374,12 @@ pub async fn import_csv(
     let column_names: Vec<String> = columns.iter().map(|c| format!("\"{}\"", escape_identifier(&c.name))).collect();
     let column_list = column_names.join(", ");
 
-    // Build parameterized placeholders ($1, $2, $3, ...)
-    let placeholders: Vec<String> = (1..=num_columns).map(|i| format!("${}", i)).collect();
+    // Build parameterized placeholders with type casts ($1::type, $2::type, ...)
+    // This allows PostgreSQL to convert text values from CSV to the appropriate column types
+    let placeholders: Vec<String> = columns.iter().enumerate().map(|(i, col)| {
+        let pg_type = map_data_type_for_cast(&col.data_type);
+        format!("${}::{}", i + 1, pg_type)
+    }).collect();
     let placeholder_list = placeholders.join(", ");
 
     // Build the INSERT statement with parameters
@@ -338,9 +430,8 @@ pub async fn import_csv(
 
         query.execute(&mut *tx)
             .await
-            .map_err(|_| {
-                // Don't leak detailed error info
-                format!("Failed to insert row {}: database error", rows_imported + 1)
+            .map_err(|e| {
+                format!("Failed to insert row {}: {}", rows_imported + 1, e)
             })?;
 
         rows_imported += 1;
