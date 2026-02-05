@@ -71,7 +71,7 @@ export function ImportDataDialog({
     } catch (err) {
       setResult({
         success: false,
-        message: err instanceof Error ? err.message : 'Validation failed',
+        message: err instanceof Error ? err.message : typeof err === 'string' ? err : 'Validation failed',
       });
     } finally {
       setIsValidating(false);
@@ -114,7 +114,7 @@ export function ImportDataDialog({
     } catch (err) {
       setResult({
         success: false,
-        message: err instanceof Error ? err.message : 'Import failed',
+        message: err instanceof Error ? err.message : typeof err === 'string' ? err : 'Import failed',
       });
     } finally {
       setIsImporting(false);
