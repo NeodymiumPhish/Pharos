@@ -28,6 +28,9 @@ pub struct AppState {
 
     /// Currently running queries, keyed by query ID
     pub running_queries: Mutex<HashMap<String, RunningQuery>>,
+
+    /// In-memory cache of passwords (loaded once from keychain at startup)
+    pub password_cache: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -37,7 +40,20 @@ impl AppState {
             connection_configs: Mutex::new(HashMap::new()),
             metadata_db: Mutex::new(metadata_db),
             running_queries: Mutex::new(HashMap::new()),
+            password_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Initialize the password cache from the keychain (call once at startup)
+    pub fn init_password_cache(&self, passwords: HashMap<String, String>) {
+        let mut cache = self.password_cache.lock().unwrap();
+        *cache = passwords;
+    }
+
+    /// Get a password from the cache
+    pub fn get_cached_password(&self, connection_id: &str) -> Option<String> {
+        let cache = self.password_cache.lock().unwrap();
+        cache.get(connection_id).cloned()
     }
 
     /// Get a connection pool by ID

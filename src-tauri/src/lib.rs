@@ -116,10 +116,26 @@ pub fn run() {
 
             let app_state = AppState::new(metadata_db);
 
-            // Load saved connections into memory
+            // Load saved connections into memory and initialize password cache
             {
                 let db = app_state.metadata_db.lock().unwrap();
                 if let Ok(configs) = db::sqlite::load_connections(&db) {
+                    // Collect connection IDs for password migration
+                    let connection_ids: Vec<String> = configs.iter().map(|c| c.id.clone()).collect();
+
+                    // Migrate any legacy per-connection keychain entries to the unified format
+                    // and load all passwords into the in-memory cache.
+                    // This is the ONLY keychain access during startup - all subsequent
+                    // password lookups use the in-memory cache.
+                    match db::credentials::migrate_legacy_passwords(&connection_ids) {
+                        Ok(passwords) => {
+                            app_state.init_password_cache(passwords);
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to load passwords from keychain: {}", e);
+                        }
+                    }
+
                     for config in configs {
                         app_state.set_config(config);
                     }
