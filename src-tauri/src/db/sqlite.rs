@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, SavedQuery, SslMode, UpdateSavedQuery};
+use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, QueryHistoryEntry, SavedQuery, SslMode, UpdateSavedQuery};
 
 /// Initialize the SQLite database and create tables if they don't exist
 pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
@@ -153,6 +153,23 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             settings_json TEXT NOT NULL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- Query history
+        CREATE TABLE IF NOT EXISTS query_history (
+            id TEXT PRIMARY KEY,
+            connection_id TEXT NOT NULL,
+            connection_name TEXT NOT NULL,
+            sql TEXT NOT NULL,
+            row_count INTEGER,
+            execution_time_ms INTEGER NOT NULL,
+            executed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_query_history_executed_at
+            ON query_history(executed_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_query_history_connection
+            ON query_history(connection_id, executed_at DESC);
         "#,
     )?;
 
@@ -404,5 +421,102 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> SqliteResult<
         "#,
         [&json],
     )?;
+    Ok(())
+}
+
+// ==================== Query History ====================
+
+const MAX_HISTORY_ENTRIES: i64 = 10_000;
+
+/// Save a query history entry (and prune old entries if needed)
+pub fn save_query_history(conn: &Connection, entry: &QueryHistoryEntry) -> SqliteResult<()> {
+    conn.execute(
+        r#"
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+        (
+            &entry.id,
+            &entry.connection_id,
+            &entry.connection_name,
+            &entry.sql,
+            &entry.row_count,
+            entry.execution_time_ms,
+            &entry.executed_at,
+        ),
+    )?;
+
+    // Prune old entries beyond the limit
+    conn.execute(
+        r#"
+        DELETE FROM query_history WHERE id NOT IN (
+            SELECT id FROM query_history ORDER BY executed_at DESC LIMIT ?1
+        )
+        "#,
+        [MAX_HISTORY_ENTRIES],
+    )?;
+
+    Ok(())
+}
+
+/// Load query history entries with optional filters
+pub fn load_query_history(
+    conn: &Connection,
+    connection_id: Option<&str>,
+    search: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> SqliteResult<Vec<QueryHistoryEntry>> {
+    let mut sql = String::from(
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at FROM query_history WHERE 1=1"
+    );
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut param_idx = 1;
+
+    if let Some(cid) = connection_id {
+        sql.push_str(&format!(" AND connection_id = ?{}", param_idx));
+        params.push(Box::new(cid.to_string()));
+        param_idx += 1;
+    }
+
+    if let Some(q) = search {
+        if !q.is_empty() {
+            sql.push_str(&format!(" AND sql LIKE ?{}", param_idx));
+            params.push(Box::new(format!("%{}%", q)));
+            param_idx += 1;
+        }
+    }
+
+    sql.push_str(&format!(" ORDER BY executed_at DESC LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
+    params.push(Box::new(limit));
+    params.push(Box::new(offset));
+
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+    let mut stmt = conn.prepare(&sql)?;
+    let entries = stmt.query_map(params_refs.as_slice(), |row| {
+        Ok(QueryHistoryEntry {
+            id: row.get(0)?,
+            connection_id: row.get(1)?,
+            connection_name: row.get(2)?,
+            sql: row.get(3)?,
+            row_count: row.get(4)?,
+            execution_time_ms: row.get(5)?,
+            executed_at: row.get(6)?,
+        })
+    })?;
+
+    entries.collect()
+}
+
+/// Delete a single query history entry
+pub fn delete_query_history_entry(conn: &Connection, entry_id: &str) -> SqliteResult<bool> {
+    let rows_affected = conn.execute("DELETE FROM query_history WHERE id = ?1", [entry_id])?;
+    Ok(rows_affected > 0)
+}
+
+/// Clear all query history
+pub fn clear_query_history(conn: &Connection) -> SqliteResult<()> {
+    conn.execute("DELETE FROM query_history", [])?;
     Ok(())
 }

@@ -1,7 +1,10 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X } from 'lucide-react';
+import { save } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
+import * as tauri from '@/lib/tauri';
+import type { ExportFormat } from '@/lib/types';
 import type { QueryResults } from '@/stores/editorStore';
 
 interface ResultsGridProps {
@@ -29,6 +32,7 @@ interface CellSelection {
 export interface ResultsGridRef {
   copyToClipboard: () => Promise<void>;
   exportCSV: () => void;
+  exportData: (format: ExportFormat) => void;
 }
 
 // Constants for column width calculation
@@ -142,6 +146,226 @@ function calculateAutoFitWidth(
   return Math.max(MIN_COLUMN_WIDTH, Math.min(AUTO_FIT_MAX_WIDTH, maxContentWidth));
 }
 
+// ============================================================================
+// Column Filter Types & Helpers
+// ============================================================================
+
+type FilterOperator =
+  | 'contains' | 'equals' | 'startsWith' | 'endsWith'
+  | 'eq' | 'neq' | 'gt' | 'lt' | 'gte' | 'lte' | 'between'
+  | 'isTrue' | 'isFalse'
+  | 'isNull' | 'isNotNull';
+
+interface ColumnFilter {
+  column: string;
+  operator: FilterOperator;
+  value: string;
+  value2?: string; // For "between"
+}
+
+const NUMERIC_TYPES = new Set(['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'decimal', 'smallint', 'integer', 'bigint', 'real', 'double precision', 'serial', 'bigserial']);
+const BOOLEAN_TYPES = new Set(['bool', 'boolean']);
+
+function getAvailableOperators(dataType: string): { value: FilterOperator; label: string }[] {
+  const dt = dataType.toLowerCase();
+  const universal: { value: FilterOperator; label: string }[] = [
+    { value: 'isNull', label: 'Is NULL' },
+    { value: 'isNotNull', label: 'Is not NULL' },
+  ];
+
+  if (BOOLEAN_TYPES.has(dt)) {
+    return [
+      { value: 'isTrue', label: 'Is true' },
+      { value: 'isFalse', label: 'Is false' },
+      ...universal,
+    ];
+  }
+
+  if (NUMERIC_TYPES.has(dt)) {
+    return [
+      { value: 'eq', label: '=' },
+      { value: 'neq', label: '!=' },
+      { value: 'gt', label: '>' },
+      { value: 'lt', label: '<' },
+      { value: 'gte', label: '>=' },
+      { value: 'lte', label: '<=' },
+      { value: 'between', label: 'Between' },
+      ...universal,
+    ];
+  }
+
+  // Default: text operators
+  return [
+    { value: 'contains', label: 'Contains' },
+    { value: 'equals', label: 'Equals' },
+    { value: 'startsWith', label: 'Starts with' },
+    { value: 'endsWith', label: 'Ends with' },
+    ...universal,
+  ];
+}
+
+function applyFilter(cellValue: unknown, filter: ColumnFilter): boolean {
+  // Universal operators
+  if (filter.operator === 'isNull') return cellValue === null || cellValue === undefined;
+  if (filter.operator === 'isNotNull') return cellValue !== null && cellValue !== undefined;
+
+  // Null values don't match any non-null filter
+  if (cellValue === null || cellValue === undefined) return false;
+
+  // Boolean operators
+  if (filter.operator === 'isTrue') return cellValue === true;
+  if (filter.operator === 'isFalse') return cellValue === false;
+
+  // Numeric operators
+  if (['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'between'].includes(filter.operator)) {
+    const num = typeof cellValue === 'number' ? cellValue : parseFloat(String(cellValue));
+    const target = parseFloat(filter.value);
+    if (isNaN(num) || isNaN(target)) return false;
+
+    switch (filter.operator) {
+      case 'eq': return num === target;
+      case 'neq': return num !== target;
+      case 'gt': return num > target;
+      case 'lt': return num < target;
+      case 'gte': return num >= target;
+      case 'lte': return num <= target;
+      case 'between': {
+        const target2 = parseFloat(filter.value2 ?? '');
+        if (isNaN(target2)) return false;
+        return num >= Math.min(target, target2) && num <= Math.max(target, target2);
+      }
+    }
+  }
+
+  // Text operators
+  const cellStr = formatCellValue(cellValue).toLowerCase();
+  const filterVal = filter.value.toLowerCase();
+
+  switch (filter.operator) {
+    case 'contains': return cellStr.includes(filterVal);
+    case 'equals': return cellStr === filterVal;
+    case 'startsWith': return cellStr.startsWith(filterVal);
+    case 'endsWith': return cellStr.endsWith(filterVal);
+    default: return true;
+  }
+}
+
+function getFilterLabel(filter: ColumnFilter): string {
+  const ops: Record<FilterOperator, string> = {
+    contains: 'contains', equals: '=', startsWith: 'starts with', endsWith: 'ends with',
+    eq: '=', neq: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=', between: 'between',
+    isTrue: 'is true', isFalse: 'is false', isNull: 'is NULL', isNotNull: 'is not NULL',
+  };
+  const op = ops[filter.operator] ?? filter.operator;
+  if (['isNull', 'isNotNull', 'isTrue', 'isFalse'].includes(filter.operator)) {
+    return `${filter.column} ${op}`;
+  }
+  if (filter.operator === 'between') {
+    return `${filter.column} ${op} ${filter.value} and ${filter.value2 ?? ''}`;
+  }
+  return `${filter.column} ${op} "${filter.value}"`;
+}
+
+// ============================================================================
+// Filter Popover Component
+// ============================================================================
+
+interface FilterPopoverProps {
+  column: string;
+  dataType: string;
+  currentFilter: ColumnFilter | null;
+  onApply: (filter: ColumnFilter) => void;
+  onClear: () => void;
+  onClose: () => void;
+}
+
+const FilterPopover = forwardRef<HTMLDivElement, FilterPopoverProps>(function FilterPopover(
+  { column, dataType, currentFilter, onApply, onClear, onClose },
+  ref
+) {
+  const operators = getAvailableOperators(dataType);
+  const [operator, setOperator] = useState<FilterOperator>(currentFilter?.operator ?? operators[0].value);
+  const [value, setValue] = useState(currentFilter?.value ?? '');
+  const [value2, setValue2] = useState(currentFilter?.value2 ?? '');
+
+  const needsValue = !['isNull', 'isNotNull', 'isTrue', 'isFalse'].includes(operator);
+  const needsValue2 = operator === 'between';
+
+  const handleApply = () => {
+    if (needsValue && !value.trim()) return;
+    if (needsValue2 && !value2.trim()) return;
+    onApply({ column, operator, value, value2: needsValue2 ? value2 : undefined });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleApply();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-56 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 p-2 space-y-2"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <select
+        className="w-full px-2 py-1 rounded text-[11px] bg-theme-bg-surface text-theme-text-primary border border-theme-border-primary outline-none"
+        value={operator}
+        onChange={(e) => setOperator(e.target.value as FilterOperator)}
+      >
+        {operators.map((op) => (
+          <option key={op.value} value={op.value}>{op.label}</option>
+        ))}
+      </select>
+
+      {needsValue && (
+        <input
+          type="text"
+          autoFocus
+          className="w-full px-2 py-1 rounded text-[11px] bg-theme-bg-surface text-theme-text-primary border border-theme-border-primary outline-none placeholder:text-theme-text-muted"
+          placeholder="Value..."
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      )}
+
+      {needsValue2 && (
+        <input
+          type="text"
+          className="w-full px-2 py-1 rounded text-[11px] bg-theme-bg-surface text-theme-text-primary border border-theme-border-primary outline-none placeholder:text-theme-text-muted"
+          placeholder="Upper bound..."
+          value={value2}
+          onChange={(e) => setValue2(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      )}
+
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={handleApply}
+          className="flex-1 px-2 py-1 rounded text-[11px] bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+        >
+          Apply
+        </button>
+        {currentFilter && (
+          <button
+            onClick={onClear}
+            className="flex-1 px-2 py-1 rounded text-[11px] bg-theme-bg-hover hover:bg-theme-bg-active text-theme-text-secondary transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
   { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand },
   ref
@@ -160,6 +384,11 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   // Sorting state
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
+
+  // Column filter state
+  const [filters, setFilters] = useState<Map<string, ColumnFilter>>(new Map());
+  const [filterPopoverColumn, setFilterPopoverColumn] = useState<string | null>(null);
+  const filterPopoverRef = useRef<HTMLDivElement>(null);
 
   // Copy feedback state
   const [showCopyFeedback, setShowCopyFeedback] = useState(false);
@@ -195,13 +424,24 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     return results.columns.reduce((sum, col) => sum + (effectiveColumnWidths[col.name] ?? DEFAULT_COLUMN_WIDTH), 0);
   }, [results, effectiveColumnWidths]);
 
-  // Compute sorted rows
+  // Compute filtered rows
+  const filteredRows = useMemo(() => {
+    if (!results || filters.size === 0) return results?.rows ?? [];
+    return results.rows.filter((row) => {
+      for (const filter of filters.values()) {
+        if (!applyFilter(row[filter.column], filter)) return false;
+      }
+      return true;
+    });
+  }, [results, filters]);
+
+  // Compute sorted rows (operates on filteredRows)
   const sortedRows = useMemo(() => {
-    if (!results || !sortColumn || !sortDirection) {
-      return results?.rows ?? [];
+    if (!sortColumn || !sortDirection) {
+      return filteredRows;
     }
 
-    const rows = [...results.rows]; // Copy to avoid mutating original
+    const rows = [...filteredRows]; // Copy to avoid mutating
 
     rows.sort((a, b) => {
       const aVal = a[sortColumn];
@@ -390,7 +630,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   }, [showNewlines, wrapText, results, effectiveColumnWidths, sortedRows]);
 
   const rowVirtualizer = useVirtualizer({
-    count: results?.rows.length ?? 0,
+    count: sortedRows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: getRowHeight,
     overscan: 10,
@@ -404,11 +644,25 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [showNewlines, wrapText, effectiveColumnWidths, results, rowVirtualizer]);
 
-  // Reset sort when results change (new query executed)
+  // Reset sort and filters when results change (new query executed)
   useEffect(() => {
     setSortColumn(null);
     setSortDirection(null);
+    setFilters(new Map());
+    setFilterPopoverColumn(null);
   }, [results]);
+
+  // Close filter popover on outside click
+  useEffect(() => {
+    if (!filterPopoverColumn) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (filterPopoverRef.current && !filterPopoverRef.current.contains(e.target as Node)) {
+        setFilterPopoverColumn(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [filterPopoverColumn]);
 
   const handleCopyToClipboard = useCallback(async () => {
     if (!results) return;
@@ -531,40 +785,140 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, []);
 
-  const handleExportCSV = useCallback(() => {
-    if (!results) return;
+  // Client-side text export for CSV/TSV/JSON/JSON Lines/SQL INSERT/Markdown
+  const generateTextExport = useCallback((format: ExportFormat): { content: string; mimeType: string; ext: string } | null => {
+    if (!results) return null;
 
-    const escapeCSV = (value: string): string => {
-      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    const escapeCSV = (value: string, delimiter: string): string => {
+      if (value.includes(delimiter) || value.includes('"') || value.includes('\n')) {
         return `"${value.replace(/"/g, '""')}"`;
       }
       return value;
     };
 
-    const header = results.columns.map((c) => escapeCSV(c.name)).join(',');
-    const rows = results.rows
-      .map((row) =>
-        results.columns
-          .map((col) => escapeCSV(formatCellValue(row[col.name])))
-          .join(',')
-      )
-      .join('\n');
+    switch (format) {
+      case 'csv':
+      case 'tsv': {
+        const delim = format === 'tsv' ? '\t' : ',';
+        const header = results.columns.map((c) => escapeCSV(c.name, delim)).join(delim);
+        const rows = results.rows
+          .map((row) =>
+            results.columns.map((col) => escapeCSV(formatCellValue(row[col.name]), delim)).join(delim)
+          )
+          .join('\n');
+        return {
+          content: `${header}\n${rows}`,
+          mimeType: format === 'tsv' ? 'text/tab-separated-values;charset=utf-8;' : 'text/csv;charset=utf-8;',
+          ext: format,
+        };
+      }
+      case 'json': {
+        const jsonRows = results.rows.map((row) => {
+          const obj: Record<string, unknown> = {};
+          results.columns.forEach((col) => { obj[col.name] = row[col.name] ?? null; });
+          return obj;
+        });
+        return { content: JSON.stringify(jsonRows, null, 2), mimeType: 'application/json;charset=utf-8;', ext: 'json' };
+      }
+      case 'jsonLines': {
+        const lines = results.rows.map((row) => {
+          const obj: Record<string, unknown> = {};
+          results.columns.forEach((col) => { obj[col.name] = row[col.name] ?? null; });
+          return JSON.stringify(obj);
+        }).join('\n');
+        return { content: lines, mimeType: 'application/x-ndjson;charset=utf-8;', ext: 'jsonl' };
+      }
+      case 'sqlInsert': {
+        const colList = results.columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(', ');
+        const stmts = results.rows.map((row) => {
+          const vals = results.columns.map((col) => {
+            const v = row[col.name];
+            if (v === null || v === undefined) return 'NULL';
+            if (typeof v === 'number') return String(v);
+            if (typeof v === 'boolean') return v ? 'true' : 'false';
+            return `'${String(v).replace(/'/g, "''")}'`;
+          }).join(', ');
+          return `INSERT INTO (${colList}) VALUES (${vals});`;
+        }).join('\n');
+        return { content: stmts, mimeType: 'text/sql;charset=utf-8;', ext: 'sql' };
+      }
+      case 'markdown': {
+        const headers = results.columns.map((c) => c.name);
+        const headerRow = `| ${headers.join(' | ')} |`;
+        const sepRow = `| ${headers.map(() => '---').join(' | ')} |`;
+        const dataRows = results.rows.map((row) => {
+          const vals = results.columns.map((col) => formatCellValue(row[col.name]).replace(/\|/g, '\\|').replace(/\n/g, ' '));
+          return `| ${vals.join(' | ')} |`;
+        }).join('\n');
+        return { content: `${headerRow}\n${sepRow}\n${dataRows}`, mimeType: 'text/markdown;charset=utf-8;', ext: 'md' };
+      }
+      default:
+        return null;
+    }
+  }, [results]);
 
-    const csv = `${header}\n${rows}`;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const handleExportData = useCallback(async (format: ExportFormat) => {
+    if (!results) return;
+
+    if (format === 'xlsx') {
+      // XLSX requires backend — open save dialog, then invoke Tauri command
+      const savePath = await save({
+        defaultPath: `query_results_${Date.now()}.xlsx`,
+        filters: [{ name: 'Excel Files', extensions: ['xlsx'] }],
+      });
+      if (!savePath) return;
+
+      try {
+        await tauri.exportResults({
+          columns: results.columns.map((c) => ({ name: c.name, dataType: c.dataType })),
+          rows: results.rows,
+          filePath: savePath,
+        });
+      } catch (err) {
+        console.error('Failed to export XLSX:', err);
+      }
+      return;
+    }
+
+    // Text formats — client-side blob download
+    const exported = generateTextExport(format);
+    if (!exported) return;
+
+    const blob = new Blob([exported.content], { type: exported.mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `query_results_${Date.now()}.csv`;
+    link.download = `query_results_${Date.now()}.${exported.ext}`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [results]);
+  }, [results, generateTextExport]);
+
+  const handleExportCSV = useCallback(() => {
+    handleExportData('csv');
+  }, [handleExportData]);
+
+  // Export dropdown state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close export menu on outside click
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showExportMenu]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     copyToClipboard: handleCopyToClipboard,
     exportCSV: handleExportCSV,
-  }), [handleCopyToClipboard, handleExportCSV]);
+    exportData: handleExportData,
+  }), [handleCopyToClipboard, handleExportCSV, handleExportData]);
 
   if (isExecuting) {
     return (
@@ -631,7 +985,9 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             </button>
           )}
           <span className="text-xs text-theme-text-secondary">
-            {results.rowCount.toLocaleString()} row{results.rowCount !== 1 ? 's' : ''}
+            {filters.size > 0
+              ? `${filteredRows.length.toLocaleString()} of ${results.rowCount.toLocaleString()} rows`
+              : `${results.rowCount.toLocaleString()} row${results.rowCount !== 1 ? 's' : ''}`}
             {results.hasMore && '+'}
             {executionTime !== null && (
               <span className="text-theme-text-tertiary ml-1.5">({executionTime}ms)</span>
@@ -722,16 +1078,73 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               </>
             )}
           </button>
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
-            title="Export as CSV"
-          >
-            <Download className="w-3 h-3" />
-            CSV
-          </button>
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
+              title="Export results"
+            >
+              <Download className="w-3 h-3" />
+              Export
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 w-40 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 py-1">
+                {([
+                  { format: 'csv' as ExportFormat, label: 'CSV (.csv)' },
+                  { format: 'tsv' as ExportFormat, label: 'TSV (.tsv)' },
+                  { format: 'json' as ExportFormat, label: 'JSON (.json)' },
+                  { format: 'jsonLines' as ExportFormat, label: 'JSON Lines (.jsonl)' },
+                  { format: 'sqlInsert' as ExportFormat, label: 'SQL INSERT (.sql)' },
+                  { format: 'markdown' as ExportFormat, label: 'Markdown (.md)' },
+                  { format: 'xlsx' as ExportFormat, label: 'Excel (.xlsx)' },
+                ]).map(({ format: fmt, label }) => (
+                  <button
+                    key={fmt}
+                    onClick={() => { handleExportData(fmt); setShowExportMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 text-[11px] text-theme-text-secondary hover:bg-theme-bg-hover hover:text-theme-text-primary transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Active filter chips */}
+      {filters.size > 0 && (
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-theme-border-primary flex-shrink-0 flex-wrap">
+          <span className="text-[10px] text-theme-text-muted">Filters:</span>
+          {Array.from(filters.values()).map((filter) => (
+            <span
+              key={filter.column}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-mono"
+            >
+              {getFilterLabel(filter)}
+              <button
+                className="hover:text-blue-300"
+                onClick={() => {
+                  setFilters((prev) => {
+                    const next = new Map(prev);
+                    next.delete(filter.column);
+                    return next;
+                  });
+                }}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            className="text-[10px] text-theme-text-muted hover:text-theme-text-secondary ml-1"
+            onClick={() => setFilters(new Map())}
+          >
+            Clear All
+          </button>
+        </div>
+      )}
 
       {/* Table - scrollable area */}
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -760,6 +1173,22 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                   <div className="flex items-center gap-1.5">
                     <span className="truncate">{col.name}</span>
                     <span className="text-theme-text-tertiary font-normal text-[10px]">{col.dataType}</span>
+                    {/* Filter icon */}
+                    <button
+                      className={cn(
+                        'flex-shrink-0 p-0.5 rounded transition-colors',
+                        filters.has(col.name)
+                          ? 'text-blue-400 opacity-100'
+                          : 'text-theme-text-muted opacity-0 group-hover:opacity-100 hover:text-theme-text-secondary'
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterPopoverColumn(filterPopoverColumn === col.name ? null : col.name);
+                      }}
+                      title="Filter column"
+                    >
+                      <Filter className="w-3 h-3" />
+                    </button>
                     {/* Sort indicator */}
                     {sortColumn === col.name && (
                       <span className="ml-auto flex-shrink-0">
@@ -771,6 +1200,32 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       </span>
                     )}
                   </div>
+                  {/* Filter popover */}
+                  {filterPopoverColumn === col.name && (
+                    <FilterPopover
+                      ref={filterPopoverRef}
+                      column={col.name}
+                      dataType={col.dataType}
+                      currentFilter={filters.get(col.name) ?? null}
+                      onApply={(filter) => {
+                        setFilters((prev) => {
+                          const next = new Map(prev);
+                          next.set(col.name, filter);
+                          return next;
+                        });
+                        setFilterPopoverColumn(null);
+                      }}
+                      onClear={() => {
+                        setFilters((prev) => {
+                          const next = new Map(prev);
+                          next.delete(col.name);
+                          return next;
+                        });
+                        setFilterPopoverColumn(null);
+                      }}
+                      onClose={() => setFilterPopoverColumn(null)}
+                    />
+                  )}
                   {/* Resize handle */}
                   <div
                     className={cn(

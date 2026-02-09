@@ -6,6 +6,7 @@ import { QueryEditor, type QueryEditorRef } from '@/components/editor/QueryEdito
 import { ResultsGrid, ResultsGridRef } from '@/components/results/ResultsGrid';
 import { SaveQueryDialog } from '@/components/dialogs/SaveQueryDialog';
 import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
+import { QueryHistoryPanel } from '@/components/history/QueryHistoryPanel';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useEditorStore } from '@/stores/editorStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -86,6 +87,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showQueryLibrary, setShowQueryLibrary] = useState(true);
   const [isResizingLibrary, setIsResizingLibrary] = useState(false);
+  const [activePanel, setActivePanel] = useState<'saved' | 'history'>('saved');
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Schema metadata for autocomplete
@@ -352,6 +354,13 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     [activeConnectionId, createTabWithContent]
   );
 
+  const handleHistorySelect = useCallback(
+    (sql: string) => {
+      createTabWithContent(activeConnectionId, 'Query', sql, null);
+    },
+    [activeConnectionId, createTabWithContent]
+  );
+
   const libraryResizeStartX = useRef(0);
   const libraryResizeStartWidth = useRef(0);
 
@@ -396,9 +405,30 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
             style={{ width: libraryWidth }}
           >
             <div className="flex items-center justify-between px-2 py-1 border-b border-theme-border-primary">
-              <span className="text-[10px] font-medium text-theme-text-tertiary uppercase tracking-wider">
-                Saved Queries
-              </span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setActivePanel('saved')}
+                  className={cn(
+                    'px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors',
+                    activePanel === 'saved'
+                      ? 'text-theme-text-primary bg-theme-bg-active'
+                      : 'text-theme-text-tertiary hover:text-theme-text-secondary'
+                  )}
+                >
+                  Saved
+                </button>
+                <button
+                  onClick={() => setActivePanel('history')}
+                  className={cn(
+                    'px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors',
+                    activePanel === 'history'
+                      ? 'text-theme-text-primary bg-theme-bg-active'
+                      : 'text-theme-text-tertiary hover:text-theme-text-secondary'
+                  )}
+                >
+                  History
+                </button>
+              </div>
               <button
                 onClick={() => setShowQueryLibrary(false)}
                 className="p-0.5 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
@@ -408,7 +438,11 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
-              <SavedQueriesPanel onQuerySelect={handleQuerySelect} />
+              {activePanel === 'saved' ? (
+                <SavedQueriesPanel onQuerySelect={handleQuerySelect} />
+              ) : (
+                <QueryHistoryPanel connectionId={activeConnectionId ?? undefined} onQuerySelect={handleHistorySelect} />
+              )}
             </div>
             {/* Resize handle */}
             <div

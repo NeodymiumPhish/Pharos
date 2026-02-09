@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Row};
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use tauri::State;
 
@@ -447,34 +447,47 @@ pub async fn import_csv(
 }
 
 // ============================================================================
-// CSV Export
+// Table Export (multi-format)
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExportCsvOptions {
+pub enum ExportFormat {
+    Csv,
+    Tsv,
+    Json,
+    JsonLines,
+    SqlInsert,
+    Markdown,
+    Xlsx,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTableOptions {
     pub schema_name: String,
     pub table_name: String,
     pub columns: Vec<String>,
     pub include_headers: bool,
     pub null_as_empty: bool,
     pub file_path: String,
+    pub format: ExportFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExportCsvResult {
+pub struct ExportTableResult {
     pub success: bool,
     pub rows_exported: u64,
 }
 
-/// Export table data to CSV
+/// Export table data in the specified format
 #[tauri::command]
-pub async fn export_csv(
+pub async fn export_table(
     connection_id: String,
-    options: ExportCsvOptions,
+    options: ExportTableOptions,
     state: State<'_, AppState>,
-) -> Result<ExportCsvResult, String> {
+) -> Result<ExportTableResult, String> {
     let pool = state
         .get_pool(&connection_id)
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
@@ -512,43 +525,216 @@ pub async fn export_csv(
         .await
         .map_err(|e| format!("Failed to query table: {}", e))?;
 
-    // Create output file
-    let file = File::create(&options.file_path)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let rows_exported = rows.len() as u64;
 
-    let mut writer = csv::Writer::from_writer(BufWriter::new(file));
+    match options.format {
+        ExportFormat::Csv | ExportFormat::Tsv => {
+            let file = File::create(&options.file_path)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            let delimiter = match options.format {
+                ExportFormat::Tsv => b'\t',
+                _ => b',',
+            };
+            let mut writer = csv::WriterBuilder::new()
+                .delimiter(delimiter)
+                .from_writer(BufWriter::new(file));
 
-    // Write headers if requested
-    if options.include_headers && !rows.is_empty() {
-        let first_row = &rows[0];
-        let headers: Vec<&str> = first_row.columns()
-            .iter()
-            .map(|col| col.name())
-            .collect();
-        writer.write_record(&headers)
-            .map_err(|e| format!("Failed to write headers: {}", e))?;
+            if options.include_headers && !rows.is_empty() {
+                let headers: Vec<&str> = rows[0].columns().iter().map(|c| c.name()).collect();
+                writer.write_record(&headers).map_err(|e| format!("Failed to write headers: {}", e))?;
+            }
+
+            for row in &rows {
+                let record: Vec<String> = row.columns().iter().enumerate()
+                    .map(|(i, col)| extract_text_value(row, i, &col.type_info().to_string(), options.null_as_empty))
+                    .collect();
+                writer.write_record(&record).map_err(|e| format!("Failed to write row: {}", e))?;
+            }
+            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        }
+        ExportFormat::Json => {
+            let mut json_rows: Vec<serde_json::Map<String, serde_json::Value>> = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let mut obj = serde_json::Map::new();
+                for (i, col) in row.columns().iter().enumerate() {
+                    let type_name = col.type_info().to_string();
+                    let text = extract_text_value(row, i, &type_name, true);
+                    let val = text_to_json_value(&text, &type_name);
+                    obj.insert(col.name().to_string(), val);
+                }
+                json_rows.push(obj);
+            }
+            let json_str = serde_json::to_string_pretty(&json_rows)
+                .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
+            std::fs::write(&options.file_path, json_str)
+                .map_err(|e| format!("Failed to write file: {}", e))?;
+        }
+        ExportFormat::JsonLines => {
+            let file = File::create(&options.file_path)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            let mut writer = BufWriter::new(file);
+            for row in &rows {
+                let mut obj = serde_json::Map::new();
+                for (i, col) in row.columns().iter().enumerate() {
+                    let type_name = col.type_info().to_string();
+                    let text = extract_text_value(row, i, &type_name, true);
+                    let val = text_to_json_value(&text, &type_name);
+                    obj.insert(col.name().to_string(), val);
+                }
+                let line = serde_json::to_string(&serde_json::Value::Object(obj))
+                    .map_err(|e| format!("Failed to serialize row: {}", e))?;
+                writeln!(writer, "{}", line).map_err(|e| format!("Failed to write line: {}", e))?;
+            }
+            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        }
+        ExportFormat::SqlInsert => {
+            let file = File::create(&options.file_path)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            let mut writer = BufWriter::new(file);
+            if !rows.is_empty() {
+                let col_names: Vec<String> = rows[0].columns().iter()
+                    .map(|c| format!("\"{}\"", escape_identifier(c.name())))
+                    .collect();
+                let col_list = col_names.join(", ");
+
+                for row in &rows {
+                    let values: Vec<String> = row.columns().iter().enumerate()
+                        .map(|(i, col)| {
+                            let type_name = col.type_info().to_string();
+                            let text = extract_text_value(row, i, &type_name, false);
+                            if text == "NULL" {
+                                "NULL".to_string()
+                            } else {
+                                format_sql_value(&text, &type_name)
+                            }
+                        })
+                        .collect();
+                    writeln!(
+                        writer,
+                        "INSERT INTO \"{}\".\"{}\" ({}) VALUES ({});",
+                        escape_identifier(&options.schema_name),
+                        escape_identifier(&options.table_name),
+                        col_list,
+                        values.join(", ")
+                    ).map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        }
+        ExportFormat::Markdown => {
+            let file = File::create(&options.file_path)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            let mut writer = BufWriter::new(file);
+            if !rows.is_empty() {
+                let headers: Vec<&str> = rows[0].columns().iter().map(|c| c.name()).collect();
+                // Header row
+                writeln!(writer, "| {} |", headers.join(" | "))
+                    .map_err(|e| format!("Failed to write: {}", e))?;
+                // Separator row
+                let sep: Vec<&str> = headers.iter().map(|_| "---").collect();
+                writeln!(writer, "| {} |", sep.join(" | "))
+                    .map_err(|e| format!("Failed to write: {}", e))?;
+                // Data rows
+                for row in &rows {
+                    let values: Vec<String> = row.columns().iter().enumerate()
+                        .map(|(i, col)| {
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), options.null_as_empty);
+                            // Escape pipes in markdown
+                            text.replace('|', "\\|")
+                        })
+                        .collect();
+                    writeln!(writer, "| {} |", values.join(" | "))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+        }
+        ExportFormat::Xlsx => {
+            let mut workbook = rust_xlsxwriter::Workbook::new();
+            let worksheet = workbook.add_worksheet();
+
+            if !rows.is_empty() {
+                // Write headers
+                if options.include_headers {
+                    for (col_idx, col) in rows[0].columns().iter().enumerate() {
+                        worksheet.write_string(0, col_idx as u16, col.name())
+                            .map_err(|e| format!("Failed to write header: {}", e))?;
+                    }
+                }
+
+                let header_offset = if options.include_headers { 1u32 } else { 0u32 };
+                for (row_idx, row) in rows.iter().enumerate() {
+                    for (col_idx, col) in row.columns().iter().enumerate() {
+                        let type_name = col.type_info().to_string();
+                        write_xlsx_cell(worksheet, (row_idx as u32) + header_offset, col_idx as u16, row, col_idx, &type_name, options.null_as_empty)
+                            .map_err(|e| format!("Failed to write cell: {}", e))?;
+                    }
+                }
+            }
+
+            workbook.save(&options.file_path)
+                .map_err(|e| format!("Failed to save XLSX: {}", e))?;
+        }
+    }
+
+    Ok(ExportTableResult {
+        success: true,
+        rows_exported,
+    })
+}
+
+// ============================================================================
+// Query Results Export (for XLSX from in-memory data)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResultsColumn {
+    pub name: String,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResultsOptions {
+    pub columns: Vec<ExportResultsColumn>,
+    pub rows: Vec<serde_json::Value>,
+    pub file_path: String,
+}
+
+/// Export in-memory query results to XLSX
+#[tauri::command]
+pub async fn export_results(
+    options: ExportResultsOptions,
+) -> Result<ExportTableResult, String> {
+    validate_file_path(&options.file_path)?;
+
+    let mut workbook = rust_xlsxwriter::Workbook::new();
+    let worksheet = workbook.add_worksheet();
+
+    // Write headers
+    for (col_idx, col) in options.columns.iter().enumerate() {
+        worksheet.write_string(0, col_idx as u16, &col.name)
+            .map_err(|e| format!("Failed to write header: {}", e))?;
     }
 
     // Write data rows
-    let mut rows_exported: u64 = 0;
-    for row in &rows {
-        let mut record: Vec<String> = Vec::with_capacity(row.columns().len());
-
-        for (i, col) in row.columns().iter().enumerate() {
-            let type_name = col.type_info().to_string();
-            let value = extract_csv_value(row, i, &type_name, options.null_as_empty);
-            record.push(value);
+    for (row_idx, row) in options.rows.iter().enumerate() {
+        if let Some(obj) = row.as_object() {
+            for (col_idx, col) in options.columns.iter().enumerate() {
+                let cell_value = obj.get(&col.name);
+                write_xlsx_json_cell(worksheet, (row_idx as u32) + 1, col_idx as u16, cell_value, &col.data_type)
+                    .map_err(|e| format!("Failed to write cell: {}", e))?;
+            }
         }
-
-        writer.write_record(&record)
-            .map_err(|e| format!("Failed to write row: {}", e))?;
-        rows_exported += 1;
     }
 
-    writer.flush()
-        .map_err(|e| format!("Failed to flush writer: {}", e))?;
+    let rows_exported = options.rows.len() as u64;
 
-    Ok(ExportCsvResult {
+    workbook.save(&options.file_path)
+        .map_err(|e| format!("Failed to save XLSX: {}", e))?;
+
+    Ok(ExportTableResult {
         success: true,
         rows_exported,
     })
@@ -590,8 +776,8 @@ fn escape_identifier(name: &str) -> String {
     name.replace('"', "\"\"")
 }
 
-/// Extract a value from a row as a CSV-friendly string
-fn extract_csv_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str, null_as_empty: bool) -> String {
+/// Extract a value from a row as a text string (used by all text-based export formats)
+fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str, null_as_empty: bool) -> String {
     let upper_type = type_name.to_uppercase();
 
     // Helper for NULL handling
@@ -707,4 +893,148 @@ fn extract_csv_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str,
     }
 
     null_string()
+}
+
+/// Convert a text value to a typed JSON value based on the PostgreSQL type
+fn text_to_json_value(text: &str, type_name: &str) -> serde_json::Value {
+    if text.is_empty() {
+        return serde_json::Value::Null;
+    }
+    let upper = type_name.to_uppercase();
+    match upper.as_str() {
+        "INT2" | "SMALLINT" | "INT4" | "INTEGER" | "SERIAL" | "INT8" | "BIGINT" | "BIGSERIAL" => {
+            if let Ok(n) = text.parse::<i64>() {
+                return serde_json::Value::Number(serde_json::Number::from(n));
+            }
+        }
+        "FLOAT4" | "REAL" | "FLOAT8" | "DOUBLE PRECISION" | "NUMERIC" | "DECIMAL" => {
+            if let Ok(n) = text.parse::<f64>() {
+                if let Some(num) = serde_json::Number::from_f64(n) {
+                    return serde_json::Value::Number(num);
+                }
+            }
+        }
+        "BOOL" | "BOOLEAN" => {
+            return serde_json::Value::Bool(text == "true");
+        }
+        "JSON" | "JSONB" => {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+                return v;
+            }
+        }
+        _ => {}
+    }
+    serde_json::Value::String(text.to_string())
+}
+
+/// Format a text value as a SQL literal
+fn format_sql_value(text: &str, type_name: &str) -> String {
+    let upper = type_name.to_uppercase();
+    match upper.as_str() {
+        "INT2" | "SMALLINT" | "INT4" | "INTEGER" | "SERIAL" | "INT8" | "BIGINT" | "BIGSERIAL"
+        | "FLOAT4" | "REAL" | "FLOAT8" | "DOUBLE PRECISION" | "NUMERIC" | "DECIMAL" => {
+            text.to_string()
+        }
+        "BOOL" | "BOOLEAN" => {
+            text.to_string()
+        }
+        _ => {
+            // Escape single quotes for SQL string literals
+            format!("'{}'", text.replace('\'', "''"))
+        }
+    }
+}
+
+/// Write a typed cell value from a PgRow to an XLSX worksheet
+fn write_xlsx_cell(
+    worksheet: &mut rust_xlsxwriter::Worksheet,
+    row: u32,
+    col: u16,
+    pg_row: &sqlx::postgres::PgRow,
+    index: usize,
+    type_name: &str,
+    null_as_empty: bool,
+) -> Result<(), String> {
+    let upper = type_name.to_uppercase();
+
+    match upper.as_str() {
+        "INT2" | "SMALLINT" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<i16>, _>(index) {
+                worksheet.write_number(row, col, v as f64).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "INT4" | "INTEGER" | "SERIAL" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<i32>, _>(index) {
+                worksheet.write_number(row, col, v as f64).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "INT8" | "BIGINT" | "BIGSERIAL" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<i64>, _>(index) {
+                worksheet.write_number(row, col, v as f64).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "FLOAT4" | "REAL" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<f32>, _>(index) {
+                worksheet.write_number(row, col, v as f64).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "FLOAT8" | "DOUBLE PRECISION" | "NUMERIC" | "DECIMAL" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<f64>, _>(index) {
+                worksheet.write_number(row, col, v).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "BOOL" | "BOOLEAN" => {
+            if let Ok(Some(v)) = pg_row.try_get::<Option<bool>, _>(index) {
+                worksheet.write_boolean(row, col, v).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
+    // Fallback: write as text
+    let text = extract_text_value(pg_row, index, type_name, null_as_empty);
+    if text == "NULL" && !null_as_empty {
+        // Leave cell empty for NULL values in XLSX
+        return Ok(());
+    }
+    worksheet.write_string(row, col, &text).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Write a JSON value to an XLSX cell (for export_results command)
+fn write_xlsx_json_cell(
+    worksheet: &mut rust_xlsxwriter::Worksheet,
+    row: u32,
+    col: u16,
+    value: Option<&serde_json::Value>,
+    _data_type: &str,
+) -> Result<(), String> {
+    match value {
+        None | Some(serde_json::Value::Null) => {
+            // Leave cell empty
+            Ok(())
+        }
+        Some(serde_json::Value::Bool(b)) => {
+            worksheet.write_boolean(row, col, *b).map(|_| ()).map_err(|e| e.to_string())
+        }
+        Some(serde_json::Value::Number(n)) => {
+            if let Some(f) = n.as_f64() {
+                worksheet.write_number(row, col, f).map(|_| ()).map_err(|e| e.to_string())
+            } else {
+                worksheet.write_string(row, col, &n.to_string()).map(|_| ()).map_err(|e| e.to_string())
+            }
+        }
+        Some(serde_json::Value::String(s)) => {
+            worksheet.write_string(row, col, s).map(|_| ()).map_err(|e| e.to_string())
+        }
+        Some(v) => {
+            worksheet.write_string(row, col, &v.to_string()).map(|_| ()).map_err(|e| e.to_string())
+        }
+    }
 }
