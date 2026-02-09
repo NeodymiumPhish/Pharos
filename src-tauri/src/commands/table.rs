@@ -702,6 +702,25 @@ pub struct ExportResultsOptions {
     pub file_path: String,
 }
 
+/// Write text content to a file (for client-side text export formats)
+#[tauri::command]
+pub async fn write_text_export(
+    file_path: String,
+    content: String,
+) -> Result<(), String> {
+    validate_file_path(&file_path)?;
+
+    let file = File::create(&file_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut writer = BufWriter::new(file);
+    writer.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+    writer.flush()
+        .map_err(|e| format!("Failed to flush file: {}", e))?;
+
+    Ok(())
+}
+
 /// Export in-memory query results to XLSX
 #[tauri::command]
 pub async fn export_results(

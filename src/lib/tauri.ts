@@ -15,6 +15,7 @@ import type {
   ExportTableResult,
   ExportResultsOptions,
   QueryHistoryEntry,
+  QueryHistoryResultData,
 } from './types';
 
 // Connection commands
@@ -212,6 +213,10 @@ export async function exportResults(
   return invoke('export_results', { options });
 }
 
+export async function writeTextExport(filePath: string, content: string): Promise<void> {
+  return invoke('write_text_export', { filePath, content });
+}
+
 // Query history commands
 export async function loadQueryHistory(
   connectionId?: string,
@@ -233,4 +238,8 @@ export async function deleteQueryHistoryEntry(entryId: string): Promise<boolean>
 
 export async function clearQueryHistory(): Promise<void> {
   return invoke('clear_query_history');
+}
+
+export async function getQueryHistoryResult(entryId: string): Promise<QueryHistoryResultData | null> {
+  return invoke('get_query_history_result', { entryId });
 }

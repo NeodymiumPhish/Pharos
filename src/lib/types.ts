@@ -251,6 +251,12 @@ export interface QueryHistoryEntry {
   rowCount: number | null;
   executionTimeMs: number;
   executedAt: string; // ISO 8601
+  hasResults: boolean;
+}
+
+export interface QueryHistoryResultData {
+  columns: { name: string; data_type: string }[];
+  rows: Record<string, unknown>[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

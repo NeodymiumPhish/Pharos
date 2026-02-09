@@ -149,7 +149,7 @@ pub async fn execute_query(
         })
         .collect();
 
-    // Auto-save to query history (fire-and-forget)
+    // Auto-save to query history with cached results (fire-and-forget)
     {
         let connection_name = state
             .get_config(&connection_id)
@@ -163,9 +163,29 @@ pub async fn execute_query(
             row_count: Some(row_limit as i64),
             execution_time_ms: execution_time_ms as i64,
             executed_at: chrono::Utc::now().to_rfc3339(),
+            has_results: false, // Set by DB on load
         };
+
+        // Serialize results for caching (skip if too large)
+        let result_data = if !json_rows.is_empty() {
+            let columns_json = serde_json::to_string(&columns).unwrap_or_default();
+            let rows_json = serde_json::to_string(&json_rows).unwrap_or_default();
+            if columns_json.len() + rows_json.len() < 5_000_000 {
+                Some((columns_json, rows_json))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history(&db, &entry) {
+            if let Err(e) = sqlite::save_query_history(
+                &db,
+                &entry,
+                result_data.as_ref().map(|(c, _)| c.as_str()),
+                result_data.as_ref().map(|(_, r)| r.as_str()),
+            ) {
                 log::warn!("Failed to save query history: {}", e);
             }
         }
@@ -653,7 +673,7 @@ pub async fn execute_statement(
 
     let rows_affected = result.rows_affected();
 
-    // Auto-save to query history (fire-and-forget)
+    // Auto-save to query history (fire-and-forget, no results for statements)
     {
         let connection_name = state
             .get_config(&connection_id)
@@ -667,9 +687,10 @@ pub async fn execute_statement(
             row_count: Some(rows_affected as i64),
             execution_time_ms: execution_time_ms as i64,
             executed_at: chrono::Utc::now().to_rfc3339(),
+            has_results: false,
         };
         if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history(&db, &entry) {
+            if let Err(e) = sqlite::save_query_history(&db, &entry, None, None) {
                 log::warn!("Failed to save query history: {}", e);
             }
         }
