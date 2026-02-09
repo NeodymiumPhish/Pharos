@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 use tauri::State;
 
+use crate::db::sqlite;
+use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +148,28 @@ pub async fn execute_query(
             serde_json::Value::Object(map)
         })
         .collect();
+
+    // Auto-save to query history (fire-and-forget)
+    {
+        let connection_name = state
+            .get_config(&connection_id)
+            .map(|c| c.name)
+            .unwrap_or_else(|| connection_id.clone());
+        let entry = QueryHistoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            connection_id: connection_id.clone(),
+            connection_name,
+            sql: sql.clone(),
+            row_count: Some(row_limit as i64),
+            execution_time_ms: execution_time_ms as i64,
+            executed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        if let Ok(db) = state.metadata_db.lock() {
+            if let Err(e) = sqlite::save_query_history(&db, &entry) {
+                log::warn!("Failed to save query history: {}", e);
+            }
+        }
+    }
 
     Ok(QueryResult {
         columns,
@@ -627,8 +651,32 @@ pub async fn execute_statement(
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
+    let rows_affected = result.rows_affected();
+
+    // Auto-save to query history (fire-and-forget)
+    {
+        let connection_name = state
+            .get_config(&connection_id)
+            .map(|c| c.name)
+            .unwrap_or_else(|| connection_id.clone());
+        let entry = QueryHistoryEntry {
+            id: uuid::Uuid::new_v4().to_string(),
+            connection_id: connection_id.clone(),
+            connection_name,
+            sql: sql.clone(),
+            row_count: Some(rows_affected as i64),
+            execution_time_ms: execution_time_ms as i64,
+            executed_at: chrono::Utc::now().to_rfc3339(),
+        };
+        if let Ok(db) = state.metadata_db.lock() {
+            if let Err(e) = sqlite::save_query_history(&db, &entry) {
+                log::warn!("Failed to save query history: {}", e);
+            }
+        }
+    }
+
     Ok(ExecuteResult {
-        rows_affected: result.rows_affected(),
+        rows_affected,
         execution_time_ms,
     })
 }

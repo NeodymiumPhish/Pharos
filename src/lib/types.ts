@@ -214,18 +214,43 @@ export interface ImportCsvResult {
   rowsImported: number;
 }
 
-export interface ExportCsvOptions {
+export type ExportFormat = 'csv' | 'tsv' | 'json' | 'jsonLines' | 'sqlInsert' | 'markdown' | 'xlsx';
+
+export interface ExportTableOptions {
   schemaName: string;
   tableName: string;
   columns: string[];
   includeHeaders: boolean;
   nullAsEmpty: boolean;
   filePath: string;
+  format: ExportFormat;
 }
 
-export interface ExportCsvResult {
+export interface ExportTableResult {
   success: boolean;
   rowsExported: number;
+}
+
+export interface ExportResultsColumn {
+  name: string;
+  dataType: string;
+}
+
+export interface ExportResultsOptions {
+  columns: ExportResultsColumn[];
+  rows: Record<string, unknown>[];
+  filePath: string;
+}
+
+// Query history types
+export interface QueryHistoryEntry {
+  id: string;
+  connectionId: string;
+  connectionName: string;
+  sql: string;
+  rowCount: number | null;
+  executionTimeMs: number;
+  executedAt: string; // ISO 8601
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

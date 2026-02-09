@@ -11,8 +11,10 @@ import type {
   CsvValidationResult,
   ImportCsvOptions,
   ImportCsvResult,
-  ExportCsvOptions,
-  ExportCsvResult,
+  ExportTableOptions,
+  ExportTableResult,
+  ExportResultsOptions,
+  QueryHistoryEntry,
 } from './types';
 
 // Connection commands
@@ -197,9 +199,38 @@ export async function importCsv(
   return invoke('import_csv', { connectionId, options });
 }
 
-export async function exportCsv(
+export async function exportTable(
   connectionId: string,
-  options: ExportCsvOptions
-): Promise<ExportCsvResult> {
-  return invoke('export_csv', { connectionId, options });
+  options: ExportTableOptions
+): Promise<ExportTableResult> {
+  return invoke('export_table', { connectionId, options });
+}
+
+export async function exportResults(
+  options: ExportResultsOptions
+): Promise<ExportTableResult> {
+  return invoke('export_results', { options });
+}
+
+// Query history commands
+export async function loadQueryHistory(
+  connectionId?: string,
+  search?: string,
+  limit?: number,
+  offset?: number
+): Promise<QueryHistoryEntry[]> {
+  return invoke('load_query_history', {
+    connectionId: connectionId ?? null,
+    search: search ?? null,
+    limit: limit ?? null,
+    offset: offset ?? null,
+  });
+}
+
+export async function deleteQueryHistoryEntry(entryId: string): Promise<boolean> {
+  return invoke('delete_query_history_entry', { entryId });
+}
+
+export async function clearQueryHistory(): Promise<void> {
+  return invoke('clear_query_history');
 }

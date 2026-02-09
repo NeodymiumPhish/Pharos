@@ -179,7 +179,12 @@ pub fn run() {
             commands::clone_table,
             commands::validate_csv_for_import,
             commands::import_csv,
-            commands::export_csv,
+            commands::export_table,
+            commands::export_results,
+            // Query history commands
+            commands::load_query_history,
+            commands::delete_query_history_entry,
+            commands::clear_query_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

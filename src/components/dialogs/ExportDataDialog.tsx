@@ -3,7 +3,17 @@ import { X, Download, Loader2, CheckSquare, Square } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import * as tauri from '@/lib/tauri';
-import type { ColumnInfo } from '@/lib/types';
+import type { ColumnInfo, ExportFormat } from '@/lib/types';
+
+const FORMAT_OPTIONS: { value: ExportFormat; label: string; ext: string; filterName: string }[] = [
+  { value: 'csv', label: 'CSV', ext: 'csv', filterName: 'CSV Files' },
+  { value: 'tsv', label: 'TSV', ext: 'tsv', filterName: 'TSV Files' },
+  { value: 'json', label: 'JSON', ext: 'json', filterName: 'JSON Files' },
+  { value: 'jsonLines', label: 'JSON Lines', ext: 'jsonl', filterName: 'JSON Lines Files' },
+  { value: 'sqlInsert', label: 'SQL INSERT', ext: 'sql', filterName: 'SQL Files' },
+  { value: 'markdown', label: 'Markdown', ext: 'md', filterName: 'Markdown Files' },
+  { value: 'xlsx', label: 'Excel (XLSX)', ext: 'xlsx', filterName: 'Excel Files' },
+];
 
 interface ExportDataDialogProps {
   isOpen: boolean;
@@ -24,6 +34,7 @@ export function ExportDataDialog({
 }: ExportDataDialogProps) {
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+  const [format, setFormat] = useState<ExportFormat>('csv');
   const [includeHeaders, setIncludeHeaders] = useState(true);
   const [nullAsEmpty, setNullAsEmpty] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -78,10 +89,12 @@ export function ExportDataDialog({
       return;
     }
 
+    const formatOpt = FORMAT_OPTIONS.find(f => f.value === format)!;
+
     // Open save dialog
     const savePath = await save({
-      defaultPath: `${table}.csv`,
-      filters: [{ name: 'CSV Files', extensions: ['csv'] }],
+      defaultPath: `${table}.${formatOpt.ext}`,
+      filters: [{ name: formatOpt.filterName, extensions: [formatOpt.ext] }],
     });
 
     if (!savePath) return;
@@ -90,13 +103,14 @@ export function ExportDataDialog({
     setResult(null);
 
     try {
-      const exportResult = await tauri.exportCsv(connectionId, {
+      const exportResult = await tauri.exportTable(connectionId, {
         schemaName: schema,
         tableName: table,
         columns: Array.from(selectedColumns),
         includeHeaders,
         nullAsEmpty,
         filePath: savePath,
+        format,
       });
 
       if (exportResult.success) {
@@ -118,12 +132,15 @@ export function ExportDataDialog({
     } finally {
       setIsExporting(false);
     }
-  }, [connectionId, schema, table, selectedColumns, includeHeaders, nullAsEmpty, onClose]);
+  }, [connectionId, schema, table, selectedColumns, includeHeaders, nullAsEmpty, format, onClose]);
 
   if (!isOpen) return null;
 
   const allSelected = selectedColumns.size === columns.length;
   const noneSelected = selectedColumns.size === 0;
+
+  // Headers don't apply to JSON/SQL INSERT formats
+  const showHeadersOption = !['json', 'jsonLines', 'sqlInsert'].includes(format);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -153,6 +170,27 @@ export function ExportDataDialog({
             Export from: <span className="font-mono text-theme-text-primary">{schema}.{table}</span>
             {type === 'view' && <span className="ml-2 text-cyan-400">(view)</span>}
             {type === 'foreign-table' && <span className="ml-2 text-orange-400">(foreign table)</span>}
+          </div>
+
+          {/* Format selector */}
+          <div>
+            <label className="text-sm text-theme-text-secondary mb-1.5 block">Format</label>
+            <div className="flex flex-wrap gap-1.5">
+              {FORMAT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setFormat(opt.value)}
+                  className={cn(
+                    'px-2.5 py-1 rounded text-xs font-medium transition-colors',
+                    format === opt.value
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-theme-bg-surface text-theme-text-secondary hover:bg-theme-bg-hover border border-theme-border-primary'
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Column selection */}
@@ -208,15 +246,17 @@ export function ExportDataDialog({
 
           {/* Export options */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeHeaders}
-                onChange={(e) => setIncludeHeaders(e.target.checked)}
-                className="w-4 h-4 rounded"
-              />
-              <span className="text-sm text-theme-text-secondary">Include headers</span>
-            </label>
+            {showHeadersOption && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeHeaders}
+                  onChange={(e) => setIncludeHeaders(e.target.checked)}
+                  className="w-4 h-4 rounded"
+                />
+                <span className="text-sm text-theme-text-secondary">Include headers</span>
+              </label>
+            )}
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
