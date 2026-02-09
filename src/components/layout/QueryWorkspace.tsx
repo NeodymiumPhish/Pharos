@@ -88,6 +88,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const [showQueryLibrary, setShowQueryLibrary] = useState(true);
   const [isResizingLibrary, setIsResizingLibrary] = useState(false);
   const [activePanel, setActivePanel] = useState<'saved' | 'history'>('saved');
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Schema metadata for autocomplete
@@ -300,6 +301,37 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const handleExportCSV = useCallback(() => {
     resultsRef.current?.exportCSV();
   }, []);
+
+  const handleLoadMore = useCallback(async () => {
+    // Use displayTab (which may be pinned) to get the current results
+    const tab = displayTab;
+    if (!tab?.results || !tab.connectionId || !tab.results.hasMore || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const limit = settings.query.defaultLimit;
+      const currentRows = tab.results.rows;
+      const result = await tauri.fetchMoreRows(
+        tab.connectionId,
+        tab.sql,
+        limit,
+        currentRows.length,
+        selectedSchema
+      );
+
+      // Merge new rows into existing results
+      setTabResults(tab.id, {
+        columns: tab.results.columns,
+        rows: [...currentRows, ...result.rows as Record<string, unknown>[]],
+        rowCount: currentRows.length + result.row_count,
+        hasMore: result.has_more,
+      }, tab.executionTime);
+    } catch (err) {
+      console.error('Failed to load more rows:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [displayTab, selectedSchema, settings.query.defaultLimit, isLoadingMore, setTabResults]);
 
   const handleFormat = useCallback(() => {
     queryEditorRef.current?.formatDocument();
@@ -641,6 +673,8 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           onUnpin={unpinResults}
           isExpanded={isResultsExpanded}
           onToggleExpand={onToggleResultsExpand}
+          onLoadMore={handleLoadMore}
+          isLoadingMore={isLoadingMore}
         />
       </div>
 

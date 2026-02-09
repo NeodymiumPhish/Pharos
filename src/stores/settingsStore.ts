@@ -28,7 +28,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isLoaded: false,
 
   setSettings: (settings) => {
-    set({ settings, isLoaded: true });
+    // Deep-merge with defaults so newly added fields get their default values
+    const merged: AppSettings = {
+      ...DEFAULT_SETTINGS,
+      ...settings,
+      editor: { ...DEFAULT_SETTINGS.editor, ...settings.editor },
+      query: { ...DEFAULT_SETTINGS.query, ...settings.query },
+      ui: { ...DEFAULT_SETTINGS.ui, ...settings.ui },
+      keyboard: {
+        ...DEFAULT_SETTINGS.keyboard,
+        ...settings.keyboard,
+        shortcuts: { ...DEFAULT_SETTINGS.keyboard.shortcuts, ...settings.keyboard?.shortcuts },
+      },
+    };
+    set({ settings: merged, isLoaded: true });
   },
 
   updateTheme: (theme) => {

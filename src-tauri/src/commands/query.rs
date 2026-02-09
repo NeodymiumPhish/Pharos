@@ -651,6 +651,114 @@ fn extract_array_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &st
     serde_json::Value::Null
 }
 
+/// Fetch more rows from an already-executed query using LIMIT/OFFSET
+#[tauri::command]
+pub async fn fetch_more_rows(
+    connection_id: String,
+    sql: String,
+    limit: i64,
+    offset: i64,
+    schema: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<QueryResult, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let start = Instant::now();
+
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    // Set search_path if schema is specified
+    if let Some(ref schema_name) = schema {
+        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err("Invalid schema name".to_string());
+        }
+        if schema_name.is_empty() || schema_name.len() > 63 {
+            return Err("Invalid schema name: must be 1-63 characters".to_string());
+        }
+        let escaped_schema = schema_name.replace('"', "\"\"");
+        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
+        sqlx::query(&set_schema_sql)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| format!("Failed to set schema: {}", e))?;
+    }
+
+    // Wrap the original SQL with LIMIT/OFFSET
+    let wrapped_sql = format!(
+        "SELECT * FROM ({}) AS _pharos_paginated LIMIT {} OFFSET {}",
+        sql.trim().trim_end_matches(';'),
+        limit + 1,
+        offset
+    );
+
+    let mut stream = sqlx::query(&wrapped_sql).fetch(&mut *conn);
+    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::with_capacity((limit + 1) as usize);
+
+    while let Some(row_result) = stream.next().await {
+        match row_result {
+            Ok(row) => {
+                rows.push(row);
+                if rows.len() > limit as usize {
+                    break;
+                }
+            }
+            Err(e) => {
+                drop(stream);
+                return Err(e.to_string());
+            }
+        }
+    }
+    drop(stream);
+
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+
+    if rows.is_empty() {
+        return Ok(QueryResult {
+            columns: vec![],
+            rows: vec![],
+            row_count: 0,
+            execution_time_ms,
+            has_more: false,
+        });
+    }
+
+    let first_row = &rows[0];
+    let columns: Vec<ColumnDef> = first_row
+        .columns()
+        .iter()
+        .map(|col| ColumnDef {
+            name: col.name().to_string(),
+            data_type: col.type_info().to_string(),
+        })
+        .collect();
+
+    let has_more = rows.len() > limit as usize;
+    let row_limit = std::cmp::min(rows.len(), limit as usize);
+
+    let json_rows: Vec<serde_json::Value> = rows
+        .into_iter()
+        .take(row_limit)
+        .map(|row| {
+            let mut map = serde_json::Map::new();
+            for (i, col) in columns.iter().enumerate() {
+                let value = extract_value(&row, i, &col.data_type);
+                map.insert(col.name.clone(), value);
+            }
+            serde_json::Value::Object(map)
+        })
+        .collect();
+
+    Ok(QueryResult {
+        columns,
+        rows: json_rows,
+        row_count: row_limit,
+        execution_time_ms,
+        has_more,
+    })
+}
+
 /// Execute a statement that doesn't return rows (INSERT, UPDATE, DELETE, etc.)
 #[tauri::command]
 pub async fn execute_statement(

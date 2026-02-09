@@ -9,6 +9,9 @@ import {
   Key,
   Type,
   Globe,
+  ListTree,
+  Link,
+  FunctionSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { TreeNode, TreeNodeType } from '@/lib/types';
@@ -19,6 +22,14 @@ function formatRowCount(count: number | null | undefined): string | null {
   if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}K`;
   if (count < 1_000_000_000) return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}M`;
   return `${(count / 1_000_000_000).toFixed(1)}B`;
+}
+
+function formatBytes(bytes: number | null | undefined): string | null {
+  if (bytes == null || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 interface SchemaTreeProps {
@@ -39,6 +50,13 @@ const iconMap: Record<TreeNodeType, React.ComponentType<{ className?: string }>>
   view: Eye,
   'foreign-table': Globe,
   column: Type,
+  indexes: Folder,
+  index: ListTree,
+  constraints: Folder,
+  constraint: Link,
+  functions: Folder,
+  function: FunctionSquare,
+  procedure: FunctionSquare,
 };
 
 function TreeNodeIcon({ type, isPrimaryKey }: { type: TreeNodeType; isPrimaryKey?: boolean }) {
@@ -58,6 +76,12 @@ function TreeNodeIcon({ type, isPrimaryKey }: { type: TreeNodeType; isPrimaryKey
       ? 'text-cyan-400'
       : type === 'foreign-table'
       ? 'text-orange-400'
+      : type === 'index'
+      ? 'text-blue-400'
+      : type === 'constraint'
+      ? 'text-amber-400'
+      : type === 'function' || type === 'procedure'
+      ? 'text-pink-400'
       : 'text-neutral-400';
 
   return <Icon className={cn('w-3.5 h-3.5', colorClass)} />;
@@ -73,7 +97,7 @@ interface TreeNodeRowProps {
 
 function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNodeRowProps) {
   const hasChildren = node.children && node.children.length > 0;
-  const canExpand = hasChildren || ['database', 'schema', 'tables', 'views', 'table', 'foreign-table'].includes(node.type);
+  const canExpand = hasChildren || ['database', 'schema', 'tables', 'views', 'table', 'foreign-table', 'indexes', 'constraints', 'functions'].includes(node.type);
 
   const handleClick = () => {
     if (canExpand) {
@@ -83,8 +107,7 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    // Only show context menu for tables, views, and foreign tables
-    if (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') {
+    if (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table' || node.type === 'column') {
       e.preventDefault();
       onContextMenu(node, e.clientX, e.clientY);
     }
@@ -136,7 +159,50 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
         node.metadata?.rowCountEstimate != null &&
         formatRowCount(node.metadata.rowCountEstimate) && (
         <span className="text-[10px] text-theme-text-muted font-mono" title={`~${node.metadata.rowCountEstimate.toLocaleString()} rows (estimate)`}>
-          {formatRowCount(node.metadata.rowCountEstimate)}
+          ~{formatRowCount(node.metadata.rowCountEstimate)}
+        </span>
+      )}
+
+      {/* Table size badge */}
+      {(node.type === 'table' || node.type === 'foreign-table') &&
+        node.metadata?.totalSizeBytes != null &&
+        formatBytes(node.metadata.totalSizeBytes) && (
+        <span className="text-[10px] text-theme-text-tertiary font-mono" title={`${node.metadata.totalSizeBytes.toLocaleString()} bytes`}>
+          {formatBytes(node.metadata.totalSizeBytes)}
+        </span>
+      )}
+
+      {/* Index type badge */}
+      {node.type === 'index' && node.metadata?.indexType && (
+        <span className="text-[10px] text-theme-text-tertiary font-mono">
+          {node.metadata.indexType}
+          {node.metadata.isUnique && !node.metadata.isPrimaryKey && (
+            <span className="text-cyan-400 ml-1">UQ</span>
+          )}
+        </span>
+      )}
+
+      {/* Constraint type badge */}
+      {node.type === 'constraint' && node.metadata?.constraintType && (
+        <span className={cn('text-[10px] font-mono',
+          node.metadata.constraintType === 'PRIMARY KEY' ? 'text-amber-400' :
+          node.metadata.constraintType === 'FOREIGN KEY' ? 'text-orange-400' :
+          node.metadata.constraintType === 'UNIQUE' ? 'text-cyan-400' :
+          node.metadata.constraintType === 'CHECK' ? 'text-emerald-400' :
+          'text-theme-text-tertiary'
+        )}>
+          {node.metadata.constraintType === 'PRIMARY KEY' ? 'PK' :
+           node.metadata.constraintType === 'FOREIGN KEY' ? 'FK' :
+           node.metadata.constraintType === 'UNIQUE' ? 'UQ' :
+           node.metadata.constraintType === 'CHECK' ? 'CK' :
+           node.metadata.constraintType}
+        </span>
+      )}
+
+      {/* Function return type and language badge */}
+      {(node.type === 'function' || node.type === 'procedure') && node.metadata?.returnType && (
+        <span className="text-[10px] text-theme-text-tertiary font-mono truncate max-w-[80px]" title={`→ ${node.metadata.returnType} (${node.metadata.language})`}>
+          → {node.metadata.returnType}
         </span>
       )}
     </div>

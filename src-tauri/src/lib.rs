@@ -161,9 +161,13 @@ pub fn run() {
             commands::get_tables,
             commands::get_columns,
             commands::analyze_schema,
+            commands::get_table_indexes,
+            commands::get_table_constraints,
+            commands::get_schema_functions,
             // Query commands
             commands::execute_query,
             commands::execute_statement,
+            commands::fetch_more_rows,
             commands::cancel_query,
             commands::validate_sql,
             // Saved query commands

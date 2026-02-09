@@ -1,9 +1,10 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Hash, Columns3 } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import * as tauri from '@/lib/tauri';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { ExportFormat } from '@/lib/types';
 import type { QueryResults } from '@/stores/editorStore';
 
@@ -19,6 +20,8 @@ interface ResultsGridProps {
   onUnpin?: () => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
 }
 
 // Cell selection as a rectangular range
@@ -43,6 +46,21 @@ const DEFAULT_COLUMN_WIDTH = 150;
 const CHAR_WIDTH = 7.5; // Approximate width of a monospace character
 const COLUMN_PADDING = 32; // px for padding on both sides
 const SAMPLE_ROWS = 100; // Number of rows to sample for width calculation
+const ROW_NUMBER_WIDTH = 50; // Width of the row number column
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)}s`;
+  const totalSeconds = ms / 1000;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (ms < 3_600_000) {
+    return seconds >= 0.5 ? `${minutes}m ${seconds.toFixed(1)}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
 
 function formatCellValue(value: unknown): string {
   if (value === null) {
@@ -367,7 +385,7 @@ const FilterPopover = forwardRef<HTMLDivElement, FilterPopoverProps>(function Fi
 });
 
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
-  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand },
+  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand, onLoadMore, isLoadingMore },
   ref
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -392,6 +410,17 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
   // Copy feedback state
   const [showCopyFeedback, setShowCopyFeedback] = useState(false);
+
+  // Row numbering state
+  const [showRowNumbers, setShowRowNumbers] = useState(true);
+
+  // Column visibility state
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const columnPickerRef = useRef<HTMLDivElement>(null);
+
+  // Settings
+  const zebraStriping = useSettingsStore((state) => state.settings.ui.zebraStriping);
 
   // Calculate initial column widths based on content
   const initialColumnWidths = useMemo(() => {
@@ -418,11 +447,18 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     return widths;
   }, [results, columnWidths, initialColumnWidths]);
 
+  // Visible columns (excluding hidden ones)
+  const visibleColumns = useMemo(() => {
+    if (!results) return [];
+    return results.columns.filter((c) => !hiddenColumns.has(c.name));
+  }, [results, hiddenColumns]);
+
   // Calculate total table width
   const totalTableWidth = useMemo(() => {
     if (!results) return 0;
-    return results.columns.reduce((sum, col) => sum + (effectiveColumnWidths[col.name] ?? DEFAULT_COLUMN_WIDTH), 0);
-  }, [results, effectiveColumnWidths]);
+    const dataWidth = visibleColumns.reduce((sum, col) => sum + (effectiveColumnWidths[col.name] ?? DEFAULT_COLUMN_WIDTH), 0);
+    return dataWidth + (showRowNumbers ? ROW_NUMBER_WIDTH : 0);
+  }, [results, visibleColumns, effectiveColumnWidths, showRowNumbers]);
 
   // Compute filtered rows
   const filteredRows = useMemo(() => {
@@ -471,6 +507,53 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     return rows;
   }, [results, sortColumn, sortDirection]);
+
+  // Compute aggregates for selected cells
+  const aggregates = useMemo(() => {
+    if (!selection || !results) return null;
+
+    const minRow = Math.min(selection.startRow, selection.endRow);
+    const maxRow = Math.max(selection.startRow, selection.endRow);
+    const minCol = Math.min(selection.startCol, selection.endCol);
+    const maxCol = Math.max(selection.startCol, selection.endCol);
+
+    // Map selection column indices to visible columns
+    const selectedCols = visibleColumns.slice(minCol, maxCol + 1);
+    const selectedRows = sortedRows.slice(minRow, maxRow + 1);
+
+    let count = 0;
+    let numericCount = 0;
+    let sum = 0;
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const row of selectedRows) {
+      for (const col of selectedCols) {
+        const val = row[col.name];
+        if (val !== null && val !== undefined) {
+          count++;
+          const num = typeof val === 'number' ? val : parseFloat(String(val));
+          if (!isNaN(num)) {
+            numericCount++;
+            sum += num;
+            if (num < min) min = num;
+            if (num > max) max = num;
+          }
+        }
+      }
+    }
+
+    if (count === 0) return null;
+
+    return {
+      count,
+      numericCount,
+      sum: numericCount > 0 ? sum : null,
+      avg: numericCount > 0 ? sum / numericCount : null,
+      min: numericCount > 0 ? min : null,
+      max: numericCount > 0 ? max : null,
+    };
+  }, [selection, results, sortedRows, visibleColumns]);
 
   // Handle column resize
   const handleColumnResizeStart = useCallback((e: React.MouseEvent, columnName: string) => {
@@ -644,12 +727,13 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [showNewlines, wrapText, effectiveColumnWidths, results, rowVirtualizer]);
 
-  // Reset sort and filters when results change (new query executed)
+  // Reset sort, filters, and column visibility when results change (new query executed)
   useEffect(() => {
     setSortColumn(null);
     setSortDirection(null);
     setFilters(new Map());
     setFilterPopoverColumn(null);
+    setHiddenColumns(new Set());
   }, [results]);
 
   // Close filter popover on outside click
@@ -663,6 +747,18 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [filterPopoverColumn]);
+
+  // Close column picker on outside click
+  useEffect(() => {
+    if (!showColumnPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnPickerRef.current && !columnPickerRef.current.contains(e.target as Node)) {
+        setShowColumnPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showColumnPicker]);
 
   const handleCopyToClipboard = useCallback(async () => {
     if (!results) return;
@@ -691,12 +787,12 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     const minCol = Math.min(selection.startCol, selection.endCol);
     const maxCol = Math.max(selection.startCol, selection.endCol);
 
-    // Get selected columns
-    const selectedColumns = results.columns.slice(minCol, maxCol + 1);
+    // Get selected columns (from visible columns, which is what the user sees)
+    const selectedColumns = visibleColumns.slice(minCol, maxCol + 1);
     const isSingleColumn = minCol === maxCol;
 
-    // Data rows
-    const rows = results.rows.slice(minRow, maxRow + 1).map(row =>
+    // Data rows (from sortedRows which respects filter/sort)
+    const rows = sortedRows.slice(minRow, maxRow + 1).map(row =>
       selectedColumns.map(col => formatCellValue(row[col.name])).join('\t')
     ).join('\n');
 
@@ -971,7 +1067,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       <div className="h-full flex flex-col">
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-theme-border-primary">
           <span className="text-xs text-theme-text-tertiary">
-            0 rows {executionTime !== null && `(${executionTime}ms)`}
+            0 rows {executionTime !== null && `(${formatDuration(executionTime)})`}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center text-theme-text-muted text-xs">
@@ -1001,7 +1097,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               : `${results.rowCount.toLocaleString()} row${results.rowCount !== 1 ? 's' : ''}`}
             {results.hasMore && '+'}
             {executionTime !== null && (
-              <span className="text-theme-text-tertiary ml-1.5">({executionTime}ms)</span>
+              <span className="text-theme-text-tertiary ml-1.5">({formatDuration(executionTime)})</span>
             )}
           </span>
           {isPinned && pinnedTabName && (
@@ -1041,6 +1137,80 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               Pin
             </button>
           ) : null}
+          <button
+            onClick={() => setShowRowNumbers(!showRowNumbers)}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+              showRowNumbers
+                ? 'text-theme-text-primary bg-theme-bg-active'
+                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+            )}
+            title={showRowNumbers ? 'Hide row numbers' : 'Show row numbers'}
+          >
+            <Hash className="w-3 h-3" />
+            Rows
+          </button>
+          <div className="relative" ref={columnPickerRef}>
+            <button
+              onClick={() => setShowColumnPicker(!showColumnPicker)}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+                hiddenColumns.size > 0
+                  ? 'text-blue-400 bg-blue-500/10'
+                  : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+              )}
+              title="Toggle column visibility"
+            >
+              <Columns3 className="w-3 h-3" />
+              Columns
+              {hiddenColumns.size > 0 && (
+                <span className="text-[9px] bg-blue-500/20 px-1 rounded">{visibleColumns.length}/{results.columns.length}</span>
+              )}
+            </button>
+            {showColumnPicker && (
+              <div className="absolute right-0 top-full mt-1 w-52 max-h-64 overflow-y-auto rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 py-1">
+                <div className="flex items-center justify-between px-3 py-1 border-b border-theme-border-primary">
+                  <button
+                    className="text-[10px] text-blue-400 hover:text-blue-300"
+                    onClick={() => setHiddenColumns(new Set())}
+                  >
+                    Show All
+                  </button>
+                  <button
+                    className="text-[10px] text-theme-text-muted hover:text-theme-text-secondary"
+                    onClick={() => setHiddenColumns(new Set(results.columns.map((c) => c.name)))}
+                  >
+                    Hide All
+                  </button>
+                </div>
+                {results.columns.map((col) => (
+                  <label
+                    key={col.name}
+                    className="flex items-center gap-2 px-3 py-1 text-[11px] text-theme-text-secondary hover:bg-theme-bg-hover cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!hiddenColumns.has(col.name)}
+                      onChange={() => {
+                        setHiddenColumns((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(col.name)) {
+                            next.delete(col.name);
+                          } else {
+                            next.add(col.name);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="rounded border-theme-border-primary"
+                    />
+                    <span className="truncate">{col.name}</span>
+                    <span className="text-[9px] text-theme-text-tertiary font-mono ml-auto">{col.dataType}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setWrapText(!wrapText)}
             className={cn(
@@ -1168,7 +1338,16 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               style={{ width: totalTableWidth }}
               onClick={() => handleHeaderClick()}
             >
-              {results.columns.map((col) => (
+              {/* Row number header */}
+              {showRowNumbers && (
+                <div
+                  className="px-2 py-1 text-center text-[11px] font-medium text-theme-text-tertiary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 select-none"
+                  style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH }}
+                >
+                  #
+                </div>
+              )}
+              {visibleColumns.map((col) => (
                 <div
                   key={col.name}
                   className={cn(
@@ -1265,7 +1444,10 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                 return (
                   <div
                     key={virtualRow.key}
-                    className="flex hover:bg-theme-bg-hover"
+                    className={cn(
+                      'flex hover:bg-theme-bg-hover',
+                      zebraStriping && virtualRow.index % 2 === 1 && 'bg-theme-bg-hover'
+                    )}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -1275,7 +1457,16 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    {results.columns.map((col, colIndex) => (
+                    {/* Row number cell */}
+                    {showRowNumbers && (
+                      <div
+                        className="px-1 py-0.5 text-[11px] font-mono text-theme-text-muted border-b border-r border-theme-border-primary flex-shrink-0 text-right select-none"
+                        style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH }}
+                      >
+                        {virtualRow.index + 1}
+                      </div>
+                    )}
+                    {visibleColumns.map((col, colIndex) => (
                       <div
                         key={col.name}
                         className={cn(
@@ -1297,9 +1488,43 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                 );
               })}
             </div>
+
+            {/* Load More bar */}
+            {results.hasMore && (
+              <div className="flex items-center justify-center py-3 border-b border-theme-border-primary">
+                {isLoadingMore ? (
+                  <div className="flex items-center gap-2 text-xs text-theme-text-muted">
+                    <div className="w-3 h-3 border-2 border-theme-text-muted border-t-theme-text-secondary rounded-full animate-spin" />
+                    Loading more rows...
+                  </div>
+                ) : (
+                  <button
+                    onClick={onLoadMore}
+                    className="px-4 py-1.5 rounded text-[11px] text-theme-text-secondary bg-theme-bg-hover hover:bg-theme-bg-active transition-colors"
+                  >
+                    Load more rows
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Aggregate footer */}
+      {aggregates && (
+        <div className="flex items-center gap-4 px-3 py-1 border-t border-theme-border-primary flex-shrink-0 text-[11px] text-theme-text-muted font-mono">
+          <span>Count: {aggregates.count.toLocaleString()}</span>
+          {aggregates.sum !== null && (
+            <>
+              <span>Sum: {aggregates.sum.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Avg: {aggregates.avg!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Min: {aggregates.min!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Max: {aggregates.max!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 });

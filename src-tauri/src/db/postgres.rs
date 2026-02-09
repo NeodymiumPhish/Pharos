@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, SchemaInfo, TableInfo, TableType};
 
 /// Build a connection string with proper URL encoding and SSL mode
 fn build_connection_string(config: &ConnectionConfig) -> String {
@@ -153,7 +153,8 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 WHEN 'f' THEN 'FOREIGN TABLE'
                 ELSE 'BASE TABLE'
             END as table_type,
-            CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE NULL END as row_estimate
+            CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE NULL END as row_estimate,
+            CASE WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END as total_size_bytes
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1
@@ -185,6 +186,7 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                     _ => TableType::Table,
                 },
                 row_count_estimate: row.try_get("row_estimate").ok(),
+                total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
             }
         })
         .collect();
@@ -244,4 +246,175 @@ pub async fn get_columns(
         .collect();
 
     Ok(columns)
+}
+
+/// Get indexes for a table
+pub async fn get_table_indexes(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Vec<IndexInfo>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            i.relname AS index_name,
+            am.amname AS index_type,
+            ix.indisunique AS is_unique,
+            ix.indisprimary AS is_primary,
+            pg_relation_size(i.oid) AS size_bytes,
+            ARRAY(
+                SELECT a.attname
+                FROM unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+                ORDER BY k.ord
+            ) AS columns
+        FROM pg_index ix
+        JOIN pg_class t ON t.oid = ix.indrelid
+        JOIN pg_class i ON i.oid = ix.indexrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_am am ON am.oid = i.relam
+        WHERE n.nspname = $1 AND t.relname = $2
+        ORDER BY ix.indisprimary DESC, i.relname
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table_name)
+    .fetch_all(pool)
+    .await?;
+
+    let indexes = rows
+        .into_iter()
+        .map(|row| IndexInfo {
+            name: row.get("index_name"),
+            columns: row.get("columns"),
+            is_unique: row.get("is_unique"),
+            is_primary: row.get("is_primary"),
+            index_type: row.get("index_type"),
+            size_bytes: row.try_get("size_bytes").ok(),
+        })
+        .collect();
+
+    Ok(indexes)
+}
+
+/// Get constraints for a table
+pub async fn get_table_constraints(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Vec<ConstraintInfo>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            con.conname AS constraint_name,
+            CASE con.contype
+                WHEN 'p' THEN 'PRIMARY KEY'
+                WHEN 'f' THEN 'FOREIGN KEY'
+                WHEN 'u' THEN 'UNIQUE'
+                WHEN 'c' THEN 'CHECK'
+                WHEN 'x' THEN 'EXCLUSION'
+                ELSE 'OTHER'
+            END AS constraint_type,
+            ARRAY(
+                SELECT a.attname
+                FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
+                ORDER BY k.ord
+            ) AS columns,
+            CASE WHEN con.contype = 'f' THEN
+                (SELECT n2.nspname || '.' || c2.relname
+                 FROM pg_class c2
+                 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
+                 WHERE c2.oid = con.confrelid)
+            ELSE NULL END AS referenced_table,
+            CASE WHEN con.contype = 'f' THEN
+                ARRAY(
+                    SELECT a.attname
+                    FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
+                    JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum
+                    ORDER BY k.ord
+                )
+            ELSE NULL END AS referenced_columns,
+            CASE WHEN con.contype = 'c' THEN
+                pg_get_constraintdef(con.oid)
+            ELSE NULL END AS check_clause
+        FROM pg_constraint con
+        JOIN pg_class t ON t.oid = con.conrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = $1 AND t.relname = $2
+        ORDER BY
+            CASE con.contype
+                WHEN 'p' THEN 1
+                WHEN 'u' THEN 2
+                WHEN 'f' THEN 3
+                WHEN 'c' THEN 4
+                ELSE 5
+            END,
+            con.conname
+        "#,
+    )
+    .bind(schema_name)
+    .bind(table_name)
+    .fetch_all(pool)
+    .await?;
+
+    let constraints = rows
+        .into_iter()
+        .map(|row| ConstraintInfo {
+            name: row.get("constraint_name"),
+            constraint_type: row.get("constraint_type"),
+            columns: row.get("columns"),
+            referenced_table: row.try_get("referenced_table").ok().flatten(),
+            referenced_columns: row.try_get("referenced_columns").ok().flatten(),
+            check_clause: row.try_get("check_clause").ok().flatten(),
+        })
+        .collect();
+
+    Ok(constraints)
+}
+
+/// Get functions and procedures in a schema
+pub async fn get_schema_functions(
+    pool: &PgPool,
+    schema_name: &str,
+) -> Result<Vec<FunctionInfo>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            p.proname AS func_name,
+            n.nspname AS schema_name,
+            pg_catalog.format_type(p.prorettype, NULL) AS return_type,
+            pg_catalog.pg_get_function_arguments(p.oid) AS argument_types,
+            CASE p.prokind
+                WHEN 'f' THEN 'function'
+                WHEN 'p' THEN 'procedure'
+                WHEN 'a' THEN 'aggregate'
+                WHEN 'w' THEN 'window'
+                ELSE 'function'
+            END AS function_type,
+            l.lanname AS language
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+        WHERE n.nspname = $1 AND p.prokind IN ('f', 'p')
+        ORDER BY p.proname
+        "#,
+    )
+    .bind(schema_name)
+    .fetch_all(pool)
+    .await?;
+
+    let functions = rows
+        .into_iter()
+        .map(|row| FunctionInfo {
+            name: row.get("func_name"),
+            schema_name: row.get("schema_name"),
+            return_type: row.get("return_type"),
+            argument_types: row.get("argument_types"),
+            function_type: row.get("function_type"),
+            language: row.get("language"),
+        })
+        .collect();
+
+    Ok(functions)
 }
