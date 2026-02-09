@@ -13,6 +13,14 @@ import {
 import { cn } from '@/lib/cn';
 import type { TreeNode, TreeNodeType } from '@/lib/types';
 
+function formatRowCount(count: number | null | undefined): string | null {
+  if (count == null || count < 0) return null;
+  if (count < 1000) return `${count}`;
+  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}K`;
+  if (count < 1_000_000_000) return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}M`;
+  return `${(count / 1_000_000_000).toFixed(1)}B`;
+}
+
 interface SchemaTreeProps {
   nodes: TreeNode[];
   onNodeExpand?: (node: TreeNode) => void;
@@ -114,6 +122,22 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
       {/* Data type badge for columns */}
       {node.type === 'column' && node.metadata?.dataType && (
         <span className="text-[10px] text-theme-text-tertiary font-mono">{node.metadata.dataType}</span>
+      )}
+
+      {/* Row count estimate badge for tables/views */}
+      {(node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') &&
+        node.metadata?.rowCountUnavailable && (
+        <span className="text-[10px] text-theme-text-tertiary font-mono italic" title="Row count unavailable (insufficient privileges to analyze)">
+          N/A
+        </span>
+      )}
+      {(node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') &&
+        !node.metadata?.rowCountUnavailable &&
+        node.metadata?.rowCountEstimate != null &&
+        formatRowCount(node.metadata.rowCountEstimate) && (
+        <span className="text-[10px] text-theme-text-muted font-mono" title={`~${node.metadata.rowCountEstimate.toLocaleString()} rows (estimate)`}>
+          {formatRowCount(node.metadata.rowCountEstimate)}
+        </span>
       )}
     </div>
   );

@@ -1,8 +1,9 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::models::{ColumnInfo, ConnectionConfig, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, SchemaInfo, TableInfo, TableType};
 
 /// Build a connection string with proper URL encoding and SSL mode
 fn build_connection_string(config: &ConnectionConfig) -> String {
@@ -81,6 +82,62 @@ pub async fn get_schemas(pool: &PgPool) -> Result<Vec<SchemaInfo>, sqlx::Error> 
     Ok(schemas)
 }
 
+/// Analyze tables in a schema that have never been analyzed (reltuples = -1).
+/// Returns which tables were attempted and which had permission errors.
+/// Tables in `skip_denied` are known to be permission-denied from a previous
+/// attempt in this session and are excluded from re-analysis.
+pub async fn analyze_schema(
+    pool: &PgPool,
+    schema_name: &str,
+    skip_denied: &HashSet<String>,
+) -> Result<AnalyzeResult, sqlx::Error> {
+    let unanalyzed: Vec<String> = sqlx::query(
+        r#"
+        SELECT c.relname as table_name
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1
+          AND c.relkind = 'r'
+          AND c.reltuples = -1
+        "#,
+    )
+    .bind(schema_name)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| row.get::<String, _>("table_name"))
+    .collect();
+
+    let had_unanalyzed = !unanalyzed.is_empty();
+    let mut permission_denied_tables = Vec::new();
+
+    for table_name in &unanalyzed {
+        // Skip tables already known to be permission-denied this session
+        if skip_denied.contains(table_name) {
+            permission_denied_tables.push(table_name.clone());
+            continue;
+        }
+
+        let analyze_sql = format!(
+            "ANALYZE \"{}\".\"{}\"",
+            schema_name.replace('"', "\"\""),
+            table_name.replace('"', "\"\"")
+        );
+        if let Err(e) = sqlx::query(&analyze_sql).execute(pool).await {
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("permission denied") || msg.contains("only table or database owner can analyze") {
+                permission_denied_tables.push(table_name.clone());
+            }
+            // Other errors (e.g., unreachable foreign servers) are silently ignored
+        }
+    }
+
+    Ok(AnalyzeResult {
+        had_unanalyzed,
+        permission_denied_tables,
+    })
+}
+
 /// Get all tables and views in a schema
 pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
     // Use pg_catalog directly to get all relation types including foreign tables
@@ -96,7 +153,7 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 WHEN 'f' THEN 'FOREIGN TABLE'
                 ELSE 'BASE TABLE'
             END as table_type,
-            COALESCE(c.reltuples::bigint, 0) as row_estimate
+            CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE NULL END as row_estimate
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1

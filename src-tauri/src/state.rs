@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,6 +31,11 @@ pub struct AppState {
 
     /// In-memory cache of passwords (loaded once from keychain at startup)
     pub password_cache: Mutex<HashMap<String, String>>,
+
+    /// Tables where ANALYZE was denied due to insufficient privileges.
+    /// Keyed by connection_id -> schema_name -> set of table names.
+    /// Cleared on disconnect so permissions are re-checked on reconnect.
+    pub analyze_denied: Mutex<HashMap<String, HashMap<String, HashSet<String>>>>,
 }
 
 impl AppState {
@@ -41,6 +46,7 @@ impl AppState {
             metadata_db: Mutex::new(metadata_db),
             running_queries: Mutex::new(HashMap::new()),
             password_cache: Mutex::new(HashMap::new()),
+            analyze_denied: Mutex::new(HashMap::new()),
         }
     }
 
@@ -120,6 +126,35 @@ impl AppState {
     pub fn get_query_backend_pid(&self, query_id: &str) -> Option<i32> {
         let queries = self.running_queries.lock().unwrap();
         queries.get(query_id).map(|q| q.backend_pid)
+    }
+
+    /// Get the set of tables denied ANALYZE for a connection+schema
+    pub fn get_analyze_denied(&self, connection_id: &str, schema_name: &str) -> HashSet<String> {
+        let cache = self.analyze_denied.lock().unwrap();
+        cache
+            .get(connection_id)
+            .and_then(|schemas| schemas.get(schema_name))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Record tables that were denied ANALYZE
+    pub fn add_analyze_denied(&self, connection_id: &str, schema_name: &str, tables: &[String]) {
+        if tables.is_empty() {
+            return;
+        }
+        let mut cache = self.analyze_denied.lock().unwrap();
+        let schemas = cache.entry(connection_id.to_string()).or_default();
+        let denied = schemas.entry(schema_name.to_string()).or_default();
+        for table in tables {
+            denied.insert(table.clone());
+        }
+    }
+
+    /// Clear analyze-denied cache for a connection (called on disconnect)
+    pub fn clear_analyze_denied(&self, connection_id: &str) {
+        let mut cache = self.analyze_denied.lock().unwrap();
+        cache.remove(connection_id);
     }
 
     /// Mark a query as cancelled

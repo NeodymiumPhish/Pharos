@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
-import { Play, Trash2, Square, Loader2, Save, PanelLeftClose, PanelLeft, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, Trash2, Square, Loader2, Save, PanelLeftClose, PanelLeft, CheckCircle2, XCircle, WandSparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { QueryTabs } from '@/components/editor/QueryTabs';
-import { QueryEditor } from '@/components/editor/QueryEditor';
+import { QueryEditor, type QueryEditorRef } from '@/components/editor/QueryEditor';
 import { ResultsGrid, ResultsGridRef } from '@/components/results/ResultsGrid';
 import { SaveQueryDialog } from '@/components/dialogs/SaveQueryDialog';
 import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
@@ -81,6 +81,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
 
   const [closedTabs, setClosedTabs] = useState<Array<{ name: string; sql: string }>>([]);
   const resultsRef = useRef<ResultsGridRef>(null);
+  const queryEditorRef = useRef<QueryEditorRef>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showQueryLibrary, setShowQueryLibrary] = useState(true);
@@ -298,6 +299,10 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     resultsRef.current?.exportCSV();
   }, []);
 
+  const handleFormat = useCallback(() => {
+    queryEditorRef.current?.formatDocument();
+  }, []);
+
   // Memoize handlers to prevent re-creating on every render
   const shortcutHandlers = useMemo(
     () => ({
@@ -478,6 +483,14 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
               >
                 <Save className="w-4 h-4" />
               </button>
+              <button
+                onClick={handleFormat}
+                className="p-2 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
+                disabled={!activeTab?.sql.trim()}
+                title="Format SQL (Shift+Alt+F)"
+              >
+                <WandSparkles className="w-4 h-4" />
+              </button>
             </div>
 
             <div className="text-xs text-theme-text-tertiary flex items-center gap-4">
@@ -528,7 +541,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           {/* Editor pane */}
           <div className="flex-1 bg-theme-bg-surface overflow-hidden">
             {activeTabId ? (
-              <QueryEditor tabId={activeTabId} schemaMetadata={schemaMetadata} />
+              <QueryEditor tabId={activeTabId} schemaMetadata={schemaMetadata} editorRef={queryEditorRef} />
             ) : (
               <div className="h-full flex items-center justify-center text-theme-text-muted text-sm">
                 {isConnected
