@@ -1,6 +1,6 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2 } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { QueryResults } from '@/stores/editorStore';
 
@@ -33,7 +33,8 @@ export interface ResultsGridRef {
 
 // Constants for column width calculation
 const MIN_COLUMN_WIDTH = 60;
-const MAX_COLUMN_WIDTH = 500;
+const MAX_COLUMN_WIDTH = 500; // Used for initial auto-width calculation only
+const AUTO_FIT_MAX_WIDTH = 800; // Maximum width when auto-fitting (double-click)
 const DEFAULT_COLUMN_WIDTH = 150;
 const CHAR_WIDTH = 7.5; // Approximate width of a monospace character
 const COLUMN_PADDING = 32; // px for padding on both sides
@@ -105,6 +106,42 @@ function calculateColumnWidth(
   return Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, maxContentWidth));
 }
 
+// Calculate optimal column width for auto-fit (double-click) - checks all rows
+function calculateAutoFitWidth(
+  columnName: string,
+  dataType: string,
+  rows: Record<string, unknown>[],
+  showNewlines: boolean
+): number {
+  // Start with header width
+  const headerWidth = Math.max(columnName.length, dataType.length) * CHAR_WIDTH + COLUMN_PADDING;
+
+  let maxContentWidth = headerWidth;
+
+  // Check ALL rows for auto-fit (user explicitly requested precision)
+  for (let i = 0; i < rows.length; i++) {
+    const value = formatCellValue(rows[i][columnName]);
+
+    let effectiveLength: number;
+    if (showNewlines) {
+      // When Lines mode is on, use the widest individual line
+      const lines = value.split(/\r?\n/);
+      effectiveLength = lines.reduce((max, line) => Math.max(max, line.length), 0);
+    } else {
+      // When Lines mode is off, line breaks are replaced with "↵ "
+      // Use the widest individual line since that's what determines visual width
+      const lines = value.split(/\r?\n/);
+      effectiveLength = lines.reduce((max, line) => Math.max(max, line.length), 0);
+    }
+
+    const contentWidth = effectiveLength * CHAR_WIDTH + COLUMN_PADDING;
+    maxContentWidth = Math.max(maxContentWidth, contentWidth);
+  }
+
+  // Clamp to min and auto-fit max
+  return Math.max(MIN_COLUMN_WIDTH, Math.min(AUTO_FIT_MAX_WIDTH, maxContentWidth));
+}
+
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
   { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand },
   ref
@@ -119,6 +156,13 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   const [selection, setSelection] = useState<CellSelection | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const justFinishedSelectingRef = useRef(false);
+
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
+
+  // Copy feedback state
+  const [showCopyFeedback, setShowCopyFeedback] = useState(false);
 
   // Calculate initial column widths based on content
   const initialColumnWidths = useMemo(() => {
@@ -151,6 +195,43 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     return results.columns.reduce((sum, col) => sum + (effectiveColumnWidths[col.name] ?? DEFAULT_COLUMN_WIDTH), 0);
   }, [results, effectiveColumnWidths]);
 
+  // Compute sorted rows
+  const sortedRows = useMemo(() => {
+    if (!results || !sortColumn || !sortDirection) {
+      return results?.rows ?? [];
+    }
+
+    const rows = [...results.rows]; // Copy to avoid mutating original
+
+    rows.sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+
+      // Handle nulls - nulls sort to the end regardless of direction
+      if (aVal === null && bVal === null) return 0;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+
+      // Compare based on type
+      let comparison = 0;
+
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        comparison = aVal - bVal;
+      } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+        comparison = (aVal === bVal) ? 0 : (aVal ? 1 : -1);
+      } else {
+        // String comparison for everything else (including dates which are strings from JSON)
+        const aStr = formatCellValue(aVal);
+        const bStr = formatCellValue(bVal);
+        comparison = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      return sortDirection === 'desc' ? -comparison : comparison;
+    });
+
+    return rows;
+  }, [results, sortColumn, sortDirection]);
+
   // Handle column resize
   const handleColumnResizeStart = useCallback((e: React.MouseEvent, columnName: string) => {
     e.preventDefault();
@@ -162,7 +243,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const delta = moveEvent.clientX - startX;
-      const newWidth = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, startWidth + delta));
+      const newWidth = Math.max(MIN_COLUMN_WIDTH, startWidth + delta); // No max constraint - user can resize as wide as they want
       setColumnWidths((prev) => ({
         ...prev,
         [columnName]: newWidth,
@@ -178,6 +259,29 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, [effectiveColumnWidths]);
+
+  // Handle double-click on column resize handle to auto-fit width
+  const handleColumnDoubleClick = useCallback((e: React.MouseEvent, columnName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!results) return;
+
+    const column = results.columns.find(c => c.name === columnName);
+    if (!column) return;
+
+    const autoFitWidth = calculateAutoFitWidth(
+      columnName,
+      column.dataType,
+      results.rows,
+      showNewlines
+    );
+
+    setColumnWidths(prev => ({
+      ...prev,
+      [columnName]: autoFitWidth,
+    }));
+  }, [results, showNewlines]);
 
   // Cell selection handlers
   const handleCellMouseDown = useCallback((rowIndex: number, colIndex: number, e: React.MouseEvent) => {
@@ -242,7 +346,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     // If neither wrap nor newlines is enabled, use fixed height
     if (!showNewlines && !wrapText) return 24;
 
-    const row = results.rows[index];
+    const row = sortedRows[index];
     let maxLines = 1;
 
     for (const col of results.columns) {
@@ -283,7 +387,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     // Base height + additional height per line (approximately 14px per line)
     // Cap at 300px height (roughly 20+ lines)
     return Math.min(24 + (maxLines - 1) * 14, 300);
-  }, [showNewlines, wrapText, results, effectiveColumnWidths]);
+  }, [showNewlines, wrapText, results, effectiveColumnWidths, sortedRows]);
 
   const rowVirtualizer = useVirtualizer({
     count: results?.rows.length ?? 0,
@@ -300,6 +404,12 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [showNewlines, wrapText, effectiveColumnWidths, results, rowVirtualizer]);
 
+  // Reset sort when results change (new query executed)
+  useEffect(() => {
+    setSortColumn(null);
+    setSortDirection(null);
+  }, [results]);
+
   const handleCopyToClipboard = useCallback(async () => {
     if (!results) return;
 
@@ -312,9 +422,13 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     const text = `${header}\n${rows}`;
     await navigator.clipboard.writeText(text);
+
+    // Show copy feedback
+    setShowCopyFeedback(true);
+    setTimeout(() => setShowCopyFeedback(false), 1500);
   }, [results]);
 
-  // Copy only selected cells with their column headers
+  // Copy only selected cells with their column headers (unless single column)
   const handleCopySelection = useCallback(async () => {
     if (!results || !selection) return;
 
@@ -325,16 +439,24 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     // Get selected columns
     const selectedColumns = results.columns.slice(minCol, maxCol + 1);
-
-    // Header row
-    const header = selectedColumns.map(c => c.name).join('\t');
+    const isSingleColumn = minCol === maxCol;
 
     // Data rows
     const rows = results.rows.slice(minRow, maxRow + 1).map(row =>
       selectedColumns.map(col => formatCellValue(row[col.name])).join('\t')
     ).join('\n');
 
-    await navigator.clipboard.writeText(`${header}\n${rows}`);
+    // Skip header for single column selection
+    if (isSingleColumn) {
+      await navigator.clipboard.writeText(rows);
+    } else {
+      const header = selectedColumns.map(c => c.name).join('\t');
+      await navigator.clipboard.writeText(`${header}\n${rows}`);
+    }
+
+    // Show copy feedback
+    setShowCopyFeedback(true);
+    setTimeout(() => setShowCopyFeedback(false), 1500);
   }, [results, selection]);
 
   // Copy button: copy selection if present, otherwise copy all
@@ -366,8 +488,37 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   }, [selection, handleCopySelection]);
 
   // Clear selection when clicking header or empty area
-  const handleHeaderClick = useCallback(() => {
+  // Handle click on column header (for sorting)
+  const handleHeaderClick = useCallback((columnName?: string) => {
+    // If clicking the header area (not a specific column), just clear selection
+    if (!columnName) {
+      setSelection(null);
+      return;
+    }
+
+    // Toggle sort for the clicked column
+    if (sortColumn === columnName) {
+      // Cycle: asc -> desc -> null (original order)
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortColumn(null);
+        setSortDirection(null);
+      }
+    } else {
+      // New column: start with ascending
+      setSortColumn(columnName);
+      setSortDirection('asc');
+    }
+
+    // Also clear cell selection when sorting
     setSelection(null);
+  }, [sortColumn, sortDirection]);
+
+  // Reset sort to original query order
+  const handleResetSort = useCallback(() => {
+    setSortColumn(null);
+    setSortDirection(null);
   }, []);
 
   // Clear selection when clicking empty area in the scroll container
@@ -494,6 +645,16 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           )}
         </div>
         <div className="flex items-center gap-0.5">
+          {sortColumn !== null && (
+            <button
+              onClick={handleResetSort}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+              title="Reset to original query order"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset Sort
+            </button>
+          )}
           {isPinned ? (
             <button
               onClick={onUnpin}
@@ -541,11 +702,25 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           </button>
           <button
             onClick={handleCopyButtonClick}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+              showCopyFeedback
+                ? 'text-green-400 bg-green-500/10'
+                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+            )}
             title={selection ? "Copy selected cells" : "Copy all to clipboard"}
           >
-            <Copy className="w-3 h-3" />
-            {selection ? 'Copy Selection' : 'Copy'}
+            {showCopyFeedback ? (
+              <>
+                <Check className="w-3 h-3" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                {selection ? 'Copy Selection' : 'Copy'}
+              </>
+            )}
           </button>
           <button
             onClick={handleExportCSV}
@@ -567,17 +742,34 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             <div
               className="sticky top-0 z-10 bg-theme-bg-elevated flex border-b border-theme-border-primary"
               style={{ width: totalTableWidth }}
-              onClick={handleHeaderClick}
+              onClick={() => handleHeaderClick()}
             >
               {results.columns.map((col) => (
                 <div
                   key={col.name}
-                  className="relative px-2 py-1 text-left text-[11px] font-medium text-theme-text-secondary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 group cursor-default"
+                  className={cn(
+                    'relative px-2 py-1 text-left text-[11px] font-medium text-theme-text-secondary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 group cursor-pointer select-none',
+                    sortColumn === col.name && 'bg-theme-bg-active'
+                  )}
                   style={{ width: effectiveColumnWidths[col.name], minWidth: effectiveColumnWidths[col.name] }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleHeaderClick(col.name);
+                  }}
                 >
                   <div className="flex items-center gap-1.5">
                     <span className="truncate">{col.name}</span>
                     <span className="text-theme-text-tertiary font-normal text-[10px]">{col.dataType}</span>
+                    {/* Sort indicator */}
+                    {sortColumn === col.name && (
+                      <span className="ml-auto flex-shrink-0">
+                        {sortDirection === 'asc' ? (
+                          <ChevronUp className="w-3 h-3 text-theme-text-secondary" />
+                        ) : (
+                          <ChevronDown className="w-3 h-3 text-theme-text-secondary" />
+                        )}
+                      </span>
+                    )}
                   </div>
                   {/* Resize handle */}
                   <div
@@ -587,6 +779,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       resizingColumn === col.name && 'bg-blue-500'
                     )}
                     onMouseDown={(e) => handleColumnResizeStart(e, col.name)}
+                    onDoubleClick={(e) => handleColumnDoubleClick(e, col.name)}
                   />
                 </div>
               ))}
@@ -602,7 +795,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               onClick={handleContainerClick}
             >
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const row = results.rows[virtualRow.index];
+                const row = sortedRows[virtualRow.index];
                 return (
                   <div
                     key={virtualRow.key}
