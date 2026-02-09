@@ -5,6 +5,9 @@ import type {
   TableInfo,
   ColumnInfo,
   AnalyzeResult,
+  IndexInfo,
+  ConstraintInfo,
+  FunctionInfo,
   AppSettings,
   CloneTableOptions,
   CloneTableResult,
@@ -75,6 +78,18 @@ export async function analyzeSchema(connectionId: string, schemaName: string): P
   return invoke('analyze_schema', { connectionId, schemaName });
 }
 
+export async function getTableIndexes(connectionId: string, schemaName: string, tableName: string): Promise<IndexInfo[]> {
+  return invoke('get_table_indexes', { connectionId, schemaName, tableName });
+}
+
+export async function getTableConstraints(connectionId: string, schemaName: string, tableName: string): Promise<ConstraintInfo[]> {
+  return invoke('get_table_constraints', { connectionId, schemaName, tableName });
+}
+
+export async function getSchemaFunctions(connectionId: string, schemaName: string): Promise<FunctionInfo[]> {
+  return invoke('get_schema_functions', { connectionId, schemaName });
+}
+
 // Query execution commands
 export interface QueryResult {
   columns: { name: string; data_type: string }[];
@@ -97,6 +112,16 @@ export async function executeQuery(
   schema?: string | null
 ): Promise<QueryResult> {
   return invoke('execute_query', { connectionId, sql, queryId, limit, schema });
+}
+
+export async function fetchMoreRows(
+  connectionId: string,
+  sql: string,
+  limit: number,
+  offset: number,
+  schema?: string | null
+): Promise<QueryResult> {
+  return invoke('fetch_more_rows', { connectionId, sql, limit, offset, schema: schema ?? null });
 }
 
 export async function cancelQuery(

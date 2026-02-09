@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye } from 'lucide-react';
+import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye, ClipboardCopy } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -176,6 +176,7 @@ export function DatabaseNavigator({
               schemaName: schema.name,
               tableName: table.name,
               rowCountEstimate: table.rowCountEstimate,
+              totalSizeBytes: table.totalSizeBytes,
             },
           }));
 
@@ -211,12 +212,25 @@ export function DatabaseNavigator({
             },
           }));
 
+        // Build "Functions" folder for this schema (lazy-loaded)
+        const functionsFolder: TreeNode = {
+          id: `${connectionId}-${schema.name}-functions`,
+          label: 'Functions',
+          type: 'functions' as const,
+          isExpanded: false,
+          children: [],
+          metadata: {
+            connectionId,
+            schemaName: schema.name,
+          },
+        };
+
         return {
           id: `${connectionId}-${schema.name}`,
           label: schema.name,
           type: 'schema' as const,
           isExpanded: false,
-          children: [...tableNodes, ...viewNodes, ...foreignTableNodes],
+          children: [...tableNodes, ...viewNodes, ...foreignTableNodes, functionsFolder],
           metadata: {
             connectionId,
             schemaName: schema.name,
@@ -341,7 +355,12 @@ export function DatabaseNavigator({
     const { connectionId, schemaName, tableName } = node.metadata;
 
     try {
-      const columns = await tauri.getColumns(connectionId, schemaName, tableName);
+      // Load columns, indexes, and constraints in parallel
+      const [columns, indexes, constraints] = await Promise.all([
+        tauri.getColumns(connectionId, schemaName, tableName),
+        tauri.getTableIndexes(connectionId, schemaName, tableName),
+        tauri.getTableConstraints(connectionId, schemaName, tableName),
+      ]);
 
       const columnNodes: TreeNode[] = columns.map((col) => ({
         id: `${connectionId}-${schemaName}-${tableName}-${col.name}`,
@@ -350,14 +369,71 @@ export function DatabaseNavigator({
         metadata: {
           dataType: col.dataType,
           isPrimaryKey: col.isPrimaryKey,
+          connectionId,
+          schemaName,
+          tableName,
         },
       }));
+
+      // Build indexes folder
+      const indexNodes: TreeNode[] = indexes.map((idx) => ({
+        id: `${connectionId}-${schemaName}-${tableName}-idx-${idx.name}`,
+        label: `${idx.name} (${idx.columns.join(', ')})`,
+        type: 'index' as const,
+        metadata: {
+          indexType: idx.indexType,
+          isUnique: idx.isUnique,
+          isPrimaryKey: idx.isPrimary,
+          sizeBytes: idx.sizeBytes,
+        },
+      }));
+
+      const indexesFolder: TreeNode | null = indexNodes.length > 0 ? {
+        id: `${connectionId}-${schemaName}-${tableName}-indexes`,
+        label: `Indexes (${indexNodes.length})`,
+        type: 'indexes' as const,
+        isExpanded: false,
+        children: indexNodes,
+        metadata: { connectionId, schemaName, tableName },
+      } : null;
+
+      // Build constraints folder
+      const constraintNodes: TreeNode[] = constraints.map((con) => {
+        let label = con.name;
+        if (con.constraintType === 'FOREIGN KEY' && con.referencedTable) {
+          label = `${con.name} → ${con.referencedTable}`;
+        }
+        return {
+          id: `${connectionId}-${schemaName}-${tableName}-con-${con.name}`,
+          label,
+          type: 'constraint' as const,
+          metadata: {
+            constraintType: con.constraintType,
+            referencedTable: con.referencedTable ?? undefined,
+          },
+        };
+      });
+
+      const constraintsFolder: TreeNode | null = constraintNodes.length > 0 ? {
+        id: `${connectionId}-${schemaName}-${tableName}-constraints`,
+        label: `Constraints (${constraintNodes.length})`,
+        type: 'constraints' as const,
+        isExpanded: false,
+        children: constraintNodes,
+        metadata: { connectionId, schemaName, tableName },
+      } : null;
+
+      const children: TreeNode[] = [
+        ...columnNodes,
+        ...(indexesFolder ? [indexesFolder] : []),
+        ...(constraintsFolder ? [constraintsFolder] : []),
+      ];
 
       setTreeNodes((prev) => {
         const updateChildren = (nodes: TreeNode[]): TreeNode[] => {
           return nodes.map((n) => {
             if (n.id === node.id) {
-              return { ...n, children: columnNodes, isExpanded: true };
+              return { ...n, children, isExpanded: true };
             }
             if (n.children) {
               return { ...n, children: updateChildren(n.children) };
@@ -372,14 +448,64 @@ export function DatabaseNavigator({
     }
   }, []);
 
+  const loadSchemaFunctions = useCallback(async (node: TreeNode) => {
+    if (!node.metadata?.connectionId || !node.metadata?.schemaName) return;
+
+    const { connectionId, schemaName } = node.metadata;
+
+    try {
+      const functions = await tauri.getSchemaFunctions(connectionId, schemaName);
+
+      const functionNodes: TreeNode[] = functions.map((fn) => ({
+        id: `${connectionId}-${schemaName}-fn-${fn.name}-${fn.argumentTypes}`,
+        label: `${fn.name}(${fn.argumentTypes})`,
+        type: (fn.functionType === 'procedure' ? 'procedure' : 'function') as 'function' | 'procedure',
+        metadata: {
+          returnType: fn.returnType,
+          argumentTypes: fn.argumentTypes,
+          language: fn.language,
+          schemaName,
+        },
+      }));
+
+      setTreeNodes((prev) => {
+        const updateChildren = (nodes: TreeNode[]): TreeNode[] => {
+          return nodes.map((n) => {
+            if (n.id === node.id) {
+              return { ...n, children: functionNodes, isExpanded: true };
+            }
+            if (n.children) {
+              return { ...n, children: updateChildren(n.children) };
+            }
+            return n;
+          });
+        };
+        return updateChildren(prev);
+      });
+    } catch (err) {
+      console.error('Failed to load functions:', err);
+    }
+  }, []);
+
   const handleNodeExpand = useCallback(
     async (node: TreeNode) => {
+      // Lazy-load columns, indexes, constraints for tables
       if (
         (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') &&
         node.children?.length === 0 &&
         !node.isExpanded
       ) {
         await loadTableColumns(node);
+        return;
+      }
+
+      // Lazy-load functions
+      if (
+        node.type === 'functions' &&
+        node.children?.length === 0 &&
+        !node.isExpanded
+      ) {
+        await loadSchemaFunctions(node);
         return;
       }
 
@@ -398,7 +524,7 @@ export function DatabaseNavigator({
         return toggleExpand(prev);
       });
     },
-    [loadTableColumns]
+    [loadTableColumns, loadSchemaFunctions]
   );
 
   // Load schema when connected or when refresh trigger changes
@@ -603,6 +729,33 @@ export function DatabaseNavigator({
           className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
+          {/* Column context menu */}
+          {contextMenu.node.type === 'column' && (
+            <>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.node.label);
+                  setContextMenu(null);
+                }}
+              >
+                <ClipboardCopy className="w-4 h-4" />
+                Copy Column Name
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={() => {
+                  const { schemaName, tableName } = contextMenu.node.metadata || {};
+                  const qualified = [schemaName, tableName, contextMenu.node.label].filter(Boolean).join('.');
+                  navigator.clipboard.writeText(qualified);
+                  setContextMenu(null);
+                }}
+              >
+                <Copy className="w-4 h-4" />
+                Copy Qualified Name
+              </button>
+            </>
+          )}
           {/* View rows options for tables, views, and foreign tables */}
           {(contextMenu.node.type === 'table' || contextMenu.node.type === 'view' || contextMenu.node.type === 'foreign-table') && (
             <>
@@ -641,13 +794,15 @@ export function DatabaseNavigator({
               </button>
             </>
           )}
-          <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
-            onClick={handleExportData}
-          >
-            <Download className="w-4 h-4" />
-            Export Data
-          </button>
+          {(contextMenu.node.type === 'table' || contextMenu.node.type === 'view' || contextMenu.node.type === 'foreign-table') && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+              onClick={handleExportData}
+            >
+              <Download className="w-4 h-4" />
+              Export Data
+            </button>
+          )}
         </div>
       )}
 

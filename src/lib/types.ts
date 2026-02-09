@@ -37,6 +37,7 @@ export interface TableInfo {
   tableType: 'table' | 'view' | 'foreign-table';
   columns: ColumnInfo[];
   rowCountEstimate?: number | null;
+  totalSizeBytes?: number | null;
 }
 
 export interface ColumnInfo {
@@ -52,8 +53,42 @@ export interface AnalyzeResult {
   permissionDeniedTables: string[];
 }
 
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  isUnique: boolean;
+  isPrimary: boolean;
+  indexType: string;
+  sizeBytes: number | null;
+}
+
+export interface ConstraintInfo {
+  name: string;
+  constraintType: string;
+  columns: string[];
+  referencedTable: string | null;
+  referencedColumns: string[] | null;
+  checkClause: string | null;
+}
+
+export interface FunctionInfo {
+  name: string;
+  schemaName: string;
+  returnType: string;
+  argumentTypes: string;
+  functionType: string;
+  language: string;
+}
+
 // Tree node types for the navigator
-export type TreeNodeType = 'connection' | 'database' | 'schema' | 'tables' | 'views' | 'table' | 'view' | 'foreign-table' | 'column';
+export type TreeNodeType =
+  | 'connection' | 'database' | 'schema'
+  | 'tables' | 'views'
+  | 'table' | 'view' | 'foreign-table'
+  | 'column'
+  | 'indexes' | 'index'
+  | 'constraints' | 'constraint'
+  | 'functions' | 'function' | 'procedure';
 
 export interface TreeNode {
   id: string;
@@ -70,6 +105,15 @@ export interface TreeNode {
     tableName?: string;
     rowCountEstimate?: number | null;
     rowCountUnavailable?: boolean;
+    totalSizeBytes?: number | null;
+    indexType?: string;
+    isUnique?: boolean;
+    sizeBytes?: number | null;
+    constraintType?: string;
+    referencedTable?: string;
+    returnType?: string;
+    argumentTypes?: string;
+    language?: string;
   };
 }
 
@@ -131,6 +175,7 @@ export interface UISettings {
   resultsPanelHeight: number;
   editorSplitPosition: number; // Percentage (0-100) for editor vs results split
   showEmptySchemas: boolean;
+  zebraStriping: boolean;
 }
 
 // Keyboard shortcuts types
@@ -281,6 +326,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     resultsPanelHeight: 300,
     editorSplitPosition: 40,
     showEmptySchemas: false,
+    zebraStriping: true,
   },
   keyboard: {
     shortcuts: DEFAULT_SHORTCUTS,
