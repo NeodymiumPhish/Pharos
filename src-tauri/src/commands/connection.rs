@@ -182,6 +182,7 @@ pub async fn disconnect_postgres(
     if let Some(pool) = state.remove_pool(&connection_id) {
         pool.close().await;
     }
+    state.clear_analyze_denied(&connection_id);
     Ok(())
 }
 

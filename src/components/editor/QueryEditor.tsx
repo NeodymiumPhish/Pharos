@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type { editor, IDisposable, KeyCode } from 'monaco-editor';
+import { format as formatSql } from 'sql-formatter';
 import { useEditorStore } from '@/stores/editorStore';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -67,9 +68,14 @@ function emitShortcutEvent(shortcutId: string) {
   );
 }
 
+export interface QueryEditorRef {
+  formatDocument: () => void;
+}
+
 interface QueryEditorProps {
   tabId: string;
   schemaMetadata?: SchemaMetadata | null;
+  editorRef?: React.RefObject<QueryEditorRef | null>;
 }
 
 // Custom dark theme for Liquid Glass aesthetic
@@ -163,11 +169,12 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
 // Debounce delay for validation (ms)
 const VALIDATION_DEBOUNCE_MS = 500;
 
-export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
+export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRef }: QueryEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const completionProviderRef = useRef<IDisposable | null>(null);
   const foldingProviderRef = useRef<IDisposable | null>(null);
+  const formattingProviderRef = useRef<IDisposable | null>(null);
   const schemaMetadataRef = useRef<SchemaMetadata | null>(null);
   const validationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabIdRef = useRef(tabId);
@@ -373,6 +380,29 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
         },
       });
 
+      // Register SQL formatting provider
+      formattingProviderRef.current = monaco.languages.registerDocumentFormattingEditProvider('sql', {
+        provideDocumentFormattingEdits(model: editor.ITextModel) {
+          const text = model.getValue();
+          try {
+            const formatted = formatSql(text, {
+              language: 'postgresql',
+              tabWidth: editorSettings.tabSize,
+              useTabs: false,
+              keywordCase: 'upper',
+              dataTypeCase: 'upper',
+              functionCase: 'lower',
+            });
+            return [{
+              range: model.getFullModelRange(),
+              text: formatted,
+            }];
+          } catch {
+            return [];
+          }
+        },
+      });
+
       // Track cursor position - use tabIdRef to always get the current tabId
       editor.onDidChangeCursorPosition((e) => {
         updateCursorPosition(tabIdRef.current, e.position.lineNumber, e.position.column);
@@ -432,6 +462,19 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
     [updateCursorPosition, getEffectiveTheme]
   );
 
+  // Expose format method to parent via ref
+  useEffect(() => {
+    if (externalEditorRef && 'current' in externalEditorRef) {
+      (externalEditorRef as React.MutableRefObject<QueryEditorRef | null>).current = {
+        formatDocument: () => {
+          if (editorRef.current) {
+            editorRef.current.getAction('editor.action.formatDocument')?.run();
+          }
+        },
+      };
+    }
+  }, [externalEditorRef]);
+
   // Update Monaco theme when settings change
   useEffect(() => {
     if (editorRef.current) {
@@ -451,6 +494,9 @@ export function QueryEditor({ tabId, schemaMetadata }: QueryEditorProps) {
       }
       if (foldingProviderRef.current) {
         foldingProviderRef.current.dispose();
+      }
+      if (formattingProviderRef.current) {
+        formattingProviderRef.current.dispose();
       }
       if (validationTimeoutRef.current) {
         clearTimeout(validationTimeoutRef.current);

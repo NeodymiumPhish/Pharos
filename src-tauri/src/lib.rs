@@ -160,6 +160,7 @@ pub fn run() {
             commands::get_schemas,
             commands::get_tables,
             commands::get_columns,
+            commands::analyze_schema,
             // Query commands
             commands::execute_query,
             commands::execute_statement,

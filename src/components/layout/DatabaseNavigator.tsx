@@ -157,73 +157,131 @@ export function DatabaseNavigator({
     }
   }, [contextMenu, onViewRows]);
 
+  // Build schema tree nodes from fetched schemas and tables
+  const buildSchemaNodes = useCallback(async (connectionId: string, fetchedSchemas: SchemaInfo[]) => {
+    return Promise.all(
+      fetchedSchemas.map(async (schema) => {
+        const tables = await tauri.getTables(connectionId, schema.name);
+
+        const tableNodes: TreeNode[] = tables
+          .filter((t) => t.tableType === 'table')
+          .map((table) => ({
+            id: `${connectionId}-${schema.name}-${table.name}`,
+            label: table.name,
+            type: 'table' as const,
+            isExpanded: false,
+            children: [],
+            metadata: {
+              connectionId,
+              schemaName: schema.name,
+              tableName: table.name,
+              rowCountEstimate: table.rowCountEstimate,
+            },
+          }));
+
+        const viewNodes: TreeNode[] = tables
+          .filter((t) => t.tableType === 'view')
+          .map((view) => ({
+            id: `${connectionId}-${schema.name}-${view.name}-view`,
+            label: view.name,
+            type: 'view' as const,
+            isExpanded: false,
+            children: [],
+            metadata: {
+              connectionId,
+              schemaName: schema.name,
+              tableName: view.name,
+              rowCountEstimate: view.rowCountEstimate,
+            },
+          }));
+
+        const foreignTableNodes: TreeNode[] = tables
+          .filter((t) => t.tableType === 'foreign-table')
+          .map((table) => ({
+            id: `${connectionId}-${schema.name}-${table.name}-foreign`,
+            label: table.name,
+            type: 'foreign-table' as const,
+            isExpanded: false,
+            children: [],
+            metadata: {
+              connectionId,
+              schemaName: schema.name,
+              tableName: table.name,
+              rowCountEstimate: table.rowCountEstimate,
+            },
+          }));
+
+        return {
+          id: `${connectionId}-${schema.name}`,
+          label: schema.name,
+          type: 'schema' as const,
+          isExpanded: false,
+          children: [...tableNodes, ...viewNodes, ...foreignTableNodes],
+          metadata: {
+            connectionId,
+            schemaName: schema.name,
+          },
+        };
+      })
+    );
+  }, []);
+
+  // Update only the row count estimates on existing tree nodes (preserves expand state)
+  const updateRowCountEstimates = useCallback(async (
+    connectionId: string,
+    schemaNames: string[],
+    permissionDenied: Map<string, Set<string>>
+  ) => {
+    // Re-fetch tables for each schema to get updated row counts
+    const updatedCounts = new Map<string, number | null>();
+    const unavailableNodes = new Set<string>();
+
+    for (const schemaName of schemaNames) {
+      try {
+        const tables = await tauri.getTables(connectionId, schemaName);
+        const denied = permissionDenied.get(schemaName);
+        for (const table of tables) {
+          const suffix = table.tableType === 'view' ? '-view' : table.tableType === 'foreign-table' ? '-foreign' : '';
+          const nodeId = `${connectionId}-${schemaName}-${table.name}${suffix}`;
+          updatedCounts.set(nodeId, table.rowCountEstimate ?? null);
+          if (denied?.has(table.name)) {
+            unavailableNodes.add(nodeId);
+          }
+        }
+      } catch {
+        // Ignore errors during background refresh
+      }
+    }
+
+    if (updatedCounts.size === 0) return;
+
+    setTreeNodes((prev) => {
+      const updateNodes = (nodes: TreeNode[]): TreeNode[] =>
+        nodes.map((node) => {
+          if (updatedCounts.has(node.id)) {
+            return {
+              ...node,
+              metadata: {
+                ...node.metadata,
+                rowCountEstimate: updatedCounts.get(node.id),
+                rowCountUnavailable: unavailableNodes.has(node.id),
+              },
+            };
+          }
+          if (node.children) {
+            return { ...node, children: updateNodes(node.children) };
+          }
+          return node;
+        });
+      return updateNodes(prev);
+    });
+  }, []);
+
   const loadSchemaTree = useCallback(async (connectionId: string) => {
     setIsLoadingSchema(true);
     try {
       const fetchedSchemas = await tauri.getSchemas(connectionId);
-
-      const schemaNodes: TreeNode[] = await Promise.all(
-        fetchedSchemas.map(async (schema) => {
-          const tables = await tauri.getTables(connectionId, schema.name);
-
-          const tableNodes: TreeNode[] = tables
-            .filter((t) => t.tableType === 'table')
-            .map((table) => ({
-              id: `${connectionId}-${schema.name}-${table.name}`,
-              label: table.name,
-              type: 'table' as const,
-              isExpanded: false,
-              children: [],
-              metadata: {
-                connectionId,
-                schemaName: schema.name,
-                tableName: table.name,
-              },
-            }));
-
-          const viewNodes: TreeNode[] = tables
-            .filter((t) => t.tableType === 'view')
-            .map((view) => ({
-              id: `${connectionId}-${schema.name}-${view.name}-view`,
-              label: view.name,
-              type: 'view' as const,
-              isExpanded: false,
-              children: [],
-              metadata: {
-                connectionId,
-                schemaName: schema.name,
-                tableName: view.name,
-              },
-            }));
-
-          const foreignTableNodes: TreeNode[] = tables
-            .filter((t) => t.tableType === 'foreign-table')
-            .map((table) => ({
-              id: `${connectionId}-${schema.name}-${table.name}-foreign`,
-              label: table.name,
-              type: 'foreign-table' as const,
-              isExpanded: false,
-              children: [],
-              metadata: {
-                connectionId,
-                schemaName: schema.name,
-                tableName: table.name,
-              },
-            }));
-
-          return {
-            id: `${connectionId}-${schema.name}`,
-            label: schema.name,
-            type: 'schema' as const,
-            isExpanded: false,
-            children: [...tableNodes, ...viewNodes, ...foreignTableNodes],
-            metadata: {
-              connectionId,
-              schemaName: schema.name,
-            },
-          };
-        })
-      );
+      const schemaNodes = await buildSchemaNodes(connectionId, fetchedSchemas);
 
       // Filter out empty schemas unless setting is enabled
       const filteredSchemaNodes = showEmptySchemas
@@ -236,12 +294,44 @@ export function DatabaseNavigator({
 
       setSchemas(filteredSchemas);
       setTreeNodes(filteredSchemaNodes);
+
+      // Run ANALYZE in background for schemas that have unanalyzed tables,
+      // then update just the row count badges without rebuilding the tree
+      const schemaNames = filteredSchemaNodes.map((n) => n.label);
+      Promise.all(
+        schemaNames.map((name) =>
+          tauri.analyzeSchema(connectionId, name).catch(() => ({
+            hadUnanalyzed: false,
+            permissionDeniedTables: [] as string[],
+          }))
+        )
+      ).then((results) => {
+        const analyzedSchemas: string[] = [];
+        const permissionDenied = new Map<string, Set<string>>();
+
+        results.forEach((result, i) => {
+          if (result.hadUnanalyzed) {
+            analyzedSchemas.push(schemaNames[i]);
+          }
+          if (result.permissionDeniedTables.length > 0) {
+            permissionDenied.set(schemaNames[i], new Set(result.permissionDeniedTables));
+            // Also include schemas with permission-denied tables for re-fetch
+            if (!result.hadUnanalyzed) {
+              analyzedSchemas.push(schemaNames[i]);
+            }
+          }
+        });
+
+        if (analyzedSchemas.length > 0) {
+          updateRowCountEstimates(connectionId, analyzedSchemas, permissionDenied);
+        }
+      });
     } catch (err) {
       console.error('Failed to load schema:', err);
     } finally {
       setIsLoadingSchema(false);
     }
-  }, [showEmptySchemas]);
+  }, [showEmptySchemas, buildSchemaNodes, updateRowCountEstimates]);
 
   const loadTableColumns = useCallback(async (node: TreeNode) => {
     if (!node.metadata?.connectionId || !node.metadata?.schemaName || !node.metadata?.tableName) {

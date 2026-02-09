@@ -4,6 +4,7 @@ import type {
   SchemaInfo,
   TableInfo,
   ColumnInfo,
+  AnalyzeResult,
   AppSettings,
   CloneTableOptions,
   CloneTableResult,
@@ -65,6 +66,10 @@ export async function getTables(connectionId: string, schemaName: string): Promi
 
 export async function getColumns(connectionId: string, schemaName: string, tableName: string): Promise<ColumnInfo[]> {
   return invoke('get_columns', { connectionId, schemaName, tableName });
+}
+
+export async function analyzeSchema(connectionId: string, schemaName: string): Promise<AnalyzeResult> {
+  return invoke('analyze_schema', { connectionId, schemaName });
 }
 
 // Query execution commands

@@ -36,6 +36,7 @@ export interface TableInfo {
   name: string;
   tableType: 'table' | 'view' | 'foreign-table';
   columns: ColumnInfo[];
+  rowCountEstimate?: number | null;
 }
 
 export interface ColumnInfo {
@@ -44,6 +45,11 @@ export interface ColumnInfo {
   isNullable: boolean;
   isPrimaryKey: boolean;
   ordinalPosition: number;
+}
+
+export interface AnalyzeResult {
+  hadUnanalyzed: boolean;
+  permissionDeniedTables: string[];
 }
 
 // Tree node types for the navigator
@@ -62,6 +68,8 @@ export interface TreeNode {
     connectionId?: string;
     schemaName?: string;
     tableName?: string;
+    rowCountEstimate?: number | null;
+    rowCountUnavailable?: boolean;
   };
 }
 

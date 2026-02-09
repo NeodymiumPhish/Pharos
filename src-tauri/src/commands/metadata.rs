@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::db::postgres;
-use crate::models::{ColumnInfo, SchemaInfo, TableInfo};
+use crate::models::{AnalyzeResult, ColumnInfo, SchemaInfo, TableInfo};
 use crate::state::AppState;
 
 /// Get all schemas for a connection
@@ -33,6 +33,31 @@ pub async fn get_tables(
     postgres::get_tables(&pool, &schema_name)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Analyze unanalyzed tables in a schema to populate row count estimates.
+/// Returns which tables were attempted and which had permission errors.
+/// Skips tables already known to be permission-denied for this session.
+#[tauri::command]
+pub async fn analyze_schema(
+    connection_id: String,
+    schema_name: String,
+    state: State<'_, AppState>,
+) -> Result<AnalyzeResult, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let cached_denied = state.get_analyze_denied(&connection_id, &schema_name);
+
+    let result = postgres::analyze_schema(&pool, &schema_name, &cached_denied)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Cache any newly discovered permission-denied tables
+    state.add_analyze_denied(&connection_id, &schema_name, &result.permission_denied_tables);
+
+    Ok(result)
 }
 
 /// Get all columns for a table
