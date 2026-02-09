@@ -12,7 +12,7 @@ import { useEditorStore } from '@/stores/editorStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import * as tauri from '@/lib/tauri';
-import type { SavedQuery, TableInfo, ColumnInfo } from '@/lib/types';
+import type { SavedQuery, TableInfo, ColumnInfo, QueryHistoryEntry } from '@/lib/types';
 import type { SchemaMetadata } from '@/components/editor/SqlAutocomplete';
 
 interface QueryWorkspaceProps {
@@ -355,10 +355,34 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   );
 
   const handleHistorySelect = useCallback(
-    (sql: string) => {
-      createTabWithContent(activeConnectionId, 'Query', sql, null);
+    async (entry: QueryHistoryEntry) => {
+      const tabId = createTabWithContent(activeConnectionId, 'Query', entry.sql, null);
+
+      // Load cached results if available
+      if (entry.hasResults) {
+        try {
+          const cached = await tauri.getQueryHistoryResult(entry.id);
+          if (cached) {
+            setTabResults(
+              tabId,
+              {
+                columns: cached.columns.map((c: { name: string; data_type: string }) => ({
+                  name: c.name,
+                  dataType: c.data_type,
+                })),
+                rows: cached.rows,
+                rowCount: cached.rows.length,
+                hasMore: false,
+              },
+              entry.executionTimeMs
+            );
+          }
+        } catch (err) {
+          console.error('Failed to load cached results:', err);
+        }
+      }
     },
-    [activeConnectionId, createTabWithContent]
+    [activeConnectionId, createTabWithContent, setTabResults]
   );
 
   const libraryResizeStartX = useRef(0);

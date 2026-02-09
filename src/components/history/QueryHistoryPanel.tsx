@@ -1,10 +1,11 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { Search, Trash2, Clock, Copy, X } from 'lucide-react';
+import { Search, Trash2, Clock, Copy, X, Table2 } from 'lucide-react';
 import { useQueryHistoryStore } from '@/stores/queryHistoryStore';
+import type { QueryHistoryEntry } from '@/lib/types';
 
 interface QueryHistoryPanelProps {
   connectionId?: string;
-  onQuerySelect?: (sql: string) => void;
+  onQuerySelect?: (entry: QueryHistoryEntry) => void;
 }
 
 function formatRelativeTime(isoDate: string): string {
@@ -178,7 +179,7 @@ export function QueryHistoryPanel({ connectionId, onQuerySelect }: QueryHistoryP
                   <div
                     key={entry.id}
                     className="px-2 py-1.5 hover:bg-theme-bg-hover cursor-pointer border-b border-theme-border-primary group"
-                    onClick={() => onQuerySelect?.(entry.sql)}
+                    onClick={() => onQuerySelect?.(entry)}
                     onContextMenu={(e) => handleContextMenu(e, entry.id)}
                     title={entry.sql}
                   >
@@ -195,6 +196,11 @@ export function QueryHistoryPanel({ connectionId, onQuerySelect }: QueryHistoryP
                       {entry.rowCount !== null && (
                         <span className="text-[10px] text-theme-text-muted">
                           {entry.rowCount.toLocaleString()} row{entry.rowCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {entry.hasResults && (
+                        <span title="Results cached">
+                          <Table2 className="w-2.5 h-2.5 text-emerald-500 opacity-60" />
                         </span>
                       )}
                       <button
@@ -227,7 +233,7 @@ export function QueryHistoryPanel({ connectionId, onQuerySelect }: QueryHistoryP
             className="w-full text-left px-3 py-1.5 text-[11px] text-theme-text-secondary hover:bg-theme-bg-hover flex items-center gap-2"
             onClick={() => {
               const entry = entries.find((e) => e.id === contextMenu.entryId);
-              if (entry) onQuerySelect?.(entry.sql);
+              if (entry) onQuerySelect?.(entry);
               setContextMenu(null);
             }}
           >

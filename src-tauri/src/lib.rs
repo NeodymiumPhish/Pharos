@@ -181,10 +181,12 @@ pub fn run() {
             commands::import_csv,
             commands::export_table,
             commands::export_results,
+            commands::write_text_export,
             // Query history commands
             commands::load_query_history,
             commands::delete_query_history_entry,
             commands::clear_query_history,
+            commands::get_query_history_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

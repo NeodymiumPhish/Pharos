@@ -173,6 +173,20 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         "#,
     )?;
 
+    // Migration: Add result storage columns to query_history
+    let has_result_columns: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'result_columns'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_result_columns {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN result_columns TEXT;
+             ALTER TABLE query_history ADD COLUMN result_rows TEXT;"
+        )?;
+    }
+
     Ok(conn)
 }
 
@@ -428,12 +442,17 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> SqliteResult<
 
 const MAX_HISTORY_ENTRIES: i64 = 10_000;
 
-/// Save a query history entry (and prune old entries if needed)
-pub fn save_query_history(conn: &Connection, entry: &QueryHistoryEntry) -> SqliteResult<()> {
+/// Save a query history entry with optional cached results (and prune old entries if needed)
+pub fn save_query_history(
+    conn: &Connection,
+    entry: &QueryHistoryEntry,
+    result_columns_json: Option<&str>,
+    result_rows_json: Option<&str>,
+) -> SqliteResult<()> {
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#,
         (
             &entry.id,
@@ -443,6 +462,8 @@ pub fn save_query_history(conn: &Connection, entry: &QueryHistoryEntry) -> Sqlit
             &entry.row_count,
             entry.execution_time_ms,
             &entry.executed_at,
+            &result_columns_json,
+            &result_rows_json,
         ),
     )?;
 
@@ -468,7 +489,7 @@ pub fn load_query_history(
     offset: i64,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
@@ -503,6 +524,7 @@ pub fn load_query_history(
             row_count: row.get(4)?,
             execution_time_ms: row.get(5)?,
             executed_at: row.get(6)?,
+            has_results: row.get(7)?,
         })
     })?;
 
@@ -519,4 +541,17 @@ pub fn delete_query_history_entry(conn: &Connection, entry_id: &str) -> SqliteRe
 pub fn clear_query_history(conn: &Connection) -> SqliteResult<()> {
     conn.execute("DELETE FROM query_history", [])?;
     Ok(())
+}
+
+/// Load cached result data for a specific history entry
+pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResult<Option<(String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT result_columns, result_rows FROM query_history WHERE id = ?1 AND result_columns IS NOT NULL"
+    )?;
+    let mut rows = stmt.query([entry_id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some((row.get(0)?, row.get(1)?)))
+    } else {
+        Ok(None)
+    }
 }

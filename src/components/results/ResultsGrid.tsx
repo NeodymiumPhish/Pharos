@@ -860,14 +860,27 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   const handleExportData = useCallback(async (format: ExportFormat) => {
     if (!results) return;
 
-    if (format === 'xlsx') {
-      // XLSX requires backend — open save dialog, then invoke Tauri command
-      const savePath = await save({
-        defaultPath: `query_results_${Date.now()}.xlsx`,
-        filters: [{ name: 'Excel Files', extensions: ['xlsx'] }],
-      });
-      if (!savePath) return;
+    const filterMap: Record<ExportFormat, { name: string; extensions: string[] }> = {
+      csv: { name: 'CSV Files', extensions: ['csv'] },
+      tsv: { name: 'TSV Files', extensions: ['tsv'] },
+      json: { name: 'JSON Files', extensions: ['json'] },
+      jsonLines: { name: 'JSON Lines Files', extensions: ['jsonl'] },
+      sqlInsert: { name: 'SQL Files', extensions: ['sql'] },
+      markdown: { name: 'Markdown Files', extensions: ['md'] },
+      xlsx: { name: 'Excel Files', extensions: ['xlsx'] },
+    };
+    const extMap: Record<ExportFormat, string> = {
+      csv: 'csv', tsv: 'tsv', json: 'json', jsonLines: 'jsonl',
+      sqlInsert: 'sql', markdown: 'md', xlsx: 'xlsx',
+    };
 
+    const savePath = await save({
+      defaultPath: `query_results.${extMap[format]}`,
+      filters: [filterMap[format]],
+    });
+    if (!savePath) return;
+
+    if (format === 'xlsx') {
       try {
         await tauri.exportResults({
           columns: results.columns.map((c) => ({ name: c.name, dataType: c.dataType })),
@@ -880,17 +893,15 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       return;
     }
 
-    // Text formats — client-side blob download
+    // Text formats — generate content and write to chosen path
     const exported = generateTextExport(format);
     if (!exported) return;
 
-    const blob = new Blob([exported.content], { type: exported.mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `query_results_${Date.now()}.${exported.ext}`;
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      await tauri.writeTextExport(savePath, exported.content);
+    } catch (err) {
+      console.error('Failed to write export file:', err);
+    }
   }, [results, generateTextExport]);
 
   const handleExportCSV = useCallback(() => {

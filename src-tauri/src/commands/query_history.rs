@@ -1,8 +1,17 @@
+use serde::Serialize;
 use tauri::State;
 
 use crate::db::sqlite;
 use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
+
+/// Cached query result data returned when loading a specific history entry's results
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryHistoryResultData {
+    pub columns: serde_json::Value,
+    pub rows: serde_json::Value,
+}
 
 /// Load query history entries with optional filtering
 #[tauri::command]
@@ -45,4 +54,26 @@ pub async fn clear_query_history(
     let db = state.metadata_db.lock().unwrap();
     sqlite::clear_query_history(&db)
         .map_err(|e| format!("Failed to clear query history: {}", e))
+}
+
+/// Load cached result data for a specific history entry
+#[tauri::command]
+pub async fn get_query_history_result(
+    entry_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<QueryHistoryResultData>, String> {
+    let db = state.metadata_db.lock().unwrap();
+    let result = sqlite::get_query_history_result(&db, &entry_id)
+        .map_err(|e| format!("Failed to load history result: {}", e))?;
+
+    match result {
+        Some((columns_json, rows_json)) => {
+            let columns: serde_json::Value = serde_json::from_str(&columns_json)
+                .map_err(|e| format!("Failed to parse cached columns: {}", e))?;
+            let rows: serde_json::Value = serde_json::from_str(&rows_json)
+                .map_err(|e| format!("Failed to parse cached rows: {}", e))?;
+            Ok(Some(QueryHistoryResultData { columns, rows }))
+        }
+        None => Ok(None),
+    }
 }
