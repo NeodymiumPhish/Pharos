@@ -10,6 +10,7 @@ import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
 import { QueryHistoryPanel } from '@/components/history/QueryHistoryPanel';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useEditorStore } from '@/stores/editorStore';
+import { useQueryHistoryStore } from '@/stores/queryHistoryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import * as tauri from '@/lib/tauri';
@@ -54,6 +55,9 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const setTabEditableInfo = useEditorStore((state) => state.setTabEditableInfo);
   const addPendingEdit = useEditorStore((state) => state.addPendingEdit);
   const clearPendingEdits = useEditorStore((state) => state.clearPendingEdits);
+
+  const prependHistoryEntry = useQueryHistoryStore((state) => state.prependEntry);
+  const updateHistoryEntry = useQueryHistoryStore((state) => state.updateEntry);
 
   // Determine which tab's results to display (pinned tab takes precedence)
   const displayTab = pinnedResultsTabId
@@ -271,11 +275,26 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           rows: result.rows,
           rowCount: result.row_count,
           hasMore: result.has_more,
+          historyEntryId: result.history_entry_id,
           explainPlan,
           explainRawJson,
         },
         result.execution_time_ms
       );
+
+      // Prepend new entry to history store so the History tab updates live
+      if (result.history_entry_id) {
+        prependHistoryEntry({
+          id: result.history_entry_id,
+          connectionId: activeConnectionId,
+          connectionName: activeConnection?.config.name ?? activeConnectionId,
+          sql,
+          rowCount: result.row_count,
+          executionTimeMs: result.execution_time_ms,
+          executedAt: new Date().toISOString(),
+          hasResults: result.rows.length > 0,
+        });
+      }
 
       // Fire-and-forget editability check for non-EXPLAIN queries
       if (!isExplain && result.rows.length > 0) {
@@ -291,7 +310,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     } catch (err) {
       setTabError(activeTab.id, err instanceof Error ? err.message : String(err));
     }
-  }, [activeTab, activeConnectionId, isConnected, selectedSchema, settings.query.defaultLimit, unpinResults, setTabExecuting, setTabResults, setTabError, setTabEditableInfo]);
+  }, [activeTab, activeConnection, activeConnectionId, isConnected, selectedSchema, settings.query.defaultLimit, unpinResults, setTabExecuting, setTabResults, setTabError, setTabEditableInfo, prependHistoryEntry]);
 
   const handleCancel = useCallback(async () => {
     if (!activeTab || !activeConnectionId || !activeTab.queryId) return;
@@ -451,18 +470,33 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       );
 
       // Merge new rows into existing results
+      const mergedRows = [...currentRows, ...result.rows as Record<string, unknown>[]];
+      const historyEntryId = tab.results.historyEntryId;
+
       setTabResults(tab.id, {
         columns: tab.results.columns,
-        rows: [...currentRows, ...result.rows as Record<string, unknown>[]],
-        rowCount: currentRows.length + result.row_count,
+        rows: mergedRows,
+        rowCount: mergedRows.length,
         hasMore: result.has_more,
+        historyEntryId,
       }, tab.executionTime);
+
+      // Fire-and-forget: update cached history results and store entry
+      if (historyEntryId) {
+        updateHistoryEntry(historyEntryId, { rowCount: mergedRows.length });
+        const columnsJson = JSON.stringify(
+          tab.results.columns.map((c) => ({ name: c.name, data_type: c.dataType }))
+        );
+        const rowsJson = JSON.stringify(mergedRows);
+        tauri.updateQueryHistoryResults(historyEntryId, mergedRows.length, columnsJson, rowsJson)
+          .catch((err) => console.error('Failed to update history results:', err));
+      }
     } catch (err) {
       console.error('Failed to load more rows:', err);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [displayTab, selectedSchema, settings.query.defaultLimit, isLoadingMore, setTabResults]);
+  }, [displayTab, selectedSchema, settings.query.defaultLimit, isLoadingMore, setTabResults, updateHistoryEntry]);
 
   const handleFormat = useCallback(() => {
     queryEditorRef.current?.formatDocument();

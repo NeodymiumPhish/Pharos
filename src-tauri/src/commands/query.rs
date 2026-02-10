@@ -23,6 +23,7 @@ pub struct QueryResult {
     pub row_count: usize,
     pub execution_time_ms: u64,
     pub has_more: bool,
+    pub history_entry_id: Option<String>,
 }
 
 /// Execute a SQL query and return results
@@ -118,6 +119,7 @@ pub async fn execute_query(
             row_count: 0,
             execution_time_ms,
             has_more: false,
+            history_entry_id: None,
         });
     }
 
@@ -151,13 +153,14 @@ pub async fn execute_query(
         .collect();
 
     // Auto-save to query history with cached results (fire-and-forget)
+    let history_id = uuid::Uuid::new_v4().to_string();
     {
         let connection_name = state
             .get_config(&connection_id)
             .map(|c| c.name)
             .unwrap_or_else(|| connection_id.clone());
         let entry = QueryHistoryEntry {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: history_id.clone(),
             connection_id: connection_id.clone(),
             connection_name,
             sql: sql.clone(),
@@ -198,6 +201,7 @@ pub async fn execute_query(
         row_count: row_limit,
         execution_time_ms,
         has_more,
+        history_entry_id: Some(history_id),
     })
 }
 
@@ -722,6 +726,7 @@ pub async fn fetch_more_rows(
             row_count: 0,
             execution_time_ms,
             has_more: false,
+            history_entry_id: None,
         });
     }
 
@@ -757,6 +762,7 @@ pub async fn fetch_more_rows(
         row_count: row_limit,
         execution_time_ms,
         has_more,
+        history_entry_id: None,
     })
 }
 

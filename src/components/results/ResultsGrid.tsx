@@ -1809,27 +1809,28 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               })}
             </div>
 
-            {/* Load More bar */}
-            {results.hasMore && (
-              <div className="flex items-center justify-center py-3 border-b border-theme-border-primary">
-                {isLoadingMore ? (
-                  <div className="flex items-center gap-2 text-xs text-theme-text-muted">
-                    <div className="w-3 h-3 border-2 border-theme-text-muted border-t-theme-text-secondary rounded-full animate-spin" />
-                    Loading more rows...
-                  </div>
-                ) : (
-                  <button
-                    onClick={onLoadMore}
-                    className="px-4 py-1.5 rounded text-[11px] text-theme-text-secondary bg-theme-bg-hover hover:bg-theme-bg-active transition-colors"
-                  >
-                    Load more rows
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {/* Load More bar — outside the scrollable table so it stays fixed and centered */}
+      {results.hasMore && (
+        <div className="flex items-center justify-center py-1.5 border-t border-theme-border-primary flex-shrink-0 bg-theme-bg-elevated">
+          {isLoadingMore ? (
+            <div className="flex items-center gap-2 text-xs text-theme-text-muted">
+              <div className="w-3 h-3 border-2 border-theme-text-muted border-t-theme-text-secondary rounded-full animate-spin" />
+              Loading more rows...
+            </div>
+          ) : (
+            <button
+              onClick={onLoadMore}
+              className="px-4 py-1 rounded text-[11px] text-theme-text-secondary bg-theme-bg-hover hover:bg-theme-bg-active transition-colors"
+            >
+              Load more rows
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Aggregate footer */}
       {aggregates && (

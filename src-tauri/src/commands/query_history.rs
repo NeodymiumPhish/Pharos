@@ -56,6 +56,24 @@ pub async fn clear_query_history(
         .map_err(|e| format!("Failed to clear query history: {}", e))
 }
 
+/// Update cached results for a history entry (after loading more rows)
+#[tauri::command]
+pub async fn update_query_history_results(
+    entry_id: String,
+    row_count: i64,
+    result_columns: String,
+    result_rows: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    // Enforce same 5MB size limit as initial save
+    if result_columns.len() + result_rows.len() >= 5_000_000 {
+        return Ok(false);
+    }
+    let db = state.metadata_db.lock().unwrap();
+    sqlite::update_query_history_results(&db, &entry_id, row_count, &result_columns, &result_rows)
+        .map_err(|e| format!("Failed to update history results: {}", e))
+}
+
 /// Load cached result data for a specific history entry
 #[tauri::command]
 pub async fn get_query_history_result(
