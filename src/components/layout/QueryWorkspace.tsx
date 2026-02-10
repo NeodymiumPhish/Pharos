@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn';
 import { QueryTabs } from '@/components/editor/QueryTabs';
 import { QueryEditor, type QueryEditorRef } from '@/components/editor/QueryEditor';
 import { ResultsGrid, ResultsGridRef } from '@/components/results/ResultsGrid';
+import { ExplainView } from '@/components/results/ExplainView';
 import { SaveQueryDialog } from '@/components/dialogs/SaveQueryDialog';
 import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
 import { QueryHistoryPanel } from '@/components/history/QueryHistoryPanel';
@@ -50,6 +51,9 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const pinnedResultsTabId = useEditorStore((state) => state.pinnedResultsTabId);
   const pinResults = useEditorStore((state) => state.pinResults);
   const unpinResults = useEditorStore((state) => state.unpinResults);
+  const setTabEditableInfo = useEditorStore((state) => state.setTabEditableInfo);
+  const addPendingEdit = useEditorStore((state) => state.addPendingEdit);
+  const clearPendingEdits = useEditorStore((state) => state.clearPendingEdits);
 
   // Determine which tab's results to display (pinned tab takes precedence)
   const displayTab = pinnedResultsTabId
@@ -195,9 +199,55 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     setTabExecuting(activeTab.id, true, queryId);
 
     try {
+      // Detect EXPLAIN queries and inject FORMAT JSON if not already specified
+      const isExplain = /^\s*EXPLAIN\b/i.test(sql);
+      let execSql = sql;
+      if (isExplain) {
+        // Check if FORMAT is already specified
+        const hasFormat = /EXPLAIN\s*\([^)]*FORMAT\b/i.test(sql);
+        if (!hasFormat) {
+          // EXPLAIN (...) SELECT  or  EXPLAIN SELECT
+          const parenMatch = sql.match(/^(\s*EXPLAIN\s*\()([^)]*)\)/i);
+          if (parenMatch) {
+            // Already has options in parens — add FORMAT JSON
+            execSql = sql.replace(
+              /^(\s*EXPLAIN\s*\()([^)]*)\)/i,
+              `$1$2, FORMAT JSON)`
+            );
+          } else {
+            // Simple EXPLAIN SELECT — wrap with (FORMAT JSON)
+            execSql = sql.replace(
+              /^(\s*EXPLAIN)\s+/i,
+              '$1 (FORMAT JSON) '
+            );
+          }
+        }
+      }
+
       // Pass the selected schema to set search_path before executing
       const limit = settings.query.defaultLimit;
-      const result = await tauri.executeQuery(activeConnectionId, sql, queryId, limit, selectedSchema);
+      const result = await tauri.executeQuery(activeConnectionId, execSql, queryId, limit, selectedSchema);
+
+      // Parse EXPLAIN JSON output if applicable
+      let explainPlan: import('@/lib/types').ExplainPlanNode[] | undefined;
+      let explainRawJson: string | undefined;
+      if (isExplain && result.rows.length > 0) {
+        try {
+          // PostgreSQL returns EXPLAIN JSON as a single row with a single column
+          const firstCol = result.columns[0]?.name;
+          const rawValue = firstCol ? result.rows[0][firstCol] : null;
+          const jsonStr = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue);
+          const parsed = JSON.parse(jsonStr);
+          // PostgreSQL wraps the plan in an array of objects with a "Plan" key
+          const planArray = Array.isArray(parsed) ? parsed : [parsed];
+          explainPlan = planArray.map((entry: Record<string, unknown>) =>
+            (entry['Plan'] ?? entry) as import('@/lib/types').ExplainPlanNode
+          );
+          explainRawJson = JSON.stringify(parsed, null, 2);
+        } catch {
+          // If parsing fails, just show as regular results
+        }
+      }
 
       setTabResults(
         activeTab.id,
@@ -209,13 +259,27 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           rows: result.rows,
           rowCount: result.row_count,
           hasMore: result.has_more,
+          explainPlan,
+          explainRawJson,
         },
         result.execution_time_ms
       );
+
+      // Fire-and-forget editability check for non-EXPLAIN queries
+      if (!isExplain && result.rows.length > 0) {
+        const tabId = activeTab.id;
+        const connId = activeConnectionId;
+        tauri.checkQueryEditable(connId, sql, selectedSchema ?? undefined).then((info) => {
+          setTabEditableInfo(tabId, info);
+        }).catch((err) => {
+          console.error('Editability check failed:', err);
+          setTabEditableInfo(tabId, null);
+        });
+      }
     } catch (err) {
       setTabError(activeTab.id, err instanceof Error ? err.message : String(err));
     }
-  }, [activeTab, activeConnectionId, isConnected, selectedSchema, settings.query.defaultLimit, unpinResults, setTabExecuting, setTabResults, setTabError]);
+  }, [activeTab, activeConnectionId, isConnected, selectedSchema, settings.query.defaultLimit, unpinResults, setTabExecuting, setTabResults, setTabError, setTabEditableInfo]);
 
   const handleCancel = useCallback(async () => {
     if (!activeTab || !activeConnectionId || !activeTab.queryId) return;
@@ -260,6 +324,61 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing]);
+
+  const handleCellEdit = useCallback((rowIndex: number, columnName: string, newValue: unknown) => {
+    if (!activeTab || !displayTab?.results) return;
+    const originalRow = displayTab.results.rows[rowIndex];
+    if (!originalRow) return;
+    addPendingEdit(activeTab.id, {
+      type: 'update',
+      rowIndex,
+      changes: { [columnName]: newValue },
+      originalRow,
+    });
+  }, [activeTab, displayTab, addPendingEdit]);
+
+  const handleDeleteRows = useCallback((rowIndices: number[]) => {
+    if (!activeTab || !displayTab?.results) return;
+    for (const rowIndex of rowIndices) {
+      const originalRow = displayTab.results.rows[rowIndex];
+      if (!originalRow) continue;
+      addPendingEdit(activeTab.id, {
+        type: 'delete',
+        rowIndex,
+        changes: {},
+        originalRow,
+      });
+    }
+  }, [activeTab, displayTab, addPendingEdit]);
+
+  const handleCommitEdits = useCallback(async () => {
+    if (!activeTab || !activeConnectionId || !displayTab?.editableInfo || !displayTab?.pendingEdits?.length) return;
+    const { schemaName, tableName, primaryKeys } = displayTab.editableInfo;
+    try {
+      const result = await tauri.commitDataEdits(activeConnectionId, {
+        schemaName,
+        tableName,
+        primaryKeys,
+        edits: displayTab.pendingEdits,
+      });
+      if (result.success) {
+        clearPendingEdits(activeTab.id);
+        // Re-run the query to refresh data
+        // Trigger execute by creating a small delay then calling handleExecute indirectly
+        // Instead, just clear and let user re-run if they want fresh data
+      } else {
+        setTabError(activeTab.id, `Commit failed: ${result.errors.join(', ')}`);
+      }
+    } catch (err) {
+      setTabError(activeTab.id, err instanceof Error ? err.message : String(err));
+    }
+  }, [activeTab, activeConnectionId, displayTab, clearPendingEdits, setTabError]);
+
+  const handleDiscardEdits = useCallback(() => {
+    if (activeTab) {
+      clearPendingEdits(activeTab.id);
+    }
+  }, [activeTab, clearPendingEdits]);
 
   const handleSave = useCallback(() => {
     if (activeTab?.sql.trim()) {
@@ -660,22 +779,36 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
         className="bg-theme-bg-elevated overflow-hidden min-w-0 flex-1"
         style={isResultsExpanded ? undefined : { height: `${100 - splitPosition}%`, flex: 'none' }}
       >
-        <ResultsGrid
-          ref={resultsRef}
-          results={displayTab?.results ?? null}
-          error={displayTab?.error ?? null}
-          executionTime={displayTab?.executionTime ?? null}
-          isExecuting={displayTab?.isExecuting ?? false}
-          isPinned={!!pinnedResultsTabId}
-          pinnedTabName={displayTab?.name}
-          canPin={!!activeTab?.results}
-          onPin={() => activeTab && pinResults(activeTab.id)}
-          onUnpin={unpinResults}
-          isExpanded={isResultsExpanded}
-          onToggleExpand={onToggleResultsExpand}
-          onLoadMore={handleLoadMore}
-          isLoadingMore={isLoadingMore}
-        />
+        {displayTab?.results?.explainPlan ? (
+          <ExplainView
+            plan={displayTab.results.explainPlan}
+            rawJson={displayTab.results.explainRawJson ?? ''}
+            executionTime={displayTab?.executionTime ?? null}
+          />
+        ) : (
+          <ResultsGrid
+            ref={resultsRef}
+            results={displayTab?.results ?? null}
+            error={displayTab?.error ?? null}
+            executionTime={displayTab?.executionTime ?? null}
+            isExecuting={displayTab?.isExecuting ?? false}
+            isPinned={!!pinnedResultsTabId}
+            pinnedTabName={displayTab?.name}
+            canPin={!!activeTab?.results}
+            onPin={() => activeTab && pinResults(activeTab.id)}
+            onUnpin={unpinResults}
+            isExpanded={isResultsExpanded}
+            onToggleExpand={onToggleResultsExpand}
+            onLoadMore={handleLoadMore}
+            isLoadingMore={isLoadingMore}
+            editableInfo={displayTab?.editableInfo ?? undefined}
+            pendingEdits={displayTab?.pendingEdits}
+            onCellEdit={handleCellEdit}
+            onDeleteRows={handleDeleteRows}
+            onCommitEdits={handleCommitEdits}
+            onDiscardEdits={handleDiscardEdits}
+          />
+        )}
       </div>
 
       {/* Save Query Dialog */}

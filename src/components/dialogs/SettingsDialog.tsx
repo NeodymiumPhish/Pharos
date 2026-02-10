@@ -3,7 +3,7 @@ import { X, Settings, Monitor, Sun, Moon, Loader2, Keyboard, RotateCcw, Edit2 } 
 import { cn } from '@/lib/cn';
 import { useSettingsStore } from '@/stores/settingsStore';
 import * as tauri from '@/lib/tauri';
-import type { ThemeMode, EditorSettings, QuerySettings, UISettings, KeyboardShortcut, ShortcutModifier } from '@/lib/types';
+import type { ThemeMode, EditorSettings, QuerySettings, UISettings, KeyboardShortcut, ShortcutModifier, NullDisplayFormat } from '@/lib/types';
 import { DEFAULT_SHORTCUTS } from '@/lib/types';
 import { formatShortcut } from '@/hooks/useKeyboardShortcuts';
 
@@ -160,13 +160,56 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-theme-border-primary">
+              <div className="pt-4 border-t border-theme-border-primary space-y-2">
                 <ToggleSetting
                   label="Show Empty Schemas"
                   description="Display schemas with no tables in the navigator"
                   checked={localSettings.ui.showEmptySchemas}
                   onChange={(v) => handleUIChange('showEmptySchemas', v)}
                 />
+                <ToggleSetting
+                  label="Zebra Striping"
+                  description="Alternate row background colors in results grid"
+                  checked={localSettings.ui.zebraStriping}
+                  onChange={(v) => handleUIChange('zebraStriping', v)}
+                />
+              </div>
+
+              <div className="pt-4 border-t border-theme-border-primary">
+                <label className="block text-sm text-theme-text-secondary mb-1">NULL Display</label>
+                <select
+                  value={localSettings.ui.nullDisplay ?? 'NULL'}
+                  onChange={(e) => handleUIChange('nullDisplay', e.target.value as NullDisplayFormat)}
+                  className={cn(
+                    'w-full px-3 py-2 rounded',
+                    'bg-theme-bg-surface border border-theme-border-primary',
+                    'text-theme-text-primary',
+                    'focus:outline-none focus:border-theme-border-secondary'
+                  )}
+                >
+                  <option value="NULL">NULL</option>
+                  <option value="null">null</option>
+                  <option value="(null)">(null)</option>
+                  <option value="∅">∅ (empty set symbol)</option>
+                  <option value="">(blank)</option>
+                </select>
+                <p className="mt-1 text-xs text-theme-text-muted">How NULL values are displayed in results</p>
+              </div>
+
+              <div className="pt-4 border-t border-theme-border-primary">
+                <label className="block text-sm text-theme-text-secondary mb-1">Results Font Size</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="9"
+                    max="16"
+                    value={localSettings.ui.resultsFontSize ?? 11}
+                    onChange={(e) => handleUIChange('resultsFontSize', parseInt(e.target.value, 10))}
+                    className="flex-1"
+                  />
+                  <span className="text-sm text-theme-text-primary w-8">{localSettings.ui.resultsFontSize ?? 11}px</span>
+                </div>
+                <p className="mt-1 text-xs text-theme-text-muted">Font size for the query results grid</p>
               </div>
             </div>
           )}

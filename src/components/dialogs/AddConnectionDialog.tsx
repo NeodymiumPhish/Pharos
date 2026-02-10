@@ -3,7 +3,19 @@ import { X, Database, TestTube, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useConnectionStore } from '@/stores/connectionStore';
 import * as tauri from '@/lib/tauri';
-import type { ConnectionConfig } from '@/lib/types';
+import type { ConnectionConfig, SslMode } from '@/lib/types';
+
+const CONNECTION_COLORS = [
+  { name: 'None', value: '' },
+  { name: 'Gray', value: '#6b7280' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Amber', value: '#f59e0b' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Pink', value: '#ec4899' },
+];
 
 interface AddConnectionDialogProps {
   isOpen: boolean;
@@ -20,6 +32,8 @@ export function AddConnectionDialog({ isOpen, onClose }: AddConnectionDialogProp
     database: 'postgres',
     username: 'postgres',
     password: '',
+    sslMode: 'prefer' as SslMode,
+    color: '',
   });
 
   const [isTesting, setIsTesting] = useState(false);
@@ -40,6 +54,8 @@ export function AddConnectionDialog({ isOpen, onClose }: AddConnectionDialogProp
       database: formData.database,
       username: formData.username,
       password: formData.password,
+      sslMode: formData.sslMode,
+      color: formData.color || undefined,
     };
   }, [formData]);
 
@@ -94,6 +110,8 @@ export function AddConnectionDialog({ isOpen, onClose }: AddConnectionDialogProp
         database: 'postgres',
         username: 'postgres',
         password: '',
+        sslMode: 'prefer',
+        color: '',
       });
       setTestResult(null);
     } catch (err) {
@@ -224,6 +242,48 @@ export function AddConnectionDialog({ isOpen, onClose }: AddConnectionDialogProp
                 'focus:outline-none focus:border-theme-border-secondary'
               )}
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-theme-text-secondary mb-1">SSL Mode</label>
+              <select
+                value={formData.sslMode}
+                onChange={(e) => { setFormData((prev) => ({ ...prev, sslMode: e.target.value as SslMode })); setTestResult(null); }}
+                className={cn(
+                  'w-full px-3 py-2 rounded',
+                  'bg-theme-bg-surface border border-theme-border-primary',
+                  'text-theme-text-primary',
+                  'focus:outline-none focus:border-theme-border-secondary'
+                )}
+              >
+                <option value="disable">Disable</option>
+                <option value="prefer">Prefer (default)</option>
+                <option value="require">Require</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-theme-text-secondary mb-1">Color</label>
+              <div className="flex items-center gap-1.5 py-1.5">
+                {CONNECTION_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    title={c.name}
+                    onClick={() => setFormData((prev) => ({ ...prev, color: c.value }))}
+                    className={cn(
+                      'w-5 h-5 rounded-full border-2 transition-all flex-shrink-0',
+                      formData.color === c.value
+                        ? 'border-theme-text-primary scale-110'
+                        : 'border-transparent hover:border-theme-text-muted'
+                    )}
+                    style={{ backgroundColor: c.value || 'transparent' }}
+                  >
+                    {!c.value && <X className="w-3 h-3 text-theme-text-muted m-auto" />}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Test result */}

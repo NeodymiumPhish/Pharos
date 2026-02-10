@@ -19,6 +19,9 @@ import type {
   ExportResultsOptions,
   QueryHistoryEntry,
   QueryHistoryResultData,
+  EditableInfo,
+  RowEdit,
+  CommitEditsResult,
 } from './types';
 
 // Connection commands
@@ -88,6 +91,14 @@ export async function getTableConstraints(connectionId: string, schemaName: stri
 
 export async function getSchemaFunctions(connectionId: string, schemaName: string): Promise<FunctionInfo[]> {
   return invoke('get_schema_functions', { connectionId, schemaName });
+}
+
+export async function generateTableDdl(connectionId: string, schemaName: string, tableName: string): Promise<string> {
+  return invoke('generate_table_ddl', { connectionId, schemaName, tableName });
+}
+
+export async function generateIndexDdl(connectionId: string, schemaName: string, indexName: string): Promise<string> {
+  return invoke('generate_index_ddl', { connectionId, schemaName, indexName });
 }
 
 // Query execution commands
@@ -267,4 +278,13 @@ export async function clearQueryHistory(): Promise<void> {
 
 export async function getQueryHistoryResult(entryId: string): Promise<QueryHistoryResultData | null> {
   return invoke('get_query_history_result', { entryId });
+}
+
+// Inline editing commands
+export async function checkQueryEditable(connectionId: string, sql: string, schema?: string): Promise<EditableInfo> {
+  return invoke('check_query_editable', { connectionId, sql, schema: schema ?? null });
+}
+
+export async function commitDataEdits(connectionId: string, options: { schemaName: string; tableName: string; primaryKeys: string[]; edits: RowEdit[] }): Promise<CommitEditsResult> {
+  return invoke('commit_data_edits', { connectionId, options });
 }

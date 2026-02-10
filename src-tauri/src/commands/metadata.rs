@@ -126,3 +126,37 @@ pub async fn get_schema_functions(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// Generate CREATE TABLE DDL
+#[tauri::command]
+pub async fn generate_table_ddl(
+    connection_id: String,
+    schema_name: String,
+    table_name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    postgres::generate_table_ddl(&pool, &schema_name, &table_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Generate CREATE INDEX DDL
+#[tauri::command]
+pub async fn generate_index_ddl(
+    connection_id: String,
+    schema_name: String,
+    index_name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    postgres::generate_index_ddl(&pool, &schema_name, &index_name)
+        .await
+        .map_err(|e| e.to_string())
+}

@@ -6,6 +6,7 @@ use std::time::Instant;
 use tauri::State;
 
 use crate::db::sqlite;
+use crate::db::postgres;
 use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
 
@@ -1017,5 +1018,353 @@ fn clean_error_message(error_msg: &str) -> String {
         msg[..pos].to_string()
     } else {
         msg.to_string()
+    }
+}
+
+// ============================================================================
+// Inline Data Editing Commands
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditableInfo {
+    pub is_editable: bool,
+    pub reason: Option<String>,
+    pub schema_name: String,
+    pub table_name: String,
+    pub primary_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RowEdit {
+    #[serde(rename = "type")]
+    pub edit_type: String, // "update" | "delete"
+    pub row_index: usize,
+    pub changes: serde_json::Value,    // { column: newValue }
+    pub original_row: serde_json::Value, // { column: oldValue }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitEditsOptions {
+    pub schema_name: String,
+    pub table_name: String,
+    pub primary_keys: Vec<String>,
+    pub edits: Vec<RowEdit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitEditsResult {
+    pub success: bool,
+    pub rows_affected: u64,
+    pub errors: Vec<String>,
+}
+
+/// Extract schema and table name from a normalized SQL query.
+/// Handles: FROM table, FROM "table", FROM schema.table, FROM "schema"."table"
+fn extract_table_from_sql(upper: &str, normalized: &str, default_schema: &Option<String>) -> Option<(String, String)> {
+    // Find FROM keyword position
+    let from_pos = upper.find(" FROM ")?;
+    let after_from = &normalized[from_pos + 6..]; // skip " FROM "
+    let after_from = after_from.trim_start();
+
+    // Parse the table reference (possibly schema-qualified)
+    let (first_ident, rest) = parse_identifier(after_from)?;
+
+    // Check if there's a dot (schema.table)
+    let rest = rest.trim_start();
+    if rest.starts_with('.') {
+        let after_dot = rest[1..].trim_start();
+        let (second_ident, _) = parse_identifier(after_dot)?;
+        Some((first_ident, second_ident))
+    } else {
+        let schema = default_schema.clone().unwrap_or_else(|| "public".to_string());
+        Some((schema, first_ident))
+    }
+}
+
+/// Parse a SQL identifier (quoted or unquoted) from the start of a string.
+/// Returns (identifier, rest_of_string).
+fn parse_identifier(s: &str) -> Option<(String, &str)> {
+    if s.starts_with('"') {
+        // Quoted identifier
+        let end = s[1..].find('"')?;
+        let ident = &s[1..end + 1];
+        Some((ident.to_string(), &s[end + 2..]))
+    } else {
+        // Unquoted identifier
+        let end = s.find(|c: char| !c.is_ascii_alphanumeric() && c != '_').unwrap_or(s.len());
+        if end == 0 {
+            return None;
+        }
+        Some((s[..end].to_string(), &s[end..]))
+    }
+}
+
+/// Check if a SQL query produces editable results (simple single-table SELECT with PK)
+#[tauri::command]
+pub async fn check_query_editable(
+    connection_id: String,
+    sql: String,
+    schema: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<EditableInfo, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let not_editable = |reason: &str| -> Result<EditableInfo, String> {
+        Ok(EditableInfo {
+            is_editable: false,
+            reason: Some(reason.to_string()),
+            schema_name: String::new(),
+            table_name: String::new(),
+            primary_keys: vec![],
+        })
+    };
+
+    // Normalize SQL: strip comments, collapse whitespace
+    let normalized = sql
+        .lines()
+        .map(|l| {
+            if let Some(pos) = l.find("--") {
+                &l[..pos]
+            } else {
+                l
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let upper = normalized.to_uppercase();
+
+    // Disqualify complex queries
+    if upper.contains(" JOIN ") {
+        return not_editable("Cannot edit: query contains JOIN");
+    }
+    if upper.contains(" UNION ") {
+        return not_editable("Cannot edit: query contains UNION");
+    }
+    if upper.contains(" GROUP BY ") {
+        return not_editable("Cannot edit: query contains GROUP BY");
+    }
+    if upper.contains(" DISTINCT ") || upper.starts_with("SELECT DISTINCT") {
+        return not_editable("Cannot edit: query contains DISTINCT");
+    }
+    if upper.contains("(SELECT ") {
+        return not_editable("Cannot edit: query contains subquery");
+    }
+    if upper.starts_with("WITH ") {
+        return not_editable("Cannot edit: query contains CTE");
+    }
+
+    // Extract table name from simple SELECT ... FROM [schema.]table
+    let (schema_name, table_name) = match extract_table_from_sql(&upper, &normalized, &schema) {
+        Some(result) => result,
+        None => return not_editable("Cannot edit: unable to parse table name"),
+    };
+
+    // Look up primary key columns
+    let columns = postgres::get_columns(&pool, &schema_name, &table_name)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let primary_keys: Vec<String> = columns
+        .iter()
+        .filter(|c| c.is_primary_key)
+        .map(|c| c.name.clone())
+        .collect();
+
+    if primary_keys.is_empty() {
+        return not_editable("Cannot edit: table has no primary key");
+    }
+
+    Ok(EditableInfo {
+        is_editable: true,
+        reason: None,
+        schema_name,
+        table_name,
+        primary_keys,
+    })
+}
+
+/// Commit data edits (UPDATE/DELETE) to the database within a transaction
+#[tauri::command]
+pub async fn commit_data_edits(
+    connection_id: String,
+    options: CommitEditsOptions,
+    state: State<'_, AppState>,
+) -> Result<CommitEditsResult, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    let mut total_affected: u64 = 0;
+    let mut errors: Vec<String> = vec![];
+
+    // Start transaction
+    sqlx::query("BEGIN").execute(&mut *conn).await.map_err(|e| e.to_string())?;
+
+    for edit in &options.edits {
+        let result = match edit.edit_type.as_str() {
+            "update" => {
+                execute_update(
+                    &mut conn,
+                    &options.schema_name,
+                    &options.table_name,
+                    &options.primary_keys,
+                    edit,
+                ).await
+            }
+            "delete" => {
+                execute_delete(
+                    &mut conn,
+                    &options.schema_name,
+                    &options.table_name,
+                    &options.primary_keys,
+                    edit,
+                ).await
+            }
+            other => Err(format!("Unknown edit type: {}", other)),
+        };
+
+        match result {
+            Ok(affected) => total_affected += affected,
+            Err(e) => {
+                errors.push(e.clone());
+                // Rollback on first error
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Ok(CommitEditsResult {
+                    success: false,
+                    rows_affected: 0,
+                    errors,
+                });
+            }
+        }
+    }
+
+    // Commit
+    sqlx::query("COMMIT").execute(&mut *conn).await.map_err(|e| e.to_string())?;
+
+    Ok(CommitEditsResult {
+        success: true,
+        rows_affected: total_affected,
+        errors,
+    })
+}
+
+async fn execute_update(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    schema_name: &str,
+    table_name: &str,
+    primary_keys: &[String],
+    edit: &RowEdit,
+) -> Result<u64, String> {
+    let changes = edit.changes.as_object()
+        .ok_or("Invalid changes format")?;
+    let original = edit.original_row.as_object()
+        .ok_or("Invalid original_row format")?;
+
+    if changes.is_empty() {
+        return Ok(0);
+    }
+
+    // Build SET clause
+    let mut set_parts: Vec<String> = vec![];
+    let mut param_index = 1u32;
+    let mut params: Vec<String> = vec![];
+
+    for (col, val) in changes {
+        if val.is_null() {
+            set_parts.push(format!("\"{}\" = NULL", col));
+        } else {
+            set_parts.push(format!("\"{}\" = ${}", col, param_index));
+            params.push(json_value_to_sql_param(val));
+            param_index += 1;
+        }
+    }
+
+    // Build WHERE clause from primary keys
+    let mut where_parts: Vec<String> = vec![];
+    for pk in primary_keys {
+        let pk_val = original.get(pk)
+            .ok_or_else(|| format!("Primary key '{}' not found in original row", pk))?;
+        if pk_val.is_null() {
+            where_parts.push(format!("\"{}\" IS NULL", pk));
+        } else {
+            where_parts.push(format!("\"{}\" = ${}", pk, param_index));
+            params.push(json_value_to_sql_param(pk_val));
+            param_index += 1;
+        }
+    }
+
+    let sql = format!(
+        "UPDATE \"{}\".\"{}\" SET {} WHERE {}",
+        schema_name, table_name,
+        set_parts.join(", "),
+        where_parts.join(" AND ")
+    );
+
+    // Build dynamic query with text parameters and let PostgreSQL cast
+    let mut query = sqlx::query(&sql);
+    for p in &params {
+        query = query.bind(p.clone());
+    }
+
+    let result = query.execute(&mut **conn).await.map_err(|e| e.to_string())?;
+    Ok(result.rows_affected())
+}
+
+async fn execute_delete(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    schema_name: &str,
+    table_name: &str,
+    primary_keys: &[String],
+    edit: &RowEdit,
+) -> Result<u64, String> {
+    let original = edit.original_row.as_object()
+        .ok_or("Invalid original_row format")?;
+
+    let mut where_parts: Vec<String> = vec![];
+    let mut params: Vec<String> = vec![];
+    let mut param_index = 1u32;
+
+    for pk in primary_keys {
+        let pk_val = original.get(pk)
+            .ok_or_else(|| format!("Primary key '{}' not found in original row", pk))?;
+        if pk_val.is_null() {
+            where_parts.push(format!("\"{}\" IS NULL", pk));
+        } else {
+            where_parts.push(format!("\"{}\" = ${}", pk, param_index));
+            params.push(json_value_to_sql_param(pk_val));
+            param_index += 1;
+        }
+    }
+
+    let sql = format!(
+        "DELETE FROM \"{}\".\"{}\" WHERE {}",
+        schema_name, table_name,
+        where_parts.join(" AND ")
+    );
+
+    let mut query = sqlx::query(&sql);
+    for p in &params {
+        query = query.bind(p.clone());
+    }
+
+    let result = query.execute(&mut **conn).await.map_err(|e| e.to_string())?;
+    Ok(result.rows_affected())
+}
+
+fn json_value_to_sql_param(val: &serde_json::Value) -> String {
+    match val {
+        serde_json::Value::Null => "".to_string(), // Will be bound as text; use IS NULL in WHERE for null checks
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }

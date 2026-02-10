@@ -164,12 +164,16 @@ pub fn run() {
             commands::get_table_indexes,
             commands::get_table_constraints,
             commands::get_schema_functions,
+            commands::generate_table_ddl,
+            commands::generate_index_ddl,
             // Query commands
             commands::execute_query,
             commands::execute_statement,
             commands::fetch_more_rows,
             commands::cancel_query,
             commands::validate_sql,
+            commands::check_query_editable,
+            commands::commit_data_edits,
             // Saved query commands
             commands::create_saved_query,
             commands::load_saved_queries,
