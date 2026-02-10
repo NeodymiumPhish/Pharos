@@ -93,9 +93,10 @@ jobs:
 
       - name: Rename DMG with architecture suffix
         run: |
-          for dmg in src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
-            base="$(basename "$dmg" .dmg)"
-            mv "$dmg" "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/${base}_${{ matrix.label }}.dmg"
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          for dmg in "$DMG_DIR"/*.dmg; do
+            mv "$dmg" "$DMG_DIR/Pharos_${VERSION}_${{ matrix.label }}.dmg"
           done
 
       - name: Upload DMG artifact
