@@ -189,6 +189,82 @@ interface ColumnFilter {
 
 const NUMERIC_TYPES = new Set(['int2', 'int4', 'int8', 'float4', 'float8', 'numeric', 'decimal', 'smallint', 'integer', 'bigint', 'real', 'double precision', 'serial', 'bigserial']);
 const BOOLEAN_TYPES = new Set(['bool', 'boolean']);
+const TEMPORAL_TYPES = new Set([
+  'timestamp', 'timestamptz', 'timestamp without time zone', 'timestamp with time zone',
+  'date', 'time', 'timetz', 'time without time zone', 'time with time zone',
+]);
+const IP_TYPES = new Set(['inet', 'cidr']);
+const TEXT_TYPES = new Set([
+  'text', 'varchar', 'char', 'bpchar', 'name', 'xml', 'character varying', 'character',
+]);
+
+type AggregateMode = 'numeric' | 'temporal' | 'ip' | 'boolean' | 'text' | 'mixed';
+
+interface BaseAggregates { mode: AggregateMode; count: number }
+interface NumericAggregates extends BaseAggregates { mode: 'numeric'; sum: number; avg: number; min: number; max: number }
+interface TemporalAggregates extends BaseAggregates { mode: 'temporal'; min: string; max: string; duration: string }
+interface IpAggregates extends BaseAggregates { mode: 'ip'; unique: number; min: string; max: string }
+interface BooleanAggregates extends BaseAggregates { mode: 'boolean'; trueCount: number; falseCount: number }
+interface TextAggregates extends BaseAggregates { mode: 'text'; unique: number; minLength: number; maxLength: number }
+interface MixedAggregates extends BaseAggregates { mode: 'mixed'; unique: number }
+type Aggregates = NumericAggregates | TemporalAggregates | IpAggregates | BooleanAggregates | TextAggregates | MixedAggregates;
+
+function getAggregateCategory(dataType: string): AggregateMode {
+  const dt = dataType.toLowerCase();
+  if (NUMERIC_TYPES.has(dt)) return 'numeric';
+  if (TEMPORAL_TYPES.has(dt)) return 'temporal';
+  if (IP_TYPES.has(dt)) return 'ip';
+  if (BOOLEAN_TYPES.has(dt)) return 'boolean';
+  if (TEXT_TYPES.has(dt)) return 'text';
+  return 'text';
+}
+
+function resolveAggregateMode(columns: { dataType: string }[]): AggregateMode {
+  const categories = new Set(columns.map(c => getAggregateCategory(c.dataType)));
+  if (categories.size === 1) return categories.values().next().value!;
+  return 'mixed';
+}
+
+function parseTemporalToMs(value: string, dataType: string): number | null {
+  const dt = dataType.toLowerCase();
+  let d: Date;
+  if (dt === 'time' || dt === 'timetz' || dt === 'time without time zone' || dt === 'time with time zone') {
+    d = new Date(`1970-01-01T${value}`);
+  } else {
+    d = new Date(value);
+  }
+  return isNaN(d.getTime()) ? null : d.getTime();
+}
+
+function ipToNumber(ipStr: string): number | null {
+  const ip = ipStr.split('/')[0];
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  const nums = parts.map(Number);
+  if (nums.some(n => isNaN(n) || n < 0 || n > 255)) return null;
+  return ((nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]) >>> 0;
+}
+
+function formatAggregateDuration(ms: number): string {
+  if (ms < 0) ms = -ms;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) {
+    const rh = hours % 24, rm = minutes % 60;
+    return `${days}d` + (rh > 0 ? ` ${rh}h` : '') + (rm > 0 ? ` ${rm}m` : '');
+  }
+  if (hours > 0) {
+    const rm = minutes % 60;
+    return rm > 0 ? `${hours}h ${rm}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    const rs = seconds % 60;
+    return rs > 0 ? `${minutes}m ${rs}s` : `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
 
 function getAvailableOperators(dataType: string): { value: FilterOperator; label: string }[] {
   const dt = dataType.toLowerCase();
@@ -528,8 +604,8 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     return rows;
   }, [results, sortColumn, sortDirection]);
 
-  // Compute aggregates for selected cells
-  const aggregates = useMemo(() => {
+  // Compute type-aware aggregates for selected cells
+  const aggregates = useMemo((): Aggregates | null => {
     if (!selection || !results) return null;
 
     const minRow = Math.min(selection.startRow, selection.endRow);
@@ -537,42 +613,79 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     const minCol = Math.min(selection.startCol, selection.endCol);
     const maxCol = Math.max(selection.startCol, selection.endCol);
 
-    // Map selection column indices to visible columns
     const selectedCols = visibleColumns.slice(minCol, maxCol + 1);
     const selectedRows = sortedRows.slice(minRow, maxRow + 1);
+    if (selectedCols.length === 0 || selectedRows.length === 0) return null;
 
-    let count = 0;
-    let numericCount = 0;
-    let sum = 0;
-    let min = Infinity;
-    let max = -Infinity;
+    const mode = resolveAggregateMode(selectedCols);
 
+    // Collect non-null values
+    const values: unknown[] = [];
     for (const row of selectedRows) {
       for (const col of selectedCols) {
         const val = row[col.name];
-        if (val !== null && val !== undefined) {
-          count++;
-          const num = typeof val === 'number' ? val : parseFloat(String(val));
-          if (!isNaN(num)) {
-            numericCount++;
-            sum += num;
-            if (num < min) min = num;
-            if (num > max) max = num;
-          }
-        }
+        if (val !== null && val !== undefined) values.push(val);
       }
     }
+    if (values.length === 0) return null;
+    const count = values.length;
 
-    if (count === 0) return null;
-
-    return {
-      count,
-      numericCount,
-      sum: numericCount > 0 ? sum : null,
-      avg: numericCount > 0 ? sum / numericCount : null,
-      min: numericCount > 0 ? min : null,
-      max: numericCount > 0 ? max : null,
-    };
+    switch (mode) {
+      case 'numeric': {
+        let sum = 0, min = Infinity, max = -Infinity, nc = 0;
+        for (const val of values) {
+          const num = typeof val === 'number' ? val : parseFloat(String(val));
+          if (!isNaN(num)) { nc++; sum += num; if (num < min) min = num; if (num > max) max = num; }
+        }
+        if (nc === 0) return { mode: 'mixed', count, unique: new Set(values.map(String)).size };
+        return { mode: 'numeric', count, sum, avg: sum / nc, min, max };
+      }
+      case 'temporal': {
+        let minMs = Infinity, maxMs = -Infinity, minStr = '', maxStr = '';
+        const refType = selectedCols[0].dataType;
+        for (const val of values) {
+          const str = String(val);
+          const ms = parseTemporalToMs(str, refType);
+          if (ms !== null) {
+            if (ms < minMs) { minMs = ms; minStr = str; }
+            if (ms > maxMs) { maxMs = ms; maxStr = str; }
+          }
+        }
+        if (minMs === Infinity) return { mode: 'mixed', count, unique: new Set(values.map(String)).size };
+        return { mode: 'temporal', count, min: minStr, max: maxStr, duration: formatAggregateDuration(maxMs - minMs) };
+      }
+      case 'ip': {
+        const unique = new Set(values.map(String)).size;
+        let minIp: string | null = null, maxIp: string | null = null;
+        let minNum = Infinity, maxNum = -Infinity, allParsed = true;
+        for (const val of values) {
+          const str = String(val);
+          const num = ipToNumber(str);
+          if (num !== null) {
+            if (num < minNum) { minNum = num; minIp = str; }
+            if (num > maxNum) { maxNum = num; maxIp = str; }
+          } else { allParsed = false; }
+        }
+        if (!allParsed || minIp === null) {
+          const sorted = values.map(String).sort((a, b) => a.localeCompare(b));
+          minIp = sorted[0]; maxIp = sorted[sorted.length - 1];
+        }
+        return { mode: 'ip', count, unique, min: minIp!, max: maxIp! };
+      }
+      case 'boolean': {
+        let trueCount = 0, falseCount = 0;
+        for (const val of values) { if (val === true) trueCount++; else if (val === false) falseCount++; }
+        return { mode: 'boolean', count, trueCount, falseCount };
+      }
+      case 'text': {
+        const unique = new Set(values.map(String)).size;
+        let minLen = Infinity, maxLen = -Infinity;
+        for (const val of values) { const len = String(val).length; if (len < minLen) minLen = len; if (len > maxLen) maxLen = len; }
+        return { mode: 'text', count, unique, minLength: minLen, maxLength: maxLen };
+      }
+      default:
+        return { mode: 'mixed', count, unique: new Set(values.map(String)).size };
+    }
   }, [selection, results, sortedRows, visibleColumns]);
 
   // Find in results: compute matches
@@ -736,6 +849,8 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       });
     }
     setIsSelecting(true);
+    // Focus the wrapper so keyboard events (Escape, Cmd+C, etc.) reach its listener
+    wrapperRef.current?.focus();
   }, [selection]);
 
   const handleCellMouseEnter = useCallback((rowIndex: number, colIndex: number) => {
@@ -1836,13 +1951,43 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       {aggregates && (
         <div className="flex items-center gap-4 px-3 py-1 border-t border-theme-border-primary flex-shrink-0 text-[11px] text-theme-text-muted font-mono">
           <span>Count: {aggregates.count.toLocaleString()}</span>
-          {aggregates.sum !== null && (
+          {aggregates.mode === 'numeric' && (
             <>
               <span>Sum: {aggregates.sum.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-              <span>Avg: {aggregates.avg!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-              <span>Min: {aggregates.min!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-              <span>Max: {aggregates.max!.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Avg: {aggregates.avg.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Min: {aggregates.min.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+              <span>Max: {aggregates.max.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
             </>
+          )}
+          {aggregates.mode === 'temporal' && (
+            <>
+              <span>Duration: {aggregates.duration}</span>
+              <span>Earliest: {aggregates.min}</span>
+              <span>Latest: {aggregates.max}</span>
+            </>
+          )}
+          {aggregates.mode === 'ip' && (
+            <>
+              <span>Unique: {aggregates.unique.toLocaleString()}</span>
+              <span>Min: {aggregates.min}</span>
+              <span>Max: {aggregates.max}</span>
+            </>
+          )}
+          {aggregates.mode === 'boolean' && (
+            <>
+              <span>True: {aggregates.trueCount.toLocaleString()}</span>
+              <span>False: {aggregates.falseCount.toLocaleString()}</span>
+            </>
+          )}
+          {aggregates.mode === 'text' && (
+            <>
+              <span>Unique: {aggregates.unique.toLocaleString()}</span>
+              <span>Shortest: {aggregates.minLength}</span>
+              <span>Longest: {aggregates.maxLength}</span>
+            </>
+          )}
+          {aggregates.mode === 'mixed' && (
+            <span>Unique: {aggregates.unique.toLocaleString()}</span>
           )}
         </div>
       )}

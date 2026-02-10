@@ -503,11 +503,13 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   }, []);
 
   // Memoize handlers to prevent re-creating on every render
+  // Only register query.cancel when a query is running, so bare Escape
+  // doesn't get consumed and can reach ResultsGrid for deselection
   const shortcutHandlers = useMemo(
     () => ({
       'query.run': handleExecute,
       'query.save': handleSave,
-      'query.cancel': handleCancel,
+      ...(activeTab?.isExecuting ? { 'query.cancel': handleCancel } : {}),
       'tab.new': () => activeConnectionId && createTab(activeConnectionId),
       'tab.close': handleCloseTab,
       'tab.reopen': handleReopenTab,
@@ -536,6 +538,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       handleCopyResults,
       handleExportCSV,
       activeConnectionId,
+      activeTab?.isExecuting,
       createTab,
       tabs,
       setActiveTab,
