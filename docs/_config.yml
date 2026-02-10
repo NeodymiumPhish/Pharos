@@ -3,7 +3,7 @@ description: A high-performance PostgreSQL client for macOS
 baseurl: "/Pharos"
 url: "https://neodymiumphish.github.io"
 
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
 color_scheme: dark
 search_enabled: true
 search.heading_level: 3
