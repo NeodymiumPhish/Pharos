@@ -215,11 +215,23 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
               `$1$2, FORMAT JSON)`
             );
           } else {
-            // Simple EXPLAIN SELECT — wrap with (FORMAT JSON)
-            execSql = sql.replace(
-              /^(\s*EXPLAIN)\s+/i,
-              '$1 (FORMAT JSON) '
-            );
+            // Check for shorthand options like EXPLAIN ANALYZE, EXPLAIN VERBOSE, etc.
+            // These need to go inside parentheses: EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+            const shorthandMatch = sql.match(/^\s*EXPLAIN\s+((?:(?:ANALYZE|VERBOSE)\s+)*)/i);
+            if (shorthandMatch && shorthandMatch[1].trim().length > 0) {
+              // Convert shorthand options to parenthesized form
+              const opts = shorthandMatch[1].trim().replace(/\s+/g, ', ');
+              execSql = sql.replace(
+                /^\s*EXPLAIN\s+(?:(?:ANALYZE|VERBOSE)\s+)*/i,
+                `EXPLAIN (${opts}, FORMAT JSON) `
+              );
+            } else {
+              // Simple EXPLAIN SELECT — wrap with (FORMAT JSON)
+              execSql = sql.replace(
+                /^(\s*EXPLAIN)\s+/i,
+                '$1 (FORMAT JSON) '
+              );
+            }
           }
         }
       }
