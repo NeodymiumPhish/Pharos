@@ -96,10 +96,10 @@ function getCellClassName(value: unknown): string {
     return 'text-theme-text-muted italic';
   }
   if (typeof value === 'number') {
-    return 'text-blue-400';
+    return 'text-blue-700 dark:text-blue-300';
   }
   if (typeof value === 'boolean') {
-    return 'text-violet-400';
+    return 'text-violet-700 dark:text-violet-300';
   }
   return 'text-theme-text-secondary';
 }
@@ -1344,7 +1344,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           )}
           {editableInfo && !editableInfo.isEditable && (
             <span
-              className="text-[11px] text-amber-400 flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded cursor-default"
+              className="text-[11px] text-theme-text-muted flex items-center gap-1 bg-theme-bg-hover px-1.5 py-0.5 rounded cursor-default"
               title={editableInfo.reason ?? 'Results are read-only'}
             >
               <Lock className="w-3 h-3" />
@@ -1591,11 +1591,11 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           {Array.from(filters.values()).map((filter) => (
             <span
               key={filter.column}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-mono"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[10px] font-mono"
             >
               {getFilterLabel(filter)}
               <button
-                className="hover:text-blue-300"
+                className="hover:text-blue-900 dark:hover:text-blue-100"
                 onClick={() => {
                   setFilters((prev) => {
                     const next = new Map(prev);
@@ -1953,7 +1953,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
       {/* Aggregate footer */}
       {aggregates && (
-        <div className="flex items-center gap-4 px-3 py-1 border-t border-theme-border-primary flex-shrink-0 text-[11px] text-theme-text-muted font-mono">
+        <div className="flex items-center gap-4 px-3 py-1 border-t border-theme-border-primary flex-shrink-0 text-[11px] text-theme-text-secondary font-mono">
           <span>Count: {aggregates.count.toLocaleString()}</span>
           {aggregates.mode === 'numeric' && (
             <>

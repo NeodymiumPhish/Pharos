@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react';
-import Editor, { OnMount, OnChange } from '@monaco-editor/react';
+import Editor, { BeforeMount, OnMount, OnChange } from '@monaco-editor/react';
 import type { editor, IDisposable, KeyCode } from 'monaco-editor';
 import { format as formatSql } from 'sql-formatter';
 import { useEditorStore } from '@/stores/editorStore';
@@ -84,16 +84,16 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
   inherit: true,
   rules: [
     // Brighter colors for transparent background with vibrancy
-    { token: 'keyword', foreground: 'FF79C6' }, // Bright pink
-    { token: 'keyword.sql', foreground: 'FF79C6' },
-    { token: 'string', foreground: 'F1FA8C' }, // Bright yellow
-    { token: 'string.sql', foreground: 'F1FA8C' },
-    { token: 'number', foreground: 'BD93F9' }, // Bright purple
-    { token: 'comment', foreground: '6272A4', fontStyle: 'italic' }, // Muted blue-gray
-    { token: 'operator', foreground: 'FFFFFF' }, // White
-    { token: 'identifier', foreground: 'F8F8F2' }, // Off-white
-    { token: 'type', foreground: '8BE9FD' }, // Cyan
-    { token: 'predefined', foreground: '50FA7B' }, // Bright green
+    { token: 'keyword', foreground: '82AAFF' }, // Soft blue
+    { token: 'keyword.sql', foreground: '82AAFF' },
+    { token: 'string', foreground: 'C3E88D' }, // Soft green
+    { token: 'string.sql', foreground: 'C3E88D' },
+    { token: 'number', foreground: 'B5CEA8' }, // Sage green
+    { token: 'comment', foreground: '6A7A8B', fontStyle: 'italic' }, // Muted slate
+    { token: 'operator', foreground: '89DDFF' }, // Light cyan
+    { token: 'identifier', foreground: 'D4D4D4' }, // Light gray
+    { token: 'type', foreground: '4EC9B0' }, // Teal
+    { token: 'predefined', foreground: 'DCDCAA' }, // Muted yellow
   ],
   colors: {
     'editor.background': '#00000000', // Transparent
@@ -128,16 +128,16 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
   inherit: true,
   rules: [
     // Darker, more saturated colors for transparent background with vibrancy
-    { token: 'keyword', foreground: '8700AF' }, // Dark purple
-    { token: 'keyword.sql', foreground: '8700AF' },
-    { token: 'string', foreground: 'B8000F' }, // Dark red
-    { token: 'string.sql', foreground: 'B8000F' },
-    { token: 'number', foreground: '005C3E' }, // Dark teal
-    { token: 'comment', foreground: '5A6A73', fontStyle: 'italic' }, // Gray
+    { token: 'keyword', foreground: '0033B3' }, // Deep blue
+    { token: 'keyword.sql', foreground: '0033B3' },
+    { token: 'string', foreground: '067D17' }, // Forest green
+    { token: 'string.sql', foreground: '067D17' },
+    { token: 'number', foreground: '1750EB' }, // Bright blue
+    { token: 'comment', foreground: '8C8C8C', fontStyle: 'italic' }, // Medium gray
     { token: 'operator', foreground: '1A1A1A' }, // Near black
     { token: 'identifier', foreground: '1A1A1A' }, // Near black for readability
     { token: 'type', foreground: '007068' }, // Dark cyan
-    { token: 'predefined', foreground: '0550AE' }, // Dark blue
+    { token: 'predefined', foreground: '7A3E9D' }, // Rich purple
   ],
   colors: {
     'editor.background': '#00000000', // Transparent
@@ -193,8 +193,14 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const selectedSchema = useConnectionStore((state) => state.getActiveSelectedSchema());
   const editorSettings = useSettingsStore((state) => state.settings.editor);
-  const theme = useSettingsStore((state) => state.settings.theme);
-  const getEffectiveTheme = useSettingsStore((state) => state.getEffectiveTheme);
+  // Compute effective theme directly in selector for reliable reactivity
+  const effectiveTheme = useSettingsStore((state) => {
+    const t = state.settings.theme;
+    if (t === 'auto') {
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    return t;
+  });
 
   // Update the metadata ref when it changes
   useEffect(() => {
@@ -298,18 +304,19 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
     [validateSql]
   );
 
+  // Define custom themes before the editor mounts so the theme prop works
+  const handleEditorBeforeMount: BeforeMount = useCallback(
+    (monaco) => {
+      monaco.editor.defineTheme('pharos-dark', PHAROS_DARK_THEME);
+      monaco.editor.defineTheme('pharos-light', PHAROS_LIGHT_THEME);
+    },
+    []
+  );
+
   const handleEditorMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
       monacoRef.current = monaco;
-
-      // Define custom themes
-      monaco.editor.defineTheme('pharos-dark', PHAROS_DARK_THEME);
-      monaco.editor.defineTheme('pharos-light', PHAROS_LIGHT_THEME);
-
-      // Set initial theme based on settings
-      const effectiveTheme = getEffectiveTheme();
-      monaco.editor.setTheme(effectiveTheme === 'dark' ? 'pharos-dark' : 'pharos-light');
 
       // Register custom completion provider
       completionProviderRef.current = monaco.languages.registerCompletionItemProvider(
@@ -459,7 +466,7 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
       // Focus the editor
       editor.focus();
     },
-    [updateCursorPosition, getEffectiveTheme]
+    [updateCursorPosition]
   );
 
   // Expose format method to parent via ref
@@ -475,16 +482,12 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
     }
   }, [externalEditorRef]);
 
-  // Update Monaco theme when settings change
+  // Explicitly set Monaco theme when effectiveTheme changes (safety net alongside theme prop)
   useEffect(() => {
-    if (editorRef.current) {
-      const effectiveTheme = getEffectiveTheme();
-      const monacoApi = (window as any).monaco;
-      if (monacoApi) {
-        monacoApi.editor.setTheme(effectiveTheme === 'dark' ? 'pharos-dark' : 'pharos-light');
-      }
+    if (monacoRef.current) {
+      monacoRef.current.editor.setTheme(effectiveTheme === 'dark' ? 'pharos-dark' : 'pharos-light');
     }
-  }, [theme, getEffectiveTheme]);
+  }, [effectiveTheme]);
 
   // Cleanup providers and validation timeout on unmount
   useEffect(() => {
@@ -543,7 +546,9 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
         height="100%"
         language="sql"
         value={tab.sql}
+        theme={effectiveTheme === 'dark' ? 'pharos-dark' : 'pharos-light'}
         onChange={handleChange}
+        beforeMount={handleEditorBeforeMount}
         onMount={handleEditorMount}
         options={{
           fontSize: editorSettings.fontSize,
