@@ -1,11 +1,11 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Hash, Columns3 } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Hash, Columns3, Search, Pencil, Trash2, Lock } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import * as tauri from '@/lib/tauri';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { ExportFormat } from '@/lib/types';
+import type { ExportFormat, EditableInfo, RowEdit } from '@/lib/types';
 import type { QueryResults } from '@/stores/editorStore';
 
 interface ResultsGridProps {
@@ -22,6 +22,12 @@ interface ResultsGridProps {
   onToggleExpand?: () => void;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
+  editableInfo?: EditableInfo;
+  pendingEdits?: RowEdit[];
+  onCellEdit?: (rowIndex: number, columnName: string, newValue: unknown) => void;
+  onDeleteRows?: (rowIndices: number[]) => void;
+  onCommitEdits?: () => void;
+  onDiscardEdits?: () => void;
 }
 
 // Cell selection as a rectangular range
@@ -62,9 +68,9 @@ function formatDuration(ms: number): string {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function formatCellValue(value: unknown): string {
+function formatCellValue(value: unknown, nullDisplay: string = 'NULL'): string {
   if (value === null) {
-    return 'NULL';
+    return nullDisplay;
   }
   if (value === undefined) {
     return '';
@@ -79,8 +85,8 @@ function formatCellValue(value: unknown): string {
 }
 
 // Get display value based on newline mode
-function getDisplayValue(value: unknown, showNewlines: boolean): string {
-  const formatted = formatCellValue(value);
+function getDisplayValue(value: unknown, showNewlines: boolean, nullDisplay: string = 'NULL'): string {
+  const formatted = formatCellValue(value, nullDisplay);
   if (showNewlines) {
     return formatted;
   }
@@ -256,7 +262,7 @@ function applyFilter(cellValue: unknown, filter: ColumnFilter): boolean {
   }
 
   // Text operators
-  const cellStr = formatCellValue(cellValue).toLowerCase();
+  const cellStr = formatCellValue(cellValue, 'NULL').toLowerCase();
   const filterVal = filter.value.toLowerCase();
 
   switch (filter.operator) {
@@ -385,10 +391,11 @@ const FilterPopover = forwardRef<HTMLDivElement, FilterPopoverProps>(function Fi
 });
 
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
-  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand, onLoadMore, isLoadingMore },
+  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand, onLoadMore, isLoadingMore, editableInfo, pendingEdits, onCellEdit, onDeleteRows, onCommitEdits, onDiscardEdits },
   ref
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [wrapText, setWrapText] = useState(false);
   const [showNewlines, setShowNewlines] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -421,6 +428,19 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
   // Settings
   const zebraStriping = useSettingsStore((state) => state.settings.ui.zebraStriping);
+  const nullDisplay = useSettingsStore((state) => state.settings.ui.nullDisplay ?? 'NULL');
+  const resultsFontSize = useSettingsStore((state) => state.settings.ui.resultsFontSize ?? 11);
+
+  // Find in results state
+  const [findQuery, setFindQuery] = useState('');
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Inline edit state
+  const [editingCell, setEditingCell] = useState<{ rowIndex: number; colIndex: number } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement | null>(null);
 
   // Calculate initial column widths based on content
   const initialColumnWidths = useMemo(() => {
@@ -555,6 +575,95 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     };
   }, [selection, results, sortedRows, visibleColumns]);
 
+  // Find in results: compute matches
+  const findMatches = useMemo(() => {
+    if (!findQuery.trim() || !results || !isFindOpen) return [];
+    const query = findQuery.toLowerCase();
+    const matches: Array<{ rowIndex: number; colIndex: number }> = [];
+    sortedRows.forEach((row, ri) => {
+      visibleColumns.forEach((col, ci) => {
+        if (formatCellValue(row[col.name], nullDisplay).toLowerCase().includes(query)) {
+          matches.push({ rowIndex: ri, colIndex: ci });
+        }
+      });
+    });
+    return matches;
+  }, [findQuery, sortedRows, visibleColumns, nullDisplay, results, isFindOpen]);
+
+  // Fast lookup set for find highlighting
+  const findMatchSet = useMemo(() => {
+    const set = new Set<string>();
+    findMatches.forEach((m) => set.add(`${m.rowIndex}-${m.colIndex}`));
+    return set;
+  }, [findMatches]);
+
+  // Reset match index when matches change
+  useEffect(() => {
+    setCurrentMatchIndex(0);
+  }, [findMatches.length]);
+
+  const goToNextMatch = useCallback(() => {
+    if (findMatches.length === 0) return;
+    setCurrentMatchIndex((prev) => (prev + 1) % findMatches.length);
+  }, [findMatches.length]);
+
+  const goToPrevMatch = useCallback(() => {
+    if (findMatches.length === 0) return;
+    setCurrentMatchIndex((prev) => (prev - 1 + findMatches.length) % findMatches.length);
+  }, [findMatches.length]);
+
+  // Inline editing: lookup pending changes by row index
+  const pendingEditsByRow = useMemo(() => {
+    if (!pendingEdits?.length) return new Map<number, Record<string, unknown>>();
+    const map = new Map<number, Record<string, unknown>>();
+    for (const edit of pendingEdits) {
+      if (edit.type === 'update') {
+        const existing = map.get(edit.rowIndex) ?? {};
+        map.set(edit.rowIndex, { ...existing, ...edit.changes });
+      }
+    }
+    return map;
+  }, [pendingEdits]);
+
+  const deletedRows = useMemo(() => {
+    if (!pendingEdits?.length) return new Set<number>();
+    return new Set(pendingEdits.filter((e) => e.type === 'delete').map((e) => e.rowIndex));
+  }, [pendingEdits]);
+
+  const isEditable = editableInfo?.isEditable ?? false;
+
+  const handleCellDoubleClick = useCallback((rowIndex: number, colIndex: number) => {
+    if (!isEditable || !onCellEdit) return;
+    const col = visibleColumns[colIndex];
+    if (!col) return;
+    const row = sortedRows[rowIndex];
+    if (!row) return;
+    const currentValue = row[col.name];
+    setEditingCell({ rowIndex, colIndex });
+    setEditValue(currentValue === null ? '' : formatCellValue(currentValue));
+    setTimeout(() => editInputRef.current?.focus(), 0);
+  }, [isEditable, onCellEdit, visibleColumns, sortedRows]);
+
+  const confirmEdit = useCallback(() => {
+    if (!editingCell || !onCellEdit) return;
+    const col = visibleColumns[editingCell.colIndex];
+    if (!col) return;
+    const row = sortedRows[editingCell.rowIndex];
+    if (!row) return;
+    const oldValue = row[col.name];
+    const oldStr = oldValue === null ? '' : formatCellValue(oldValue);
+    if (editValue !== oldStr) {
+      // Convert empty string back to null for nullable columns
+      const newValue = editValue === '' ? null : editValue;
+      onCellEdit(editingCell.rowIndex, col.name, newValue);
+    }
+    setEditingCell(null);
+  }, [editingCell, editValue, onCellEdit, visibleColumns, sortedRows]);
+
+  const cancelEdit = useCallback(() => {
+    setEditingCell(null);
+  }, []);
+
   // Handle column resize
   const handleColumnResizeStart = useCallback((e: React.MouseEvent, columnName: string) => {
     e.preventDefault();
@@ -673,7 +782,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     let maxLines = 1;
 
     for (const col of results.columns) {
-      const value = formatCellValue(row[col.name]);
+      const value = formatCellValue(row[col.name], nullDisplay);
       const colWidth = effectiveColumnWidths[col.name] ?? DEFAULT_COLUMN_WIDTH;
       // Account for padding (16px total = 8px each side from px-2)
       const availableWidth = colWidth - 16;
@@ -727,13 +836,24 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [showNewlines, wrapText, effectiveColumnWidths, results, rowVirtualizer]);
 
-  // Reset sort, filters, and column visibility when results change (new query executed)
+  // Scroll to current find match when it changes
+  useEffect(() => {
+    if (findMatches.length > 0 && currentMatchIndex < findMatches.length) {
+      const match = findMatches[currentMatchIndex];
+      rowVirtualizer.scrollToIndex(match.rowIndex, { align: 'center' });
+    }
+  }, [currentMatchIndex, findMatches, rowVirtualizer]);
+
+  // Reset sort, filters, column visibility, and find when results change (new query executed)
   useEffect(() => {
     setSortColumn(null);
     setSortDirection(null);
     setFilters(new Map());
     setFilterPopoverColumn(null);
     setHiddenColumns(new Set());
+    setFindQuery('');
+    setIsFindOpen(false);
+    setCurrentMatchIndex(0);
   }, [results]);
 
   // Close filter popover on outside click
@@ -766,7 +886,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     const header = results.columns.map((c) => c.name).join('\t');
     const rows = results.rows
       .map((row) =>
-        results.columns.map((col) => formatCellValue(row[col.name])).join('\t')
+        results.columns.map((col) => formatCellValue(row[col.name], nullDisplay)).join('\t')
       )
       .join('\n');
 
@@ -793,7 +913,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     // Data rows (from sortedRows which respects filter/sort)
     const rows = sortedRows.slice(minRow, maxRow + 1).map(row =>
-      selectedColumns.map(col => formatCellValue(row[col.name])).join('\t')
+      selectedColumns.map(col => formatCellValue(row[col.name], nullDisplay)).join('\t')
     ).join('\n');
 
     // Skip header for single column selection
@@ -818,24 +938,46 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [selection, handleCopySelection, handleCopyToClipboard]);
 
-  // Keyboard handler for Cmd+C and Escape
+  // Keyboard handler for Cmd+C, Cmd+F, and Escape — attached to wrapper so it works
+  // when any part of the results panel (toolbar, search bar, or grid) has focus
   useEffect(() => {
-    const container = parentRef.current;
-    if (!container) return;
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selection) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setIsFindOpen(true);
+        setTimeout(() => findInputRef.current?.focus(), 0);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selection) {
         e.preventDefault();
         handleCopySelection();
-      } else if (e.key === 'Escape' && selection) {
+      } else if (e.key === 'Escape') {
         e.preventDefault();
-        setSelection(null);
+        if (editingCell) {
+          cancelEdit();
+        } else if (isFindOpen) {
+          setIsFindOpen(false);
+          setFindQuery('');
+          setCurrentMatchIndex(0);
+        } else if (selection) {
+          setSelection(null);
+        }
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && isEditable && onDeleteRows && selection && !editingCell) {
+        e.preventDefault();
+        const minRow = Math.min(selection.startRow, selection.endRow);
+        const maxRow = Math.max(selection.startRow, selection.endRow);
+        const indices: number[] = [];
+        for (let i = minRow; i <= maxRow; i++) {
+          if (!deletedRows.has(i)) indices.push(i);
+        }
+        if (indices.length > 0) onDeleteRows(indices);
       }
     };
 
-    container.addEventListener('keydown', handleKeyDown);
-    return () => container.removeEventListener('keydown', handleKeyDown);
-  }, [selection, handleCopySelection]);
+    wrapper.addEventListener('keydown', handleKeyDown);
+    return () => wrapper.removeEventListener('keydown', handleKeyDown);
+  }, [selection, handleCopySelection, isFindOpen, isEditable, onDeleteRows, editingCell, deletedRows, cancelEdit]);
 
   // Clear selection when clicking header or empty area
   // Handle click on column header (for sorting)
@@ -899,7 +1041,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
         const header = results.columns.map((c) => escapeCSV(c.name, delim)).join(delim);
         const rows = results.rows
           .map((row) =>
-            results.columns.map((col) => escapeCSV(formatCellValue(row[col.name]), delim)).join(delim)
+            results.columns.map((col) => escapeCSV(formatCellValue(row[col.name], nullDisplay), delim)).join(delim)
           )
           .join('\n');
         return {
@@ -943,7 +1085,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
         const headerRow = `| ${headers.join(' | ')} |`;
         const sepRow = `| ${headers.map(() => '---').join(' | ')} |`;
         const dataRows = results.rows.map((row) => {
-          const vals = results.columns.map((col) => formatCellValue(row[col.name]).replace(/\|/g, '\\|').replace(/\n/g, ' '));
+          const vals = results.columns.map((col) => formatCellValue(row[col.name], nullDisplay).replace(/\|/g, '\\|').replace(/\n/g, ' '));
           return `| ${vals.join(' | ')} |`;
         }).join('\n');
         return { content: `${headerRow}\n${sepRow}\n${dataRows}`, mimeType: 'text/markdown;charset=utf-8;', ext: 'md' };
@@ -1078,7 +1220,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   }
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden" style={{ maxWidth: '100%' }}>
+    <div ref={wrapperRef} tabIndex={-1} className="h-full w-full flex flex-col overflow-hidden outline-none" style={{ maxWidth: '100%' }}>
       {/* Toolbar - fixed, doesn't scroll */}
       <div className="flex items-center justify-between px-3 py-1 border-b border-theme-border-primary flex-shrink-0 flex-grow-0">
         <div className="flex items-center gap-2">
@@ -1106,8 +1248,41 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               Pinned to: {pinnedTabName}
             </span>
           )}
+          {isEditable && (
+            <span className="text-[10px] text-green-400 flex items-center gap-1 bg-green-500/10 px-1.5 py-0.5 rounded">
+              <Pencil className="w-2.5 h-2.5" />
+              Editable
+            </span>
+          )}
+          {editableInfo && !editableInfo.isEditable && editableInfo.reason && (
+            <span
+              className="text-[10px] text-theme-text-muted flex items-center gap-1 bg-theme-bg-hover px-1.5 py-0.5 rounded cursor-default"
+              title={editableInfo.reason}
+            >
+              <Lock className="w-2.5 h-2.5" />
+              Read-only
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-0.5">
+          {isEditable && onDeleteRows && selection && (
+            <button
+              onClick={() => {
+                const minRow = Math.min(selection.startRow, selection.endRow);
+                const maxRow = Math.max(selection.startRow, selection.endRow);
+                const indices: number[] = [];
+                for (let i = minRow; i <= maxRow; i++) {
+                  if (!deletedRows.has(i)) indices.push(i);
+                }
+                if (indices.length > 0) onDeleteRows(indices);
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors"
+              title="Delete selected rows (Delete/Backspace)"
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete
+            </button>
+          )}
           {sortColumn !== null && (
             <button
               onClick={handleResetSort}
@@ -1238,6 +1413,24 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             Lines
           </button>
           <button
+            onClick={() => {
+              setIsFindOpen((prev) => !prev);
+              if (!isFindOpen) {
+                setTimeout(() => findInputRef.current?.focus(), 0);
+              }
+            }}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
+              isFindOpen
+                ? 'text-theme-text-primary bg-theme-bg-active'
+                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+            )}
+            title="Find in results (Cmd+F)"
+          >
+            <Search className="w-3 h-3" />
+            Find
+          </button>
+          <button
             onClick={handleCopyButtonClick}
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
@@ -1327,11 +1520,105 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
         </div>
       )}
 
+      {/* Pending edits bar */}
+      {isEditable && pendingEdits && pendingEdits.length > 0 && (
+        <div className="flex items-center justify-between px-3 py-1 border-b border-amber-500/30 bg-amber-500/10 flex-shrink-0">
+          <span className="text-[11px] text-amber-400 font-medium">
+            {pendingEdits.length} pending change{pendingEdits.length !== 1 ? 's' : ''}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onDiscardEdits}
+              className="px-2 py-0.5 rounded text-[11px] text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+            >
+              Discard
+            </button>
+            <button
+              onClick={onCommitEdits}
+              className="px-2 py-0.5 rounded text-[11px] text-white bg-amber-600 hover:bg-amber-500 transition-colors"
+            >
+              Commit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Find in results bar */}
+      {isFindOpen && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-theme-border-primary flex-shrink-0 bg-theme-bg-elevated">
+          <Search className="w-3.5 h-3.5 text-theme-text-tertiary flex-shrink-0" />
+          <input
+            ref={findInputRef}
+            type="text"
+            value={findQuery}
+            onChange={(e) => setFindQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                  goToPrevMatch();
+                } else {
+                  goToNextMatch();
+                }
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setIsFindOpen(false);
+                setFindQuery('');
+                setCurrentMatchIndex(0);
+                parentRef.current?.focus();
+              }
+            }}
+            placeholder="Find in results..."
+            className={cn(
+              'flex-1 min-w-0 px-2 py-0.5 rounded text-xs',
+              'bg-theme-bg-surface border border-theme-border-primary',
+              'text-theme-text-primary placeholder-theme-text-muted',
+              'focus:outline-none focus:border-theme-border-secondary'
+            )}
+          />
+          <span className="text-[10px] text-theme-text-muted whitespace-nowrap">
+            {findQuery.trim()
+              ? findMatches.length > 0
+                ? `${currentMatchIndex + 1} of ${findMatches.length}`
+                : 'No matches'
+              : ''}
+          </span>
+          <button
+            onClick={goToPrevMatch}
+            disabled={findMatches.length === 0}
+            className="p-0.5 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Previous match (Shift+Enter)"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={goToNextMatch}
+            disabled={findMatches.length === 0}
+            className="p-0.5 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Next match (Enter)"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => {
+              setIsFindOpen(false);
+              setFindQuery('');
+              setCurrentMatchIndex(0);
+              parentRef.current?.focus();
+            }}
+            className="p-0.5 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
+            title="Close (Escape)"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Table - scrollable area */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <div ref={parentRef} className="h-full overflow-auto outline-none" tabIndex={0} onClick={handleContainerClick}>
           {/* Inner container - sets the scrollable width */}
-          <div style={{ width: Math.max(totalTableWidth, 1), minWidth: totalTableWidth }} onClick={handleContainerClick}>
+          <div style={{ width: Math.max(totalTableWidth, 1), minWidth: totalTableWidth, fontSize: `${resultsFontSize}px` }} onClick={handleContainerClick}>
             {/* Header row - sticky */}
             <div
               className="sticky top-0 z-10 bg-theme-bg-elevated flex border-b border-theme-border-primary"
@@ -1466,24 +1753,57 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                         {virtualRow.index + 1}
                       </div>
                     )}
-                    {visibleColumns.map((col, colIndex) => (
+                    {visibleColumns.map((col, colIndex) => {
+                      const isFindMatch = findMatchSet.has(`${virtualRow.index}-${colIndex}`);
+                      const isCurrentFindMatch = isFindMatch && findMatches.length > 0 && findMatches[currentMatchIndex]?.rowIndex === virtualRow.index && findMatches[currentMatchIndex]?.colIndex === colIndex;
+                      const isEditingThis = editingCell?.rowIndex === virtualRow.index && editingCell?.colIndex === colIndex;
+                      const pendingChanges = pendingEditsByRow.get(virtualRow.index);
+                      const hasPendingChange = pendingChanges != null && col.name in pendingChanges;
+                      const isRowDeleted = deletedRows.has(virtualRow.index);
+                      return (
                       <div
                         key={col.name}
                         className={cn(
-                          'px-2 py-0.5 text-[11px] font-mono border-b border-r border-theme-border-primary flex-shrink-0 text-left overflow-hidden cursor-cell select-none',
+                          'px-2 py-0.5 text-[11px] font-mono border-b border-r border-theme-border-primary flex-shrink-0 text-left overflow-hidden cursor-cell select-none relative',
                           wrapText ? 'break-words' : 'text-ellipsis',
                           wrapText || showNewlines ? 'whitespace-pre-wrap' : 'whitespace-nowrap',
                           getCellClassName(row[col.name]),
-                          isCellSelected(virtualRow.index, colIndex) && 'bg-blue-500/20 outline outline-1 -outline-offset-1 outline-blue-500/50'
+                          isCellSelected(virtualRow.index, colIndex) && 'bg-blue-500/20 outline outline-1 -outline-offset-1 outline-blue-500/50',
+                          isFindMatch && !isCurrentFindMatch && 'bg-amber-500/20',
+                          isCurrentFindMatch && 'bg-amber-500/40 ring-1 ring-amber-500 -outline-offset-1',
+                          hasPendingChange && 'border-l-2 border-l-amber-500',
+                          isRowDeleted && 'line-through opacity-50 border-l-2 border-l-red-500'
                         )}
                         style={{ width: effectiveColumnWidths[col.name], minWidth: effectiveColumnWidths[col.name] }}
-                        title={formatCellValue(row[col.name])}
+                        title={formatCellValue(row[col.name], nullDisplay)}
                         onMouseDown={(e) => handleCellMouseDown(virtualRow.index, colIndex, e)}
                         onMouseEnter={() => handleCellMouseEnter(virtualRow.index, colIndex)}
+                        onDoubleClick={() => handleCellDoubleClick(virtualRow.index, colIndex)}
                       >
-                        {getDisplayValue(row[col.name], showNewlines)}
+                        {isEditingThis ? (
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === 'Tab') {
+                                e.preventDefault();
+                                confirmEdit();
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
+                            }}
+                            onBlur={confirmEdit}
+                            className="w-full h-full bg-theme-bg-surface text-theme-text-primary text-[11px] font-mono border-none outline-none ring-1 ring-blue-500 px-1 -mx-1"
+                          />
+                        ) : (
+                          getDisplayValue(row[col.name], showNewlines, nullDisplay)
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })}

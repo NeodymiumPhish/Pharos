@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Plus, Database, Power, PowerOff, RefreshCw, Trash2, Pencil } from 'lucide-react';
+import { Plus, Database, Power, PowerOff, RefreshCw, Trash2, Pencil, Copy } from 'lucide-react';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -22,6 +22,7 @@ interface ConnectionIconProps {
   onEdit: (connection: Connection) => void;
   onRefresh: (connection: Connection) => void;
   onDelete: (connection: Connection) => void;
+  onDuplicate: (connection: Connection) => void;
   onDragStart: (e: React.MouseEvent, connectionId: string) => void;
   setRef: (connectionId: string, element: HTMLDivElement | null) => void;
 }
@@ -36,6 +37,7 @@ function ConnectionIcon({
   onEdit,
   onRefresh,
   onDelete,
+  onDuplicate,
   onDragStart,
   setRef,
 }: ConnectionIconProps) {
@@ -115,6 +117,12 @@ function ConnectionIcon({
               )}
             />
           </div>
+          {connection.config.color && (
+            <div
+              className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full"
+              style={{ backgroundColor: connection.config.color }}
+            />
+          )}
           <span
             className={cn(
               'text-[8px] font-medium truncate max-w-[36px] text-center leading-tight',
@@ -178,6 +186,16 @@ function ConnectionIcon({
             <Pencil className="w-4 h-4" />
             Edit Connection
           </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+            onClick={() => {
+              onDuplicate(connection);
+              setContextMenu(null);
+            }}
+          >
+            <Copy className="w-4 h-4" />
+            Duplicate Connection
+          </button>
           <div className="my-1 border-t border-theme-border-primary" />
           <button
             className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-400 hover:bg-theme-bg-hover transition-colors"
@@ -203,6 +221,7 @@ export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh 
   const connectionOrder = useConnectionStore((state) => state.connectionOrder);
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const updateConnectionStatus = useConnectionStore((state) => state.updateConnectionStatus);
+  const addConnection = useConnectionStore((state) => state.addConnection);
   const removeConnection = useConnectionStore((state) => state.removeConnection);
   const reorderConnections = useConnectionStore((state) => state.reorderConnections);
 
@@ -295,6 +314,25 @@ export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh 
       }
     },
     [removeConnection]
+  );
+
+  const handleDuplicate = useCallback(
+    async (connection: Connection) => {
+      const newConfig = {
+        ...connection.config,
+        id: crypto.randomUUID(),
+        name: `${connection.config.name} (copy)`,
+        password: '', // Don't copy password from keychain
+      };
+
+      try {
+        await tauri.saveConnection(newConfig);
+        addConnection(newConfig);
+      } catch (err) {
+        console.error('Failed to duplicate connection:', err);
+      }
+    },
+    [addConnection]
   );
 
   // Mouse-based drag start
@@ -399,6 +437,7 @@ export function ServerRail({ onAddConnection, onEditConnection, onSchemaRefresh 
             onEdit={onEditConnection}
             onRefresh={handleRefresh}
             onDelete={handleDelete}
+            onDuplicate={handleDuplicate}
             onDragStart={handleDragStart}
             setRef={setConnectionRef}
           />

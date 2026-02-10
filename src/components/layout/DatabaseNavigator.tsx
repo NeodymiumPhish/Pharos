@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye, ClipboardCopy } from 'lucide-react';
+import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye, ClipboardCopy, Code, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -156,6 +156,46 @@ export function DatabaseNavigator({
       setContextMenu(null);
     }
   }, [contextMenu, onViewRows]);
+
+  const [ddlLoading, setDdlLoading] = useState<string | null>(null);
+
+  const handleCopyCreateTable = useCallback(async () => {
+    if (!contextMenu?.node.metadata?.connectionId || !contextMenu?.node.metadata?.schemaName || !contextMenu?.node.metadata?.tableName) return;
+    const { connectionId, schemaName, tableName } = contextMenu.node.metadata;
+    setDdlLoading('create-table');
+    try {
+      const ddl = await tauri.generateTableDdl(connectionId, schemaName, tableName);
+      await navigator.clipboard.writeText(ddl);
+    } catch (err) {
+      console.error('Failed to generate DDL:', err);
+    } finally {
+      setDdlLoading(null);
+      setContextMenu(null);
+    }
+  }, [contextMenu]);
+
+  const handleCopySelectStar = useCallback(() => {
+    if (!contextMenu?.node.metadata?.schemaName || !contextMenu?.node.metadata?.tableName) return;
+    const { schemaName, tableName } = contextMenu.node.metadata;
+    const sql = `SELECT * FROM "${schemaName}"."${tableName}" LIMIT 1000;`;
+    navigator.clipboard.writeText(sql);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleCopyCreateIndex = useCallback(async () => {
+    if (!contextMenu?.node.metadata?.connectionId || !contextMenu?.node.metadata?.schemaName || !contextMenu?.node.metadata?.indexName) return;
+    const { connectionId, schemaName, indexName } = contextMenu.node.metadata;
+    setDdlLoading('create-index');
+    try {
+      const ddl = await tauri.generateIndexDdl(connectionId, schemaName, indexName);
+      await navigator.clipboard.writeText(ddl);
+    } catch (err) {
+      console.error('Failed to generate index DDL:', err);
+    } finally {
+      setDdlLoading(null);
+      setContextMenu(null);
+    }
+  }, [contextMenu]);
 
   // Build schema tree nodes from fetched schemas and tables
   const buildSchemaNodes = useCallback(async (connectionId: string, fetchedSchemas: SchemaInfo[]) => {
@@ -381,6 +421,10 @@ export function DatabaseNavigator({
         label: `${idx.name} (${idx.columns.join(', ')})`,
         type: 'index' as const,
         metadata: {
+          connectionId,
+          schemaName,
+          tableName,
+          indexName: idx.name,
           indexType: idx.indexType,
           isUnique: idx.isUnique,
           isPrimaryKey: idx.isPrimary,
@@ -801,6 +845,45 @@ export function DatabaseNavigator({
             >
               <Download className="w-4 h-4" />
               Export Data
+            </button>
+          )}
+          {(contextMenu.node.type === 'table' || contextMenu.node.type === 'view' || contextMenu.node.type === 'foreign-table') && (
+            <>
+              <div className="my-1 border-t border-theme-border-primary" />
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={handleCopyCreateTable}
+                disabled={ddlLoading === 'create-table'}
+              >
+                {ddlLoading === 'create-table' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Code className="w-4 h-4" />
+                )}
+                Copy CREATE TABLE
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+                onClick={handleCopySelectStar}
+              >
+                <ClipboardCopy className="w-4 h-4" />
+                Copy SELECT *
+              </button>
+            </>
+          )}
+          {/* Index context menu */}
+          {contextMenu.node.type === 'index' && (
+            <button
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-theme-text-secondary hover:bg-theme-bg-hover transition-colors"
+              onClick={handleCopyCreateIndex}
+              disabled={ddlLoading === 'create-index'}
+            >
+              {ddlLoading === 'create-index' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Code className="w-4 h-4" />
+              )}
+              Copy CREATE INDEX
             </button>
           )}
         </div>

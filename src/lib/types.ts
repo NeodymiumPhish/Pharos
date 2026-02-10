@@ -10,6 +10,7 @@ export interface ConnectionConfig {
   username: string;
   password: string;
   sslMode?: SslMode;
+  color?: string;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -106,6 +107,7 @@ export interface TreeNode {
     rowCountEstimate?: number | null;
     rowCountUnavailable?: boolean;
     totalSizeBytes?: number | null;
+    indexName?: string;
     indexType?: string;
     isUnique?: boolean;
     sizeBytes?: number | null;
@@ -115,6 +117,54 @@ export interface TreeNode {
     argumentTypes?: string;
     language?: string;
   };
+}
+
+// EXPLAIN plan types
+export interface ExplainPlanNode {
+  'Node Type': string;
+  'Relation Name'?: string;
+  'Schema'?: string;
+  'Alias'?: string;
+  'Join Type'?: string;
+  'Index Name'?: string;
+  'Index Cond'?: string;
+  'Filter'?: string;
+  'Rows Removed by Filter'?: number;
+  'Startup Cost': number;
+  'Total Cost': number;
+  'Plan Rows': number;
+  'Plan Width': number;
+  'Actual Startup Time'?: number;
+  'Actual Total Time'?: number;
+  'Actual Rows'?: number;
+  'Actual Loops'?: number;
+  'Shared Hit Blocks'?: number;
+  'Shared Read Blocks'?: number;
+  'Shared Written Blocks'?: number;
+  Plans?: ExplainPlanNode[];
+  [key: string]: unknown;
+}
+
+// Inline editing types
+export interface EditableInfo {
+  isEditable: boolean;
+  reason?: string;
+  schemaName: string;
+  tableName: string;
+  primaryKeys: string[];
+}
+
+export interface RowEdit {
+  type: 'update' | 'delete';
+  rowIndex: number;
+  changes: Record<string, unknown>;
+  originalRow: Record<string, unknown>;
+}
+
+export interface CommitEditsResult {
+  success: boolean;
+  rowsAffected: number;
+  errors: string[];
 }
 
 // Query types (for future phases)
@@ -169,6 +219,8 @@ export interface QuerySettings {
   confirmDestructive: boolean;
 }
 
+export type NullDisplayFormat = 'NULL' | 'null' | '(null)' | '' | '∅';
+
 export interface UISettings {
   navigatorWidth: number;
   savedQueriesWidth: number;
@@ -176,6 +228,8 @@ export interface UISettings {
   editorSplitPosition: number; // Percentage (0-100) for editor vs results split
   showEmptySchemas: boolean;
   zebraStriping: boolean;
+  nullDisplay: NullDisplayFormat;
+  resultsFontSize: number;
 }
 
 // Keyboard shortcuts types
@@ -327,6 +381,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     editorSplitPosition: 40,
     showEmptySchemas: false,
     zebraStriping: true,
+    nullDisplay: 'NULL' as NullDisplayFormat,
+    resultsFontSize: 11,
   },
   keyboard: {
     shortcuts: DEFAULT_SHORTCUTS,

@@ -28,6 +28,8 @@ export interface QueryTab {
   validation: ValidationState;
   savedQueryName: string | null; // Name from saved query, preserved through execution
   savedQueryId: string | null; // ID of the saved query this tab was opened from
+  editableInfo?: import('@/lib/types').EditableInfo | null;
+  pendingEdits?: import('@/lib/types').RowEdit[];
 }
 
 export interface QueryResults {
@@ -36,6 +38,8 @@ export interface QueryResults {
   rowCount: number;
   hasMore: boolean;
   cursorId?: string;
+  explainPlan?: import('@/lib/types').ExplainPlanNode[];
+  explainRawJson?: string;
 }
 
 export interface ColumnDef {
@@ -64,6 +68,9 @@ interface EditorState {
   setTabValidating: (tabId: string, isValidating: boolean) => void;
   pinResults: (tabId: string) => void;
   unpinResults: () => void;
+  setTabEditableInfo: (tabId: string, info: import('@/lib/types').EditableInfo | null) => void;
+  addPendingEdit: (tabId: string, edit: import('@/lib/types').RowEdit) => void;
+  clearPendingEdits: (tabId: string) => void;
 
   // Getters
   getActiveTab: () => QueryTab | undefined;
@@ -288,6 +295,45 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   unpinResults: () => {
     set({ pinnedResultsTabId: null });
+  },
+
+  setTabEditableInfo: (tabId, info) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tabId ? { ...t, editableInfo: info } : t
+      ),
+    }));
+  },
+
+  addPendingEdit: (tabId, edit) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) => {
+        if (t.id !== tabId) return t;
+        const existing = t.pendingEdits ?? [];
+        // For updates, merge with existing edit for same row
+        if (edit.type === 'update') {
+          const existingIdx = existing.findIndex((e) => e.type === 'update' && e.rowIndex === edit.rowIndex);
+          if (existingIdx >= 0) {
+            const merged = {
+              ...existing[existingIdx],
+              changes: { ...existing[existingIdx].changes, ...edit.changes },
+            };
+            const updated = [...existing];
+            updated[existingIdx] = merged;
+            return { ...t, pendingEdits: updated };
+          }
+        }
+        return { ...t, pendingEdits: [...existing, edit] };
+      }),
+    }));
+  },
+
+  clearPendingEdits: (tabId) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tabId ? { ...t, pendingEdits: [] } : t
+      ),
+    }));
   },
 
   getActiveTab: () => {

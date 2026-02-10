@@ -34,6 +34,8 @@ pub struct ConnectionConfig {
     pub password: String,
     #[serde(default)]
     pub ssl_mode: SslMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

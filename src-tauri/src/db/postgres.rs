@@ -418,3 +418,116 @@ pub async fn get_schema_functions(
 
     Ok(functions)
 }
+
+/// Generate CREATE TABLE DDL for a table
+pub async fn generate_table_ddl(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<String, sqlx::Error> {
+    let columns = get_columns(pool, schema_name, table_name).await?;
+    let constraints = get_table_constraints(pool, schema_name, table_name).await?;
+
+    let mut ddl = format!(
+        "CREATE TABLE \"{}\".\"{}\" (\n",
+        schema_name.replace('"', "\"\""),
+        table_name.replace('"', "\"\"")
+    );
+
+    // Column definitions
+    let col_defs: Vec<String> = columns
+        .iter()
+        .map(|col| {
+            let mut def = format!(
+                "    \"{}\" {}",
+                col.name.replace('"', "\"\""),
+                col.data_type
+            );
+            if !col.is_nullable {
+                def.push_str(" NOT NULL");
+            }
+            if let Some(ref default) = col.column_default {
+                def.push_str(&format!(" DEFAULT {}", default));
+            }
+            def
+        })
+        .collect();
+
+    // Constraint definitions
+    let con_defs: Vec<String> = constraints
+        .iter()
+        .map(|con| {
+            let cols = con
+                .columns
+                .iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            match con.constraint_type.as_str() {
+                "PRIMARY KEY" => {
+                    format!("    CONSTRAINT \"{}\" PRIMARY KEY ({})", con.name, cols)
+                }
+                "UNIQUE" => {
+                    format!("    CONSTRAINT \"{}\" UNIQUE ({})", con.name, cols)
+                }
+                "FOREIGN KEY" => {
+                    let mut fk = format!(
+                        "    CONSTRAINT \"{}\" FOREIGN KEY ({}) REFERENCES {}",
+                        con.name,
+                        cols,
+                        con.referenced_table.as_deref().unwrap_or("?")
+                    );
+                    if let Some(ref ref_cols) = con.referenced_columns {
+                        let rc = ref_cols
+                            .iter()
+                            .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        fk.push_str(&format!(" ({})", rc));
+                    }
+                    fk
+                }
+                "CHECK" => {
+                    if let Some(ref clause) = con.check_clause {
+                        format!("    CONSTRAINT \"{}\" CHECK {}", con.name, clause)
+                    } else {
+                        format!("    CONSTRAINT \"{}\" CHECK (?)", con.name)
+                    }
+                }
+                _ => {
+                    format!("    CONSTRAINT \"{}\" {}", con.name, con.constraint_type)
+                }
+            }
+        })
+        .collect();
+
+    let all_defs: Vec<String> = col_defs.into_iter().chain(con_defs).collect();
+    ddl.push_str(&all_defs.join(",\n"));
+    ddl.push_str("\n);");
+
+    Ok(ddl)
+}
+
+/// Generate CREATE INDEX DDL using pg_get_indexdef
+pub async fn generate_index_ddl(
+    pool: &PgPool,
+    schema_name: &str,
+    index_name: &str,
+) -> Result<String, sqlx::Error> {
+    let row = sqlx::query(
+        r#"
+        SELECT pg_get_indexdef(i.oid) AS index_def
+        FROM pg_class i
+        JOIN pg_namespace n ON n.oid = i.relnamespace
+        WHERE n.nspname = $1 AND i.relname = $2
+        "#,
+    )
+    .bind(schema_name)
+    .bind(index_name)
+    .fetch_one(pool)
+    .await?;
+
+    let def: String = row.get("index_def");
+    Ok(format!("{};", def))
+}

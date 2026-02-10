@@ -107,7 +107,7 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table' || node.type === 'column') {
+    if (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table' || node.type === 'column' || node.type === 'index') {
       e.preventDefault();
       onContextMenu(node, e.clientX, e.clientY);
     }
