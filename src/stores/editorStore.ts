@@ -38,6 +38,7 @@ export interface QueryResults {
   rowCount: number;
   hasMore: boolean;
   cursorId?: string;
+  historyEntryId?: string;
   explainPlan?: import('@/lib/types').ExplainPlanNode[];
   explainRawJson?: string;
 }

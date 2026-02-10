@@ -108,6 +108,7 @@ export interface QueryResult {
   row_count: number;
   execution_time_ms: number;
   has_more: boolean;
+  history_entry_id?: string;
 }
 
 export interface ExecuteResult {
@@ -278,6 +279,15 @@ export async function clearQueryHistory(): Promise<void> {
 
 export async function getQueryHistoryResult(entryId: string): Promise<QueryHistoryResultData | null> {
   return invoke('get_query_history_result', { entryId });
+}
+
+export async function updateQueryHistoryResults(
+  entryId: string,
+  rowCount: number,
+  resultColumns: string,
+  resultRows: string
+): Promise<boolean> {
+  return invoke('update_query_history_results', { entryId, rowCount, resultColumns, resultRows });
 }
 
 // Inline editing commands

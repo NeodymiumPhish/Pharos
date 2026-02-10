@@ -17,6 +17,7 @@ interface QueryHistoryState {
   deleteEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   prependEntry: (entry: QueryHistoryEntry) => void;
+  updateEntry: (id: string, updates: Partial<QueryHistoryEntry>) => void;
 }
 
 export const useQueryHistoryStore = create<QueryHistoryState>((set, get) => ({
@@ -93,5 +94,13 @@ export const useQueryHistoryStore = create<QueryHistoryState>((set, get) => ({
 
   prependEntry: (entry: QueryHistoryEntry) => {
     set({ entries: [entry, ...get().entries] });
+  },
+
+  updateEntry: (id: string, updates: Partial<QueryHistoryEntry>) => {
+    set({
+      entries: get().entries.map((e) =>
+        e.id === id ? { ...e, ...updates } : e
+      ),
+    });
   },
 }));

@@ -560,6 +560,21 @@ pub fn clear_query_history(conn: &Connection) -> SqliteResult<()> {
     Ok(())
 }
 
+/// Update cached results for a history entry (e.g. after loading more rows)
+pub fn update_query_history_results(
+    conn: &Connection,
+    entry_id: &str,
+    row_count: i64,
+    result_columns_json: &str,
+    result_rows_json: &str,
+) -> SqliteResult<bool> {
+    let rows_affected = conn.execute(
+        "UPDATE query_history SET row_count = ?1, result_columns = ?2, result_rows = ?3 WHERE id = ?4",
+        rusqlite::params![row_count, result_columns_json, result_rows_json, entry_id],
+    )?;
+    Ok(rows_affected > 0)
+}
+
 /// Load cached result data for a specific history entry
 pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResult<Option<(String, String)>> {
     let mut stmt = conn.prepare(
