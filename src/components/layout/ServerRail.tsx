@@ -3,6 +3,7 @@ import { Plus, Database, Power, PowerOff, RefreshCw, Trash2, Pencil, Copy } from
 import { ask } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import { useConnectionStore } from '@/stores/connectionStore';
+import { useContextMenuPosition } from '@/hooks/useContextMenuPosition';
 import * as tauri from '@/lib/tauri';
 import type { Connection } from '@/lib/types';
 
@@ -44,6 +45,7 @@ function ConnectionIcon({
   const setActiveConnection = useConnectionStore((state) => state.setActiveConnection);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPositionRef = useContextMenuPosition(contextMenu?.x, contextMenu?.y, menuRef);
 
   const handleClick = async () => {
     setActiveConnection(connection.config.id);
@@ -137,7 +139,7 @@ function ConnectionIcon({
       {/* Context Menu */}
       {contextMenu && (
         <div
-          ref={menuRef}
+          ref={menuPositionRef}
           className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >

@@ -8,37 +8,38 @@ use tauri::State;
 use crate::db::postgres;
 use crate::state::AppState;
 
-/// Validate that a file path is safe (not attempting path traversal)
+/// Validate that a file path is safe (not attempting path traversal).
+/// Canonicalizes the parent directory (which must exist) since the file itself
+/// may not exist yet (e.g. when saving a new export).
 fn validate_file_path(path: &str) -> Result<(), String> {
     let path = Path::new(path);
 
-    // Must be absolute path
     if !path.is_absolute() {
         return Err("File path must be absolute".to_string());
     }
 
-    // Check for path traversal attempts
-    let canonical = path.canonicalize()
-        .map_err(|_| "Invalid file path")?;
-
-    // Ensure the canonical path doesn't contain suspicious patterns
+    let file_name = path.file_name()
+        .ok_or_else(|| "Invalid file path: no file name".to_string())?;
+    let parent = path.parent()
+        .ok_or_else(|| "Invalid file path: no parent directory".to_string())?;
+    let canonical_parent = parent.canonicalize()
+        .map_err(|_| "Invalid file path: parent directory does not exist".to_string())?;
+    let canonical = canonical_parent.join(file_name);
     let path_str = canonical.to_string_lossy();
+
     if path_str.contains("..") {
         return Err("Invalid file path: contains traversal".to_string());
     }
 
-    // On macOS/Linux, allow common user-accessible directories
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
         let allowed_prefixes = [
             format!("{}/", home),
             "/tmp/".to_string(),
-            "/var/folders/".to_string(), // macOS temp directories
+            "/var/folders/".to_string(),
         ];
-
-        let is_allowed = allowed_prefixes.iter().any(|prefix| path_str.starts_with(prefix));
-        if !is_allowed {
+        if !allowed_prefixes.iter().any(|prefix| path_str.starts_with(prefix)) {
             return Err("File path not in allowed directory".to_string());
         }
     }
@@ -757,6 +758,305 @@ pub async fn export_results(
         success: true,
         rows_exported,
     })
+}
+
+// ============================================================================
+// Full Query Export (all rows, paginated, streamed to file)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportQueryOptions {
+    pub sql: String,
+    pub schema: Option<String>,
+    pub file_path: String,
+    pub format: ExportFormat,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub rows_exported: u64,
+    pub is_complete: bool,
+}
+
+/// Export all rows from an arbitrary SQL query to a file.
+/// Paginates through results with LIMIT/OFFSET and streams to file.
+#[tauri::command]
+pub async fn export_query(
+    connection_id: String,
+    options: ExportQueryOptions,
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<ExportTableResult, String> {
+    use futures::StreamExt;
+    use tauri::Emitter;
+
+    validate_file_path(&options.file_path)?;
+
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    // Set search_path if schema is specified
+    if let Some(ref schema_name) = options.schema {
+        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err("Invalid schema name".to_string());
+        }
+        if schema_name.is_empty() || schema_name.len() > 63 {
+            return Err("Invalid schema name: must be 1-63 characters".to_string());
+        }
+        let escaped = schema_name.replace('"', "\"\"");
+        sqlx::query(&format!("SET search_path TO \"{}\", public", escaped))
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| format!("Failed to set schema: {}", e))?;
+    }
+
+    let batch_size: i64 = 5000;
+    let trimmed_sql = options.sql.trim().trim_end_matches(';');
+    let mut total_exported: u64 = 0;
+    let mut offset: i64 = 0;
+    let mut headers_written = false;
+
+    // Column metadata (populated from first batch)
+    let mut col_names: Vec<String> = Vec::new();
+    let mut col_types: Vec<String> = Vec::new();
+
+    let file = File::create(&options.file_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut writer = BufWriter::new(file);
+
+    // JSON format: manually write array structure
+    let is_json = matches!(options.format, ExportFormat::Json);
+    if is_json {
+        writer.write_all(b"[\n").map_err(|e| format!("Failed to write: {}", e))?;
+    }
+
+    // XLSX: build workbook in memory
+    let is_xlsx = matches!(options.format, ExportFormat::Xlsx);
+    let mut workbook = if is_xlsx { Some(rust_xlsxwriter::Workbook::new()) } else { None };
+    let xlsx_header_offset: u32 = 1; // row 0 = headers
+
+    loop {
+        let wrapped_sql = format!(
+            "SELECT * FROM ({}) AS _pharos_export LIMIT {} OFFSET {}",
+            trimmed_sql, batch_size, offset
+        );
+
+        let mut stream = sqlx::query(&wrapped_sql).fetch(&mut *conn);
+        let mut batch: Vec<sqlx::postgres::PgRow> = Vec::with_capacity(batch_size as usize);
+
+        while let Some(row_result) = stream.next().await {
+            match row_result {
+                Ok(row) => batch.push(row),
+                Err(e) => {
+                    drop(stream);
+                    return Err(format!("Failed to fetch rows: {}", e));
+                }
+            }
+        }
+        drop(stream);
+
+        if batch.is_empty() {
+            break;
+        }
+
+        // Populate column metadata from first batch
+        if col_names.is_empty() && !batch.is_empty() {
+            for col in batch[0].columns() {
+                col_names.push(col.name().to_string());
+                col_types.push(col.type_info().to_string());
+            }
+        }
+
+        let batch_len = batch.len() as u64;
+
+        // Write batch based on format
+        match options.format {
+            ExportFormat::Csv | ExportFormat::Tsv => {
+                let delimiter = match options.format {
+                    ExportFormat::Tsv => b'\t',
+                    _ => b',',
+                };
+                // For CSV/TSV, we write raw lines (csv crate needs ownership of writer)
+                if !headers_written {
+                    let header_line: Vec<String> = col_names.iter()
+                        .map(|n| escape_csv_field(n, delimiter))
+                        .collect();
+                    writeln!(writer, "{}", header_line.join(if delimiter == b'\t' { "\t" } else { "," }))
+                        .map_err(|e| format!("Failed to write headers: {}", e))?;
+                    headers_written = true;
+                }
+                for row in &batch {
+                    let record: Vec<String> = row.columns().iter().enumerate()
+                        .map(|(i, col)| {
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), true);
+                            escape_csv_field(&text, delimiter)
+                        })
+                        .collect();
+                    writeln!(writer, "{}", record.join(if delimiter == b'\t' { "\t" } else { "," }))
+                        .map_err(|e| format!("Failed to write row: {}", e))?;
+                }
+            }
+            ExportFormat::Json => {
+                for (i, row) in batch.iter().enumerate() {
+                    if total_exported > 0 || i > 0 {
+                        writer.write_all(b",\n").map_err(|e| format!("Failed to write: {}", e))?;
+                    }
+                    let mut obj = serde_json::Map::new();
+                    for (i, col) in row.columns().iter().enumerate() {
+                        let type_name = col.type_info().to_string();
+                        let text = extract_text_value(row, i, &type_name, true);
+                        let val = text_to_json_value(&text, &type_name);
+                        obj.insert(col.name().to_string(), val);
+                    }
+                    let json_str = serde_json::to_string_pretty(&serde_json::Value::Object(obj))
+                        .map_err(|e| format!("Failed to serialize: {}", e))?;
+                    writer.write_all(json_str.as_bytes())
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            ExportFormat::JsonLines => {
+                for row in &batch {
+                    let mut obj = serde_json::Map::new();
+                    for (i, col) in row.columns().iter().enumerate() {
+                        let type_name = col.type_info().to_string();
+                        let text = extract_text_value(row, i, &type_name, true);
+                        let val = text_to_json_value(&text, &type_name);
+                        obj.insert(col.name().to_string(), val);
+                    }
+                    let line = serde_json::to_string(&serde_json::Value::Object(obj))
+                        .map_err(|e| format!("Failed to serialize: {}", e))?;
+                    writeln!(writer, "{}", line).map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            ExportFormat::SqlInsert => {
+                if !headers_written {
+                    headers_written = true;
+                }
+                let col_list: String = col_names.iter()
+                    .map(|n| format!("\"{}\"", escape_identifier(n)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                for row in &batch {
+                    let values: Vec<String> = row.columns().iter().enumerate()
+                        .map(|(i, col)| {
+                            let type_name = col.type_info().to_string();
+                            let text = extract_text_value(row, i, &type_name, false);
+                            if text == "NULL" {
+                                "NULL".to_string()
+                            } else {
+                                format_sql_value(&text, &type_name)
+                            }
+                        })
+                        .collect();
+                    writeln!(writer, "INSERT INTO \"_query_results\" ({}) VALUES ({});",
+                        col_list, values.join(", "))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            ExportFormat::Markdown => {
+                if !headers_written {
+                    writeln!(writer, "| {} |", col_names.join(" | "))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                    let sep: Vec<&str> = col_names.iter().map(|_| "---").collect();
+                    writeln!(writer, "| {} |", sep.join(" | "))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                    headers_written = true;
+                }
+                for row in &batch {
+                    let values: Vec<String> = row.columns().iter().enumerate()
+                        .map(|(i, col)| {
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), true);
+                            text.replace('|', "\\|")
+                        })
+                        .collect();
+                    writeln!(writer, "| {} |", values.join(" | "))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                }
+            }
+            ExportFormat::Xlsx => {
+                if let Some(ref mut wb) = workbook {
+                    let worksheet = wb.worksheet_from_index(0)
+                        .map_err(|e| format!("Failed to get worksheet: {}", e))?;
+                    // Write headers on first batch
+                    if !headers_written {
+                        for (col_idx, name) in col_names.iter().enumerate() {
+                            worksheet.write_string(0, col_idx as u16, name)
+                                .map_err(|e| format!("Failed to write header: {}", e))?;
+                        }
+                        headers_written = true;
+                    }
+                    let row_start = (total_exported as u32) + xlsx_header_offset;
+                    for (row_idx, row) in batch.iter().enumerate() {
+                        for (col_idx, col) in row.columns().iter().enumerate() {
+                            let type_name = col.type_info().to_string();
+                            write_xlsx_cell(
+                                worksheet,
+                                row_start + (row_idx as u32),
+                                col_idx as u16,
+                                row,
+                                col_idx,
+                                &type_name,
+                                true,
+                            ).map_err(|e| format!("Failed to write cell: {}", e))?;
+                        }
+                    }
+                }
+            }
+        }
+
+        total_exported += batch_len;
+        offset += batch_len as i64;
+
+        // Emit progress event
+        let _ = app_handle.emit("export-progress", ExportProgress {
+            rows_exported: total_exported,
+            is_complete: false,
+        });
+
+        // If batch was smaller than limit, we've reached the end
+        if batch_len < batch_size as u64 {
+            break;
+        }
+    }
+
+    // Finalize format-specific writes
+    if is_json {
+        writer.write_all(b"\n]\n").map_err(|e| format!("Failed to write: {}", e))?;
+    }
+    writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+
+    // Save XLSX workbook
+    if let Some(mut wb) = workbook {
+        drop(writer); // Release the file handle first
+        wb.save(&options.file_path)
+            .map_err(|e| format!("Failed to save XLSX: {}", e))?;
+    }
+
+    // Emit completion
+    let _ = app_handle.emit("export-progress", ExportProgress {
+        rows_exported: total_exported,
+        is_complete: true,
+    });
+
+    Ok(ExportTableResult {
+        success: true,
+        rows_exported: total_exported,
+    })
+}
+
+/// Escape a field for CSV/TSV output
+fn escape_csv_field(value: &str, delimiter: u8) -> String {
+    let delim_char = delimiter as char;
+    if value.contains(delim_char) || value.contains('"') || value.contains('\n') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
 
 // ============================================================================

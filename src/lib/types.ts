@@ -341,6 +341,18 @@ export interface ExportResultsOptions {
   filePath: string;
 }
 
+export interface ExportQueryOptions {
+  sql: string;
+  schema: string | null;
+  filePath: string;
+  format: ExportFormat;
+}
+
+export interface ExportProgress {
+  rowsExported: number;
+  isComplete: boolean;
+}
+
 // Query history types
 export interface QueryHistoryEntry {
   id: string;
