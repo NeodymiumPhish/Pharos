@@ -1254,12 +1254,12 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               Editable
             </span>
           )}
-          {editableInfo && !editableInfo.isEditable && editableInfo.reason && (
+          {editableInfo && !editableInfo.isEditable && (
             <span
-              className="text-[10px] text-theme-text-muted flex items-center gap-1 bg-theme-bg-hover px-1.5 py-0.5 rounded cursor-default"
-              title={editableInfo.reason}
+              className="text-[11px] text-amber-400 flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded cursor-default"
+              title={editableInfo.reason ?? 'Results are read-only'}
             >
-              <Lock className="w-2.5 h-2.5" />
+              <Lock className="w-3 h-3" />
               Read-only
             </span>
           )}
