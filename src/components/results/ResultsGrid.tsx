@@ -473,6 +473,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   const [showNewlines, setShowNewlines] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [resizingColumn, setResizingColumn] = useState<string | null>(null);
+  const justResizedRef = useRef(false);
 
   // Cell selection state
   const [selection, setSelection] = useState<CellSelection | null>(null);
@@ -601,7 +602,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     });
 
     return rows;
-  }, [results, sortColumn, sortDirection]);
+  }, [filteredRows, sortColumn, sortDirection]);
 
   // Compute type-aware aggregates for selected cells
   const aggregates = useMemo((): Aggregates | null => {
@@ -796,6 +797,9 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
     const handleMouseUp = () => {
       setResizingColumn(null);
+      // Set flag so the click event that fires after mouseup doesn't trigger a sort
+      justResizedRef.current = true;
+      requestAnimationFrame(() => { justResizedRef.current = false; });
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -1052,14 +1056,14 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [selection, handleCopySelection, handleCopyToClipboard]);
 
-  // Copy as a specific format (CSV, TSV, Markdown, SQL INSERT)
-  type CopyFormat = 'tsv' | 'csv' | 'markdown' | 'sqlInsert';
+  // Copy as a specific format (CSV, TSV, Markdown, CTE, SQL INSERT)
+  type CopyFormat = 'tsv' | 'csv' | 'markdown' | 'cte' | 'sqlInsert';
 
   const handleCopyAs = useCallback(async (fmt: CopyFormat) => {
     if (!results) return;
 
     // Determine columns and rows based on selection
-    let columns: { name: string }[];
+    let columns: { name: string; dataType: string }[];
     let rows: Record<string, unknown>[];
     if (selection) {
       const minRow = Math.min(selection.startRow, selection.endRow);
@@ -1109,6 +1113,22 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           return `| ${vals.join(' | ')} |`;
         }).join('\n');
         text = `${headerRow}\n${sepRow}\n${dataRows}`;
+        break;
+      }
+      case 'cte': {
+        const cteCols = columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(', ');
+        const cteRows = rows.map((row, rowIdx) => {
+          const vals = columns.map((col) => {
+            const v = row[col.name];
+            const cast = rowIdx === 0 ? `::${col.dataType}` : '';
+            if (v === null || v === undefined) return `NULL${cast}`;
+            if (typeof v === 'number') return `${v}${cast}`;
+            if (typeof v === 'boolean') return `${v}${cast}`;
+            return `'${String(v).replace(/'/g, "''")}'${cast}`;
+          });
+          return `    (${vals.join(', ')})`;
+        });
+        text = `WITH _cte (${cteCols}) AS (\n  VALUES\n${cteRows.join(',\n')}\n)\nSELECT * FROM _cte;`;
         break;
       }
       case 'sqlInsert': {
@@ -1188,6 +1208,9 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   // Clear selection when clicking header or empty area
   // Handle click on column header (for sorting)
   const handleHeaderClick = useCallback((columnName?: string) => {
+    // Ignore click events that fire after a column resize drag
+    if (justResizedRef.current) return;
+
     // If clicking the header area (not a specific column), just clear selection
     if (!columnName) {
       setSelection(null);
@@ -1533,9 +1556,10 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             {showCopyMenu && (
               <div className="absolute right-0 top-full mt-1 w-40 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 py-1">
                 {([
-                  { format: 'tsv' as CopyFormat, label: 'Tab-separated' },
                   { format: 'csv' as CopyFormat, label: 'CSV' },
                   { format: 'markdown' as CopyFormat, label: 'Markdown' },
+                  { format: 'tsv' as CopyFormat, label: 'TSV' },
+                  { format: 'cte' as CopyFormat, label: 'CTE' },
                   { format: 'sqlInsert' as CopyFormat, label: 'SQL INSERT' },
                 ] as const).map(({ format: fmt, label }) => (
                   <button
@@ -1820,8 +1844,30 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                     {/* Row number cell */}
                     {showRowNumbers && (
                       <div
-                        className="px-1 py-0.5 text-[11px] font-mono text-theme-text-muted border-b border-r border-theme-border-primary flex-shrink-0 text-right select-none"
+                        className="px-1 py-0.5 text-[11px] font-mono text-theme-text-muted border-b border-r border-theme-border-primary flex-shrink-0 text-right select-none cursor-pointer hover:bg-theme-bg-active hover:text-theme-text-secondary"
                         style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          const rowIdx = virtualRow.index;
+                          const lastCol = visibleColumns.length - 1;
+                          if (e.shiftKey && selection) {
+                            // Extend selection from anchor row to clicked row, full width
+                            setSelection({
+                              startRow: selection.startRow,
+                              startCol: 0,
+                              endRow: rowIdx,
+                              endCol: lastCol,
+                            });
+                          } else {
+                            setSelection({
+                              startRow: rowIdx,
+                              startCol: 0,
+                              endRow: rowIdx,
+                              endCol: lastCol,
+                            });
+                          }
+                          wrapperRef.current?.focus();
+                        }}
                       >
                         {virtualRow.index + 1}
                       </div>
