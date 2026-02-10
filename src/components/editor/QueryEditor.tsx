@@ -119,6 +119,8 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
     // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#1e1e1e',
     'editorStickyScrollHover.background': '#2a2a2a',
+    // Minimap needs an opaque background since the editor bg is transparent
+    'minimap.background': '#1e1e1e',
   },
 };
 
@@ -163,6 +165,8 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
     // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#F3F3F3',
     'editorStickyScrollHover.background': '#E8E8E8',
+    // Minimap needs an opaque background since the editor bg is transparent
+    'minimap.background': '#F3F3F3',
   },
 };
 
