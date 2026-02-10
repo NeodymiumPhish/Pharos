@@ -17,6 +17,7 @@ import type {
   ExportTableOptions,
   ExportTableResult,
   ExportResultsOptions,
+  ExportQueryOptions,
   QueryHistoryEntry,
   QueryHistoryResultData,
   EditableInfo,
@@ -252,6 +253,13 @@ export async function exportResults(
 
 export async function writeTextExport(filePath: string, content: string): Promise<void> {
   return invoke('write_text_export', { filePath, content });
+}
+
+export async function exportQuery(
+  connectionId: string,
+  options: ExportQueryOptions
+): Promise<ExportTableResult> {
+  return invoke('export_query', { connectionId, options });
 }
 
 // Query history commands

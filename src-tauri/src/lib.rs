@@ -189,6 +189,7 @@ pub fn run() {
             commands::import_csv,
             commands::export_table,
             commands::export_results,
+            commands::export_query,
             commands::write_text_export,
             // Query history commands
             commands::load_query_history,

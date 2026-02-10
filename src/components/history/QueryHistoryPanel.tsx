@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { Search, Trash2, Clock, Copy, X, Table2 } from 'lucide-react';
 import { useQueryHistoryStore } from '@/stores/queryHistoryStore';
+import { useContextMenuPosition } from '@/hooks/useContextMenuPosition';
 import type { QueryHistoryEntry } from '@/lib/types';
 
 interface QueryHistoryPanelProps {
@@ -61,6 +62,7 @@ export function QueryHistoryPanel({ connectionId, onQuerySelect }: QueryHistoryP
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ entryId: string; x: number; y: number } | null>(null);
+  const menuPositionRef = useContextMenuPosition(contextMenu?.x, contextMenu?.y);
 
   // Load history on mount and when connectionId/search changes
   useEffect(() => {
@@ -226,6 +228,7 @@ export function QueryHistoryPanel({ connectionId, onQuerySelect }: QueryHistoryP
       {/* Context Menu */}
       {contextMenu && (
         <div
+          ref={menuPositionRef}
           className="fixed z-50 w-40 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg py-1"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >

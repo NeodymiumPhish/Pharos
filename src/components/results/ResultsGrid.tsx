@@ -1,11 +1,9 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Hash, Columns3, Search, Pencil, Trash2, Lock } from 'lucide-react';
-import { save } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
-import * as tauri from '@/lib/tauri';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { ExportFormat, EditableInfo, RowEdit } from '@/lib/types';
+import type { EditableInfo, RowEdit } from '@/lib/types';
 import type { QueryResults } from '@/stores/editorStore';
 
 interface ResultsGridProps {
@@ -28,6 +26,7 @@ interface ResultsGridProps {
   onDeleteRows?: (rowIndices: number[]) => void;
   onCommitEdits?: () => void;
   onDiscardEdits?: () => void;
+  onExport?: () => void;
 }
 
 // Cell selection as a rectangular range
@@ -40,8 +39,6 @@ interface CellSelection {
 
 export interface ResultsGridRef {
   copyToClipboard: () => Promise<void>;
-  exportCSV: () => void;
-  exportData: (format: ExportFormat) => void;
 }
 
 // Constants for column width calculation
@@ -467,7 +464,7 @@ const FilterPopover = forwardRef<HTMLDivElement, FilterPopoverProps>(function Fi
 });
 
 export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function ResultsGrid(
-  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand, onLoadMore, isLoadingMore, editableInfo, pendingEdits, onCellEdit, onDeleteRows, onCommitEdits, onDiscardEdits },
+  { results, error, executionTime, isExecuting, isPinned, pinnedTabName, canPin, onPin, onUnpin, isExpanded, onToggleExpand, onLoadMore, isLoadingMore, editableInfo, pendingEdits, onCellEdit, onDeleteRows, onCommitEdits, onDiscardEdits, onExport },
   ref
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -493,6 +490,8 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
   // Copy feedback state
   const [showCopyFeedback, setShowCopyFeedback] = useState(false);
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
+  const copyMenuRef = useRef<HTMLDivElement>(null);
 
   // Row numbering state
   const [showRowNumbers, setShowRowNumbers] = useState(true);
@@ -1053,6 +1052,98 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, [selection, handleCopySelection, handleCopyToClipboard]);
 
+  // Copy as a specific format (CSV, TSV, Markdown, SQL INSERT)
+  type CopyFormat = 'tsv' | 'csv' | 'markdown' | 'sqlInsert';
+
+  const handleCopyAs = useCallback(async (fmt: CopyFormat) => {
+    if (!results) return;
+
+    // Determine columns and rows based on selection
+    let columns: { name: string }[];
+    let rows: Record<string, unknown>[];
+    if (selection) {
+      const minRow = Math.min(selection.startRow, selection.endRow);
+      const maxRow = Math.max(selection.startRow, selection.endRow);
+      const minCol = Math.min(selection.startCol, selection.endCol);
+      const maxCol = Math.max(selection.startCol, selection.endCol);
+      columns = visibleColumns.slice(minCol, maxCol + 1);
+      rows = sortedRows.slice(minRow, maxRow + 1);
+    } else {
+      columns = results.columns;
+      rows = results.rows;
+    }
+
+    const escapeCSV = (value: string, delimiter: string): string => {
+      if (value.includes(delimiter) || value.includes('"') || value.includes('\n')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    };
+
+    let text: string;
+    switch (fmt) {
+      case 'tsv': {
+        const header = columns.map((c) => c.name).join('\t');
+        const dataRows = rows.map((row) =>
+          columns.map((col) => formatCellValue(row[col.name], nullDisplay)).join('\t')
+        ).join('\n');
+        text = `${header}\n${dataRows}`;
+        break;
+      }
+      case 'csv': {
+        const header = columns.map((c) => escapeCSV(c.name, ',')).join(',');
+        const dataRows = rows.map((row) =>
+          columns.map((col) => escapeCSV(formatCellValue(row[col.name], nullDisplay), ',')).join(',')
+        ).join('\n');
+        text = `${header}\n${dataRows}`;
+        break;
+      }
+      case 'markdown': {
+        const headers = columns.map((c) => c.name);
+        const headerRow = `| ${headers.join(' | ')} |`;
+        const sepRow = `| ${headers.map(() => '---').join(' | ')} |`;
+        const dataRows = rows.map((row) => {
+          const vals = columns.map((col) =>
+            formatCellValue(row[col.name], nullDisplay).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+          );
+          return `| ${vals.join(' | ')} |`;
+        }).join('\n');
+        text = `${headerRow}\n${sepRow}\n${dataRows}`;
+        break;
+      }
+      case 'sqlInsert': {
+        const colList = columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(', ');
+        text = rows.map((row) => {
+          const vals = columns.map((col) => {
+            const v = row[col.name];
+            if (v === null || v === undefined) return 'NULL';
+            if (typeof v === 'number') return String(v);
+            if (typeof v === 'boolean') return v ? 'true' : 'false';
+            return `'${String(v).replace(/'/g, "''")}'`;
+          }).join(', ');
+          return `INSERT INTO (${colList}) VALUES (${vals});`;
+        }).join('\n');
+        break;
+      }
+    }
+
+    await navigator.clipboard.writeText(text);
+    setShowCopyFeedback(true);
+    setTimeout(() => setShowCopyFeedback(false), 1500);
+  }, [results, selection, visibleColumns, sortedRows, nullDisplay]);
+
+  // Close copy menu on outside click
+  useEffect(() => {
+    if (!showCopyMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target as Node)) {
+        setShowCopyMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showCopyMenu]);
+
   // Keyboard handler for Cmd+C, Cmd+F, and Escape — attached to wrapper so it works
   // when any part of the results panel (toolbar, search bar, or grid) has focus
   useEffect(() => {
@@ -1138,151 +1229,10 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     }
   }, []);
 
-  // Client-side text export for CSV/TSV/JSON/JSON Lines/SQL INSERT/Markdown
-  const generateTextExport = useCallback((format: ExportFormat): { content: string; mimeType: string; ext: string } | null => {
-    if (!results) return null;
-
-    const escapeCSV = (value: string, delimiter: string): string => {
-      if (value.includes(delimiter) || value.includes('"') || value.includes('\n')) {
-        return `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    };
-
-    switch (format) {
-      case 'csv':
-      case 'tsv': {
-        const delim = format === 'tsv' ? '\t' : ',';
-        const header = results.columns.map((c) => escapeCSV(c.name, delim)).join(delim);
-        const rows = results.rows
-          .map((row) =>
-            results.columns.map((col) => escapeCSV(formatCellValue(row[col.name], nullDisplay), delim)).join(delim)
-          )
-          .join('\n');
-        return {
-          content: `${header}\n${rows}`,
-          mimeType: format === 'tsv' ? 'text/tab-separated-values;charset=utf-8;' : 'text/csv;charset=utf-8;',
-          ext: format,
-        };
-      }
-      case 'json': {
-        const jsonRows = results.rows.map((row) => {
-          const obj: Record<string, unknown> = {};
-          results.columns.forEach((col) => { obj[col.name] = row[col.name] ?? null; });
-          return obj;
-        });
-        return { content: JSON.stringify(jsonRows, null, 2), mimeType: 'application/json;charset=utf-8;', ext: 'json' };
-      }
-      case 'jsonLines': {
-        const lines = results.rows.map((row) => {
-          const obj: Record<string, unknown> = {};
-          results.columns.forEach((col) => { obj[col.name] = row[col.name] ?? null; });
-          return JSON.stringify(obj);
-        }).join('\n');
-        return { content: lines, mimeType: 'application/x-ndjson;charset=utf-8;', ext: 'jsonl' };
-      }
-      case 'sqlInsert': {
-        const colList = results.columns.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(', ');
-        const stmts = results.rows.map((row) => {
-          const vals = results.columns.map((col) => {
-            const v = row[col.name];
-            if (v === null || v === undefined) return 'NULL';
-            if (typeof v === 'number') return String(v);
-            if (typeof v === 'boolean') return v ? 'true' : 'false';
-            return `'${String(v).replace(/'/g, "''")}'`;
-          }).join(', ');
-          return `INSERT INTO (${colList}) VALUES (${vals});`;
-        }).join('\n');
-        return { content: stmts, mimeType: 'text/sql;charset=utf-8;', ext: 'sql' };
-      }
-      case 'markdown': {
-        const headers = results.columns.map((c) => c.name);
-        const headerRow = `| ${headers.join(' | ')} |`;
-        const sepRow = `| ${headers.map(() => '---').join(' | ')} |`;
-        const dataRows = results.rows.map((row) => {
-          const vals = results.columns.map((col) => formatCellValue(row[col.name], nullDisplay).replace(/\|/g, '\\|').replace(/\n/g, ' '));
-          return `| ${vals.join(' | ')} |`;
-        }).join('\n');
-        return { content: `${headerRow}\n${sepRow}\n${dataRows}`, mimeType: 'text/markdown;charset=utf-8;', ext: 'md' };
-      }
-      default:
-        return null;
-    }
-  }, [results]);
-
-  const handleExportData = useCallback(async (format: ExportFormat) => {
-    if (!results) return;
-
-    const filterMap: Record<ExportFormat, { name: string; extensions: string[] }> = {
-      csv: { name: 'CSV Files', extensions: ['csv'] },
-      tsv: { name: 'TSV Files', extensions: ['tsv'] },
-      json: { name: 'JSON Files', extensions: ['json'] },
-      jsonLines: { name: 'JSON Lines Files', extensions: ['jsonl'] },
-      sqlInsert: { name: 'SQL Files', extensions: ['sql'] },
-      markdown: { name: 'Markdown Files', extensions: ['md'] },
-      xlsx: { name: 'Excel Files', extensions: ['xlsx'] },
-    };
-    const extMap: Record<ExportFormat, string> = {
-      csv: 'csv', tsv: 'tsv', json: 'json', jsonLines: 'jsonl',
-      sqlInsert: 'sql', markdown: 'md', xlsx: 'xlsx',
-    };
-
-    const savePath = await save({
-      defaultPath: `query_results.${extMap[format]}`,
-      filters: [filterMap[format]],
-    });
-    if (!savePath) return;
-
-    if (format === 'xlsx') {
-      try {
-        await tauri.exportResults({
-          columns: results.columns.map((c) => ({ name: c.name, dataType: c.dataType })),
-          rows: results.rows,
-          filePath: savePath,
-        });
-      } catch (err) {
-        console.error('Failed to export XLSX:', err);
-      }
-      return;
-    }
-
-    // Text formats — generate content and write to chosen path
-    const exported = generateTextExport(format);
-    if (!exported) return;
-
-    try {
-      await tauri.writeTextExport(savePath, exported.content);
-    } catch (err) {
-      console.error('Failed to write export file:', err);
-    }
-  }, [results, generateTextExport]);
-
-  const handleExportCSV = useCallback(() => {
-    handleExportData('csv');
-  }, [handleExportData]);
-
-  // Export dropdown state
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close export menu on outside click
-  useEffect(() => {
-    if (!showExportMenu) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
-        setShowExportMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showExportMenu]);
-
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
     copyToClipboard: handleCopyToClipboard,
-    exportCSV: handleExportCSV,
-    exportData: handleExportData,
-  }), [handleCopyToClipboard, handleExportCSV, handleExportData]);
+  }), [handleCopyToClipboard]);
 
   if (isExecuting) {
     return (
@@ -1545,52 +1495,52 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             <Search className="w-3 h-3" />
             Find
           </button>
-          <button
-            onClick={handleCopyButtonClick}
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
-              showCopyFeedback
-                ? 'text-green-400 bg-green-500/10'
-                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
-            )}
-            title={selection ? "Copy selected cells" : "Copy all to clipboard"}
-          >
-            {showCopyFeedback ? (
-              <>
-                <Check className="w-3 h-3" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3" />
-                {selection ? 'Copy Selection' : 'Copy'}
-              </>
-            )}
-          </button>
-          <div className="relative" ref={exportMenuRef}>
+          <div className="relative flex items-center" ref={copyMenuRef}>
             <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
-              title="Export results"
+              onClick={handleCopyButtonClick}
+              className={cn(
+                'flex items-center gap-1 pl-2 pr-1 py-1 rounded-l text-[11px] transition-colors',
+                showCopyFeedback
+                  ? 'text-green-400 bg-green-500/10'
+                  : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+              )}
+              title={selection ? "Copy selected cells" : "Copy all to clipboard"}
             >
-              <Download className="w-3 h-3" />
-              Export
+              {showCopyFeedback ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  {selection ? 'Copy Selection' : 'Copy'}
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => setShowCopyMenu(!showCopyMenu)}
+              className={cn(
+                'flex items-center px-0.5 py-1 rounded-r text-[11px] transition-colors border-l border-theme-border-primary',
+                showCopyMenu
+                  ? 'text-theme-text-primary bg-theme-bg-active'
+                  : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+              )}
+              title="Copy as format..."
+            >
               <ChevronDown className="w-3 h-3" />
             </button>
-            {showExportMenu && (
+            {showCopyMenu && (
               <div className="absolute right-0 top-full mt-1 w-40 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 py-1">
                 {([
-                  { format: 'csv' as ExportFormat, label: 'CSV (.csv)' },
-                  { format: 'tsv' as ExportFormat, label: 'TSV (.tsv)' },
-                  { format: 'json' as ExportFormat, label: 'JSON (.json)' },
-                  { format: 'jsonLines' as ExportFormat, label: 'JSON Lines (.jsonl)' },
-                  { format: 'sqlInsert' as ExportFormat, label: 'SQL INSERT (.sql)' },
-                  { format: 'markdown' as ExportFormat, label: 'Markdown (.md)' },
-                  { format: 'xlsx' as ExportFormat, label: 'Excel (.xlsx)' },
-                ]).map(({ format: fmt, label }) => (
+                  { format: 'tsv' as CopyFormat, label: 'Tab-separated' },
+                  { format: 'csv' as CopyFormat, label: 'CSV' },
+                  { format: 'markdown' as CopyFormat, label: 'Markdown' },
+                  { format: 'sqlInsert' as CopyFormat, label: 'SQL INSERT' },
+                ] as const).map(({ format: fmt, label }) => (
                   <button
                     key={fmt}
-                    onClick={() => { handleExportData(fmt); setShowExportMenu(false); }}
+                    onClick={() => { handleCopyAs(fmt); setShowCopyMenu(false); }}
                     className="w-full text-left px-3 py-1.5 text-[11px] text-theme-text-secondary hover:bg-theme-bg-hover hover:text-theme-text-primary transition-colors"
                   >
                     {label}
@@ -1599,6 +1549,14 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               </div>
             )}
           </div>
+          <button
+            onClick={onExport}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover transition-colors"
+            title="Export results"
+          >
+            <Download className="w-3 h-3" />
+            Export
+          </button>
         </div>
       </div>
 

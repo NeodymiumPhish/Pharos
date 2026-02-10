@@ -18,6 +18,7 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import { cn } from '@/lib/cn';
 import { useSavedQueryStore } from '@/stores/savedQueryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useContextMenuPosition } from '@/hooks/useContextMenuPosition';
 import * as tauri from '@/lib/tauri';
 import type { SavedQuery } from '@/lib/types';
 
@@ -59,6 +60,9 @@ export function SavedQueriesPanel({ onQuerySelect }: SavedQueriesPanelProps) {
     folderName: string;
     hasQueries: boolean;
   } | null>(null);
+
+  const queryMenuPositionRef = useContextMenuPosition(queryContextMenu?.x, queryContextMenu?.y);
+  const folderMenuPositionRef = useContextMenuPosition(folderContextMenu?.x, folderContextMenu?.y);
 
   // Inline folder creation/editing
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -666,6 +670,7 @@ export function SavedQueriesPanel({ onQuerySelect }: SavedQueriesPanelProps) {
       {/* Query context menu */}
       {queryContextMenu && (
         <div
+          ref={queryMenuPositionRef}
           data-context-menu
           className="fixed z-50 min-w-[140px] py-0.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-md shadow-xl"
           style={{ left: queryContextMenu.x, top: queryContextMenu.y }}
@@ -730,6 +735,7 @@ export function SavedQueriesPanel({ onQuerySelect }: SavedQueriesPanelProps) {
       {/* Folder context menu */}
       {folderContextMenu && (
         <div
+          ref={folderMenuPositionRef}
           data-context-menu
           className="fixed z-50 min-w-[120px] py-0.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-md shadow-xl"
           style={{ left: folderContextMenu.x, top: folderContextMenu.y }}

@@ -6,6 +6,7 @@ import { QueryEditor, type QueryEditorRef } from '@/components/editor/QueryEdito
 import { ResultsGrid, ResultsGridRef } from '@/components/results/ResultsGrid';
 import { ExplainView } from '@/components/results/ExplainView';
 import { SaveQueryDialog } from '@/components/dialogs/SaveQueryDialog';
+import { ExportResultsDialog } from '@/components/dialogs/ExportResultsDialog';
 import { SavedQueriesPanel } from '@/components/saved/SavedQueriesPanel';
 import { QueryHistoryPanel } from '@/components/history/QueryHistoryPanel';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -93,6 +94,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   const queryEditorRef = useRef<QueryEditorRef>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [showQueryLibrary, setShowQueryLibrary] = useState(true);
   const [isResizingLibrary, setIsResizingLibrary] = useState(false);
   const [activePanel, setActivePanel] = useState<'saved' | 'history'>('saved');
@@ -448,8 +450,8 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     resultsRef.current?.copyToClipboard();
   }, []);
 
-  const handleExportCSV = useCallback(() => {
-    resultsRef.current?.exportCSV();
+  const handleExport = useCallback(() => {
+    setShowExportDialog(true);
   }, []);
 
   const handleLoadMore = useCallback(async () => {
@@ -525,7 +527,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       'tab.8': () => tabs[7] && setActiveTab(tabs[7].id),
       'tab.9': () => tabs[tabs.length - 1] && setActiveTab(tabs[tabs.length - 1].id),
       'results.copy': handleCopyResults,
-      'results.export': handleExportCSV,
+      'results.export': handleExport,
     }),
     [
       handleExecute,
@@ -536,7 +538,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
       handleNextTab,
       handlePrevTab,
       handleCopyResults,
-      handleExportCSV,
+      handleExport,
       activeConnectionId,
       activeTab?.isExecuting,
       createTab,
@@ -856,6 +858,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
             onDeleteRows={handleDeleteRows}
             onCommitEdits={handleCommitEdits}
             onDiscardEdits={handleDiscardEdits}
+            onExport={handleExport}
           />
         )}
       </div>
@@ -867,6 +870,16 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
         sql={activeTab?.sql || ''}
         initialName={activeTab?.name || ''}
         existingSavedQueryId={activeTab?.savedQueryId ?? undefined}
+      />
+
+      {/* Export Results Dialog */}
+      <ExportResultsDialog
+        isOpen={showExportDialog}
+        onClose={() => setShowExportDialog(false)}
+        connectionId={displayTab?.connectionId ?? ''}
+        sql={displayTab?.sql ?? ''}
+        schema={selectedSchema ?? null}
+        results={displayTab?.results ?? null}
       />
     </div>
   );

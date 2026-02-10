@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useContextMenuPosition } from '@/hooks/useContextMenuPosition';
 import * as tauri from '@/lib/tauri';
 import type { TreeNode, SchemaInfo } from '@/lib/types';
 
@@ -43,6 +44,7 @@ export function DatabaseNavigator({
   const resizerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuPositionRef = useContextMenuPosition(contextMenu?.x, contextMenu?.y, contextMenuRef);
 
   const activeConnection = useConnectionStore((state) => state.getActiveConnection());
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
@@ -769,7 +771,7 @@ export function DatabaseNavigator({
       {/* Context Menu */}
       {contextMenu && (
         <div
-          ref={contextMenuRef}
+          ref={contextMenuPositionRef}
           className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
