@@ -173,6 +173,12 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                   checked={localSettings.ui.zebraStriping}
                   onChange={(v) => handleUIChange('zebraStriping', v)}
                 />
+                <ToggleSetting
+                  label="Row Numbers"
+                  description="Show row numbers in results grid"
+                  checked={localSettings.ui.showRowNumbers ?? true}
+                  onChange={(v) => handleUIChange('showRowNumbers', v)}
+                />
               </div>
 
               <div className="pt-4 border-t border-theme-border-primary">
