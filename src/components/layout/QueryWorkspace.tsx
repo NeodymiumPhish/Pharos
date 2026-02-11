@@ -630,7 +630,7 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
             className="flex flex-col bg-theme-bg-surface border-r border-theme-border-primary relative flex-shrink-0"
             style={{ width: libraryWidth }}
           >
-            <div className="flex items-center justify-between px-2 py-1 border-b border-theme-border-primary">
+            <div className="flex items-center justify-between px-2 h-[29px] border-b border-theme-border-primary">
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={() => setActivePanel('saved')}

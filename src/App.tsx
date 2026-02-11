@@ -96,7 +96,7 @@ function App() {
       {/* Traffic lights area - unified top bar */}
       <div
         onMouseDown={startDrag}
-        className="h-12 flex-shrink-0 cursor-default bg-theme-bg-elevated border-b border-theme-border-primary"
+        className="h-[38px] flex-shrink-0 cursor-default bg-theme-bg-elevated border-b border-theme-border-primary"
       />
 
       {/* Main content area */}

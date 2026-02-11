@@ -15,6 +15,7 @@ export default {
             elevated: 'var(--bg-elevated)',
             hover: 'var(--bg-hover)',
             active: 'var(--bg-active)',
+            stripe: 'var(--bg-stripe)',
           },
           border: {
             primary: 'var(--border-primary)',
@@ -27,22 +28,12 @@ export default {
             muted: 'var(--text-muted)',
           },
         },
-        // Glass panel colors with transparency
-        glass: {
-          light: 'rgba(255, 255, 255, 0.1)',
-          DEFAULT: 'rgba(255, 255, 255, 0.15)',
-          dark: 'rgba(0, 0, 0, 0.2)',
-          darker: 'rgba(0, 0, 0, 0.4)',
-        },
         // Status indicator colors
         status: {
           connected: '#22c55e',
           disconnected: '#ef4444',
           connecting: '#f59e0b',
         },
-      },
-      backdropBlur: {
-        glass: '20px',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
