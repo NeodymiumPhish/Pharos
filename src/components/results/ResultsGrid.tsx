@@ -508,6 +508,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   // Find in results state
   const [findQuery, setFindQuery] = useState('');
   const [isFindOpen, setIsFindOpen] = useState(false);
+  const [isFindFiltering, setIsFindFiltering] = useState(false);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const findInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -565,13 +566,24 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     });
   }, [results, filters]);
 
-  // Compute sorted rows (operates on filteredRows)
+  // Apply find-filter when the Filter toggle is active in the Find bar
+  const findFilteredRows = useMemo(() => {
+    if (!isFindFiltering || !findQuery.trim() || !isFindOpen) return filteredRows;
+    const query = findQuery.toLowerCase();
+    return filteredRows.filter((row) =>
+      visibleColumns.some((col) =>
+        formatCellValue(row[col.name], nullDisplay).toLowerCase().includes(query)
+      )
+    );
+  }, [filteredRows, isFindFiltering, findQuery, isFindOpen, visibleColumns, nullDisplay]);
+
+  // Compute sorted rows (operates on findFilteredRows)
   const sortedRows = useMemo(() => {
     if (!sortColumn || !sortDirection) {
-      return filteredRows;
+      return findFilteredRows;
     }
 
-    const rows = [...filteredRows]; // Copy to avoid mutating
+    const rows = [...findFilteredRows]; // Copy to avoid mutating
 
     rows.sort((a, b) => {
       const aVal = a[sortColumn];
@@ -600,7 +612,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
     });
 
     return rows;
-  }, [filteredRows, sortColumn, sortDirection]);
+  }, [findFilteredRows, sortColumn, sortDirection]);
 
   // Compute type-aware aggregates for selected cells
   const aggregates = useMemo((): Aggregates | null => {
@@ -1320,8 +1332,8 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             </button>
           )}
           <span className="text-xs text-theme-text-secondary">
-            {filters.size > 0
-              ? `${filteredRows.length.toLocaleString()} of ${results.rowCount.toLocaleString()} rows`
+            {filters.size > 0 || (isFindFiltering && isFindOpen && findQuery.trim())
+              ? `${sortedRows.length.toLocaleString()} of ${results.rowCount.toLocaleString()} rows`
               : `${results.rowCount.toLocaleString()} row${results.rowCount !== 1 ? 's' : ''}`}
             {results.hasMore && '+'}
             {executionTime !== null && (
@@ -1629,6 +1641,18 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
       {isFindOpen && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-theme-border-primary flex-shrink-0 bg-theme-bg-elevated">
           <Search className="w-3.5 h-3.5 text-theme-text-tertiary flex-shrink-0" />
+          <button
+            onClick={() => setIsFindFiltering(!isFindFiltering)}
+            className={cn(
+              'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors flex-shrink-0',
+              isFindFiltering
+                ? 'text-blue-700 dark:text-blue-300 bg-blue-500/20'
+                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
+            )}
+            title="Filter rows to only show matches"
+          >
+            <Filter className="w-3 h-3" />
+          </button>
           <input
             ref={findInputRef}
             type="text"
@@ -1646,6 +1670,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                 e.preventDefault();
                 setIsFindOpen(false);
                 setFindQuery('');
+                setIsFindFiltering(false);
                 setCurrentMatchIndex(0);
                 parentRef.current?.focus();
               }
@@ -1685,6 +1710,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
             onClick={() => {
               setIsFindOpen(false);
               setFindQuery('');
+              setIsFindFiltering(false);
               setCurrentMatchIndex(0);
               parentRef.current?.focus();
             }}
