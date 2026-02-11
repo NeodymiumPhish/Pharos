@@ -1814,16 +1814,20 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       onClose={() => setFilterPopoverColumn(null)}
                     />
                   )}
-                  {/* Resize handle */}
+                  {/* Resize handle - wide hit area with narrow visible indicator */}
                   <div
-                    className={cn(
-                      'absolute right-0 top-0 bottom-0 w-1 cursor-col-resize transition-colors',
-                      'hover:bg-blue-500/50',
-                      resizingColumn === col.name && 'bg-blue-500'
-                    )}
+                    className="absolute right-0 top-0 bottom-0 w-4 -mr-2 cursor-col-resize z-10 group/resize flex justify-center"
                     onMouseDown={(e) => handleColumnResizeStart(e, col.name)}
                     onDoubleClick={(e) => handleColumnDoubleClick(e, col.name)}
-                  />
+                  >
+                    <div
+                      className={cn(
+                        'w-0.5 h-full transition-colors',
+                        'group-hover/resize:bg-blue-500/50',
+                        resizingColumn === col.name && 'bg-blue-500'
+                      )}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
