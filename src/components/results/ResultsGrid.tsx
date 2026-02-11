@@ -98,8 +98,11 @@ function getCellClassName(value: unknown): string {
   if (typeof value === 'number') {
     return 'text-blue-700 dark:text-blue-300';
   }
-  if (typeof value === 'boolean') {
-    return 'text-violet-700 dark:text-violet-300';
+  if (value === true) {
+    return 'text-green-700 dark:text-green-400';
+  }
+  if (value === false) {
+    return 'text-red-700 dark:text-red-400';
   }
   return 'text-theme-text-secondary';
 }
