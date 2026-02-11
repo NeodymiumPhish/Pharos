@@ -228,6 +228,7 @@ export interface UISettings {
   editorSplitPosition: number; // Percentage (0-100) for editor vs results split
   showEmptySchemas: boolean;
   zebraStriping: boolean;
+  showRowNumbers: boolean;
   nullDisplay: NullDisplayFormat;
   resultsFontSize: number;
 }
@@ -393,6 +394,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     editorSplitPosition: 40,
     showEmptySchemas: false,
     zebraStriping: true,
+    showRowNumbers: true,
     nullDisplay: 'NULL' as NullDisplayFormat,
     resultsFontSize: 11,
   },

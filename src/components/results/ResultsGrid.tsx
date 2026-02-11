@@ -1,6 +1,6 @@
 import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Hash, Columns3, Search, Pencil, Trash2, Lock } from 'lucide-react';
+import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Columns3, Search, Pencil, Trash2, Lock } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { EditableInfo, RowEdit } from '@/lib/types';
@@ -494,15 +494,13 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
   const [showCopyMenu, setShowCopyMenu] = useState(false);
   const copyMenuRef = useRef<HTMLDivElement>(null);
 
-  // Row numbering state
-  const [showRowNumbers, setShowRowNumbers] = useState(true);
-
   // Column visibility state
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const columnPickerRef = useRef<HTMLDivElement>(null);
 
   // Settings
+  const showRowNumbers = useSettingsStore((state) => state.settings.ui.showRowNumbers ?? true);
   const zebraStriping = useSettingsStore((state) => state.settings.ui.zebraStriping);
   const nullDisplay = useSettingsStore((state) => state.settings.ui.nullDisplay ?? 'NULL');
   const resultsFontSize = useSettingsStore((state) => state.settings.ui.resultsFontSize ?? 11);
@@ -1400,19 +1398,6 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
               Pin
             </button>
           ) : null}
-          <button
-            onClick={() => setShowRowNumbers(!showRowNumbers)}
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors',
-              showRowNumbers
-                ? 'text-theme-text-primary bg-theme-bg-active'
-                : 'text-theme-text-tertiary hover:text-theme-text-primary hover:bg-theme-bg-hover'
-            )}
-            title={showRowNumbers ? 'Hide row numbers' : 'Show row numbers'}
-          >
-            <Hash className="w-3 h-3" />
-            Rows
-          </button>
           <div className="relative" ref={columnPickerRef}>
             <button
               onClick={() => setShowColumnPicker(!showColumnPicker)}
