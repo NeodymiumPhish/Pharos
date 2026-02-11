@@ -644,7 +644,7 @@ export function DatabaseNavigator({
     >
       {/* Database name header */}
       {activeConnection && (
-        <div className="px-2.5 py-1.5 border-b border-theme-border-primary">
+        <div className="px-2.5 flex items-center h-[29px] border-b border-theme-border-primary">
           <div className="flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5 text-theme-text-tertiary" />
             <span className="text-xs font-medium text-theme-text-primary truncate">

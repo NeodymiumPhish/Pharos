@@ -1,7 +1,7 @@
 [package]
 name = "pharos"
 version = "0.0.0-dev"
-description = "A high-performance PostgreSQL client with Liquid Glass UI"
+description = "A high-performance PostgreSQL client for macOS"
 authors = ["you"]
 license = "MIT"
 repository = ""
@@ -37,9 +37,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # Network types
 ipnetwork = "0.20"
 mac_address = "1.1"
-
-# Window vibrancy for Liquid Glass effect
-window-vibrancy = "0.5"
 
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }

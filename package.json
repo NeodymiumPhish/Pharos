@@ -1,7 +1,7 @@
 {
   "name": "pharos",
   "version": "0.0.0-dev",
-  "description": "A high-performance PostgreSQL client with Liquid Glass UI",
+  "description": "A high-performance PostgreSQL client for macOS",
   "type": "module",
   "scripts": {
     "dev": "vite",

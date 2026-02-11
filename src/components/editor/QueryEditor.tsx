@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import Editor, { BeforeMount, OnMount, OnChange } from '@monaco-editor/react';
 import type { editor, IDisposable, KeyCode } from 'monaco-editor';
 import { format as formatSql } from 'sql-formatter';
@@ -83,7 +83,6 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,
   rules: [
-    // Brighter colors for transparent background with vibrancy
     { token: 'keyword', foreground: '82AAFF' }, // Soft blue
     { token: 'keyword.sql', foreground: '82AAFF' },
     { token: 'string', foreground: 'C3E88D' }, // Soft green
@@ -96,9 +95,9 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
     { token: 'predefined', foreground: 'DCDCAA' }, // Muted yellow
   ],
   colors: {
-    'editor.background': '#00000000', // Transparent
-    'editor.foreground': '#F8F8F2', // Bright off-white
-    'editor.lineHighlightBackground': '#ffffff10',
+    'editor.background': '#1e1e1e',
+    'editor.foreground': '#F8F8F2',
+    'editor.lineHighlightBackground': '#2a2d2e',
     'editor.selectionBackground': '#264F78',
     'editor.inactiveSelectionBackground': '#3A3D41',
     'editorCursor.foreground': '#AEAFAD',
@@ -116,20 +115,17 @@ const PHAROS_DARK_THEME: editor.IStandaloneThemeData = {
     'editorSuggestWidget.selectedBackground': '#04395e',
     'editorSuggestWidget.selectedForeground': '#FFFFFF',
     'editorSuggestWidget.focusHighlightForeground': '#18A0FB',
-    // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#1e1e1e',
     'editorStickyScrollHover.background': '#2a2a2a',
-    // Minimap needs an opaque background since the editor bg is transparent
     'minimap.background': '#1e1e1e',
   },
 };
 
-// Custom light theme for Liquid Glass aesthetic
+// Custom light theme
 const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
   base: 'vs',
   inherit: true,
   rules: [
-    // Darker, more saturated colors for transparent background with vibrancy
     { token: 'keyword', foreground: '0033B3' }, // Deep blue
     { token: 'keyword.sql', foreground: '0033B3' },
     { token: 'string', foreground: '067D17' }, // Forest green
@@ -142,9 +138,9 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
     { token: 'predefined', foreground: '7A3E9D' }, // Rich purple
   ],
   colors: {
-    'editor.background': '#00000000', // Transparent
-    'editor.foreground': '#1A1A1A', // Near black
-    'editor.lineHighlightBackground': '#00000008',
+    'editor.background': '#ffffff',
+    'editor.foreground': '#1A1A1A',
+    'editor.lineHighlightBackground': '#f5f5f5',
     'editor.selectionBackground': '#ADD6FF',
     'editor.inactiveSelectionBackground': '#E5EBF1',
     'editorCursor.foreground': '#000000',
@@ -162,11 +158,9 @@ const PHAROS_LIGHT_THEME: editor.IStandaloneThemeData = {
     'editorSuggestWidget.selectedBackground': '#0060C0',
     'editorSuggestWidget.selectedForeground': '#FFFFFF',
     'editorSuggestWidget.focusHighlightForeground': '#9DDDFF',
-    // Sticky scroll - make opaque so it's legible over underlying text
     'editorStickyScroll.background': '#F3F3F3',
     'editorStickyScrollHover.background': '#E8E8E8',
-    // Minimap needs an opaque background since the editor bg is transparent
-    'minimap.background': '#F3F3F3',
+    'minimap.background': '#ffffff',
   },
 };
 
@@ -197,14 +191,26 @@ export function QueryEditor({ tabId, schemaMetadata, editorRef: externalEditorRe
   const activeConnectionId = useConnectionStore((state) => state.activeConnectionId);
   const selectedSchema = useConnectionStore((state) => state.getActiveSelectedSchema());
   const editorSettings = useSettingsStore((state) => state.settings.editor);
-  // Compute effective theme directly in selector for reliable reactivity
-  const effectiveTheme = useSettingsStore((state) => {
-    const t = state.settings.theme;
-    if (t === 'auto') {
+  // Track effective theme, including OS-level changes when theme is 'auto'
+  const themeSetting = useSettingsStore((state) => state.settings.theme);
+  const [effectiveTheme, setEffectiveTheme] = useState<'light' | 'dark'>(() => {
+    if (themeSetting === 'auto') {
       return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
-    return t;
+    return themeSetting;
   });
+
+  useEffect(() => {
+    if (themeSetting !== 'auto') {
+      setEffectiveTheme(themeSetting);
+      return;
+    }
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    setEffectiveTheme(mq.matches ? 'dark' : 'light');
+    const handler = (e: MediaQueryListEvent) => setEffectiveTheme(e.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [themeSetting]);
 
   // Update the metadata ref when it changes
   useEffect(() => {

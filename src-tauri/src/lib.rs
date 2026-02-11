@@ -1,9 +1,6 @@
 use tauri::{Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, Submenu};
 
-#[cfg(target_os = "macos")]
-use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-
 mod commands;
 mod db;
 mod models;
@@ -95,14 +92,6 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
-            }
-
-            // Apply vibrancy effect on macOS
-            #[cfg(target_os = "macos")]
-            {
-                let window = app.get_webview_window("main").unwrap();
-                apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, None)
-                    .expect("Failed to apply vibrancy");
             }
 
             // Initialize the application state

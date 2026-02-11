@@ -1830,7 +1830,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                     key={virtualRow.key}
                     className={cn(
                       'flex hover:bg-theme-bg-hover',
-                      zebraStriping && virtualRow.index % 2 === 1 && 'bg-theme-bg-hover'
+                      zebraStriping && virtualRow.index % 2 === 0 && 'bg-theme-bg-stripe'
                     )}
                     style={{
                       position: 'absolute',
