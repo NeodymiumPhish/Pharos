@@ -263,21 +263,17 @@ fn extract_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str) -> 
                 };
             }
         }
-        // Numeric/Decimal - try as f64 first, then fallback to string
+        // Numeric/Decimal - decode via rust_decimal
         "NUMERIC" | "DECIMAL" => {
-            // Try f64 first (works for most numeric values)
-            if let Ok(v) = row.try_get::<Option<f64>, _>(index) {
+            if let Ok(v) = row.try_get::<Option<rust_decimal::Decimal>, _>(index) {
                 return match v {
-                    Some(n) => serde_json::Number::from_f64(n)
-                        .map(serde_json::Value::Number)
-                        .unwrap_or(serde_json::Value::String(n.to_string())),
-                    None => serde_json::Value::Null,
-                };
-            }
-            // Fallback to string for high precision numbers
-            if let Ok(v) = row.try_get::<Option<String>, _>(index) {
-                return match v {
-                    Some(s) => serde_json::Value::String(s),
+                    Some(d) => {
+                        use rust_decimal::prelude::ToPrimitive;
+                        d.to_f64()
+                            .and_then(serde_json::Number::from_f64)
+                            .map(serde_json::Value::Number)
+                            .unwrap_or_else(|| serde_json::Value::String(d.to_string()))
+                    }
                     None => serde_json::Value::Null,
                 };
             }
@@ -573,6 +569,23 @@ fn extract_array_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &st
                             .map(serde_json::Value::Number)
                             .unwrap_or(serde_json::Value::String(n.to_string()))
                     }).collect()),
+                    None => serde_json::Value::Null,
+                };
+            }
+        }
+        // Numeric/Decimal arrays
+        "NUMERIC" | "DECIMAL" => {
+            if let Ok(v) = row.try_get::<Option<Vec<rust_decimal::Decimal>>, _>(index) {
+                return match v {
+                    Some(arr) => {
+                        use rust_decimal::prelude::ToPrimitive;
+                        serde_json::Value::Array(arr.into_iter().map(|d| {
+                            d.to_f64()
+                                .and_then(serde_json::Number::from_f64)
+                                .map(serde_json::Value::Number)
+                                .unwrap_or_else(|| serde_json::Value::String(d.to_string()))
+                        }).collect())
+                    }
                     None => serde_json::Value::Null,
                 };
             }

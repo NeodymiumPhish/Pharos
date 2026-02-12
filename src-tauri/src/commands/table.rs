@@ -1145,9 +1145,9 @@ fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str
             }
         }
         "NUMERIC" | "DECIMAL" => {
-            if let Ok(v) = row.try_get::<Option<f64>, _>(index) {
+            if let Ok(v) = row.try_get::<Option<rust_decimal::Decimal>, _>(index) {
                 return match v {
-                    Some(n) => n.to_string(),
+                    Some(d) => d.to_string(),
                     None => null_string(),
                 };
             }
@@ -1301,9 +1301,20 @@ fn write_xlsx_cell(
                 return Ok(());
             }
         }
-        "FLOAT8" | "DOUBLE PRECISION" | "NUMERIC" | "DECIMAL" => {
+        "FLOAT8" | "DOUBLE PRECISION" => {
             if let Ok(Some(v)) = pg_row.try_get::<Option<f64>, _>(index) {
                 worksheet.write_number(row, col, v).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+        }
+        "NUMERIC" | "DECIMAL" => {
+            if let Ok(Some(d)) = pg_row.try_get::<Option<rust_decimal::Decimal>, _>(index) {
+                use rust_decimal::prelude::ToPrimitive;
+                if let Some(n) = d.to_f64() {
+                    worksheet.write_number(row, col, n).map_err(|e| e.to_string())?;
+                } else {
+                    worksheet.write_string(row, col, &d.to_string()).map_err(|e| e.to_string())?;
+                }
                 return Ok(());
             }
         }
