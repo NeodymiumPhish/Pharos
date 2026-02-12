@@ -19,7 +19,7 @@ brew install pharos
 
 Or grab a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/releases). - This method requires running `xattr -c Pharos.app` to get around Mac's unsigned application security measure.
 
-Requires macOS 10.15+ and PostgreSQL 10+.
+Requires macOS 10.15+. Supports PostgreSQL 10+ servers.
 
 ## What it does
 
