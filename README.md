@@ -13,7 +13,7 @@ Pharos is a native macOS database client built with Tauri v2 and Rust. It's desi
 ## Install
 
 ```
-brew tap NeodymiumPhish/homebrew-tap
+brew tap NeodymiumPhish/Pharos
 brew install pharos
 ```
 
