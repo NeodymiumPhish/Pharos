@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useRef, useMemo, useCallback, useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Download, Copy, AlertCircle, WrapText, AlignLeft, Pin, PinOff, Maximize2, Minimize2, ChevronUp, ChevronDown, RotateCcw, Check, Filter, X, Columns3, Search, Pencil, Trash2, Lock } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -104,7 +104,44 @@ function getCellClassName(value: unknown): string {
   if (value === false) {
     return 'text-red-700 dark:text-red-400';
   }
+  if (Array.isArray(value)) {
+    return '';
+  }
   return 'text-theme-text-secondary';
+}
+
+function renderArrayValue(arr: unknown[], nullDisplay: string): ReactNode {
+  const elements: ReactNode[] = [];
+  elements.push(<span key="open" className="text-theme-text-secondary">[</span>);
+  arr.forEach((item, i) => {
+    if (i > 0) {
+      elements.push(<span key={`sep-${i}`} className="text-theme-text-secondary">, </span>);
+    }
+    if (Array.isArray(item)) {
+      elements.push(<span key={i}>{renderArrayValue(item, nullDisplay)}</span>);
+    } else if (item === null) {
+      elements.push(<span key={i} className="text-theme-text-muted italic">{nullDisplay}</span>);
+    } else if (item === true) {
+      elements.push(<span key={i} className="text-green-700 dark:text-green-400">true</span>);
+    } else if (item === false) {
+      elements.push(<span key={i} className="text-red-700 dark:text-red-400">false</span>);
+    } else if (typeof item === 'number') {
+      elements.push(<span key={i} className="text-blue-700 dark:text-blue-300">{String(item)}</span>);
+    } else if (typeof item === 'object') {
+      elements.push(<span key={i} className="text-theme-text-secondary">{JSON.stringify(item)}</span>);
+    } else {
+      elements.push(<span key={i} className="text-theme-text-secondary">{String(item)}</span>);
+    }
+  });
+  elements.push(<span key="close" className="text-theme-text-secondary">]</span>);
+  return <>{elements}</>;
+}
+
+function renderCellContent(value: unknown, showNewlines: boolean, nullDisplay: string = 'NULL'): ReactNode {
+  if (Array.isArray(value)) {
+    return renderArrayValue(value, nullDisplay);
+  }
+  return getDisplayValue(value, showNewlines, nullDisplay);
 }
 
 // Calculate optimal column width based on content
@@ -1936,7 +1973,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                             className="w-full h-full bg-theme-bg-surface text-theme-text-primary text-[11px] font-mono border-none outline-none ring-1 ring-blue-500 px-1 -mx-1"
                           />
                         ) : (
-                          getDisplayValue(row[col.name], showNewlines, nullDisplay)
+                          renderCellContent(row[col.name], showNewlines, nullDisplay)
                         )}
                       </div>
                       );

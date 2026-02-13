@@ -48,15 +48,28 @@ export interface ColumnDef {
   dataType: string;
 }
 
+export interface ClosedTab {
+  name: string;
+  sql: string;
+}
+
 interface EditorState {
   tabs: QueryTab[];
   activeTabId: string | null;
   pinnedResultsTabId: string | null;
+  closedTabs: ClosedTab[];
 
   // Actions
   createTab: (connectionId: string | null) => string;
   createTabWithContent: (connectionId: string | null, name: string, sql: string, savedQueryId?: string | null) => string;
   closeTab: (tabId: string) => void;
+  closeOtherTabs: (tabId: string) => void;
+  closeTabsToRight: (tabId: string) => void;
+  closeAllTabs: () => void;
+  duplicateTab: (tabId: string) => string | null;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
+  pushClosedTab: (tab: ClosedTab) => void;
+  popClosedTab: () => ClosedTab | undefined;
   setActiveTab: (tabId: string) => void;
   updateTabSql: (tabId: string, sql: string) => void;
   updateTabName: (tabId: string, name: string) => void;
@@ -109,6 +122,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   pinnedResultsTabId: null,
+  closedTabs: [],
 
   createTab: (connectionId) => {
     const id = `tab-${Date.now()}-${tabCounter++}`;
@@ -185,6 +199,108 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return { tabs: newTabs, activeTabId: newActiveTabId, pinnedResultsTabId: newPinnedResultsTabId };
     });
+  },
+
+  closeOtherTabs: (tabId) => {
+    set((state) => {
+      const kept = state.tabs.find((t) => t.id === tabId);
+      if (!kept) return state;
+      const closed = state.tabs.filter((t) => t.id !== tabId);
+      return {
+        tabs: [kept],
+        activeTabId: tabId,
+        pinnedResultsTabId: state.pinnedResultsTabId === tabId ? state.pinnedResultsTabId : null,
+        closedTabs: [
+          ...state.closedTabs,
+          ...closed.map((t) => ({ name: t.name, sql: t.sql })),
+        ].slice(-10),
+      };
+    });
+  },
+
+  closeTabsToRight: (tabId) => {
+    set((state) => {
+      const idx = state.tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return state;
+      const kept = state.tabs.slice(0, idx + 1);
+      const closed = state.tabs.slice(idx + 1);
+      const activeStillExists = kept.some((t) => t.id === state.activeTabId);
+      return {
+        tabs: kept,
+        activeTabId: activeStillExists ? state.activeTabId : tabId,
+        pinnedResultsTabId: kept.some((t) => t.id === state.pinnedResultsTabId)
+          ? state.pinnedResultsTabId : null,
+        closedTabs: [
+          ...state.closedTabs,
+          ...closed.map((t) => ({ name: t.name, sql: t.sql })),
+        ].slice(-10),
+      };
+    });
+  },
+
+  closeAllTabs: () => {
+    set((state) => ({
+      tabs: [],
+      activeTabId: null,
+      pinnedResultsTabId: null,
+      closedTabs: [
+        ...state.closedTabs,
+        ...state.tabs.map((t) => ({ name: t.name, sql: t.sql })),
+      ].slice(-10),
+    }));
+  },
+
+  duplicateTab: (tabId) => {
+    const tab = get().tabs.find((t) => t.id === tabId);
+    if (!tab) return null;
+    const id = `tab-${Date.now()}-${tabCounter++}`;
+    const newTab: QueryTab = {
+      id,
+      name: `${tab.name} (copy)`,
+      connectionId: tab.connectionId,
+      sql: tab.sql,
+      cursorPosition: { line: 1, column: 1 },
+      isDirty: false,
+      isExecuting: false,
+      queryId: null,
+      results: null,
+      error: null,
+      executionTime: null,
+      validation: { isValid: true, isValidating: false, error: null },
+      savedQueryName: null,
+      savedQueryId: null,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, newTab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  reorderTabs: (fromIndex, toIndex) => {
+    set((state) => {
+      if (fromIndex === toIndex) return state;
+      const newTabs = [...state.tabs];
+      const [moved] = newTabs.splice(fromIndex, 1);
+      newTabs.splice(toIndex, 0, moved);
+      return { tabs: newTabs };
+    });
+  },
+
+  pushClosedTab: (tab) => {
+    set((state) => ({
+      closedTabs: [...state.closedTabs, tab].slice(-10),
+    }));
+  },
+
+  popClosedTab: () => {
+    const { closedTabs } = get();
+    if (closedTabs.length === 0) return undefined;
+    const last = closedTabs[closedTabs.length - 1];
+    set((state) => ({
+      closedTabs: state.closedTabs.slice(0, -1),
+    }));
+    return last;
   },
 
   setActiveTab: (tabId) => {
