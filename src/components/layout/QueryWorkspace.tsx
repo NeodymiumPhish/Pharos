@@ -89,7 +89,8 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     }
   }, [isSettingsLoaded, uiSettings.editorSplitPosition, uiSettings.savedQueriesWidth]);
 
-  const [closedTabs, setClosedTabs] = useState<Array<{ name: string; sql: string }>>([]);
+  const pushClosedTab = useEditorStore((state) => state.pushClosedTab);
+  const popClosedTab = useEditorStore((state) => state.popClosedTab);
   const resultsRef = useRef<ResultsGridRef>(null);
   const queryEditorRef = useRef<QueryEditorRef>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -421,18 +422,17 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
 
   const handleCloseTab = useCallback(() => {
     if (activeTab) {
-      setClosedTabs((prev) => [...prev.slice(-9), { name: activeTab.name, sql: activeTab.sql }]);
+      pushClosedTab({ name: activeTab.name, sql: activeTab.sql });
       closeTab(activeTab.id);
     }
-  }, [activeTab, closeTab]);
+  }, [activeTab, closeTab, pushClosedTab]);
 
   const handleReopenTab = useCallback(() => {
-    const last = closedTabs[closedTabs.length - 1];
+    const last = popClosedTab();
     if (last && activeConnectionId) {
-      setClosedTabs((prev) => prev.slice(0, -1));
       createTabWithContent(activeConnectionId, last.name, last.sql, null);
     }
-  }, [closedTabs, activeConnectionId, createTabWithContent]);
+  }, [popClosedTab, activeConnectionId, createTabWithContent]);
 
   const handleNextTab = useCallback(() => {
     const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
