@@ -447,11 +447,11 @@ const FilterPopover = forwardRef<HTMLDivElement, FilterPopoverProps>(function Fi
   return (
     <div
       ref={ref}
-      className="absolute left-0 top-full mt-1 w-56 rounded-md border border-theme-border-secondary bg-theme-bg-elevated shadow-lg z-50 p-2 space-y-2"
+      className="absolute left-0 top-full mt-1 w-56 rounded-xl border border-theme-border-secondary bg-theme-bg-elevated shadow-2xl backdrop-blur-xl z-50 p-2.5 space-y-2"
       onClick={(e) => e.stopPropagation()}
     >
       <select
-        className="w-full px-2 py-1 rounded text-[11px] bg-theme-bg-surface text-theme-text-primary border border-theme-border-primary outline-none"
+        className="w-full px-2.5 py-1.5 rounded-lg text-[11px] bg-theme-bg-surface text-theme-text-primary border border-theme-border-primary outline-none"
         value={operator}
         onChange={(e) => setOperator(e.target.value as FilterOperator)}
       >
@@ -1336,7 +1336,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
 
   if (!results) {
     return (
-      <div className="h-full flex items-center justify-center text-theme-text-muted text-xs">
+      <div className="h-full flex items-center justify-center text-theme-text-muted text-sm">
         <p>Run a query to see results</p>
       </div>
     );
@@ -1769,14 +1769,14 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
           <div style={{ width: Math.max(totalTableWidth, 1), minWidth: totalTableWidth, fontSize: `${resultsFontSize}px` }} onClick={handleContainerClick}>
             {/* Header row - sticky */}
             <div
-              className="sticky top-0 z-10 bg-theme-bg-elevated flex border-b border-theme-border-primary"
+              className="sticky top-0 z-10 bg-theme-bg-surface flex border-b border-theme-border-primary"
               style={{ width: totalTableWidth }}
               onClick={() => handleHeaderClick()}
             >
               {/* Row number header */}
               {showRowNumbers && (
                 <div
-                  className="px-2 py-1 text-center text-[11px] font-medium text-theme-text-tertiary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 select-none"
+                  className="px-2 py-1.5 text-center text-[11px] font-medium text-theme-text-muted border-r border-theme-border-subtle whitespace-nowrap flex-shrink-0 select-none"
                   style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH }}
                 >
                   #
@@ -1786,7 +1786,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                 <div
                   key={col.name}
                   className={cn(
-                    'relative px-2 py-1 text-left text-[11px] font-medium text-theme-text-secondary border-r border-theme-border-primary whitespace-nowrap flex-shrink-0 group cursor-pointer select-none',
+                    'relative px-3 py-1.5 text-left text-xs font-medium text-theme-text-tertiary whitespace-nowrap flex-shrink-0 group cursor-pointer select-none',
                     sortColumn === col.name && 'bg-theme-bg-active'
                   )}
                   style={{ width: effectiveColumnWidths[col.name], minWidth: effectiveColumnWidths[col.name] }}
@@ -1884,7 +1884,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                   <div
                     key={virtualRow.key}
                     className={cn(
-                      'flex hover:bg-theme-bg-hover',
+                      'flex hover:bg-theme-bg-hover transition-colors',
                       zebraStriping && virtualRow.index % 2 === 0 && 'bg-theme-bg-stripe'
                     )}
                     style={{
@@ -1899,7 +1899,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                     {/* Row number cell */}
                     {showRowNumbers && (
                       <div
-                        className="px-1 py-0.5 text-[11px] font-mono text-theme-text-muted border-b border-r border-theme-border-primary flex-shrink-0 text-right select-none cursor-pointer hover:bg-theme-bg-active hover:text-theme-text-secondary"
+                        className="px-1 py-0.5 text-[11px] font-mono text-theme-text-muted border-b border-theme-border-subtle border-r border-r-theme-border-subtle flex-shrink-0 text-right select-none cursor-pointer hover:bg-theme-bg-active hover:text-theme-text-secondary"
                         style={{ width: ROW_NUMBER_WIDTH, minWidth: ROW_NUMBER_WIDTH }}
                         onMouseDown={(e) => {
                           e.preventDefault();
@@ -1938,7 +1938,7 @@ export const ResultsGrid = forwardRef<ResultsGridRef, ResultsGridProps>(function
                       <div
                         key={col.name}
                         className={cn(
-                          'px-2 py-0.5 text-[11px] font-mono border-b border-r border-theme-border-primary flex-shrink-0 text-left overflow-hidden cursor-cell select-none relative',
+                          'px-3 py-0.5 text-[11px] font-mono border-b border-theme-border-subtle flex-shrink-0 text-left overflow-hidden cursor-cell select-none relative',
                           wrapText ? 'break-words' : 'text-ellipsis',
                           wrapText || showNewlines ? 'whitespace-pre-wrap' : 'whitespace-nowrap',
                           getCellClassName(row[col.name]),

@@ -141,7 +141,7 @@ export function EditConnectionDialog({ isOpen, onClose, connection }: EditConnec
 
       {/* Dialog */}
       <div
-        className="relative w-full max-w-md mx-4 rounded-lg border border-theme-border-secondary bg-theme-bg-elevated shadow-2xl"
+        className="relative w-full max-w-md mx-4 rounded-2xl border border-theme-border-secondary bg-theme-bg-elevated shadow-2xl backdrop-blur-xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-theme-border-primary">

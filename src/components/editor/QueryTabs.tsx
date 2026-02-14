@@ -324,7 +324,7 @@ export function QueryTabs() {
                   if (!hasDragStarted.current) setActiveTab(tab.id);
                 }}
                 className={cn(
-                  'group flex items-center gap-2 px-3 h-full cursor-pointer',
+                  'group flex items-center gap-2 px-3 h-[calc(100%-8px)] my-1 rounded-lg cursor-pointer',
                   'transition-colors duration-150',
                   tab.id === activeTabId
                     ? 'bg-theme-bg-active text-theme-text-primary'
@@ -407,7 +407,7 @@ export function QueryTabs() {
       {showTabList && (
         <div
           ref={dropdownRef}
-          className="fixed z-50 min-w-[200px] max-w-[320px] max-h-[300px] overflow-y-auto py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
+          className="fixed z-50 min-w-[200px] max-w-[320px] max-h-[300px] overflow-y-auto py-1.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-xl shadow-2xl backdrop-blur-xl"
           style={{ top: dropdownPos.top, right: dropdownPos.right }}
         >
           {tabs.map((tab) => (
@@ -434,7 +434,7 @@ export function QueryTabs() {
       {contextMenu && (
         <div
           ref={contextMenuPositionRef}
-          className="fixed z-50 min-w-[180px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
+          className="fixed z-50 min-w-[180px] py-1.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-xl shadow-2xl backdrop-blur-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button className={menuItemClass} onClick={handleContextClose}>

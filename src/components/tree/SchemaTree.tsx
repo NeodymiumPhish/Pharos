@@ -61,7 +61,7 @@ const iconMap: Record<TreeNodeType, React.ComponentType<{ className?: string }>>
 
 function TreeNodeIcon({ type, isPrimaryKey }: { type: TreeNodeType; isPrimaryKey?: boolean }) {
   if (type === 'column' && isPrimaryKey) {
-    return <Key className="w-3.5 h-3.5 text-amber-400" />;
+    return <Key className="w-4 h-4 text-amber-400" />;
   }
 
   const Icon = iconMap[type] || Type;
@@ -84,7 +84,7 @@ function TreeNodeIcon({ type, isPrimaryKey }: { type: TreeNodeType; isPrimaryKey
       ? 'text-pink-400'
       : 'text-neutral-400';
 
-  return <Icon className={cn('w-3.5 h-3.5', colorClass)} />;
+  return <Icon className={cn('w-4 h-4', colorClass)} />;
 }
 
 interface TreeNodeRowProps {
@@ -116,10 +116,10 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
   return (
     <div
       className={cn(
-        'flex items-center gap-1 py-0.5 px-1.5 cursor-pointer rounded mx-0.5',
+        'flex items-center gap-1.5 py-1 px-2 cursor-pointer rounded-lg mx-1',
         'text-xs text-theme-text-secondary hover:bg-theme-bg-hover transition-colors'
       )}
-      style={{ paddingLeft: `${level * 10 + 6}px` }}
+      style={{ paddingLeft: `${level * 12 + 8}px` }}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
     >
@@ -140,7 +140,10 @@ function TreeNodeRow({ node, level, onExpand, onSelect, onContextMenu }: TreeNod
       <TreeNodeIcon type={node.type} isPrimaryKey={node.metadata?.isPrimaryKey} />
 
       {/* Label */}
-      <span className="truncate flex-1">{node.label}</span>
+      <span className={cn(
+        'truncate flex-1',
+        (node.type === 'table' || node.type === 'view' || node.type === 'foreign-table') && 'font-medium'
+      )}>{node.label}</span>
 
       {/* Data type badge for columns */}
       {node.type === 'column' && node.metadata?.dataType && (
