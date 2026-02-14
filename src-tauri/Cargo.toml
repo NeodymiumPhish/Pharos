@@ -38,6 +38,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 ipnetwork = "0.20"
 mac_address = "1.1"
 
+# Window effects
+window-vibrancy = "0.5"
+
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"

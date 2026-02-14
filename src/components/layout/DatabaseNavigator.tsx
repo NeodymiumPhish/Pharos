@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, ChevronDown, RefreshCw, Database, Copy, Upload, Download, Table, Eye, ClipboardCopy, Code, Loader2 } from 'lucide-react';
+import { Search, ChevronDown, RefreshCw, Copy, Upload, Download, Table, Eye, ClipboardCopy, Code, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SchemaTree } from '@/components/tree/SchemaTree';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -20,6 +20,7 @@ interface DatabaseNavigatorProps {
   minWidth?: number;
   maxWidth?: number;
   refreshTrigger?: number;
+  onResizingChange?: (isResizing: boolean) => void;
   onCloneTable?: (schema: string, table: string, type: 'table' | 'view') => void;
   onImportData?: (schema: string, table: string) => void;
   onExportData?: (schema: string, table: string, type: 'table' | 'view' | 'foreign-table') => void;
@@ -32,6 +33,7 @@ export function DatabaseNavigator({
   minWidth = 200,
   maxWidth = 500,
   refreshTrigger,
+  onResizingChange,
   onCloneTable,
   onImportData,
   onExportData,
@@ -62,6 +64,7 @@ export function DatabaseNavigator({
     (e: React.MouseEvent) => {
       e.preventDefault();
       setIsResizing(true);
+      onResizingChange?.(true);
 
       const startX = e.clientX;
       const startWidth = width;
@@ -74,6 +77,7 @@ export function DatabaseNavigator({
 
       const handleMouseUp = () => {
         setIsResizing(false);
+        onResizingChange?.(false);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
@@ -639,28 +643,15 @@ export function DatabaseNavigator({
 
   return (
     <div
-      className="flex flex-col bg-theme-bg-surface border-r border-theme-border-primary relative"
-      style={{ width }}
+      className="flex-1 min-h-0 flex flex-col bg-theme-bg-sidebar relative"
     >
-      {/* Database name header */}
-      {activeConnection && (
-        <div className="px-2.5 flex items-center h-[29px] border-b border-theme-border-primary">
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-theme-text-tertiary" />
-            <span className="text-xs font-medium text-theme-text-primary truncate">
-              {activeConnection.config.database}
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Schema dropdown */}
       {activeConnection?.status === 'connected' && schemas.length > 0 && (
-        <div className="px-2 py-1.5" ref={dropdownRef}>
+        <div className="px-2.5 pt-2 pb-1" ref={dropdownRef}>
           <button
             onClick={() => setIsSchemaDropdownOpen(!isSchemaDropdownOpen)}
             className={cn(
-              'w-full flex items-center justify-between px-2 py-1 rounded-md',
+              'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg',
               'bg-theme-bg-elevated border border-theme-border-primary',
               'text-xs text-theme-text-primary',
               'hover:bg-theme-bg-hover transition-colors'
@@ -678,14 +669,14 @@ export function DatabaseNavigator({
           </button>
 
           {isSchemaDropdownOpen && activeConnectionId && (
-            <div className="absolute left-2 right-2 mt-1 z-20 py-0.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-md shadow-xl max-h-64 overflow-y-auto">
+            <div className="absolute left-2.5 right-2.5 mt-1 z-20 py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-xl shadow-2xl max-h-64 overflow-y-auto animate-dropdown">
               <button
                 onClick={() => {
                   setSelectedSchema(activeConnectionId, null);
                   setIsSchemaDropdownOpen(false);
                 }}
                 className={cn(
-                  'w-full text-left px-2 py-1 text-xs hover:bg-theme-bg-hover transition-colors',
+                  'w-full text-left px-2.5 py-1.5 text-xs rounded-lg mx-0 hover:bg-theme-bg-hover transition-colors',
                   !selectedSchema ? 'text-theme-text-primary bg-theme-bg-active' : 'text-theme-text-secondary'
                 )}
               >
@@ -699,7 +690,7 @@ export function DatabaseNavigator({
                     setIsSchemaDropdownOpen(false);
                   }}
                   className={cn(
-                    'w-full text-left px-2 py-1 text-xs hover:bg-theme-bg-hover transition-colors',
+                    'w-full text-left px-2.5 py-1.5 text-xs rounded-lg mx-0 hover:bg-theme-bg-hover transition-colors',
                     selectedSchema === schema.name ? 'text-theme-text-primary bg-theme-bg-active' : 'text-theme-text-secondary'
                   )}
                 >
@@ -712,16 +703,16 @@ export function DatabaseNavigator({
       )}
 
       {/* Search bar */}
-      <div className="px-2 py-1.5">
+      <div className="px-2.5 py-1.5">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-theme-text-tertiary" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-theme-text-tertiary" />
           <input
             type="text"
             placeholder="Search tables..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className={cn(
-              'w-full pl-7 pr-2 py-1 rounded-md',
+              'w-full pl-8 pr-2.5 py-1.5 rounded-lg',
               'bg-theme-bg-elevated border border-theme-border-primary',
               'text-xs text-theme-text-primary placeholder-theme-text-muted',
               'focus:outline-none focus:border-theme-border-secondary',
@@ -735,7 +726,7 @@ export function DatabaseNavigator({
       <div className="flex-1 overflow-y-auto">
         {!activeConnection ? (
           <div className="flex flex-col items-center justify-center h-32 text-theme-text-tertiary text-sm p-4 text-center">
-            <p>Click a server to connect</p>
+            <p>Select a connection</p>
           </div>
         ) : activeConnection.status === 'connecting' ? (
           <div className="flex items-center justify-center h-32 text-theme-text-tertiary text-sm">
@@ -751,7 +742,7 @@ export function DatabaseNavigator({
           </div>
         ) : activeConnection.status !== 'connected' ? (
           <div className="flex flex-col items-center justify-center h-32 text-theme-text-tertiary text-sm p-4 text-center">
-            <p>Click server icon to connect</p>
+            <p>Select a connection to browse</p>
           </div>
         ) : isLoadingSchema ? (
           <div className="flex items-center justify-center h-32 text-theme-text-tertiary text-sm">
@@ -772,7 +763,7 @@ export function DatabaseNavigator({
       {contextMenu && (
         <div
           ref={contextMenuPositionRef}
-          className="fixed z-50 min-w-[160px] py-1 bg-theme-bg-elevated border border-theme-border-secondary rounded-lg shadow-xl"
+          className="fixed z-50 min-w-[160px] py-1.5 bg-theme-bg-elevated border border-theme-border-secondary rounded-xl shadow-2xl backdrop-blur-xl"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           {/* Column context menu */}

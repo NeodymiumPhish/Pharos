@@ -133,6 +133,15 @@ pub fn run() {
 
             app.manage(app_state);
 
+            // Apply window vibrancy for native macOS appearance
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = apply_vibrancy(&window, NSVisualEffectMaterial::Sidebar, None, None);
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

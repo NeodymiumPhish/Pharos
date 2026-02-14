@@ -15,7 +15,7 @@ export function AboutDialog({ isOpen, onClose }: AboutDialogProps) {
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Dialog */}
-      <div className="relative w-72 rounded-lg border border-theme-border-secondary bg-theme-bg-elevated shadow-2xl">
+      <div className="relative w-72 rounded-2xl border border-theme-border-secondary bg-theme-bg-elevated shadow-2xl backdrop-blur-xl">
         <button
           onClick={onClose}
           className="absolute top-2 right-2 p-1 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary"

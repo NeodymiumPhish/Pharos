@@ -11,31 +11,41 @@
   --bg-hover: #2a2d2e;
   --bg-active: #37373d;
   --bg-stripe: #222223;
+  --bg-sidebar: #252526;
+  --bg-toolbar: #2d2d2d;
   --border-primary: #2d2d2d;
   --border-secondary: #3c3c3c;
+  --border-subtle: rgba(255, 255, 255, 0.06);
   --text-primary: #cccccc;
   --text-secondary: #b0b0b0;
   --text-tertiary: #858585;
   --text-muted: #5a5a5a;
+  --accent-green: #32d74b;
+  --accent-green-hover: #2bc441;
   --scrollbar-thumb: #424242;
   --scrollbar-thumb-hover: #555555;
 }
 
 [data-theme="light"] {
   --bg-primary: #ffffff;
-  --bg-surface: #f3f3f3;
-  --bg-elevated: #e8e8e8;
-  --bg-hover: #e8e8e8;
-  --bg-active: #d4d4d4;
-  --bg-stripe: #f7f7f7;
-  --border-primary: #e0e0e0;
-  --border-secondary: #c8c8c8;
-  --text-primary: #1e1e1e;
-  --text-secondary: #424242;
-  --text-tertiary: #6e6e6e;
-  --text-muted: #a0a0a0;
-  --scrollbar-thumb: #c1c1c1;
-  --scrollbar-thumb-hover: #a0a0a0;
+  --bg-surface: #f5f5f7;
+  --bg-elevated: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --bg-stripe: rgba(0, 0, 0, 0.02);
+  --bg-sidebar: #f5f5f7;
+  --bg-toolbar: rgba(246, 246, 246, 0.8);
+  --border-primary: rgba(0, 0, 0, 0.08);
+  --border-secondary: rgba(0, 0, 0, 0.12);
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --text-primary: #1d1d1f;
+  --text-secondary: #424245;
+  --text-tertiary: #86868b;
+  --text-muted: #aeaeb2;
+  --accent-green: #34c759;
+  --accent-green-hover: #2db14e;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
 }
 
 /* Base styles */
@@ -126,9 +136,9 @@ code {
   background: rgba(59, 130, 246, 0.4);
 }
 
-/* Focus ring */
+/* Focus ring - Apple system blue */
 *:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline: 2px solid rgba(0, 122, 255, 0.5);
   outline-offset: 2px;
 }
 
@@ -136,4 +146,43 @@ code {
 input:focus,
 textarea:focus {
   outline: none;
+}
+
+/* Liquid Glass button */
+.glass-button {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+[data-theme="light"] .glass-button {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="light"] .glass-button:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Dropdown animation */
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-dropdown {
+  animation: dropdown-in 0.15s ease-out;
 }

@@ -16,16 +16,23 @@ export default {
             hover: 'var(--bg-hover)',
             active: 'var(--bg-active)',
             stripe: 'var(--bg-stripe)',
+            sidebar: 'var(--bg-sidebar)',
+            toolbar: 'var(--bg-toolbar)',
           },
           border: {
             primary: 'var(--border-primary)',
             secondary: 'var(--border-secondary)',
+            subtle: 'var(--border-subtle)',
           },
           text: {
             primary: 'var(--text-primary)',
             secondary: 'var(--text-secondary)',
             tertiary: 'var(--text-tertiary)',
             muted: 'var(--text-muted)',
+          },
+          accent: {
+            green: 'var(--accent-green)',
+            'green-hover': 'var(--accent-green-hover)',
           },
         },
         // Status indicator colors

@@ -342,8 +342,8 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
     const handleMouseMove = (e: MouseEvent) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const newPosition = ((e.clientY - rect.top) / rect.height) * 100;
-      setSplitPosition(Math.round(Math.max(20, Math.min(80, newPosition))));
+      const fromTop = ((e.clientY - rect.top) / rect.height) * 100;
+      setSplitPosition(Math.round(Math.max(20, Math.min(80, 100 - fromTop))));
     };
 
     const handleMouseUp = () => {
@@ -620,214 +620,10 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
   }, [isResizingLibrary]);
 
   return (
-    <div className="h-full w-full flex flex-col bg-theme-bg-surface overflow-hidden" ref={containerRef}>
-      {/* Top section: Saved Queries + Editor - hidden when results are expanded */}
-      {!isResultsExpanded && (
-      <div className="flex min-h-0 overflow-hidden" style={{ height: `${splitPosition}%` }}>
-        {/* Query Library Sidebar */}
-        {showQueryLibrary && (
-          <div
-            className="flex flex-col bg-theme-bg-surface border-r border-theme-border-primary relative flex-shrink-0"
-            style={{ width: libraryWidth }}
-          >
-            <div className="flex items-center justify-between px-2 h-[29px] border-b border-theme-border-primary">
-              <div className="flex items-center gap-0.5">
-                <button
-                  onClick={() => setActivePanel('saved')}
-                  className={cn(
-                    'px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors',
-                    activePanel === 'saved'
-                      ? 'text-theme-text-primary bg-theme-bg-active'
-                      : 'text-theme-text-tertiary hover:text-theme-text-secondary'
-                  )}
-                >
-                  Saved
-                </button>
-                <button
-                  onClick={() => setActivePanel('history')}
-                  className={cn(
-                    'px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider transition-colors',
-                    activePanel === 'history'
-                      ? 'text-theme-text-primary bg-theme-bg-active'
-                      : 'text-theme-text-tertiary hover:text-theme-text-secondary'
-                  )}
-                >
-                  History
-                </button>
-              </div>
-              <button
-                onClick={() => setShowQueryLibrary(false)}
-                className="p-0.5 rounded hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
-                title="Hide query library"
-              >
-                <PanelLeftClose className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              {activePanel === 'saved' ? (
-                <SavedQueriesPanel onQuerySelect={handleQuerySelect} />
-              ) : (
-                <QueryHistoryPanel connectionId={activeConnectionId ?? undefined} onQuerySelect={handleHistorySelect} />
-              )}
-            </div>
-            {/* Resize handle */}
-            <div
-              onMouseDown={handleLibraryMouseDown}
-              className={cn(
-                'absolute right-0 top-0 bottom-0 w-1 cursor-col-resize transition-colors',
-                'hover:bg-theme-bg-active',
-                isResizingLibrary && 'bg-theme-bg-active'
-              )}
-            />
-          </div>
-        )}
-
-        {/* Editor Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between px-4 py-2 bg-theme-bg-elevated border-b border-theme-border-primary">
-            <div className="flex items-center gap-2">
-              {!showQueryLibrary && (
-                <button
-                  onClick={() => setShowQueryLibrary(true)}
-                  className="p-2 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors"
-                  title="Show query library"
-                >
-                  <PanelLeft className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                onClick={handleExecute}
-                disabled={!isConnected || activeTab?.isExecuting}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200',
-                  'bg-emerald-600 hover:bg-emerald-500 text-white',
-                  'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-emerald-600'
-                )}
-              >
-                {activeTab?.isExecuting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Running...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" />
-                    Run
-                  </>
-                )}
-              </button>
-              {activeTab?.isExecuting && (
-                <button
-                  onClick={handleCancel}
-                  className="p-2 rounded-lg hover:bg-theme-bg-hover text-red-400 hover:text-red-300 transition-colors"
-                  title="Cancel query"
-                >
-                  <Square className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                onClick={handleClear}
-                className="p-2 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
-                disabled={!activeTab?.results && !activeTab?.error}
-                title="Clear results"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-              <div className="w-px h-5 bg-theme-border-secondary mx-1" />
-              <button
-                onClick={handleSave}
-                className="p-2 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
-                disabled={!activeTab?.sql.trim()}
-                title="Save query (Cmd+S)"
-              >
-                <Save className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleFormat}
-                className="p-2 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
-                disabled={!activeTab?.sql.trim()}
-                title="Format SQL (Shift+Alt+F)"
-              >
-                <WandSparkles className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="text-xs text-theme-text-tertiary flex items-center gap-4">
-              {cursorPosition && (
-                <span>
-                  Ln {cursorPosition.line}, Col {cursorPosition.column}
-                </span>
-              )}
-              {/* SQL Validation Status */}
-              {isConnected && activeTab && (
-                <div className="flex items-center gap-1.5">
-                  {activeTab.validation.isValidating ? (
-                    <span className="flex items-center gap-1 text-theme-text-muted">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Checking...
-                    </span>
-                  ) : activeTab.validation.isValid ? (
-                    activeTab.sql.trim() ? (
-                      <span className="flex items-center gap-1 text-emerald-500">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Valid
-                      </span>
-                    ) : null
-                  ) : (
-                    <span
-                      className="flex items-center gap-1 text-red-400 cursor-help max-w-md"
-                      title={activeTab.validation.error?.message || 'SQL error'}
-                    >
-                      <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span className="truncate">
-                        {activeTab.validation.error?.message || 'SQL error'}
-                      </span>
-                    </span>
-                  )}
-                </div>
-              )}
-              {isConnected ? (
-                <span className="text-emerald-500 font-medium">Connected</span>
-              ) : (
-                <span>Connect to run queries</span>
-              )}
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <QueryTabs />
-
-          {/* Editor pane */}
-          <div className="flex-1 bg-theme-bg-surface overflow-hidden">
-            {activeTabId ? (
-              <QueryEditor tabId={activeTabId} schemaMetadata={schemaMetadata} editorRef={queryEditorRef} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-theme-text-muted text-sm">
-                {isConnected
-                  ? 'Click + to create a new query tab'
-                  : 'Connect to a database to start writing queries'}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* Resize handle - full width - hidden when expanded */}
-      {!isResultsExpanded && (
+    <div className="h-full w-full flex flex-col bg-theme-bg-primary overflow-hidden" ref={containerRef}>
+      {/* Top section: Results pane - full height when expanded */}
       <div
-        onMouseDown={handleMouseDown}
-        className={cn(
-          'h-1 cursor-row-resize flex-shrink-0 transition-colors',
-          isResizing ? 'bg-theme-bg-active' : 'hover:bg-theme-bg-hover'
-        )}
-      />
-      )}
-
-      {/* Results pane - full width, full height when expanded */}
-      <div
-        className="bg-theme-bg-elevated overflow-hidden min-w-0 flex-1"
+        className="bg-theme-bg-primary overflow-hidden min-w-0 flex-1"
         style={isResultsExpanded ? undefined : { height: `${100 - splitPosition}%`, flex: 'none' }}
       >
         {displayTab?.results?.explainPlan ? (
@@ -862,6 +658,206 @@ export function QueryWorkspace({ isResultsExpanded, onToggleResultsExpand }: Que
           />
         )}
       </div>
+
+      {/* Resize handle - full width - hidden when expanded */}
+      {!isResultsExpanded && (
+      <div
+        onMouseDown={handleMouseDown}
+        className={cn(
+          'h-1 cursor-row-resize flex-shrink-0 transition-colors',
+          isResizing ? 'bg-theme-bg-active' : 'hover:bg-theme-bg-hover'
+        )}
+      />
+      )}
+
+      {/* Bottom section: Saved Queries + Editor - hidden when results are expanded */}
+      {!isResultsExpanded && (
+      <div className="flex flex-col min-h-0 overflow-hidden" style={{ height: `${splitPosition}%` }}>
+        {/* Unified toolbar bar */}
+        <div className="flex items-center px-2.5 py-1.5 border-b border-theme-border-subtle flex-shrink-0 bg-theme-bg-surface gap-1.5">
+          {/* Library toggle */}
+          <button
+            onClick={() => setShowQueryLibrary(!showQueryLibrary)}
+            className={cn(
+              'p-1.5 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors',
+              showQueryLibrary && 'text-theme-text-primary'
+            )}
+            title={showQueryLibrary ? 'Hide query library' : 'Show query library'}
+          >
+            {showQueryLibrary ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+          </button>
+
+          {/* Saved / History segmented control */}
+          {showQueryLibrary && (
+            <div className="flex items-center p-0.5 rounded-lg bg-theme-bg-hover">
+              <button
+                onClick={() => setActivePanel('saved')}
+                className={cn(
+                  'px-2.5 py-0.5 rounded-md text-xs font-medium transition-colors',
+                  activePanel === 'saved'
+                    ? 'text-theme-text-primary bg-theme-bg-elevated shadow-sm'
+                    : 'text-theme-text-tertiary hover:text-theme-text-secondary'
+                )}
+              >
+                Saved
+              </button>
+              <button
+                onClick={() => setActivePanel('history')}
+                className={cn(
+                  'px-2.5 py-0.5 rounded-md text-xs font-medium transition-colors',
+                  activePanel === 'history'
+                    ? 'text-theme-text-primary bg-theme-bg-elevated shadow-sm'
+                    : 'text-theme-text-tertiary hover:text-theme-text-secondary'
+                )}
+              >
+                History
+              </button>
+            </div>
+          )}
+
+          {/* Separator */}
+          <div className="w-px h-5 bg-theme-border-secondary mx-0.5" />
+
+          {/* Query actions */}
+          <button
+            onClick={handleExecute}
+            disabled={!isConnected || activeTab?.isExecuting}
+            className={cn(
+              'flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200',
+              'bg-theme-accent-green hover:bg-theme-accent-green-hover text-white shadow-sm',
+              'disabled:opacity-40 disabled:cursor-not-allowed'
+            )}
+          >
+            {activeTab?.isExecuting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Running...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                Run Query
+              </>
+            )}
+          </button>
+          {activeTab?.isExecuting && (
+            <button
+              onClick={handleCancel}
+              className="p-1.5 rounded-lg hover:bg-theme-bg-hover text-red-400 hover:text-red-300 transition-colors"
+              title="Cancel query"
+            >
+              <Square className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={handleClear}
+            className="p-1.5 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
+            disabled={!activeTab?.results && !activeTab?.error}
+            title="Clear results"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleSave}
+            className="p-1.5 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
+            disabled={!activeTab?.sql.trim()}
+            title="Save query (Cmd+S)"
+          >
+            <Save className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleFormat}
+            className="p-1.5 rounded-lg hover:bg-theme-bg-hover text-theme-text-tertiary hover:text-theme-text-primary transition-colors disabled:opacity-40"
+            disabled={!activeTab?.sql.trim()}
+            title="Format SQL (Shift+Alt+F)"
+          >
+            <WandSparkles className="w-4 h-4" />
+          </button>
+
+          <div className="flex-1" />
+
+          <div className="text-xs text-theme-text-tertiary flex items-center gap-3">
+            {cursorPosition && (
+              <span>
+                Ln {cursorPosition.line}, Col {cursorPosition.column}
+              </span>
+            )}
+            {isConnected && activeTab && (
+              <div className="flex items-center gap-1.5">
+                {activeTab.validation.isValidating ? (
+                  <span className="flex items-center gap-1 text-theme-text-muted">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  </span>
+                ) : activeTab.validation.isValid ? (
+                  activeTab.sql.trim() ? (
+                    <span className="flex items-center gap-1 text-emerald-500">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    </span>
+                  ) : null
+                ) : (
+                  <span
+                    className="flex items-center gap-1 text-red-400 cursor-help max-w-[200px]"
+                    title={activeTab.validation.error?.message || 'SQL error'}
+                  >
+                    <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate text-[11px]">
+                      {activeTab.validation.error?.message || 'SQL error'}
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Content area: sidebar + editor */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Query Library Sidebar */}
+          {showQueryLibrary && (
+            <div
+              className="flex flex-col bg-theme-bg-sidebar border-r border-theme-border-subtle relative flex-shrink-0"
+              style={{ width: libraryWidth }}
+            >
+              <div className="flex-1 overflow-hidden">
+                {activePanel === 'saved' ? (
+                  <SavedQueriesPanel onQuerySelect={handleQuerySelect} />
+                ) : (
+                  <QueryHistoryPanel connectionId={activeConnectionId ?? undefined} onQuerySelect={handleHistorySelect} />
+                )}
+              </div>
+              {/* Resize handle */}
+              <div
+                onMouseDown={handleLibraryMouseDown}
+                className={cn(
+                  'absolute right-0 top-0 bottom-0 w-1 cursor-col-resize transition-colors',
+                  'hover:bg-theme-bg-active',
+                  isResizingLibrary && 'bg-theme-bg-active'
+                )}
+              />
+            </div>
+          )}
+
+          {/* Editor Area */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Tabs */}
+            <QueryTabs />
+
+            {/* Editor pane */}
+            <div className="flex-1 bg-theme-bg-primary overflow-hidden">
+              {activeTabId ? (
+                <QueryEditor tabId={activeTabId} schemaMetadata={schemaMetadata} editorRef={queryEditorRef} />
+              ) : (
+                <div className="h-full flex items-center justify-center text-theme-text-muted text-sm">
+                  {isConnected
+                    ? 'Click + to create a new query tab'
+                    : 'Connect to a database to start writing queries'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
 
       {/* Save Query Dialog */}
       <SaveQueryDialog
