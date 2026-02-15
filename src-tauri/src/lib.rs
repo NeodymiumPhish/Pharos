@@ -85,6 +85,18 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_vibrancy::MacOSVibrancy;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.apply_vibrancy(
+                        tauri_plugin_vibrancy::NSVisualEffectMaterial::Sidebar,
+                        None,
+                        None,
+                    );
+                }
+            }
+
             // Setup logging in debug mode
             if cfg!(debug_assertions) {
                 app.handle().plugin(

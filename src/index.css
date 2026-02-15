@@ -5,44 +5,54 @@
 /* Theme variables */
 :root {
   /* Dark theme (default) */
-  --bg-primary: #1e1e1e;
+  --bg-primary: #1e1e1e; /* Solid background for content */
   --bg-surface: #252526;
   --bg-elevated: #2d2d2d;
-  --bg-hover: #2a2d2e;
-  --bg-active: #37373d;
+  --bg-hover: rgba(255, 255, 255, 0.08); /* Translucent hover for glass */
+  --bg-active: rgba(255, 255, 255, 0.12);
   --bg-stripe: #222223;
-  --border-primary: #2d2d2d;
-  --border-secondary: #3c3c3c;
+  --bg-glass: rgba(30, 30, 30, 0.6); /* Translucent sidebar background */
+
+  --border-primary: rgba(255, 255, 255, 0.1); /* Subtle borders */
+  --border-secondary: rgba(255, 255, 255, 0.15);
+
   --text-primary: #cccccc;
   --text-secondary: #b0b0b0;
   --text-tertiary: #858585;
   --text-muted: #5a5a5a;
-  --scrollbar-thumb: #424242;
-  --scrollbar-thumb-hover: #555555;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+
+  --accent-color: #3b82f6; /* Default Blue */
 }
 
 [data-theme="light"] {
   --bg-primary: #ffffff;
   --bg-surface: #f3f3f3;
   --bg-elevated: #e8e8e8;
-  --bg-hover: #e8e8e8;
-  --bg-active: #d4d4d4;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --bg-active: rgba(0, 0, 0, 0.08);
   --bg-stripe: #f7f7f7;
-  --border-primary: #e0e0e0;
-  --border-secondary: #c8c8c8;
+  --bg-glass: rgba(245, 245, 245, 0.6);
+
+  --border-primary: rgba(0, 0, 0, 0.1);
+  --border-secondary: rgba(0, 0, 0, 0.15);
+
   --text-primary: #1e1e1e;
   --text-secondary: #424242;
   --text-tertiary: #6e6e6e;
   --text-muted: #a0a0a0;
-  --scrollbar-thumb: #c1c1c1;
-  --scrollbar-thumb-hover: #a0a0a0;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
 }
 
 /* Base styles */
 html,
 body,
 #root {
-  background-color: var(--bg-primary);
+  background-color: transparent; /* Transparent for vibrancy */
   margin: 0;
   padding: 0;
   width: 100%;
@@ -123,12 +133,14 @@ code {
 
 /* Selection highlight */
 ::selection {
-  background: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.4); /* Fallback */
+  background: var(--accent-color);
+  opacity: 0.4;
 }
 
 /* Focus ring */
 *:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline: 2px solid var(--accent-color);
   outline-offset: 2px;
 }
 
@@ -136,4 +148,10 @@ code {
 input:focus,
 textarea:focus {
   outline: none;
+}
+
+/* Glass Utilities */
+.bg-glass {
+  background-color: var(--bg-glass);
+  backdrop-filter: blur(20px); /* Enhance the vibrancy effect */
 }

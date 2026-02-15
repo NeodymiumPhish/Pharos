@@ -16,6 +16,7 @@ export default {
             hover: 'var(--bg-hover)',
             active: 'var(--bg-active)',
             stripe: 'var(--bg-stripe)',
+            glass: 'var(--bg-glass)',
           },
           border: {
             primary: 'var(--border-primary)',
@@ -27,6 +28,7 @@ export default {
             tertiary: 'var(--text-tertiary)',
             muted: 'var(--text-muted)',
           },
+          accent: 'var(--accent-color)',
         },
         // Status indicator colors
         status: {

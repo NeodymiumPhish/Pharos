@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { ServerRail } from '@/components/layout/ServerRail';
-import { DatabaseNavigator } from '@/components/layout/DatabaseNavigator';
+import { Sidebar } from '@/components/layout/Sidebar';
 import { QueryWorkspace } from '@/components/layout/QueryWorkspace';
 import { StatusBar } from '@/components/ui/StatusBar';
 import { AddConnectionDialog } from '@/components/dialogs/AddConnectionDialog';
@@ -20,7 +19,8 @@ import { useTheme } from '@/hooks/useTheme';
 import * as tauri from '@/lib/tauri';
 
 function App() {
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAddConnectionOpen, setIsAddConnectionOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -92,48 +92,47 @@ function App() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-theme-bg-surface">
-      {/* Traffic lights area - unified top bar */}
-      <div
-        onMouseDown={startDrag}
-        className="h-[38px] flex-shrink-0 cursor-default bg-theme-bg-elevated border-b border-theme-border-primary"
-      />
-
-      {/* Main content area */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Server Rail */}
-        <ServerRail
+    <div className="h-screen w-screen flex overflow-hidden bg-transparent text-theme-text-primary font-sans selection:bg-theme-accent/30 selection:text-theme-text-primary">
+      {/* Sidebar - Glass Effect */}
+      {!isResultsExpanded && (
+        <Sidebar
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           onAddConnection={() => setIsAddConnectionOpen(true)}
           onEditConnection={(connection) => setEditingConnection(connection)}
-          onSchemaRefresh={handleSchemaRefresh}
+          schemaRefreshTrigger={schemaRefreshTrigger}
+          onCloneTable={(schema, table, type) => setCloneTarget({ schema, table, type })}
+          onImportData={(schema, table) => setImportTarget({ schema, table })}
+          onExportData={(schema, table, type) => setExportTarget({ schema, table, type })}
+          onViewRows={handleViewRows}
         />
+      )}
 
-        {/* Database Navigator - hidden when results are expanded */}
-        {!isResultsExpanded && (
-          <DatabaseNavigator
-            width={sidebarWidth}
-            onWidthChange={setSidebarWidth}
-            minWidth={200}
-            maxWidth={500}
-            refreshTrigger={schemaRefreshTrigger}
-            onCloneTable={(schema, table, type) => setCloneTarget({ schema, table, type })}
-            onImportData={(schema, table) => setImportTarget({ schema, table })}
-            onExportData={(schema, table, type) => setExportTarget({ schema, table, type })}
-            onViewRows={handleViewRows}
-          />
-        )}
+      {/* Main Content Area - Solid Background */}
+      <div className="flex-1 flex flex-col min-w-0 bg-theme-bg-primary relative shadow-2xl border-l border-theme-border-primary/50">
+
+        {/* Top Bar / Drag Region (matches sidebar header height) */}
+        <div
+          onMouseDown={startDrag}
+          data-tauri-drag-region
+          className="h-[38px] flex-shrink-0 flex items-center px-4 border-b border-theme-border-primary bg-theme-bg-surface select-none"
+        >
+          {/* Add tabs or toolbar content here later */}
+        </div>
 
         {/* Query Workspace */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
           <QueryWorkspace
             isResultsExpanded={isResultsExpanded}
             onToggleResultsExpand={() => setIsResultsExpanded(!isResultsExpanded)}
           />
         </div>
-      </div>
 
-      {/* Status Bar */}
-      <StatusBar />
+        {/* Status Bar */}
+        <StatusBar />
+      </div>
 
       {/* Dialogs */}
       <AddConnectionDialog

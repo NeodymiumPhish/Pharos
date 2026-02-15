@@ -3,12 +3,17 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 export function useTheme() {
   const theme = useSettingsStore((state) => state.settings.theme);
+  const accentColor = useSettingsStore((state) => state.settings.ui.accentColor);
   const getEffectiveTheme = useSettingsStore((state) => state.getEffectiveTheme);
 
   useEffect(() => {
     const applyTheme = () => {
       const effectiveTheme = getEffectiveTheme();
       document.documentElement.setAttribute('data-theme', effectiveTheme);
+      // Apply accent color
+      if (accentColor) {
+        document.documentElement.style.setProperty('--accent-color', accentColor);
+      }
     };
 
     applyTheme();
@@ -20,7 +25,7 @@ export function useTheme() {
       mediaQuery.addEventListener('change', handleChange);
       return () => mediaQuery.removeEventListener('change', handleChange);
     }
-  }, [theme, getEffectiveTheme]);
+  }, [theme, accentColor, getEffectiveTheme]);
 
   return getEffectiveTheme();
 }

@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn';
 import { useSettingsStore } from '@/stores/settingsStore';
 import * as tauri from '@/lib/tauri';
 import type { ThemeMode, EditorSettings, QuerySettings, UISettings, KeyboardShortcut, ShortcutModifier, NullDisplayFormat } from '@/lib/types';
-import { DEFAULT_SHORTCUTS } from '@/lib/types';
+import { DEFAULT_SHORTCUTS, ACCENT_COLORS } from '@/lib/types';
 import { formatShortcut } from '@/hooks/useKeyboardShortcuts';
 
 interface SettingsDialogProps {
@@ -158,6 +158,26 @@ export function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
                       ? 'Always use light theme'
                       : 'Always use dark theme'}
                 </p>
+              </div>
+
+              <div className="pt-4 border-t border-theme-border-primary">
+                <label className="block text-sm text-theme-text-secondary mb-3">Accent Color</label>
+                <div className="flex flex-wrap gap-3">
+                  {ACCENT_COLORS.map((color) => (
+                    <button
+                      key={color.value}
+                      onClick={() => handleUIChange('accentColor', color.value)}
+                      className={cn(
+                        "w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none ring-2 ring-offset-2 ring-offset-theme-bg-elevated",
+                        localSettings.ui.accentColor === color.value
+                          ? "ring-theme-text-primary scale-110"
+                          : "ring-transparent"
+                      )}
+                      style={{ backgroundColor: color.value }}
+                      title={color.name}
+                    />
+                  ))}
+                </div>
               </div>
 
               <div className="pt-4 border-t border-theme-border-primary space-y-2">

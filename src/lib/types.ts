@@ -231,7 +231,19 @@ export interface UISettings {
   showRowNumbers: boolean;
   nullDisplay: NullDisplayFormat;
   resultsFontSize: number;
+  accentColor: string;
 }
+
+export const ACCENT_COLORS = [
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Pink', value: '#ec4899' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Graphite', value: '#6b7280' },
+];
 
 // Keyboard shortcuts types
 export type ShortcutModifier = 'cmd' | 'shift' | 'alt';
@@ -397,6 +409,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showRowNumbers: true,
     nullDisplay: 'NULL' as NullDisplayFormat,
     resultsFontSize: 11,
+    accentColor: '#3b82f6', // Default Blue
   },
   keyboard: {
     shortcuts: DEFAULT_SHORTCUTS,
