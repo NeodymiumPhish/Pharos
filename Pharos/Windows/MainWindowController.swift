@@ -14,7 +14,7 @@ class MainWindowController: NSWindowController {
     let splitViewController = PharosSplitViewController()
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
-    private weak var connectionPopupItem: NSToolbarItem?
+    private weak var connectionPopup: NSPopUpButton?
 
     init() {
         let window = NSWindow(
@@ -61,60 +61,63 @@ class MainWindowController: NSWindowController {
         fatalError("init(coder:) not implemented")
     }
 
-    // MARK: - Connection Popup
+    // MARK: - Connection Popup (Pull-Down Button)
 
     private func updateConnectionPopup() {
-        guard let item = connectionPopupItem else { return }
-
-        if let button = item.view as? NSPopUpButton {
-            rebuildConnectionMenu(button)
-        }
+        guard let popup = connectionPopup else { return }
+        rebuildConnectionMenu(popup)
     }
 
     private func rebuildConnectionMenu(_ popup: NSPopUpButton) {
         popup.removeAllItems()
 
         let connections = stateManager.connections
-        if connections.isEmpty {
-            popup.addItem(withTitle: "No Connections")
-            popup.isEnabled = false
-            return
+        let activeId = stateManager.activeConnectionId
+
+        // First item in a pull-down button is the button's displayed title
+        let buttonTitle: String
+        if let activeId,
+           let config = connections.first(where: { $0.id == activeId }) {
+            let status = stateManager.status(for: config.id)
+            let statusIcon = statusString(for: status)
+            buttonTitle = "\(statusIcon)\(config.name)"
+        } else if connections.isEmpty {
+            buttonTitle = "No Connections"
+        } else {
+            buttonTitle = "Select Connection"
+        }
+        popup.addItem(withTitle: buttonTitle)
+        popup.isEnabled = !connections.isEmpty
+
+        // Style the title item with colored status indicator
+        if let activeId,
+           let config = connections.first(where: { $0.id == activeId }) {
+            let status = stateManager.status(for: config.id)
+            if let titleItem = popup.item(at: 0) {
+                titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
+            }
         }
 
-        popup.isEnabled = true
+        guard !connections.isEmpty else { return }
+
+        // Connection items — each with its own action
+        popup.menu?.addItem(.separator())
         for config in connections {
             let status = stateManager.status(for: config.id)
-            let statusIcon: String
-            switch status {
-            case .connected: statusIcon = "\u{25CF} " // filled circle
-            case .connecting: statusIcon = "\u{25CB} " // empty circle
-            case .error: statusIcon = "\u{25CF} " // filled circle (red)
-            case .disconnected: statusIcon = "  "
+            let icon = statusString(for: status)
+            let title = "\(icon)\(config.name)"
+            let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
+            menuItem.target = self
+            menuItem.representedObject = config.id
+            menuItem.attributedTitle = styledTitle(title, status: status)
+            // Checkmark on active connection
+            if config.id == activeId {
+                menuItem.state = .on
             }
-            let title = "\(statusIcon)\(config.name)"
-            popup.addItem(withTitle: title)
-            let item = popup.lastItem!
-            item.representedObject = config.id
-
-            // Color the status indicator
-            if status == .connected {
-                let attributed = NSMutableAttributedString(string: title)
-                attributed.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: NSRange(location: 0, length: 2))
-                item.attributedTitle = attributed
-            } else if status == .error {
-                let attributed = NSMutableAttributedString(string: title)
-                attributed.addAttribute(.foregroundColor, value: NSColor.systemRed, range: NSRange(location: 0, length: 2))
-                item.attributedTitle = attributed
-            }
+            popup.menu?.addItem(menuItem)
         }
 
-        // Select the active connection
-        if let activeId = stateManager.activeConnectionId,
-           let idx = connections.firstIndex(where: { $0.id == activeId }) {
-            popup.selectItem(at: idx)
-        }
-
-        // Add separator and management items
+        // Management items
         popup.menu?.addItem(.separator())
 
         let connectItem = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
@@ -136,19 +139,43 @@ class MainWindowController: NSWindowController {
         popup.menu?.addItem(deleteItem)
     }
 
+    private func statusString(for status: ConnectionStatus) -> String {
+        switch status {
+        case .connected: return "\u{25CF} "   // filled circle
+        case .connecting: return "\u{25CB} "   // empty circle
+        case .error: return "\u{25CF} "        // filled circle (red)
+        case .disconnected: return "  "
+        }
+    }
+
+    private func styledTitle(_ title: String, status: ConnectionStatus) -> NSAttributedString {
+        let attributed = NSMutableAttributedString(string: title)
+        let color: NSColor?
+        switch status {
+        case .connected: color = .systemGreen
+        case .error: color = .systemRed
+        default: color = nil
+        }
+        if let color {
+            attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 2))
+        }
+        return attributed
+    }
+
     // MARK: - Connection Actions
 
     private func selectedConnectionId() -> String? {
-        guard let popup = connectionPopupItem?.view as? NSPopUpButton,
-              let selected = popup.selectedItem?.representedObject as? String else {
-            return nil
-        }
-        return selected
+        stateManager.activeConnectionId
     }
 
-    @objc private func connectionPopupChanged(_ sender: NSPopUpButton) {
-        guard let id = sender.selectedItem?.representedObject as? String else { return }
+    @objc private func connectionItemClicked(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
         stateManager.activeConnectionId = id
+        // Auto-connect if not already connected
+        let status = stateManager.status(for: id)
+        if status == .disconnected {
+            stateManager.connect(id: id)
+        }
     }
 
     @objc private func connectSelected() {
@@ -213,13 +240,13 @@ extension MainWindowController: NSToolbarDelegate {
         case .connectionPopup:
             let item = NSToolbarItem(itemIdentifier: .connectionPopup)
             item.label = "Connection"
-            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 24), pullsDown: false)
-            popup.target = self
-            popup.action = #selector(connectionPopupChanged(_:))
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 24), pullsDown: true)
+            popup.bezelStyle = .texturedRounded
+            (popup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
             item.view = popup
             popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: 260).isActive = true
-            self.connectionPopupItem = item
+            self.connectionPopup = popup
             rebuildConnectionMenu(popup)
             return item
 

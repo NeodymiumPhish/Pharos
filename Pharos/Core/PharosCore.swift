@@ -291,6 +291,60 @@ enum PharosCore {
             }
         }
     }
+
+    /// Get constraints for a table.
+    static func getTableConstraints(connectionId: String, schema: String, table: String) async throws -> [ConstraintInfo] {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    table.withCString { cTable in
+                        pharos_get_table_constraints(cConn, cSchema, cTable, callback, context)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get functions for a schema.
+    static func getSchemaFunctions(connectionId: String, schema: String) async throws -> [FunctionInfo] {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    pharos_get_schema_functions(cConn, cSchema, callback, context)
+                }
+            }
+        }
+    }
+
+    /// Load query history with optional filters.
+    static func loadQueryHistory(filter: QueryHistoryFilter = QueryHistoryFilter()) throws -> [QueryHistoryEntry] {
+        let json = try JSONEncoder.pharos.encode(filter)
+        let jsonStr = String(data: json, encoding: .utf8)!
+        guard let ptr = jsonStr.withCString({ pharos_load_query_history($0) }) else {
+            throw PharosCoreError.nullResult
+        }
+        defer { pharos_free_string(ptr) }
+        let result = String(cString: ptr)
+        return try JSONDecoder.pharos.decode([QueryHistoryEntry].self, from: Data(result.utf8))
+    }
+
+    /// Delete a query history entry.
+    static func deleteQueryHistoryEntry(id: String) throws -> Bool {
+        guard let ptr = id.withCString({ pharos_delete_query_history_entry($0) }) else {
+            throw PharosCoreError.nullResult
+        }
+        defer { pharos_free_string(ptr) }
+        return String(cString: ptr) == "true"
+    }
+
+    /// Clear all query history.
+    static func clearQueryHistory() throws {
+        let error = pharos_clear_query_history()
+        if let error {
+            defer { pharos_free_string(error) }
+            throw PharosCoreError.rustError(String(cString: error))
+        }
+    }
 }
 
 // MARK: - Async Callback Bridge
