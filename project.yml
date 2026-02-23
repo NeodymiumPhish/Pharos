@@ -1,0 +1,51 @@
+name: Pharos
+options:
+  bundleIdPrefix: com.pharos
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  Pharos:
+    type: application
+    platform: macOS
+    sources:
+      - path: Pharos
+        excludes:
+          - "CPharosCore/**"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pharos.client
+        PRODUCT_NAME: Pharos
+        INFOPLIST_FILE: Pharos/App/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Pharos/CPharosCore"
+        LIBRARY_SEARCH_PATHS:
+          - "$(SRCROOT)/pharos-core/target/release"
+        OTHER_LDFLAGS:
+          - "-lpharos_core"
+          - "-framework"
+          - "Security"
+          - "-framework"
+          - "SystemConfiguration"
+          - "-framework"
+          - "CoreFoundation"
+          - "-lz"
+          - "-liconv"
+          - "-lm"
+          - "-lresolv"
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_ENTITLEMENTS: ""
+        CODE_SIGN_IDENTITY: "-"
+    preBuildScripts:
+      - name: "Build Rust Library"
+        script: |
+          cd "${SRCROOT}/pharos-core"
+          cargo build --release
+        basedOnDependencyAnalysis: false

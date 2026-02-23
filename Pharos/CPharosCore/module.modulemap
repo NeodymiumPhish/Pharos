@@ -1,0 +1,5 @@
+module CPharosCore {
+    header "../../pharos-core/include/pharos_core.h"
+    link "pharos_core"
+    export *
+}
