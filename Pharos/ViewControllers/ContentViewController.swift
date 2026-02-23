@@ -79,6 +79,11 @@ class ContentViewController: NSViewController {
             self?.executeQuery(sql)
         }
 
+        // Wire up load more
+        resultsVC.onLoadMore = { [weak self] in
+            self?.loadMoreRows()
+        }
+
         // Observe state
         stateManager.$activeConnectionId
             .receive(on: RunLoop.main)
@@ -293,6 +298,50 @@ class ContentViewController: NSViewController {
                     if self.stateManager.activeTabId == tabId {
                         self.resultsVC.showError(message)
                     }
+                }
+            }
+        }
+    }
+
+    /// Load more rows for pagination.
+    private func loadMoreRows() {
+        guard let connectionId = stateManager.activeConnectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let tab = stateManager.activeTab,
+              let existingResult = tab.result,
+              existingResult.hasMore else { return }
+
+        let sql = tab.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let offset = Int64(existingResult.rows.count)
+        let limit = Int64(stateManager.settings.query.defaultLimit)
+
+        resultsVC.setLoadingMore(true)
+
+        Task {
+            do {
+                let moreResult = try await PharosCore.fetchMoreRows(
+                    connectionId: connectionId,
+                    sql: sql,
+                    limit: limit,
+                    offset: offset
+                )
+                await MainActor.run {
+                    // Merge into the tab's stored result
+                    let merged = QueryResult(
+                        columns: existingResult.columns,
+                        rows: existingResult.rows + moreResult.rows,
+                        rowCount: existingResult.rows.count + moreResult.rows.count,
+                        executionTimeMs: existingResult.executionTimeMs,
+                        hasMore: moreResult.hasMore,
+                        historyEntryId: existingResult.historyEntryId
+                    )
+                    self.stateManager.updateTab(id: tab.id) { $0.result = merged }
+                    self.resultsVC.appendRows(from: moreResult)
+                }
+            } catch {
+                await MainActor.run {
+                    self.resultsVC.setLoadingMore(false)
+                    NSLog("Failed to load more rows: \(error)")
                 }
             }
         }
