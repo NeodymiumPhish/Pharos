@@ -264,7 +264,7 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Run"
             item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")
             item.toolTip = "Execute query (Cmd+Return)"
-            // Action will be wired up in Phase 3
+            item.action = #selector(ContentViewController.menuRunQuery(_:))
             return item
 
         case .flexibleSpace:

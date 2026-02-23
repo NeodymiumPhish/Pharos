@@ -14,6 +14,10 @@ final class AppStateManager: ObservableObject {
     @Published var activeConnectionId: String?
     @Published private(set) var settings: AppSettings = AppSettings()
 
+    // Tab management
+    @Published var tabs: [QueryTab] = []
+    @Published var activeTabId: String?
+
     // MARK: - Notifications
 
     /// Posted when connections list changes. Object is the AppStateManager.
@@ -119,6 +123,59 @@ final class AppStateManager: ObservableObject {
             settings = newSettings
         } catch {
             NSLog("Failed to save settings: \(error)")
+        }
+    }
+
+    // MARK: - Tab Management
+
+    var activeTab: QueryTab? {
+        guard let id = activeTabId else { return nil }
+        return tabs.first { $0.id == id }
+    }
+
+    var activeTabIndex: Int? {
+        guard let id = activeTabId else { return nil }
+        return tabs.firstIndex { $0.id == id }
+    }
+
+    @discardableResult
+    func createTab(sql: String = "", name: String? = nil) -> QueryTab {
+        let tabName = name ?? "Query \(tabs.count + 1)"
+        let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql)
+        tabs.append(tab)
+        activeTabId = tab.id
+        return tab
+    }
+
+    func closeTab(id: String) {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.remove(at: idx)
+        if activeTabId == id {
+            if tabs.isEmpty {
+                activeTabId = nil
+            } else {
+                let newIdx = min(idx, tabs.count - 1)
+                activeTabId = tabs[newIdx].id
+            }
+        }
+    }
+
+    func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        updater(&tabs[idx])
+    }
+
+    func moveTab(from: Int, to: Int) {
+        guard from != to, tabs.indices.contains(from), to >= 0, to <= tabs.count else { return }
+        let tab = tabs.remove(at: from)
+        let insertAt = to > from ? to - 1 : to
+        tabs.insert(tab, at: min(insertAt, tabs.count))
+    }
+
+    /// Ensure at least one tab exists. Call after connections load.
+    func ensureTab() {
+        if tabs.isEmpty {
+            createTab()
         }
     }
 

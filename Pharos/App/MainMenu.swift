@@ -28,7 +28,15 @@ enum MainMenu {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Connection...", action: #selector(MainWindowController.showAddConnectionSheet), keyEquivalent: "n")
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "Close Tab", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+
+        let newTab = fileMenu.addItem(withTitle: "New Tab", action: #selector(ContentViewController.menuNewTab(_:)), keyEquivalent: "t")
+        newTab.keyEquivalentModifierMask = [.command]
+
+        let closeTab = fileMenu.addItem(withTitle: "Close Tab", action: #selector(ContentViewController.menuCloseTab(_:)), keyEquivalent: "w")
+        closeTab.keyEquivalentModifierMask = [.command]
+
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -44,6 +52,27 @@ enum MainMenu {
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
+
+        // Query menu
+        let queryMenuItem = NSMenuItem()
+        let queryMenu = NSMenu(title: "Query")
+
+        let runItem = queryMenu.addItem(withTitle: "Run Query", action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "\r")
+        runItem.keyEquivalentModifierMask = [.command]
+
+        let cancelItem = queryMenu.addItem(withTitle: "Cancel Query", action: #selector(ContentViewController.menuCancelQuery(_:)), keyEquivalent: ".")
+        cancelItem.keyEquivalentModifierMask = [.command]
+
+        queryMenuItem.submenu = queryMenu
+        mainMenu.addItem(queryMenuItem)
+
+        // View menu
+        let viewMenuItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+        viewMenuItem.submenu = viewMenu
+        mainMenu.addItem(viewMenuItem)
 
         // Window menu
         let windowMenuItem = NSMenuItem()
