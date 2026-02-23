@@ -1,16 +1,19 @@
 import AppKit
 import Combine
 
-class SidebarViewController: NSViewController {
+class SidebarViewController: NSViewController, NSSplitViewDelegate {
 
-    private let topSegment = NSSegmentedControl()
-    private let navigatorContainer = NSView()
+    private let searchField = NSSearchField()
+    private let splitView = NSSplitView()
+
+    // Library pane (top)
     private let libraryContainer = NSView()
-
-    // Library sub-panel switching
     private let librarySegment = NSSegmentedControl()
     private let savedContainer = NSView()
     private let historyContainer = NSView()
+
+    // Navigator pane (bottom)
+    private let navigatorContainer = NSView()
 
     // Child view controllers
     let schemaBrowser = SchemaBrowserVC()
@@ -19,51 +22,48 @@ class SidebarViewController: NSViewController {
 
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
+    private var didSetInitialPosition = false
 
     override func loadView() {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         self.view = container
 
-        // Top segmented control: Navigator | Library
-        topSegment.segmentCount = 2
-        topSegment.setLabel("Navigator", forSegment: 0)
-        topSegment.setLabel("Library", forSegment: 1)
-        topSegment.segmentStyle = .texturedSquare
-        topSegment.selectedSegment = 0
-        topSegment.target = self
-        topSegment.action = #selector(topSegmentChanged(_:))
-        topSegment.translatesAutoresizingMaskIntoConstraints = false
+        // Unified search field
+        searchField.placeholderString = "Filter"
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.sendsWholeSearchString = false
+        searchField.sendsSearchStringImmediately = true
+        searchField.target = self
+        searchField.action = #selector(searchChanged(_:))
 
-        navigatorContainer.translatesAutoresizingMaskIntoConstraints = false
-        libraryContainer.translatesAutoresizingMaskIntoConstraints = false
-        libraryContainer.isHidden = true
+        // Split view — horizontal divider (top/bottom)
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        splitView.delegate = self
+        splitView.autosaveName = "PharosSidebarInternalSplit"
+        splitView.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(topSegment)
-        container.addSubview(navigatorContainer)
-        container.addSubview(libraryContainer)
+        container.addSubview(searchField)
+        container.addSubview(splitView)
 
         NSLayoutConstraint.activate([
-            topSegment.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
-            topSegment.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            topSegment.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            searchField.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            navigatorContainer.topAnchor.constraint(equalTo: topSegment.bottomAnchor, constant: 8),
-            navigatorContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            navigatorContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            navigatorContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-
-            libraryContainer.topAnchor.constraint(equalTo: topSegment.bottomAnchor, constant: 8),
-            libraryContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            libraryContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            libraryContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            splitView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        // Embed schema browser in navigator container
-        embedChild(schemaBrowser, in: navigatorContainer)
+        // Build panes
+        setupLibraryPane()
+        setupNavigatorPane()
 
-        // Build library panel with Saved / History sub-segments
-        setupLibraryPanel()
+        splitView.addSubview(libraryContainer)
+        splitView.addSubview(navigatorContainer)
 
         // Observe connection changes
         stateManager.$activeConnectionId
@@ -77,9 +77,27 @@ class SidebarViewController: NSViewController {
             .store(in: &cancellables)
     }
 
-    // MARK: - Library Panel Setup
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // Set initial 50/50 split (once, before autosave restores)
+        if !didSetInitialPosition && splitView.bounds.height > 0 {
+            didSetInitialPosition = true
+            splitView.setPosition(splitView.bounds.height / 2, ofDividerAt: 0)
+        }
+    }
 
-    private func setupLibraryPanel() {
+    // MARK: - Library Pane (Top)
+
+    private func setupLibraryPane() {
+        libraryContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        // Header label
+        let header = NSTextField(labelWithString: "Library")
+        header.font = .systemFont(ofSize: 11, weight: .bold)
+        header.textColor = .secondaryLabelColor
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        // Segmented control: Saved | History
         librarySegment.segmentCount = 2
         librarySegment.setLabel("Saved", forSegment: 0)
         librarySegment.setLabel("History", forSegment: 1)
@@ -93,12 +111,16 @@ class SidebarViewController: NSViewController {
         historyContainer.translatesAutoresizingMaskIntoConstraints = false
         historyContainer.isHidden = true
 
+        libraryContainer.addSubview(header)
         libraryContainer.addSubview(librarySegment)
         libraryContainer.addSubview(savedContainer)
         libraryContainer.addSubview(historyContainer)
 
         NSLayoutConstraint.activate([
-            librarySegment.topAnchor.constraint(equalTo: libraryContainer.topAnchor),
+            header.topAnchor.constraint(equalTo: libraryContainer.topAnchor, constant: 8),
+            header.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor, constant: 12),
+
+            librarySegment.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
             librarySegment.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor, constant: 12),
             librarySegment.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor, constant: -12),
 
@@ -117,24 +139,67 @@ class SidebarViewController: NSViewController {
         embedChild(queryHistory, in: historyContainer)
     }
 
-    // MARK: - Segment Actions
+    // MARK: - Navigator Pane (Bottom)
 
-    @objc private func topSegmentChanged(_ sender: NSSegmentedControl) {
-        let isNavigator = sender.selectedSegment == 0
-        navigatorContainer.isHidden = !isNavigator
-        libraryContainer.isHidden = isNavigator
+    private func setupNavigatorPane() {
+        navigatorContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        // Refresh library data when switching to it
-        if !isNavigator {
-            savedQueries.reload()
-            queryHistory.reload(connectionId: stateManager.activeConnectionId)
+        // Header label
+        let header = NSTextField(labelWithString: "Navigator")
+        header.font = .systemFont(ofSize: 11, weight: .bold)
+        header.textColor = .secondaryLabelColor
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        let browserContainer = NSView()
+        browserContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        navigatorContainer.addSubview(header)
+        navigatorContainer.addSubview(browserContainer)
+
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: navigatorContainer.topAnchor, constant: 8),
+            header.leadingAnchor.constraint(equalTo: navigatorContainer.leadingAnchor, constant: 12),
+
+            browserContainer.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+            browserContainer.leadingAnchor.constraint(equalTo: navigatorContainer.leadingAnchor),
+            browserContainer.trailingAnchor.constraint(equalTo: navigatorContainer.trailingAnchor),
+            browserContainer.bottomAnchor.constraint(equalTo: navigatorContainer.bottomAnchor),
+        ])
+
+        embedChild(schemaBrowser, in: browserContainer)
+    }
+
+    // MARK: - Search
+
+    @objc private func searchChanged(_ sender: NSSearchField) {
+        let text = sender.stringValue
+        if text.isEmpty {
+            schemaBrowser.clearFilter()
+            savedQueries.clearFilter()
+            queryHistory.clearFilter()
+        } else {
+            schemaBrowser.applyFilter(text)
+            savedQueries.applyFilter(text)
+            queryHistory.applyFilter(text)
         }
     }
+
+    // MARK: - Segment Actions
 
     @objc private func librarySegmentChanged(_ sender: NSSegmentedControl) {
         let isSaved = sender.selectedSegment == 0
         savedContainer.isHidden = !isSaved
         historyContainer.isHidden = isSaved
+    }
+
+    // MARK: - NSSplitViewDelegate
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        return 80
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        return splitView.bounds.height - 80
     }
 
     // MARK: - Connection State
@@ -150,6 +215,10 @@ class SidebarViewController: NSViewController {
         } else {
             schemaBrowser.clear()
         }
+
+        // Reload library data (always visible now)
+        savedQueries.reload()
+        queryHistory.reload(connectionId: activeId)
     }
 
     private func connectionStatusChanged() {

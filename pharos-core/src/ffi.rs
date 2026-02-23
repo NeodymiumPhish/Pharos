@@ -664,6 +664,30 @@ pub extern "C" fn pharos_get_columns(
     });
 }
 
+/// Get all columns for all tables in a schema (batch). Returns JSON array via callback.
+#[no_mangle]
+pub extern "C" fn pharos_get_schema_columns(
+    connection_id: *const c_char,
+    schema_name: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let schema = unsafe { c_str_to_string(schema_name) };
+    let ctx = context as usize;
+
+    runtime().spawn(async move {
+        match crate::commands::get_schema_columns(conn_id, schema, state).await {
+            Ok(columns) => {
+                let json = serde_json::to_string(&columns).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Analyze a schema. Returns JSON AnalyzeResult via callback.
 #[no_mangle]
 pub extern "C" fn pharos_analyze_schema(

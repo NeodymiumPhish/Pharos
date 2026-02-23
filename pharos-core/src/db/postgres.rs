@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
 
 /// Build a connection string with proper URL encoding and SSL mode
 fn build_connection_string(config: &ConnectionConfig) -> String {
@@ -235,6 +235,59 @@ pub async fn get_columns(
         .map(|row| {
             let is_nullable_str: String = row.get("is_nullable");
             ColumnInfo {
+                name: row.get("column_name"),
+                data_type: row.get("data_type"),
+                is_nullable: is_nullable_str == "YES",
+                is_primary_key: row.get("is_primary_key"),
+                ordinal_position: row.get("ordinal_position"),
+                column_default: row.try_get("column_default").ok(),
+            }
+        })
+        .collect();
+
+    Ok(columns)
+}
+
+/// Get all columns for all tables in a schema (batch query).
+/// Returns columns grouped by table name via the table_name field on each row.
+pub async fn get_schema_columns(
+    pool: &PgPool,
+    schema_name: &str,
+) -> Result<Vec<SchemaColumnInfo>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            c.table_name,
+            c.column_name,
+            c.data_type,
+            c.is_nullable,
+            c.ordinal_position,
+            c.column_default,
+            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key
+        FROM information_schema.columns c
+        LEFT JOIN (
+            SELECT kcu.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+                AND tc.table_schema = $1
+        ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
+        WHERE c.table_schema = $1
+        ORDER BY c.table_name, c.ordinal_position
+        "#,
+    )
+    .bind(schema_name)
+    .fetch_all(pool)
+    .await?;
+
+    let columns = rows
+        .into_iter()
+        .map(|row| {
+            let is_nullable_str: String = row.get("is_nullable");
+            SchemaColumnInfo {
+                table_name: row.get("table_name"),
                 name: row.get("column_name"),
                 data_type: row.get("data_type"),
                 is_nullable: is_nullable_str == "YES",

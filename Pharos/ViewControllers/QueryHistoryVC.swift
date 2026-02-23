@@ -4,22 +4,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
-    private let searchField = NSSearchField()
 
     private var entries: [QueryHistoryEntry] = []
     private var connectionFilter: String?
+    private var filterText: String?
 
     override func loadView() {
         let container = NSView()
         self.view = container
-
-        // Search field
-        searchField.placeholderString = "Search history"
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.sendsWholeSearchString = false
-        searchField.sendsSearchStringImmediately = true
-        searchField.target = self
-        searchField.action = #selector(searchChanged(_:))
 
         // Table columns
         let sqlCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sql"))
@@ -55,15 +47,10 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(searchField)
         container.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -74,8 +61,27 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     func reload(connectionId: String? = nil) {
         self.connectionFilter = connectionId
+        requery()
+    }
+
+    // MARK: - Filter API (called by SidebarViewController)
+
+    func applyFilter(_ text: String) {
+        filterText = text
+        requery()
+    }
+
+    func clearFilter() {
+        filterText = nil
+        requery()
+    }
+
+    // MARK: - Query
+
+    private func requery() {
         do {
-            let filter = QueryHistoryFilter(connectionId: connectionId, limit: 200)
+            let search = (filterText?.isEmpty ?? true) ? nil : filterText
+            let filter = QueryHistoryFilter(connectionId: connectionFilter, search: search, limit: 200)
             entries = try PharosCore.loadQueryHistory(filter: filter)
             tableView.reloadData()
         } catch {
@@ -92,17 +98,6 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         // TODO: Open SQL in editor tab
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(entry.sql, forType: .string)
-    }
-
-    @objc private func searchChanged(_ sender: NSSearchField) {
-        let search = sender.stringValue.isEmpty ? nil : sender.stringValue
-        do {
-            let filter = QueryHistoryFilter(connectionId: connectionFilter, search: search, limit: 200)
-            entries = try PharosCore.loadQueryHistory(filter: filter)
-            tableView.reloadData()
-        } catch {
-            NSLog("Failed to search history: \(error)")
-        }
     }
 
     @objc private func contextCopySQL(_ sender: Any?) {

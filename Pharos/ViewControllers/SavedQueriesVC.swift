@@ -46,6 +46,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     private var rootNodes: [SavedQueryNode] = []
     private var allQueries: [SavedQuery] = []
+    private var filterText: String?
 
     override func loadView() {
         let container = NSView()
@@ -93,11 +94,43 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
+    // MARK: - Filter API (called by SidebarViewController)
+
+    func applyFilter(_ text: String) {
+        filterText = text.lowercased()
+        rebuildTree()
+        outlineView.reloadData()
+        for node in rootNodes {
+            outlineView.expandItem(node)
+        }
+    }
+
+    func clearFilter() {
+        filterText = nil
+        rebuildTree()
+        outlineView.reloadData()
+        for node in rootNodes {
+            outlineView.expandItem(node)
+        }
+    }
+
+    // MARK: - Tree Building
+
     private func rebuildTree() {
+        let queries: [SavedQuery]
+        if let filter = filterText, !filter.isEmpty {
+            queries = allQueries.filter {
+                $0.name.lowercased().contains(filter) ||
+                $0.sql.lowercased().contains(filter)
+            }
+        } else {
+            queries = allQueries
+        }
+
         var folders: [String: SavedQueryNode] = [:]
         var unfiled: [SavedQueryNode] = []
 
-        for query in allQueries {
+        for query in queries {
             let node = SavedQueryNode(.query(query))
             if let folder = query.folder, !folder.isEmpty {
                 if folders[folder] == nil {

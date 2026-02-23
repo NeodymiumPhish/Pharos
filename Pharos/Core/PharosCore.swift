@@ -242,6 +242,17 @@ enum PharosCore {
         }
     }
 
+    /// Get all columns for all tables in a schema (batch).
+    static func getSchemaColumns(connectionId: String, schema: String) async throws -> [SchemaColumnInfo] {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    pharos_get_schema_columns(cConn, cSchema, callback, context)
+                }
+            }
+        }
+    }
+
     /// Analyze a schema (populate row count estimates).
     static func analyzeSchema(connectionId: String, schema: String) async throws -> AnalyzeResult {
         return try await withAsyncCallback { callback, context in

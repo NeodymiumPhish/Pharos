@@ -160,10 +160,19 @@ class ContentViewController: NSViewController {
     // MARK: - Tab Switching
 
     private func tabChanged(_ tabId: String?) {
+        // Save cursor position of the tab we're leaving
+        if let previousTabId = editorVC.tabId {
+            let cursorPos = editorVC.getCursorPosition()
+            stateManager.updateTab(id: previousTabId) { tab in
+                tab.cursorPosition = cursorPos
+            }
+        }
+
         guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return }
 
         editorVC.tabId = tabId
         editorVC.setSQL(tab.sql)
+        editorVC.setCursorPosition(tab.cursorPosition)
 
         // Restore results if available
         if let result = tab.result {
@@ -321,6 +330,15 @@ extension ContentViewController {
     @objc func menuCloseTab(_ sender: Any?) {
         guard let tabId = stateManager.activeTabId else { return }
         stateManager.closeTab(id: tabId)
+    }
+
+    @objc func menuReopenTab(_ sender: Any?) {
+        stateManager.reopenLastClosedTab()
+    }
+
+    @objc func menuSelectTab(_ sender: NSMenuItem) {
+        let index = sender.tag // Zero-based
+        stateManager.selectTabByIndex(index)
     }
 }
 

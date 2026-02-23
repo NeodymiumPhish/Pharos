@@ -34,6 +34,16 @@ struct ColumnInfo: Codable {
     let columnDefault: String?
 }
 
+struct SchemaColumnInfo: Codable {
+    let tableName: String
+    let name: String
+    let dataType: String
+    let isNullable: Bool
+    let isPrimaryKey: Bool
+    let ordinalPosition: Int32
+    let columnDefault: String?
+}
+
 struct IndexInfo: Codable {
     let name: String
     let columns: [String]

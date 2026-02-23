@@ -1,6 +1,6 @@
 
 use crate::db::postgres;
-use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, SchemaInfo, TableInfo};
+use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, SchemaColumnInfo, SchemaInfo, TableInfo};
 use crate::state::AppState;
 
 /// Get all schemas for a connection
@@ -68,6 +68,21 @@ pub async fn get_columns(
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
     postgres::get_columns(&pool, &schema_name, &table_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get all columns for all tables in a schema (batch)
+pub async fn get_schema_columns(
+    connection_id: String,
+    schema_name: String,
+    state: &AppState,
+) -> Result<Vec<SchemaColumnInfo>, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    postgres::get_schema_columns(&pool, &schema_name)
         .await
         .map_err(|e| e.to_string())
 }

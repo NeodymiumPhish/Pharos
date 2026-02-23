@@ -202,6 +202,15 @@ void pharos_get_columns(const char *connection_id,
                         void *context);
 
 /**
+ * Get all columns for all tables in a schema (batch). Returns JSON array via callback.
+ */
+
+void pharos_get_schema_columns(const char *connection_id,
+                               const char *schema_name,
+                               AsyncCallback callback,
+                               void *context);
+
+/**
  * Analyze a schema. Returns JSON AnalyzeResult via callback.
  */
 

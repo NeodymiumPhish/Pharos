@@ -35,6 +35,9 @@ enum MainMenu {
         let closeTab = fileMenu.addItem(withTitle: "Close Tab", action: #selector(ContentViewController.menuCloseTab(_:)), keyEquivalent: "w")
         closeTab.keyEquivalentModifierMask = [.command]
 
+        let reopenTab = fileMenu.addItem(withTitle: "Reopen Closed Tab", action: #selector(ContentViewController.menuReopenTab(_:)), keyEquivalent: "T")
+        reopenTab.keyEquivalentModifierMask = [.command, .shift]
+
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu
@@ -71,6 +74,20 @@ enum MainMenu {
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+
+        viewMenu.addItem(.separator())
+
+        // Tab switching shortcuts Cmd+1-9
+        for i in 1...9 {
+            let item = viewMenu.addItem(
+                withTitle: "Tab \(i)",
+                action: #selector(ContentViewController.menuSelectTab(_:)),
+                keyEquivalent: "\(i)"
+            )
+            item.keyEquivalentModifierMask = [.command]
+            item.tag = i - 1 // Zero-based index
+        }
+
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

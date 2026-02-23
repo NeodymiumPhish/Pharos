@@ -17,6 +17,8 @@ final class AppStateManager: ObservableObject {
     // Tab management
     @Published var tabs: [QueryTab] = []
     @Published var activeTabId: String?
+    private var closedTabHistory: [QueryTab] = []
+    private let maxClosedHistory = 20
 
     // MARK: - Notifications
 
@@ -149,6 +151,11 @@ final class AppStateManager: ObservableObject {
 
     func closeTab(id: String) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let closedTab = tabs[idx]
+        closedTabHistory.append(closedTab)
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory.removeFirst()
+        }
         tabs.remove(at: idx)
         if activeTabId == id {
             if tabs.isEmpty {
@@ -158,6 +165,57 @@ final class AppStateManager: ObservableObject {
                 activeTabId = tabs[newIdx].id
             }
         }
+    }
+
+    func closeOtherTabs(exceptId id: String) {
+        for tab in tabs where tab.id != id {
+            closedTabHistory.append(tab)
+        }
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+        }
+        tabs = tabs.filter { $0.id == id }
+        activeTabId = id
+    }
+
+    func closeTabsToRight(ofId id: String) {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let toClose = Array(tabs[(idx + 1)...])
+        closedTabHistory.append(contentsOf: toClose)
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+        }
+        tabs = Array(tabs[...idx])
+        if let activeId = activeTabId, !tabs.contains(where: { $0.id == activeId }) {
+            activeTabId = id
+        }
+    }
+
+    func duplicateTab(id: String) {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, sql: tab.sql)
+        if let idx = tabs.firstIndex(where: { $0.id == id }) {
+            tabs.insert(newTab, at: idx + 1)
+        } else {
+            tabs.append(newTab)
+        }
+        activeTabId = newTab.id
+    }
+
+    func reopenLastClosedTab() {
+        guard !closedTabHistory.isEmpty else { return }
+        let tab = closedTabHistory.removeLast()
+        // Give it a new ID to avoid conflicts
+        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, sql: tab.sql)
+        tabs.append(reopened)
+        activeTabId = reopened.id
+    }
+
+    var canReopenTab: Bool { !closedTabHistory.isEmpty }
+
+    func selectTabByIndex(_ index: Int) {
+        guard index >= 0, index < tabs.count else { return }
+        activeTabId = tabs[index].id
     }
 
     func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {

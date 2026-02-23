@@ -70,6 +70,16 @@ class QueryEditorVC: NSViewController {
         textView.string
     }
 
+    func getCursorPosition() -> Int {
+        textView.selectedRange().location
+    }
+
+    func setCursorPosition(_ position: Int) {
+        let text = textView.string as NSString
+        let safePosn = min(position, text.length)
+        textView.setSelectedRange(NSRange(location: safePosn, length: 0))
+    }
+
     func focus() {
         view.window?.makeFirstResponder(textView)
     }
