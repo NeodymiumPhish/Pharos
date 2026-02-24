@@ -86,6 +86,13 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
                 }
             }
             .store(in: &cancellables)
+
+        // Refresh saved queries when they change (save, move, delete)
+        NotificationCenter.default.addObserver(
+            forName: .savedQueriesDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.savedQueries.reload(connectionId: self?.stateManager.activeConnectionId)
+        }
     }
 
     override func viewDidLayout() {
@@ -218,6 +225,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
     private func activeConnectionChanged() {
         guard let activeId = stateManager.activeConnectionId else {
             schemaBrowser.clear()
+            savedQueries.reload(connectionId: nil)
             return
         }
         let status = stateManager.status(for: activeId)
@@ -228,7 +236,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         }
 
         // Reload library data (always visible now)
-        savedQueries.reload()
+        savedQueries.reload(connectionId: activeId)
         queryHistory.reload(connectionId: activeId)
     }
 

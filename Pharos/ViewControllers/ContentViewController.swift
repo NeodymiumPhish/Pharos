@@ -137,6 +137,12 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Observe "open saved query" from sidebar
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenSavedQuery(_:)),
+            name: .openSavedQuery, object: nil
+        )
+
         updateVisibility()
     }
 
@@ -424,6 +430,62 @@ class ContentViewController: NSViewController {
         Task {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: queryId)
         }
+    }
+}
+
+// MARK: - Open Saved Query
+
+extension ContentViewController {
+
+    @objc private func handleOpenSavedQuery(_ notification: Notification) {
+        guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
+        // Check if a tab already has this saved query open
+        if let existingTab = stateManager.tabs.first(where: { $0.savedQueryId == query.id }) {
+            stateManager.activeTabId = existingTab.id
+            return
+        }
+        let tab = stateManager.createTab(sql: query.sql, name: query.name)
+        stateManager.updateTab(id: tab.id) { $0.savedQueryId = query.id }
+    }
+}
+
+// MARK: - Save Query (Cmd+S)
+
+extension ContentViewController {
+
+    @objc func menuSaveQuery(_ sender: Any?) {
+        guard let tab = stateManager.activeTab else { return }
+
+        if let savedId = tab.savedQueryId {
+            // Update existing saved query silently
+            let currentSQL = editorVC.getSQL()
+            do {
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL)
+                _ = try PharosCore.updateSavedQuery(update)
+                // Also update the tab's SQL
+                stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
+                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            } catch {
+                NSLog("Failed to update saved query: \(error)")
+            }
+        } else {
+            // Show save sheet
+            presentSaveQuerySheet(tab: tab)
+        }
+    }
+
+    private func presentSaveQuerySheet(tab: QueryTab) {
+        let sheet = SaveQuerySheet(
+            tabName: tab.name,
+            sql: editorVC.getSQL(),
+            connectionId: stateManager.activeConnectionId,
+            connectionName: stateManager.activeConnection?.name
+        ) { [weak self] savedQuery in
+            guard let self else { return }
+            self.stateManager.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
+            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+        }
+        presentAsSheet(sheet)
     }
 }
 

@@ -19,6 +19,7 @@
 		467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
 		627A722B0A1B2646AE7C64BD /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */; };
+		7E3A91D5C8F4B206A1E53F79 /* SaveQuerySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B8E1F23A9C70D5BE61F482 /* SaveQuerySheet.swift */; };
 		65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028712E3F9210287025ADAE8 /* AppStateManager.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
@@ -67,6 +68,7 @@
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
 		CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
+		D4B8E1F23A9C70D5BE61F482 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -130,6 +132,7 @@
 			isa = PBXGroup;
 			children = (
 				FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */,
+				D4B8E1F23A9C70D5BE61F482 /* SaveQuerySheet.swift */,
 				CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */,
 			);
 			path = Sheets;
@@ -286,6 +289,7 @@
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
 				E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */,
 				3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */,
+				7E3A91D5C8F4B206A1E53F79 /* SaveQuerySheet.swift in Sources */,
 				1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */,
 				BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */,
 				34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */,

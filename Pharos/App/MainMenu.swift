@@ -39,6 +39,11 @@ enum MainMenu {
         reopenTab.keyEquivalentModifierMask = [.command, .shift]
 
         fileMenu.addItem(.separator())
+
+        let saveQuery = fileMenu.addItem(withTitle: "Save Query…", action: #selector(ContentViewController.menuSaveQuery(_:)), keyEquivalent: "s")
+        saveQuery.keyEquivalentModifierMask = [.command]
+
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
