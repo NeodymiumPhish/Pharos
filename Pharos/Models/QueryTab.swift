@@ -15,6 +15,8 @@ struct QueryTab: Identifiable {
     var error: String?
     var executionTime: UInt64?
     var savedQueryId: String?
+    var historySchema: String?
+    var historyTimestamp: String?
 
     init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, sql: String = "") {
         self.id = id

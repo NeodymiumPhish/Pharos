@@ -117,6 +117,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     private let toolbarBar = NSView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let pinSourceLabel = NSTextField(labelWithString: "")
+    private let historyContextLabel = NSTextField(labelWithString: "")
     private let resetSortButton = NSButton()
     private let pinButton = NSButton()
     private let findToolbarButton = NSButton()
@@ -277,6 +278,14 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         pinSourceLabel.isHidden = true
         pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
 
+        historyContextLabel.translatesAutoresizingMaskIntoConstraints = false
+        historyContextLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        historyContextLabel.textColor = .systemIndigo
+        historyContextLabel.isHidden = true
+        historyContextLabel.lineBreakMode = .byTruncatingTail
+        historyContextLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        historyContextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         configureToolbarButton(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill",
                                action: #selector(resetSortTapped), tooltip: "Reset Sort")
         resetSortButton.contentTintColor = .controlAccentColor
@@ -299,6 +308,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
         toolbarBar.addSubview(statusLabel)
         toolbarBar.addSubview(pinSourceLabel)
+        toolbarBar.addSubview(historyContextLabel)
         toolbarBar.addSubview(buttonStack)
 
         NSLayoutConstraint.activate([
@@ -308,6 +318,10 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             pinSourceLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
             pinSourceLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
             pinSourceLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
+
+            historyContextLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
+            historyContextLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
+            historyContextLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
 
             buttonStack.trailingAnchor.constraint(equalTo: toolbarBar.trailingAnchor, constant: -8),
             buttonStack.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
@@ -552,12 +566,38 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         emptyLabel.isHidden = false
         scrollView.isHidden = true
         toolbarBar.isHidden = true
+        hideHistoryContext()
 
         updateLoadMoreVisibility()
 
         if isFindVisible {
             closeFind(nil)
         }
+    }
+
+    // MARK: - History Context
+
+    func showHistoryContext(schema: String?, timestamp: String) {
+        let schemaText = schema ?? "default"
+        let timeText = formatAbsoluteDate(timestamp)
+        historyContextLabel.stringValue = "\(schemaText) · \(timeText)"
+        historyContextLabel.isHidden = false
+    }
+
+    func hideHistoryContext() {
+        historyContextLabel.isHidden = true
+    }
+
+    private func formatAbsoluteDate(_ iso: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else {
+            return iso
+        }
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        return df.string(from: date)
     }
 
     func setLoadingMore(_ loading: Bool) {

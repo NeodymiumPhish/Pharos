@@ -1,5 +1,50 @@
 import AppKit
 
+extension Notification.Name {
+    static let openHistoryEntry = Notification.Name("PharosOpenHistoryEntry")
+    static let queryHistoryDidChange = Notification.Name("PharosQueryHistoryDidChange")
+}
+
+// MARK: - Two-Line Cell View
+
+private class HistoryTwoLineCell: NSTableCellView {
+    let primaryLabel = NSTextField(labelWithString: "")
+    let secondaryLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.font = .systemFont(ofSize: 12)
+        primaryLabel.textColor = .labelColor
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        secondaryLabel.lineBreakMode = .byTruncatingTail
+        secondaryLabel.font = .systemFont(ofSize: 10)
+        secondaryLabel.textColor = .secondaryLabelColor
+        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(primaryLabel)
+        addSubview(secondaryLabel)
+
+        NSLayoutConstraint.activate([
+            primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            primaryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            primaryLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+
+            secondaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            secondaryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor, constant: 1),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+}
+
+// MARK: - QueryHistoryVC
+
 class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
 
     private let tableView = NSTableView()
@@ -13,30 +58,16 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let container = NSView()
         self.view = container
 
-        // Table columns
-        let sqlCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sql"))
-        sqlCol.title = "SQL"
-        sqlCol.width = 200
-        sqlCol.minWidth = 100
+        // Single column for two-line cells
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("entry"))
+        col.title = ""
+        tableView.addTableColumn(col)
 
-        let timeCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("time"))
-        timeCol.title = "Time"
-        timeCol.width = 60
-        timeCol.minWidth = 40
-
-        let dateCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("date"))
-        dateCol.title = "Date"
-        dateCol.width = 100
-        dateCol.minWidth = 80
-
-        tableView.addTableColumn(sqlCol)
-        tableView.addTableColumn(timeCol)
-        tableView.addTableColumn(dateCol)
         tableView.headerView = nil
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowSizeStyle = .custom
-        tableView.rowHeight = 36
+        tableView.rowHeight = 40
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.doubleAction = #selector(doubleClickedRow(_:))
         tableView.target = self
@@ -55,6 +86,16 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
+        // Auto-reload when a query finishes executing
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(historyDidChange),
+            name: .queryHistoryDidChange, object: nil
+        )
+    }
+
+    @objc private func historyDidChange() {
+        requery()
     }
 
     // MARK: - Public API
@@ -95,9 +136,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let row = tableView.clickedRow
         guard row >= 0, row < entries.count else { return }
         let entry = entries[row]
-        // TODO: Open SQL in editor tab
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(entry.sql, forType: .string)
+        NotificationCenter.default.post(
+            name: .openHistoryEntry,
+            object: nil,
+            userInfo: ["entry": entry]
+        )
     }
 
     @objc private func contextCopySQL(_ sender: Any?) {
@@ -133,45 +176,52 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     // MARK: - NSTableViewDelegate
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < entries.count, let colId = tableColumn?.identifier else { return nil }
+        guard row < entries.count else { return nil }
         let entry = entries[row]
 
-        let cellId = NSUserInterfaceItemIdentifier("HistoryCell_\(colId.rawValue)")
-        let cell: NSTableCellView
-        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? NSTableCellView {
+        let cellId = NSUserInterfaceItemIdentifier("HistoryTwoLine")
+        let cell: HistoryTwoLineCell
+        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? HistoryTwoLineCell {
             cell = existing
         } else {
-            cell = NSTableCellView()
+            cell = HistoryTwoLineCell()
             cell.identifier = cellId
-            let textField = NSTextField(labelWithString: "")
-            textField.lineBreakMode = .byTruncatingTail
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(textField)
-            cell.textField = textField
-            NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            ])
         }
 
-        switch colId.rawValue {
-        case "sql":
-            // Show first line of SQL, truncated
+        // Line 1: "6 Columns - users" or "SELECT ..." fallback
+        let colText: String
+        if let count = entry.columnCount {
+            colText = "\(count) Column\(count == 1 ? "" : "s")"
+        } else {
+            colText = nil ?? ""
+        }
+        let tableText = entry.tableNames ?? ""
+
+        if !colText.isEmpty && !tableText.isEmpty {
+            cell.primaryLabel.stringValue = "\(colText) – \(tableText)"
+        } else if !tableText.isEmpty {
+            cell.primaryLabel.stringValue = tableText
+        } else if !colText.isEmpty {
+            cell.primaryLabel.stringValue = colText
+        } else {
+            // Fallback: first line of SQL
             let firstLine = entry.sql.components(separatedBy: .newlines).first ?? entry.sql
-            cell.textField?.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
-            cell.textField?.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            cell.textField?.textColor = .labelColor
-        case "time":
-            cell.textField?.stringValue = formatDuration(entry.executionTimeMs)
-            cell.textField?.font = .systemFont(ofSize: 11)
-            cell.textField?.textColor = .secondaryLabelColor
-        case "date":
-            cell.textField?.stringValue = formatDate(entry.executedAt)
-            cell.textField?.font = .systemFont(ofSize: 11)
-            cell.textField?.textColor = .secondaryLabelColor
-        default:
-            break
+            cell.primaryLabel.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
+        }
+
+        // Line 2: "1,000 Rows - 1h ago"
+        let rowText: String
+        if let count = entry.rowCount {
+            rowText = "\(formatRowCount(count)) Row\(count == 1 ? "" : "s")"
+        } else {
+            rowText = ""
+        }
+        let dateText = formatDate(entry.executedAt)
+
+        if !rowText.isEmpty {
+            cell.secondaryLabel.stringValue = "\(rowText) – \(dateText)"
+        } else {
+            cell.secondaryLabel.stringValue = dateText
         }
 
         return cell
@@ -179,11 +229,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     // MARK: - Formatting
 
-    private func formatDuration(_ ms: Int64) -> String {
-        if ms >= 1000 {
-            return String(format: "%.1fs", Double(ms) / 1000)
-        }
-        return "\(ms)ms"
+    private func formatRowCount(_ count: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
     }
 
     private func formatDate(_ iso: String) -> String {

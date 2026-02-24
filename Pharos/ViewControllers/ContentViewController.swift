@@ -143,6 +143,12 @@ class ContentViewController: NSViewController {
             name: .openSavedQuery, object: nil
         )
 
+        // Observe "open history entry" from sidebar
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenHistoryEntry(_:)),
+            name: .openHistoryEntry, object: nil
+        )
+
         updateVisibility()
     }
 
@@ -259,6 +265,13 @@ class ContentViewController: NSViewController {
             resultsVC.clear()
         }
 
+        // Show/hide history context for this tab
+        if let historyTimestamp = tab.historyTimestamp {
+            resultsVC.showHistoryContext(schema: tab.historySchema, timestamp: historyTimestamp)
+        } else {
+            resultsVC.hideHistoryContext()
+        }
+
         editorVC.focus()
     }
 
@@ -339,6 +352,7 @@ class ContentViewController: NSViewController {
                         if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
                         }
+                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
                     }
                 } else {
                     let result = try await PharosCore.executeStatement(
@@ -356,6 +370,7 @@ class ContentViewController: NSViewController {
                         if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showExecuteResult(result)
                         }
+                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
                     }
                 }
             } catch {
@@ -472,6 +487,44 @@ extension ContentViewController {
         }
         let tab = stateManager.createTab(sql: query.sql, name: query.name)
         stateManager.updateTab(id: tab.id) { $0.savedQueryId = query.id }
+    }
+
+    @objc private func handleOpenHistoryEntry(_ notification: Notification) {
+        guard let entry = notification.userInfo?["entry"] as? QueryHistoryEntry else { return }
+
+        let tabName = entry.tableNames ?? "History"
+        let tab = stateManager.createTab(sql: entry.sql, name: tabName)
+
+        // Store history metadata on the tab
+        stateManager.updateTab(id: tab.id) { t in
+            t.historySchema = entry.schema
+            t.historyTimestamp = entry.executedAt
+        }
+
+        // Load cached results if available
+        do {
+            if let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) {
+                let result = QueryResult(
+                    columns: resultData.columns,
+                    rows: resultData.rows,
+                    rowCount: resultData.rows.count,
+                    executionTimeMs: UInt64(entry.executionTimeMs),
+                    hasMore: false,
+                    historyEntryId: entry.id
+                )
+                stateManager.updateTab(id: tab.id) { t in
+                    t.result = result
+                    t.executionTime = UInt64(entry.executionTimeMs)
+                }
+                // If this is now the active tab, show results immediately
+                if stateManager.activeTabId == tab.id {
+                    resultsVC.showResult(result)
+                    resultsVC.showHistoryContext(schema: entry.schema, timestamp: entry.executedAt)
+                }
+            }
+        } catch {
+            NSLog("Failed to load history results: \(error)")
+        }
     }
 }
 

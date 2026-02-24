@@ -157,6 +157,7 @@ pub async fn execute_query(
             .get_config(&connection_id)
             .map(|c| c.name)
             .unwrap_or_else(|| connection_id.clone());
+        let table_names = extract_table_names_for_history(&sql);
         let entry = QueryHistoryEntry {
             id: history_id.clone(),
             connection_id: connection_id.clone(),
@@ -166,6 +167,9 @@ pub async fn execute_query(
             execution_time_ms: execution_time_ms as i64,
             executed_at: chrono::Utc::now().to_rfc3339(),
             has_results: false, // Set by DB on load
+            schema: schema.clone(),
+            column_count: Some(columns.len() as i64),
+            table_names,
         };
 
         // Serialize results for caching (skip if too large)
@@ -824,6 +828,7 @@ pub async fn execute_statement(
             .get_config(&connection_id)
             .map(|c| c.name)
             .unwrap_or_else(|| connection_id.clone());
+        let table_names = extract_table_names_for_history(&sql);
         let entry = QueryHistoryEntry {
             id: uuid::Uuid::new_v4().to_string(),
             connection_id: connection_id.clone(),
@@ -833,6 +838,9 @@ pub async fn execute_statement(
             execution_time_ms: execution_time_ms as i64,
             executed_at: chrono::Utc::now().to_rfc3339(),
             has_results: false,
+            schema: schema.clone(),
+            column_count: None,
+            table_names,
         };
         if let Ok(db) = state.metadata_db.lock() {
             if let Err(e) = sqlite::save_query_history(&db, &entry, None, None) {
@@ -1117,6 +1125,57 @@ fn extract_table_from_sql(upper: &str, normalized: &str, default_schema: &Option
         let schema = default_schema.clone().unwrap_or_else(|| "public".to_string());
         Some((schema, first_ident))
     }
+}
+
+/// Extract table names from SQL for history display.
+/// Scans for FROM and JOIN keywords, returns comma-separated table names.
+fn extract_table_names_for_history(sql: &str) -> Option<String> {
+    // Strip single-line comments and normalize whitespace
+    let normalized: String = sql
+        .lines()
+        .map(|l| {
+            if let Some(pos) = l.find("--") { &l[..pos] } else { l }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normalized: String = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    let upper = normalized.to_uppercase();
+
+    let mut tables = Vec::new();
+    let keywords = [" FROM ", " JOIN "];
+
+    for keyword in &keywords {
+        let mut search_from = 0;
+        while let Some(pos) = upper[search_from..].find(keyword) {
+            let abs_pos = search_from + pos + keyword.len();
+            if abs_pos >= normalized.len() {
+                break;
+            }
+            let after = normalized[abs_pos..].trim_start();
+            // Skip subqueries
+            if after.starts_with('(') {
+                search_from = abs_pos;
+                continue;
+            }
+            if let Some((ident, rest)) = parse_identifier(after) {
+                let rest = rest.trim_start();
+                let table_name = if rest.starts_with('.') {
+                    // schema.table — take the table part
+                    parse_identifier(rest[1..].trim_start())
+                        .map(|(t, _)| t)
+                        .unwrap_or(ident)
+                } else {
+                    ident
+                };
+                if !tables.contains(&table_name) {
+                    tables.push(table_name);
+                }
+            }
+            search_from = abs_pos;
+        }
+    }
+
+    if tables.is_empty() { None } else { Some(tables.join(", ")) }
 }
 
 /// Parse a SQL identifier (quoted or unquoted) from the start of a string.

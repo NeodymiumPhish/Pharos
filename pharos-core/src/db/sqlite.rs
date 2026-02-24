@@ -201,6 +201,21 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         )?;
     }
 
+    // Migration: Add schema, column_count, table_names columns to query_history
+    let has_schema_column: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'schema'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_schema_column {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN schema TEXT;
+             ALTER TABLE query_history ADD COLUMN column_count INTEGER;
+             ALTER TABLE query_history ADD COLUMN table_names TEXT;"
+        )?;
+    }
+
     Ok(conn)
 }
 
@@ -457,9 +472,9 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> SqliteResult<
 
 // ==================== Query History ====================
 
-const MAX_HISTORY_ENTRIES: i64 = 10_000;
+const HISTORY_RETENTION_DAYS: i64 = 90;
 
-/// Save a query history entry with optional cached results (and prune old entries if needed)
+/// Save a query history entry with optional cached results (and prune entries older than 90 days)
 pub fn save_query_history(
     conn: &Connection,
     entry: &QueryHistoryEntry,
@@ -468,8 +483,8 @@ pub fn save_query_history(
 ) -> SqliteResult<()> {
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         "#,
         (
             &entry.id,
@@ -481,17 +496,18 @@ pub fn save_query_history(
             &entry.executed_at,
             &result_columns_json,
             &result_rows_json,
+            &entry.schema,
+            &entry.column_count,
+            &entry.table_names,
         ),
     )?;
 
-    // Prune old entries beyond the limit
+    // Prune entries older than 90 days
     conn.execute(
         r#"
-        DELETE FROM query_history WHERE id NOT IN (
-            SELECT id FROM query_history ORDER BY executed_at DESC LIMIT ?1
-        )
+        DELETE FROM query_history WHERE datetime(executed_at) < datetime('now', ?1)
         "#,
-        [MAX_HISTORY_ENTRIES],
+        [format!("-{} days", HISTORY_RETENTION_DAYS)],
     )?;
 
     Ok(())
@@ -506,7 +522,7 @@ pub fn load_query_history(
     offset: i64,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
@@ -542,6 +558,9 @@ pub fn load_query_history(
             execution_time_ms: row.get(5)?,
             executed_at: row.get(6)?,
             has_results: row.get(7)?,
+            schema: row.get(8)?,
+            column_count: row.get(9)?,
+            table_names: row.get(10)?,
         })
     })?;
 

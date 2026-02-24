@@ -379,6 +379,19 @@ enum PharosCore {
             throw PharosCoreError.rustError(String(cString: error))
         }
     }
+
+    /// Get cached result data for a history entry.
+    static func getQueryHistoryResult(id: String) throws -> QueryHistoryResultData? {
+        guard let ptr = id.withCString({ pharos_get_query_history_result($0) }) else {
+            return nil // NULL = no cached results
+        }
+        defer { pharos_free_string(ptr) }
+        let json = String(cString: ptr)
+        if json.hasPrefix("{\"error\":") {
+            throw PharosCoreError.rustError(json)
+        }
+        return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
+    }
 }
 
 // MARK: - Async Callback Bridge
