@@ -153,10 +153,15 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 WHEN 'f' THEN 'FOREIGN TABLE'
                 ELSE 'BASE TABLE'
             END as table_type,
-            CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint ELSE NULL END as row_estimate,
+            CASE
+                WHEN c.reltuples >= 0 THEN c.reltuples::bigint
+                WHEN s.n_live_tup IS NOT NULL THEN s.n_live_tup
+                ELSE NULL
+            END as row_estimate,
             CASE WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END as total_size_bytes
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid
         WHERE n.nspname = $1
           AND c.relkind IN ('r', 'v', 'm', 'f')
         ORDER BY

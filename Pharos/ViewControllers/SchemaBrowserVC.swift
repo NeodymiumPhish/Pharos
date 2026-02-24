@@ -22,7 +22,7 @@ class SchemaTreeNode: NSObject {
     var kind: Kind
     var children: [SchemaTreeNode] = []
     var isLoaded = false
-    var isRowCountEstimated = true
+    var hasRowCount = false
     weak var parent: SchemaTreeNode?
 
     init(_ kind: Kind, parent: SchemaTreeNode? = nil) {
@@ -53,12 +53,16 @@ class SchemaTreeNode: NSObject {
 
     var subtitle: String? {
         switch kind {
-        case .table(let info), .view(let info):
-            if let count = info.rowCountEstimate {
-                let formatted = formatCount(count)
-                return isRowCountEstimated ? "~\(formatted)" : formatted
+        case .table, .view:
+            guard hasRowCount else { return " " }
+            switch kind {
+            case .table(let info), .view(let info):
+                if let count = info.rowCountEstimate {
+                    return formatCount(count)
+                }
+                return "0 rows"
+            default: return " "
             }
-            return "– rows"
         case .column(let info):
             var parts = [info.dataType]
             if info.isPrimaryKey { parts.append("PK") }
@@ -205,6 +209,13 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                         }
                     }
                 }
+
+                // Auto-refresh row counts for the initially visible schema
+                await MainActor.run {
+                    if self.unfilteredRootNodes.contains(where: { $0.schemaName == "public" }) {
+                        self.refreshRowCounts(for: "public")
+                    }
+                }
             } catch {
                 NSLog("Failed to load schemas: \(error)")
             }
@@ -231,13 +242,19 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
                 for t in tableItems {
                     let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
-                    // Columns not loaded — will be fetched on expand
                     tableNode.addChild(SchemaTreeNode(.loading, parent: tableNode))
+                    // Show row count immediately if pg_class already has one
+                    if t.rowCountEstimate != nil {
+                        tableNode.hasRowCount = true
+                    }
                     schemaNode.addChild(tableNode)
                 }
                 for v in viewItems {
                     let viewNode = SchemaTreeNode(.view(v), parent: schemaNode)
                     viewNode.addChild(SchemaTreeNode(.loading, parent: viewNode))
+                    if v.rowCountEstimate != nil {
+                        viewNode.hasRowCount = true
+                    }
                     schemaNode.addChild(viewNode)
                 }
 
@@ -248,9 +265,8 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    /// Background: refresh row counts for a schema.
-    /// Phase 1: Immediately mark tables with existing estimates as fresh (remove ~).
-    /// Phase 2: ANALYZE never-analyzed tables in batches, updating UI progressively.
+    /// Background: ANALYZE unanalyzed tables in a schema, then update row counts.
+    /// Uses the purpose-built analyzeSchema command (single FFI call, handles permissions).
     private func refreshRowCounts(for schemaName: String) {
         guard let connectionId, !refreshedSchemas.contains(schemaName) else { return }
         guard let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) else { return }
@@ -258,71 +274,34 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         refreshedSchemas.insert(schemaName)
 
         Task {
-            // Phase 1: Mark tables that already have row counts as fresh.
-            // Their pg_class value was just loaded — it's the current estimate.
-            var unanalyzedTableNames: [String] = []
+            // ANALYZE unanalyzed tables (fire-and-forget — don't block UI update)
+            _ = try? await PharosCore.analyzeSchema(connectionId: connectionId, schema: schemaName)
+
+            // Re-fetch tables to get fresh row counts (works even if ANALYZE was a no-op)
+            guard let updatedTables = try? await PharosCore.getTables(connectionId: connectionId, schema: schemaName) else {
+                NSLog("Failed to refresh row counts for \(schemaName)")
+                return
+            }
+
+            let countMap = Dictionary(uniqueKeysWithValues: updatedTables.map { ($0.name, $0) })
 
             await MainActor.run {
                 for child in schemaNode.children {
                     switch child.kind {
                     case .table(let info):
-                        if info.rowCountEstimate != nil {
-                            child.isRowCountEstimated = false
-                        } else if info.tableType != .foreignTable {
-                            unanalyzedTableNames.append(info.name)
+                        if let updated = countMap[info.name] {
+                            child.kind = .table(updated)
                         }
+                        child.hasRowCount = true
                     case .view(let info):
-                        if info.rowCountEstimate != nil {
-                            child.isRowCountEstimated = false
+                        if let updated = countMap[info.name] {
+                            child.kind = .view(updated)
                         }
+                        child.hasRowCount = true
                     default: break
                     }
                 }
                 self.outlineView.reloadData()
-            }
-
-            // Phase 2: ANALYZE never-analyzed tables in batches of 10.
-            // After each batch, re-fetch and update so counts appear progressively.
-            guard !unanalyzedTableNames.isEmpty else { return }
-
-            let batchSize = 10
-            for batchStart in stride(from: 0, to: unanalyzedTableNames.count, by: batchSize) {
-                let batchEnd = min(batchStart + batchSize, unanalyzedTableNames.count)
-                let batch = unanalyzedTableNames[batchStart..<batchEnd]
-
-                for tableName in batch {
-                    _ = try? await PharosCore.executeStatement(
-                        connectionId: connectionId,
-                        sql: "ANALYZE \"\(schemaName)\".\"\(tableName)\""
-                    )
-                }
-
-                // Re-fetch tables and update UI after each batch
-                do {
-                    let updatedTables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
-                    let countMap = Dictionary(uniqueKeysWithValues: updatedTables.map { ($0.name, $0) })
-
-                    await MainActor.run {
-                        for child in schemaNode.children {
-                            switch child.kind {
-                            case .table(let info):
-                                if let updated = countMap[info.name] {
-                                    child.kind = .table(updated)
-                                }
-                                child.isRowCountEstimated = false
-                            case .view(let info):
-                                if let updated = countMap[info.name] {
-                                    child.kind = .view(updated)
-                                }
-                                child.isRowCountEstimated = false
-                            default: break
-                            }
-                        }
-                        self.outlineView.reloadData()
-                    }
-                } catch {
-                    NSLog("Failed to refresh counts after batch: \(error)")
-                }
             }
         }
     }
