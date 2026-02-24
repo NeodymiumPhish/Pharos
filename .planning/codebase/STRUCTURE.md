@@ -5,345 +5,267 @@
 ## Directory Layout
 
 ```
-/Users/nfinn/Projects/Pharos/
-├── src/                              # React frontend source code
-│   ├── components/                   # React UI components (organized by feature)
-│   │   ├── dialogs/                  # Modal dialogs (connection, settings, export, etc.)
-│   │   ├── editor/                   # Query editor (Monaco), SQL autocomplete
-│   │   ├── layout/                   # Main layout (toolbar, sidebar, workspace)
-│   │   ├── results/                  # Results grid (virtualized), explain view
-│   │   ├── saved/                    # Saved queries panel
-│   │   ├── tree/                     # Schema tree browser
-│   │   ├── ui/                       # Utility components (status bar, etc.)
-│   │   └── history/                  # Query history panel
-│   ├── stores/                       # Zustand state management
-│   │   ├── connectionStore.ts        # Connection list, active connection, schema selection
-│   │   ├── editorStore.ts            # Query tabs, execution state, results
-│   │   ├── settingsStore.ts          # UI preferences, theme, column widths
-│   │   ├── savedQueryStore.ts        # Saved queries from backend
-│   │   └── queryHistoryStore.ts      # Query execution history
-│   ├── hooks/                        # Custom React hooks
-│   ├── lib/                          # Utilities and types
-│   │   ├── tauri.ts                  # Tauri command wrappers (IPC bridge)
-│   │   ├── types.ts                  # TypeScript interfaces (connections, schema, query results)
-│   │   └── cn.ts                     # Classname utility
-│   ├── assets/                       # Icons, images
-│   ├── App.tsx                       # Root component
-│   ├── main.tsx                      # Entry point
-│   ├── index.css                     # Global styles, theme CSS variables
-│   └── vite-env.d.ts                 # Vite type definitions
-│
-├── src-tauri/                        # Rust backend
-│   ├── src/
-│   │   ├── lib.rs                    # Tauri app setup, plugin config, command registration
-│   │   ├── main.rs                   # Binary entry (empty, uses lib.rs)
-│   │   ├── state.rs                  # AppState: connection pools, queries, password cache
-│   │   ├── commands/                 # Tauri command handlers
-│   │   │   ├── mod.rs                # Command module exports
-│   │   │   ├── connection.rs         # Connect, disconnect, test, list connections
-│   │   │   ├── query.rs              # Execute query, cancel, fetch more rows
-│   │   │   ├── metadata.rs           # Get schemas, tables, columns, indexes, constraints
-│   │   │   ├── table.rs              # Clone table, import/export CSV/XLSX/SQL, data editing
-│   │   │   ├── saved_query.rs        # CRUD for saved queries
-│   │   │   ├── settings.rs           # Load/save app settings
-│   │   │   └── query_history.rs      # Load/delete query history
-│   │   ├── db/                       # Database operations
-│   │   │   ├── mod.rs                # Database module exports
-│   │   │   ├── postgres.rs           # sqlx PostgreSQL: create pool, run queries, introspection
-│   │   │   ├── sqlite.rs             # SQLite: init, load/save configs, saved queries, history
-│   │   │   └── credentials.rs        # Keychain password migration and management
-│   │   └── models/                   # Data structures (Serde)
-│   │       ├── mod.rs                # Model module exports
-│   │       ├── connection.rs         # ConnectionConfig, ConnectionInfo
-│   │       ├── schema.rs             # SchemaInfo, TableInfo, ColumnInfo, TableType
-│   │       ├── saved_query.rs        # SavedQuery, CreateSavedQuery
-│   │       ├── query_history.rs      # QueryHistoryEntry, QueryHistoryResultData
-│   │       └── settings.rs           # AppSettings, UISettings
-│   │
-│   ├── Cargo.toml                    # Rust dependencies
-│   ├── tauri.conf.json               # Tauri configuration
-│   ├── icons/                        # App icons
-│   └── capabilities/                 # Permission configurations
-│
-├── Pharos/                           # Swift/AppKit native frontend (appkit branch only)
-│   ├── App/
-│   │   ├── AppDelegate.swift         # NSApplicationDelegate, app lifecycle
-│   │   └── MainMenu.swift            # macOS menu bar
-│   ├── Core/
-│   │   ├── PharosCore.swift          # C FFI bridge to pharos-core Rust library
-│   │   ├── AppStateManager.swift     # Singleton state with Combine publishers
-│   │   └── MetadataCache.swift       # Local schema metadata cache
-│   ├── Models/
-│   │   ├── Connection.swift          # Codable connection config/status
-│   │   ├── Schema.swift              # Codable schema metadata
-│   │   ├── QueryResult.swift         # Codable query results
-│   │   ├── SavedQuery.swift          # Codable saved query
-│   │   ├── QueryHistory.swift        # Codable history entry
-│   │   ├── Settings.swift            # Codable app settings
-│   │   └── QueryTab.swift            # Codable query tab state
-│   ├── ViewControllers/
-│   │   ├── PharosSplitViewController.swift  # NSSplitViewController (sidebar + content)
-│   │   ├── SidebarViewController.swift      # NSSegmentedControl (Navigator, Library)
-│   │   ├── SchemaBrowserVC.swift           # NSOutlineView for schema tree
-│   │   ├── SavedQueriesVC.swift            # NSOutlineView for saved queries
-│   │   ├── QueryHistoryVC.swift            # NSTableView for history
-│   │   ├── QueryEditorVC.swift             # WebKit WKWebView for React editor
-│   │   ├── ContentViewController.swift      # Container for editor + results
-│   │   └── ResultsGridVC.swift             # Results table display
-│   ├── Windows/
-│   │   └── MainWindowController.swift      # NSWindowController, toolbar setup
-│   ├── Sheets/
-│   │   ├── ConnectionSheet.swift           # Add/edit connection dialog
-│   │   ├── SettingsSheet.swift             # Settings/preferences dialog
-│   │   ├── SaveQuerySheet.swift            # Save query as named query
-│   │   ├── ExportDataSheet.swift           # Export table/results dialog
-│   │   ├── ImportDataSheet.swift           # Import CSV/JSON dialog
-│   │   ├── CloneTableSheet.swift           # Clone table dialog
-│   │   └── SchemaDetailSheet.swift         # Show schema/table details
-│   ├── Views/
-│   │   └── QueryTabBar.swift               # Drag-and-drop query tab bar
-│   ├── Editor/
-│   │   └── CodeEditor.swift                # Web-based SQL editor (Monaco in WKWebView)
-│   ├── Utilities/
-│   │   └── Extensions, helpers, utils
-│   ├── Resources/
-│   │   └── Localization, assets
-│   └── CPharosCore/
-│       └── Bridging header for C FFI
-│
-├── pharos-core/                      # Rust static library (shared by appkit)
-│   ├── src/
-│   │   ├── lib.rs                    # Library entry, FFI exports
-│   │   ├── ffi.rs                    # C FFI function declarations
-│   │   ├── db/                       # Database operations (sqlx PostgreSQL, rusqlite SQLite)
-│   │   ├── models/                   # Data structures
-│   │   └── commands/                 # Business logic
-│   ├── Cargo.toml                    # Rust dependencies
-│   └── include/
-│       └── pharos_core.h             # Generated C header (cbindgen)
-│
-├── package.json                      # npm dependencies (React, Tauri, Vite, Tailwind, etc.)
-├── tsconfig.json                     # TypeScript configuration
-├── vite.config.ts                    # Vite build configuration
-├── tailwind.config.js                # Tailwind CSS configuration
-├── postcss.config.js                 # PostCSS configuration
-├── index.html                        # HTML entry point (loads React into #root)
-├── project.yml                       # Xcode project generator config
-└── Pharos.xcodeproj/                 # Generated Xcode project
+Pharos/
+├── App/                        # Application entry point and lifecycle
+│   ├── main.swift             # App initialization
+│   ├── AppDelegate.swift       # Rust init, state load, menu setup
+│   └── MainMenu.swift          # Main menu bar actions
+├── Core/                       # State & bridge to Rust
+│   ├── AppStateManager.swift   # Central @Published state (singleton)
+│   ├── MetadataCache.swift     # Schema/table/column cache
+│   └── PharosCore.swift        # C FFI bridge with async/await
+├── Models/                     # Data structures (Codable)
+│   ├── Connection.swift        # ConnectionConfig, ConnectionStatus, TestResult
+│   ├── QueryResult.swift       # QueryResult, ExecuteResult, ValidationResult
+│   ├── QueryTab.swift          # In-memory tab representation
+│   ├── Schema.swift            # SchemaInfo, TableInfo, ColumnInfo
+│   ├── SavedQuery.swift        # SavedQuery, CreateSavedQuery
+│   ├── QueryHistory.swift      # QueryHistoryEntry, QueryHistoryFilter
+│   └── Settings.swift          # AppSettings (theme, font, etc.)
+├── ViewControllers/            # AppKit NSViewController subclasses
+│   ├── MainWindowController.swift     # Window setup, toolbar, popups
+│   ├── PharosSplitViewController.swift # NSSplitViewController (sidebar + content)
+│   ├── SidebarViewController.swift     # Navigator/Library tab switching
+│   ├── ContentViewController.swift     # Tab bar + editor + results
+│   ├── QueryEditorVC.swift            # SQL text editor with line numbers
+│   ├── ResultsGridVC.swift            # NSTableView for result rows
+│   ├── SchemaBrowserVC.swift          # Outline view of schemas/tables/columns
+│   ├── SavedQueriesVC.swift           # Outline view of saved query folders
+│   └── QueryHistoryVC.swift           # NSTableView of recent queries
+├── Views/                      # Custom NSView implementations
+│   └── QueryTabBar.swift       # Custom tab bar with drag-reorder
+├── Sheets/                     # Modal dialog sheets (NSViewController)
+│   ├── ConnectionSheet.swift   # New/edit connection dialog
+│   ├── ExportDataSheet.swift   # Export query results
+│   ├── ImportDataSheet.swift   # Import CSV into table
+│   ├── SaveQuerySheet.swift    # Save current query to library
+│   ├── SchemaDetailSheet.swift # View schema DDL/details
+│   ├── SettingsSheet.swift     # App settings (theme, font)
+│   └── CloneTableSheet.swift   # Clone table structure/data
+├── Editor/                     # SQL editor components
+│   ├── SQLTextView.swift       # Custom NSTextView with syntax highlighting
+│   ├── SQLCompletionProvider.swift # Autocomplete provider
+│   └── LineNumberGutter.swift  # Line number ruler
+├── Utilities/                  # Helpers (empty dir in current state)
+├── Resources/                  # Assets (icons, localization)
+├── CPharosCore/                # C FFI declaration
+│   └── module.modulemap        # Bridging module for Pharos-core.h
+└── Windows/                    # Window controllers
+    └── MainWindowController.swift # Moved from elsewhere
+
+pharos-core/                    # Rust static library (libpharos_core.a)
+├── src/
+│   ├── lib.rs                  # Module declarations
+│   ├── ffi.rs                  # C FFI entry points (pharos_init, pharos_execute_query, etc.)
+│   ├── state.rs                # AppState struct (connection pools, running queries, SQLite DB)
+│   ├── commands/               # FFI command handlers
+│   │   ├── mod.rs
+│   │   ├── connection.rs       # pharos_connect, pharos_disconnect, pharos_test_connection
+│   │   ├── query.rs            # pharos_execute_query, pharos_cancel_query, pharos_validate_sql
+│   │   ├── metadata.rs         # pharos_get_schemas, pharos_get_tables, pharos_get_columns
+│   │   ├── query_history.rs    # pharos_load_query_history, pharos_delete_query_history_entry
+│   │   ├── saved_query.rs      # pharos_create_saved_query, pharos_update_saved_query
+│   │   ├── settings.rs         # pharos_load_settings, pharos_save_settings
+│   │   └── table.rs            # pharos_clone_table, pharos_export_table, pharos_import_csv
+│   ├── db/                     # Database drivers
+│   │   ├── mod.rs
+│   │   ├── postgres.rs         # sqlx PostgreSQL operations
+│   │   ├── sqlite.rs           # rusqlite local DB (connections, saved queries, settings)
+│   │   └── credentials.rs      # Keychain password loading
+│   └── models/                 # Shared data structures (Codable to JSON)
+│       ├── mod.rs
+│       ├── connection.rs       # ConnectionConfig, ConnectionInfo
+│       ├── query_history.rs    # QueryHistoryEntry
+│       ├── saved_query.rs      # SavedQuery
+│       ├── schema.rs           # SchemaInfo, TableInfo, ColumnInfo
+│       └── settings.rs         # AppSettings
+├── Cargo.toml                  # Rust dependencies
+├── Cargo.lock
+└── target/                     # Build output (debug/ and release/)
+    ├── release/
+    │   └── libpharos_core.a    # Linked by Xcode into app binary
+    └── debug/
+
+project.yml                    # xcodegen config (generates Pharos.xcodeproj)
+Pharos.xcodeproj/              # Generated Xcode project (do not edit)
 ```
 
 ## Directory Purposes
 
-**src/components/dialogs/:**
-- Purpose: Modal dialogs for user interaction
-- Contains:
-  - `AddConnectionDialog.tsx` - New connection form
-  - `EditConnectionDialog.tsx` - Edit existing connection
-  - `SettingsDialog.tsx` - App preferences (theme, shortcuts, columns)
-  - `SaveQueryDialog.tsx` - Save query with name/folder
-  - `ExportResultsDialog.tsx` - Export query results to file
-  - `ExportDataDialog.tsx` - Export table to CSV/XLSX/SQL
-  - `ImportDataDialog.tsx` - Import CSV/JSON to table
-  - `CloneTableDialog.tsx` - Clone table structure
-  - `AboutDialog.tsx` - About screen
+**App/:**
+- Purpose: Application entry point, lifecycle, initialization
+- Contains: NSApplication setup, AppDelegate with Rust initialization, main menu configuration
+- Key files: `main.swift` (app entry), `AppDelegate.swift` (Rust init via pharos_init), `MainMenu.swift` (menu bar actions)
 
-**src/components/editor/:**
-- Purpose: Query SQL editing and input
-- Contains:
-  - `QueryEditor.tsx` - Monaco editor with syntax highlighting, keybindings
-  - `QueryTabs.tsx` - Tab bar for multiple queries
-  - `SqlAutocomplete.ts` - Autocomplete provider for PostgreSQL
+**Core/:**
+- Purpose: State management and Rust/C bridge
+- Contains: Singleton AppStateManager with @Published properties (connections, tabs, settings), MetadataCache for schema caching, PharosCore enum with all C FFI wrappers
+- Key files: `AppStateManager.swift` (central state), `PharosCore.swift` (C function wrappers + async/await bridge), `MetadataCache.swift` (schema/table/column cache)
 
-**src/components/layout/:**
-- Purpose: Main application layout and organization
-- Contains:
-  - `QueryWorkspace.tsx` - Query editor + results grid + saved queries panel
-  - `DatabaseNavigator.tsx` - Schema tree sidebar with search
-  - `ServerRail.tsx` - Connection selector with status
-  - `Toolbar.tsx` - Top toolbar with buttons
+**Models/:**
+- Purpose: Data structures matching Rust models, Codable for JSON transport
+- Contains: Connection configs, query results, schema metadata, saved queries, query history, settings
+- Pattern: Struct + enum with custom CodingKeys for snake_case ↔ camelCase conversion
+- Key files: `Connection.swift` (ConnectionConfig, ConnectionStatus), `QueryResult.swift` (result rows + metadata), `Schema.swift` (metadata tree)
 
-**src/components/results/:**
-- Purpose: Display and interact with query results
-- Contains:
-  - `ResultsGrid.tsx` - Virtualized table showing rows/columns with editing, filtering
-  - `ExplainView.tsx` - Display EXPLAIN ANALYZE output as tree
+**ViewControllers/:**
+- Purpose: UI presentation logic, view hierarchy management
+- Contains: NSViewController subclasses managing windows, split views, tabs, editors, tables, outlines
+- Key files:
+  - `MainWindowController.swift` - Window, toolbar setup, connection/schema popups
+  - `ContentViewController.swift` - Tab bar, editor/results split, query execution
+  - `SchemaBrowserVC.swift` - Outline view of database schemas
+  - `ResultsGridVC.swift` - NSTableView for query results with filtering/copying
 
-**src/components/saved/:**
-- Purpose: Saved queries library
-- Contains: `SavedQueriesPanel.tsx` - Browse, search, execute saved queries
+**Views/:**
+- Purpose: Custom UI components (not view controllers)
+- Contains: Custom NSView implementations
+- Key files: `QueryTabBar.swift` (tab bar with drag-to-reorder via CALayer snapshots)
 
-**src/components/tree/:**
-- Purpose: Schema hierarchy visualization
-- Contains: `SchemaTree.tsx` - Recursive tree component for schemas → tables → columns
+**Sheets/:**
+- Purpose: Modal dialog windows
+- Contains: Modal NSViewController subclasses for user input (new connection, export, import, save query, settings, etc.)
+- Key files: `ConnectionSheet.swift` (connection form), `SettingsSheet.swift` (app settings), `ExportDataSheet.swift` (export options)
 
-**src/components/history/:**
-- Purpose: Query execution history
-- Contains: `QueryHistoryPanel.tsx` - Chronological list of executed queries with result caching
+**Editor/:**
+- Purpose: SQL editor components (text view, syntax, completion, line numbers)
+- Contains: Custom NSTextView with Monaco-style editing, SQL keyword highlighting, autocomplete provider, line number gutter
+- Key files: `SQLTextView.swift` (main editor), `SQLCompletionProvider.swift` (autocomplete from metadata), `LineNumberGutter.swift` (line number ruler)
 
-**src/stores/:**
-- Purpose: Zustand state containers for frontend
-- Key pattern: `create<StateInterface>((set, get) => ({ ... }))`
-- No middleware; shallow updates; no immer
+**CPharosCore/:**
+- Purpose: C language module bridging for Rust FFI
+- Contains: `module.modulemap` which tells Swift compiler where the C header (pharos_core.h) is located
+- Note: Header generated by cbindgen from `pharos-core/src/ffi.rs`
 
-**src/lib/:**
-- Purpose: Shared utilities, types, and bridge layer
-- `tauri.ts` - All Tauri `invoke()` calls centralized here
-- `types.ts` - TypeScript interfaces for data serialization (must match Rust models)
-- `cn.ts` - Classname merging utility (classnames/clsx)
+**pharos-core/src/commands/:**
+- Purpose: FFI command handlers (Rust side of C boundary)
+- Contains: Functions invoked via C callbacks, perform database operations, return JSON results
+- Key files:
+  - `connection.rs` - Connect/disconnect/test PostgreSQL
+  - `query.rs` - Execute queries with cancellation, validation
+  - `metadata.rs` - Fetch schemas, tables, columns, indexes, constraints
+  - `saved_query.rs` - CRUD for saved queries (local SQLite)
+  - `query_history.rs` - Load/delete query history (local SQLite)
+  - `settings.rs` - Load/save app settings (local SQLite)
+  - `table.rs` - Clone table, export to CSV/XLSX, import from CSV
 
-**src-tauri/src/commands/:**
-- Purpose: Tauri command handlers (async functions invocable from frontend)
-- Pattern: Each takes AppState, validates input, returns Result<T, String>
-- Database access through db/* modules
-- Results serialized to JSON via serde
+**pharos-core/src/db/:**
+- Purpose: Database drivers and credential management
+- Contains: PostgreSQL operations via sqlx, local SQLite operations via rusqlite, Keychain password loading
+- Key files:
+  - `postgres.rs` - All sqlx queries for PostgreSQL introspection and execution
+  - `sqlite.rs` - Connection configs, saved queries, settings storage
+  - `credentials.rs` - Load passwords from macOS Keychain on app startup
 
-**src-tauri/src/db/:**
-- Purpose: Low-level database operations
-- `postgres.rs` - sqlx abstractions for PostgreSQL (connection pools, queries, introspection)
-- `sqlite.rs` - rusqlite for local metadata storage (connections, saved queries, history)
-- `credentials.rs` - System keychain integration for password management
-
-**src-tauri/src/models/:**
-- Purpose: Serializable data structures
-- Must match `src/lib/types.ts` for JSON interop
-- Uses `#[serde(rename_all = "camelCase")]` or snake_case per convention
-
-**Pharos/ (appkit branch):**
-- Parallel to src/ but Swift/AppKit instead of React
-- ViewControllers manage NSView hierarchy
-- Sheets are NSViewController modals
-- Core/PharosCore.swift bridges to pharos-core Rust library via C FFI
-
-**pharos-core/:**
-- Shared Rust library for both Tauri and AppKit builds
-- Contains database logic, connection pooling, query execution
-- Compiled to `libpharos_core.a` static library
-- C header generated by cbindgen for Swift bridging
+**pharos-core/src/models/:**
+- Purpose: Data structures shared between Rust and Swift (via JSON)
+- Contains: Codable structs with serde serialization
+- Key files: `connection.rs`, `schema.rs`, `saved_query.rs`, `query_history.rs`, `settings.rs`
 
 ## Key File Locations
 
 **Entry Points:**
-- Frontend: `src/main.tsx` (React DOM mount) → `src/App.tsx` (root component)
-- Backend: `src-tauri/src/lib.rs` (Tauri setup, command registration)
+- `Pharos/App/main.swift`: NSApplication entry
+- `Pharos/App/AppDelegate.swift`: App initialization (Rust pharos_init, load state, show window)
+- `Pharos/Windows/MainWindowController.swift`: Main window setup
 
 **Configuration:**
-- `tsconfig.json` - TypeScript (strict mode, lib=dom.es2020, paths alias @/)
-- `vite.config.ts` - Vite (SvelteKit plugin, define.TAURI_*)
-- `tailwind.config.js` - Tailwind (theme CSS variables)
-- `src-tauri/Cargo.toml` - Rust dependencies (tauri, sqlx, tokio, serde)
-- `package.json` - npm dependencies (react, tauri, monaco-editor, tanstack/react-virtual, etc.)
+- `project.yml`: xcodegen config (deployment target, bundle ID, Rust build pre-script)
+- `pharos-core/Cargo.toml`: Rust dependencies
+- `Pharos/App/Info.plist`: App bundle configuration
 
 **Core Logic:**
-- Connection pooling: `src-tauri/src/db/postgres.rs::create_pool()`
-- Query execution: `src-tauri/src/commands/query.rs::execute_query()`
-- Schema introspection: `src-tauri/src/db/postgres.rs::get_schemas/tables/columns()`
-- Settings persistence: `src-tauri/src/db/sqlite.rs::load/save_settings()`
+- `Pharos/Core/AppStateManager.swift`: Central state with tab/connection/settings management
+- `Pharos/Core/PharosCore.swift`: All C FFI wrappers (sync + async)
+- `Pharos/Core/MetadataCache.swift`: Schema cache for autocomplete and navigator
+- `pharos-core/src/ffi.rs`: C function definitions and callback routing to Rust commands
+- `pharos-core/src/state.rs`: Rust AppState with connection pools and query tracking
+
+**UI Components:**
+- `Pharos/ViewControllers/ContentViewController.swift`: Tab bar + editor + results layout
+- `Pharos/ViewControllers/SchemaBrowserVC.swift`: Database schema outline view
+- `Pharos/ViewControllers/ResultsGridVC.swift`: Result grid with filtering, sorting, export
+- `Pharos/Views/QueryTabBar.swift`: Custom tab bar with drag-reorder
 
 **Testing:**
-- No test files in current codebase (no `*.test.ts`, `*.spec.ts`)
-- Manual testing only
-
-**Theming:**
-- Global styles: `src/index.css` (CSS variables for light/dark)
-- Component styles: Tailwind classes with `theme-*` variable references
+- Not yet implemented (no test files found)
 
 ## Naming Conventions
 
 **Files:**
-- React components: `PascalCase.tsx` (e.g., `QueryEditor.tsx`, `DatabaseNavigator.tsx`)
-- Hooks: `camelCase.ts` (e.g., `useTheme.ts`, `useConnectionActions.ts`)
-- Utilities: `camelCase.ts` (e.g., `cn.ts`, `tauri.ts`)
-- Stores: `camelCase.ts` (e.g., `connectionStore.ts`)
-- Rust modules: `snake_case.rs` (e.g., `connection.rs`, `query.rs`, `postgres.rs`)
-- Rust binaries: `snake_case` (e.g., `tauri`, `pharos-core`)
+- Swift: `PascalCase.swift` (e.g., `AppDelegate.swift`, `QueryEditorVC.swift`)
+- Rust: `snake_case.rs` (e.g., `connection.rs`, `query_history.rs`)
+- Custom suffixes:
+  - `*VC.swift` - NSViewController subclass
+  - `*Sheet.swift` - Modal NSViewController dialog
+  - `*Provider.swift` - Delegate/data source helper
 
 **Directories:**
-- React feature dirs: `camelCase/` (e.g., `components/`, `dialogs/`, `editor/`)
-- Rust modules: `snake_case/` (e.g., `commands/`, `models/`, `db/`)
-- Swift classes: `PascalCase.swift` (e.g., `AppDelegate.swift`, `MainWindowController.swift`)
+- Swift: PascalCase (e.g., `ViewControllers`, `Models`, `Sheets`)
+- Rust: snake_case (e.g., `commands`, `db`, `models`)
 
-**Functions:**
-- Frontend: `camelCase` (e.g., `getActiveConnection()`, `executeQuery()`)
-- Backend (Rust): `snake_case` (e.g., `execute_query()`, `get_schemas()`)
-- Backend (Swift): `camelCase` (e.g., `loadConnections()`, `saveSettings()`)
-
-**Variables:**
-- Frontend: `camelCase` (e.g., `activeConnectionId`, `tabName`)
-- Backend (Rust): `snake_case` (e.g., `connection_id`, `query_id`)
-- Swift: `camelCase` (e.g., `appDelegate`, `mainWindow`)
-
-**Types:**
-- TypeScript interfaces: `PascalCase` (e.g., `ConnectionConfig`, `QueryTab`, `SchemaInfo`)
-- Rust structs: `PascalCase` (e.g., `ConnectionConfig`, `AppState`, `QueryResult`)
-- Swift classes: `PascalCase` (e.g., `AppDelegate`, `PharosCore`)
-
-**Constants:**
-- Frontend: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_SHORTCUTS`, `MIN_COLUMN_WIDTH`)
-- Backend: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_POOL_SIZE`)
+**Code:**
+- Swift: camelCase for functions/properties (e.g., `loadConnections()`, `activeConnectionId`)
+- Rust: snake_case for functions/variables (e.g., `load_connections()`, `active_connection_id`)
+- Models: Match Rust camelCase via CodingKeys (e.g., `executionTimeMs` ↔ `execution_time_ms`)
 
 ## Where to Add New Code
 
-**New Query/Metadata Feature:**
-- Backend command: `src-tauri/src/commands/query.rs` or new `src-tauri/src/commands/feature.rs`
-- Register in: `src-tauri/src/lib.rs` invoke_handler array
-- TypeScript wrapper: `src/lib/tauri.ts`
-- Types: `src/lib/types.ts` (if new data structure needed)
-- Frontend component: `src/components/` (new folder if major feature)
+**New Feature:**
+- Primary code: `pharos-core/src/commands/{module}.rs` (Rust handler)
+- FFI declaration: `pharos-core/src/ffi.rs` (C function + callback routing)
+- Swift bridge: `Pharos/Core/PharosCore.swift` (async wrapper)
+- UI: `Pharos/ViewControllers/{Feature}VC.swift` or `Pharos/Sheets/{Feature}Sheet.swift`
+- Models: Add to `pharos-core/src/models/{domain}.rs` and mirror in `Pharos/Models/{Domain}.swift`
 
-**New Dialog:**
-- Component file: `src/components/dialogs/FeatureDialog.tsx`
-- Add open/close state to `src/App.tsx`
-- Register trigger in App (button click, menu, etc.)
+**New View Controller:**
+- Create: `Pharos/ViewControllers/{Name}VC.swift` subclassing NSViewController
+- Register: Add as child VC in parent controller via `addChild()` and view hierarchy
+- State: Subscribe to `AppStateManager` @Published properties via Combine sinks
+- Actions: Define callbacks or actions linking back to state/Rust via PharosCore
 
-**New Settings/Preference:**
-- Add field to `AppSettings` in `src-tauri/src/models/settings.rs`
-- Add field to `settingsStore.ts` state interface
-- Add UI in `src/components/dialogs/SettingsDialog.tsx`
-- Add load/save in `src-tauri/src/commands/settings.rs`
+**New Modal Dialog:**
+- Create: `Pharos/Sheets/{Name}Sheet.swift` extending NSViewController
+- Present: Call `presentAsSheet()` on parent window controller
+- Callbacks: Accept completion handlers for user input, call back to AppStateManager/PharosCore
+- Example: `ConnectionSheet` (new/edit connection form) calls `stateManager.saveConnection(config)`
 
-**New Component Utility:**
-- Hooks: `src/hooks/useFeature.ts`
-- Helpers: `src/lib/` or component-local folder
-- Styles: Tailwind classes (avoid new CSS files unless absolutely necessary)
+**Rust Command:**
+- File: `pharos-core/src/commands/{module}.rs` (or extend existing module)
+- Function: `async fn handle_{action}(...) -> Result<T, Box<dyn Error>>`
+- FFI Wrapper: Add `pub extern "C" fn pharos_{action}(..., callback, context)` in `ffi.rs`
+- Routing: In `ffi.rs`, spawn task on runtime and invoke callback with result JSON
+- Models: Add types to `pharos-core/src/models/{module}.rs`, ensure Codable/Serialize
 
-**New PostgreSQL Operation:**
-- Query logic: `src-tauri/src/db/postgres.rs`
-- Command wrapper: `src-tauri/src/commands/` (appropriate module)
-- Frontend call: `src/lib/tauri.ts` + component usage
+**Shared Model:**
+- Rust: Add to `pharos-core/src/models/{domain}.rs` with `#[derive(Serialize, Deserialize)]`
+- Swift: Mirror in `Pharos/Models/{Domain}.swift` with `Codable`, custom `CodingKeys` for key conversion
+- Key pattern: Rust uses snake_case, Swift uses camelCase, CodingKeys maps between them
 
 ## Special Directories
 
-**node_modules/:**
-- Purpose: npm dependencies
-- Generated: Yes (npm install)
-- Committed: No
-
-**dist/:**
-- Purpose: Built frontend assets
-- Generated: Yes (npm run build)
-- Committed: No
-- Created by: Vite build
-
-**src-tauri/target/:**
-- Purpose: Rust build artifacts
+**pharos-core/target/:**
+- Purpose: Build output
 - Generated: Yes (cargo build)
-- Committed: No
+- Committed: No (.gitignored)
+- Includes: `release/libpharos_core.a` (linked into app) and `debug/` variant
 
 **Pharos.xcodeproj/:**
-- Purpose: Xcode project file
-- Generated: Yes (xcodegen generate from project.yml)
-- Committed: Partially (some files, mostly build outputs excluded)
-- Modification: Never edit directly; edit project.yml and run xcodegen
+- Purpose: Xcode project (generated, do not edit by hand)
+- Generated: Yes (xcodegen generates from `project.yml`)
+- Committed: No (in most projects)
+- Regenerate: Run `xcodegen generate` after adding Swift files to project
 
-**src-tauri/tauri-plugin-native-chrome/:**
-- Purpose: Custom Tauri plugin for native window chrome (sidebar, toolbar, vibrancy)
-- Purpose: Experimental; currently on appkit branch
-- Committed: Yes (in-tree plugin development)
+**Pharos/CPharosCore/:**
+- Purpose: C FFI module bridge for Swift compiler
+- Contains: `module.modulemap` only (declares header location)
+- Header location: `pharos-core/include/pharos_core.h` (generated by cbindgen from FFI code)
+- Regenerate: `cbindgen` run automatically in Rust build script
 
-**.planning/codebase/:**
-- Purpose: GSD analysis documents (generated by orchestrator)
-- Committed: Yes (documentation)
-- Contents: ARCHITECTURE.md, STRUCTURE.md, CONVENTIONS.md, TESTING.md, CONCERNS.md, STACK.md, INTEGRATIONS.md
+**Pharos/Resources/:**
+- Purpose: Assets (icons, localization, etc.)
+- Generated: No
+- Committed: Yes
 
 ---
 

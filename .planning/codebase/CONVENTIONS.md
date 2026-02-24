@@ -4,259 +4,312 @@
 
 ## Naming Patterns
 
+### Swift Files
+
 **Files:**
-- React components: PascalCase with `.tsx` extension
-  - Example: `QueryWorkspace.tsx`, `AddConnectionDialog.tsx`
-- Custom hooks: camelCase with `use` prefix, `.ts` extension
-  - Example: `useTheme.ts`, `useKeyboardShortcuts.ts`
-- Store files: camelCase with `Store` suffix, `.ts` extension
-  - Example: `connectionStore.ts`, `editorStore.ts`
-- Utility files: camelCase, `.ts` extension
-  - Example: `cn.ts` (tailwind merge utility), `tauri.ts` (command wrappers)
-- Directories: kebab-case (multi-word), all lowercase
-  - Example: `src/components/layout/`, `src/components/editor/`, `src/components/dialogs/`
+- PascalCase for types/classes/sheets: `AppDelegate.swift`, `ConnectionSheet.swift`, `AppStateManager.swift`
+- PascalCase for ViewController files: `QueryEditorVC.swift`, `SchemaBrowserVC.swift`, `ResultsGridVC.swift`
+- PascalCase for model structs: `QueryResult.swift`, `SavedQuery.swift`, `Connection.swift`
+- `VC` suffix for ViewControllers (short convention used throughout)
+
+**Classes/Types:**
+- PascalCase: `AppStateManager`, `QueryTab`, `ConnectionConfig`, `SavedQuery`
+- Enums: PascalCase with lowercase cases: `enum ConnectionStatus { case connected, disconnected }`
+- Model structs: Simple PascalCase: `struct QueryResult {}`
 
 **Functions:**
-- React components: PascalCase
-  - Example: `function QueryWorkspace() {}`, `function AddConnectionDialog() {}`
-- Regular functions (utilities, callbacks): camelCase
-  - Example: `buildConnectionString()`, `formatCellValue()`, `extractTableName()`
-- Handler functions: camelCase with `handle` prefix
-  - Example: `handleChange()`, `handleTest()`, `handleSchemaRefresh()`
-- Getter functions in stores: camelCase with `get` prefix
-  - Example: `getConnection()`, `getActiveConnection()`, `getConnectedConnections()`
+- camelCase for methods: `loadConnections()`, `saveConnection()`, `disconnect()`
+- camelCase for computed properties: `activeTab`, `activeTabIndex`, `canReopenTab`
+- `@discardableResult` decorator used for methods that return values but are often called for side effects: `createTab()`
 
 **Variables:**
-- Local state: camelCase
-  - Example: `const [isOpen, setIsOpen] = useState(false)`
-- Constants: UPPER_SNAKE_CASE (only for true constants)
-  - Example: `const CONNECTION_COLORS = []`, `const MIN_COLUMN_WIDTH = 60`
-- Store selectors: camelCase
-  - Example: `const activeConnection = useConnectionStore((state) => state.getActiveConnection())`
-- DOM element refs: camelCase with `Ref` suffix
-  - Example: `const queryEditorRef = useRef<QueryEditorRef>(null)`
+- camelCase for local/instance variables: `scrollView`, `textView`, `cancellables`
+- private instance vars with underscore prefix not used; use `private let` instead
+- Published properties: `@Published var activeConnectionId`, `@Published var settings`
+- Use property observers (`didSet`, `willSet`) for reactive updates
 
-**Types:**
-- Interfaces: PascalCase with descriptive nouns
-  - Example: `ConnectionConfig`, `QueryTab`, `ValidationState`, `ResultsGridProps`
-- Type aliases: PascalCase
-  - Example: `type SslMode = 'disable' | 'prefer' | 'require'`
-- Union types: Descriptive string values in quotes
-  - Example: `type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'`
+**Types (Codable):**
+- Struct names: PascalCase
+- Property names: camelCase
+- CodingKeys enum for snake_case JSON mapping: `case executionTimeMs = "execution_time_ms"`
+
+### Rust Files
+
+**Files:**
+- snake_case for module files: `connection.rs`, `query_history.rs`, `postgres.rs`
+- Files organized by feature/domain: `src/commands/`, `src/db/`, `src/models/`
+
+**Structs/Enums:**
+- PascalCase: `ConnectionConfig`, `QueryResult`, `SchemaInfo`
+- Enum cases: PascalCase: `ConnectionStatus::Connected`
+- Default derives: `#[derive(Debug, Clone, Serialize, Deserialize)]`
+
+**Functions:**
+- snake_case: `execute_query()`, `create_pool()`, `save_connection()`
+- Public async functions: `pub async fn connect_postgres()`
+- Helper functions (private): `fn build_connection_string()`, `fn sanitize_error()`
+- Unsafe functions documented: `unsafe fn c_str_to_string()`
+
+**Variables:**
+- snake_case: `connection_id`, `query_id`, `backend_pid`
+- Constants/statics: SCREAMING_SNAKE_CASE: `RUNTIME`, `APP_STATE`
+
+**Serde Attributes:**
+- Struct-level: `#[serde(rename_all = "camelCase")]` for most models (converts snake_case fields to camelCase JSON)
+- Some models use default case without rename_all (backward compatibility)
+- Field-level: `#[serde(default)]` for optional fields, `#[serde(skip_serializing_if = "Option::is_none")]` to omit nulls
 
 ## Code Style
 
-**Formatting:**
-- Tool: Not explicitly configured (relies on TypeScript compiler and IDE defaults)
-- No `.prettierrc` or `.eslintrc` in project
-- Line length: No explicit limit enforced
-- Indentation: 2 spaces (inferred from Tailwind config and store examples)
-- Quotes: Single quotes for strings
-  - Example: `const name = 'QueryWorkspace'`
-- Semicolons: Always present
-  - Example: `return invoke('execute_query', { connectionId, sql });`
+### Swift Formatting
 
-**Linting:**
-- TypeScript strict mode enabled in `tsconfig.json`
-  - `strict: true`
-  - `noUnusedLocals: true`
-  - `noUnusedParameters: true`
-  - `noFallthroughCasesInSwitch: true`
-- No external linter (ESLint, Prettier) configured
-- Type checking via `tsc --noEmit`
+**Comments:**
+- Documentation comments for public functions use triple-slash: `/// Format SQL with PostgreSQL conventions`
+- MARK sections for organization: `// MARK: - Public API`, `// MARK: - Helpers`
+- Inline comments explain "why", not "what": `// Save current schema selection for the old connection`
+
+**Imports:**
+- Foundation first, then framework imports: `import AppKit` then `import Combine`
+- CPharosCore (C FFI) imported at top of bridge files: `import CPharosCore`
+
+**Closures:**
+- Trailing closure syntax: `$settings.receive(on: RunLoop.main).sink { [weak self] _ in ... }`
+- Capture lists: `[weak self]` to avoid retain cycles
+- Guard statements in closures for nil-coalescing: `guard let self else { return }`
+
+**Properties:**
+- Use `@Published` for observable state in `@ObservableObject`
+- Use `@Published private(set)` to prevent external mutation: `@Published private(set) var connectionStatuses`
+- Separate public API from internal implementation via access modifiers
+
+### Swift Architecture Patterns
+
+**View Controllers:**
+- Override `loadView()` to build UI programmatically (not using Interface Builder or Storyboards)
+- Store references to subviews as properties for later access: `private let scrollView: NSScrollView!`
+- Use `NSViewController` subclasses with `NSView` construction
+- Data source/delegate patterns for tables/outlines: `NSTableViewDataSource`, `NSTableViewDelegate`
+
+**State Management:**
+- Centralized state via singleton `AppStateManager.shared`
+- Use Combine's `@Published` for reactive updates
+- `ObservableObject` conformance enables SwiftUI-like reactivity in AppKit
+- Store Combine subscriptions in `cancellables: Set<AnyCancellable>` property
+
+**Enums as Namespaces:**
+- `PharosCore` enum contains all Rust bridge functions (not a class, static methods only)
+- `MainMenu` enum contains menu building logic
+- `SettingsSheet` enum functions for theme application
+
+### Rust Formatting
+
+**Comments:**
+- Documentation comments use `///`: `/// Load a PostgreSQL connection pool`
+- Multi-line block comments for sections: `// -----------\n// Callbacks\n// -----------`
+- Doc comments on enums, structs, and public functions required
+- Inline comments explain complex logic: `// URL encode username and password to handle special characters safely`
+
+**Error Handling:**
+- Return `Result<T, String>` for most operations (error message as String)
+- Use `.map_err(|e| e.to_string())` to convert sqlx/rusqlite errors to Strings
+- `unwrap_or_default()` pattern for FFI string conversion (safe in C boundary)
+- FFI callbacks use separate `callback_ok()` and `callback_err()` helpers
+
+**Async/Await:**
+- Use `async fn` for database operations
+- Spawn tasks via `tokio` runtime stored in `OnceLock<Runtime>`
+- Use `tokio::spawn()` for background work without blocking caller
+- Callbacks invoked via `runtime().block_on()` or task spawning
+
+**Attributes:**
+- Serialization derives standard: `#[derive(Debug, Clone, Serialize, Deserialize)]`
+- Database models: `#[serde(rename_all = "camelCase")]` (convert snake_case to camelCase for JSON)
+- Optional fields: `#[serde(default)]` allows missing keys in JSON
+- Field-level rename: `#[serde(rename = "latency_ms")]` for specific snake_case JSON keys
 
 ## Import Organization
 
+### Swift
+
 **Order:**
-1. React core imports
-   - `import React from 'react'`
-   - `import { useState, useEffect } from 'react'`
-2. External libraries (with @ scope packages grouped separately)
-   - `import { invoke } from '@tauri-apps/api/core'`
-   - `import { cn } from '@/lib/cn'`
-   - `import clsx from 'clsx'`
-3. Local imports from `@/` (aliased paths)
-   - `import { useConnectionStore } from '@/stores/connectionStore'`
-   - `import { QueryWorkspace } from '@/components/layout/QueryWorkspace'`
-   - `import type { Connection } from '@/lib/types'`
-4. Type imports (always using `type` keyword)
-   - `import type { ConnectionConfig, ConnectionStatus } from '@/lib/types'`
-   - Type imports separated with blank line before runtime imports
+1. Foundation/system frameworks: `import Foundation`, `import AppKit`, `import Combine`
+2. C FFI imports: `import CPharosCore`
+3. Internal imports: rarely used, use fully qualified names instead
+
+**Pattern:**
+```swift
+import Foundation
+import AppKit
+import Combine
+import CPharosCore
+
+// No relative imports — all access via module names
+```
+
+### Rust
+
+**Order:**
+1. Standard library: `use std::...;`
+2. External crates: `use serde::{...};`, `use tokio::...;`, `use sqlx::...;`
+3. Internal modules: `use crate::models::{...};`, `use crate::db::{...};`
+
+**Pattern:**
+```rust
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, Arc};
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, Column};
+use crate::models::{ConnectionConfig, ConnectionInfo};
+use crate::state::AppState;
+```
 
 **Path Aliases:**
-- Alias: `@/` → `src/`
-- Configured in `vite.config.ts` and `tsconfig.json`
-- Always use aliases for local imports, never relative paths
-  - Correct: `import { cn } from '@/lib/cn'`
-  - Wrong: `import { cn } from '../lib/cn'`
+- No path aliases configured; use absolute paths from crate root
+- Import groups separated by blank line by category (stdlib, external, internal)
 
 ## Error Handling
 
-**Patterns:**
-- Promise-based error handling with `.catch()`
-  - Example: `tauri.loadConnections().catch((err) => { console.error('Failed to load connections:', err); })`
-- Try-catch blocks in async functions
-  - Example: `try { const result = await tauri.executeQuery(...) } catch (err) { setTabError(err instanceof Error ? err.message : String(err)); }`
-- Type guard for Error objects
-  - Pattern: `err instanceof Error ? err.message : String(err)`
-  - Used consistently to safely extract error messages
-- Fire-and-forget patterns for non-critical operations with `.catch(console.error)`
-  - Example: `tauri.checkQueryEditable(...).catch((err) => { console.error('Editability check failed:', err); })`
-- Console logging for errors
-  - Example: `console.error('Failed to load connections:', err)`
+### Swift Patterns
 
-**Error State Management:**
-- Errors stored in Zustand stores with dedicated error fields
-  - Example: `error: ValidationError | null` in `ValidationState`
-  - Example: `error?: string` in `Connection` interface
-- UI components track execution state alongside errors
-  - Example: `isExecuting: boolean` with `error: string | null` in same state object
-- Validation errors have detailed structure (message, position, line, column)
-  - Example: `ValidationError` interface in `src/stores/editorStore.ts`
+**Do-Try-Catch:**
+```swift
+do {
+    try PharosCore.saveConnection(config)
+    loadConnections()
+} catch {
+    NSLog("Failed to save connection: \(error)")
+}
+```
+
+**Task Errors:**
+```swift
+Task {
+    do {
+        let info = try await PharosCore.connect(connectionId: id)
+        await MainActor.run {
+            self.connectionStatuses[id] = info.status
+        }
+    } catch {
+        NSLog("Connection failed: \(error)")
+    }
+}
+```
+
+**Throwing Functions:**
+- Return `throws` for FFI bridge functions: `static func loadConnections() throws -> [ConnectionConfig]`
+- Define custom error enum: `enum PharosCoreError: LocalizedError { case rustError(String), decodingError, nullResult }`
+- Custom `errorDescription` property for user-facing messages
+
+### Rust Patterns
+
+**Result Returns:**
+- Functions return `Result<T, String>` consistently
+- Lock errors converted to strings: `.map_err(|e| e.to_string())?`
+- Database errors converted: `.map_err(|e| e.to_string())?`
+
+**FFI Boundary:**
+- C functions return raw pointers (null signals error)
+- Swift side checks for null and converts to throws
+- Error messages are C strings passed back as `*const c_char` via callback
+
+**Cancellation:**
+- Queries tracked with `Arc<AtomicBool>` flag in `RunningQuery`
+- Check `cancelled.load(Ordering::Relaxed)` before long operations
+- Cancel via PostgreSQL `pg_cancel_backend(pid)` (may race with natural completion)
 
 ## Logging
 
-**Framework:** console methods (built-in)
+### Framework: Console/NSLog
 
-**Patterns:**
-- Error logging: `console.error('User-friendly message:', err)`
-  - Example: `console.error('Failed to load connections:', err)`
-  - Example: `console.error('Editability check failed:', err)`
-- Used for non-critical failures and debugging
-- No info/warn/debug logging in codebase
-- Fire-and-forget operations log errors but don't propagate them
-  - Example: `tauri.checkQueryEditable(...).catch((err) => { console.error(...) })`
+**Swift:**
+- Use `NSLog()` for startup/shutdown and error logging
+- No structured logging framework; plain text messages
+- Pattern: `NSLog("Failed to load connections: \(error)")`
+
+### Rust Patterns
+
+**Log Levels:**
+- Initialize with `env_logger::try_init()` in FFI init
+- Controlled via `RUST_LOG` environment variable (not implemented in app yet)
+- Not actively used in application code (errors returned to caller instead)
 
 ## Comments
 
-**When to Comment:**
-- JSDoc for exported functions and utilities (some examples present)
-- Inline comments for non-obvious logic or workarounds
-  - Example: `// Fire-and-forget editability check for non-EXPLAIN queries` in `QueryWorkspace.tsx`
-  - Example: `// Normalize whitespace and remove comments` in `editorStore.ts`
-- Section comments for multi-step operations
-  - Example: `// Sync local state when settings are loaded from disk`
-- Comments explaining why code is structured a certain way, not what it does
+### When to Comment
 
-**JSDoc/TSDoc:**
-- Used selectively, not consistently
-- Example from `src/components/editor/QueryEditor.tsx`:
-  ```typescript
-  /**
-   * Map our shortcut key strings to Monaco KeyCode values
-   */
-  function getMonacoKeyCode(key: string, monaco: typeof import('monaco-editor')): KeyCode | null {
-  ```
-- Interface properties sometimes documented, not consistently applied
+**Swift:**
+- Comment public API with `///` doc comments
+- Explain non-obvious algorithmic decisions: `// Save current schema selection for the old connection`
+- Mark sections clearly with `// MARK: -`
+- Avoid commenting obvious code: `let x = 5  // set x to 5` (don't do this)
+
+**Rust:**
+- Document all public functions with `///` comments
+- Explain complex lock patterns: `// Acquire a dedicated connection from the pool so that SET search_path and the query run on the same connection`
+- Document safety preconditions for unsafe code: `/// Convert a C string to a Rust String. Returns empty string for NULL.`
+
+### JSDoc/TSDoc
+
+**Not used** — This is native Swift/Rust, not TypeScript/JavaScript. Use `///` doc comments instead.
 
 ## Function Design
 
-**Size:**
-- Small, focused functions (typical range: 10-50 lines)
-- Extracted handlers into separate `useCallback` hooks
-- Helper functions extracted to module level for reuse
-  - Example: `formatDuration()`, `formatCellValue()` in `ResultsGrid.tsx`
-  - Example: `extractTableName()` in `editorStore.ts`
+### Swift
+
+**Size:** Prefer small focused functions (under 30 lines)
+- Large functions broken into MARK sections
+- Each MARK section could be extracted to helper if reused
 
 **Parameters:**
-- Destructured from objects when multiple related parameters
-  - Example: `{ isOpen, onClose }: AddConnectionDialogProps`
-- Named parameters over positional (especially in Tauri command wrappers)
-  - Example: `async function executeQuery(connectionId: string, sql: string, queryId?: string, limit?: number, schema?: string | null)`
-- Type parameters used for complex generic functions
-  - Example: `create<ConnectionState>((set, get) => ({...}))` in Zustand stores
+- Explicit parameter names in call site: `disconnect(id: connectionId)`
+- Use named parameters for clarity: `executeQuery(connectionId:, sql:, limit:)`
+- Avoid boolean parameters; use named cases instead
 
 **Return Values:**
-- Explicit return types for all exported functions
-  - Example: `export function cn(...inputs: ClassValue[]): string`
-  - Example: `export async function executeQuery(...): Promise<QueryResult>`
-- Implicit return for short arrow functions
-  - Example: `const getActiveConnection = () => get().connections[activeConnectionId]`
-- Nullable returns with explicit `| null` or `| undefined`
-  - Example: `function extractTableName(sql: string): string | null`
+- Return optional for "may not exist" cases: `var activeTab: QueryTab?`
+- Return bool for success/failure: `func deleteConnection(id:) -> Bool`
+- Use result builders for UI construction (not used; all manual NSView)
+
+### Rust
+
+**Size:** Functions range 15-100 lines depending on complexity
+- Database operations tend toward 40-60 lines
+- Small utility functions 5-15 lines
+
+**Parameters:**
+- State reference last: `fn execute_query(..., state: &AppState) -> Result<T, String>`
+- Pool/connection accessed from state, not passed separately
+- Use references for borrowed data: `&ConnectionConfig`
+
+**Return Values:**
+- `Result<T, String>` for fallible operations
+- `Result<(), String>` for side-effect-only functions
+- Options for "may not exist": `Option<T>`
 
 ## Module Design
 
-**Exports:**
-- Named exports for utilities and components
-  - Example: `export function useTheme() {}`
-  - Example: `export function cn(...inputs: ClassValue[]) {}`
-- Default exports for React components
-  - Example: `export default App`
-- Type exports for all types
-  - Example: `export interface ConnectionConfig {}`
-  - Example: `export type SslMode = 'disable' | 'prefer' | 'require'`
+### Swift Exports
+
+**Visibility:**
+- Use `private` for internal state: `private var cancellables = Set<AnyCancellable>()`
+- Use `private(set)` for published state that shouldn't be externally mutated: `@Published private(set) var connectionStatuses`
+- Use `public` sparingly; most code is internal
 
 **Barrel Files:**
-- Not used (no index.ts files in component directories)
-- Each import specifies exact file path
-  - Example: `import { QueryWorkspace } from '@/components/layout/QueryWorkspace'`
-  - Example: `import { useTheme } from '@/hooks/useTheme'`
+- Not used; models imported directly: `import Models.Connection`
+- No index files aggregating exports
 
-**Store Pattern (Zustand):**
-- Interface defining full state shape, then create hook
-  - Example: `interface ConnectionState { ... }` followed by `export const useConnectionStore = create<ConnectionState>(...)`
-- Actions and getters grouped in interface
-- State slice defined inline in `create()` call
-- Immutable updates via spread operators
-  - Example: `{ ...state.connections, [config.id]: newConnection }`
-  - Example: `[...state.connectionOrder, config.id]`
+### Rust Exports
 
-**Tauri Command Wrappers:**
-- One function per command in `src/lib/tauri.ts`
-- Functions wrap `invoke()` calls with type-safe parameters and return types
-- Organized by domain (connection commands, schema commands, query commands, etc.)
-- Sanitization of numeric values before sending to Rust
-  - Example: `Math.round()` for settings values in `saveSettings()`
+**Module Structure:**
+- `lib.rs` re-exports public modules: `pub mod commands; pub mod db; pub mod models;`
+- FFI functions use `#[no_mangle]` to expose to C: `pub extern "C" fn pharos_connect(...)`
+- Internal helper functions marked `fn` (private to module)
 
-## Constants and Configuration
-
-**Theme Colors:**
-- CSS variable names: `--bg-primary`, `--text-secondary`, `--border-primary`
-  - Defined in `src/index.css` with dark and light theme variants
-- Tailwind theme colors extended with theme variables
-  - Accessed via `className="bg-theme-bg-primary"`
-- Color palettes defined as arrays in components
-  - Example: `CONNECTION_COLORS` array in `AddConnectionDialog.tsx`
-
-**Default Values:**
-- Grouped in types file: `DEFAULT_SETTINGS` and `DEFAULT_SHORTCUTS` in `src/lib/types.ts`
-- Store defaults defined in store creation
-  - Example: `connectionOrder: []` in `useConnectionStore`
-- Component defaults as local constants with naming pattern
-  - Example: `const DEFAULT_SPLIT_POSITION = 40` in `QueryWorkspace.tsx`
-
-## React Patterns
-
-**State Management:**
-- Zustand stores for global state (connections, editor tabs, saved queries, settings, query history)
-- Local useState for component-level UI state
-- Selector pattern for Zustand subscriptions
-  - Example: `const activeConnection = useConnectionStore((state) => state.getActiveConnection())`
-- Minimize selector complexity by calling getter functions
-  - Example: `state.getActiveConnection()` instead of computing in selector
-
-**Component Props:**
-- Props interfaces named `{ComponentName}Props`
-- Destructured in function signature
-- Optional props marked with `?`
-- Ref forwarding when needed
-  - Example: `export const QueryEditor = forwardRef<QueryEditorRef, QueryEditorProps>(...)`
-
-**Hooks:**
-- Custom hooks in `src/hooks/` directory
-- Use pattern: custom hooks isolate side-side effects and state logic
-  - Example: `useTheme()` manages theme synchronization
-  - Example: `useKeyboardShortcuts()` handles keyboard event registration
-- Use `useCallback` for memoized handlers passed as props
-- Use `useRef` for stable DOM/editor references
-
-**Effects:**
-- `useEffect` dependencies fully declared
-  - Example: `[theme, getEffectiveTheme]` in `useTheme`
-  - Example: `[activeTab, activeConnection, activeConnectionId, ...]` in `QueryWorkspace`
-- Cleanup functions returned when setting up listeners
-  - Example: Returning `() => mediaQuery.removeEventListener(...)` in `useTheme`
+**Visibility:**
+- `pub` for command functions and model types
+- `pub async fn` for async operations
+- Internal state management (locking, caching) marked `pub` but treated as internal API
 
 ---
 

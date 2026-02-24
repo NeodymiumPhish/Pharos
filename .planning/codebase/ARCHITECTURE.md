@@ -4,237 +4,249 @@
 
 ## Pattern Overview
 
-**Overall:** Tauri v2 desktop application with client-server separation between React frontend and Rust backend.
+**Overall:** Native macOS app (Swift + AppKit) with a C FFI bridge to a Rust core library.
 
 **Key Characteristics:**
-- Frontend-backend communication via Tauri invoke commands over IPC
-- State management in React via Zustand stores (no Redux/Context)
-- Rust backend manages PostgreSQL connection pools and query lifecycle
-- Local SQLite database for persistent metadata cache and settings
-- Dual-platform support: React web frontend (main branch) and native Swift/AppKit frontend (appkit branch)
+- **Layered architecture**: UI (Swift/AppKit) ↔ FFI bridge ↔ Rust backend (commands, database)
+- **Async/await pattern**: Swift `async/await` wraps Rust C callbacks
+- **State management**: Singleton `AppStateManager` with Combine `@Published` properties
+- **Type-erased callbacks**: C function pointers bridge Swift continuations through void* context
+- **SQLite + PostgreSQL**: Local metadata DB + remote PostgreSQL connections
 
 ## Layers
 
-**Presentation Layer (React + TypeScript):**
-- Purpose: User interface rendering, form input, results visualization
-- Location: `src/components/` (dialogs, editor, layout, results, saved queries, tree)
-- Contains: React components using Tailwind CSS, Monaco Editor, TanStack Virtual, Lucide icons
-- Depends on: Zustand stores, Tauri bridge, types
-- Used by: App.tsx entry point
+**Presentation Layer (Swift UI):**
+- Purpose: macOS AppKit window, views, user interaction, state observation
+- Location: `Pharos/ViewControllers/`, `Pharos/Views/`, `Pharos/Sheets/`
+- Contains: NSViewController subclasses (ContentViewController, SchemaBrowserVC, etc.), custom NSView implementations, NSTableView data sources
+- Depends on: AppStateManager, MetadataCache, PharosCore
+- Used by: AppDelegate (init)
 
-**State Management Layer (Zustand):**
-- Purpose: Centralized client-side state for connections, queries, settings, history
-- Location: `src/stores/`
-- Contains:
-  - `connectionStore.ts` - Active connection, connection list, selected schemas
-  - `editorStore.ts` - Query tabs, active tab, tab content, execution state
-  - `settingsStore.ts` - UI preferences, theme, column widths
-  - `savedQueryStore.ts` - Saved queries (loaded from backend)
-  - `queryHistoryStore.ts` - Query execution history
-- Depends on: Types, Tauri bridge
-- Used by: All React components
+**State Management Layer (Swift):**
+- Purpose: Central Observable state for connections, tabs, settings, schema selection
+- Location: `Pharos/Core/AppStateManager.swift`, `Pharos/Core/MetadataCache.swift`
+- Contains: `@Published` properties, connection lifecycle, tab management, schema caching
+- Depends on: PharosCore (async operations)
+- Used by: All view controllers (via `@Published` subscription via Combine)
 
-**Tauri Bridge Layer (IPC):**
-- Purpose: Type-safe command invocation to Rust backend
-- Location: `src/lib/tauri.ts`
-- Contains: Wrapper functions around `invoke()` for all backend commands
-- Depends on: Types
-- Used by: React components and hooks
+**Swift Bridge Layer (FFI):**
+- Purpose: Type-safe Swift wrappers around C FFI, async/await integration
+- Location: `Pharos/Core/PharosCore.swift`
+- Contains: `enum PharosCore` with static methods wrapping C functions, `CallbackBox` for type erasure, JSON encoding/decoding
+- Depends on: CPharosCore (C header), Foundation JSON codecs
+- Used by: AppStateManager, view controllers for all database operations
 
-**Type Definitions:**
-- Location: `src/lib/types.ts`
-- Contains: TypeScript interfaces for connections, schema metadata, query results, settings
-- Used by: Frontend and Tauri bridge (JSON serialization)
+**C FFI Boundary:**
+- Purpose: Thin C interface exported from Rust static library
+- Location: `Pharos/CPharosCore/module.modulemap` (declaration), `pharos-core/src/ffi.rs` (implementation)
+- Contains: C function signatures (`pharos_init`, `pharos_execute_query`, etc.), callback type definition
+- Depends on: Rust libpharos_core.a
+- Used by: PharosCore.swift
 
-**Rust Backend (Tauri Commands + State):**
-- Purpose: PostgreSQL connection management, query execution, metadata introspection
-- Location: `src-tauri/src/`
-- Entry: `lib.rs` (Tauri app setup, command registration)
-- State: `state.rs` (AppState with connection pools, running queries, password cache)
-- Commands: `commands/*.rs` (connection, query, metadata, table, settings, history)
-- Database layer: `db/postgres.rs` (sqlx PostgreSQL operations), `db/sqlite.rs` (local metadata)
-- Models: `models/*.rs` (data structures matching JSON schemas)
-- Depends on: sqlx, tokio, serde, tauri
-- Used by: Frontend via IPC
-
-**Local Storage (SQLite):**
-- Purpose: Persist connection configs, saved queries, settings, query history
-- Location: Tauri app data directory (`~/.config/Pharos/` or similar)
-- Initialized in: `src-tauri/src/db/sqlite.rs`
-- Accessed from: AppState (all backend commands)
-
-**Native Swift Backend (appkit branch only):**
-- Purpose: macOS-native UI using AppKit, bridges to pharos-core Rust library
-- Entry: `Pharos/App/AppDelegate.swift`
-- Bridge: `Pharos/Core/PharosCore.swift` (C FFI wrapper)
-- State: `Pharos/Core/AppStateManager.swift` (Combine publishers)
-- ViewControllers: `Pharos/ViewControllers/` (AppKit UI hierarchy)
-- Models: `Pharos/Models/` (Swift Codable structs)
+**Rust Backend (Commands & Database):**
+- Purpose: Database operations, SQL execution, metadata fetching, persistence
+- Location: `pharos-core/src/commands/`, `pharos-core/src/db/`, `pharos-core/src/models/`
+- Contains: Command handlers (connection, query, metadata, saved_query, query_history, table, settings), PostgreSQL + SQLite drivers, connection pooling
+- Depends on: sqlx (PostgreSQL), rusqlite (SQLite), tokio (async runtime), serde (JSON)
+- Used by: FFI layer (callbacks return JSON)
 
 ## Data Flow
 
+**Connection Lifecycle:**
+
+1. User clicks connection in popup → `connectionItemClicked` → `AppStateManager.activeConnectionId = id`
+2. MainWindowController observes `$activeConnectionId`, calls `stateManager.connect(id:)`
+3. `AppStateManager.connect()` → `Task { PharosCore.connect(connectionId) }`
+4. `PharosCore.connect()` → `withAsyncCallback { pharos_connect(...) }`
+5. Rust FFI spawns async task on tokio runtime: `commands::connection::connect()`
+6. Upon completion, callback invokes Swift continuation with JSON result
+7. `AppStateManager` updates `connectionStatuses` and posts `NSNotification`
+8. MainWindowController observes `$connectionStatuses`, rebuilds connection popup UI
+9. MetadataCache observes `$activeConnectionId`, loads schemas via `PharosCore.getSchemas()`
+
 **Query Execution:**
 
-1. User types SQL in QueryEditor (React)
-2. User clicks Run or Cmd+Enter
-3. QueryWorkspace calls `tauri.executeQuery()` with SQL text, connection ID, query ID
-4. Rust `execute_query()` command receives request
-5. Acquires connection from pool, registers query with backend PID
-6. Sets search_path if schema specified
-7. Streams results (limited by pagination)
-8. Returns QueryResult with columns, rows, row count
-9. Frontend receives in editorStore, renders in ResultsGrid
-10. User can cancel mid-execution via `cancel_query()` → `pg_cancel_backend()`
+1. User enters SQL in editor (synced to `activeTab.sql` via `textDidChange`)
+2. User presses Cmd+Enter or clicks Run toolbar button
+3. `ContentViewController.executeQuery(sql)` → `PharosCore.executeQuery(connectionId, sql, limit)`
+4. Swift callback wraps continuation: `withAsyncCallback` → `pharos_execute_query()`
+5. Rust command executes via sqlx: `commands::query::execute_query()`
+   - Creates query ID, registers in `AppState.running_queries`
+   - Executes with pagination limit (default 1000)
+   - Caches first row in query history
+6. Callback returns JSON `QueryResult` (columns, rows, rowCount, hasMore)
+7. Swift decoder deserializes → `ResultsGridVC` displays in NSTableView
+8. User clicks "Load More" → `PharosCore.fetchMoreRows(offset)` for next batch
 
-**Connection Management:**
+**Metadata Loading:**
 
-1. App startup: Frontend calls `tauri.loadConnections()` → SQLite
-2. Frontend populates connectionStore with list
-3. User clicks connection → Frontend calls `tauri.connectPostgres(connectionId)`
-4. Rust creates pool via `db/postgres.rs::create_pool()`
-5. Updates AppState.connections map
-6. Frontend receives status, shows in ServerRail
-7. On disconnect: Pool dropped, AppState.connections cleaned up
+1. Connection established → MetadataCache loads schemas
+2. `MetadataCache.load(connectionId)` calls `PharosCore.getSchemas()`
+3. Schema list returned, immediately published to UI (schema popup usable)
+4. Background task loads tables + columns per schema via `getSchemaColumns()`
+5. Data cached in-memory for SQL autocomplete (SQLCompletionProvider)
+6. User selects schema in dropdown → `MetadataCache.prioritize(schema)` reorders load
+7. If analyze requested, `PharosCore.analyzeSchema()` populates row count estimates
 
-**Schema Metadata Load:**
+**Settings & Persistence:**
 
-1. User selects connection → DatabaseNavigator mounts
-2. Calls `tauri.getSchemas(connectionId)`
-3. Rust queries `information_schema` to list schemas
-4. Frontend filters empty schemas based on settings
-5. User expands schema → calls `tauri.getTables(connectionId, schemaName)`
-6. Frontend caches result in local state, renders tree
-7. User clicks table → context menu allows View Rows, Clone, Export, etc.
-
-**Settings Persistence:**
-
-1. User changes theme, column widths, etc. in UI
-2. settingsStore updates locally
-3. On change: Frontend calls `tauri.saveSettings(settings)`
-4. Rust writes to SQLite, returns success
-5. On app startup: Frontend calls `tauri.loadSettings()` to restore
-
-**State Management Pattern:**
-
-- Each Zustand store is a single source of truth for that domain
-- Actions mutate state synchronously (Zustand shallow merging)
-- Side effects (async) happen in components via useEffect + hooks
-- No action dispatching; direct state reads via selectors (e.g., `state.getActiveConnection()`)
-- Stores are initialized empty; populated on mount via Tauri calls
+1. AppDelegate calls `AppStateManager.loadConnections()` at startup
+2. `PharosCore.loadConnections()` reads from local SQLite DB
+3. User edits settings → `SettingsSheet` calls `stateManager.saveSettings()`
+4. `PharosCore.saveSettings()` writes to SQLite
+5. Settings also cached in-memory in `AppStateManager.@Published settings`
 
 ## Key Abstractions
 
-**Connection:**
-- Purpose: Represents a PostgreSQL database connection with metadata
-- Examples: `src/lib/types.ts` (ConnectionConfig, Connection interface)
-- Pattern: Immutable config + mutable runtime status (connected/disconnected/error)
-
-**QueryTab:**
-- Purpose: Represents a query editor tab with execution state
-- Examples: `src/stores/editorStore.ts` (QueryTab interface)
-- Pattern: Tracks SQL text, cursor position, execution results, validation state
-- Lifecycle: Create → Edit → Execute → Display Results → Close
-
-**QueryResult:**
-- Purpose: Columnar result set from query execution
-- Examples: `src-tauri/src/commands/query.rs` (QueryResult struct)
-- Pattern: Columns + rows (vec of JSON), pagination cursor, execution time
-- Used by: Frontend ResultsGrid for virtualized display
-
-**TreeNode:**
-- Purpose: Schema browser hierarchy (schemas → tables → columns)
-- Examples: `src/lib/types.ts` (TreeNode interface)
-- Pattern: Recursive tree structure with expand/collapse state
-- Rendered by: SchemaTree component using recursive React components
-
 **AppState (Rust):**
-- Purpose: Central state container for Tauri backend
-- Examples: `src-tauri/src/state.rs` (AppState struct)
-- Contains: Connection pools (HashMap), configs, running queries, password cache
-- Pattern: All Mutex-wrapped for thread-safe access from async commands
+- Purpose: Central mutable state holding connection pools, running queries, SQLite DB
+- Examples: `pharos-core/src/state.rs`
+- Pattern: Mutex-protected HashMap for thread-safe access, Arc for shared ownership
+- Used by: All command handlers
+
+**CallbackBox (Swift):**
+- Purpose: Type-erased box to carry generic closures through void* context
+- Examples: `Pharos/Core/PharosCore.swift` lines 441-445
+- Pattern: Class wrapper preserving closure capturing, Unmanaged for opaque pointer conversion
+- Rationale: C function pointers cannot be generic; boxing preserves type info at runtime
+
+**SchemaTreeNode (Swift):**
+- Purpose: Tree node for schema browser outline view (NSOutlineView requires class types)
+- Examples: `Pharos/ViewControllers/SchemaBrowserVC.swift`
+- Pattern: Parent/child relationships, lazy loading of table/column children, row count tracking
+- Used by: SchemaBrowserVC outline view data source
+
+**PGTypeCategory (Swift):**
+- Purpose: Classify PostgreSQL data types for cell formatting (numeric right-align, etc.)
+- Examples: `Pharos/ViewControllers/ResultsGridVC.swift` lines 46-82
+- Pattern: Enum with init(dataType:) parsing
+- Used by: ResultsGridVC for column alignment and display formatting
+
+**QueryTab (Swift Model):**
+- Purpose: In-memory representation of an editor tab (SQL text, connection, execution state)
+- Examples: `Pharos/Models/QueryTab.swift`
+- Pattern: Codable struct with unique ID, captures at point in time (not persisted between sessions)
+- Used by: AppStateManager tab management, ContentViewController tab switching
 
 ## Entry Points
 
-**Frontend Entry:**
-- Location: `src/main.tsx`
-- Triggers: App launch
-- Responsibilities:
-  1. Initialize React root and mount App component
-  2. Set up QueryClient for @tanstack/react-query
-  3. Attach global context menu handler (allow only in editable elements)
+**App Launch:**
+- Location: `Pharos/App/main.swift`
+- Triggers: System launches app
+- Responsibilities: Create NSApplication, set AppDelegate, call `app.run()`
 
-**App Component:**
-- Location: `src/App.tsx`
-- Triggers: React app initialization
+**Initialization:**
+- Location: `Pharos/App/AppDelegate.swift`, `applicationDidFinishLaunching`
+- Triggers: App startup
 - Responsibilities:
-  1. Load connections and settings from backend
-  2. Render main layout (sidebar + workspace)
-  3. Handle dialog state (add connection, settings, etc.)
-  4. Listen for menu events from Tauri
-  5. Manage sidebar collapse state
+  1. Call `pharos_init(appSupportDir)` (Rust: initialize tokio runtime, SQLite DB)
+  2. Load connections, settings from Rust via PharosCore
+  3. Apply theme
+  4. Build main menu
+  5. Create and show MainWindowController
 
-**Rust Entry:**
-- Location: `src-tauri/src/lib.rs`
-- Triggers: Tauri app startup
+**Window Setup:**
+- Location: `Pharos/Windows/MainWindowController.swift`
+- Triggers: AppDelegate init
 - Responsibilities:
-  1. Build Tauri app with plugins (dialog, window-state, logs)
-  2. Initialize SQLite metadata database
-  3. Load saved connections and password cache
-  4. Apply window vibrancy (macOS)
-  5. Register command handlers
-  6. Initialize AppState
+  1. Create NSWindow with unified toolbar
+  2. Create toolbar with connection/schema popups and action buttons
+  3. Install PharosSplitViewController (NSSplitViewController with sidebar + content)
+  4. Observe AppStateManager published properties, rebuild UI on changes
+
+**Sidebar/Navigator:**
+- Location: `Pharos/ViewControllers/SidebarViewController.swift`
+- Triggers: User views sidebar (visible by default)
+- Responsibilities:
+  1. NSSegmentedControl to switch between Navigator (schema browser) and Library (saved/history)
+  2. Container view swaps between SchemaBrowserVC, SavedQueriesVC, QueryHistoryVC
+
+**Editor & Results:**
+- Location: `Pharos/ViewControllers/ContentViewController.swift`
+- Triggers: Tab selection, connection change
+- Responsibilities:
+  1. Manage QueryTabBar (tab list with drag-reorder)
+  2. Swap QueryEditorVC in/out when tab changes
+  3. Execute query and pass results to ResultsGridVC
+  4. Handle tab lifecycle (create, close, rename, reopen)
 
 ## Error Handling
 
-**Strategy:** Result<T, String> for Tauri commands; error messages bubbled to frontend; UI shows error toast/dialog.
+**Strategy:** Errors from C/Rust are returned as JSON via callback, decoded to Swift exceptions.
 
 **Patterns:**
-- Backend returns Err(message) for validation errors, database errors, connection errors
-- Frontend receives error string and displays in tab error state or toast notification
-- Query execution errors show in red box below editor
-- Connection test shows error dialog
-- Network errors timeout after 10 seconds (sqlx acquire_timeout)
 
-**Specific Cases:**
-- Connection refused: "Not connected to: {connection_id}"
-- Schema validation: "Invalid schema name: only letters, numbers, underscores, and hyphens allowed"
-- Query cancelled: Query marked cancelled in AppState, client-side query execution stops
-- Permission denied: Command returns error, frontend records in analyze_denied cache to skip future ANALYZE
+1. **Async Callback Errors:**
+   ```swift
+   // PharosCore.swift: withAsyncCallback checks error_msg parameter
+   if let errorMsg {
+       continuation.resume(throwing: PharosCoreError.rustError(error))
+   }
+   ```
+   - Rust FFI returns error via callback; Swift continuation throws
+   - View controllers catch with `try`/`catch`, display NSAlert
+
+2. **Synchronous Operation Errors:**
+   ```swift
+   // saveConnection, deleteConnection, etc.
+   let error = pharos_save_connection(json)
+   if let error { throw PharosCoreError.rustError(String(cString: error)) }
+   ```
+   - C function returns null on success, error string on failure
+   - Swift wraps in enum, throws immediately
+
+3. **Decoding Errors:**
+   ```swift
+   do {
+       let decoded = try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+   } catch {
+       continuation.resume(throwing: PharosCoreError.decodingError(json, error))
+   }
+   ```
+   - JSON parsing failures are caught, context preserved (JSON snippet in error)
+
+4. **User-Facing Error Display:**
+   - View controllers wrap async calls in try/catch
+   - Errors displayed as NSAlert or logged to console
+   - No automatic retry (user must fix and re-execute)
+
+5. **Rust Error Propagation:**
+   - Command handlers return `Result<T, Box<dyn std::error::Error>>`
+   - Error converted to JSON with message field
+   - FFI callback receives as `error_msg` parameter
 
 ## Cross-Cutting Concerns
 
 **Logging:**
-
-- Frontend: `console.log()` for debug info, visible in browser dev tools
-- Backend (debug builds): `tauri_plugin_log` configured in lib.rs, level=Info
-- No structured logging; simple print statements in Rust
+- Approach: NSLog (standard Apple logging) for events; tokio runtime logs via env_logger
+- Uses: Connection errors, failed queries, metadata load issues
+- Location: Each command handler uses `log::error!` or `log::info!`, Swift uses `NSLog()`
 
 **Validation:**
-
-- Frontend: React form inputs with inline error display (query validation in QueryEditor)
-- Backend: Schema name validation (alphanumeric + underscore + hyphen), SQL validation (optional), file path validation for exports
-- Type validation: TypeScript for frontend, serde for Rust JSON deserialization
+- Approach: SQL syntax validation via `PharosCore.validateSQL()` before execution (debounced, typed in editor)
+- Uses: Client-side syntax check before server-side execution
+- Location: QueryEditorVC triggers async validation on text change, displays error inline
 
 **Authentication:**
+- Approach: Passwords loaded from macOS Keychain on app init into memory cache
+- Uses: Connection pooling authenticates with cached password (no re-prompt per query)
+- Location: `pharos-core/src/db/credentials.rs` loads from Keychain, `AppState.password_cache` holds in-memory copy
+- Limitation: Password not re-prompted if keychain entry updated mid-session
 
-- No user authentication; app assumes local machine access
-- Password storage: Saved in system keychain, loaded once at startup into password_cache
-- Password used in connection string, never persisted to disk
-- Per-connection SSL mode configurable (disable, prefer, require)
+**Connection Pooling:**
+- Approach: sqlx PgPool for each connection ID (pooling is per-connection, not global)
+- Uses: Connection reuse across queries, automatic reconnect on pool exhaustion
+- Location: `AppState.connections` HashMap<String, PgPool>, managed by Rust commands
 
-**Theming:**
+**Query Cancellation:**
+- Approach: Running query registered in `AppState.running_queries` with backend PID, cancellable via PostgreSQL `pg_cancel_backend()`
+- Uses: User clicks cancel button in results, stops long-running query
+- Location: `commands::query::cancel_query()` uses registered PID
 
-- CSS variables defined in `src/index.css` with `theme-*` classes
-- Three modes: light, dark, auto (system)
-- Applied via `useTheme()` hook setting `<html data-theme="">` attribute
-- Tailwind consumes via `theme-*` class names in components
-
-**Keyboard Shortcuts:**
-
-- Defined in `src/lib/types.ts` (DEFAULT_SHORTCUTS)
-- Customizable in settings
-- Applied in QueryEditor via Monaco editor keybindings + browser addEventListener
-- Common: Cmd+Enter (execute), Cmd+K (format), Cmd+/ (comment)
+**Transaction Isolation:**
+- Approach: Not explicitly managed; each query is auto-commit or respects explicit `BEGIN/COMMIT`
+- Uses: User can execute multi-statement transactions if SQL contains BEGIN/COMMIT
+- Limitation: No transaction state tracking in UI (user must manage via SQL)
 
 ---
 

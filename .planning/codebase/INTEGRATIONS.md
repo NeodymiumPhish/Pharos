@@ -4,158 +4,145 @@
 
 ## APIs & External Services
 
-**PostgreSQL Database:**
-- Service: PostgreSQL server (user-configured, any version supporting information_schema)
-- What it's used for: Primary query execution, schema introspection, metadata collection
-  - SDK/Client: sqlx 0.8 with native-tls
-  - Auth: Custom ConnectionConfig (username/password with optional SSL)
-  - Connection pooling: 5 max connections per database via PgPoolOptions
-  - Supported SSL modes: disable, prefer (default), require
-
-**Monaco Editor CDN:**
-- Service: cdn.jsdelivr.net (Monaco Editor language workers)
-- What it's used for: SQL syntax highlighting, autocomplete, editor functionality
-  - SDK/Client: @monaco-editor/react 4.7.0
-  - CSP allowance: script-src and style-src for jsdelivr.net
+**PostgreSQL Database Servers:**
+- Service: Any PostgreSQL server (9.6+ inferred from feature support)
+  - What it's used for: Primary data source - schema introspection, query execution, table/schema/index/function metadata
+  - SDK/Client: sqlx 0.8 (async PostgreSQL driver)
+  - Configuration: Connection configs stored in SQLite, managed via UI sheets (`Pharos/Sheets/ConnectionSheet.swift`)
+  - Auth: Credentials via connection config (username/password), stored securely in macOS Keychain
 
 ## Data Storage
 
 **Databases:**
-- PostgreSQL (external)
-  - Connection: User-provided host:port/database with authentication
-  - Client: sqlx with connection pooling (max 5 per config)
-  - Query execution: Full SQL support with result streaming
 
-- SQLite (local)
-  - Storage: `{app_data_dir}/pharos.db` (file-based)
-  - Client: rusqlite with bundled SQLite
-  - Purpose: Connection configs, saved queries, query history, app settings
-  - Schema migrations: Handled automatically on startup (password removal, ssl_mode, sort_order, color columns)
+**PostgreSQL (Remote):**
+- Connection: Via `ConnectionConfig` (host, port, database, username, ssl_mode)
+  - Client: sqlx with configurable connection pooling (max 5 connections per pool)
+  - Async: tokio runtime for non-blocking database operations
+  - Timeout: 10-second acquire timeout per connection
+  - SSL Modes: disable, prefer (default), require
+  - All connections tracked in `AppState.connections` HashMap keyed by connection ID
+
+**SQLite (Local Metadata Cache):**
+- Path: `~/Library/Application Support/com.pharos.client/pharos.db`
+- Client: rusqlite 0.32 with bundled SQLite
+- Tables:
+  - `connections` - Connection configurations (passwords NOT stored, referenced in keychain)
+    - Columns: id, name, host, port, database, username, ssl_mode, sort_order, created_at, updated_at
+  - `saved_queries` - User-saved query templates
+  - `query_history` - Historical queries with cached result metadata
+  - `app_settings` - Application preferences and UI state
+- Migrations: Auto-run on app startup via `pharos-core/src/db/sqlite.rs:init_database()`
+  - Legacy password migration: Old per-connection keychain entries merged to unified entry
 
 **File Storage:**
-- Local filesystem only
-  - Exports: CSV, JSON, XLSX (via rust_xlsxwriter)
-  - Imports: CSV validation and import
-  - File dialogs: Tauri plugin-dialog for file picker
-  - Validation: Restricted to `$HOME/`, `/tmp/`, `/var/folders/` (validate_file_path in table.rs)
+- Location: User-selected directories only (no automatic cloud sync)
+- Export Formats:
+  - CSV: Via `rust_xlsxwriter` (table export to `/tmp/`, `$HOME/`, `/var/folders/`)
+  - Excel/XLSX: Via `rust_xlsxwriter 0.82`
+  - Path validation: `validate_file_path()` restricts to `$HOME/`, `/tmp/`, `/var/folders/` for security
+- Import:
+  - CSV ingestion via `importCsv()` command
 
 **Caching:**
-- In-memory
-  - Password cache: HashMap<String, String> loaded from macOS Keychain at startup
-  - Connection pools: HashMap<String, PgPool> in AppState
-  - React Query: 5-minute stale time for schema metadata
+- Metadata Cache: SQLite local database caches schema metadata (schemas, tables, columns, indexes, functions, constraints)
+- Query Result Cache: Query history entries optionally cache result metadata for UI display without re-execution
+- No distributed caching (single-machine app)
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Custom (no external auth service)
-  - Implementation: Direct PostgreSQL connection authentication (username/password)
-  - Password storage: macOS Keychain only (Service: `com.pharos.client`)
-  - Keychain entry structure: Single unified JSON entry with all connection passwords as key-value pairs
-  - Legacy migration: migrate_legacy_passwords() converts old per-connection entries to unified format on startup
+- Custom implementation via direct PostgreSQL username/password authentication
+  - Location: `pharos-core/src/commands/connection.rs` (connect, test, disconnect)
+  - No OAuth or external identity provider
 
-**Session Management:**
-- Per-connection basis via AppState.connections (HashMap<String, PgPool>)
-- No user accounts; each connection is independent
+**Credential Storage:**
+- Secure Storage: macOS Keychain (native `Security.framework`)
+  - Implementation: `pharos-core/src/db/credentials.rs`
+  - Service Name: `com.pharos.client`
+  - Credentials Key: Single unified JSON entry `connection-passwords` (one entry for all connections)
+  - Format: HashMap<connection_id, password> serialized as JSON
+  - Lifecycle: Loaded at startup (`pharos_init()`), updated on connection save/delete, merged from legacy per-connection entries
+- Transient: Password field in `ConnectionConfig` only present during transport (not persisted to disk)
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None detected (no third-party service)
+- None - Errors bubble up through C FFI callback pattern to Swift error handling
+- Location: `pharos-core/src/ffi.rs` - AsyncCallback with error_msg parameter
 
 **Logs:**
-- Framework: Tauri plugin-log (conditionally enabled in debug builds)
-- Level: Info and above
-- Output: Tauri logs directory
-- Custom logging: log crate 0.4 (used throughout Rust backend)
+- Framework: env_logger 0.11 (log 0.4 facade)
+- Configuration: RUST_LOG environment variable
+- Output: stderr by default (captured by macOS process logs)
+- Initialization: Called in `pharos_init()` via `env_logger::try_init()`
+- Usage: Throughout Rust backend via `log::info!()`, `log::warn!()`, `log::error!()`
 
-**Query Performance:**
-- Connection latency: Measured on test connection via INSTANT::elapsed()
-- Query tracking: Running queries registered with unique queryId and PostgreSQL backend_pid
-- Cancellation: Via pg_cancel_backend(backend_pid) in backend state
+**Performance Monitoring:**
+- Connection latency: Measured during test connection and returned in `ConnectionInfo.latency_ms`
+  - Implementation: `pharos-core/src/db/postgres.rs:test_connection()` measures elapsed time
+  - Displayed in UI for connection health assessment
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Desktop app (macOS native)
-- Distribution: App bundle (.app) via Tauri bundle
-- Build target: Universal binary (Intel + Apple Silicon)
+- Distribution: macOS App (native binary)
+- Code Signing: Hardened runtime enabled in Xcode project
+  - Entitlements: Requires network access to PostgreSQL servers
 
-**CI Pipeline:**
-- None detected (no GitHub Actions or similar configured)
-- Manual build: `npm run tauri build`
+**Build Pipeline:**
+- No CI service detected - Manual build via Xcode or `npm run tauri build` (outdated, Tauri branch only)
+- Pre-build Script: Xcode invokes `cargo build --release` before linking app binary
+- Output: Universal or Intel binary depending on build architecture
+
+**Deployment:**
+- Manual: Build in Xcode, code sign, distribute via App Store or direct download
+- No automatic updates detected
 
 ## Environment Configuration
 
-**Required env vars:**
-- None required at runtime
-- Development: Uses hardcoded localhost:5173 for dev server URL
-- No .env file detected in codebase
+**Required Environment Variables:**
+- `RUST_LOG` - Optional, controls log level for debug builds (e.g., `RUST_LOG=pharos_core=debug`)
 
-**Secrets location:**
-- macOS Keychain (Service: `com.pharos.client`)
-  - Entry key: `connection-passwords`
-  - Format: JSON string of connection_id -> password pairs
-  - Access: Only via keyring crate with apple-native feature
-  - Startup: migrate_legacy_passwords() loads all at once, cached in AppState.password_cache
-  - Subsequent access: From in-memory cache only (no repeated Keychain lookups)
+**No Environment-Based Config Files:**
+- All configuration stored in SQLite (connections, saved queries, settings)
+- No `.env` or `.env.local` files
+
+**Secrets Location:**
+- macOS Keychain - All connection passwords stored via Security.framework
+- No plaintext secrets on disk or in environment
+- Credentials encrypted by OS when stored in Keychain
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None
+- None - App does not expose any HTTP endpoints
 
 **Outgoing:**
-- None
+- C FFI Callbacks: `AsyncCallback` function pointer pattern in `pharos-core/src/ffi.rs`
+  - Signature: `extern "C" fn(context: *mut c_void, result_json: *const CChar, error_msg: *const CChar)`
+  - Used for all async operations (connect, query, metadata fetch)
+  - Swift wraps via `PharosCore.swift:withAsyncCallback()` with Swift continuations
 
-**Event System (Internal):**
-- Tauri event emission: From Tauri backend to React frontend
-  - menu-about: Settings panel trigger
-  - menu-settings: Settings panel trigger
-  - Custom events: Applications can emit generic events via window.listen()
+**Database Notifications:**
+- PostgreSQL LISTEN/NOTIFY: Not detected - Pharos does not listen for database events
+- Query Cancellation: via `pg_cancel_backend()` SQL function (called from `pharos_cancel_query()`)
 
-## Data Synchronization
+## PostgreSQL Feature Requirements
 
-**Frontend ↔ Backend:**
-- Command-response pattern: All communication via Tauri `invoke()`
-  - Types: `src/lib/tauri.ts` wraps all Rust command invocations
-  - Serialization: JSON via serde/serde_json
-  - Async: All commands return Promises
+**Introspection:**
+- information_schema tables for schema/table/column metadata
+- pg_catalog system catalog for indexes, constraints, functions
+- Foreign table exclusion: ANALYZE skipped on foreign tables (can hang indefinitely)
 
-**State Management:**
-- Zustand stores in React: connectionStore, editorStore, savedQueryStore, settingsStore, queryHistoryStore
-- Local persistence: Queries cached in SQLite (query_history table)
-- Remote persistence: Saved queries and connections stored in local SQLite
+**SQL Formatting:**
+- sqlformat 0.3 - PostgreSQL SQL formatter for query normalization
+- Applied in `PharosCore.formatSQL()` (Swift wrapper)
 
-## Export/Import Integrations
-
-**Export Formats:**
-- CSV (via csv crate 1.3)
-- JSON (via serde_json)
-- XLSX (via rust_xlsxwriter 0.82)
-- Plain text SQL
-- File saving: Via Tauri plugin-dialog (save_dialog)
-
-**Import Formats:**
-- CSV with validation (CsvValidationResult, CsvImportOptions)
-- File picking: Via Tauri plugin-dialog (open_dialog)
-
-## Connection Management
-
-**ConnectionConfig Structure:**
-- id: String (UUID v4 generated on creation)
-- name, host, port, database, username: Connection details
-- password: Transient (only in-transit), stored in Keychain
-- ssl_mode: SSL preference (disable/prefer/require)
-- color: Optional visual indicator for connections
-- All configs cached in AppState.connection_configs on startup
-
-**Connection Pool Lifecycle:**
-1. User connects → create_pool() via sqlx PgPoolOptions
-2. Pool stored in AppState.connections with connection_id key
-3. Test connection: Temporary pool (1 connection, 10s timeout)
-4. Disconnect: Pool closed and removed from state
-5. Analyze denied tables tracked in AppState.analyze_denied (cleared on disconnect)
+**Version Compatibility:**
+- SSL/TLS: Native TLS via sqlx (libc TLS, not rustls)
+- Connection string: PostgreSQL URI format with URL-encoded credentials
+- No version locks detected - Compatible with modern PostgreSQL versions
 
 ---
 
