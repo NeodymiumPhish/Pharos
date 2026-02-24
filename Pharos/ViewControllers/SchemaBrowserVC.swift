@@ -7,25 +7,10 @@ import AppKit
 class SchemaTreeNode: NSObject {
 
     enum Kind {
-        // Top level
         case schema(SchemaInfo)
-        // Category folders
-        case tablesCategory
-        case viewsCategory
-        case functionsCategory
-        // Items
         case table(TableInfo)
         case view(TableInfo)
-        case function(FunctionInfo)
-        // Sub-categories under table/view
-        case columnsCategory
-        case indexesCategory
-        case constraintsCategory
-        // Leaf items
         case column(ColumnInfo)
-        case index(IndexInfo)
-        case constraint(ConstraintInfo)
-        // Placeholder while loading
         case loading
     }
 
@@ -53,30 +38,16 @@ class SchemaTreeNode: NSObject {
     var title: String {
         switch kind {
         case .schema(let info): return info.name
-        case .tablesCategory: return "Tables"
-        case .viewsCategory: return "Views"
-        case .functionsCategory: return "Functions"
         case .table(let info): return info.name
         case .view(let info): return info.name
-        case .function(let info): return info.name
-        case .columnsCategory: return "Columns"
-        case .indexesCategory: return "Indexes"
-        case .constraintsCategory: return "Constraints"
         case .column(let info): return info.name
-        case .index(let info): return info.name
-        case .constraint(let info): return info.name
         case .loading: return "Loading…"
         }
     }
 
     var subtitle: String? {
         switch kind {
-        case .table(let info):
-            if let count = info.rowCountEstimate, count >= 0 {
-                return formatCount(count)
-            }
-            return nil
-        case .view(let info):
+        case .table(let info), .view(let info):
             if let count = info.rowCountEstimate, count >= 0 {
                 return formatCount(count)
             }
@@ -86,17 +57,6 @@ class SchemaTreeNode: NSObject {
             if info.isPrimaryKey { parts.append("PK") }
             if !info.isNullable { parts.append("NOT NULL") }
             return parts.joined(separator: ", ")
-        case .index(let info):
-            var parts = [info.indexType]
-            if info.isUnique { parts.append("unique") }
-            return parts.joined(separator: ", ")
-        case .constraint(let info):
-            return info.constraintType
-        case .function(let info):
-            return "(\(info.argumentTypes)) → \(info.returnType)"
-        case .tablesCategory, .viewsCategory, .functionsCategory:
-            let count = children.count(where: { if case .loading = $0.kind { return false }; return true })
-            return count > 0 ? "\(count)" : nil
         default:
             return nil
         }
@@ -106,19 +66,10 @@ class SchemaTreeNode: NSObject {
         let name: String
         switch kind {
         case .schema: name = "cylinder.split.1x2"
-        case .tablesCategory: name = "tablecells"
-        case .viewsCategory: name = "eye"
-        case .functionsCategory: name = "function"
         case .table: name = "tablecells"
         case .view: name = "eye"
-        case .function: name = "function"
-        case .columnsCategory: name = "list.bullet"
-        case .indexesCategory: name = "bolt.horizontal"
-        case .constraintsCategory: name = "lock"
         case .column(let info):
             name = info.isPrimaryKey ? "key.fill" : "textformat"
-        case .index: name = "bolt.horizontal"
-        case .constraint: name = "lock"
         case .loading: return nil
         }
         return NSImage(systemSymbolName: name, accessibilityDescription: title)
@@ -127,7 +78,6 @@ class SchemaTreeNode: NSObject {
     var tintColor: NSColor {
         switch kind {
         case .column(let info) where info.isPrimaryKey: return .systemYellow
-        case .constraint: return .systemOrange
         case .loading: return .tertiaryLabelColor
         default: return .secondaryLabelColor
         }
@@ -135,12 +85,8 @@ class SchemaTreeNode: NSObject {
 
     var isExpandable: Bool {
         switch kind {
-        case .schema, .tablesCategory, .viewsCategory, .functionsCategory,
-             .table, .view,
-             .columnsCategory, .indexesCategory, .constraintsCategory:
-            return true
-        default:
-            return false
+        case .schema, .table, .view: return true
+        default: return false
         }
     }
 
@@ -183,6 +129,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
     private var rootNodes: [SchemaTreeNode] = []
     private var unfilteredRootNodes: [SchemaTreeNode] = []
     private var filterText: String?
+    private var activeSchemaFilter: String?
     private var connectionId: String?
 
     override func loadView() {
@@ -225,26 +172,11 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                 // Step 1: Get all schemas
                 let schemas = try await PharosCore.getSchemas(connectionId: connectionId)
 
-                // Step 2: For each schema, load tables and columns in parallel
+                // Step 2: Build schema nodes with loading placeholders
                 var schemaNodes: [SchemaTreeNode] = []
                 for info in schemas {
                     let schemaNode = SchemaTreeNode(.schema(info))
-
-                    // Tables category (with loading placeholder until data arrives)
-                    let tablesCategory = SchemaTreeNode(.tablesCategory, parent: schemaNode)
-                    tablesCategory.addChild(SchemaTreeNode(.loading, parent: tablesCategory))
-                    schemaNode.addChild(tablesCategory)
-
-                    // Views category
-                    let viewsCategory = SchemaTreeNode(.viewsCategory, parent: schemaNode)
-                    viewsCategory.addChild(SchemaTreeNode(.loading, parent: viewsCategory))
-                    schemaNode.addChild(viewsCategory)
-
-                    // Functions category (stays lazy)
-                    let funcsCategory = SchemaTreeNode(.functionsCategory, parent: schemaNode)
-                    funcsCategory.addChild(SchemaTreeNode(.loading, parent: funcsCategory))
-                    schemaNode.addChild(funcsCategory)
-
+                    schemaNode.addChild(SchemaTreeNode(.loading, parent: schemaNode))
                     schemaNodes.append(schemaNode)
                 }
 
@@ -275,67 +207,27 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                         }
 
                         await MainActor.run {
-                            // Build tables category — includes regular tables AND foreign tables
-                            let tablesCategory = schemaNode.children.first { if case .tablesCategory = $0.kind { return true }; return false }
-                            if let tablesCategory {
-                                tablesCategory.removeAllChildren()
-                                tablesCategory.isLoaded = true
-                                for t in tables where t.tableType == .table || t.tableType == .foreignTable {
-                                    let tableNode = SchemaTreeNode(.table(t), parent: tablesCategory)
+                            schemaNode.removeAllChildren()
+                            schemaNode.isLoaded = true
 
-                                    // Columns — already loaded from batch query
-                                    let colsCategory = SchemaTreeNode(.columnsCategory, parent: tableNode)
-                                    colsCategory.isLoaded = true
-                                    if let cols = columnsByTable[t.name] {
-                                        for c in cols {
-                                            let colInfo = ColumnInfo(
-                                                name: c.name, dataType: c.dataType,
-                                                isNullable: c.isNullable, isPrimaryKey: c.isPrimaryKey,
-                                                ordinalPosition: c.ordinalPosition, columnDefault: c.columnDefault
-                                            )
-                                            colsCategory.addChild(SchemaTreeNode(.column(colInfo), parent: colsCategory))
-                                        }
-                                    }
-                                    tableNode.addChild(colsCategory)
+                            // Tables (regular + foreign) first, then views — each alphabetical
+                            let tableItems = tables
+                                .filter { $0.tableType == .table || $0.tableType == .foreignTable }
+                                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                            let viewItems = tables
+                                .filter { $0.tableType == .view }
+                                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
-                                    // Indexes — lazy loaded
-                                    let idxsCategory = SchemaTreeNode(.indexesCategory, parent: tableNode)
-                                    idxsCategory.addChild(SchemaTreeNode(.loading, parent: idxsCategory))
-                                    tableNode.addChild(idxsCategory)
-
-                                    // Constraints — lazy loaded
-                                    let consCategory = SchemaTreeNode(.constraintsCategory, parent: tableNode)
-                                    consCategory.addChild(SchemaTreeNode(.loading, parent: consCategory))
-                                    tableNode.addChild(consCategory)
-
-                                    tablesCategory.addChild(tableNode)
-                                }
+                            for t in tableItems {
+                                let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
+                                self.addColumnChildren(to: tableNode, from: columnsByTable[t.name])
+                                schemaNode.addChild(tableNode)
                             }
 
-                            // Build views category — only actual views
-                            let viewsCategory = schemaNode.children.first { if case .viewsCategory = $0.kind { return true }; return false }
-                            if let viewsCategory {
-                                viewsCategory.removeAllChildren()
-                                viewsCategory.isLoaded = true
-                                for t in tables where t.tableType == .view {
-                                    let viewNode = SchemaTreeNode(.view(t), parent: viewsCategory)
-
-                                    let colsCategory = SchemaTreeNode(.columnsCategory, parent: viewNode)
-                                    colsCategory.isLoaded = true
-                                    if let cols = columnsByTable[t.name] {
-                                        for c in cols {
-                                            let colInfo = ColumnInfo(
-                                                name: c.name, dataType: c.dataType,
-                                                isNullable: c.isNullable, isPrimaryKey: c.isPrimaryKey,
-                                                ordinalPosition: c.ordinalPosition, columnDefault: c.columnDefault
-                                            )
-                                            colsCategory.addChild(SchemaTreeNode(.column(colInfo), parent: colsCategory))
-                                        }
-                                    }
-                                    viewNode.addChild(colsCategory)
-
-                                    viewsCategory.addChild(viewNode)
-                                }
+                            for v in viewItems {
+                                let viewNode = SchemaTreeNode(.view(v), parent: schemaNode)
+                                self.addColumnChildren(to: viewNode, from: columnsByTable[v.name])
+                                schemaNode.addChild(viewNode)
                             }
 
                             self.refreshAfterLoad()
@@ -350,8 +242,22 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
+    private func addColumnChildren(to parentNode: SchemaTreeNode, from cols: [SchemaColumnInfo]?) {
+        parentNode.isLoaded = true
+        guard let cols else { return }
+        for c in cols {
+            let colInfo = ColumnInfo(
+                name: c.name, dataType: c.dataType,
+                isNullable: c.isNullable, isPrimaryKey: c.isPrimaryKey,
+                ordinalPosition: c.ordinalPosition, columnDefault: c.columnDefault
+            )
+            parentNode.addChild(SchemaTreeNode(.column(colInfo), parent: parentNode))
+        }
+    }
+
     func clear() {
         connectionId = nil
+        activeSchemaFilter = nil
         unfilteredRootNodes.removeAll()
         rootNodes.removeAll()
         outlineView.reloadData()
@@ -361,29 +267,66 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     func applyFilter(_ text: String) {
         filterText = text.lowercased()
-        rebuildFilteredTree()
+        rebuildDisplayTree()
     }
 
     func clearFilter() {
         filterText = nil
-        rootNodes = unfilteredRootNodes
+        rebuildDisplayTree()
+    }
+
+    // MARK: - Schema Filter API (called by SidebarViewController)
+
+    func showSchema(_ name: String) {
+        activeSchemaFilter = name
+        rebuildDisplayTree()
+    }
+
+    func showAllSchemas() {
+        activeSchemaFilter = nil
+        rebuildDisplayTree()
+    }
+
+    /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
+    private func rebuildDisplayTree() {
+        // Step 1: Apply schema filter
+        var nodes: [SchemaTreeNode]
+        if let schemaName = activeSchemaFilter {
+            nodes = unfilteredRootNodes.filter { $0.schemaName == schemaName }
+        } else {
+            nodes = unfilteredRootNodes
+        }
+
+        // Step 2: Apply text filter on top
+        if let filter = filterText, !filter.isEmpty {
+            nodes = nodes.compactMap { filterNode($0, text: filter) }
+        }
+
+        rootNodes = nodes
         outlineView.reloadData()
-        // Re-expand "public" schema
-        if let pub = rootNodes.first(where: { $0.schemaName == "public" }) {
-            outlineView.expandItem(pub)
+
+        // Collapse everything first — reloadData() preserves expansion state for same-object items
+        for node in rootNodes {
+            outlineView.collapseItem(node, collapseChildren: true)
+        }
+
+        // Step 3: Auto-expand based on context
+        if activeSchemaFilter != nil {
+            expandSchemaContents(rootNodes)
+        } else if let filter = filterText, !filter.isEmpty {
+            expandFilteredItems(rootNodes)
+        } else {
+            if let pub = rootNodes.first(where: { $0.schemaName == "public" }) {
+                outlineView.expandItem(pub)
+            }
         }
     }
 
-    private func rebuildFilteredTree() {
-        guard let filter = filterText, !filter.isEmpty else {
-            rootNodes = unfilteredRootNodes
-            outlineView.reloadData()
-            return
+    /// Expand a selected schema's contents (tables/views stay collapsed so user sees the full list).
+    private func expandSchemaContents(_ nodes: [SchemaTreeNode]) {
+        for schema in nodes {
+            outlineView.expandItem(schema)
         }
-
-        rootNodes = unfilteredRootNodes.compactMap { filterNode($0, text: filter) }
-        outlineView.reloadData()
-        expandFilteredItems(rootNodes)
     }
 
     /// Recursively filter tree. Returns a filtered copy of the node if it or any descendant matches.
@@ -394,53 +337,44 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         case .loading:
             return nil
 
-        // Structural nodes: include if any child matches
-        case .schema, .tablesCategory, .viewsCategory, .functionsCategory,
-             .columnsCategory, .indexesCategory, .constraintsCategory:
+        case .schema:
             let matchingChildren = node.children.compactMap { filterNode($0, text: text) }
             if matchingChildren.isEmpty && !titleMatches { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
-            for child in matchingChildren {
-                filtered.addChild(child)
-            }
+            for child in matchingChildren { filtered.addChild(child) }
             return filtered
 
-        // Item nodes with children (table, view): include if name matches or child matches
         case .table, .view:
             let matchingChildren = node.children.compactMap { filterNode($0, text: text) }
             if !titleMatches && matchingChildren.isEmpty { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
             if titleMatches {
-                // Name matches — show all children as-is
-                for child in node.children {
-                    filtered.addChild(child)
-                }
+                for child in node.children { filtered.addChild(child) }
             } else {
-                // Only children matched — show filtered children
-                for child in matchingChildren {
-                    filtered.addChild(child)
-                }
+                for child in matchingChildren { filtered.addChild(child) }
             }
             return filtered
 
-        // Leaf nodes: include if title matches
-        case .column, .index, .constraint, .function:
+        case .column:
             return titleMatches ? node : nil
         }
     }
 
-    /// Expand schemas and category folders so filtered results are visible,
-    /// but don't auto-expand individual tables/views (user toggles those).
+    /// Expand schemas and tables so filtered results are visible.
     private func expandFilteredItems(_ nodes: [SchemaTreeNode]) {
         for node in nodes {
             switch node.kind {
-            case .schema, .tablesCategory, .viewsCategory, .functionsCategory,
-                 .columnsCategory, .indexesCategory, .constraintsCategory:
+            case .schema:
                 if !node.children.isEmpty {
                     outlineView.expandItem(node)
                     expandFilteredItems(node.children)
+                }
+            case .table, .view:
+                // Expand table/view if it has matching column children
+                if !node.children.isEmpty {
+                    outlineView.expandItem(node)
                 }
             default:
                 break
@@ -448,180 +382,9 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    // MARK: - Lazy Loading
-
-    private func loadChildren(for node: SchemaTreeNode) {
-        guard let connectionId, let schemaName = node.schemaName else { return }
-        node.isLoaded = true
-
-        // Find the corresponding unfiltered node to update
-        let targetNode = findUnfilteredNode(matching: node) ?? node
-
-        switch node.kind {
-        case .tablesCategory:
-            Task {
-                do {
-                    let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for t in tables where t.tableType == .table || t.tableType == .foreignTable {
-                            let tableNode = SchemaTreeNode(.table(t), parent: targetNode)
-                            let cols = SchemaTreeNode(.columnsCategory, parent: tableNode)
-                            cols.addChild(SchemaTreeNode(.loading, parent: cols))
-                            tableNode.addChild(cols)
-                            let idxs = SchemaTreeNode(.indexesCategory, parent: tableNode)
-                            idxs.addChild(SchemaTreeNode(.loading, parent: idxs))
-                            tableNode.addChild(idxs)
-                            let cons = SchemaTreeNode(.constraintsCategory, parent: tableNode)
-                            cons.addChild(SchemaTreeNode(.loading, parent: cons))
-                            tableNode.addChild(cons)
-                            targetNode.addChild(tableNode)
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load tables: \(error)")
-                }
-            }
-
-        case .viewsCategory:
-            Task {
-                do {
-                    let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for t in tables where t.tableType == .view {
-                            let viewNode = SchemaTreeNode(.view(t), parent: targetNode)
-                            let cols = SchemaTreeNode(.columnsCategory, parent: viewNode)
-                            cols.addChild(SchemaTreeNode(.loading, parent: cols))
-                            viewNode.addChild(cols)
-                            targetNode.addChild(viewNode)
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load views: \(error)")
-                }
-            }
-
-        case .functionsCategory:
-            Task {
-                do {
-                    let funcs = try await PharosCore.getSchemaFunctions(connectionId: connectionId, schema: schemaName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for f in funcs {
-                            targetNode.addChild(SchemaTreeNode(.function(f), parent: targetNode))
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load functions: \(error)")
-                }
-            }
-
-        case .columnsCategory:
-            guard let tableName = node.tableName else { return }
-            Task {
-                do {
-                    let cols = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for c in cols {
-                            targetNode.addChild(SchemaTreeNode(.column(c), parent: targetNode))
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load columns: \(error)")
-                }
-            }
-
-        case .indexesCategory:
-            guard let tableName = node.tableName else { return }
-            Task {
-                do {
-                    let idxs = try await PharosCore.getTableIndexes(connectionId: connectionId, schema: schemaName, table: tableName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for i in idxs {
-                            targetNode.addChild(SchemaTreeNode(.index(i), parent: targetNode))
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load indexes: \(error)")
-                }
-            }
-
-        case .constraintsCategory:
-            guard let tableName = node.tableName else { return }
-            Task {
-                do {
-                    let cons = try await PharosCore.getTableConstraints(connectionId: connectionId, schema: schemaName, table: tableName)
-                    await MainActor.run {
-                        targetNode.removeAllChildren()
-                        for c in cons {
-                            targetNode.addChild(SchemaTreeNode(.constraint(c), parent: targetNode))
-                        }
-                        self.refreshAfterLoad()
-                    }
-                } catch {
-                    NSLog("Failed to load constraints: \(error)")
-                }
-            }
-
-        default:
-            break
-        }
-    }
-
     /// After loading children into the unfiltered tree, refresh display.
     private func refreshAfterLoad() {
-        if filterText != nil {
-            rebuildFilteredTree()
-        } else {
-            rootNodes = unfilteredRootNodes
-            outlineView.reloadData()
-        }
-    }
-
-    /// Find the corresponding node in the unfiltered tree by matching kind and path.
-    private func findUnfilteredNode(matching node: SchemaTreeNode) -> SchemaTreeNode? {
-        guard filterText != nil else { return nil }
-
-        for schema in unfilteredRootNodes {
-            if let found = findNode(in: schema, matchingKind: node.kind, schemaName: node.schemaName, tableName: node.tableName) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    private func findNode(in node: SchemaTreeNode, matchingKind kind: SchemaTreeNode.Kind, schemaName: String?, tableName: String?) -> SchemaTreeNode? {
-        if nodesMatch(node.kind, kind) && node.schemaName == schemaName && node.tableName == tableName {
-            return node
-        }
-        for child in node.children {
-            if let found = findNode(in: child, matchingKind: kind, schemaName: schemaName, tableName: tableName) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    private func nodesMatch(_ a: SchemaTreeNode.Kind, _ b: SchemaTreeNode.Kind) -> Bool {
-        switch (a, b) {
-        case (.tablesCategory, .tablesCategory),
-             (.viewsCategory, .viewsCategory),
-             (.functionsCategory, .functionsCategory),
-             (.columnsCategory, .columnsCategory),
-             (.indexesCategory, .indexesCategory),
-             (.constraintsCategory, .constraintsCategory):
-            return true
-        default:
-            return false
-        }
+        rebuildDisplayTree()
     }
 
     // MARK: - NSOutlineViewDataSource
@@ -653,12 +416,6 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         return cell
     }
 
-    func outlineViewItemWillExpand(_ notification: Notification) {
-        guard let node = notification.userInfo?["NSObject"] as? SchemaTreeNode,
-              !node.isLoaded else { return }
-        loadChildren(for: node)
-    }
-
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         guard let node = item as? SchemaTreeNode else { return 22 }
         return node.subtitle != nil ? 32 : 22
@@ -672,14 +429,14 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         return menu
     }
 
-    @objc private func contextViewRows(_ sender: Any?) {
+    @objc private func contextCopySelectStar(_ sender: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         let tableName: String
         switch node.kind {
         case .table(let t), .view(let t): tableName = t.name
         default: return
         }
-        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\" LIMIT 1000"
+        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sql, forType: .string)
     }
@@ -705,22 +462,68 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    @objc private func contextCopySelectStar(_ sender: Any?) {
-        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
-        let tableName: String
-        switch node.kind {
-        case .table(let t), .view(let t): tableName = t.name
-        default: return
-        }
-        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sql, forType: .string)
-    }
-
     @objc private func contextCopyName(_ sender: Any?) {
         guard let node = clickedNode() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.title, forType: .string)
+    }
+
+    @objc private func contextViewIndexes(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        let tableName: String
+        switch node.kind {
+        case .table(let t): tableName = t.name
+        default: return
+        }
+        Task {
+            do {
+                let indexes = try await PharosCore.getTableIndexes(connectionId: connectionId, schema: schemaName, table: tableName)
+                await MainActor.run {
+                    let sheet = SchemaDetailSheet.forIndexes(schema: schemaName, table: tableName, items: indexes)
+                    self.presentAsSheet(sheet)
+                }
+            } catch {
+                NSLog("Failed to load indexes: \(error)")
+            }
+        }
+    }
+
+    @objc private func contextViewConstraints(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        let tableName: String
+        switch node.kind {
+        case .table(let t): tableName = t.name
+        default: return
+        }
+        Task {
+            do {
+                let constraints = try await PharosCore.getTableConstraints(connectionId: connectionId, schema: schemaName, table: tableName)
+                await MainActor.run {
+                    let sheet = SchemaDetailSheet.forConstraints(schema: schemaName, table: tableName, items: constraints)
+                    self.presentAsSheet(sheet)
+                }
+            } catch {
+                NSLog("Failed to load constraints: \(error)")
+            }
+        }
+    }
+
+    @objc private func contextViewFunctions(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        Task {
+            do {
+                let functions = try await PharosCore.getSchemaFunctions(connectionId: connectionId, schema: schemaName)
+                await MainActor.run {
+                    let sheet = SchemaDetailSheet.forFunctions(schema: schemaName, items: functions)
+                    self.presentAsSheet(sheet)
+                }
+            } catch {
+                NSLog("Failed to load functions: \(error)")
+            }
+        }
     }
 
     private func clickedNode() -> SchemaTreeNode? {
@@ -738,13 +541,27 @@ extension SchemaBrowserVC: NSMenuDelegate {
         guard let node = clickedNode() else { return }
 
         switch node.kind {
-        case .table, .view:
+        case .table:
+            menu.addItem(withTitle: "Copy SELECT *", action: #selector(contextCopySelectStar), keyEquivalent: "")
+            menu.addItem(withTitle: "Copy DDL", action: #selector(contextCopyDDL), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
+            menu.addItem(withTitle: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
+
+        case .view:
             menu.addItem(withTitle: "Copy SELECT *", action: #selector(contextCopySelectStar), keyEquivalent: "")
             menu.addItem(withTitle: "Copy DDL", action: #selector(contextCopyDDL), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
 
-        case .column, .index, .constraint, .function, .schema:
+        case .schema:
+            menu.addItem(withTitle: "View Functions", action: #selector(contextViewFunctions), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
+
+        case .column:
             menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
 
         default:
@@ -761,9 +578,6 @@ private class SchemaTreeCellView: NSTableCellView {
     private let primaryLabel = NSTextField(labelWithString: "")
     private let secondaryLabel = NSTextField(labelWithString: "")
     private let labelStack = NSStackView()
-
-    private var singleLineConstraint: NSLayoutConstraint!
-    private var multiLineConstraint: NSLayoutConstraint!
 
     convenience init(identifier: NSUserInterfaceItemIdentifier) {
         self.init()

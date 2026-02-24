@@ -11,7 +11,14 @@ final class AppStateManager: ObservableObject {
 
     @Published private(set) var connections: [ConnectionConfig] = []
     @Published private(set) var connectionStatuses: [String: ConnectionStatus] = [:]
-    @Published var activeConnectionId: String?
+    @Published var activeConnectionId: String? {
+        didSet {
+            if activeConnectionId != oldValue {
+                activeSchema = nil
+            }
+        }
+    }
+    @Published var activeSchema: String?
     @Published private(set) var settings: AppSettings = AppSettings()
 
     // Tab management

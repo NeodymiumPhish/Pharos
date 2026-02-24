@@ -75,6 +75,17 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.connectionStatusChanged() }
             .store(in: &cancellables)
+
+        stateManager.$activeSchema
+            .receive(on: RunLoop.main)
+            .sink { [weak self] schema in
+                if let schema {
+                    self?.schemaBrowser.showSchema(schema)
+                } else {
+                    self?.schemaBrowser.showAllSchemas()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     override func viewDidLayout() {

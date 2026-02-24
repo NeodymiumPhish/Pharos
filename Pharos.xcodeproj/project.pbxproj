@@ -18,6 +18,7 @@
 		4544AA18681DE8297EE4419C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9154BC81016709ADD201F2C /* main.swift */; };
 		467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
+		627A722B0A1B2646AE7C64BD /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */; };
 		65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028712E3F9210287025ADAE8 /* AppStateManager.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
@@ -65,6 +66,7 @@
 		EBF3A05751881D6DB6B2AE26 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
+		CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -128,6 +130,7 @@
 			isa = PBXGroup;
 			children = (
 				FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */,
+				CADC0B0809F1A8608CE7AC38 /* SchemaDetailSheet.swift */,
 			);
 			path = Sheets;
 			sourceTree = "<group>";
@@ -265,6 +268,7 @@
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
 				5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
+				627A722B0A1B2646AE7C64BD /* SchemaDetailSheet.swift in Sources */,
 				467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */,
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
 				BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */,

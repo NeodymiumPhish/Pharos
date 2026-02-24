@@ -5,7 +5,7 @@ import Combine
 
 private extension NSToolbarItem.Identifier {
     static let connectionPopup = NSToolbarItem.Identifier("ConnectionPopup")
-    static let addConnection = NSToolbarItem.Identifier("AddConnection")
+    static let schemaPopup = NSToolbarItem.Identifier("SchemaPopup")
     static let runQuery = NSToolbarItem.Identifier("RunQuery")
     static let formatQuery = NSToolbarItem.Identifier("FormatQuery")
 }
@@ -14,8 +14,10 @@ class MainWindowController: NSWindowController {
 
     let splitViewController = PharosSplitViewController()
     private let stateManager = AppStateManager.shared
+    private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
     private weak var connectionPopup: NSPopUpButton?
+    private weak var schemaPopup: NSPopUpButton?
 
     init() {
         let window = NSWindow(
@@ -49,12 +51,26 @@ class MainWindowController: NSWindowController {
 
         stateManager.$activeConnectionId
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateConnectionPopup() }
+            .sink { [weak self] _ in
+                self?.updateConnectionPopup()
+                self?.updateSchemaPopup()
+            }
             .store(in: &cancellables)
 
         stateManager.$connectionStatuses
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateConnectionPopup() }
+            .store(in: &cancellables)
+
+        // Observe schema metadata for schema popup
+        metadataCache.$schemas
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateSchemaPopup() }
+            .store(in: &cancellables)
+
+        stateManager.$activeSchema
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateSchemaPopup() }
             .store(in: &cancellables)
     }
 
@@ -88,7 +104,7 @@ class MainWindowController: NSWindowController {
             buttonTitle = "Select Connection"
         }
         popup.addItem(withTitle: buttonTitle)
-        popup.isEnabled = !connections.isEmpty
+        popup.isEnabled = true
 
         // Style the title item with colored status indicator
         if let activeId,
@@ -99,46 +115,110 @@ class MainWindowController: NSWindowController {
             }
         }
 
-        guard !connections.isEmpty else { return }
-
-        // Connection items — each with its own action
-        popup.menu?.addItem(.separator())
-        for config in connections {
-            let status = stateManager.status(for: config.id)
-            let icon = statusString(for: status)
-            let title = "\(icon)\(config.name)"
-            let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = config.id
-            menuItem.attributedTitle = styledTitle(title, status: status)
-            // Checkmark on active connection
-            if config.id == activeId {
-                menuItem.state = .on
+        if !connections.isEmpty {
+            // Connection items — each with its own action
+            popup.menu?.addItem(.separator())
+            for config in connections {
+                let status = stateManager.status(for: config.id)
+                let icon = statusString(for: status)
+                let title = "\(icon)\(config.name)"
+                let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = config.id
+                menuItem.attributedTitle = styledTitle(title, status: status)
+                // Checkmark on active connection
+                if config.id == activeId {
+                    menuItem.state = .on
+                }
+                popup.menu?.addItem(menuItem)
             }
-            popup.menu?.addItem(menuItem)
+
+            // Management items
+            popup.menu?.addItem(.separator())
+
+            let connectItem = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
+            connectItem.target = self
+            popup.menu?.addItem(connectItem)
+
+            let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(disconnectSelected), keyEquivalent: "")
+            disconnectItem.target = self
+            popup.menu?.addItem(disconnectItem)
+
+            popup.menu?.addItem(.separator())
+
+            let editItem = NSMenuItem(title: "Edit Connection...", action: #selector(editConnection), keyEquivalent: "")
+            editItem.target = self
+            popup.menu?.addItem(editItem)
+
+            let deleteItem = NSMenuItem(title: "Delete Connection", action: #selector(deleteConnection), keyEquivalent: "")
+            deleteItem.target = self
+            popup.menu?.addItem(deleteItem)
         }
 
-        // Management items
+        // Always show "New Connection..." at the bottom
         popup.menu?.addItem(.separator())
-
-        let connectItem = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
-        connectItem.target = self
-        popup.menu?.addItem(connectItem)
-
-        let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(disconnectSelected), keyEquivalent: "")
-        disconnectItem.target = self
-        popup.menu?.addItem(disconnectItem)
-
-        popup.menu?.addItem(.separator())
-
-        let editItem = NSMenuItem(title: "Edit Connection...", action: #selector(editConnection), keyEquivalent: "")
-        editItem.target = self
-        popup.menu?.addItem(editItem)
-
-        let deleteItem = NSMenuItem(title: "Delete Connection", action: #selector(deleteConnection), keyEquivalent: "")
-        deleteItem.target = self
-        popup.menu?.addItem(deleteItem)
+        let newItem = NSMenuItem(title: "New Connection...", action: #selector(showAddConnectionSheet), keyEquivalent: "")
+        newItem.target = self
+        popup.menu?.addItem(newItem)
     }
+
+    // MARK: - Schema Popup
+
+    private func updateSchemaPopup() {
+        guard let popup = schemaPopup else { return }
+        rebuildSchemaMenu(popup)
+    }
+
+    private func rebuildSchemaMenu(_ popup: NSPopUpButton) {
+        popup.removeAllItems()
+
+        let schemas = metadataCache.schemas
+        let activeSchema = stateManager.activeSchema
+
+        // Check if we have a connected database with schemas
+        let isConnected: Bool
+        if let activeId = stateManager.activeConnectionId {
+            isConnected = stateManager.status(for: activeId) == .connected
+        } else {
+            isConnected = false
+        }
+
+        guard isConnected, !schemas.isEmpty else {
+            popup.addItem(withTitle: "No Schema")
+            popup.isEnabled = false
+            return
+        }
+
+        popup.isEnabled = true
+
+        // Title item (pull-down: first item is the displayed title)
+        let titleText = activeSchema ?? "All Schemas"
+        popup.addItem(withTitle: titleText)
+
+        // "All Schemas" option
+        let allItem = NSMenuItem(title: "All Schemas", action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
+        allItem.target = self
+        allItem.representedObject = nil
+        if activeSchema == nil { allItem.state = .on }
+        popup.menu?.addItem(allItem)
+
+        popup.menu?.addItem(.separator())
+
+        // Individual schema items
+        for schema in schemas {
+            let item = NSMenuItem(title: schema.name, action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = schema.name
+            if activeSchema == schema.name { item.state = .on }
+            popup.menu?.addItem(item)
+        }
+    }
+
+    @objc private func schemaItemClicked(_ sender: NSMenuItem) {
+        stateManager.activeSchema = sender.representedObject as? String
+    }
+
+    // MARK: - Styled Titles
 
     private func statusString(for status: ConnectionStatus) -> String {
         switch status {
@@ -251,13 +331,17 @@ extension MainWindowController: NSToolbarDelegate {
             rebuildConnectionMenu(popup)
             return item
 
-        case .addConnection:
-            let item = NSToolbarItem(itemIdentifier: .addConnection)
-            item.label = "Add Connection"
-            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Connection")
-            item.target = self
-            item.action = #selector(showAddConnectionSheet)
-            item.toolTip = "Add a new database connection"
+        case .schemaPopup:
+            let item = NSToolbarItem(itemIdentifier: .schemaPopup)
+            item.label = "Schema"
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 140, height: 24), pullsDown: true)
+            popup.bezelStyle = .texturedRounded
+            (popup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+            item.view = popup
+            popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+            popup.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+            self.schemaPopup = popup
+            rebuildSchemaMenu(popup)
             return item
 
         case .runQuery:
@@ -288,7 +372,7 @@ extension MainWindowController: NSToolbarDelegate {
         return [
             .toggleSidebar,
             .connectionPopup,
-            .addConnection,
+            .schemaPopup,
             .flexibleSpace,
             .formatQuery,
             .runQuery,
@@ -299,7 +383,7 @@ extension MainWindowController: NSToolbarDelegate {
         return [
             .toggleSidebar,
             .connectionPopup,
-            .addConnection,
+            .schemaPopup,
             .flexibleSpace,
             .formatQuery,
             .runQuery,
