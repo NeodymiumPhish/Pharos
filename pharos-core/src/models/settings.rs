@@ -15,6 +15,26 @@ impl Default for ThemeMode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NullDisplay {
+    #[serde(rename = "NULL")]
+    Uppercase,
+    #[serde(rename = "null")]
+    Lowercase,
+    #[serde(rename = "(null)")]
+    Parenthesized,
+    #[serde(rename = "—")]
+    Dash,
+    #[serde(rename = "∅")]
+    EmptySet,
+}
+
+impl Default for NullDisplay {
+    fn default() -> Self {
+        NullDisplay::Uppercase
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {
@@ -112,6 +132,8 @@ pub struct AppSettings {
     pub keyboard: KeyboardSettings,
     #[serde(default)]
     pub empty_folders: Vec<String>,
+    #[serde(default)]
+    pub null_display: NullDisplay,
 }
 
 impl Default for AppSettings {
@@ -123,6 +145,7 @@ impl Default for AppSettings {
             ui: UISettings::default(),
             keyboard: KeyboardSettings::default(),
             empty_folders: Vec::new(),
+            null_display: NullDisplay::default(),
         }
     }
 }

@@ -26,6 +26,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state.loadConnections()
         state.loadSettings()
 
+        // Apply saved theme
+        SettingsSheet.applyTheme(state.settings.theme)
+
         // Build the main menu
         NSApp.mainMenu = MainMenu.build()
 

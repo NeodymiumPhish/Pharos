@@ -793,7 +793,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     private func styleCell(_ textField: NSTextField, value: AnyCodable, category: PGTypeCategory) {
         if value.isNull {
-            textField.stringValue = "NULL"
+            textField.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
             textField.textColor = .tertiaryLabelColor
             textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
             return

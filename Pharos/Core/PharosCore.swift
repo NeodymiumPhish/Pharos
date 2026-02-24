@@ -176,11 +176,13 @@ enum PharosCore {
     }
 
     /// Execute a statement (INSERT/UPDATE/DELETE).
-    static func executeStatement(connectionId: String, sql: String) async throws -> ExecuteResult {
+    static func executeStatement(connectionId: String, sql: String, schema: String? = nil) async throws -> ExecuteResult {
         return try await withAsyncCallback { callback, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
-                    pharos_execute_statement(cConn, cSql, callback, context)
+                    withOptionalCString(schema) { cSchema in
+                        pharos_execute_statement(cConn, cSql, cSchema, callback, context)
+                    }
                 }
             }
         }

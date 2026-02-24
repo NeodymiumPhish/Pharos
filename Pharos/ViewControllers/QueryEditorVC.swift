@@ -62,6 +62,12 @@ class QueryEditorVC: NSViewController {
         }
 
         applySettings()
+
+        // Re-apply settings when they change
+        stateManager.$settings
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applySettings() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public API
@@ -119,14 +125,36 @@ class QueryEditorVC: NSViewController {
 
     private func applySettings() {
         let editor = stateManager.settings.editor
+
+        // Font
         let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
         let fontSize = CGFloat(editor.fontSize)
 
-        if let font = NSFont(name: fontName, size: fontSize) {
+        if fontName == "System Monospace" {
+            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        } else if let font = NSFont(name: fontName, size: fontSize) {
             textView.font = font
         } else {
             textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
+
+        // Tab size
+        textView.tabSize = Int(editor.tabSize)
+
+        // Line numbers
+        scrollView.rulersVisible = editor.lineNumbers
+
+        // Word wrap
+        if editor.wordWrap {
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.size.width = textView.enclosingScrollView?.contentSize.width ?? 0
+            textView.isHorizontallyResizable = false
+        } else {
+            textView.textContainer?.widthTracksTextView = true
+            textView.isHorizontallyResizable = false
+        }
+
+        textView.highlightSyntax()
     }
 
     // MARK: - Text Changes

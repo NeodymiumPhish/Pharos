@@ -198,11 +198,25 @@ class ContentViewController: NSViewController {
 
         emptyState.isHidden = hasConnection
         tabBar.isHidden = !hasConnection
-        splitView.isHidden = !hasConnection
 
         if hasConnection {
             stateManager.ensureTab()
         }
+
+        updateSplitViewVisibility()
+    }
+
+    /// Single source of truth for split view visibility.
+    /// Requires BOTH an active connection AND an active tab.
+    private func updateSplitViewVisibility() {
+        let hasConnection: Bool
+        if let activeId = stateManager.activeConnectionId {
+            hasConnection = stateManager.status(for: activeId) == .connected
+        } else {
+            hasConnection = false
+        }
+        let hasTab = stateManager.activeTabId != nil
+        splitView.isHidden = !hasConnection || !hasTab
     }
 
     // MARK: - Tab Switching
@@ -216,7 +230,16 @@ class ContentViewController: NSViewController {
             }
         }
 
-        guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return }
+        guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
+            // No active tab — hide editor and results
+            editorVC.tabId = nil
+            editorVC.setSQL("")
+            resultsVC.clear()
+            updateSplitViewVisibility()
+            return
+        }
+
+        updateSplitViewVisibility()
 
         editorVC.tabId = tabId
         editorVC.setSQL(tab.sql)
@@ -303,7 +326,8 @@ class ContentViewController: NSViewController {
                         connectionId: connectionId,
                         sql: trimmed,
                         queryId: queryId,
-                        limit: limit
+                        limit: limit,
+                        schema: self.stateManager.activeSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -319,7 +343,8 @@ class ContentViewController: NSViewController {
                 } else {
                     let result = try await PharosCore.executeStatement(
                         connectionId: connectionId,
-                        sql: trimmed
+                        sql: trimmed,
+                        schema: self.stateManager.activeSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -369,7 +394,8 @@ class ContentViewController: NSViewController {
                     connectionId: connectionId,
                     sql: sql,
                     limit: limit,
-                    offset: offset
+                    offset: offset,
+                    schema: self.stateManager.activeSchema
                 )
                 await MainActor.run {
                     // Merge into the tab's stored result

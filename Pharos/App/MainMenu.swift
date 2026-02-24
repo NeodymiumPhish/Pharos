@@ -126,6 +126,9 @@ enum MainMenu {
 
 extension AppDelegate {
     @objc func openSettings(_ sender: Any?) {
-        // TODO: Open settings window
+        guard let window = NSApp.mainWindow,
+              let contentVC = window.contentViewController else { return }
+        let sheet = SettingsSheet()
+        contentVC.presentAsSheet(sheet)
     }
 }

@@ -148,6 +148,7 @@ void pharos_execute_query(const char *connection_id,
 
 void pharos_execute_statement(const char *connection_id,
                               const char *sql,
+                              const char *schema,
                               AsyncCallback callback,
                               void *context);
 

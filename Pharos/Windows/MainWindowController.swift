@@ -8,6 +8,7 @@ private extension NSToolbarItem.Identifier {
     static let schemaPopup = NSToolbarItem.Identifier("SchemaPopup")
     static let runQuery = NSToolbarItem.Identifier("RunQuery")
     static let formatQuery = NSToolbarItem.Identifier("FormatQuery")
+    static let saveQuery = NSToolbarItem.Identifier("SaveQuery")
 }
 
 class MainWindowController: NSWindowController {
@@ -352,6 +353,14 @@ extension MainWindowController: NSToolbarDelegate {
             item.action = #selector(ContentViewController.menuRunQuery(_:))
             return item
 
+        case .saveQuery:
+            let item = NSToolbarItem(itemIdentifier: .saveQuery)
+            item.label = "Save"
+            item.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Save Query")
+            item.toolTip = "Save query (Cmd+S)"
+            item.action = #selector(ContentViewController.menuSaveQuery(_:))
+            return item
+
         case .formatQuery:
             let item = NSToolbarItem(itemIdentifier: .formatQuery)
             item.label = "Format"
@@ -374,6 +383,7 @@ extension MainWindowController: NSToolbarDelegate {
             .connectionPopup,
             .schemaPopup,
             .flexibleSpace,
+            .saveQuery,
             .formatQuery,
             .runQuery,
         ]
@@ -385,6 +395,7 @@ extension MainWindowController: NSToolbarDelegate {
             .connectionPopup,
             .schemaPopup,
             .flexibleSpace,
+            .saveQuery,
             .formatQuery,
             .runQuery,
         ]

@@ -4,6 +4,24 @@ enum ThemeMode: String, Codable {
     case light, dark, auto
 }
 
+enum NullDisplay: String, Codable, CaseIterable {
+    case uppercase = "NULL"
+    case lowercase = "null"
+    case parenthesized = "(null)"
+    case dash = "—"
+    case emptySet = "∅"
+
+    var displayLabel: String {
+        switch self {
+        case .uppercase: return "NULL"
+        case .lowercase: return "null"
+        case .parenthesized: return "(null)"
+        case .dash: return "— (em dash)"
+        case .emptySet: return "∅ (empty set)"
+        }
+    }
+}
+
 struct EditorSettings: Codable {
     var fontSize: UInt32 = 13
     var fontFamily: String = "JetBrains Mono, Monaco, Menlo, monospace"
@@ -47,4 +65,5 @@ struct AppSettings: Codable {
     var ui: UISettings = UISettings()
     var keyboard: KeyboardSettings = KeyboardSettings()
     var emptyFolders: [String] = []
+    var nullDisplay: NullDisplay = .uppercase
 }

@@ -41,6 +41,9 @@ class SQLTextView: NSTextView {
 
     weak var completionDelegate: SQLTextViewCompletionDelegate?
 
+    /// Number of spaces inserted when pressing Tab.
+    var tabSize: Int = 2
+
     var theme = SQLTheme.default {
         didSet { highlightSyntax() }
     }
@@ -233,7 +236,7 @@ class SQLTextView: NSTextView {
 
     override func insertTab(_ sender: Any?) {
         // Insert spaces instead of tab
-        let spaces = String(repeating: " ", count: 2)
+        let spaces = String(repeating: " ", count: tabSize)
         super.insertText(spaces, replacementRange: selectedRange())
     }
 

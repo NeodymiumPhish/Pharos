@@ -512,17 +512,19 @@ pub extern "C" fn pharos_execute_query(
 pub extern "C" fn pharos_execute_statement(
     connection_id: *const c_char,
     sql: *const c_char,
+    schema: *const c_char,
     callback: AsyncCallback,
     context: *mut std::ffi::c_void,
 ) {
     let state = app_state();
     let conn_id = unsafe { c_str_to_string(connection_id) };
     let sql_str = unsafe { c_str_to_string(sql) };
+    let schema_str = unsafe { c_str_to_option(schema) };
     let ctx = context as usize;
 
     runtime().spawn(async move {
 
-        match crate::commands::execute_statement(conn_id, sql_str, state).await {
+        match crate::commands::execute_statement(conn_id, sql_str, schema_str, state).await {
             Ok(result) => {
                 let json = serde_json::to_string(&result).unwrap_or_default();
                 callback_ok(callback, ctx, &json);

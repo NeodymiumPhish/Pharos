@@ -780,6 +780,7 @@ pub async fn fetch_more_rows(
 pub async fn execute_statement(
     connection_id: String,
     sql: String,
+    schema: Option<String>,
     state: &AppState,
 ) -> Result<ExecuteResult, String> {
     let pool = state
@@ -788,8 +789,28 @@ pub async fn execute_statement(
 
     let start = Instant::now();
 
+    // Acquire a dedicated connection so SET search_path and the statement
+    // run on the same connection
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    // Set search_path if schema is specified
+    if let Some(ref schema_name) = schema {
+        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err("Invalid schema name: only letters, numbers, underscores, and hyphens allowed".to_string());
+        }
+        if schema_name.is_empty() || schema_name.len() > 63 {
+            return Err("Invalid schema name: must be 1-63 characters".to_string());
+        }
+        let escaped_schema = schema_name.replace('"', "\"\"");
+        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
+        sqlx::query(&set_schema_sql)
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| format!("Failed to set schema: {}", e))?;
+    }
+
     let result = sqlx::query(&sql)
-        .execute(&pool)
+        .execute(&mut *conn)
         .await
         .map_err(|e| e.to_string())?;
 
