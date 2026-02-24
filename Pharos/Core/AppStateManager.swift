@@ -20,6 +20,11 @@ final class AppStateManager: ObservableObject {
     private var closedTabHistory: [QueryTab] = []
     private let maxClosedHistory = 20
 
+    // Pin state
+    @Published var pinnedResult: QueryResult?
+    @Published var pinnedTabId: String?
+    @Published var pinnedTabName: String?
+
     // MARK: - Notifications
 
     /// Posted when connections list changes. Object is the AppStateManager.
@@ -157,6 +162,12 @@ final class AppStateManager: ObservableObject {
             closedTabHistory.removeFirst()
         }
         tabs.remove(at: idx)
+
+        // Auto-unpin if closing the pinned source tab
+        if pinnedTabId == id {
+            unpinResults()
+        }
+
         if activeTabId == id {
             if tabs.isEmpty {
                 activeTabId = nil
@@ -165,6 +176,12 @@ final class AppStateManager: ObservableObject {
                 activeTabId = tabs[newIdx].id
             }
         }
+    }
+
+    func unpinResults() {
+        pinnedResult = nil
+        pinnedTabId = nil
+        pinnedTabName = nil
     }
 
     func closeOtherTabs(exceptId id: String) {

@@ -84,6 +84,11 @@ class ContentViewController: NSViewController {
             self?.loadMoreRows()
         }
 
+        // Wire up pin toggle
+        resultsVC.onPinToggle = { [weak self] pinned in
+            self?.handlePinToggle(pinned)
+        }
+
         // Observe state
         stateManager.$activeConnectionId
             .receive(on: RunLoop.main)
@@ -98,6 +103,16 @@ class ContentViewController: NSViewController {
         stateManager.$activeTabId
             .receive(on: RunLoop.main)
             .sink { [weak self] tabId in self?.tabChanged(tabId) }
+            .store(in: &cancellables)
+
+        // Observe pin state changes (e.g. auto-unpin on tab close)
+        stateManager.$pinnedTabId
+            .receive(on: RunLoop.main)
+            .sink { [weak self] pinnedId in
+                if pinnedId == nil {
+                    self?.resultsVC.setPinState(pinned: false, tabName: nil)
+                }
+            }
             .store(in: &cancellables)
 
         updateVisibility()
@@ -179,8 +194,11 @@ class ContentViewController: NSViewController {
         editorVC.setSQL(tab.sql)
         editorVC.setCursorPosition(tab.cursorPosition)
 
-        // Restore results if available
-        if let result = tab.result {
+        // If results are pinned, keep showing pinned results
+        if let pinnedResult = stateManager.pinnedResult {
+            resultsVC.showResult(pinnedResult)
+            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
+        } else if let result = tab.result {
             resultsVC.showResult(result)
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
@@ -347,6 +365,33 @@ class ContentViewController: NSViewController {
         }
     }
 
+    // MARK: - Pin Results
+
+    private func handlePinToggle(_ pinned: Bool) {
+        if pinned {
+            guard let tab = stateManager.activeTab, let result = tab.result else { return }
+            stateManager.pinnedResult = result
+            stateManager.pinnedTabId = tab.id
+            stateManager.pinnedTabName = tab.name
+            resultsVC.setPinState(pinned: true, tabName: tab.name)
+        } else {
+            stateManager.unpinResults()
+            resultsVC.setPinState(pinned: false, tabName: nil)
+            // Restore active tab's own results
+            if let tab = stateManager.activeTab {
+                if let result = tab.result {
+                    resultsVC.showResult(result)
+                } else if let execResult = tab.executeResult {
+                    resultsVC.showExecuteResult(execResult)
+                } else if let error = tab.error {
+                    resultsVC.showError(error)
+                } else {
+                    resultsVC.clear()
+                }
+            }
+        }
+    }
+
     /// Cancel a running query in the active tab.
     func cancelQuery() {
         guard let connectionId = stateManager.activeConnectionId,
@@ -388,6 +433,14 @@ extension ContentViewController {
     @objc func menuSelectTab(_ sender: NSMenuItem) {
         let index = sender.tag // Zero-based
         stateManager.selectTabByIndex(index)
+    }
+
+    @objc func showFind() {
+        resultsVC.showFind()
+    }
+
+    @objc func showFilter() {
+        resultsVC.showFilter()
     }
 }
 

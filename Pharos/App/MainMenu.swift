@@ -54,7 +54,11 @@ enum MainMenu {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Find…", action: #selector(ResultsGridVC.showFind), keyEquivalent: "f")
+        editMenu.addItem(withTitle: "Find…", action: #selector(ContentViewController.showFind), keyEquivalent: "f")
+
+        let filterItem = editMenu.addItem(withTitle: "Filter Results…", action: #selector(ContentViewController.showFilter), keyEquivalent: "f")
+        filterItem.keyEquivalentModifierMask = [.command, .shift]
+
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 

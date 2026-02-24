@@ -16,6 +16,7 @@ class QueryTabBar: NSView {
 
     private var tabs: [QueryTab] = []
     private var activeTabId: String?
+    private var pinnedTabId: String?
 
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
@@ -100,11 +101,12 @@ class QueryTabBar: NSView {
 
         // Observe state
         stateManager.$tabs
-            .combineLatest(stateManager.$activeTabId)
+            .combineLatest(stateManager.$activeTabId, stateManager.$pinnedTabId)
             .receive(on: RunLoop.main)
-            .sink { [weak self] tabs, activeId in
+            .sink { [weak self] tabs, activeId, pinnedId in
                 self?.tabs = tabs
                 self?.activeTabId = activeId
+                self?.pinnedTabId = pinnedId
                 self?.rebuildTabs()
             }
             .store(in: &cancellables)
@@ -122,7 +124,7 @@ class QueryTabBar: NSView {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         for (index, tab) in tabs.enumerated() {
-            let tabView = TabItemView(tab: tab, isActive: tab.id == activeTabId)
+            let tabView = TabItemView(tab: tab, isActive: tab.id == activeTabId, isPinnedSource: tab.id == pinnedTabId)
             tabView.onMouseDown = { [weak self] event in
                 self?.handleTabMouseDown(event: event, tabId: tab.id)
             }
@@ -484,10 +486,12 @@ private class TabItemView: NSView {
     private let closeButton = NSButton()
     private let dirtyDot = NSView()
     private let isActive: Bool
+    private let isPinnedSource: Bool
 
-    init(tab: QueryTab, isActive: Bool) {
+    init(tab: QueryTab, isActive: Bool, isPinnedSource: Bool = false) {
         self.tabId = tab.id
         self.isActive = isActive
+        self.isPinnedSource = isPinnedSource
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -572,6 +576,13 @@ private class TabItemView: NSView {
 
             // Bottom highlight bar
             NSColor.controlAccentColor.setFill()
+            NSRect(x: 0, y: 0, width: bounds.width, height: 2).fill()
+        } else if isPinnedSource {
+            NSColor.systemOrange.withAlphaComponent(0.08).setFill()
+            bounds.fill()
+
+            // Orange bottom bar for pinned source
+            NSColor.systemOrange.setFill()
             NSRect(x: 0, y: 0, width: bounds.width, height: 2).fill()
         }
 

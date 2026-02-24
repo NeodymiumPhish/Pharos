@@ -1,4 +1,45 @@
 import AppKit
+import UniformTypeIdentifiers
+
+// MARK: - Scroll View with Non-Overlapping Scrollers
+
+/// NSScrollView subclass that positions scrollers outside the content area
+/// instead of overlaying them on top of the document view.
+private class InsetScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+
+        // Only adjust the clip view's SIZE to make room for scrollers.
+        // Do NOT change its origin — super.tile() positions it correctly
+        // relative to the floating header. Moving it creates a gap.
+        let w = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        let hasVert = hasVerticalScroller && !(verticalScroller?.isHidden ?? true)
+        let hasHoriz = hasHorizontalScroller && !(horizontalScroller?.isHidden ?? true)
+        let vertW = hasVert ? w : 0
+        let horizH = hasHoriz ? w : 0
+
+        var clipFrame = contentView.frame
+        clipFrame.size.width = max(0, bounds.width - vertW)
+        clipFrame.size.height = max(0, clipFrame.size.height - horizH)
+        contentView.frame = clipFrame
+
+        // Vertical scroller: starts below the header, spans data rows only
+        let headerH = (documentView as? NSTableView)?.headerView?.frame.height ?? 0
+        if hasVert, let vs = verticalScroller {
+            vs.frame = NSRect(
+                x: bounds.width - vertW,
+                y: headerH,
+                width: vertW,
+                height: max(0, clipFrame.maxY - headerH)
+            )
+        }
+
+        // Horizontal scroller: right below the clip view
+        if hasHoriz, let hs = horizontalScroller {
+            hs.frame = NSRect(x: 0, y: clipFrame.maxY, width: clipFrame.width, height: horizH)
+        }
+    }
+}
 
 // MARK: - PG Type Classification
 
@@ -66,12 +107,21 @@ private struct CopyData {
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
-class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
 
     private let tableView = NSTableView()
-    private let scrollView = NSScrollView()
-    private let statusBar = NSTextField(labelWithString: "")
+    private let scrollView = InsetScrollView()
     private let emptyLabel = NSTextField(labelWithString: "Run a query to see results")
+
+    // Toolbar
+    private let toolbarBar = NSView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let pinSourceLabel = NSTextField(labelWithString: "")
+    private let resetSortButton = NSButton()
+    private let pinButton = NSButton()
+    private let findToolbarButton = NSButton()
+    private let copyButton = NSButton()
+    private let exportButton = NSButton()
 
     // Data
     private var columns: [ColumnDef] = []
@@ -83,6 +133,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     // Sort state
     private var displayRows: [Int] = []
+    private var unfilteredDisplayRows: [Int] = []
     private var currentSortColumn: String?
     private var currentSortAscending = true
     private var sortClickCount = 0
@@ -90,11 +141,14 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     // Find state
     private let findBar = NSView()
     private let findField = NSSearchField()
+    private let filterToggleButton = NSButton()
+    private let findClearButton = NSButton()
     private let findCountLabel = NSTextField(labelWithString: "")
     private let findPrevButton = NSButton()
     private let findNextButton = NSButton()
     private let findCloseButton = NSButton()
     private var isFindVisible = false
+    private var isFilterMode = false
     private var findMatches: [(row: Int, colId: String)] = []
     private var findMatchSet: Set<CellAddress> = Set()
     private var currentMatchIndex: Int = -1
@@ -106,13 +160,17 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     private var isLoadingMore = false
 
     // Layout constraints to toggle
-    private var scrollViewTopToStatusBar: NSLayoutConstraint!
+    private var scrollViewTopToToolbar: NSLayoutConstraint!
     private var scrollViewTopToFindBar: NSLayoutConstraint!
     private var scrollViewBottomToLoadMore: NSLayoutConstraint!
     private var scrollViewBottomToContainer: NSLayoutConstraint!
 
-    // Pagination callback
+    // Callbacks
     var onLoadMore: (() -> Void)?
+    var onPinToggle: ((Bool) -> Void)?
+
+    // Pin state
+    private var isPinned = false
 
     // Formatters
     private static let rowCountFormatter: NumberFormatter = {
@@ -126,11 +184,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         self.view = container
 
-        // Status bar at top
-        statusBar.translatesAutoresizingMaskIntoConstraints = false
-        statusBar.font = .systemFont(ofSize: 11)
-        statusBar.textColor = .secondaryLabelColor
-        statusBar.isHidden = true
+        // Toolbar at top
+        setupToolbar()
 
         // Find bar (hidden initially)
         setupFindBar()
@@ -166,29 +221,30 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         // Load more bar
         setupLoadMoreBar()
 
-        container.addSubview(statusBar)
+        container.addSubview(toolbarBar)
         container.addSubview(findBar)
         container.addSubview(scrollView)
         container.addSubview(loadMoreBar)
         container.addSubview(emptyLabel)
 
         // Toggleable constraints
-        scrollViewTopToStatusBar = scrollView.topAnchor.constraint(equalTo: statusBar.bottomAnchor, constant: 4)
+        scrollViewTopToToolbar = scrollView.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor, constant: 2)
         scrollViewTopToFindBar = scrollView.topAnchor.constraint(equalTo: findBar.bottomAnchor, constant: 2)
         scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         scrollViewBottomToLoadMore = scrollView.bottomAnchor.constraint(equalTo: loadMoreBar.topAnchor)
 
         NSLayoutConstraint.activate([
-            statusBar.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            toolbarBar.topAnchor.constraint(equalTo: container.topAnchor),
+            toolbarBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            toolbarBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            toolbarBar.heightAnchor.constraint(equalToConstant: 28),
 
-            findBar.topAnchor.constraint(equalTo: statusBar.bottomAnchor, constant: 2),
+            findBar.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor),
             findBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             findBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             findBar.heightAnchor.constraint(equalToConstant: 28),
 
-            scrollViewTopToStatusBar,
+            scrollViewTopToToolbar,
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollViewBottomToContainer,
@@ -200,6 +256,76 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
             emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+    }
+
+    // MARK: - Toolbar Setup
+
+    private func setupToolbar() {
+        toolbarBar.translatesAutoresizingMaskIntoConstraints = false
+        toolbarBar.isHidden = true
+
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        pinSourceLabel.translatesAutoresizingMaskIntoConstraints = false
+        pinSourceLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        pinSourceLabel.textColor = .systemOrange
+        pinSourceLabel.isHidden = true
+        pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        configureToolbarButton(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill",
+                               action: #selector(resetSortTapped), tooltip: "Reset Sort")
+        resetSortButton.contentTintColor = .controlAccentColor
+        resetSortButton.isHidden = true
+
+        configureToolbarButton(pinButton, symbol: "pin",
+                               action: #selector(togglePin), tooltip: "Pin Results")
+        configureToolbarButton(findToolbarButton, symbol: "magnifyingglass",
+                               action: #selector(showFind), tooltip: "Find (Cmd+F)")
+        configureToolbarButton(copyButton, symbol: "doc.on.doc",
+                               action: #selector(showCopyMenu), tooltip: "Copy")
+        configureToolbarButton(exportButton, symbol: "square.and.arrow.up",
+                               action: #selector(showExportMenu), tooltip: "Export")
+
+        let buttonStack = NSStackView(views: [resetSortButton, pinButton, findToolbarButton, copyButton, exportButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 2
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.setHuggingPriority(.required, for: .horizontal)
+
+        toolbarBar.addSubview(statusLabel)
+        toolbarBar.addSubview(pinSourceLabel)
+        toolbarBar.addSubview(buttonStack)
+
+        NSLayoutConstraint.activate([
+            statusLabel.leadingAnchor.constraint(equalTo: toolbarBar.leadingAnchor, constant: 8),
+            statusLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
+
+            pinSourceLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
+            pinSourceLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
+            pinSourceLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
+
+            buttonStack.trailingAnchor.constraint(equalTo: toolbarBar.trailingAnchor, constant: -8),
+            buttonStack.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
+        ])
+    }
+
+    private func configureToolbarButton(_ button: NSButton, symbol: String, action: Selector, tooltip: String) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        button.bezelStyle = .recessed
+        button.isBordered = false
+        button.target = self
+        button.action = action
+        button.toolTip = tooltip
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.contentTintColor = .secondaryLabelColor
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
@@ -216,6 +342,24 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         findField.action = #selector(findFieldChanged(_:))
         findField.font = .systemFont(ofSize: 12)
         findField.delegate = self
+
+        filterToggleButton.setButtonType(.pushOnPushOff)
+        filterToggleButton.title = "Filter"
+        filterToggleButton.bezelStyle = .recessed
+        filterToggleButton.font = .systemFont(ofSize: 11)
+        filterToggleButton.target = self
+        filterToggleButton.action = #selector(filterToggleChanged)
+        filterToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        filterToggleButton.toolTip = "Filter rows to matches only"
+
+        findClearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
+        findClearButton.bezelStyle = .recessed
+        findClearButton.isBordered = false
+        findClearButton.target = self
+        findClearButton.action = #selector(clearFindField)
+        findClearButton.translatesAutoresizingMaskIntoConstraints = false
+        findClearButton.contentTintColor = .tertiaryLabelColor
+        findClearButton.isHidden = true
 
         findCountLabel.translatesAutoresizingMaskIntoConstraints = false
         findCountLabel.font = .systemFont(ofSize: 11)
@@ -244,6 +388,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         findCloseButton.translatesAutoresizingMaskIntoConstraints = false
 
         findBar.addSubview(findField)
+        findBar.addSubview(filterToggleButton)
+        findBar.addSubview(findClearButton)
         findBar.addSubview(findCountLabel)
         findBar.addSubview(findPrevButton)
         findBar.addSubview(findNextButton)
@@ -254,7 +400,14 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             findField.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
             findField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
 
-            findCountLabel.leadingAnchor.constraint(equalTo: findField.trailingAnchor, constant: 8),
+            filterToggleButton.leadingAnchor.constraint(equalTo: findField.trailingAnchor, constant: 6),
+            filterToggleButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
+
+            findClearButton.leadingAnchor.constraint(equalTo: filterToggleButton.trailingAnchor, constant: 4),
+            findClearButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
+            findClearButton.widthAnchor.constraint(equalToConstant: 20),
+
+            findCountLabel.leadingAnchor.constraint(equalTo: findClearButton.trailingAnchor, constant: 8),
             findCountLabel.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
 
             findPrevButton.leadingAnchor.constraint(equalTo: findCountLabel.trailingAnchor, constant: 4),
@@ -316,14 +469,16 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
         // Initialize display order
         displayRows = Array(0..<rows.count)
+        unfilteredDisplayRows = displayRows
         currentSortColumn = nil
         sortClickCount = 0
+        resetSortButton.isHidden = true
 
         rebuildColumns()
         tableView.reloadData()
         emptyLabel.isHidden = true
         scrollView.isHidden = false
-        statusBar.isHidden = false
+        toolbarBar.isHidden = false
 
         updateLoadMoreVisibility()
         updateStatusBarText()
@@ -340,13 +495,16 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         rowCount = rows.count
         hasMore = result.hasMore
 
-        // Extend displayRows with new indices
+        // Extend with new indices
         let newIndices = Array(oldCount..<rows.count)
-        displayRows.append(contentsOf: newIndices)
+        unfilteredDisplayRows.append(contentsOf: newIndices)
+        displayRows = unfilteredDisplayRows
 
         // Re-apply sort if active
         if currentSortColumn != nil {
             applySortAndReload()
+        } else if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+            findFieldChanged(findField)
         } else {
             tableView.reloadData()
         }
@@ -358,10 +516,10 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     func showExecuteResult(_ result: ExecuteResult) {
         clear()
-        statusBar.isHidden = false
+        toolbarBar.isHidden = false
         let timeStr = formatDuration(result.executionTimeMs)
         let count = formatRowCount(Int(result.rowsAffected))
-        statusBar.stringValue = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
+        statusLabel.stringValue = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
     }
 
     func showError(_ message: String) {
@@ -375,12 +533,14 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         columns = []
         rows = []
         displayRows = []
+        unfilteredDisplayRows = []
         rowCount = 0
         hasMore = false
         executionTimeMs = 0
         columnCategories = [:]
         currentSortColumn = nil
         sortClickCount = 0
+        resetSortButton.isHidden = true
 
         // Remove all table columns
         while let col = tableView.tableColumns.last {
@@ -391,7 +551,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         emptyLabel.textColor = .tertiaryLabelColor
         emptyLabel.isHidden = false
         scrollView.isHidden = true
-        statusBar.isHidden = true
+        toolbarBar.isHidden = true
 
         updateLoadMoreVisibility()
 
@@ -475,14 +635,19 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     // MARK: - Status Bar
 
     private func updateStatusBarText() {
-        let rowStr = formatRowCount(displayRows.count)
         let timeStr = formatDuration(executionTimeMs)
         let moreStr = hasMore ? " (more available)" : ""
 
-        if isFindVisible && !findMatches.isEmpty {
-            statusBar.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatches.count) match\(findMatches.count == 1 ? "" : "es")\(moreStr)"
+        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+            let visibleCount = formatRowCount(displayRows.count)
+            let total = formatRowCount(rows.count)
+            statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(moreStr)"
+        } else if isFindVisible && !findMatches.isEmpty {
+            let rowStr = formatRowCount(displayRows.count)
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatches.count) match\(findMatches.count == 1 ? "" : "es")\(moreStr)"
         } else {
-            statusBar.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(moreStr)"
+            let rowStr = formatRowCount(displayRows.count)
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(moreStr)"
         }
     }
 
@@ -524,15 +689,24 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     private func applySortAndReload() {
         guard let sortKey = currentSortColumn else {
-            displayRows = Array(0..<rows.count)
-            tableView.reloadData()
+            unfilteredDisplayRows = Array(0..<rows.count)
+            displayRows = unfilteredDisplayRows
+            resetSortButton.isHidden = true
+            updateSortIndicators()
+            if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+                findFieldChanged(findField)
+            } else {
+                tableView.reloadData()
+            }
             return
         }
 
         let category = columnCategories[sortKey] ?? .string
         let ascending = currentSortAscending
 
-        displayRows.sort { a, b in
+        // Sort all rows
+        unfilteredDisplayRows = Array(0..<rows.count)
+        unfilteredDisplayRows.sort { a, b in
             let valA = rows[a][sortKey]
             let valB = rows[b][sortKey]
 
@@ -562,17 +736,36 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             return ascending ? result : !result
         }
 
+        displayRows = unfilteredDisplayRows
+        resetSortButton.isHidden = false
         updateSortIndicators()
-        tableView.reloadData()
+
+        // Re-apply filter if active
+        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+            findFieldChanged(findField)
+        } else {
+            tableView.reloadData()
+        }
     }
 
     private func resetSort() {
         currentSortColumn = nil
         sortClickCount = 0
         tableView.sortDescriptors = []
-        displayRows = Array(0..<rows.count)
+        unfilteredDisplayRows = Array(0..<rows.count)
+        displayRows = unfilteredDisplayRows
+        resetSortButton.isHidden = true
         updateSortIndicators()
-        tableView.reloadData()
+
+        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+            findFieldChanged(findField)
+        } else {
+            tableView.reloadData()
+        }
+    }
+
+    @objc private func resetSortTapped() {
+        resetSort()
     }
 
     private func numericValue(_ value: AnyCodable?) -> Double {
@@ -625,33 +818,86 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
+    // MARK: - Escape to Deselect
+
+    @objc override func cancelOperation(_ sender: Any?) {
+        if isFindVisible {
+            closeFind(nil)
+        } else {
+            tableView.deselectAll(nil)
+        }
+    }
+
     // MARK: - Find
 
     @objc func showFind() {
         guard !rows.isEmpty else { return }
+        if isFindVisible {
+            findField.window?.makeFirstResponder(findField)
+            return
+        }
         isFindVisible = true
         findBar.isHidden = false
-        scrollViewTopToStatusBar.isActive = false
+        scrollViewTopToToolbar.isActive = false
         scrollViewTopToFindBar.isActive = true
         findField.window?.makeFirstResponder(findField)
     }
 
+    @objc func showFilter() {
+        guard !rows.isEmpty else { return }
+        if !isFindVisible {
+            isFindVisible = true
+            findBar.isHidden = false
+            scrollViewTopToToolbar.isActive = false
+            scrollViewTopToFindBar.isActive = true
+        }
+        filterToggleButton.state = .on
+        isFilterMode = true
+        findField.window?.makeFirstResponder(findField)
+        if !findField.stringValue.isEmpty {
+            findFieldChanged(findField)
+        }
+    }
+
     @objc private func closeFind(_ sender: Any?) {
         isFindVisible = false
+        isFilterMode = false
+        filterToggleButton.state = .off
         findBar.isHidden = true
         findField.stringValue = ""
         findMatches = []
         findMatchSet = Set()
         currentMatchIndex = -1
         findCountLabel.stringValue = ""
+        findClearButton.isHidden = true
+
+        // Restore unfiltered display
+        displayRows = unfilteredDisplayRows
+
         scrollViewTopToFindBar.isActive = false
-        scrollViewTopToStatusBar.isActive = true
+        scrollViewTopToToolbar.isActive = true
         tableView.reloadData()
         updateStatusBarText()
+        view.window?.makeFirstResponder(tableView)
+    }
+
+    @objc private func filterToggleChanged() {
+        isFilterMode = filterToggleButton.state == .on
+        findFieldChanged(findField)
+    }
+
+    @objc private func clearFindField() {
+        findField.stringValue = ""
+        findFieldChanged(findField)
     }
 
     @objc private func findFieldChanged(_ sender: NSSearchField) {
         let query = sender.stringValue.lowercased()
+        findClearButton.isHidden = query.isEmpty
+
+        // Always start from the unfiltered set
+        displayRows = unfilteredDisplayRows
+
         guard !query.isEmpty else {
             findMatches = []
             findMatchSet = Set()
@@ -662,15 +908,36 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             return
         }
 
+        // Find all matching cells and track which rows have matches
+        let colIds = columns.map(\.name)
+        var matchingRowIndices = Set<Int>()
+
         findMatches = []
         findMatchSet = Set()
-        let colIds = columns.map(\.name)
 
         for (displayIdx, rowIdx) in displayRows.enumerated() {
             let rowData = rows[rowIdx]
             for colId in colIds {
-                if let value = rowData[colId], !value.isNull {
-                    if value.displayString.lowercased().contains(query) {
+                if let value = rowData[colId], !value.isNull,
+                   value.displayString.lowercased().contains(query) {
+                    findMatches.append((row: displayIdx, colId: colId))
+                    findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
+                    matchingRowIndices.insert(rowIdx)
+                }
+            }
+        }
+
+        // If filter mode, narrow displayRows and rebuild match indices
+        if isFilterMode {
+            displayRows = unfilteredDisplayRows.filter { matchingRowIndices.contains($0) }
+
+            findMatches = []
+            findMatchSet = Set()
+            for (displayIdx, rowIdx) in displayRows.enumerated() {
+                let rowData = rows[rowIdx]
+                for colId in colIds {
+                    if let value = rowData[colId], !value.isNull,
+                       value.displayString.lowercased().contains(query) {
                         findMatches.append((row: displayIdx, colId: colId))
                         findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     }
@@ -791,48 +1058,64 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     // MARK: - Copy Support
 
+    private var hasSelection: Bool {
+        !tableView.selectedRowIndexes.isEmpty
+    }
+
     @objc func copy(_ sender: Any?) {
         copyAsTSV(sender)
     }
 
-    private func gatherCopyData() -> CopyData? {
+    /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
+    private func gatherData() -> CopyData? {
         let selectedRows = tableView.selectedRowIndexes
-        guard !selectedRows.isEmpty else { return nil }
 
         let colIds = tableView.tableColumns.compactMap { col -> String? in
             let id = col.identifier.rawValue
             return id == "__rownum__" ? nil : id
         }
+        guard !colIds.isEmpty else { return nil }
 
         var rowData: [[String]] = []
-        for row in selectedRows {
-            guard row < displayRows.count else { continue }
-            let data = rows[displayRows[row]]
-            let values = colIds.map { data[$0]?.displayString ?? "" }
-            rowData.append(values)
+
+        if !selectedRows.isEmpty {
+            for row in selectedRows {
+                guard row < displayRows.count else { continue }
+                let data = rows[displayRows[row]]
+                let values = colIds.map { data[$0]?.displayString ?? "" }
+                rowData.append(values)
+            }
+        } else {
+            for row in 0..<displayRows.count {
+                let data = rows[displayRows[row]]
+                let values = colIds.map { data[$0]?.displayString ?? "" }
+                rowData.append(values)
+            }
         }
 
+        guard !rowData.isEmpty else { return nil }
         return CopyData(columnNames: colIds, rows: rowData)
     }
 
-    @objc private func copyAsTSV(_ sender: Any?) {
-        guard let data = gatherCopyData() else { return }
+    @objc func copyAsTSV(_ sender: Any?) {
+        guard let data = gatherData() else { return }
+        let header = data.columnNames.joined(separator: "\t")
         let lines = data.rows.map { $0.joined(separator: "\t") }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(([header] + lines).joined(separator: "\n"), forType: .string)
     }
 
-    @objc private func copyAsCSV(_ sender: Any?) {
-        guard let data = gatherCopyData() else { return }
-        let header = data.columnNames.map { csvEscape($0) }.joined(separator: ",")
-        let rows = data.rows.map { $0.map { csvEscape($0) }.joined(separator: ",") }
+    @objc func copyAsCSV(_ sender: Any?) {
+        guard let data = gatherData() else { return }
+        let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+        let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
         let result = ([header] + rows).joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(result, forType: .string)
     }
 
-    @objc private func copyAsMarkdown(_ sender: Any?) {
-        guard let data = gatherCopyData() else { return }
+    @objc func copyAsMarkdown(_ sender: Any?) {
+        guard let data = gatherData() else { return }
         let header = "| " + data.columnNames.joined(separator: " | ") + " |"
         let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
         let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
@@ -841,8 +1124,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         NSPasteboard.general.setString(result, forType: .string)
     }
 
-    @objc private func copyAsSQLInsert(_ sender: Any?) {
-        guard let data = gatherCopyData() else { return }
+    @objc func copyAsSQLInsert(_ sender: Any?) {
+        guard let data = gatherData() else { return }
         let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
         let statements = data.rows.map { row in
             let values = zip(data.columnNames, row).map { (col, val) -> String in
@@ -863,22 +1146,184 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         NSPasteboard.general.setString(statements.joined(separator: "\n"), forType: .string)
     }
 
-    private func csvEscape(_ s: String) -> String {
+    private static func csvEscape(_ s: String) -> String {
         if s.contains(",") || s.contains("\"") || s.contains("\n") {
             return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
         }
         return s
     }
 
+    // MARK: - Pin Results
+
+    @objc private func togglePin() {
+        isPinned.toggle()
+        updatePinUI()
+        onPinToggle?(isPinned)
+    }
+
+    func setPinState(pinned: Bool, tabName: String?) {
+        isPinned = pinned
+        if let name = tabName {
+            pinSourceLabel.stringValue = "Pinned: \(name)"
+        }
+        updatePinUI()
+    }
+
+    private func updatePinUI() {
+        if isPinned {
+            pinButton.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Unpin Results")
+            pinButton.contentTintColor = .systemOrange
+            pinSourceLabel.isHidden = false
+        } else {
+            pinButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin Results")
+            pinButton.contentTintColor = .secondaryLabelColor
+            pinSourceLabel.isHidden = true
+        }
+    }
+
+    // MARK: - Copy Menu
+
+    @objc private func showCopyMenu() {
+        let prefix = hasSelection ? "Copy selection" : "Copy"
+        let menu = NSMenu()
+        menu.addItem(withTitle: "\(prefix) as TSV", action: #selector(copyAsTSV), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as CSV", action: #selector(copyAsCSV), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as Markdown", action: #selector(copyAsMarkdown), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
+        let point = NSPoint(x: 0, y: 0)
+        menu.popUp(positioning: nil, at: point, in: copyButton)
+    }
+
+    // MARK: - Export
+
+    @objc private func showExportMenu() {
+        let prefix = hasSelection ? "Export selection" : "Export"
+        let menu = NSMenu()
+        menu.addItem(withTitle: "\(prefix) as CSV…", action: #selector(exportAsCSV), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as TSV…", action: #selector(exportAsTSV), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as JSON…", action: #selector(exportAsJSON), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as SQL INSERT…", action: #selector(exportAsSQLInsert), keyEquivalent: "")
+        menu.addItem(withTitle: "\(prefix) as Markdown…", action: #selector(exportAsMarkdown), keyEquivalent: "")
+        let point = NSPoint(x: 0, y: 0)
+        menu.popUp(positioning: nil, at: point, in: exportButton)
+    }
+
+    private func exportToFile(filename: String, contentType: UTType, generator: @escaping (CopyData) -> String) {
+        guard let data = gatherData(), let window = view.window else { return }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = filename
+        panel.allowedContentTypes = [contentType]
+
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                let content = generator(data)
+                try content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc private func exportAsCSV(_ sender: Any?) {
+        exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
+            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+            let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+            return ([header] + rows).joined(separator: "\n")
+        }
+    }
+
+    @objc private func exportAsTSV(_ sender: Any?) {
+        exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
+            let header = data.columnNames.joined(separator: "\t")
+            let rows = data.rows.map { $0.joined(separator: "\t") }
+            return ([header] + rows).joined(separator: "\n")
+        }
+    }
+
+    @objc private func exportAsJSON(_ sender: Any?) {
+        guard let data = gatherData(), let window = view.window else { return }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "export.json"
+        panel.allowedContentTypes = [.json]
+
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                let jsonArray = data.rows.map { row in
+                    Dictionary(uniqueKeysWithValues: zip(data.columnNames, row))
+                }
+                let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
+                try jsonData.write(to: url)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    @objc private func exportAsSQLInsert(_ sender: Any?) {
+        let cats = columnCategories
+        exportToFile(filename: "export.sql", contentType: UTType(filenameExtension: "sql") ?? .plainText) { data in
+            let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
+            let statements = data.rows.map { row in
+                let values = zip(data.columnNames, row).map { (col, val) -> String in
+                    if val.isEmpty || val == "NULL" { return "NULL" }
+                    let category = cats[col] ?? .string
+                    switch category {
+                    case .numeric, .boolean:
+                        return val
+                    default:
+                        return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                    }
+                }
+                return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
+            }
+            return statements.joined(separator: "\n")
+        }
+    }
+
+    @objc private func exportAsMarkdown(_ sender: Any?) {
+        exportToFile(filename: "export.md", contentType: UTType(filenameExtension: "md") ?? .plainText) { data in
+            let header = "| " + data.columnNames.joined(separator: " | ") + " |"
+            let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
+            let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
+            return ([header, divider] + rows).joined(separator: "\n")
+        }
+    }
+
     // MARK: - Context Menu
 
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Copy as TSV", action: #selector(copyAsTSV), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy as CSV", action: #selector(copyAsCSV), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy as Markdown", action: #selector(copyAsMarkdown), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
+        menu.delegate = self
+
+        let tsv = menu.addItem(withTitle: "Copy as TSV", action: #selector(copyAsTSV), keyEquivalent: "")
+        tsv.tag = 1
+        let csv = menu.addItem(withTitle: "Copy as CSV", action: #selector(copyAsCSV), keyEquivalent: "")
+        csv.tag = 2
+        let md = menu.addItem(withTitle: "Copy as Markdown", action: #selector(copyAsMarkdown), keyEquivalent: "")
+        md.tag = 3
+        let sql = menu.addItem(withTitle: "Copy as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
+        sql.tag = 4
+
         return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        let prefix = hasSelection ? "Copy selection" : "Copy"
+        for item in menu.items {
+            switch item.tag {
+            case 1: item.title = "\(prefix) as TSV"
+            case 2: item.title = "\(prefix) as CSV"
+            case 3: item.title = "\(prefix) as Markdown"
+            case 4: item.title = "\(prefix) as SQL INSERT"
+            default: break
+            }
+        }
     }
 
     // MARK: - Formatting
