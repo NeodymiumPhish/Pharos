@@ -14,11 +14,28 @@ final class AppStateManager: ObservableObject {
     @Published var activeConnectionId: String? {
         didSet {
             if activeConnectionId != oldValue {
-                activeSchema = nil
+                // Save current schema selection for the old connection
+                if let oldId = oldValue, let schema = activeSchema {
+                    schemaSelections[oldId] = schema
+                }
+                // Restore schema selection for new connection (nil if none saved)
+                activeSchema = activeConnectionId.flatMap { schemaSelections[$0] }
             }
         }
     }
-    @Published var activeSchema: String?
+    @Published var activeSchema: String? {
+        didSet {
+            // Keep per-connection selection in sync
+            if let connId = activeConnectionId {
+                if let schema = activeSchema {
+                    schemaSelections[connId] = schema
+                } else {
+                    schemaSelections.removeValue(forKey: connId)
+                }
+            }
+        }
+    }
+    private var schemaSelections: [String: String] = [:]  // connectionId → schemaName
     @Published private(set) var settings: AppSettings = AppSettings()
 
     // Tab management

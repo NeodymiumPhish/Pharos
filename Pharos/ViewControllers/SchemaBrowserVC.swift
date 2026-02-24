@@ -48,10 +48,10 @@ class SchemaTreeNode: NSObject {
     var subtitle: String? {
         switch kind {
         case .table(let info), .view(let info):
-            if let count = info.rowCountEstimate, count >= 0 {
+            if let count = info.rowCountEstimate {
                 return formatCount(count)
             }
-            return nil
+            return "– rows"
         case .column(let info):
             var parts = [info.dataType]
             if info.isPrimaryKey { parts.append("PK") }
@@ -147,6 +147,8 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 16
         outlineView.menu = buildContextMenu()
+        outlineView.doubleAction = #selector(outlineDoubleClicked(_:))
+        outlineView.target = self
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -197,8 +199,17 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                         async let tablesResult = PharosCore.getTables(connectionId: connectionId, schema: schemaName)
                         async let columnsResult = PharosCore.getSchemaColumns(connectionId: connectionId, schema: schemaName)
 
-                        let tables = try await tablesResult
+                        var tables = try await tablesResult
                         let allColumns = try await columnsResult
+
+                        // Analyze unanalyzed tables, then reload to get updated row counts
+                        let hasUnanalyzed = tables.contains { $0.rowCountEstimate == nil }
+                        if hasUnanalyzed {
+                            let result = try? await PharosCore.analyzeSchema(connectionId: connectionId, schema: schemaName)
+                            if result?.hadUnanalyzed == true {
+                                tables = (try? await PharosCore.getTables(connectionId: connectionId, schema: schemaName)) ?? tables
+                            }
+                        }
 
                         // Group columns by table name
                         var columnsByTable: [String: [SchemaColumnInfo]] = [:]
@@ -289,10 +300,14 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
     private func rebuildDisplayTree() {
-        // Step 1: Apply schema filter
+        // Step 1: Apply schema filter (flatten when single schema selected)
         var nodes: [SchemaTreeNode]
         if let schemaName = activeSchemaFilter {
-            nodes = unfilteredRootNodes.filter { $0.schemaName == schemaName }
+            if let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) {
+                nodes = schemaNode.children
+            } else {
+                nodes = []
+            }
         } else {
             nodes = unfilteredRootNodes
         }
@@ -312,20 +327,13 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
         // Step 3: Auto-expand based on context
         if activeSchemaFilter != nil {
-            expandSchemaContents(rootNodes)
+            // Flattened: tables/views are already root-level, no expansion needed
         } else if let filter = filterText, !filter.isEmpty {
             expandFilteredItems(rootNodes)
         } else {
             if let pub = rootNodes.first(where: { $0.schemaName == "public" }) {
                 outlineView.expandItem(pub)
             }
-        }
-    }
-
-    /// Expand a selected schema's contents (tables/views stay collapsed so user sees the full list).
-    private func expandSchemaContents(_ nodes: [SchemaTreeNode]) {
-        for schema in nodes {
-            outlineView.expandItem(schema)
         }
     }
 
@@ -419,6 +427,18 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         guard let node = item as? SchemaTreeNode else { return 22 }
         return node.subtitle != nil ? 32 : 22
+    }
+
+    // MARK: - Double Click
+
+    @objc private func outlineDoubleClicked(_ sender: Any?) {
+        let row = outlineView.clickedRow
+        guard row >= 0, let item = outlineView.item(atRow: row) as? SchemaTreeNode else { return }
+        if outlineView.isItemExpanded(item) {
+            outlineView.collapseItem(item)
+        } else if outlineView.isExpandable(item) {
+            outlineView.expandItem(item)
+        }
     }
 
     // MARK: - Context Menu

@@ -106,7 +106,23 @@ class ContentViewController: NSViewController {
 
         stateManager.$connectionStatuses
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateVisibility() }
+            .sink { [weak self] _ in
+                self?.updateVisibility()
+                // Load metadata when connection transitions to .connected
+                if let id = self?.stateManager.activeConnectionId,
+                   self?.stateManager.status(for: id) == .connected {
+                    self?.metadataCache.load(connectionId: id)
+                }
+            }
+            .store(in: &cancellables)
+
+        stateManager.$activeSchema
+            .receive(on: RunLoop.main)
+            .sink { [weak self] schema in
+                if let schema {
+                    self?.metadataCache.prioritize(schema: schema)
+                }
+            }
             .store(in: &cancellables)
 
         stateManager.$activeTabId

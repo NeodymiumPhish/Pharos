@@ -19,6 +19,7 @@ class MainWindowController: NSWindowController {
     private var cancellables = Set<AnyCancellable>()
     private weak var connectionPopup: NSPopUpButton?
     private weak var schemaPopup: NSPopUpButton?
+    private weak var schemaSpinner: NSProgressIndicator?
 
     init() {
         let window = NSWindow(
@@ -72,6 +73,11 @@ class MainWindowController: NSWindowController {
         stateManager.$activeSchema
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateSchemaPopup() }
+            .store(in: &cancellables)
+
+        metadataCache.$isLoading
+            .receive(on: RunLoop.main)
+            .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
             .store(in: &cancellables)
     }
 
@@ -219,6 +225,19 @@ class MainWindowController: NSWindowController {
         stateManager.activeSchema = sender.representedObject as? String
     }
 
+    private func updateSchemaLoading(_ loading: Bool) {
+        guard let popup = schemaPopup else { return }
+        if loading {
+            popup.removeAllItems()
+            popup.addItem(withTitle: "Loading\u{2026}")
+            popup.isEnabled = false
+            schemaSpinner?.startAnimation(nil)
+        } else {
+            schemaSpinner?.stopAnimation(nil)
+            rebuildSchemaMenu(popup)
+        }
+    }
+
     // MARK: - Styled Titles
 
     private func statusString(for status: ConnectionStatus) -> String {
@@ -341,7 +360,20 @@ extension MainWindowController: NSToolbarDelegate {
             item.view = popup
             popup.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
             popup.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isDisplayedWhenStopped = false
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            popup.addSubview(spinner)
+            NSLayoutConstraint.activate([
+                spinner.trailingAnchor.constraint(equalTo: popup.trailingAnchor, constant: -20),
+                spinner.centerYAnchor.constraint(equalTo: popup.centerYAnchor),
+            ])
+
             self.schemaPopup = popup
+            self.schemaSpinner = spinner
             rebuildSchemaMenu(popup)
             return item
 
