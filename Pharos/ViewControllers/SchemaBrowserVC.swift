@@ -1,5 +1,10 @@
 import AppKit
 
+extension Notification.Name {
+    static let runQueryInNewTab = Notification.Name("PharosRunQueryInNewTab")
+    static let insertTextInEditor = Notification.Name("PharosInsertTextInEditor")
+}
+
 // MARK: - Schema Tree Node
 
 /// A node in the schema browser outline view.
@@ -14,9 +19,10 @@ class SchemaTreeNode: NSObject {
         case loading
     }
 
-    let kind: Kind
+    var kind: Kind
     var children: [SchemaTreeNode] = []
     var isLoaded = false
+    var isRowCountEstimated = true
     weak var parent: SchemaTreeNode?
 
     init(_ kind: Kind, parent: SchemaTreeNode? = nil) {
@@ -49,7 +55,8 @@ class SchemaTreeNode: NSObject {
         switch kind {
         case .table(let info), .view(let info):
             if let count = info.rowCountEstimate {
-                return formatCount(count)
+                let formatted = formatCount(count)
+                return isRowCountEstimated ? "~\(formatted)" : formatted
             }
             return "– rows"
         case .column(let info):
@@ -131,6 +138,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
     private var filterText: String?
     private var activeSchemaFilter: String?
     private var connectionId: String?
+    private var refreshedSchemas: Set<String> = []
 
     override func loadView() {
         let container = NSView()
@@ -171,10 +179,8 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         self.connectionId = connectionId
         Task {
             do {
-                // Step 1: Get all schemas
                 let schemas = try await PharosCore.getSchemas(connectionId: connectionId)
 
-                // Step 2: Build schema nodes with loading placeholders
                 var schemaNodes: [SchemaTreeNode] = []
                 for info in schemas {
                     let schemaNode = SchemaTreeNode(.schema(info))
@@ -182,7 +188,6 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                     schemaNodes.append(schemaNode)
                 }
 
-                // Show initial tree with loading placeholders
                 await MainActor.run {
                     self.unfilteredRootNodes = schemaNodes
                     self.rootNodes = schemaNodes
@@ -192,59 +197,12 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
                     }
                 }
 
-                // Step 3: Eagerly load tables + columns for each schema
-                for schemaNode in schemaNodes {
-                    guard let schemaName = schemaNode.schemaName else { continue }
-                    do {
-                        async let tablesResult = PharosCore.getTables(connectionId: connectionId, schema: schemaName)
-                        async let columnsResult = PharosCore.getSchemaColumns(connectionId: connectionId, schema: schemaName)
-
-                        var tables = try await tablesResult
-                        let allColumns = try await columnsResult
-
-                        // Analyze unanalyzed tables, then reload to get updated row counts
-                        let hasUnanalyzed = tables.contains { $0.rowCountEstimate == nil }
-                        if hasUnanalyzed {
-                            let result = try? await PharosCore.analyzeSchema(connectionId: connectionId, schema: schemaName)
-                            if result?.hadUnanalyzed == true {
-                                tables = (try? await PharosCore.getTables(connectionId: connectionId, schema: schemaName)) ?? tables
-                            }
+                // Load ALL schemas' tables concurrently (tables only — columns are lazy)
+                await withTaskGroup(of: Void.self) { group in
+                    for schemaNode in schemaNodes {
+                        group.addTask { [weak self] in
+                            await self?.loadTablesForSchema(schemaNode, connectionId: connectionId)
                         }
-
-                        // Group columns by table name
-                        var columnsByTable: [String: [SchemaColumnInfo]] = [:]
-                        for col in allColumns {
-                            columnsByTable[col.tableName, default: []].append(col)
-                        }
-
-                        await MainActor.run {
-                            schemaNode.removeAllChildren()
-                            schemaNode.isLoaded = true
-
-                            // Tables (regular + foreign) first, then views — each alphabetical
-                            let tableItems = tables
-                                .filter { $0.tableType == .table || $0.tableType == .foreignTable }
-                                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                            let viewItems = tables
-                                .filter { $0.tableType == .view }
-                                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-                            for t in tableItems {
-                                let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
-                                self.addColumnChildren(to: tableNode, from: columnsByTable[t.name])
-                                schemaNode.addChild(tableNode)
-                            }
-
-                            for v in viewItems {
-                                let viewNode = SchemaTreeNode(.view(v), parent: schemaNode)
-                                self.addColumnChildren(to: viewNode, from: columnsByTable[v.name])
-                                schemaNode.addChild(viewNode)
-                            }
-
-                            self.refreshAfterLoad()
-                        }
-                    } catch {
-                        NSLog("Failed to load tables/columns for schema \(schemaName): \(error)")
                     }
                 }
             } catch {
@@ -253,22 +211,126 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    private func addColumnChildren(to parentNode: SchemaTreeNode, from cols: [SchemaColumnInfo]?) {
-        parentNode.isLoaded = true
-        guard let cols else { return }
-        for c in cols {
-            let colInfo = ColumnInfo(
-                name: c.name, dataType: c.dataType,
-                isNullable: c.isNullable, isPrimaryKey: c.isPrimaryKey,
-                ordinalPosition: c.ordinalPosition, columnDefault: c.columnDefault
-            )
-            parentNode.addChild(SchemaTreeNode(.column(colInfo), parent: parentNode))
+    /// Phase 2: Load tables only (no columns) and display immediately.
+    /// Columns are lazy-loaded when a table is expanded.
+    private func loadTablesForSchema(_ schemaNode: SchemaTreeNode, connectionId: String) async {
+        guard let schemaName = schemaNode.schemaName else { return }
+        do {
+            let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
+
+            await MainActor.run {
+                schemaNode.removeAllChildren()
+                schemaNode.isLoaded = true
+
+                let tableItems = tables
+                    .filter { $0.tableType == .table || $0.tableType == .foreignTable }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                let viewItems = tables
+                    .filter { $0.tableType == .view }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+                for t in tableItems {
+                    let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
+                    // Columns not loaded — will be fetched on expand
+                    tableNode.addChild(SchemaTreeNode(.loading, parent: tableNode))
+                    schemaNode.addChild(tableNode)
+                }
+                for v in viewItems {
+                    let viewNode = SchemaTreeNode(.view(v), parent: schemaNode)
+                    viewNode.addChild(SchemaTreeNode(.loading, parent: viewNode))
+                    schemaNode.addChild(viewNode)
+                }
+
+                self.refreshAfterLoad()
+            }
+        } catch {
+            NSLog("Failed to load tables for schema \(schemaName): \(error)")
+        }
+    }
+
+    /// Background: refresh row counts for a schema.
+    /// Phase 1: Immediately mark tables with existing estimates as fresh (remove ~).
+    /// Phase 2: ANALYZE never-analyzed tables in batches, updating UI progressively.
+    private func refreshRowCounts(for schemaName: String) {
+        guard let connectionId, !refreshedSchemas.contains(schemaName) else { return }
+        guard let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) else { return }
+
+        refreshedSchemas.insert(schemaName)
+
+        Task {
+            // Phase 1: Mark tables that already have row counts as fresh.
+            // Their pg_class value was just loaded — it's the current estimate.
+            var unanalyzedTableNames: [String] = []
+
+            await MainActor.run {
+                for child in schemaNode.children {
+                    switch child.kind {
+                    case .table(let info):
+                        if info.rowCountEstimate != nil {
+                            child.isRowCountEstimated = false
+                        } else if info.tableType != .foreignTable {
+                            unanalyzedTableNames.append(info.name)
+                        }
+                    case .view(let info):
+                        if info.rowCountEstimate != nil {
+                            child.isRowCountEstimated = false
+                        }
+                    default: break
+                    }
+                }
+                self.outlineView.reloadData()
+            }
+
+            // Phase 2: ANALYZE never-analyzed tables in batches of 10.
+            // After each batch, re-fetch and update so counts appear progressively.
+            guard !unanalyzedTableNames.isEmpty else { return }
+
+            let batchSize = 10
+            for batchStart in stride(from: 0, to: unanalyzedTableNames.count, by: batchSize) {
+                let batchEnd = min(batchStart + batchSize, unanalyzedTableNames.count)
+                let batch = unanalyzedTableNames[batchStart..<batchEnd]
+
+                for tableName in batch {
+                    _ = try? await PharosCore.executeStatement(
+                        connectionId: connectionId,
+                        sql: "ANALYZE \"\(schemaName)\".\"\(tableName)\""
+                    )
+                }
+
+                // Re-fetch tables and update UI after each batch
+                do {
+                    let updatedTables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
+                    let countMap = Dictionary(uniqueKeysWithValues: updatedTables.map { ($0.name, $0) })
+
+                    await MainActor.run {
+                        for child in schemaNode.children {
+                            switch child.kind {
+                            case .table(let info):
+                                if let updated = countMap[info.name] {
+                                    child.kind = .table(updated)
+                                }
+                                child.isRowCountEstimated = false
+                            case .view(let info):
+                                if let updated = countMap[info.name] {
+                                    child.kind = .view(updated)
+                                }
+                                child.isRowCountEstimated = false
+                            default: break
+                            }
+                        }
+                        self.outlineView.reloadData()
+                    }
+                } catch {
+                    NSLog("Failed to refresh counts after batch: \(error)")
+                }
+            }
         }
     }
 
     func clear() {
         connectionId = nil
         activeSchemaFilter = nil
+        refreshedSchemas.removeAll()
         unfilteredRootNodes.removeAll()
         rootNodes.removeAll()
         outlineView.reloadData()
@@ -291,6 +353,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
     func showSchema(_ name: String) {
         activeSchemaFilter = name
         rebuildDisplayTree()
+        refreshRowCounts(for: name)
     }
 
     func showAllSchemas() {
@@ -441,7 +504,45 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
+    // MARK: - Lazy Column Loading
+
+    func outlineViewItemWillExpand(_ notification: Notification) {
+        guard let node = notification.userInfo?["NSObject"] as? SchemaTreeNode else { return }
+        guard !node.isLoaded else { return }
+
+        switch node.kind {
+        case .table, .view: break
+        default: return
+        }
+
+        guard let connectionId, let schemaName = node.schemaName, let tableName = node.tableName else { return }
+
+        // Mark as loaded to prevent duplicate fetches
+        node.isLoaded = true
+
+        Task {
+            do {
+                let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
+                await MainActor.run {
+                    node.removeAllChildren()
+                    for col in columns {
+                        node.addChild(SchemaTreeNode(.column(col), parent: node))
+                    }
+                    self.outlineView.reloadItem(node, reloadChildren: true)
+                }
+            } catch {
+                await MainActor.run {
+                    node.removeAllChildren()
+                    self.outlineView.reloadItem(node, reloadChildren: true)
+                }
+                NSLog("Failed to load columns for \(schemaName).\(tableName): \(error)")
+            }
+        }
+    }
+
     // MARK: - Context Menu
+
+    private let stateManager = AppStateManager.shared
 
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
@@ -449,44 +550,207 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         return menu
     }
 
-    @objc private func contextCopySelectStar(_ sender: Any?) {
+    // MARK: Context Menu — Query Actions
+
+    @objc private func contextViewAllContents(_ sender: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
-        let tableName: String
-        switch node.kind {
-        case .table(let t), .view(let t): tableName = t.name
-        default: return
-        }
+        guard let tableName = tableNameFromNode(node) else { return }
         let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sql, forType: .string)
+        NotificationCenter.default.post(name: .runQueryInNewTab, object: nil, userInfo: ["sql": sql])
     }
 
-    @objc private func contextCopyDDL(_ sender: Any?) {
-        guard let node = clickedNode(),
-              let connectionId, let schemaName = node.schemaName else { return }
-        let tableName: String
-        switch node.kind {
-        case .table(let t), .view(let t): tableName = t.name
-        default: return
-        }
-        Task {
-            do {
-                let ddl = try await PharosCore.generateTableDDL(connectionId: connectionId, schema: schemaName, table: tableName)
-                await MainActor.run {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(ddl, forType: .string)
-                }
-            } catch {
-                NSLog("Failed to generate DDL: \(error)")
-            }
-        }
+    @objc private func contextViewContentsWithLimit(_ sender: NSMenuItem) {
+        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+        let limit = sender.tag
+        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\" LIMIT \(limit)"
+        NotificationCenter.default.post(name: .runQueryInNewTab, object: nil, userInfo: ["sql": sql])
     }
+
+    // MARK: Context Menu — Clipboard Actions
 
     @objc private func contextCopyName(_ sender: Any?) {
         guard let node = clickedNode() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.title, forType: .string)
     }
+
+    @objc private func contextPasteToEditor(_ sender: Any?) {
+        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+        let qualifiedName = "\"\(schemaName)\".\"\(tableName)\""
+        NotificationCenter.default.post(name: .insertTextInEditor, object: nil, userInfo: ["text": qualifiedName])
+    }
+
+    // MARK: Context Menu — Clone / Import / Export
+
+    @objc private func contextCloneTable(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+
+        let sheet = CloneTableSheet(schema: schemaName, table: tableName) { [weak self] targetName, includeData in
+            Task {
+                do {
+                    let options = CloneTableOptions(
+                        sourceSchema: schemaName, sourceTable: tableName,
+                        targetSchema: schemaName, targetTable: targetName,
+                        includeData: includeData
+                    )
+                    let result = try await PharosCore.cloneTable(connectionId: connectionId, options: options)
+                    await MainActor.run {
+                        let msg = result.rowsCopied.map { "Table cloned with \($0) rows." } ?? "Table structure cloned."
+                        self?.showInfoAlert(title: "Clone Successful", message: msg)
+                        self?.loadSchemas(connectionId: connectionId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.showErrorAlert(title: "Clone Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+        presentAsSheet(sheet)
+    }
+
+    @objc private func contextImportData(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+
+        let sheet = ImportDataSheet(schema: schemaName, table: tableName) { [weak self] filePath, hasHeaders in
+            Task {
+                do {
+                    let options = ImportCsvOptions(
+                        schemaName: schemaName, tableName: tableName,
+                        filePath: filePath, hasHeaders: hasHeaders
+                    )
+                    let result = try await PharosCore.importCsv(connectionId: connectionId, options: options)
+                    await MainActor.run {
+                        self?.showInfoAlert(title: "Import Successful", message: "\(result.rowsImported) rows imported.")
+                        self?.loadSchemas(connectionId: connectionId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.showErrorAlert(title: "Import Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+        presentAsSheet(sheet)
+    }
+
+    @objc private func contextExportData(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+
+        // Fetch columns for the column picker
+        Task {
+            do {
+                let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
+                await MainActor.run {
+                    let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns) { [weak self] options in
+                        Task {
+                            do {
+                                let result = try await PharosCore.exportTable(connectionId: connectionId, options: options)
+                                await MainActor.run {
+                                    self?.showInfoAlert(title: "Export Successful", message: "\(result.rowsExported) rows exported.")
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
+                                }
+                            }
+                        }
+                    }
+                    self.presentAsSheet(sheet)
+                }
+            } catch {
+                NSLog("Failed to load columns for export: \(error)")
+            }
+        }
+    }
+
+    // MARK: Context Menu — Destructive Actions
+
+    @objc private func contextTruncateTable(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        guard let tableName = tableNameFromNode(node) else { return }
+
+        let execute: () -> Void = { [weak self] in
+            Task {
+                do {
+                    let sql = "TRUNCATE TABLE \"\(schemaName)\".\"\(tableName)\""
+                    _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
+                    await MainActor.run {
+                        self?.showInfoAlert(title: "Table Truncated", message: "\"\(tableName)\" has been truncated.")
+                        self?.loadSchemas(connectionId: connectionId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.showErrorAlert(title: "Truncate Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        if stateManager.settings.query.confirmDestructive {
+            showDestructiveConfirmation(
+                title: "Truncate \"\(tableName)\"?",
+                message: "This will permanently delete all rows in the table. This cannot be undone.",
+                buttonTitle: "Truncate",
+                onConfirm: execute
+            )
+        } else {
+            execute()
+        }
+    }
+
+    @objc private func contextDropTable(_ sender: Any?) {
+        guard let node = clickedNode(),
+              let connectionId, let schemaName = node.schemaName else { return }
+        let isView: Bool
+        let tableName: String
+        switch node.kind {
+        case .table(let t): tableName = t.name; isView = false
+        case .view(let t): tableName = t.name; isView = true
+        default: return
+        }
+        let objectType = isView ? "VIEW" : "TABLE"
+        let objectLabel = isView ? "view" : "table"
+
+        let execute: () -> Void = { [weak self] in
+            Task {
+                do {
+                    let sql = "DROP \(objectType) \"\(schemaName)\".\"\(tableName)\""
+                    _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
+                    await MainActor.run {
+                        self?.showInfoAlert(title: "\(isView ? "View" : "Table") Dropped", message: "\"\(tableName)\" has been dropped.")
+                        self?.loadSchemas(connectionId: connectionId)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.showErrorAlert(title: "Drop Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        if stateManager.settings.query.confirmDestructive {
+            showDestructiveConfirmation(
+                title: "Drop \"\(tableName)\"?",
+                message: "This will permanently delete the \(objectLabel) and all its data. This cannot be undone.",
+                buttonTitle: "Drop",
+                onConfirm: execute
+            )
+        } else {
+            execute()
+        }
+    }
+
+    // MARK: Context Menu — Schema Inspection (existing)
 
     @objc private func contextViewIndexes(_ sender: Any?) {
         guard let node = clickedNode(),
@@ -514,7 +778,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
               let connectionId, let schemaName = node.schemaName else { return }
         let tableName: String
         switch node.kind {
-        case .table(let t): tableName = t.name
+        case .table(let t), .view(let t): tableName = t.name
         default: return
         }
         Task {
@@ -546,10 +810,59 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
+    // MARK: Context Menu — Helpers
+
     private func clickedNode() -> SchemaTreeNode? {
         let row = outlineView.clickedRow
         guard row >= 0 else { return nil }
         return outlineView.item(atRow: row) as? SchemaTreeNode
+    }
+
+    private func tableNameFromNode(_ node: SchemaTreeNode) -> String? {
+        switch node.kind {
+        case .table(let t), .view(let t): return t.name
+        default: return nil
+        }
+    }
+
+    private func showInfoAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        }
+    }
+
+    private func showErrorAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        }
+    }
+
+    private func showDestructiveConfirmation(title: String, message: String, buttonTitle: String, onConfirm: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: buttonTitle)
+        alert.addButton(withTitle: "Cancel")
+        // Style the destructive button
+        alert.buttons.first?.hasDestructiveAction = true
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                onConfirm()
+            }
+        }
     }
 }
 
@@ -562,19 +875,68 @@ extension SchemaBrowserVC: NSMenuDelegate {
 
         switch node.kind {
         case .table:
-            menu.addItem(withTitle: "Copy SELECT *", action: #selector(contextCopySelectStar), keyEquivalent: "")
-            menu.addItem(withTitle: "Copy DDL", action: #selector(contextCopyDDL), keyEquivalent: "")
+            // Query actions
+            menu.addItem(withTitle: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
+
+            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
+            let limitSubmenu = NSMenu()
+            for limit in [10, 100, 1_000, 10_000] {
+                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = limit
+                limitSubmenu.addItem(item)
+            }
+            limitItem.submenu = limitSubmenu
+            menu.addItem(limitItem)
+
+            menu.addItem(withTitle: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
+            menu.addItem(withTitle: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
+
+            // Data operations
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Clone Table DDL\u{2026}", action: #selector(contextCloneTable), keyEquivalent: "")
+            menu.addItem(withTitle: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
+            menu.addItem(withTitle: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
+
+            // Destructive
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Truncate Table", action: #selector(contextTruncateTable), keyEquivalent: "")
+            menu.addItem(withTitle: "Drop Table", action: #selector(contextDropTable), keyEquivalent: "")
+
+            // Inspection
             menu.addItem(.separator())
             menu.addItem(withTitle: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
             menu.addItem(withTitle: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
-            menu.addItem(.separator())
-            menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
 
         case .view:
-            menu.addItem(withTitle: "Copy SELECT *", action: #selector(contextCopySelectStar), keyEquivalent: "")
-            menu.addItem(withTitle: "Copy DDL", action: #selector(contextCopyDDL), keyEquivalent: "")
+            // Query actions
+            menu.addItem(withTitle: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
+
+            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
+            let limitSubmenu = NSMenu()
+            for limit in [10, 100, 1_000, 10_000] {
+                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = limit
+                limitSubmenu.addItem(item)
+            }
+            limitItem.submenu = limitSubmenu
+            menu.addItem(limitItem)
+
+            menu.addItem(withTitle: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
+            menu.addItem(withTitle: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
+
+            // Data operations
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
+            menu.addItem(withTitle: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
+
+            // Destructive
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Drop View", action: #selector(contextDropTable), keyEquivalent: "")
+
+            // Inspection
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
 
         case .schema:
             menu.addItem(withTitle: "View Functions", action: #selector(contextViewFunctions), keyEquivalent: "")
@@ -587,6 +949,12 @@ extension SchemaBrowserVC: NSMenuDelegate {
         default:
             break
         }
+    }
+
+    private func formatLimit(_ limit: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: limit)) ?? "\(limit)"
     }
 }
 

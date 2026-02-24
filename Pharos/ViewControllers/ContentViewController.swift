@@ -165,6 +165,18 @@ class ContentViewController: NSViewController {
             name: .openHistoryEntry, object: nil
         )
 
+        // Observe "run query in new tab" from schema browser context menu
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleRunQueryInNewTab(_:)),
+            name: .runQueryInNewTab, object: nil
+        )
+
+        // Observe "insert text in editor" from schema browser context menu
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleInsertTextInEditor(_:)),
+            name: .insertTextInEditor, object: nil
+        )
+
         updateVisibility()
     }
 
@@ -541,6 +553,30 @@ extension ContentViewController {
         } catch {
             NSLog("Failed to load history results: \(error)")
         }
+    }
+}
+
+// MARK: - Run Query / Insert Text (from schema browser context menu)
+
+extension ContentViewController {
+
+    @objc private func handleRunQueryInNewTab(_ notification: Notification) {
+        guard let sql = notification.userInfo?["sql"] as? String else { return }
+        let tab = stateManager.createTab(sql: sql, name: "Query")
+        // Brief delay to let the tab render before executing
+        DispatchQueue.main.async {
+            if self.stateManager.activeTabId == tab.id {
+                self.executeQuery(sql)
+            }
+        }
+    }
+
+    @objc private func handleInsertTextInEditor(_ notification: Notification) {
+        guard let text = notification.userInfo?["text"] as? String else { return }
+        guard stateManager.activeTab != nil else { return }
+        let range = editorVC.textView.selectedRange()
+        editorVC.textView.insertText(text, replacementRange: range)
+        editorVC.focus()
     }
 }
 

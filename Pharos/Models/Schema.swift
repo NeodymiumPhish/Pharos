@@ -70,3 +70,79 @@ struct FunctionInfo: Codable {
     let functionType: String
     let language: String
 }
+
+// MARK: - Table Operations
+
+enum ExportFormat: String, Codable, CaseIterable {
+    case csv = "csv"
+    case tsv = "tsv"
+    case json = "json"
+    case jsonLines = "jsonLines"
+    case sqlInsert = "sqlInsert"
+    case markdown = "markdown"
+    case xlsx = "xlsx"
+
+    var displayLabel: String {
+        switch self {
+        case .csv: return "CSV"
+        case .tsv: return "TSV"
+        case .json: return "JSON"
+        case .jsonLines: return "JSON Lines"
+        case .sqlInsert: return "SQL INSERT"
+        case .markdown: return "Markdown"
+        case .xlsx: return "Excel (XLSX)"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .csv: return "csv"
+        case .tsv: return "tsv"
+        case .json: return "json"
+        case .jsonLines: return "jsonl"
+        case .sqlInsert: return "sql"
+        case .markdown: return "md"
+        case .xlsx: return "xlsx"
+        }
+    }
+}
+
+struct CloneTableOptions: Codable {
+    let sourceSchema: String
+    let sourceTable: String
+    let targetSchema: String
+    let targetTable: String
+    let includeData: Bool
+}
+
+struct CloneTableResult: Codable {
+    let success: Bool
+    let rowsCopied: Int64?
+}
+
+struct ExportTableOptions: Codable {
+    let schemaName: String
+    let tableName: String
+    let columns: [String]
+    let includeHeaders: Bool
+    let nullAsEmpty: Bool
+    let filePath: String
+    let format: ExportFormat
+}
+
+struct ExportTableResult: Codable {
+    let success: Bool
+    let rowsExported: UInt64
+}
+
+struct ImportCsvOptions: Codable {
+    let schemaName: String
+    let tableName: String
+    let filePath: String
+    let hasHeaders: Bool
+}
+
+struct ImportCsvResult: Codable {
+    let success: Bool
+    let rowsImported: UInt64
+}
