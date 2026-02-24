@@ -7,6 +7,15 @@ import CPharosCore
 /// Wraps C FFI functions with type-safe Swift interfaces.
 enum PharosCore {
 
+    // MARK: - SQL Formatting
+
+    /// Format SQL with PostgreSQL conventions (uppercase keywords, 2-space indent).
+    static func formatSQL(_ sql: String) -> String {
+        guard let result = sql.withCString({ pharos_format_sql($0) }) else { return sql }
+        defer { pharos_free_string(result) }
+        return String(cString: result)
+    }
+
     // MARK: - Synchronous Operations
 
     /// Load all connection configurations.

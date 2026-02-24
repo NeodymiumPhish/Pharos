@@ -6,6 +6,7 @@ import Combine
 class QueryEditorVC: NSViewController {
 
     let textView = SQLTextView()
+    let completionProvider = SQLCompletionProvider()
     private var scrollView: NSScrollView!
     private var gutter: LineNumberGutter!
     private let stateManager = AppStateManager.shared
@@ -51,6 +52,10 @@ class QueryEditorVC: NSViewController {
 
         container.addSubview(scrollView)
 
+        // Autocomplete
+        completionProvider.attachTo(textView)
+        textView.completionDelegate = self
+
         // Text change handler — sync back to tab state and validate
         textView.onTextChange = { [weak self] newText in
             self?.textDidChange(newText)
@@ -60,6 +65,14 @@ class QueryEditorVC: NSViewController {
     }
 
     // MARK: - Public API
+
+    func formatSQL() {
+        let current = getSQL()
+        guard !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let formatted = PharosCore.formatSQL(current)
+        setSQL(formatted)
+        textDidChange(formatted)
+    }
 
     func setSQL(_ sql: String) {
         textView.string = sql
@@ -90,6 +103,16 @@ class QueryEditorVC: NSViewController {
         } else {
             gutter.clearErrors()
         }
+    }
+
+    func updateSchemaMetadata(
+        schemas: [SchemaInfo],
+        tables: [String: [TableInfo]],
+        columnsByTable: [String: [ColumnInfo]]
+    ) {
+        completionProvider.schemas = schemas
+        completionProvider.tables = tables
+        completionProvider.columnsByTable = columnsByTable
     }
 
     // MARK: - Settings
@@ -159,5 +182,42 @@ class QueryEditorVC: NSViewController {
             pos += 1
         }
         return line
+    }
+}
+
+// MARK: - SQLTextViewCompletionDelegate
+
+extension QueryEditorVC: SQLTextViewCompletionDelegate {
+
+    var isCompletionShown: Bool { completionProvider.isShown }
+
+    func triggerCompletion() {
+        completionProvider.showCompletions(for: textView)
+    }
+
+    func updateCompletion() {
+        completionProvider.showCompletions(for: textView)
+    }
+
+    func dismissCompletion() {
+        completionProvider.dismiss()
+    }
+
+    func completionMoveUp() -> Bool {
+        guard completionProvider.isShown else { return false }
+        completionProvider.moveUp()
+        return true
+    }
+
+    func completionMoveDown() -> Bool {
+        guard completionProvider.isShown else { return false }
+        completionProvider.moveDown()
+        return true
+    }
+
+    func acceptCompletion() -> Bool {
+        guard completionProvider.isShown else { return false }
+        completionProvider.acceptSelected()
+        return true
     }
 }

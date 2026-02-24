@@ -22,10 +22,24 @@ struct SQLTheme {
     )
 }
 
+// MARK: - Completion Delegate
+
+protocol SQLTextViewCompletionDelegate: AnyObject {
+    var isCompletionShown: Bool { get }
+    func triggerCompletion()
+    func updateCompletion()
+    func dismissCompletion()
+    func completionMoveUp() -> Bool
+    func completionMoveDown() -> Bool
+    func acceptCompletion() -> Bool
+}
+
 // MARK: - SQLTextView
 
 /// NSTextView subclass with SQL syntax highlighting via regex patterns.
 class SQLTextView: NSTextView {
+
+    weak var completionDelegate: SQLTextViewCompletionDelegate?
 
     var theme = SQLTheme.default {
         didSet { highlightSyntax() }
@@ -87,6 +101,7 @@ class SQLTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        completionDelegate?.dismissCompletion()
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
     }
@@ -97,14 +112,129 @@ class SQLTextView: NSTextView {
         super.didChangeText()
         highlightSyntax()
         onTextChange?(string)
+
+        // Completion triggers after text change
+        if completionDelegate?.isCompletionShown == true {
+            completionDelegate?.updateCompletion()
+        } else {
+            // Auto-trigger on dot
+            let cursor = selectedRange().location
+            if cursor > 0 {
+                let ch = (string as NSString).character(at: cursor - 1)
+                if ch == UInt16(UnicodeScalar(".").value) {
+                    completionDelegate?.triggerCompletion()
+                }
+            }
+        }
     }
 
     // MARK: - Key Handling
 
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Ctrl+Space → explicit trigger
+        if event.charactersIgnoringModifiers == " " && flags.contains(.control) {
+            completionDelegate?.triggerCompletion()
+            return
+        }
+
+        // Escape → dismiss completion if shown
+        if event.keyCode == 53 {
+            if completionDelegate?.isCompletionShown == true {
+                completionDelegate?.dismissCompletion()
+                return
+            }
+        }
+
+        // Up/Down while completion shown → navigate
+        if event.keyCode == 126, completionDelegate?.completionMoveUp() == true { return }
+        if event.keyCode == 125, completionDelegate?.completionMoveDown() == true { return }
+
+        // Return or Tab while completion shown → accept
+        if event.keyCode == 36 || event.keyCode == 48 {
+            if completionDelegate?.acceptCompletion() == true { return }
+        }
+
+        super.keyDown(with: event)
+    }
+
+    // MARK: - Auto-Close Brackets
+
+    private static let autoClosePairs: [String: String] = ["(": ")", "[": "]", "'": "'"]
+    private static let closeChars: Set<String> = [")", "]", "'"]
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        guard let str = string as? String, str.count == 1 else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+
+        let cursor = selectedRange().location
+        let text = self.string as NSString
+
+        // Skip-over: typing a closing char that's already the next character
+        if Self.closeChars.contains(str), cursor < text.length {
+            let nextChar = String(Character(UnicodeScalar(text.character(at: cursor))!))
+            if nextChar == str {
+                // For quote, only skip if we're inside a matching pair
+                if str == "'" {
+                    if cursor > 0 {
+                        let prevChar = Character(UnicodeScalar(text.character(at: cursor - 1))!)
+                        // Don't skip if previous char is also a quote (empty string case handled)
+                        if prevChar != "'" {
+                            setSelectedRange(NSRange(location: cursor + 1, length: 0))
+                            return
+                        }
+                    }
+                } else {
+                    setSelectedRange(NSRange(location: cursor + 1, length: 0))
+                    return
+                }
+            }
+        }
+
+        // Auto-close: insert matching pair
+        if let closeChar = Self.autoClosePairs[str] {
+            // For quotes, don't auto-close if previous char is alphanumeric (e.g., it's an apostrophe)
+            if str == "'" && cursor > 0 {
+                let prevScalar = UnicodeScalar(text.character(at: cursor - 1))
+                if let s = prevScalar, CharacterSet.alphanumerics.contains(s) {
+                    super.insertText(string, replacementRange: replacementRange)
+                    return
+                }
+            }
+            super.insertText(str + closeChar, replacementRange: replacementRange)
+            // Move cursor back between the pair
+            setSelectedRange(NSRange(location: selectedRange().location - 1, length: 0))
+            return
+        }
+
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        let cursor = selectedRange().location
+        let text = self.string as NSString
+        // If deleting an open bracket and the next char is its matching close, delete both
+        if cursor > 0, cursor < text.length {
+            let prevChar = String(Character(UnicodeScalar(text.character(at: cursor - 1))!))
+            if let closeChar = Self.autoClosePairs[prevChar] {
+                let nextChar = String(Character(UnicodeScalar(text.character(at: cursor))!))
+                if nextChar == closeChar {
+                    setSelectedRange(NSRange(location: cursor - 1, length: 2))
+                    super.insertText("", replacementRange: selectedRange())
+                    return
+                }
+            }
+        }
+        super.deleteBackward(sender)
+    }
+
     override func insertTab(_ sender: Any?) {
         // Insert spaces instead of tab
         let spaces = String(repeating: " ", count: 2)
-        insertText(spaces, replacementRange: selectedRange())
+        super.insertText(spaces, replacementRange: selectedRange())
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -250,10 +380,101 @@ class SQLTextView: NSTextView {
         }
     }
 
+    // MARK: - Bracket Matching
+
+    private static let bracketPairs: [(open: Character, close: Character)] = [
+        ("(", ")"), ("[", "]"), ("{", "}")
+    ]
+    private static let openBrackets = Set<Character>(["(", "[", "{"])
+    private static let closeBrackets = Set<Character>([")", "]", "}"])
+    private static let matchingBracket: [Character: Character] = [
+        "(": ")", ")": "(",
+        "[": "]", "]": "[",
+        "{": "}", "}": "{",
+    ]
+
+    private func updateBracketHighlight() {
+        guard let layoutManager else { return }
+        let text = string
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+
+        // Clear previous bracket highlights
+        layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+
+        let cursor = selectedRange().location
+        guard cursor > 0, cursor <= nsText.length else { return }
+
+        // Check the character before the cursor
+        let charIndex = cursor - 1
+        let char = Character(UnicodeScalar(nsText.character(at: charIndex))!)
+
+        guard Self.openBrackets.contains(char) || Self.closeBrackets.contains(char) else { return }
+
+        // Skip if inside a string or comment
+        if isInsideStringOrComment(at: charIndex, layoutManager: layoutManager) { return }
+
+        let isOpen = Self.openBrackets.contains(char)
+        guard let target = Self.matchingBracket[char] else { return }
+
+        // Scan for the matching bracket
+        if let matchIndex = findMatchingBracket(
+            from: charIndex, char: char, target: target, isOpen: isOpen,
+            text: nsText, layoutManager: layoutManager
+        ) {
+            let highlightColor = NSColor.systemYellow.withAlphaComponent(0.25)
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: highlightColor,
+                forCharacterRange: NSRange(location: charIndex, length: 1))
+            layoutManager.addTemporaryAttribute(.backgroundColor, value: highlightColor,
+                forCharacterRange: NSRange(location: matchIndex, length: 1))
+        }
+    }
+
+    private func findMatchingBracket(
+        from index: Int, char: Character, target: Character, isOpen: Bool,
+        text: NSString, layoutManager: NSLayoutManager
+    ) -> Int? {
+        var depth = 1
+        let length = text.length
+
+        if isOpen {
+            // Scan forward
+            var i = index + 1
+            while i < length {
+                let c = Character(UnicodeScalar(text.character(at: i))!)
+                if !isInsideStringOrComment(at: i, layoutManager: layoutManager) {
+                    if c == char { depth += 1 }
+                    else if c == target { depth -= 1; if depth == 0 { return i } }
+                }
+                i += 1
+            }
+        } else {
+            // Scan backward
+            var i = index - 1
+            while i >= 0 {
+                let c = Character(UnicodeScalar(text.character(at: i))!)
+                if !isInsideStringOrComment(at: i, layoutManager: layoutManager) {
+                    if c == char { depth += 1 }
+                    else if c == target { depth -= 1; if depth == 0 { return i } }
+                }
+                i -= 1
+            }
+        }
+        return nil
+    }
+
+    private func isInsideStringOrComment(at index: Int, layoutManager: NSLayoutManager) -> Bool {
+        guard let color = layoutManager.temporaryAttribute(
+            .foregroundColor, atCharacterIndex: index, effectiveRange: nil
+        ) as? NSColor else { return false }
+        return color == theme.comment || color == theme.string
+    }
+
     // MARK: - Current Line Highlight
 
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRange(charRange, affinity: affinity, stillSelecting: stillSelectingFlag)
+        updateBracketHighlight()
         needsDisplay = true
     }
 

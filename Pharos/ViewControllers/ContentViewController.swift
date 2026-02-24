@@ -12,6 +12,7 @@ class ContentViewController: NSViewController {
     private let emptyState = NSView()
 
     private let stateManager = AppStateManager.shared
+    private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasSetInitialSplit = false
 
@@ -92,7 +93,15 @@ class ContentViewController: NSViewController {
         // Observe state
         stateManager.$activeConnectionId
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateVisibility() }
+            .sink { [weak self] connectionId in
+                self?.updateVisibility()
+                // Load schema metadata for autocomplete
+                if let connectionId, self?.stateManager.status(for: connectionId) == .connected {
+                    self?.metadataCache.load(connectionId: connectionId)
+                } else {
+                    self?.metadataCache.clear()
+                }
+            }
             .store(in: &cancellables)
 
         stateManager.$connectionStatuses
@@ -104,6 +113,19 @@ class ContentViewController: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] tabId in self?.tabChanged(tabId) }
             .store(in: &cancellables)
+
+        // Push schema metadata to editor for autocomplete
+        Publishers.CombineLatest3(
+            metadataCache.$schemas,
+            metadataCache.$tables,
+            metadataCache.$columnsByTable
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] schemas, tables, columns in
+            self?.editorVC.updateSchemaMetadata(
+                schemas: schemas, tables: tables, columnsByTable: columns)
+        }
+        .store(in: &cancellables)
 
         // Observe pin state changes (e.g. auto-unpin on tab close)
         stateManager.$pinnedTabId
@@ -441,6 +463,10 @@ extension ContentViewController {
 
     @objc func showFilter() {
         resultsVC.showFilter()
+    }
+
+    @objc func menuFormatSQL(_ sender: Any?) {
+        editorVC.formatSQL()
     }
 }
 

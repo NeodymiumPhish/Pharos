@@ -166,6 +166,27 @@ pub extern "C" fn pharos_free_string(ptr: *mut c_char) {
 }
 
 // ---------------------------------------------------------------------------
+// SQL Formatting (pure computation, no I/O)
+// ---------------------------------------------------------------------------
+
+/// Format SQL with PostgreSQL conventions. Returns formatted SQL. Caller must free.
+#[no_mangle]
+pub extern "C" fn pharos_format_sql(sql: *const c_char) -> *mut c_char {
+    let sql_str = match unsafe { c_str_to_option(sql) } {
+        Some(s) => s,
+        None => return to_c_string(""),
+    };
+    let options = sqlformat::FormatOptions {
+        indent: sqlformat::Indent::Spaces(2),
+        uppercase: Some(true),
+        lines_between_queries: 2,
+        ..Default::default()
+    };
+    let formatted = sqlformat::format(&sql_str, &sqlformat::QueryParams::None, &options);
+    to_c_string(&formatted)
+}
+
+// ---------------------------------------------------------------------------
 // Synchronous operations (fast, no network I/O)
 // ---------------------------------------------------------------------------
 

@@ -38,6 +38,11 @@ typedef void (*AsyncCallback)(void *context, const char *result_json, const char
 void pharos_free_string(char *ptr);
 
 /**
+ * Format SQL with PostgreSQL conventions. Returns formatted SQL. Caller must free.
+ */
+ char *pharos_format_sql(const char *sql);
+
+/**
  * Load all connection configs. Returns JSON array. Caller must free.
  */
  char *pharos_load_connections(void);

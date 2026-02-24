@@ -7,6 +7,7 @@ private extension NSToolbarItem.Identifier {
     static let connectionPopup = NSToolbarItem.Identifier("ConnectionPopup")
     static let addConnection = NSToolbarItem.Identifier("AddConnection")
     static let runQuery = NSToolbarItem.Identifier("RunQuery")
+    static let formatQuery = NSToolbarItem.Identifier("FormatQuery")
 }
 
 class MainWindowController: NSWindowController {
@@ -267,6 +268,14 @@ extension MainWindowController: NSToolbarDelegate {
             item.action = #selector(ContentViewController.menuRunQuery(_:))
             return item
 
+        case .formatQuery:
+            let item = NSToolbarItem(itemIdentifier: .formatQuery)
+            item.label = "Format"
+            item.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: "Format SQL")
+            item.toolTip = "Format SQL (Ctrl+I)"
+            item.action = #selector(ContentViewController.menuFormatSQL(_:))
+            return item
+
         case .flexibleSpace:
             return NSToolbarItem(itemIdentifier: .flexibleSpace)
 
@@ -281,6 +290,7 @@ extension MainWindowController: NSToolbarDelegate {
             .connectionPopup,
             .addConnection,
             .flexibleSpace,
+            .formatQuery,
             .runQuery,
         ]
     }
@@ -291,6 +301,7 @@ extension MainWindowController: NSToolbarDelegate {
             .connectionPopup,
             .addConnection,
             .flexibleSpace,
+            .formatQuery,
             .runQuery,
         ]
     }

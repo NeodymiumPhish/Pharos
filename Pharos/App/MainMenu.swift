@@ -72,6 +72,11 @@ enum MainMenu {
         let cancelItem = queryMenu.addItem(withTitle: "Cancel Query", action: #selector(ContentViewController.menuCancelQuery(_:)), keyEquivalent: ".")
         cancelItem.keyEquivalentModifierMask = [.command]
 
+        queryMenu.addItem(.separator())
+
+        let formatItem = queryMenu.addItem(withTitle: "Format SQL", action: #selector(ContentViewController.menuFormatSQL(_:)), keyEquivalent: "i")
+        formatItem.keyEquivalentModifierMask = [.control]
+
         queryMenuItem.submenu = queryMenu
         mainMenu.addItem(queryMenuItem)
 

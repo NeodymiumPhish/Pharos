@@ -62,12 +62,13 @@ class SQLCompletionProvider: NSObject {
     }
 
     func showCompletions(for textView: SQLTextView) {
-        guard let word = currentWordBeforeCursor(in: textView) else {
-            dismiss()
-            return
+        if let word = currentWordBeforeCursor(in: textView) {
+            self.currentWord = word.text
+            self.wordRange = word.range
+        } else {
+            self.currentWord = ""
+            self.wordRange = NSRange(location: textView.selectedRange().location, length: 0)
         }
-        self.currentWord = word.text
-        self.wordRange = word.range
 
         // Build completions based on context
         let context = analyzeContext(textView: textView)
@@ -84,7 +85,9 @@ class SQLCompletionProvider: NSObject {
 
         if !popover.isShown {
             let cursorRect = cursorScreenRect(in: textView)
-            popover.show(relativeTo: cursorRect, of: textView, preferredEdge: .minY)
+            popover.show(relativeTo: cursorRect, of: textView, preferredEdge: .maxY)
+            // Keep text view as first responder so key events route through it
+            textView.window?.makeFirstResponder(textView)
         }
     }
 
@@ -235,6 +238,9 @@ class SQLCompletionProvider: NSObject {
             }
             filteredCompletions.append(contentsOf: containsMatches)
         }
+        // Deduplicate by label
+        var seen = Set<String>()
+        filteredCompletions = filteredCompletions.filter { seen.insert($0.label).inserted }
     }
 
     // MARK: - Text Helpers
@@ -269,13 +275,19 @@ class SQLCompletionProvider: NSObject {
         guard let layoutManager = textView.layoutManager else {
             return NSRect(x: 0, y: 0, width: 1, height: 16)
         }
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: textView.selectedRange().location)
-        var lineRect = layoutManager.lineFragmentRect(forGlyphAt: max(0, glyphIndex), effectiveRange: nil)
-        let location = layoutManager.location(forGlyphAt: max(0, glyphIndex))
-        lineRect.origin.x += location.x + textView.textContainerInset.width
-        lineRect.origin.y += textView.textContainerInset.height
-        lineRect.size.width = 1
-        return lineRect
+        let textLength = (textView.string as NSString).length
+        // Clamp to valid character range (cursor can be at end of text)
+        let charIndex = min(textView.selectedRange().location, max(0, textLength - 1))
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: charIndex)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let glyphLocation = layoutManager.location(forGlyphAt: glyphIndex)
+        let origin = textView.textContainerOrigin
+        return NSRect(
+            x: lineRect.origin.x + glyphLocation.x + origin.x,
+            y: lineRect.origin.y + origin.y,
+            width: 1,
+            height: lineRect.height
+        )
     }
 
     @objc private func acceptCompletion() {
