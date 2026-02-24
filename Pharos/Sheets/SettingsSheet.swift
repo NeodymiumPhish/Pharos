@@ -9,6 +9,7 @@ class SettingsSheet: NSViewController {
     // General
     private let themeControl = NSSegmentedControl()
     private let nullDisplayPopup = NSPopUpButton()
+    private let boolDisplayPopup = NSPopUpButton()
 
     // Editor
     private let fontPopup = NSPopUpButton()
@@ -101,9 +102,15 @@ class SettingsSheet: NSViewController {
             nullDisplayPopup.addItem(withTitle: format.displayLabel)
         }
 
+        let boolLabel = makeLabel("Bool Display")
+        for format in BoolDisplay.allCases {
+            boolDisplayPopup.addItem(withTitle: format.displayLabel)
+        }
+
         let grid = NSGridView(views: [
             [themeLabel, themeControl],
             [nullLabel, nullDisplayPopup],
+            [boolLabel, boolDisplayPopup],
         ])
         configureGrid(grid)
 
@@ -224,6 +231,10 @@ class SettingsSheet: NSViewController {
             nullDisplayPopup.selectItem(at: idx)
         }
 
+        if let idx = BoolDisplay.allCases.firstIndex(of: settings.boolDisplay) {
+            boolDisplayPopup.selectItem(at: idx)
+        }
+
         // Editor
         selectFont(settings.editor.fontFamily)
         fontSizeField.integerValue = Int(settings.editor.fontSize)
@@ -258,6 +269,10 @@ class SettingsSheet: NSViewController {
         let allCases = NullDisplay.allCases
         let idx = nullDisplayPopup.indexOfSelectedItem
         s.nullDisplay = idx >= 0 && idx < allCases.count ? allCases[idx] : .uppercase
+
+        let boolCases = BoolDisplay.allCases
+        let boolIdx = boolDisplayPopup.indexOfSelectedItem
+        s.boolDisplay = boolIdx >= 0 && boolIdx < boolCases.count ? boolCases[boolIdx] : .trueFalse
 
         // Editor
         if let selected = fontPopup.titleOfSelectedItem {

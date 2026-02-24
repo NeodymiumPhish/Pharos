@@ -846,14 +846,24 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         case .numeric:
             textField.textColor = .systemBlue
         case .boolean:
-            if let boolVal = value.value as? Bool {
-                textField.textColor = boolVal ? .systemGreen : .systemRed
+            let str = value.displayString.lowercased()
+            let boolDisplay = AppStateManager.shared.settings.boolDisplay
+            if str == "t" || str == "true" {
+                textField.stringValue = boolDisplay.trueString
+                textField.textColor = .systemGreen
+            } else if str == "f" || str == "false" {
+                textField.stringValue = boolDisplay.falseString
+                textField.textColor = .systemRed
             } else {
                 textField.textColor = .labelColor
             }
+        case .temporal:
+            textField.textColor = .systemPurple
+        case .json:
+            textField.textColor = .systemOrange
         case .array:
             textField.textColor = .secondaryLabelColor
-        default:
+        case .string:
             textField.textColor = .labelColor
         }
     }

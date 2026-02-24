@@ -22,6 +22,41 @@ enum NullDisplay: String, Codable, CaseIterable {
     }
 }
 
+enum BoolDisplay: String, Codable, CaseIterable {
+    case trueFalse = "trueFalse"
+    case trueFalseLower = "trueFalseLower"
+    case pgDefault = "pgDefault"
+    case yesNo = "yesNo"
+    case oneZero = "oneZero"
+    case symbols = "symbols"
+
+    var trueString: String {
+        switch self {
+        case .trueFalse: return "TRUE"
+        case .trueFalseLower: return "true"
+        case .pgDefault: return "t"
+        case .yesNo: return "Yes"
+        case .oneZero: return "1"
+        case .symbols: return "✓"
+        }
+    }
+
+    var falseString: String {
+        switch self {
+        case .trueFalse: return "FALSE"
+        case .trueFalseLower: return "false"
+        case .pgDefault: return "f"
+        case .yesNo: return "No"
+        case .oneZero: return "0"
+        case .symbols: return "✗"
+        }
+    }
+
+    var displayLabel: String {
+        "\(trueString) / \(falseString)"
+    }
+}
+
 struct EditorSettings: Codable {
     var fontSize: UInt32 = 13
     var fontFamily: String = "JetBrains Mono, Monaco, Menlo, monospace"
@@ -66,4 +101,5 @@ struct AppSettings: Codable {
     var keyboard: KeyboardSettings = KeyboardSettings()
     var emptyFolders: [String] = []
     var nullDisplay: NullDisplay = .uppercase
+    var boolDisplay: BoolDisplay = .trueFalse
 }

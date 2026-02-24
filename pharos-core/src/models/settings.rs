@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +31,28 @@ pub enum NullDisplay {
 impl Default for NullDisplay {
     fn default() -> Self {
         NullDisplay::Uppercase
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BoolDisplay {
+    #[serde(rename = "trueFalse")]
+    TrueFalse,
+    #[serde(rename = "trueFalseLower")]
+    TrueFalseLower,
+    #[serde(rename = "pgDefault")]
+    PgDefault,
+    #[serde(rename = "yesNo")]
+    YesNo,
+    #[serde(rename = "oneZero")]
+    OneZero,
+    #[serde(rename = "symbols")]
+    Symbols,
+}
+
+impl Default for BoolDisplay {
+    fn default() -> Self {
+        BoolDisplay::TrueFalse
     }
 }
 
@@ -118,7 +139,7 @@ pub struct KeyboardShortcut {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KeyboardSettings {
     #[serde(default)]
-    pub shortcuts: HashMap<String, KeyboardShortcut>,
+    pub shortcuts: Vec<KeyboardShortcut>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +155,8 @@ pub struct AppSettings {
     pub empty_folders: Vec<String>,
     #[serde(default)]
     pub null_display: NullDisplay,
+    #[serde(default)]
+    pub bool_display: BoolDisplay,
 }
 
 impl Default for AppSettings {
@@ -146,6 +169,7 @@ impl Default for AppSettings {
             keyboard: KeyboardSettings::default(),
             empty_folders: Vec::new(),
             null_display: NullDisplay::default(),
+            bool_display: BoolDisplay::default(),
         }
     }
 }
