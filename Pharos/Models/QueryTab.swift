@@ -13,7 +13,6 @@ struct QueryTab: Identifiable {
     var result: QueryResult?
     var executeResult: ExecuteResult?
     var error: String?
-    var executionTime: UInt64?
     var savedQueryId: String?
     var historySchema: String?
     var historyTimestamp: String?

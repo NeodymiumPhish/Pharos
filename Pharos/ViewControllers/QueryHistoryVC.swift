@@ -132,7 +132,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     // MARK: - Actions
 
-    @objc private func doubleClickedRow(_ sender: Any?) {
+    @objc private func doubleClickedRow(_: Any?) {
         let row = tableView.clickedRow
         guard row >= 0, row < entries.count else { return }
         let entry = entries[row]
@@ -143,14 +143,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         )
     }
 
-    @objc private func contextCopySQL(_ sender: Any?) {
+    @objc private func contextCopySQL(_: Any?) {
         let row = tableView.clickedRow
         guard row >= 0, row < entries.count else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(entries[row].sql, forType: .string)
     }
 
-    @objc private func contextDelete(_ sender: Any?) {
+    @objc private func contextDelete(_: Any?) {
         let row = tableView.clickedRow
         guard row >= 0, row < entries.count else { return }
         do {

@@ -75,11 +75,6 @@ class ContentViewController: NSViewController {
             emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        // Wire up execution
-        editorVC.onExecute = { [weak self] sql in
-            self?.executeQuery(sql)
-        }
-
         // Wire up load more
         resultsVC.onLoadMore = { [weak self] in
             self?.loadMoreRows()
@@ -375,7 +370,6 @@ class ContentViewController: NSViewController {
                             tab.isExecuting = false
                             tab.queryId = nil
                             tab.result = result
-                            tab.executionTime = result.executionTimeMs
                         }
                         if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
@@ -393,7 +387,6 @@ class ContentViewController: NSViewController {
                             tab.isExecuting = false
                             tab.queryId = nil
                             tab.executeResult = result
-                            tab.executionTime = result.executionTimeMs
                         }
                         if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showExecuteResult(result)
@@ -542,7 +535,6 @@ extension ContentViewController {
                 )
                 stateManager.updateTab(id: tab.id) { t in
                     t.result = result
-                    t.executionTime = UInt64(entry.executionTimeMs)
                 }
                 // If this is now the active tab, show results immediately
                 if stateManager.activeTabId == tab.id {
@@ -584,7 +576,7 @@ extension ContentViewController {
 
 extension ContentViewController {
 
-    @objc func menuSaveQuery(_ sender: Any?) {
+    @objc func menuSaveQuery(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
 
         if let savedId = tab.savedQueryId {
@@ -624,24 +616,24 @@ extension ContentViewController {
 
 extension ContentViewController {
 
-    @objc func menuRunQuery(_ sender: Any?) {
+    @objc func menuRunQuery(_: Any?) {
         executeQuery()
     }
 
-    @objc func menuCancelQuery(_ sender: Any?) {
+    @objc func menuCancelQuery(_: Any?) {
         cancelQuery()
     }
 
-    @objc func menuNewTab(_ sender: Any?) {
+    @objc func menuNewTab(_: Any?) {
         stateManager.createTab()
     }
 
-    @objc func menuCloseTab(_ sender: Any?) {
+    @objc func menuCloseTab(_: Any?) {
         guard let tabId = stateManager.activeTabId else { return }
         stateManager.closeTab(id: tabId)
     }
 
-    @objc func menuReopenTab(_ sender: Any?) {
+    @objc func menuReopenTab(_: Any?) {
         stateManager.reopenLastClosedTab()
     }
 
@@ -658,7 +650,7 @@ extension ContentViewController {
         resultsVC.showFilter()
     }
 
-    @objc func menuFormatSQL(_ sender: Any?) {
+    @objc func menuFormatSQL(_: Any?) {
         editorVC.formatSQL()
     }
 }

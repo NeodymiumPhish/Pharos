@@ -127,7 +127,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     // Data
     private var columns: [ColumnDef] = []
     private var rows: [[String: AnyCodable]] = []
-    private var rowCount: Int = 0
     private var hasMore: Bool = false
     private var executionTimeMs: UInt64 = 0
     private var columnCategories: [String: PGTypeCategory] = [:]
@@ -472,7 +471,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     func showResult(_ result: QueryResult) {
         self.columns = result.columns
         self.rows = result.rows
-        self.rowCount = result.rowCount
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
 
@@ -506,7 +504,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
     func appendRows(from result: QueryResult) {
         let oldCount = rows.count
         rows.append(contentsOf: result.rows)
-        rowCount = rows.count
         hasMore = result.hasMore
 
         // Extend with new indices
@@ -548,7 +545,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         rows = []
         displayRows = []
         unfilteredDisplayRows = []
-        rowCount = 0
         hasMore = false
         executionTimeMs = 0
         columnCategories = [:]
@@ -909,7 +905,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func closeFind(_ sender: Any?) {
+    @objc private func closeFind(_: Any?) {
         isFindVisible = false
         isFilterMode = false
         filterToggleButton.state = .off
@@ -1008,7 +1004,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         updateStatusBarText()
     }
 
-    @objc private func findNext(_ sender: Any?) {
+    @objc private func findNext(_: Any?) {
         guard !findMatches.isEmpty else { return }
         currentMatchIndex = (currentMatchIndex + 1) % findMatches.count
         findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
@@ -1016,7 +1012,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         tableView.reloadData()
     }
 
-    @objc private func findPrevious(_ sender: Any?) {
+    @objc private func findPrevious(_: Any?) {
         guard !findMatches.isEmpty else { return }
         currentMatchIndex = (currentMatchIndex - 1 + findMatches.count) % findMatches.count
         findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
@@ -1147,7 +1143,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         return CopyData(columnNames: colIds, rows: rowData)
     }
 
-    @objc func copyAsTSV(_ sender: Any?) {
+    @objc func copyAsTSV(_: Any?) {
         guard let data = gatherData() else { return }
         let header = data.columnNames.joined(separator: "\t")
         let lines = data.rows.map { $0.joined(separator: "\t") }
@@ -1155,7 +1151,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         NSPasteboard.general.setString(([header] + lines).joined(separator: "\n"), forType: .string)
     }
 
-    @objc func copyAsCSV(_ sender: Any?) {
+    @objc func copyAsCSV(_: Any?) {
         guard let data = gatherData() else { return }
         let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
         let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
@@ -1164,7 +1160,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         NSPasteboard.general.setString(result, forType: .string)
     }
 
-    @objc func copyAsMarkdown(_ sender: Any?) {
+    @objc func copyAsMarkdown(_: Any?) {
         guard let data = gatherData() else { return }
         let header = "| " + data.columnNames.joined(separator: " | ") + " |"
         let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
@@ -1174,7 +1170,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         NSPasteboard.general.setString(result, forType: .string)
     }
 
-    @objc func copyAsSQLInsert(_ sender: Any?) {
+    @objc func copyAsSQLInsert(_: Any?) {
         guard let data = gatherData() else { return }
         let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
         let statements = data.rows.map { row in
@@ -1277,7 +1273,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func exportAsCSV(_ sender: Any?) {
+    @objc private func exportAsCSV(_: Any?) {
         exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
             let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
             let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
@@ -1285,7 +1281,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func exportAsTSV(_ sender: Any?) {
+    @objc private func exportAsTSV(_: Any?) {
         exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
             let header = data.columnNames.joined(separator: "\t")
             let rows = data.rows.map { $0.joined(separator: "\t") }
@@ -1293,7 +1289,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func exportAsJSON(_ sender: Any?) {
+    @objc private func exportAsJSON(_: Any?) {
         guard let data = gatherData(), let window = view.window else { return }
 
         let panel = NSSavePanel()
@@ -1315,7 +1311,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func exportAsSQLInsert(_ sender: Any?) {
+    @objc private func exportAsSQLInsert(_: Any?) {
         let cats = columnCategories
         exportToFile(filename: "export.sql", contentType: UTType(filenameExtension: "sql") ?? .plainText) { data in
             let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
@@ -1336,7 +1332,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
-    @objc private func exportAsMarkdown(_ sender: Any?) {
+    @objc private func exportAsMarkdown(_: Any?) {
         exportToFile(filename: "export.md", contentType: UTType(filenameExtension: "md") ?? .plainText) { data in
             let header = "| " + data.columnNames.joined(separator: " | ") + " |"
             let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"

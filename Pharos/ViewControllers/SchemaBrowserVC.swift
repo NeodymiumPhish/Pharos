@@ -473,7 +473,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: - Double Click
 
-    @objc private func outlineDoubleClicked(_ sender: Any?) {
+    @objc private func outlineDoubleClicked(_: Any?) {
         let row = outlineView.clickedRow
         guard row >= 0, let item = outlineView.item(atRow: row) as? SchemaTreeNode else { return }
         if outlineView.isItemExpanded(item) {
@@ -531,7 +531,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: Context Menu — Query Actions
 
-    @objc private func contextViewAllContents(_ sender: Any?) {
+    @objc private func contextViewAllContents(_: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
         let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
@@ -548,13 +548,13 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: Context Menu — Clipboard Actions
 
-    @objc private func contextCopyName(_ sender: Any?) {
+    @objc private func contextCopyName(_: Any?) {
         guard let node = clickedNode() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(node.title, forType: .string)
     }
 
-    @objc private func contextPasteToEditor(_ sender: Any?) {
+    @objc private func contextPasteToEditor(_: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
         let qualifiedName = "\"\(schemaName)\".\"\(tableName)\""
@@ -563,7 +563,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: Context Menu — Clone / Import / Export
 
-    @objc private func contextCloneTable(_ sender: Any?) {
+    @objc private func contextCloneTable(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
@@ -592,7 +592,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         presentAsSheet(sheet)
     }
 
-    @objc private func contextImportData(_ sender: Any?) {
+    @objc private func contextImportData(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
@@ -619,7 +619,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         presentAsSheet(sheet)
     }
 
-    @objc private func contextExportData(_ sender: Any?) {
+    @objc private func contextExportData(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
@@ -653,7 +653,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: Context Menu — Destructive Actions
 
-    @objc private func contextTruncateTable(_ sender: Any?) {
+    @objc private func contextTruncateTable(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
@@ -687,7 +687,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    @objc private func contextDropTable(_ sender: Any?) {
+    @objc private func contextDropTable(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         let isView: Bool
@@ -731,7 +731,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
 
     // MARK: Context Menu — Schema Inspection (existing)
 
-    @objc private func contextViewIndexes(_ sender: Any?) {
+    @objc private func contextViewIndexes(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         let tableName: String
@@ -752,7 +752,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    @objc private func contextViewConstraints(_ sender: Any?) {
+    @objc private func contextViewConstraints(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         let tableName: String
@@ -773,7 +773,7 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         }
     }
 
-    @objc private func contextViewFunctions(_ sender: Any?) {
+    @objc private func contextViewFunctions(_: Any?) {
         guard let node = clickedNode(),
               let connectionId, let schemaName = node.schemaName else { return }
         Task {

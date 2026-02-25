@@ -48,17 +48,6 @@ enum PharosCore {
         }
     }
 
-    /// Reorder connections.
-    static func reorderConnections(ids: [String]) throws {
-        let json = try JSONEncoder.pharos.encode(ids)
-        let jsonStr = String(data: json, encoding: .utf8)!
-        let error = jsonStr.withCString { pharos_reorder_connections($0) }
-        if let error {
-            defer { pharos_free_string(error) }
-            throw PharosCoreError.rustError(String(cString: error))
-        }
-    }
-
     /// Load application settings.
     static func loadSettings() throws -> AppSettings {
         guard let ptr = pharos_load_settings() else {
@@ -300,32 +289,6 @@ enum PharosCore {
         }
     }
 
-    /// Generate CREATE TABLE DDL.
-    static func generateTableDDL(connectionId: String, schema: String, table: String) async throws -> String {
-        return try await withAsyncCallback { callback, context in
-            connectionId.withCString { cConn in
-                schema.withCString { cSchema in
-                    table.withCString { cTable in
-                        pharos_generate_table_ddl(cConn, cSchema, cTable, callback, context)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Generate CREATE INDEX DDL.
-    static func generateIndexDDL(connectionId: String, schema: String, index: String) async throws -> String {
-        return try await withAsyncCallback { callback, context in
-            connectionId.withCString { cConn in
-                schema.withCString { cSchema in
-                    index.withCString { cIndex in
-                        pharos_generate_index_ddl(cConn, cSchema, cIndex, callback, context)
-                    }
-                }
-            }
-        }
-    }
-
     /// Get constraints for a table.
     static func getTableConstraints(connectionId: String, schema: String, table: String) async throws -> [ConstraintInfo] {
         return try await withAsyncCallback { callback, context in
@@ -408,15 +371,6 @@ enum PharosCore {
         }
         defer { pharos_free_string(ptr) }
         return String(cString: ptr) == "true"
-    }
-
-    /// Clear all query history.
-    static func clearQueryHistory() throws {
-        let error = pharos_clear_query_history()
-        if let error {
-            defer { pharos_free_string(error) }
-            throw PharosCoreError.rustError(String(cString: error))
-        }
     }
 
     /// Get cached result data for a history entry.

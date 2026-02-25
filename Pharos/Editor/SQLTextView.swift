@@ -9,7 +9,6 @@ struct SQLTheme {
     let number: NSColor
     let comment: NSColor
     let type: NSColor
-    let identifier: NSColor
 
     static let `default` = SQLTheme(
         keyword: .systemBlue,
@@ -17,8 +16,7 @@ struct SQLTheme {
         string: .systemGreen,
         number: .systemOrange,
         comment: .systemGray,
-        type: .systemPurple,
-        identifier: .labelColor
+        type: .systemPurple
     )
 }
 
@@ -385,9 +383,6 @@ class SQLTextView: NSTextView {
 
     // MARK: - Bracket Matching
 
-    private static let bracketPairs: [(open: Character, close: Character)] = [
-        ("(", ")"), ("[", "]"), ("{", "}")
-    ]
     private static let openBrackets = Set<Character>(["(", "[", "{"])
     private static let closeBrackets = Set<Character>([")", "]", "}"])
     private static let matchingBracket: [Character: Character] = [

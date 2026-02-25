@@ -8,7 +8,7 @@ class QueryEditorVC: NSViewController {
     let textView = SQLTextView()
     let completionProvider = SQLCompletionProvider()
     private var scrollView: NSScrollView!
-    private var gutter: LineNumberGutter!
+    private var gutter: LineNumberGutter?
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var validationTask: Task<Void, Never>?
@@ -16,17 +16,14 @@ class QueryEditorVC: NSViewController {
     /// The tab ID this editor is associated with.
     var tabId: String?
 
-    /// Called when the user presses Cmd+Enter.
-    var onExecute: ((String) -> Void)?
-
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         self.view = container
 
-        // Scroll view for text editor — uses autoresizing masks since parent
-        // (NSSplitView) manages layout via frames, not Auto Layout
+        // Scroll view for text editor — uses frame-based layout since parent
+        // (NSSplitView) manages layout via frames, not Auto Layout.
+        // Frame is set in viewDidLayout; starts at container bounds minus gutter.
         scrollView = NSScrollView(frame: container.bounds)
-        scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -44,12 +41,15 @@ class QueryEditorVC: NSViewController {
 
         scrollView.documentView = textView
 
-        // Line number gutter
-        scrollView.hasVerticalRuler = true
-        gutter = LineNumberGutter(textView: textView)
-        scrollView.verticalRulerView = gutter
-        scrollView.rulersVisible = true
+        // Line number gutter — standalone NSView beside the scroll view,
+        // outside the scroll view hierarchy to avoid macOS 26's ruler VEV injection.
+        let gutterView = LineNumberGutter(textView: textView, scrollView: scrollView)
+        gutterView.onWidthChange = { [weak self] in
+            self?.view.needsLayout = true
+        }
+        gutter = gutterView
 
+        container.addSubview(gutterView)
         container.addSubview(scrollView)
 
         // Autocomplete
@@ -70,6 +70,23 @@ class QueryEditorVC: NSViewController {
             .store(in: &cancellables)
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        layoutGutterAndScrollView()
+    }
+
+    private func layoutGutterAndScrollView() {
+        let bounds = view.bounds
+        let gutterWidth: CGFloat
+        if let gutter, !gutter.isHidden {
+            gutterWidth = gutter.desiredWidth
+            gutter.frame = NSRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
+        } else {
+            gutterWidth = 0
+        }
+        scrollView.frame = NSRect(x: gutterWidth, y: 0, width: bounds.width - gutterWidth, height: bounds.height)
+    }
+
     // MARK: - Public API
 
     func formatSQL() {
@@ -83,6 +100,7 @@ class QueryEditorVC: NSViewController {
     func setSQL(_ sql: String) {
         textView.string = sql
         textView.highlightSyntax()
+        gutter?.invalidateLineNumbers()
     }
 
     func getSQL() -> String {
@@ -101,14 +119,6 @@ class QueryEditorVC: NSViewController {
 
     func focus() {
         view.window?.makeFirstResponder(textView)
-    }
-
-    func setErrorLine(_ line: Int?) {
-        if let line {
-            gutter.setErrorLines([line])
-        } else {
-            gutter.clearErrors()
-        }
     }
 
     func updateSchemaMetadata(
@@ -141,8 +151,9 @@ class QueryEditorVC: NSViewController {
         // Tab size
         textView.tabSize = Int(editor.tabSize)
 
-        // Line numbers
-        scrollView.rulersVisible = editor.lineNumbers
+        // Line numbers — toggle gutter visibility and re-layout
+        gutter?.isHidden = !editor.lineNumbers
+        layoutGutterAndScrollView()
 
         // Word wrap
         if editor.wordWrap {
@@ -180,7 +191,7 @@ class QueryEditorVC: NSViewController {
         guard let connectionId = stateManager.activeConnectionId,
               stateManager.status(for: connectionId) == .connected,
               !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            await MainActor.run { gutter.clearErrors() }
+            await MainActor.run { self.gutter?.clearErrors() }
             return
         }
 
@@ -190,14 +201,14 @@ class QueryEditorVC: NSViewController {
                 if let error = result.error, let position = error.position {
                     // Convert character position to line number
                     let line = lineNumber(forCharacterIndex: position, in: sql)
-                    gutter.setErrorLines([line])
+                    self.gutter?.setErrorLines([line])
                 } else {
-                    gutter.clearErrors()
+                    self.gutter?.clearErrors()
                 }
             }
         } catch {
             // Validation failure is non-critical, just clear markers
-            await MainActor.run { gutter.clearErrors() }
+            await MainActor.run { self.gutter?.clearErrors() }
         }
     }
 

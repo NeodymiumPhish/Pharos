@@ -228,7 +228,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Actions
 
-    @objc private func doubleClickedRow(_ sender: Any?) {
+    @objc private func doubleClickedRow(_: Any?) {
         let row = outlineView.clickedRow
         guard row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode else { return }
         if case .query(let q) = node.kind {
@@ -244,18 +244,18 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         )
     }
 
-    @objc private func contextOpenInTab(_ sender: Any?) {
+    @objc private func contextOpenInTab(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
         openQueryInTab(q)
     }
 
-    @objc private func contextCopySQL(_ sender: Any?) {
+    @objc private func contextCopySQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(q.sql, forType: .string)
     }
 
-    @objc private func contextMoveToConnection(_ sender: Any?) {
+    @objc private func contextMoveToConnection(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind,
               let connId = activeConnectionId else { return }
         do {
@@ -269,7 +269,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    @objc private func contextMoveToGeneral(_ sender: Any?) {
+    @objc private func contextMoveToGeneral(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
         do {
             let updated = CreateSavedQuery(name: q.name, folder: q.folder, sql: q.sql, connectionId: nil)
@@ -282,7 +282,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    @objc private func contextRename(_ sender: Any?) {
+    @objc private func contextRename(_: Any?) {
         guard let node = clickedNode() else { return }
         let currentName: String
         switch node.kind {
@@ -337,7 +337,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    @objc private func contextDelete(_ sender: Any?) {
+    @objc private func contextDelete(_: Any?) {
         guard let node = clickedNode() else { return }
 
         switch node.kind {
@@ -380,7 +380,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    @objc private func contextNewFolder(_ sender: Any?) {
+    @objc private func contextNewFolder(_: Any?) {
         let alert = NSAlert()
         alert.messageText = "New Folder"
         alert.addButton(withTitle: "Create")
@@ -419,7 +419,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    @objc private func contextNewQuery(_ sender: Any?) {
+    @objc private func contextNewQuery(_: Any?) {
         // Determine scope from clicked section
         let connectionId: String?
         if let node = clickedNode(), case .section = node.kind, node.isConnectionSection {

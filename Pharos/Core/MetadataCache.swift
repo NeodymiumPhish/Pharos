@@ -15,7 +15,6 @@ final class MetadataCache: ObservableObject {
     private var loadedConnectionId: String?
     private var loadTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
-    private var prioritySchema: String?
 
     private init() {}
 
@@ -25,7 +24,6 @@ final class MetadataCache: ObservableObject {
         loadTask?.cancel()
         detailTask?.cancel()
         loadedConnectionId = connectionId
-        prioritySchema = nil
 
         // Clear stale data immediately and show loading state
         schemas = []
@@ -62,7 +60,6 @@ final class MetadataCache: ObservableObject {
         // Already have this schema's data loaded
         if tables[schema] != nil { return }
 
-        prioritySchema = schema
         detailTask?.cancel()
 
         detailTask = Task {
@@ -75,7 +72,6 @@ final class MetadataCache: ObservableObject {
         loadTask?.cancel()
         detailTask?.cancel()
         loadedConnectionId = nil
-        prioritySchema = nil
         schemas = []
         tables = [:]
         columnsByTable = [:]

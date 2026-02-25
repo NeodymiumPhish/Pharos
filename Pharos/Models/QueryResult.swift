@@ -53,10 +53,6 @@ struct ValidationError: Codable {
 struct AnyCodable: Codable {
     let value: Any?
 
-    init(_ value: Any?) {
-        self.value = value
-    }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {

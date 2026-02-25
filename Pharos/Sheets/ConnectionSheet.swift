@@ -16,7 +16,6 @@ class ConnectionSheet: NSViewController {
     private let usernameField = NSTextField()
     private let passwordField = NSSecureTextField()
     private let sslPopup = NSPopUpButton()
-    private let colorWell = NSColorWell()
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()

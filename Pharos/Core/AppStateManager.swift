@@ -164,11 +164,6 @@ final class AppStateManager: ObservableObject {
         return tabs.first { $0.id == id }
     }
 
-    var activeTabIndex: Int? {
-        guard let id = activeTabId else { return nil }
-        return tabs.firstIndex { $0.id == id }
-    }
-
     @discardableResult
     func createTab(sql: String = "", name: String? = nil) -> QueryTab {
         let tabName = name ?? "Query \(tabs.count + 1)"
@@ -252,8 +247,6 @@ final class AppStateManager: ObservableObject {
         activeTabId = reopened.id
     }
 
-    var canReopenTab: Bool { !closedTabHistory.isEmpty }
-
     func selectTabByIndex(_ index: Int) {
         guard index >= 0, index < tabs.count else { return }
         activeTabId = tabs[index].id
@@ -262,13 +255,6 @@ final class AppStateManager: ObservableObject {
     func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         updater(&tabs[idx])
-    }
-
-    func moveTab(from: Int, to: Int) {
-        guard from != to, tabs.indices.contains(from), to >= 0, to <= tabs.count else { return }
-        let tab = tabs.remove(at: from)
-        let insertAt = to > from ? to - 1 : to
-        tabs.insert(tab, at: min(insertAt, tabs.count))
     }
 
     /// Ensure at least one tab exists. Call after connections load.
@@ -287,10 +273,6 @@ final class AppStateManager: ObservableObject {
 
     func status(for connectionId: String) -> ConnectionStatus {
         connectionStatuses[connectionId] ?? .disconnected
-    }
-
-    var connectedConnectionIds: [String] {
-        connectionStatuses.compactMap { $0.value == .connected ? $0.key : nil }
     }
 
     private func postStatusChange(_ connectionId: String) {
