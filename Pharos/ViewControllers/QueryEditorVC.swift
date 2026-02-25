@@ -234,7 +234,7 @@ class QueryEditorVC: NSViewController {
         guard let connectionId = stateManager.activeConnectionId,
               stateManager.status(for: connectionId) == .connected,
               !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            await MainActor.run { self.gutter?.clearErrors() }
+            await MainActor.run { self.clearErrorMarkers() }
             return
         }
 

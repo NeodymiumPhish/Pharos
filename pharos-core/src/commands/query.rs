@@ -536,11 +536,36 @@ pub async fn validate_sql(
         Err(e) => {
             let error_msg = e.to_string();
 
-            // Try to extract position information from PostgreSQL error
-            // PostgreSQL errors often include "at character N" or similar
-            // We need to subtract the PREPARE prefix length to get the position in the original SQL
-            // and add back the leading whitespace offset for correct Monaco editor positioning
-            let (position, line, column) = parse_error_position(&error_msg, &sql, prefix_len, leading_whitespace_len);
+            // Extract position directly from PgDatabaseError (e.to_string() drops it)
+            let raw_position = if let sqlx::Error::Database(ref db_err) = e {
+                if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+                    if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {
+                        Some(pos as usize)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Adjust position: subtract PREPARE prefix, add back leading whitespace
+            let position = raw_position.map(|p| {
+                if p > prefix_len {
+                    (p - prefix_len) + leading_whitespace_len
+                } else {
+                    1
+                }
+            });
+
+            let (line, column) = if let Some(pos) = position {
+                let (l, c) = char_position_to_line_col(&sql, pos);
+                (Some(l), Some(c))
+            } else {
+                (None, None)
+            };
 
             Ok(ValidationResult {
                 valid: false,
@@ -552,46 +577,6 @@ pub async fn validate_sql(
                 }),
             })
         }
-    }
-}
-
-/// Parse error position from PostgreSQL error message
-/// The prefix_len is the length of the PREPARE statement prefix that needs to be subtracted
-/// The leading_whitespace_len is the number of leading whitespace chars that were trimmed
-fn parse_error_position(error_msg: &str, original_sql: &str, prefix_len: usize, leading_whitespace_len: usize) -> (Option<usize>, Option<usize>, Option<usize>) {
-    // PostgreSQL often includes "at character N" in error messages
-    // Also look for "POSITION: N" in the detailed error
-    let raw_position = if let Some(pos_start) = error_msg.find("at character ") {
-        let start = pos_start + "at character ".len();
-        let end = error_msg[start..]
-            .find(|c: char| !c.is_ascii_digit())
-            .map(|i| start + i)
-            .unwrap_or(error_msg.len());
-        error_msg[start..end].parse::<usize>().ok()
-    } else {
-        None
-    };
-
-    // Adjust position:
-    // 1. Subtract the PREPARE prefix length to get position in trimmed SQL
-    // 2. Add leading whitespace length to get position in original SQL
-    let position = raw_position.map(|p| {
-        if p > prefix_len {
-            // Position in trimmed SQL
-            let trimmed_pos = p - prefix_len;
-            // Add back leading whitespace to get position in original SQL
-            trimmed_pos + leading_whitespace_len
-        } else {
-            1 // Default to position 1 if somehow the position is within the prefix
-        }
-    });
-
-    // Convert character position to line and column using original SQL
-    if let Some(pos) = position {
-        let (line, column) = char_position_to_line_col(original_sql, pos);
-        (Some(pos), Some(line), Some(column))
-    } else {
-        (None, None, None)
     }
 }
 
