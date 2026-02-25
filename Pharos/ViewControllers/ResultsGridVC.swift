@@ -53,6 +53,7 @@ class ResultsGridVC: NSViewController {
     private var dataSource: ResultsDataSource!
     private var copyExport: ResultsCopyExport!
     private var findController: ResultsFindController!
+    private var sortController: ResultsSortController!
 
     // Toolbar
     private let toolbarBar = NSView()
@@ -72,12 +73,9 @@ class ResultsGridVC: NSViewController {
     private var executionTimeMs: UInt64 = 0
     private var columnCategories: [String: PGTypeCategory] = [:]
 
-    // Sort state
+    // Display ordering
     private var displayRows: [Int] = []
     private var unfilteredDisplayRows: [Int] = []
-    private var currentSortColumn: String?
-    private var currentSortAscending = true
-    private var sortClickCount = 0
 
     // Find state
     private let findBar = NSView()
@@ -159,6 +157,13 @@ class ResultsGridVC: NSViewController {
         )
         findController.delegate = self
 
+        sortController = ResultsSortController(tableView: tableView, resetSortButton: resetSortButton)
+        sortController.delegate = self
+
+        // Retarget reset sort button to the sort controller
+        resetSortButton.target = sortController
+        resetSortButton.action = #selector(ResultsSortController.resetSort)
+
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -239,8 +244,8 @@ class ResultsGridVC: NSViewController {
         historyContextLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         historyContextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        configureToolbarButton(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill",
-                               action: #selector(resetSortTapped), tooltip: "Reset Sort")
+        // Target/action set in loadView() after sortController creation
+        configureToolbarButtonAppearance(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill", tooltip: "Reset Sort")
         resetSortButton.contentTintColor = .controlAccentColor
         resetSortButton.isHidden = true
 
@@ -432,9 +437,7 @@ class ResultsGridVC: NSViewController {
         // Initialize display order
         displayRows = Array(0..<rows.count)
         unfilteredDisplayRows = displayRows
-        currentSortColumn = nil
-        sortClickCount = 0
-        resetSortButton.isHidden = true
+        sortController.clearSortState()
 
         rebuildColumns()
         pushDataToHelpers()
@@ -464,8 +467,8 @@ class ResultsGridVC: NSViewController {
         displayRows = unfilteredDisplayRows
 
         // Re-apply sort if active
-        if currentSortColumn != nil {
-            applySortAndReload()
+        if sortController.currentSortColumn != nil {
+            sortController.reapplySortIfActive()
         } else if findController.isFindVisible {
             findController.findFieldChanged(findField)
         } else {
@@ -501,9 +504,7 @@ class ResultsGridVC: NSViewController {
         hasMore = false
         executionTimeMs = 0
         columnCategories = [:]
-        currentSortColumn = nil
-        sortClickCount = 0
-        resetSortButton.isHidden = true
+        sortController.clearSortState()
 
         // Remove all table columns
         while let col = tableView.tableColumns.last {
@@ -656,135 +657,6 @@ class ResultsGridVC: NSViewController {
         onLoadMore?()
     }
 
-    // MARK: - Sorting
-
-    private func handleSortDescriptorsChanged(_ oldDescriptors: [NSSortDescriptor]) {
-        guard let descriptor = tableView.sortDescriptors.first,
-              let key = descriptor.key else {
-            resetSort()
-            return
-        }
-
-        if key == currentSortColumn {
-            sortClickCount += 1
-            if sortClickCount >= 3 {
-                resetSort()
-                return
-            }
-        } else {
-            currentSortColumn = key
-            sortClickCount = 1
-        }
-
-        currentSortAscending = descriptor.ascending
-        applySortAndReload()
-    }
-
-    private func applySortAndReload() {
-        guard let sortKey = currentSortColumn else {
-            unfilteredDisplayRows = Array(0..<rows.count)
-            displayRows = unfilteredDisplayRows
-            resetSortButton.isHidden = true
-            updateSortIndicators()
-            if findController.isFindVisible {
-                findController.findFieldChanged(findField)
-            } else {
-                pushDataToHelpers()
-                tableView.reloadData()
-            }
-            return
-        }
-
-        let category = columnCategories[sortKey] ?? .string
-        let ascending = currentSortAscending
-
-        // Sort all rows
-        unfilteredDisplayRows = Array(0..<rows.count)
-        unfilteredDisplayRows.sort { a, b in
-            let valA = rows[a][sortKey]
-            let valB = rows[b][sortKey]
-
-            // NULLs always sort to end
-            if valA?.isNull ?? true {
-                if valB?.isNull ?? true { return false }
-                return false
-            }
-            if valB?.isNull ?? true { return true }
-
-            let result: Bool
-            switch category {
-            case .numeric:
-                let dA = numericValue(valA)
-                let dB = numericValue(valB)
-                result = dA < dB
-            case .boolean:
-                let bA = (valA?.value as? Bool) ?? false
-                let bB = (valB?.value as? Bool) ?? false
-                result = !bA && bB // false < true
-            default:
-                let sA = valA?.displayString ?? ""
-                let sB = valB?.displayString ?? ""
-                result = sA.localizedStandardCompare(sB) == .orderedAscending
-            }
-
-            return ascending ? result : !result
-        }
-
-        displayRows = unfilteredDisplayRows
-        resetSortButton.isHidden = false
-        updateSortIndicators()
-
-        // Re-apply filter if active
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-    }
-
-    private func resetSort() {
-        currentSortColumn = nil
-        sortClickCount = 0
-        tableView.sortDescriptors = []
-        unfilteredDisplayRows = Array(0..<rows.count)
-        displayRows = unfilteredDisplayRows
-        resetSortButton.isHidden = true
-        updateSortIndicators()
-
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-    }
-
-    @objc private func resetSortTapped() {
-        resetSort()
-    }
-
-    private func numericValue(_ value: AnyCodable?) -> Double {
-        guard let v = value?.value else { return 0 }
-        if let i = v as? Int64 { return Double(i) }
-        if let d = v as? Double { return d }
-        if let s = v as? String, let d = Double(s) { return d }
-        return 0
-    }
-
-    private func updateSortIndicators() {
-        for col in tableView.tableColumns {
-            if col.identifier.rawValue == currentSortColumn {
-                let symbolName = currentSortAscending ? "chevron.up" : "chevron.down"
-                let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(.init(pointSize: 8, weight: .medium))
-                tableView.setIndicatorImage(image, in: col)
-            } else {
-                tableView.setIndicatorImage(nil, in: col)
-            }
-        }
-    }
-
     // MARK: - Escape to Deselect
 
     @objc override func cancelOperation(_ sender: Any?) {
@@ -930,7 +802,39 @@ extension ResultsGridVC: ResultsFindControllerDelegate {
 
 extension ResultsGridVC: ResultsDataSourceDelegate {
     func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor]) {
-        handleSortDescriptorsChanged(oldDescriptors)
+        sortController.handleSortDescriptorsChanged(oldDescriptors)
+    }
+}
+
+// MARK: - ResultsSortControllerDelegate
+
+extension ResultsGridVC: ResultsSortControllerDelegate {
+    var sortableRows: [[String: AnyCodable]] { rows }
+    var sortableColumnCategories: [String: PGTypeCategory] { columnCategories }
+
+    func sortControllerDidSort(unfilteredDisplayRows newUnfiltered: [Int], isSorted: Bool) {
+        unfilteredDisplayRows = newUnfiltered
+        // Re-apply find filter on new sort order if active
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
+        } else {
+            displayRows = newUnfiltered
+            pushDataToHelpers()
+            tableView.reloadData()
+        }
+        updateStatusBarText()
+    }
+
+    func sortControllerDidReset(unfilteredDisplayRows newUnfiltered: [Int]) {
+        unfilteredDisplayRows = newUnfiltered
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
+        } else {
+            displayRows = newUnfiltered
+            pushDataToHelpers()
+            tableView.reloadData()
+        }
+        updateStatusBarText()
     }
 }
 
