@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Editor Text Rendering Fix** - Resolve faded/washed-out text in SQL editor and line number gutter
 - [x] **Phase 2: Git Cleanup** - Commit tracked-but-deleted Tauri files and update .gitignore for AppKit
 - [x] **Phase 3: Swift Dead Code Removal** - Remove unused Swift types, functions, and protocols from Tauri era
-- [ ] **Phase 4: Rust FFI Dead Code Removal** - Remove unused FFI exports, internal Rust code, and stale dependencies
+- [x] **Phase 4: Rust FFI Dead Code Removal** - Remove unused FFI exports, internal Rust code, and stale dependencies
 - [ ] **Phase 5: View Controller Extraction** - Break apart monolithic view controllers into focused helper classes
 - [ ] **Phase 6: FFI Layer Organization** - Organize PharosCore.swift and ffi.rs by domain with full verification
 
@@ -76,7 +76,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — Remove 6 dead FFI exports, cascade into dead internal code, audit deps, verify three-way sync
+- [x] 04-01-PLAN.md — Remove 6 dead FFI exports, cascade into dead internal code, audit deps, verify three-way sync
 
 ### Phase 5: View Controller Extraction
 **Goal**: Monolithic view controllers are split into focused, single-responsibility components
@@ -114,6 +114,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Editor Text Rendering Fix | 2/2 | Complete | 2026-02-25 |
 | 2. Git Cleanup | 1/1 | Complete | 2026-02-25 |
 | 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
-| 4. Rust FFI Dead Code Removal | 0/1 | Planned | - |
+| 4. Rust FFI Dead Code Removal | 1/1 | Complete | 2026-02-25 |
 | 5. View Controller Extraction | 0/0 | Not started | - |
 | 6. FFI Layer Organization | 0/0 | Not started | - |
