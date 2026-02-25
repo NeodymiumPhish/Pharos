@@ -68,7 +68,7 @@ extension ResultsGridVC {
         historyContextLabel.isHidden = true
         historyContextLabel.lineBreakMode = .byTruncatingTail
         historyContextLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        historyContextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        historyContextLabel.setContentCompressionResistancePriority(.init(249), for: .horizontal)
 
         // Target/action set in loadView() after sortController creation
         configureToolbarButtonAppearance(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill", tooltip: "Reset Sort")
@@ -89,22 +89,18 @@ extension ResultsGridVC {
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
         buttonStack.setHuggingPriority(.required, for: .horizontal)
 
-        toolbarBar.addSubview(statusLabel)
-        toolbarBar.addSubview(pinSourceLabel)
-        toolbarBar.addSubview(historyContextLabel)
+        let labelStack = NSStackView(views: [statusLabel, pinSourceLabel, historyContextLabel])
+        labelStack.orientation = .horizontal
+        labelStack.spacing = 8
+        labelStack.translatesAutoresizingMaskIntoConstraints = false
+
+        toolbarBar.addSubview(labelStack)
         toolbarBar.addSubview(buttonStack)
 
         NSLayoutConstraint.activate([
-            statusLabel.leadingAnchor.constraint(equalTo: toolbarBar.leadingAnchor, constant: 8),
-            statusLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-
-            pinSourceLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
-            pinSourceLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-            pinSourceLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
-
-            historyContextLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
-            historyContextLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-            historyContextLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
+            labelStack.leadingAnchor.constraint(equalTo: toolbarBar.leadingAnchor, constant: 8),
+            labelStack.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
+            labelStack.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
 
             buttonStack.trailingAnchor.constraint(equalTo: toolbarBar.trailingAnchor, constant: -8),
             buttonStack.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
