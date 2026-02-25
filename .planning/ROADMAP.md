@@ -100,10 +100,11 @@ Plans:
   1. PharosCore.swift FFI wrapper methods are grouped into logical extensions by domain (connection, query, metadata, settings, etc.)
   2. ffi.rs is organized into domain-grouped submodules (or clearly separated sections) instead of one monolithic file
   3. All existing app functionality verified end-to-end after the complete architecture restructuring (connections, queries, schema browsing, saved queries, import/export, settings)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
+- [ ] 06-01-PLAN.md — Split ffi.rs into ffi/ directory module with mod.rs + 9 domain submodules, verify cargo build and C header
+- [ ] 06-02-PLAN.md — Split PharosCore.swift into base + 8 domain extension files, xcodegen + full Xcode build verification
 
 ## Progress
 
@@ -117,4 +118,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
 | 4. Rust FFI Dead Code Removal | 1/1 | Complete | 2026-02-25 |
 | 5. View Controller Extraction | 2/2 | Complete | 2026-02-25 |
-| 6. FFI Layer Organization | 0/0 | Not started | - |
+| 6. FFI Layer Organization | 0/2 | Not started | - |

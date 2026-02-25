@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in-progress
-last_updated: "2026-02-25T19:45:28Z"
+status: unknown
+last_updated: "2026-02-25T19:56:08.967Z"
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 10
+  completed_plans: 9
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 5 complete. Phase 6 (FFI Layer Organization) is next.
+**Current focus:** Phase 6 in progress. FFI module split (plan 01) complete, commands module split (plan 02) next.
 
 ## Current Position
 
-Phase: 5 of 6 (View Controller Extraction) -- COMPLETE
-Plan: 2 of 2 in current phase -- all plans complete
-Status: Both plans complete. ResultsGridVC reduced from 1425 to 492 lines (plan 05-01). SchemaBrowserVC reduced from 1009 to 383 lines (plan 05-02).
-Last activity: 2026-02-25 -- Plan 05-01 executed (6 tasks, 6 commits)
+Phase: 6 of 6 (FFI Layer Organization)
+Plan: 1 of 2 in current phase -- plan 01 complete
+Status: FFI module split complete. 885-line ffi.rs replaced by ffi/ directory with mod.rs + 9 domain submodules.
+Last activity: 2026-02-25 -- Plan 06-01 executed (2 tasks, 2 commits)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
+- Total plans completed: 9
 - Average duration: 7 min
-- Total execution time: 0.90 hours
+- Total execution time: 0.95 hours
 
 **By Phase:**
 
@@ -46,9 +46,10 @@ Progress: [██████████] 100%
 | 04-rust-ffi-dead-code-removal | 1 | 5 min | 5 min |
 
 | 05-view-controller-extraction | 2 | 52 min | 26 min |
+| 06-ffi-layer-organization | 1 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-01 (12 min), 03-02 (3 min), 04-01 (5 min), 05-02 (7 min), 05-01 (45 min)
+- Last 5 plans: 03-02 (3 min), 04-01 (5 min), 05-02 (7 min), 05-01 (45 min), 06-01 (3 min)
 - Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [05-01]: State push pattern: VC owns canonical data, pushes to all helpers before reloadData
 - [05-01]: Cross-file extensions with internal access to split VC below 500 lines
 - [05-01]: Button targets retargeted to helper objects directly (not VC forwarding stubs)
+- [06-01]: use super::* pattern for FFI submodule access to shared infrastructure (avoids import duplication)
+- [06-01]: Alphabetical mod declarations in ffi/mod.rs for discoverability
+- [06-01]: Header ordering change from cbindgen accepted (semantically equivalent after module split)
 
 ### Pending Todos
 
@@ -93,5 +97,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 05-01-PLAN.md (ResultsGridVC extraction). Phase 5 fully complete.
+Stopped at: Completed 06-01-PLAN.md (FFI module split). Plan 06-02 next.
 Resume file: none

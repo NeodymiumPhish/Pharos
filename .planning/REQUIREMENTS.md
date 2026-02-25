@@ -34,7 +34,7 @@
 - [x] **ARCH-01**: ResultsGridVC (1429 lines) responsibilities extracted into helper classes
 - [x] **ARCH-02**: SchemaBrowserVC (1009 lines) context menu and data source extracted
 - [ ] **ARCH-03**: PharosCore.swift FFI wrapper organized by domain (connection, query, metadata, etc.)
-- [ ] **ARCH-04**: ffi.rs organized into domain-grouped submodules
+- [x] **ARCH-04**: ffi.rs organized into domain-grouped submodules
 - [ ] **ARCH-05**: All existing functionality verified after restructuring
 
 ## v2 Requirements
@@ -78,7 +78,7 @@
 | ARCH-01 | Phase 5 | Complete |
 | ARCH-02 | Phase 5 | Complete |
 | ARCH-03 | Phase 6 | Pending |
-| ARCH-04 | Phase 6 | Pending |
+| ARCH-04 | Phase 6 | Complete |
 | ARCH-05 | Phase 6 | Pending |
 
 **Coverage:**
