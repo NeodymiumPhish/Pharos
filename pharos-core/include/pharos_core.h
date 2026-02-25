@@ -15,9 +15,40 @@
  * - `error_msg`: error message on failure, NULL on success
  *
  * Exactly one of `result_json` / `error_msg` will be non-NULL.
- * The caller must NOT free the strings — they are freed by Rust after the callback returns.
+ * The caller must NOT free the strings --- they are freed by Rust after the callback returns.
  */
 typedef void (*AsyncCallback)(void *context, const char *result_json, const char *error_msg);
+
+/**
+ * Load all connection configs. Returns JSON array. Caller must free.
+ */
+ char *pharos_load_connections(void);
+
+/**
+ * Save a connection config. `json` is a JSON-encoded ConnectionConfig.
+ * Returns NULL on success, or an error message string (caller must free).
+ */
+ char *pharos_save_connection(const char *json);
+
+/**
+ * Delete a connection. Returns NULL on success or error string.
+ */
+ char *pharos_delete_connection(const char *connection_id);
+
+/**
+ * Connect to PostgreSQL. Calls `callback` when done.
+ */
+ void pharos_connect(const char *connection_id, AsyncCallback callback, void *context);
+
+/**
+ * Disconnect from PostgreSQL. Calls `callback` when done.
+ */
+ void pharos_disconnect(const char *connection_id, AsyncCallback callback, void *context);
+
+/**
+ * Test a connection config. `json` is JSON-encoded ConnectionConfig.
+ */
+ void pharos_test_connection(const char *json, AsyncCallback callback, void *context);
 
 /**
  * Initialize the Rust runtime, SQLite database, and credential cache.
@@ -41,84 +72,6 @@ void pharos_free_string(char *ptr);
  * Format SQL with PostgreSQL conventions. Returns formatted SQL. Caller must free.
  */
  char *pharos_format_sql(const char *sql);
-
-/**
- * Load all connection configs. Returns JSON array. Caller must free.
- */
- char *pharos_load_connections(void);
-
-/**
- * Save a connection config. `json` is a JSON-encoded ConnectionConfig.
- * Returns NULL on success, or an error message string (caller must free).
- */
- char *pharos_save_connection(const char *json);
-
-/**
- * Delete a connection. Returns NULL on success or error string.
- */
- char *pharos_delete_connection(const char *connection_id);
-
-/**
- * Load settings. Returns JSON. Caller must free.
- */
- char *pharos_load_settings(void);
-
-/**
- * Save settings. `json` is a JSON-encoded AppSettings.
- */
- char *pharos_save_settings(const char *json);
-
-/**
- * Load saved queries. Returns JSON array. Caller must free.
- */
- char *pharos_load_saved_queries(void);
-
-/**
- * Create a saved query. `json` is JSON-encoded CreateSavedQuery. Returns JSON SavedQuery.
- */
- char *pharos_create_saved_query(const char *json);
-
-/**
- * Update a saved query. `json` is JSON-encoded UpdateSavedQuery. Returns JSON SavedQuery or null.
- */
- char *pharos_update_saved_query(const char *json);
-
-/**
- * Delete a saved query. Returns "true" or "false".
- */
- char *pharos_delete_saved_query(const char *query_id);
-
-/**
- * Load query history. `json` is JSON with optional filters: {connectionId?, search?, limit?, offset?}.
- * Returns JSON array. Caller must free.
- */
-
-char *pharos_load_query_history(const char *json);
-
-/**
- * Delete a query history entry. Returns "true"/"false".
- */
- char *pharos_delete_query_history_entry(const char *entry_id);
-
-/**
- * Get cached result data for a history entry. Returns JSON or NULL.
- */
- char *pharos_get_query_history_result(const char *entry_id);
-
-/**
- * Connect to PostgreSQL. Calls `callback` when done.
- */
- void pharos_connect(const char *connection_id, AsyncCallback callback, void *context);
-
-/**
- * Disconnect from PostgreSQL. Calls `callback` when done.
- */
- void pharos_disconnect(const char *connection_id, AsyncCallback callback, void *context);
-
-/**
- * Test a connection config. `json` is JSON-encoded ConnectionConfig.
- */
- void pharos_test_connection(const char *json, AsyncCallback callback, void *context);
 
 /**
  * Execute a SQL query. Returns JSON QueryResult via callback.
@@ -174,6 +127,43 @@ void pharos_validate_sql(const char *connection_id,
                          void *context);
 
 /**
+ * Load query history. `json` is JSON with optional filters: {connectionId?, search?, limit?, offset?}.
+ * Returns JSON array. Caller must free.
+ */
+
+char *pharos_load_query_history(const char *json);
+
+/**
+ * Delete a query history entry. Returns "true"/"false".
+ */
+ char *pharos_delete_query_history_entry(const char *entry_id);
+
+/**
+ * Get cached result data for a history entry. Returns JSON or NULL.
+ */
+ char *pharos_get_query_history_result(const char *entry_id);
+
+/**
+ * Load saved queries. Returns JSON array. Caller must free.
+ */
+ char *pharos_load_saved_queries(void);
+
+/**
+ * Create a saved query. `json` is JSON-encoded CreateSavedQuery. Returns JSON SavedQuery.
+ */
+ char *pharos_create_saved_query(const char *json);
+
+/**
+ * Update a saved query. `json` is JSON-encoded UpdateSavedQuery. Returns JSON SavedQuery or null.
+ */
+ char *pharos_update_saved_query(const char *json);
+
+/**
+ * Delete a saved query. Returns "true" or "false".
+ */
+ char *pharos_delete_saved_query(const char *query_id);
+
+/**
  * Get schemas. Returns JSON array via callback.
  */
  void pharos_get_schemas(const char *connection_id, AsyncCallback callback, void *context);
@@ -216,6 +206,25 @@ void pharos_analyze_schema(const char *connection_id,
                            void *context);
 
 /**
+ * Get schema functions. Returns JSON array via callback.
+ */
+
+void pharos_get_schema_functions(const char *connection_id,
+                                 const char *schema_name,
+                                 AsyncCallback callback,
+                                 void *context);
+
+/**
+ * Load settings. Returns JSON. Caller must free.
+ */
+ char *pharos_load_settings(void);
+
+/**
+ * Save settings. `json` is a JSON-encoded AppSettings.
+ */
+ char *pharos_save_settings(const char *json);
+
+/**
  * Get table indexes. Returns JSON array via callback.
  */
 
@@ -234,15 +243,6 @@ void pharos_get_table_constraints(const char *connection_id,
                                   const char *table_name,
                                   AsyncCallback callback,
                                   void *context);
-
-/**
- * Get schema functions. Returns JSON array via callback.
- */
-
-void pharos_get_schema_functions(const char *connection_id,
-                                 const char *schema_name,
-                                 AsyncCallback callback,
-                                 void *context);
 
 /**
  * Clone a table. `json` is JSON-encoded CloneTableOptions.
