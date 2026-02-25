@@ -524,9 +524,15 @@ pub fn load_query_history(
 
     if let Some(q) = search {
         if !q.is_empty() {
-            sql.push_str(&format!(" AND sql LIKE ?{}", param_idx));
-            params.push(Box::new(format!("%{}%", q)));
-            param_idx += 1;
+            sql.push_str(&format!(
+                " AND (LOWER(sql) LIKE LOWER(?{}) OR LOWER(connection_name) LIKE LOWER(?{}))",
+                param_idx,
+                param_idx + 1
+            ));
+            let pattern = format!("%{}%", q);
+            params.push(Box::new(pattern.clone()));
+            params.push(Box::new(pattern));
+            param_idx += 2;
         }
     }
 

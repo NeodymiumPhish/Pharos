@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-02-25T19:56:08.967Z"
+status: complete
+last_updated: "2026-02-25T20:25:09Z"
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 6 in progress. FFI module split (plan 01) complete, commands module split (plan 02) next.
+**Current focus:** All 6 phases complete. Milestone v1.0 architecture cleanup finished.
 
 ## Current Position
 
-Phase: 6 of 6 (FFI Layer Organization)
-Plan: 1 of 2 in current phase -- plan 01 complete
-Status: FFI module split complete. 885-line ffi.rs replaced by ffi/ directory with mod.rs + 9 domain submodules.
-Last activity: 2026-02-25 -- Plan 06-01 executed (2 tasks, 2 commits)
+Phase: 6 of 6 (FFI Layer Organization) -- COMPLETE
+Plan: 2 of 2 in current phase -- all plans complete
+Status: All phases complete. PharosCore.swift split into base + 8 domain extension files. Full build verified.
+Last activity: 2026-02-25 -- Plan 06-02 executed (2 tasks, 2 commits)
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: 7 min
-- Total execution time: 0.95 hours
+- Total execution time: 1.0 hours
 
 **By Phase:**
 
@@ -46,10 +46,10 @@ Progress: [█████████░] 90%
 | 04-rust-ffi-dead-code-removal | 1 | 5 min | 5 min |
 
 | 05-view-controller-extraction | 2 | 52 min | 26 min |
-| 06-ffi-layer-organization | 1 | 3 min | 3 min |
+| 06-ffi-layer-organization | 2 | 6 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: 03-02 (3 min), 04-01 (5 min), 05-02 (7 min), 05-01 (45 min), 06-01 (3 min)
+- Last 5 plans: 04-01 (5 min), 05-02 (7 min), 05-01 (45 min), 06-01 (3 min), 06-02 (3 min)
 - Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
@@ -85,6 +85,8 @@ Recent decisions affecting current work:
 - [06-01]: use super::* pattern for FFI submodule access to shared infrastructure (avoids import duplication)
 - [06-01]: Alphabetical mod declarations in ffi/mod.rs for discoverability
 - [06-01]: Header ordering change from cbindgen accepted (semantically equivalent after module split)
+- [06-02]: private to internal visibility for CallbackBox, withAsyncCallback, EmptyResult, withOptionalCString (required for cross-file extension access)
+- [06-02]: formatSQL placed in Query extension (not its own file) since it's the only non-async query utility
 
 ### Pending Todos
 
@@ -97,5 +99,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 06-01-PLAN.md (FFI module split). Plan 06-02 next.
+Stopped at: Completed 06-02-PLAN.md (PharosCore Swift extension split). All plans and phases complete.
 Resume file: none

@@ -237,7 +237,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
 
         // Reload library data (always visible now)
         savedQueries.reload(connectionId: activeId)
-        queryHistory.reload(connectionId: activeId)
+        queryHistory.reload()
     }
 
     private func connectionStatusChanged() {

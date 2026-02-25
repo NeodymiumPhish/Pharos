@@ -218,10 +218,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         }
         let dateText = formatDate(entry.executedAt)
 
+        let connName = entry.connectionName
         if !rowText.isEmpty {
-            cell.secondaryLabel.stringValue = "\(rowText) – \(dateText)"
+            cell.secondaryLabel.stringValue = "\(rowText) – \(dateText) – \(connName)"
         } else {
-            cell.secondaryLabel.stringValue = dateText
+            cell.secondaryLabel.stringValue = "\(dateText) – \(connName)"
         }
 
         return cell
