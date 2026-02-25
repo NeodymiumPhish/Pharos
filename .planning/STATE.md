@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-02-25T18:00:00Z"
+last_updated: "2026-02-25T19:45:28Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 8
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 5 planned, ready for execution - View Controller Extraction
+**Current focus:** Phase 5 complete. Phase 6 (FFI Layer Organization) is next.
 
 ## Current Position
 
-Phase: 5 of 6 (View Controller Extraction) -- IN PROGRESS
-Plan: 1 of 2 in current phase -- 05-02 complete
-Status: Plan 05-02 (SchemaBrowserVC extraction) complete. SchemaBrowserVC reduced from 1009 to 383 lines. Plan 05-01 (ResultsGridVC) may still be in progress (parallel execution).
-Last activity: 2026-02-25 -- Plan 05-02 executed (4 tasks, 3 commits)
+Phase: 5 of 6 (View Controller Extraction) -- COMPLETE
+Plan: 2 of 2 in current phase -- all plans complete
+Status: Both plans complete. ResultsGridVC reduced from 1425 to 492 lines (plan 05-01). SchemaBrowserVC reduced from 1009 to 383 lines (plan 05-02).
+Last activity: 2026-02-25 -- Plan 05-01 executed (6 tasks, 6 commits)
 
-Progress: [███████░░░] 81%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 5 min
-- Total execution time: 0.36 hours
+- Total plans completed: 8
+- Average duration: 7 min
+- Total execution time: 0.90 hours
 
 **By Phase:**
 
@@ -45,10 +45,10 @@ Progress: [███████░░░] 81%
 | 03-swift-dead-code-removal | 2 | 15 min | 7.5 min |
 | 04-rust-ffi-dead-code-removal | 1 | 5 min | 5 min |
 
-| 05-view-controller-extraction | 1 | 7 min | 7 min |
+| 05-view-controller-extraction | 2 | 52 min | 26 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min), 04-01 (5 min), 05-02 (7 min)
+- Last 5 plans: 03-01 (12 min), 03-02 (3 min), 04-01 (5 min), 05-02 (7 min), 05-01 (45 min)
 - Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
@@ -77,6 +77,10 @@ Recent decisions affecting current work:
 - [05-02]: Used didSet on rootNodes to sync state to SchemaDataSource helper (avoids manual sync calls at every mutation site)
 - [05-02]: All context menu items use explicit target = self on helper (21 instances) since helper is not in NSResponder chain
 - [05-02]: SchemaContextMenu owns its own AppStateManager.shared reference (avoids passing through delegate for destructive confirmation checks)
+- [05-01]: Helpers are plain NSObject subclasses, not child NSViewControllers (simpler lifecycle)
+- [05-01]: State push pattern: VC owns canonical data, pushes to all helpers before reloadData
+- [05-01]: Cross-file extensions with internal access to split VC below 500 lines
+- [05-01]: Button targets retargeted to helper objects directly (not VC forwarding stubs)
 
 ### Pending Todos
 
@@ -89,5 +93,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 05-02-PLAN.md (SchemaBrowserVC extraction). 05-01-PLAN.md (ResultsGridVC) executing in parallel.
+Stopped at: Completed 05-01-PLAN.md (ResultsGridVC extraction). Phase 5 fully complete.
 Resume file: none
