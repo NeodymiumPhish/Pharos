@@ -31,6 +31,7 @@
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2842DA42F9D759036177BC /* AppDelegate.swift */; };
+		B328811200CD6EBE799D2971 /* SchemaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */; };
 		B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */; };
 		B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */; };
 		BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */; };
@@ -84,6 +85,7 @@
 		EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryResult.swift; sourceTree = "<group>"; };
 		EBB204A7203DFE7F75AE059A /* PharosCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosCore.swift; sourceTree = "<group>"; };
 		EBF3A05751881D6DB6B2AE26 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
+		EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaContextMenu.swift; sourceTree = "<group>"; };
 		EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGTypeCategory.swift; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
@@ -126,6 +128,7 @@
 		4805BF335A675C25FD0555B4 /* SchemaBrowser */ = {
 			isa = PBXGroup;
 			children = (
+				EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */,
 				4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */,
 			);
 			path = SchemaBrowser;
@@ -347,6 +350,7 @@
 				3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */,
 				1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */,
 				BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */,
+				B328811200CD6EBE799D2971 /* SchemaContextMenu.swift in Sources */,
 				4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */,
 				E02EA8A440A656E0CFDE8093 /* SchemaDetailSheet.swift in Sources */,
 				8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */,
