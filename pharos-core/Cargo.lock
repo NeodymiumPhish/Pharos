@@ -1415,7 +1415,6 @@ dependencies = [
  "csv",
  "env_logger",
  "futures",
- "hex",
  "ipnetwork",
  "keyring",
  "log",
