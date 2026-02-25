@@ -251,6 +251,24 @@ class SQLTextView: NSTextView {
         }
     }
 
+    // MARK: - Error Underlines
+
+    /// Add a red underline to the given character range (for execution errors).
+    /// Uses temporary attributes so it doesn't affect undo or stored text.
+    func addErrorUnderline(range: NSRange) {
+        guard let layoutManager else { return }
+        layoutManager.addTemporaryAttribute(.underlineStyle, value: NSUnderlineStyle.thick.rawValue, forCharacterRange: range)
+        layoutManager.addTemporaryAttribute(.underlineColor, value: NSColor.systemRed, forCharacterRange: range)
+    }
+
+    /// Remove all error underlines from the text.
+    func clearErrorUnderlines() {
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: (string as NSString).length)
+        layoutManager.removeTemporaryAttribute(.underlineStyle, forCharacterRange: fullRange)
+        layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
+    }
+
     // MARK: - Syntax Highlighting
 
     func highlightSyntax() {

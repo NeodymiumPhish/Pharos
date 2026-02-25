@@ -346,6 +346,7 @@ class ContentViewController: NSViewController {
             tab.executeResult = nil
         }
         resultsVC.clear()
+        editorVC.clearErrorMarkers()
 
         let limit = Int32(stateManager.settings.query.defaultLimit)
         let isSelectLike = trimmed.uppercased().hasPrefix("SELECT")
@@ -404,6 +405,7 @@ class ContentViewController: NSViewController {
                     }
                     if self.stateManager.activeTabId == tabId {
                         self.resultsVC.showError(message)
+                        self.markEditorError(message: message, sql: trimmed)
                     }
                 }
             }
@@ -492,6 +494,29 @@ class ContentViewController: NSViewController {
         Task {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: queryId)
         }
+    }
+    // MARK: - Error Position Parsing
+
+    /// Parse the PostgreSQL error position and mark the error in the editor.
+    private func markEditorError(message: String, sql: String) {
+        // Look for "at character N" appended by format_db_error()
+        guard let range = message.range(of: #"at character (\d+)"#, options: .regularExpression),
+              let digitRange = message.range(of: #"\d+"#, options: .regularExpression, range: range),
+              let charPos = Int(message[digitRange]) else { return }
+
+        // Try to extract token length from 'near "X"' in the error message
+        let tokenLength: Int
+        if let nearRange = message.range(of: #"near "([^"]+)""#, options: .regularExpression) {
+            // Extract just the token inside the quotes
+            let nearStr = message[nearRange]
+            let quoteStart = nearStr.index(after: nearStr.firstIndex(of: "\"")!)
+            let quoteEnd = nearStr[quoteStart...].firstIndex(of: "\"")!
+            tokenLength = nearStr[quoteStart..<quoteEnd].count
+        } else {
+            tokenLength = 0 // Will underline to end of line
+        }
+
+        editorVC.markError(charPosition: charPos, tokenLength: tokenLength)
     }
 }
 

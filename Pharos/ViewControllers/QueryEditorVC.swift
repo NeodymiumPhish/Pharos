@@ -131,6 +131,46 @@ class QueryEditorVC: NSViewController {
         completionProvider.columnsByTable = columnsByTable
     }
 
+    // MARK: - Error Markers
+
+    /// Mark an error at the given character position in the editor.
+    /// Sets the gutter error dot and adds a red underline on the error token.
+    /// - Parameters:
+    ///   - charPosition: 1-based character offset from PostgreSQL's error position
+    ///   - tokenLength: length of the error token to underline (0 = underline to end of line)
+    func markError(charPosition: Int, tokenLength: Int) {
+        let text = textView.string
+        let nsText = text as NSString
+        let pos0 = charPosition - 1 // Convert to 0-based
+        guard pos0 >= 0, pos0 < nsText.length else { return }
+
+        // Set gutter error dot
+        let line = lineNumber(forCharacterIndex: charPosition, in: text)
+        gutter?.setErrorLines([line])
+
+        // Determine underline range
+        let underlineLength: Int
+        if tokenLength > 0 {
+            underlineLength = min(tokenLength, nsText.length - pos0)
+        } else {
+            // Underline from position to end of line
+            let lineRange = nsText.lineRange(for: NSRange(location: pos0, length: 0))
+            let lineEnd = lineRange.location + lineRange.length
+            // Trim trailing newline
+            let effectiveEnd = (lineEnd > 0 && nsText.character(at: lineEnd - 1) == UInt16(UnicodeScalar("\n").value))
+                ? lineEnd - 1 : lineEnd
+            underlineLength = max(1, effectiveEnd - pos0)
+        }
+
+        textView.addErrorUnderline(range: NSRange(location: pos0, length: underlineLength))
+    }
+
+    /// Clear all error markers (gutter dots + underlines).
+    func clearErrorMarkers() {
+        gutter?.clearErrors()
+        textView.clearErrorUnderlines()
+    }
+
     // MARK: - Settings
 
     private func applySettings() {
@@ -172,6 +212,9 @@ class QueryEditorVC: NSViewController {
 
     private func textDidChange(_ newText: String) {
         guard let tabId else { return }
+
+        // Clear any execution error markers when user starts typing
+        clearErrorMarkers()
 
         stateManager.updateTab(id: tabId) { tab in
             tab.sql = newText

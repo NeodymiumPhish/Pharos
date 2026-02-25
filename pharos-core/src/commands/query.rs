@@ -8,6 +8,19 @@ use crate::db::sqlite;
 use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
 
+/// Format a database error, preserving PostgreSQL's character position if available.
+/// sqlx's `.to_string()` drops the position field; this re-extracts it from PgDatabaseError.
+fn format_db_error(e: &sqlx::Error) -> String {
+    if let sqlx::Error::Database(db_err) = e {
+        if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+            if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {
+                return format!("{} at character {}", e, pos);
+            }
+        }
+    }
+    e.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnDef {
     pub name: String,
@@ -95,7 +108,7 @@ pub async fn execute_query(
                 }
             }
             Err(e) => {
-                fetch_error = Some(e.to_string());
+                fetch_error = Some(format_db_error(&e));
                 break;
             }
         }
@@ -370,7 +383,7 @@ pub async fn execute_statement(
     let result = sqlx::query(&sql)
         .execute(&mut *conn)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format_db_error(&e))?;
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
