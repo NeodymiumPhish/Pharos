@@ -230,22 +230,6 @@ pub extern "C" fn pharos_delete_connection(connection_id: *const c_char) -> *mut
     }
 }
 
-/// Reorder connections. `json` is a JSON array of connection IDs.
-#[no_mangle]
-pub extern "C" fn pharos_reorder_connections(json: *const c_char) -> *mut c_char {
-    let state = app_state();
-    let rt = runtime();
-    let json_str = unsafe { c_str_to_string(json) };
-    let ids: Vec<String> = match serde_json::from_str(&json_str) {
-        Ok(v) => v,
-        Err(e) => return to_c_string(&e.to_string()),
-    };
-    match rt.block_on(crate::commands::reorder_connections(ids, state)) {
-        Ok(()) => std::ptr::null_mut(),
-        Err(e) => to_c_string(&e),
-    }
-}
-
 /// Load settings. Returns JSON. Caller must free.
 #[no_mangle]
 pub extern "C" fn pharos_load_settings() -> *mut c_char {
@@ -373,17 +357,6 @@ pub extern "C" fn pharos_delete_query_history_entry(entry_id: *const c_char) -> 
     match rt.block_on(crate::commands::delete_query_history_entry(id, state)) {
         Ok(deleted) => to_c_string(if deleted { "true" } else { "false" }),
         Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
-    }
-}
-
-/// Clear all query history.
-#[no_mangle]
-pub extern "C" fn pharos_clear_query_history() -> *mut c_char {
-    let state = app_state();
-    let rt = runtime();
-    match rt.block_on(crate::commands::clear_query_history(state)) {
-        Ok(()) => std::ptr::null_mut(),
-        Err(e) => to_c_string(&e),
     }
 }
 
@@ -808,119 +781,6 @@ pub extern "C" fn pharos_get_schema_functions(
         match crate::commands::get_schema_functions(conn_id, schema, state).await {
             Ok(functions) => {
                 let json = serde_json::to_string(&functions).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
-            Err(e) => callback_err(callback, ctx, &e),
-        }
-    });
-}
-
-/// Generate table DDL. Returns SQL string via callback.
-#[no_mangle]
-pub extern "C" fn pharos_generate_table_ddl(
-    connection_id: *const c_char,
-    schema_name: *const c_char,
-    table_name: *const c_char,
-    callback: AsyncCallback,
-    context: *mut std::ffi::c_void,
-) {
-    let state = app_state();
-    let conn_id = unsafe { c_str_to_string(connection_id) };
-    let schema = unsafe { c_str_to_string(schema_name) };
-    let table = unsafe { c_str_to_string(table_name) };
-    let ctx = context as usize;
-
-    runtime().spawn(async move {
-
-        match crate::commands::generate_table_ddl(conn_id, schema, table, state).await {
-            Ok(ddl) => {
-                let json = serde_json::to_string(&ddl).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
-            Err(e) => callback_err(callback, ctx, &e),
-        }
-    });
-}
-
-/// Generate index DDL. Returns SQL string via callback.
-#[no_mangle]
-pub extern "C" fn pharos_generate_index_ddl(
-    connection_id: *const c_char,
-    schema_name: *const c_char,
-    index_name: *const c_char,
-    callback: AsyncCallback,
-    context: *mut std::ffi::c_void,
-) {
-    let state = app_state();
-    let conn_id = unsafe { c_str_to_string(connection_id) };
-    let schema = unsafe { c_str_to_string(schema_name) };
-    let index = unsafe { c_str_to_string(index_name) };
-    let ctx = context as usize;
-
-    runtime().spawn(async move {
-
-        match crate::commands::generate_index_ddl(conn_id, schema, index, state).await {
-            Ok(ddl) => {
-                let json = serde_json::to_string(&ddl).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
-            Err(e) => callback_err(callback, ctx, &e),
-        }
-    });
-}
-
-/// Check if query results are editable. Returns JSON EditableInfo via callback.
-#[no_mangle]
-pub extern "C" fn pharos_check_query_editable(
-    connection_id: *const c_char,
-    sql: *const c_char,
-    schema: *const c_char,
-    callback: AsyncCallback,
-    context: *mut std::ffi::c_void,
-) {
-    let state = app_state();
-    let conn_id = unsafe { c_str_to_string(connection_id) };
-    let sql_str = unsafe { c_str_to_string(sql) };
-    let schema_str = unsafe { c_str_to_option(schema) };
-    let ctx = context as usize;
-
-    runtime().spawn(async move {
-
-        match crate::commands::check_query_editable(conn_id, sql_str, schema_str, state).await {
-            Ok(info) => {
-                let json = serde_json::to_string(&info).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
-            Err(e) => callback_err(callback, ctx, &e),
-        }
-    });
-}
-
-/// Commit data edits. `json` is JSON-encoded CommitEditsOptions. Returns JSON CommitEditsResult.
-#[no_mangle]
-pub extern "C" fn pharos_commit_data_edits(
-    connection_id: *const c_char,
-    json: *const c_char,
-    callback: AsyncCallback,
-    context: *mut std::ffi::c_void,
-) {
-    let state = app_state();
-    let conn_id = unsafe { c_str_to_string(connection_id) };
-    let json_str = unsafe { c_str_to_string(json) };
-    let ctx = context as usize;
-
-    runtime().spawn(async move {
-
-        let options: crate::commands::query::CommitEditsOptions = match serde_json::from_str(&json_str) {
-            Ok(o) => o,
-            Err(e) => {
-                callback_err(callback, ctx, &e.to_string());
-                return;
-            }
-        };
-        match crate::commands::commit_data_edits(conn_id, options, state).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
                 callback_ok(callback, ctx, &json);
             }
             Err(e) => callback_err(callback, ctx, &e),

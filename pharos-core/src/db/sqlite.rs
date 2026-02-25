@@ -294,17 +294,6 @@ pub fn delete_connection(conn: &Connection, connection_id: &str) -> SqliteResult
     Ok(())
 }
 
-/// Update the sort order of connections
-pub fn reorder_connections(conn: &Connection, connection_ids: &[String]) -> SqliteResult<()> {
-    for (index, id) in connection_ids.iter().enumerate() {
-        conn.execute(
-            "UPDATE connections SET sort_order = ?1 WHERE id = ?2",
-            (index as i32, id),
-        )?;
-    }
-    Ok(())
-}
-
 // ==================== Saved Queries ====================
 
 /// Create a new saved query
@@ -570,27 +559,6 @@ pub fn load_query_history(
 /// Delete a single query history entry
 pub fn delete_query_history_entry(conn: &Connection, entry_id: &str) -> SqliteResult<bool> {
     let rows_affected = conn.execute("DELETE FROM query_history WHERE id = ?1", [entry_id])?;
-    Ok(rows_affected > 0)
-}
-
-/// Clear all query history
-pub fn clear_query_history(conn: &Connection) -> SqliteResult<()> {
-    conn.execute("DELETE FROM query_history", [])?;
-    Ok(())
-}
-
-/// Update cached results for a history entry (e.g. after loading more rows)
-pub fn update_query_history_results(
-    conn: &Connection,
-    entry_id: &str,
-    row_count: i64,
-    result_columns_json: &str,
-    result_rows_json: &str,
-) -> SqliteResult<bool> {
-    let rows_affected = conn.execute(
-        "UPDATE query_history SET row_count = ?1, result_columns = ?2, result_rows = ?3 WHERE id = ?4",
-        rusqlite::params![row_count, result_columns_json, result_rows_json, entry_id],
-    )?;
     Ok(rows_affected > 0)
 }
 

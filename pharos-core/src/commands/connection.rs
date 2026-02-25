@@ -196,39 +196,3 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
     }
 }
 
-/// Reorder connections
-pub async fn reorder_connections(
-    connection_ids: Vec<String>,
-    state: &AppState,
-) -> Result<(), String> {
-    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
-    sqlite::reorder_connections(&db, &connection_ids).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Get connection status
-pub async fn get_connection_status(
-    connection_id: String,
-    state: &AppState,
-) -> Result<ConnectionInfo, String> {
-    let config = state
-        .get_config(&connection_id)
-        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-
-    let status = if state.has_pool(&connection_id) {
-        ConnectionStatus::Connected
-    } else {
-        ConnectionStatus::Disconnected
-    };
-
-    Ok(ConnectionInfo {
-        id: config.id,
-        name: config.name,
-        host: config.host,
-        port: config.port,
-        database: config.database,
-        status,
-        error: None,
-        latency_ms: None,
-    })
-}

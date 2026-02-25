@@ -59,11 +59,6 @@ void pharos_free_string(char *ptr);
  char *pharos_delete_connection(const char *connection_id);
 
 /**
- * Reorder connections. `json` is a JSON array of connection IDs.
- */
- char *pharos_reorder_connections(const char *json);
-
-/**
  * Load settings. Returns JSON. Caller must free.
  */
  char *pharos_load_settings(void);
@@ -104,11 +99,6 @@ char *pharos_load_query_history(const char *json);
  * Delete a query history entry. Returns "true"/"false".
  */
  char *pharos_delete_query_history_entry(const char *entry_id);
-
-/**
- * Clear all query history.
- */
- char *pharos_clear_query_history(void);
 
 /**
  * Get cached result data for a history entry. Returns JSON or NULL.
@@ -253,45 +243,6 @@ void pharos_get_schema_functions(const char *connection_id,
                                  const char *schema_name,
                                  AsyncCallback callback,
                                  void *context);
-
-/**
- * Generate table DDL. Returns SQL string via callback.
- */
-
-void pharos_generate_table_ddl(const char *connection_id,
-                               const char *schema_name,
-                               const char *table_name,
-                               AsyncCallback callback,
-                               void *context);
-
-/**
- * Generate index DDL. Returns SQL string via callback.
- */
-
-void pharos_generate_index_ddl(const char *connection_id,
-                               const char *schema_name,
-                               const char *index_name,
-                               AsyncCallback callback,
-                               void *context);
-
-/**
- * Check if query results are editable. Returns JSON EditableInfo via callback.
- */
-
-void pharos_check_query_editable(const char *connection_id,
-                                 const char *sql,
-                                 const char *schema,
-                                 AsyncCallback callback,
-                                 void *context);
-
-/**
- * Commit data edits. `json` is JSON-encoded CommitEditsOptions. Returns JSON CommitEditsResult.
- */
-
-void pharos_commit_data_edits(const char *connection_id,
-                              const char *json,
-                              AsyncCallback callback,
-                              void *context);
 
 /**
  * Clone a table. `json` is JSON-encoded CloneTableOptions.
