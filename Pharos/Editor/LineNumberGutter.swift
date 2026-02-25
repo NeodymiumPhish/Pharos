@@ -16,7 +16,7 @@ class LineNumberGutter: NSRulerView {
 
         lineAttributes = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.tertiaryLabelColor,
         ]
 
         // Observe text changes and scroll
@@ -83,13 +83,8 @@ class LineNumberGutter: NSRulerView {
         let visibleRect = scrollView?.contentView.bounds ?? .zero
         let textInset = textView.textContainerInset
 
-        // Gutter background: fully opaque, subtly different from editor (Approach A -- no VEV)
-        let gutterBg = NSColor(name: "gutterBackground") { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? NSColor(calibratedWhite: 0.18, alpha: 1.0)   // Dark mode: slightly lighter than editor
-                : NSColor(calibratedWhite: 0.95, alpha: 1.0)   // Light mode: slightly darker than editor
-        }
-        gutterBg.setFill()
+        // Background
+        NSColor.controlBackgroundColor.withAlphaComponent(0.5).setFill()
         rect.fill()
 
         // Right border
