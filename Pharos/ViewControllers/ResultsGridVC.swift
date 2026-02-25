@@ -41,13 +41,6 @@ private class InsetScrollView: NSScrollView {
     }
 }
 
-// MARK: - Find Match Address
-
-private struct CellAddress: Hashable {
-    let row: Int
-    let colId: String
-}
-
 // MARK: - Copy Data
 
 private struct CopyData {
@@ -58,11 +51,14 @@ private struct CopyData {
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
-class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+class ResultsGridVC: NSViewController, NSMenuDelegate {
 
     private let tableView = NSTableView()
     private let scrollView = InsetScrollView()
     private let emptyLabel = NSTextField(labelWithString: "Run a query to see results")
+
+    // Helpers
+    private var dataSource: ResultsDataSource!
 
     // Toolbar
     private let toolbarBar = NSView()
@@ -142,8 +138,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         setupFindBar()
 
         // Table view
-        tableView.dataSource = self
-        tableView.delegate = self
+        dataSource = ResultsDataSource(tableView: tableView)
+        dataSource.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
         tableView.allowsColumnReordering = true
@@ -438,6 +434,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         resetSortButton.isHidden = true
 
         rebuildColumns()
+        pushDataToDataSource()
+        pushFindStateToDataSource()
         tableView.reloadData()
         emptyLabel.isHidden = true
         scrollView.isHidden = false
@@ -468,6 +466,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         } else if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
+            pushDataToDataSource()
+            pushFindStateToDataSource()
             tableView.reloadData()
         }
 
@@ -507,6 +507,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
         }
+        pushDataToDataSource()
+        pushFindStateToDataSource()
         tableView.reloadData()
         emptyLabel.stringValue = "Run a query to see results"
         emptyLabel.textColor = .tertiaryLabelColor
@@ -652,7 +654,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
     // MARK: - Sorting
 
-    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+    private func handleSortDescriptorsChanged(_ oldDescriptors: [NSSortDescriptor]) {
         guard let descriptor = tableView.sortDescriptors.first,
               let key = descriptor.key else {
             resetSort()
@@ -683,6 +685,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
                 findFieldChanged(findField)
             } else {
+                pushDataToDataSource()
                 tableView.reloadData()
             }
             return
@@ -731,6 +734,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
+            pushDataToDataSource()
             tableView.reloadData()
         }
     }
@@ -747,6 +751,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
+            pushDataToDataSource()
             tableView.reloadData()
         }
     }
@@ -773,45 +778,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             } else {
                 tableView.setIndicatorImage(nil, in: col)
             }
-        }
-    }
-
-    // MARK: - Cell Styling
-
-    private func styleCell(_ textField: NSTextField, value: AnyCodable, category: PGTypeCategory) {
-        if value.isNull {
-            textField.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
-            textField.textColor = .tertiaryLabelColor
-            textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
-            return
-        }
-
-        textField.stringValue = value.displayString
-        textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-
-        switch category {
-        case .numeric:
-            textField.textColor = .systemBlue
-        case .boolean:
-            let str = value.displayString.lowercased()
-            let boolDisplay = AppStateManager.shared.settings.boolDisplay
-            if str == "t" || str == "true" {
-                textField.stringValue = boolDisplay.trueString
-                textField.textColor = .systemGreen
-            } else if str == "f" || str == "false" {
-                textField.stringValue = boolDisplay.falseString
-                textField.textColor = .systemRed
-            } else {
-                textField.textColor = .labelColor
-            }
-        case .temporal:
-            textField.textColor = .systemPurple
-        case .json:
-            textField.textColor = .systemOrange
-        case .array:
-            textField.textColor = .secondaryLabelColor
-        case .string:
-            textField.textColor = .labelColor
         }
     }
 
@@ -873,6 +839,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
 
         scrollViewTopToFindBar.isActive = false
         scrollViewTopToToolbar.isActive = true
+        pushDataToDataSource()
+        pushFindStateToDataSource()
         tableView.reloadData()
         updateStatusBarText()
         view.window?.makeFirstResponder(tableView)
@@ -900,6 +868,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             findMatchSet = Set()
             currentMatchIndex = -1
             findCountLabel.stringValue = ""
+            pushDataToDataSource()
+            pushFindStateToDataSource()
             tableView.reloadData()
             updateStatusBarText()
             return
@@ -951,6 +921,8 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
             scrollToMatch(at: 0)
         }
 
+        pushDataToDataSource()
+        pushFindStateToDataSource()
         tableView.reloadData()
         updateStatusBarText()
     }
@@ -960,6 +932,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         currentMatchIndex = (currentMatchIndex + 1) % findMatches.count
         findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
         scrollToMatch(at: currentMatchIndex)
+        pushFindStateToDataSource()
         tableView.reloadData()
     }
 
@@ -968,6 +941,7 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         currentMatchIndex = (currentMatchIndex - 1 + findMatches.count) % findMatches.count
         findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
         scrollToMatch(at: currentMatchIndex)
+        pushFindStateToDataSource()
         tableView.reloadData()
     }
 
@@ -978,79 +952,6 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         if let colIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == match.colId }) {
             tableView.scrollColumnToVisible(colIndex)
         }
-    }
-
-    // MARK: - NSTableViewDataSource
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        displayRows.count
-    }
-
-    // MARK: - NSTableViewDelegate
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let colId = tableColumn?.identifier, row < displayRows.count else { return nil }
-
-        let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colId.rawValue)")
-        let cell: NSTableCellView
-
-        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? NSTableCellView {
-            cell = existing
-        } else {
-            cell = NSTableCellView()
-            cell.identifier = cellId
-            cell.wantsLayer = true
-            let textField = NSTextField(labelWithString: "")
-            textField.lineBreakMode = .byTruncatingTail
-            textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-            textField.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(textField)
-            cell.textField = textField
-            NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            ])
-        }
-
-        let dataRowIdx = displayRows[row]
-
-        if colId.rawValue == "__rownum__" {
-            cell.textField?.stringValue = "\(row + 1)"
-            cell.textField?.textColor = .tertiaryLabelColor
-            cell.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        } else {
-            let rowData = rows[dataRowIdx]
-            let category = columnCategories[colId.rawValue] ?? .string
-            if let value = rowData[colId.rawValue] {
-                styleCell(cell.textField!, value: value, category: category)
-            } else {
-                cell.textField?.stringValue = ""
-                cell.textField?.textColor = .labelColor
-                cell.textField?.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-            }
-        }
-
-        // Find highlighting
-        if isFindVisible && !findMatchSet.isEmpty {
-            let addr = CellAddress(row: row, colId: colId.rawValue)
-            let isCurrentMatch = currentMatchIndex >= 0
-                && currentMatchIndex < findMatches.count
-                && findMatches[currentMatchIndex].row == row
-                && findMatches[currentMatchIndex].colId == colId.rawValue
-
-            if isCurrentMatch {
-                cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
-            } else if findMatchSet.contains(addr) {
-                cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
-            } else {
-                cell.layer?.backgroundColor = nil
-            }
-        } else {
-            cell.layer?.backgroundColor = nil
-        }
-
-        return cell
     }
 
     // MARK: - Copy Support
@@ -1323,6 +1224,27 @@ class ResultsGridVC: NSViewController, NSTableViewDataSource, NSTableViewDelegat
         }
     }
 
+    // MARK: - Helper Coordination
+
+    private func pushDataToDataSource() {
+        dataSource.columns = columns
+        dataSource.rows = rows
+        dataSource.displayRows = displayRows
+        dataSource.columnCategories = columnCategories
+    }
+
+    private func pushFindStateToDataSource() {
+        dataSource.isFindVisible = isFindVisible
+        dataSource.findMatchSet = findMatchSet
+        if currentMatchIndex >= 0, currentMatchIndex < findMatches.count {
+            dataSource.currentMatchRow = findMatches[currentMatchIndex].row
+            dataSource.currentMatchColId = findMatches[currentMatchIndex].colId
+        } else {
+            dataSource.currentMatchRow = -1
+            dataSource.currentMatchColId = nil
+        }
+    }
+
     // MARK: - Formatting
 
     private func formatDuration(_ ms: UInt64) -> String {
@@ -1372,5 +1294,13 @@ extension ResultsGridVC: NSSearchFieldDelegate {
             return true
         }
         return false
+    }
+}
+
+// MARK: - ResultsDataSourceDelegate
+
+extension ResultsGridVC: ResultsDataSourceDelegate {
+    func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor]) {
+        handleSortDescriptorsChanged(oldDescriptors)
     }
 }
