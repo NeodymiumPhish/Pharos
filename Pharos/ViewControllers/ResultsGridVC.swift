@@ -1,5 +1,4 @@
 import AppKit
-import UniformTypeIdentifiers
 
 // MARK: - Scroll View with Non-Overlapping Scrollers
 
@@ -41,17 +40,10 @@ private class InsetScrollView: NSScrollView {
     }
 }
 
-// MARK: - Copy Data
-
-private struct CopyData {
-    let columnNames: [String]
-    let rows: [[String]]
-}
-
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
-class ResultsGridVC: NSViewController, NSMenuDelegate {
+class ResultsGridVC: NSViewController {
 
     private let tableView = NSTableView()
     private let scrollView = InsetScrollView()
@@ -59,6 +51,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
 
     // Helpers
     private var dataSource: ResultsDataSource!
+    private var copyExport: ResultsCopyExport!
 
     // Toolbar
     private let toolbarBar = NSView()
@@ -150,7 +143,16 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         tableView.gridColor = .separatorColor
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
-        tableView.menu = buildContextMenu()
+
+        copyExport = ResultsCopyExport(tableView: tableView, copyButton: copyButton, exportButton: exportButton)
+        copyExport.delegate = self
+        tableView.menu = copyExport.buildContextMenu()
+
+        // Retarget copy/export toolbar buttons to the helper
+        copyButton.target = copyExport
+        copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
+        exportButton.target = copyExport
+        exportButton.action = #selector(ResultsCopyExport.showExportMenu)
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -241,10 +243,9 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
                                action: #selector(togglePin), tooltip: "Pin Results")
         configureToolbarButton(findToolbarButton, symbol: "magnifyingglass",
                                action: #selector(showFind), tooltip: "Find (Cmd+F)")
-        configureToolbarButton(copyButton, symbol: "doc.on.doc",
-                               action: #selector(showCopyMenu), tooltip: "Copy")
-        configureToolbarButton(exportButton, symbol: "square.and.arrow.up",
-                               action: #selector(showExportMenu), tooltip: "Export")
+        // Copy/export button icons/style set here; target/action set in loadView() after helper creation
+        configureToolbarButtonAppearance(copyButton, symbol: "doc.on.doc", tooltip: "Copy")
+        configureToolbarButtonAppearance(exportButton, symbol: "square.and.arrow.up", tooltip: "Export")
 
         let buttonStack = NSStackView(views: [resetSortButton, pinButton, findToolbarButton, copyButton, exportButton])
         buttonStack.orientation = .horizontal
@@ -275,11 +276,15 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
     }
 
     private func configureToolbarButton(_ button: NSButton, symbol: String, action: Selector, tooltip: String) {
+        configureToolbarButtonAppearance(button, symbol: symbol, tooltip: tooltip)
+        button.target = self
+        button.action = action
+    }
+
+    private func configureToolbarButtonAppearance(_ button: NSButton, symbol: String, tooltip: String) {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
         button.bezelStyle = .recessed
         button.isBordered = false
-        button.target = self
-        button.action = action
         button.toolTip = tooltip
         button.translatesAutoresizingMaskIntoConstraints = false
         button.contentTintColor = .secondaryLabelColor
@@ -434,7 +439,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         resetSortButton.isHidden = true
 
         rebuildColumns()
-        pushDataToDataSource()
+        pushDataToHelpers()
         pushFindStateToDataSource()
         tableView.reloadData()
         emptyLabel.isHidden = true
@@ -466,7 +471,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         } else if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
-            pushDataToDataSource()
+            pushDataToHelpers()
             pushFindStateToDataSource()
             tableView.reloadData()
         }
@@ -507,7 +512,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
         }
-        pushDataToDataSource()
+        pushDataToHelpers()
         pushFindStateToDataSource()
         tableView.reloadData()
         emptyLabel.stringValue = "Run a query to see results"
@@ -685,7 +690,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
             if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
                 findFieldChanged(findField)
             } else {
-                pushDataToDataSource()
+                pushDataToHelpers()
                 tableView.reloadData()
             }
             return
@@ -734,7 +739,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
-            pushDataToDataSource()
+            pushDataToHelpers()
             tableView.reloadData()
         }
     }
@@ -751,7 +756,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
             findFieldChanged(findField)
         } else {
-            pushDataToDataSource()
+            pushDataToHelpers()
             tableView.reloadData()
         }
     }
@@ -839,7 +844,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
 
         scrollViewTopToFindBar.isActive = false
         scrollViewTopToToolbar.isActive = true
-        pushDataToDataSource()
+        pushDataToHelpers()
         pushFindStateToDataSource()
         tableView.reloadData()
         updateStatusBarText()
@@ -868,7 +873,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
             findMatchSet = Set()
             currentMatchIndex = -1
             findCountLabel.stringValue = ""
-            pushDataToDataSource()
+            pushDataToHelpers()
             pushFindStateToDataSource()
             tableView.reloadData()
             updateStatusBarText()
@@ -921,7 +926,7 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
             scrollToMatch(at: 0)
         }
 
-        pushDataToDataSource()
+        pushDataToHelpers()
         pushFindStateToDataSource()
         tableView.reloadData()
         updateStatusBarText()
@@ -954,103 +959,6 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         }
     }
 
-    // MARK: - Copy Support
-
-    private var hasSelection: Bool {
-        !tableView.selectedRowIndexes.isEmpty
-    }
-
-    @objc func copy(_ sender: Any?) {
-        copyAsTSV(sender)
-    }
-
-    /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
-    private func gatherData() -> CopyData? {
-        let selectedRows = tableView.selectedRowIndexes
-
-        let colIds = tableView.tableColumns.compactMap { col -> String? in
-            let id = col.identifier.rawValue
-            return id == "__rownum__" ? nil : id
-        }
-        guard !colIds.isEmpty else { return nil }
-
-        var rowData: [[String]] = []
-
-        if !selectedRows.isEmpty {
-            for row in selectedRows {
-                guard row < displayRows.count else { continue }
-                let data = rows[displayRows[row]]
-                let values = colIds.map { data[$0]?.displayString ?? "" }
-                rowData.append(values)
-            }
-        } else {
-            for row in 0..<displayRows.count {
-                let data = rows[displayRows[row]]
-                let values = colIds.map { data[$0]?.displayString ?? "" }
-                rowData.append(values)
-            }
-        }
-
-        guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: colIds, rows: rowData)
-    }
-
-    @objc func copyAsTSV(_: Any?) {
-        guard let data = gatherData() else { return }
-        let header = data.columnNames.joined(separator: "\t")
-        let lines = data.rows.map { $0.joined(separator: "\t") }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(([header] + lines).joined(separator: "\n"), forType: .string)
-    }
-
-    @objc func copyAsCSV(_: Any?) {
-        guard let data = gatherData() else { return }
-        let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-        let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
-        let result = ([header] + rows).joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result, forType: .string)
-    }
-
-    @objc func copyAsMarkdown(_: Any?) {
-        guard let data = gatherData() else { return }
-        let header = "| " + data.columnNames.joined(separator: " | ") + " |"
-        let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
-        let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
-        let result = ([header, divider] + rows).joined(separator: "\n")
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result, forType: .string)
-    }
-
-    @objc func copyAsSQLInsert(_: Any?) {
-        guard let data = gatherData() else { return }
-        let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
-        let statements = data.rows.map { row in
-            let values = zip(data.columnNames, row).map { (col, val) -> String in
-                if val.isEmpty || val == "NULL" { return "NULL" }
-                let category = columnCategories[col] ?? .string
-                switch category {
-                case .numeric:
-                    return val
-                case .boolean:
-                    return val
-                default:
-                    return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                }
-            }
-            return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(statements.joined(separator: "\n"), forType: .string)
-    }
-
-    private static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") {
-            return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
-        }
-        return s
-    }
-
     // MARK: - Pin Results
 
     @objc private func togglePin() {
@@ -1079,158 +987,24 @@ class ResultsGridVC: NSViewController, NSMenuDelegate {
         }
     }
 
-    // MARK: - Copy Menu
+    // MARK: - Copy Forwarding
 
-    @objc private func showCopyMenu() {
-        let prefix = hasSelection ? "Copy selection" : "Copy"
-        let menu = NSMenu()
-        menu.addItem(withTitle: "\(prefix) as TSV", action: #selector(copyAsTSV), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as CSV", action: #selector(copyAsCSV), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as Markdown", action: #selector(copyAsMarkdown), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
-        let point = NSPoint(x: 0, y: 0)
-        menu.popUp(positioning: nil, at: point, in: copyButton)
-    }
-
-    // MARK: - Export
-
-    @objc private func showExportMenu() {
-        let prefix = hasSelection ? "Export selection" : "Export"
-        let menu = NSMenu()
-        menu.addItem(withTitle: "\(prefix) as CSV…", action: #selector(exportAsCSV), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as TSV…", action: #selector(exportAsTSV), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as JSON…", action: #selector(exportAsJSON), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as SQL INSERT…", action: #selector(exportAsSQLInsert), keyEquivalent: "")
-        menu.addItem(withTitle: "\(prefix) as Markdown…", action: #selector(exportAsMarkdown), keyEquivalent: "")
-        let point = NSPoint(x: 0, y: 0)
-        menu.popUp(positioning: nil, at: point, in: exportButton)
-    }
-
-    private func exportToFile(filename: String, contentType: UTType, generator: @escaping (CopyData) -> String) {
-        guard let data = gatherData(), let window = view.window else { return }
-
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = filename
-        panel.allowedContentTypes = [contentType]
-
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            do {
-                let content = generator(data)
-                try content.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
-        }
-    }
-
-    @objc private func exportAsCSV(_: Any?) {
-        exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
-            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-            let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
-            return ([header] + rows).joined(separator: "\n")
-        }
-    }
-
-    @objc private func exportAsTSV(_: Any?) {
-        exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
-            let header = data.columnNames.joined(separator: "\t")
-            let rows = data.rows.map { $0.joined(separator: "\t") }
-            return ([header] + rows).joined(separator: "\n")
-        }
-    }
-
-    @objc private func exportAsJSON(_: Any?) {
-        guard let data = gatherData(), let window = view.window else { return }
-
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "export.json"
-        panel.allowedContentTypes = [.json]
-
-        panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            do {
-                let jsonArray = data.rows.map { row in
-                    Dictionary(uniqueKeysWithValues: zip(data.columnNames, row))
-                }
-                let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
-                try jsonData.write(to: url)
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
-            }
-        }
-    }
-
-    @objc private func exportAsSQLInsert(_: Any?) {
-        let cats = columnCategories
-        exportToFile(filename: "export.sql", contentType: UTType(filenameExtension: "sql") ?? .plainText) { data in
-            let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
-            let statements = data.rows.map { row in
-                let values = zip(data.columnNames, row).map { (col, val) -> String in
-                    if val.isEmpty || val == "NULL" { return "NULL" }
-                    let category = cats[col] ?? .string
-                    switch category {
-                    case .numeric, .boolean:
-                        return val
-                    default:
-                        return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                    }
-                }
-                return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
-            }
-            return statements.joined(separator: "\n")
-        }
-    }
-
-    @objc private func exportAsMarkdown(_: Any?) {
-        exportToFile(filename: "export.md", contentType: UTType(filenameExtension: "md") ?? .plainText) { data in
-            let header = "| " + data.columnNames.joined(separator: " | ") + " |"
-            let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
-            let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
-            return ([header, divider] + rows).joined(separator: "\n")
-        }
-    }
-
-    // MARK: - Context Menu
-
-    private func buildContextMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.delegate = self
-
-        let tsv = menu.addItem(withTitle: "Copy as TSV", action: #selector(copyAsTSV), keyEquivalent: "")
-        tsv.tag = 1
-        let csv = menu.addItem(withTitle: "Copy as CSV", action: #selector(copyAsCSV), keyEquivalent: "")
-        csv.tag = 2
-        let md = menu.addItem(withTitle: "Copy as Markdown", action: #selector(copyAsMarkdown), keyEquivalent: "")
-        md.tag = 3
-        let sql = menu.addItem(withTitle: "Copy as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
-        sql.tag = 4
-
-        return menu
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        let prefix = hasSelection ? "Copy selection" : "Copy"
-        for item in menu.items {
-            switch item.tag {
-            case 1: item.title = "\(prefix) as TSV"
-            case 2: item.title = "\(prefix) as CSV"
-            case 3: item.title = "\(prefix) as Markdown"
-            case 4: item.title = "\(prefix) as SQL INSERT"
-            default: break
-            }
-        }
+    @objc func copy(_ sender: Any?) {
+        copyExport.copy(sender)
     }
 
     // MARK: - Helper Coordination
 
-    private func pushDataToDataSource() {
+    private func pushDataToHelpers() {
         dataSource.columns = columns
         dataSource.rows = rows
         dataSource.displayRows = displayRows
         dataSource.columnCategories = columnCategories
+
+        copyExport.columns = columns
+        copyExport.rows = rows
+        copyExport.displayRows = displayRows
+        copyExport.columnCategories = columnCategories
     }
 
     private func pushFindStateToDataSource() {
@@ -1302,5 +1076,13 @@ extension ResultsGridVC: NSSearchFieldDelegate {
 extension ResultsGridVC: ResultsDataSourceDelegate {
     func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor]) {
         handleSortDescriptorsChanged(oldDescriptors)
+    }
+}
+
+// MARK: - ResultsCopyExportDelegate
+
+extension ResultsGridVC: ResultsCopyExportDelegate {
+    func copyExportWindow() -> NSWindow? {
+        view.window
     }
 }
