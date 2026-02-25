@@ -31,3 +31,4 @@ dist/
 .notes
 .planning/
 design_requirements/
+.periphery.yml
