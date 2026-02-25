@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: in-progress
+last_updated: "2026-02-25T15:12:42Z"
+progress:
+  total_phases: 6
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
+---
+
 # Project State
 
 ## Project Reference
@@ -5,33 +18,35 @@
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 2 - Git Cleanup
+**Current focus:** Phase 3 complete, ready for Phase 4 - Rust FFI Dead Code Removal
 
 ## Current Position
 
-Phase: 2 of 6 (Git Cleanup) -- COMPLETE
-Plan: 1 of 1 in current phase
-Status: Phase 2 complete, ready for Phase 3
-Last activity: 2026-02-25 -- Phase 2 Plan 1 (Git Cleanup) completed
+Phase: 3 of 6 (Swift Dead Code Removal) -- COMPLETE
+Plan: 2 of 2 in current phase -- COMPLETE
+Status: Phase 3 complete. All plans finished. Ready for Phase 4.
+Last activity: 2026-02-25 -- Phase 3 Plan 2 (manual sweep + final Periphery scan) completed
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 2 min
-- Total execution time: 0.03 hours
+- Total plans completed: 5
+- Average duration: 5 min
+- Total execution time: 0.28 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
+| 01-editor-text-rendering-fix | 2 | - | - |
 | 02-git-cleanup | 1 | 2 min | 2 min |
+| 03-swift-dead-code-removal | 2 | 15 min | 7.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (2 min)
-- Trend: baseline
+- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min)
+- Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
 
@@ -48,6 +63,11 @@ Recent decisions affecting current work:
 - [02-01]: Single commit for all cleanup (Tauri removal + target untracking + .gitignore) for clean history
 - [02-01]: Used git rm --cached for pharos-core/target/ to preserve build cache on disk (avoids 5-10 min rebuild)
 - [02-01]: Used git rm --cached for .planning/codebase/ to keep local architecture docs accessible
+- [03-01]: CellAddress.row/colId false positives documented (synthesized Hashable), not excluded via report_exclude (file-level granularity too broad)
+- [03-01]: Used underscore (_) for unused @objc action sender params: preserves AppKit method signatures while silencing Periphery
+- [03-01]: Removed 4 PharosCore FFI wrappers (reorderConnections, generateTableDDL, generateIndexDDL, clearQueryHistory): Rust FFI endpoints now have no Swift callers
+- [03-02]: Manual sweep found zero additional dead code: Plan 01 Periphery cleanup was comprehensive
+- [03-02]: CellAddress.row/colId confirmed as false positives (synthesized Hashable): 2 known Periphery warnings accepted
 
 ### Pending Todos
 
@@ -55,10 +75,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Research]: Rendering fix has two high-probability causes identified but not confirmed with runtime debugging. May need Xcode View Hierarchy Debugger if initial fixes are insufficient.
+None.
 
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 02-01-PLAN.md. Phase 2 (Git Cleanup) complete. Ready for Phase 3 (Swift Dead Code Removal).
+Stopped at: Completed 03-02-PLAN.md. Phase 3 complete (both plans). Ready for Phase 4 (Rust FFI dead code removal).
 Resume file: none

@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Editor Text Rendering Fix** - Resolve faded/washed-out text in SQL editor and line number gutter
 - [x] **Phase 2: Git Cleanup** - Commit tracked-but-deleted Tauri files and update .gitignore for AppKit
-- [ ] **Phase 3: Swift Dead Code Removal** - Remove unused Swift types, functions, and protocols from Tauri era
+- [x] **Phase 3: Swift Dead Code Removal** - Remove unused Swift types, functions, and protocols from Tauri era
 - [ ] **Phase 4: Rust FFI Dead Code Removal** - Remove unused FFI exports, internal Rust code, and stale dependencies
 - [ ] **Phase 5: View Controller Extraction** - Break apart monolithic view controllers into focused helper classes
 - [ ] **Phase 6: FFI Layer Organization** - Organize PharosCore.swift and ffi.rs by domain with full verification
@@ -57,10 +57,11 @@ Plans:
   1. Running `periphery scan` produces zero actionable warnings (false positives from responder chain / #selector excluded)
   2. All existing app functionality (connections, queries, schema browsing, saved queries, settings) works identically after removal
   3. The project builds with zero errors and zero new warnings after dead code removal
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: TBD
+- [x] 03-01-PLAN.md — Install Periphery, configure for AppKit, remove all Periphery-flagged dead code
+- [x] 03-02-PLAN.md — Manual sweep beyond Periphery (stale imports, empty extensions), final zero-warning verification
 
 ### Phase 4: Rust FFI Dead Code Removal
 **Goal**: The Rust FFI layer contains only functions actively called from Swift, with no stale exports or unused dependencies
@@ -112,7 +113,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 |-------|----------------|--------|-----------|
 | 1. Editor Text Rendering Fix | 2/2 | Complete | 2026-02-25 |
 | 2. Git Cleanup | 1/1 | Complete | 2026-02-25 |
-| 3. Swift Dead Code Removal | 0/0 | Not started | - |
+| 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
 | 4. Rust FFI Dead Code Removal | 0/0 | Not started | - |
 | 5. View Controller Extraction | 0/0 | Not started | - |
 | 6. FFI Layer Organization | 0/0 | Not started | - |

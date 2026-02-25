@@ -13,9 +13,9 @@
 
 ### Dead Code Removal (Swift)
 
-- [ ] **SWFT-01**: Unused Swift types, functions, and protocols from Tauri-era migration are removed
-- [ ] **SWFT-02**: Periphery scan produces zero actionable warnings (false positives excluded)
-- [ ] **SWFT-03**: All existing functionality continues to work after Swift dead code removal
+- [x] **SWFT-01**: Unused Swift types, functions, and protocols from Tauri-era migration are removed
+- [x] **SWFT-02**: Periphery scan produces zero actionable warnings (false positives excluded)
+- [x] **SWFT-03**: All existing functionality continues to work after Swift dead code removal
 
 ### Dead Code Removal (Rust FFI)
 
@@ -68,9 +68,9 @@
 | EDIT-03 | Phase 1 | Pending |
 | GIT-01 | Phase 2 | Complete |
 | GIT-02 | Phase 2 | Complete |
-| SWFT-01 | Phase 3 | Pending |
-| SWFT-02 | Phase 3 | Pending |
-| SWFT-03 | Phase 3 | Pending |
+| SWFT-01 | Phase 3 | Complete |
+| SWFT-02 | Phase 3 | Complete |
+| SWFT-03 | Phase 3 | Complete |
 | RUST-01 | Phase 4 | Pending |
 | RUST-02 | Phase 4 | Pending |
 | RUST-03 | Phase 4 | Pending |
