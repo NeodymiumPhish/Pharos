@@ -52,6 +52,7 @@ class ResultsGridVC: NSViewController {
     // Helpers
     private var dataSource: ResultsDataSource!
     private var copyExport: ResultsCopyExport!
+    private var findController: ResultsFindController!
 
     // Toolbar
     private let toolbarBar = NSView()
@@ -87,11 +88,6 @@ class ResultsGridVC: NSViewController {
     private let findPrevButton = NSButton()
     private let findNextButton = NSButton()
     private let findCloseButton = NSButton()
-    private var isFindVisible = false
-    private var isFilterMode = false
-    private var findMatches: [(row: Int, colId: String)] = []
-    private var findMatchSet: Set<CellAddress> = Set()
-    private var currentMatchIndex: Int = -1
 
     // Load more
     private let loadMoreBar = NSView()
@@ -153,6 +149,15 @@ class ResultsGridVC: NSViewController {
         copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
         exportButton.target = copyExport
         exportButton.action = #selector(ResultsCopyExport.showExportMenu)
+
+        // Find controller (wires find bar button targets to itself)
+        findController = ResultsFindController(
+            tableView: tableView, findBar: findBar, findField: findField,
+            filterToggleButton: filterToggleButton, findClearButton: findClearButton,
+            findCountLabel: findCountLabel, findPrevButton: findPrevButton,
+            findNextButton: findNextButton, findCloseButton: findCloseButton
+        )
+        findController.delegate = self
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -303,28 +308,24 @@ class ResultsGridVC: NSViewController {
         findField.translatesAutoresizingMaskIntoConstraints = false
         findField.placeholderString = "Find in results…"
         findField.sendsSearchStringImmediately = true
-        findField.target = self
-        findField.action = #selector(findFieldChanged(_:))
         findField.font = .systemFont(ofSize: 12)
-        findField.delegate = self
+        // target/action/delegate set by ResultsFindController
 
         filterToggleButton.setButtonType(.pushOnPushOff)
         filterToggleButton.title = "Filter"
         filterToggleButton.bezelStyle = .recessed
         filterToggleButton.font = .systemFont(ofSize: 11)
-        filterToggleButton.target = self
-        filterToggleButton.action = #selector(filterToggleChanged)
         filterToggleButton.translatesAutoresizingMaskIntoConstraints = false
         filterToggleButton.toolTip = "Filter rows to matches only"
+        // target/action set by ResultsFindController
 
         findClearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
         findClearButton.bezelStyle = .recessed
         findClearButton.isBordered = false
-        findClearButton.target = self
-        findClearButton.action = #selector(clearFindField)
         findClearButton.translatesAutoresizingMaskIntoConstraints = false
         findClearButton.contentTintColor = .tertiaryLabelColor
         findClearButton.isHidden = true
+        // target/action set by ResultsFindController
 
         findCountLabel.translatesAutoresizingMaskIntoConstraints = false
         findCountLabel.font = .systemFont(ofSize: 11)
@@ -334,23 +335,20 @@ class ResultsGridVC: NSViewController {
         findPrevButton.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Previous")
         findPrevButton.bezelStyle = .recessed
         findPrevButton.isBordered = false
-        findPrevButton.target = self
-        findPrevButton.action = #selector(findPrevious(_:))
         findPrevButton.translatesAutoresizingMaskIntoConstraints = false
+        // target/action set by ResultsFindController
 
         findNextButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Next")
         findNextButton.bezelStyle = .recessed
         findNextButton.isBordered = false
-        findNextButton.target = self
-        findNextButton.action = #selector(findNext(_:))
         findNextButton.translatesAutoresizingMaskIntoConstraints = false
+        // target/action set by ResultsFindController
 
         findCloseButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
         findCloseButton.bezelStyle = .recessed
         findCloseButton.isBordered = false
-        findCloseButton.target = self
-        findCloseButton.action = #selector(closeFind(_:))
         findCloseButton.translatesAutoresizingMaskIntoConstraints = false
+        // target/action set by ResultsFindController
 
         findBar.addSubview(findField)
         findBar.addSubview(filterToggleButton)
@@ -440,7 +438,7 @@ class ResultsGridVC: NSViewController {
 
         rebuildColumns()
         pushDataToHelpers()
-        pushFindStateToDataSource()
+        pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
         emptyLabel.isHidden = true
         scrollView.isHidden = false
@@ -450,8 +448,8 @@ class ResultsGridVC: NSViewController {
         updateStatusBarText()
 
         // Close find if open
-        if isFindVisible {
-            closeFind(nil)
+        if findController.isFindVisible {
+            findController.closeFind(nil)
         }
     }
 
@@ -468,11 +466,10 @@ class ResultsGridVC: NSViewController {
         // Re-apply sort if active
         if currentSortColumn != nil {
             applySortAndReload()
-        } else if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
-            findFieldChanged(findField)
+        } else if findController.isFindVisible {
+            findController.findFieldChanged(findField)
         } else {
             pushDataToHelpers()
-            pushFindStateToDataSource()
             tableView.reloadData()
         }
 
@@ -513,7 +510,7 @@ class ResultsGridVC: NSViewController {
             tableView.removeTableColumn(col)
         }
         pushDataToHelpers()
-        pushFindStateToDataSource()
+        pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
         emptyLabel.stringValue = "Run a query to see results"
         emptyLabel.textColor = .tertiaryLabelColor
@@ -524,8 +521,8 @@ class ResultsGridVC: NSViewController {
 
         updateLoadMoreVisibility()
 
-        if isFindVisible {
-            closeFind(nil)
+        if findController.isFindVisible {
+            findController.closeFind(nil)
         }
     }
 
@@ -632,13 +629,15 @@ class ResultsGridVC: NSViewController {
         let timeStr = formatDuration(executionTimeMs)
         let moreStr = hasMore ? " (more available)" : ""
 
-        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
+        let findVisible = findController.isFindVisible
+        let findMatchCount = findController.findMatches.count
+        if findVisible && displayRows.count < rows.count {
             let visibleCount = formatRowCount(displayRows.count)
             let total = formatRowCount(rows.count)
             statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(moreStr)"
-        } else if isFindVisible && !findMatches.isEmpty {
+        } else if findVisible && findMatchCount > 0 {
             let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatches.count) match\(findMatches.count == 1 ? "" : "es")\(moreStr)"
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(moreStr)"
         } else {
             let rowStr = formatRowCount(displayRows.count)
             statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(moreStr)"
@@ -687,8 +686,8 @@ class ResultsGridVC: NSViewController {
             displayRows = unfilteredDisplayRows
             resetSortButton.isHidden = true
             updateSortIndicators()
-            if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
-                findFieldChanged(findField)
+            if findController.isFindVisible {
+                findController.findFieldChanged(findField)
             } else {
                 pushDataToHelpers()
                 tableView.reloadData()
@@ -736,8 +735,8 @@ class ResultsGridVC: NSViewController {
         updateSortIndicators()
 
         // Re-apply filter if active
-        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
-            findFieldChanged(findField)
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
         } else {
             pushDataToHelpers()
             tableView.reloadData()
@@ -753,8 +752,8 @@ class ResultsGridVC: NSViewController {
         resetSortButton.isHidden = true
         updateSortIndicators()
 
-        if isFilterMode && isFindVisible && !findField.stringValue.isEmpty {
-            findFieldChanged(findField)
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
         } else {
             pushDataToHelpers()
             tableView.reloadData()
@@ -789,175 +788,17 @@ class ResultsGridVC: NSViewController {
     // MARK: - Escape to Deselect
 
     @objc override func cancelOperation(_ sender: Any?) {
-        if isFindVisible {
-            closeFind(nil)
+        if findController.isFindVisible {
+            findController.closeFind(nil)
         } else {
             tableView.deselectAll(nil)
         }
     }
 
-    // MARK: - Find
+    // MARK: - Find (Forwarding to FindController)
 
-    @objc func showFind() {
-        guard !rows.isEmpty else { return }
-        if isFindVisible {
-            findField.window?.makeFirstResponder(findField)
-            return
-        }
-        isFindVisible = true
-        findBar.isHidden = false
-        scrollViewTopToToolbar.isActive = false
-        scrollViewTopToFindBar.isActive = true
-        findField.window?.makeFirstResponder(findField)
-    }
-
-    @objc func showFilter() {
-        guard !rows.isEmpty else { return }
-        if !isFindVisible {
-            isFindVisible = true
-            findBar.isHidden = false
-            scrollViewTopToToolbar.isActive = false
-            scrollViewTopToFindBar.isActive = true
-        }
-        filterToggleButton.state = .on
-        isFilterMode = true
-        findField.window?.makeFirstResponder(findField)
-        if !findField.stringValue.isEmpty {
-            findFieldChanged(findField)
-        }
-    }
-
-    @objc private func closeFind(_: Any?) {
-        isFindVisible = false
-        isFilterMode = false
-        filterToggleButton.state = .off
-        findBar.isHidden = true
-        findField.stringValue = ""
-        findMatches = []
-        findMatchSet = Set()
-        currentMatchIndex = -1
-        findCountLabel.stringValue = ""
-        findClearButton.isHidden = true
-
-        // Restore unfiltered display
-        displayRows = unfilteredDisplayRows
-
-        scrollViewTopToFindBar.isActive = false
-        scrollViewTopToToolbar.isActive = true
-        pushDataToHelpers()
-        pushFindStateToDataSource()
-        tableView.reloadData()
-        updateStatusBarText()
-        view.window?.makeFirstResponder(tableView)
-    }
-
-    @objc private func filterToggleChanged() {
-        isFilterMode = filterToggleButton.state == .on
-        findFieldChanged(findField)
-    }
-
-    @objc private func clearFindField() {
-        findField.stringValue = ""
-        findFieldChanged(findField)
-    }
-
-    @objc private func findFieldChanged(_ sender: NSSearchField) {
-        let query = sender.stringValue.lowercased()
-        findClearButton.isHidden = query.isEmpty
-
-        // Always start from the unfiltered set
-        displayRows = unfilteredDisplayRows
-
-        guard !query.isEmpty else {
-            findMatches = []
-            findMatchSet = Set()
-            currentMatchIndex = -1
-            findCountLabel.stringValue = ""
-            pushDataToHelpers()
-            pushFindStateToDataSource()
-            tableView.reloadData()
-            updateStatusBarText()
-            return
-        }
-
-        // Find all matching cells and track which rows have matches
-        let colIds = columns.map(\.name)
-        var matchingRowIndices = Set<Int>()
-
-        findMatches = []
-        findMatchSet = Set()
-
-        for (displayIdx, rowIdx) in displayRows.enumerated() {
-            let rowData = rows[rowIdx]
-            for colId in colIds {
-                if let value = rowData[colId], !value.isNull,
-                   value.displayString.lowercased().contains(query) {
-                    findMatches.append((row: displayIdx, colId: colId))
-                    findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
-                    matchingRowIndices.insert(rowIdx)
-                }
-            }
-        }
-
-        // If filter mode, narrow displayRows and rebuild match indices
-        if isFilterMode {
-            displayRows = unfilteredDisplayRows.filter { matchingRowIndices.contains($0) }
-
-            findMatches = []
-            findMatchSet = Set()
-            for (displayIdx, rowIdx) in displayRows.enumerated() {
-                let rowData = rows[rowIdx]
-                for colId in colIds {
-                    if let value = rowData[colId], !value.isNull,
-                       value.displayString.lowercased().contains(query) {
-                        findMatches.append((row: displayIdx, colId: colId))
-                        findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
-                    }
-                }
-            }
-        }
-
-        if findMatches.isEmpty {
-            currentMatchIndex = -1
-            findCountLabel.stringValue = "No matches"
-        } else {
-            currentMatchIndex = 0
-            findCountLabel.stringValue = "1 of \(findMatches.count)"
-            scrollToMatch(at: 0)
-        }
-
-        pushDataToHelpers()
-        pushFindStateToDataSource()
-        tableView.reloadData()
-        updateStatusBarText()
-    }
-
-    @objc private func findNext(_: Any?) {
-        guard !findMatches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex + 1) % findMatches.count
-        findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
-        scrollToMatch(at: currentMatchIndex)
-        pushFindStateToDataSource()
-        tableView.reloadData()
-    }
-
-    @objc private func findPrevious(_: Any?) {
-        guard !findMatches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex - 1 + findMatches.count) % findMatches.count
-        findCountLabel.stringValue = "\(currentMatchIndex + 1) of \(findMatches.count)"
-        scrollToMatch(at: currentMatchIndex)
-        pushFindStateToDataSource()
-        tableView.reloadData()
-    }
-
-    private func scrollToMatch(at index: Int) {
-        guard index >= 0, index < findMatches.count else { return }
-        let match = findMatches[index]
-        tableView.scrollRowToVisible(match.row)
-        if let colIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == match.colId }) {
-            tableView.scrollColumnToVisible(colIndex)
-        }
-    }
+    @objc func showFind() { findController.showFind() }
+    @objc func showFilter() { findController.showFilter() }
 
     // MARK: - Pin Results
 
@@ -1007,16 +848,11 @@ class ResultsGridVC: NSViewController {
         copyExport.columnCategories = columnCategories
     }
 
-    private func pushFindStateToDataSource() {
-        dataSource.isFindVisible = isFindVisible
-        dataSource.findMatchSet = findMatchSet
-        if currentMatchIndex >= 0, currentMatchIndex < findMatches.count {
-            dataSource.currentMatchRow = findMatches[currentMatchIndex].row
-            dataSource.currentMatchColId = findMatches[currentMatchIndex].colId
-        } else {
-            dataSource.currentMatchRow = -1
-            dataSource.currentMatchColId = nil
-        }
+    private func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {
+        dataSource.isFindVisible = findController.isFindVisible
+        dataSource.findMatchSet = matchSet
+        dataSource.currentMatchRow = currentMatchRow
+        dataSource.currentMatchColId = currentMatchColId
     }
 
     // MARK: - Formatting
@@ -1049,25 +885,44 @@ class ResultsGridVC: NSViewController {
     }
 }
 
-// MARK: - NSSearchFieldDelegate (Find navigation)
+// MARK: - ResultsFindControllerDelegate
 
-extension ResultsGridVC: NSSearchFieldDelegate {
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control == findField else { return false }
+extension ResultsGridVC: ResultsFindControllerDelegate {
+    var findRows: [[String: AnyCodable]] { rows }
+    var findColumns: [ColumnDef] { columns }
+    var findUnfilteredDisplayRows: [Int] { unfilteredDisplayRows }
 
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            if NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false {
-                findPrevious(nil)
-            } else {
-                findNext(nil)
-            }
-            return true
+    func findControllerDidUpdateResults(
+        displayRows newDisplayRows: [Int]?,
+        matchSet: Set<CellAddress>,
+        currentMatchRow: Int,
+        currentMatchColId: String?
+    ) {
+        if let newDisplayRows {
+            displayRows = newDisplayRows
         }
-        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-            closeFind(nil)
-            return true
-        }
-        return false
+        pushDataToHelpers()
+        pushFindStateToDataSource(matchSet: matchSet, currentMatchRow: currentMatchRow, currentMatchColId: currentMatchColId)
+        tableView.reloadData()
+        updateStatusBarText()
+    }
+
+    func findControllerDidClose(displayRows newDisplayRows: [Int]) {
+        displayRows = newDisplayRows
+        pushDataToHelpers()
+        pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
+        tableView.reloadData()
+        updateStatusBarText()
+        view.window?.makeFirstResponder(tableView)
+    }
+
+    func findControllerDidToggleVisibility(visible: Bool) {
+        scrollViewTopToFindBar.isActive = visible
+        scrollViewTopToToolbar.isActive = !visible
+    }
+
+    func findControllerUpdateStatusBar() {
+        updateStatusBarText()
     }
 }
 
