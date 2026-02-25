@@ -504,18 +504,7 @@ class ContentViewController: NSViewController {
               let digitRange = message.range(of: #"\d+"#, options: .regularExpression, range: range),
               let charPos = Int(message[digitRange]) else { return }
 
-        // Try to extract token length from 'near "X"' in the error message
-        let tokenLength: Int
-        if let nearRange = message.range(of: #"near "([^"]+)""#, options: .regularExpression) {
-            // Extract just the token inside the quotes
-            let nearStr = message[nearRange]
-            let quoteStart = nearStr.index(after: nearStr.firstIndex(of: "\"")!)
-            let quoteEnd = nearStr[quoteStart...].firstIndex(of: "\"")!
-            tokenLength = nearStr[quoteStart..<quoteEnd].count
-        } else {
-            tokenLength = 0 // Will underline to end of line
-        }
-
+        let tokenLength = QueryEditorVC.parseTokenLength(from: message)
         editorVC.markError(charPosition: charPos, tokenLength: tokenLength)
     }
 }

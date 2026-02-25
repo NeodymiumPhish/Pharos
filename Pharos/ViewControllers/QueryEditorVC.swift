@@ -242,17 +242,29 @@ class QueryEditorVC: NSViewController {
             let result = try await PharosCore.validateSQL(connectionId: connectionId, sql: sql)
             await MainActor.run {
                 if let error = result.error, let position = error.position {
-                    // Convert character position to line number
-                    let line = lineNumber(forCharacterIndex: position, in: sql)
-                    self.gutter?.setErrorLines([line])
+                    let tokenLength = Self.parseTokenLength(from: error.message)
+                    self.markError(charPosition: position, tokenLength: tokenLength)
                 } else {
-                    self.gutter?.clearErrors()
+                    self.clearErrorMarkers()
                 }
             }
         } catch {
             // Validation failure is non-critical, just clear markers
-            await MainActor.run { self.gutter?.clearErrors() }
+            await MainActor.run { self.clearErrorMarkers() }
         }
+    }
+
+    /// Extract token length from a PostgreSQL error message like `syntax error at or near "WHERE"`.
+    /// Returns 0 if no token is found (caller falls back to underlining to end of line).
+    static func parseTokenLength(from message: String) -> Int {
+        guard let nearRange = message.range(of: #"near "([^"]+)""#, options: .regularExpression) else {
+            return 0
+        }
+        let nearStr = message[nearRange]
+        guard let quoteStart = nearStr.firstIndex(of: "\"") else { return 0 }
+        let tokenStart = nearStr.index(after: quoteStart)
+        guard let quoteEnd = nearStr[tokenStart...].firstIndex(of: "\"") else { return 0 }
+        return nearStr[tokenStart..<quoteEnd].count
     }
 
     private func lineNumber(forCharacterIndex index: Int, in text: String) -> Int {
