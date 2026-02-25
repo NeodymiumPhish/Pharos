@@ -1,5 +1,11 @@
 import AppKit
 
+// APPROACH A APPLIED: init(viewController:) instead of contentListWithViewController.
+// This removes the auto-created NSVisualEffectView that was causing washed-out text.
+// init(viewController:) uses .default behavior -- no vibrancy, no VEV wrapping.
+// The previous test (2026-02-25) was confounded with 8 other simultaneous changes.
+// This isolated re-test changes ONLY this one line.
+// Awaiting visual verification at checkpoint.
 class PharosSplitViewController: NSSplitViewController {
 
     let sidebarVC = SidebarViewController()
@@ -16,7 +22,7 @@ class PharosSplitViewController: NSSplitViewController {
         sidebarItem.isCollapsed = false
 
         // Content item
-        let contentItem = NSSplitViewItem(contentListWithViewController: contentVC)
+        let contentItem = NSSplitViewItem(viewController: contentVC)
         contentItem.minimumThickness = 400
 
         addSplitViewItem(sidebarItem)
