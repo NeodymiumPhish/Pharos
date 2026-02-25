@@ -1,103 +1,63 @@
 import AppKit
 
-// MARK: - Scroll View with Non-Overlapping Scrollers
-
-/// NSScrollView subclass that positions scrollers outside the content area
-/// instead of overlaying them on top of the document view.
-private class InsetScrollView: NSScrollView {
-    override func tile() {
-        super.tile()
-
-        // Only adjust the clip view's SIZE to make room for scrollers.
-        // Do NOT change its origin — super.tile() positions it correctly
-        // relative to the floating header. Moving it creates a gap.
-        let w = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
-        let hasVert = hasVerticalScroller && !(verticalScroller?.isHidden ?? true)
-        let hasHoriz = hasHorizontalScroller && !(horizontalScroller?.isHidden ?? true)
-        let vertW = hasVert ? w : 0
-        let horizH = hasHoriz ? w : 0
-
-        var clipFrame = contentView.frame
-        clipFrame.size.width = max(0, bounds.width - vertW)
-        clipFrame.size.height = max(0, clipFrame.size.height - horizH)
-        contentView.frame = clipFrame
-
-        // Vertical scroller: starts below the header, spans data rows only
-        let headerH = (documentView as? NSTableView)?.headerView?.frame.height ?? 0
-        if hasVert, let vs = verticalScroller {
-            vs.frame = NSRect(
-                x: bounds.width - vertW,
-                y: headerH,
-                width: vertW,
-                height: max(0, clipFrame.maxY - headerH)
-            )
-        }
-
-        // Horizontal scroller: right below the clip view
-        if hasHoriz, let hs = horizontalScroller {
-            hs.frame = NSRect(x: 0, y: clipFrame.maxY, width: clipFrame.width, height: horizH)
-        }
-    }
-}
-
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
 class ResultsGridVC: NSViewController {
 
-    private let tableView = NSTableView()
-    private let scrollView = InsetScrollView()
+    let tableView = NSTableView()
+    let scrollView = InsetScrollView()
     private let emptyLabel = NSTextField(labelWithString: "Run a query to see results")
 
     // Helpers
-    private var dataSource: ResultsDataSource!
-    private var copyExport: ResultsCopyExport!
-    private var findController: ResultsFindController!
-    private var sortController: ResultsSortController!
+    var dataSource: ResultsDataSource!
+    var copyExport: ResultsCopyExport!
+    var findController: ResultsFindController!
+    var sortController: ResultsSortController!
 
     // Toolbar
-    private let toolbarBar = NSView()
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let pinSourceLabel = NSTextField(labelWithString: "")
-    private let historyContextLabel = NSTextField(labelWithString: "")
-    private let resetSortButton = NSButton()
-    private let pinButton = NSButton()
-    private let findToolbarButton = NSButton()
-    private let copyButton = NSButton()
-    private let exportButton = NSButton()
+    let toolbarBar = NSView()
+    let statusLabel = NSTextField(labelWithString: "")
+    let pinSourceLabel = NSTextField(labelWithString: "")
+    let historyContextLabel = NSTextField(labelWithString: "")
+    let resetSortButton = NSButton()
+    let pinButton = NSButton()
+    let findToolbarButton = NSButton()
+    let copyButton = NSButton()
+    let exportButton = NSButton()
 
     // Data
-    private var columns: [ColumnDef] = []
-    private var rows: [[String: AnyCodable]] = []
-    private var hasMore: Bool = false
-    private var executionTimeMs: UInt64 = 0
-    private var columnCategories: [String: PGTypeCategory] = [:]
+    var columns: [ColumnDef] = []
+    var rows: [[String: AnyCodable]] = []
+    var hasMore: Bool = false
+    var executionTimeMs: UInt64 = 0
+    var columnCategories: [String: PGTypeCategory] = [:]
 
     // Display ordering
-    private var displayRows: [Int] = []
-    private var unfilteredDisplayRows: [Int] = []
+    var displayRows: [Int] = []
+    var unfilteredDisplayRows: [Int] = []
 
-    // Find state
-    private let findBar = NSView()
-    private let findField = NSSearchField()
-    private let filterToggleButton = NSButton()
-    private let findClearButton = NSButton()
-    private let findCountLabel = NSTextField(labelWithString: "")
-    private let findPrevButton = NSButton()
-    private let findNextButton = NSButton()
-    private let findCloseButton = NSButton()
+    // Find bar views
+    let findBar = NSView()
+    let findField = NSSearchField()
+    let filterToggleButton = NSButton()
+    let findClearButton = NSButton()
+    let findCountLabel = NSTextField(labelWithString: "")
+    let findPrevButton = NSButton()
+    let findNextButton = NSButton()
+    let findCloseButton = NSButton()
 
     // Load more
-    private let loadMoreBar = NSView()
-    private let loadMoreButton = NSButton(title: "Load More Rows", target: nil, action: nil)
-    private let loadMoreSpinner = NSProgressIndicator()
+    let loadMoreBar = NSView()
+    let loadMoreButton = NSButton(title: "Load More Rows", target: nil, action: nil)
+    let loadMoreSpinner = NSProgressIndicator()
     private var isLoadingMore = false
 
     // Layout constraints to toggle
-    private var scrollViewTopToToolbar: NSLayoutConstraint!
-    private var scrollViewTopToFindBar: NSLayoutConstraint!
-    private var scrollViewBottomToLoadMore: NSLayoutConstraint!
-    private var scrollViewBottomToContainer: NSLayoutConstraint!
+    var scrollViewTopToToolbar: NSLayoutConstraint!
+    var scrollViewTopToFindBar: NSLayoutConstraint!
+    var scrollViewBottomToLoadMore: NSLayoutConstraint!
+    var scrollViewBottomToContainer: NSLayoutConstraint!
 
     // Callbacks
     var onLoadMore: (() -> Void)?
@@ -107,7 +67,7 @@ class ResultsGridVC: NSViewController {
     private var isPinned = false
 
     // Formatters
-    private static let rowCountFormatter: NumberFormatter = {
+    static let rowCountFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.groupingSeparator = ","
@@ -118,10 +78,7 @@ class ResultsGridVC: NSViewController {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         self.view = container
 
-        // Toolbar at top
         setupToolbar()
-
-        // Find bar (hidden initially)
         setupFindBar()
 
         // Table view
@@ -142,13 +99,11 @@ class ResultsGridVC: NSViewController {
         copyExport.delegate = self
         tableView.menu = copyExport.buildContextMenu()
 
-        // Retarget copy/export toolbar buttons to the helper
         copyButton.target = copyExport
         copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
         exportButton.target = copyExport
         exportButton.action = #selector(ResultsCopyExport.showExportMenu)
 
-        // Find controller (wires find bar button targets to itself)
         findController = ResultsFindController(
             tableView: tableView, findBar: findBar, findField: findField,
             filterToggleButton: filterToggleButton, findClearButton: findClearButton,
@@ -159,8 +114,6 @@ class ResultsGridVC: NSViewController {
 
         sortController = ResultsSortController(tableView: tableView, resetSortButton: resetSortButton)
         sortController.delegate = self
-
-        // Retarget reset sort button to the sort controller
         resetSortButton.target = sortController
         resetSortButton.action = #selector(ResultsSortController.resetSort)
 
@@ -171,13 +124,11 @@ class ResultsGridVC: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
 
-        // Empty state
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.textColor = .tertiaryLabelColor
         emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.alignment = .center
 
-        // Load more bar
         setupLoadMoreBar()
 
         container.addSubview(toolbarBar)
@@ -186,7 +137,6 @@ class ResultsGridVC: NSViewController {
         container.addSubview(loadMoreBar)
         container.addSubview(emptyLabel)
 
-        // Toggleable constraints
         scrollViewTopToToolbar = scrollView.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor, constant: 2)
         scrollViewTopToFindBar = scrollView.topAnchor.constraint(equalTo: findBar.bottomAnchor, constant: 2)
         scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -218,209 +168,6 @@ class ResultsGridVC: NSViewController {
         ])
     }
 
-    // MARK: - Toolbar Setup
-
-    private func setupToolbar() {
-        toolbarBar.translatesAutoresizingMaskIntoConstraints = false
-        toolbarBar.isHidden = true
-
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        pinSourceLabel.translatesAutoresizingMaskIntoConstraints = false
-        pinSourceLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        pinSourceLabel.textColor = .systemOrange
-        pinSourceLabel.isHidden = true
-        pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        historyContextLabel.translatesAutoresizingMaskIntoConstraints = false
-        historyContextLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        historyContextLabel.textColor = .systemIndigo
-        historyContextLabel.isHidden = true
-        historyContextLabel.lineBreakMode = .byTruncatingTail
-        historyContextLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        historyContextLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        // Target/action set in loadView() after sortController creation
-        configureToolbarButtonAppearance(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill", tooltip: "Reset Sort")
-        resetSortButton.contentTintColor = .controlAccentColor
-        resetSortButton.isHidden = true
-
-        configureToolbarButton(pinButton, symbol: "pin",
-                               action: #selector(togglePin), tooltip: "Pin Results")
-        configureToolbarButton(findToolbarButton, symbol: "magnifyingglass",
-                               action: #selector(showFind), tooltip: "Find (Cmd+F)")
-        // Copy/export button icons/style set here; target/action set in loadView() after helper creation
-        configureToolbarButtonAppearance(copyButton, symbol: "doc.on.doc", tooltip: "Copy")
-        configureToolbarButtonAppearance(exportButton, symbol: "square.and.arrow.up", tooltip: "Export")
-
-        let buttonStack = NSStackView(views: [resetSortButton, pinButton, findToolbarButton, copyButton, exportButton])
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = 2
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        buttonStack.setHuggingPriority(.required, for: .horizontal)
-
-        toolbarBar.addSubview(statusLabel)
-        toolbarBar.addSubview(pinSourceLabel)
-        toolbarBar.addSubview(historyContextLabel)
-        toolbarBar.addSubview(buttonStack)
-
-        NSLayoutConstraint.activate([
-            statusLabel.leadingAnchor.constraint(equalTo: toolbarBar.leadingAnchor, constant: 8),
-            statusLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-
-            pinSourceLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
-            pinSourceLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-            pinSourceLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
-
-            historyContextLabel.leadingAnchor.constraint(equalTo: statusLabel.trailingAnchor, constant: 8),
-            historyContextLabel.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-            historyContextLabel.trailingAnchor.constraint(lessThanOrEqualTo: buttonStack.leadingAnchor, constant: -8),
-
-            buttonStack.trailingAnchor.constraint(equalTo: toolbarBar.trailingAnchor, constant: -8),
-            buttonStack.centerYAnchor.constraint(equalTo: toolbarBar.centerYAnchor),
-        ])
-    }
-
-    private func configureToolbarButton(_ button: NSButton, symbol: String, action: Selector, tooltip: String) {
-        configureToolbarButtonAppearance(button, symbol: symbol, tooltip: tooltip)
-        button.target = self
-        button.action = action
-    }
-
-    private func configureToolbarButtonAppearance(_ button: NSButton, symbol: String, tooltip: String) {
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
-        button.bezelStyle = .recessed
-        button.isBordered = false
-        button.toolTip = tooltip
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.contentTintColor = .secondaryLabelColor
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 24),
-            button.heightAnchor.constraint(equalToConstant: 24),
-        ])
-    }
-
-    // MARK: - Find Bar Setup
-
-    private func setupFindBar() {
-        findBar.translatesAutoresizingMaskIntoConstraints = false
-        findBar.isHidden = true
-
-        findField.translatesAutoresizingMaskIntoConstraints = false
-        findField.placeholderString = "Find in results…"
-        findField.sendsSearchStringImmediately = true
-        findField.font = .systemFont(ofSize: 12)
-        // target/action/delegate set by ResultsFindController
-
-        filterToggleButton.setButtonType(.pushOnPushOff)
-        filterToggleButton.title = "Filter"
-        filterToggleButton.bezelStyle = .recessed
-        filterToggleButton.font = .systemFont(ofSize: 11)
-        filterToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        filterToggleButton.toolTip = "Filter rows to matches only"
-        // target/action set by ResultsFindController
-
-        findClearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
-        findClearButton.bezelStyle = .recessed
-        findClearButton.isBordered = false
-        findClearButton.translatesAutoresizingMaskIntoConstraints = false
-        findClearButton.contentTintColor = .tertiaryLabelColor
-        findClearButton.isHidden = true
-        // target/action set by ResultsFindController
-
-        findCountLabel.translatesAutoresizingMaskIntoConstraints = false
-        findCountLabel.font = .systemFont(ofSize: 11)
-        findCountLabel.textColor = .secondaryLabelColor
-        findCountLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        findPrevButton.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Previous")
-        findPrevButton.bezelStyle = .recessed
-        findPrevButton.isBordered = false
-        findPrevButton.translatesAutoresizingMaskIntoConstraints = false
-        // target/action set by ResultsFindController
-
-        findNextButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Next")
-        findNextButton.bezelStyle = .recessed
-        findNextButton.isBordered = false
-        findNextButton.translatesAutoresizingMaskIntoConstraints = false
-        // target/action set by ResultsFindController
-
-        findCloseButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
-        findCloseButton.bezelStyle = .recessed
-        findCloseButton.isBordered = false
-        findCloseButton.translatesAutoresizingMaskIntoConstraints = false
-        // target/action set by ResultsFindController
-
-        findBar.addSubview(findField)
-        findBar.addSubview(filterToggleButton)
-        findBar.addSubview(findClearButton)
-        findBar.addSubview(findCountLabel)
-        findBar.addSubview(findPrevButton)
-        findBar.addSubview(findNextButton)
-        findBar.addSubview(findCloseButton)
-
-        NSLayoutConstraint.activate([
-            findField.leadingAnchor.constraint(equalTo: findBar.leadingAnchor, constant: 8),
-            findField.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-            findField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
-
-            filterToggleButton.leadingAnchor.constraint(equalTo: findField.trailingAnchor, constant: 6),
-            filterToggleButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-
-            findClearButton.leadingAnchor.constraint(equalTo: filterToggleButton.trailingAnchor, constant: 4),
-            findClearButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-            findClearButton.widthAnchor.constraint(equalToConstant: 20),
-
-            findCountLabel.leadingAnchor.constraint(equalTo: findClearButton.trailingAnchor, constant: 8),
-            findCountLabel.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-
-            findPrevButton.leadingAnchor.constraint(equalTo: findCountLabel.trailingAnchor, constant: 4),
-            findPrevButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-            findPrevButton.widthAnchor.constraint(equalToConstant: 20),
-
-            findNextButton.leadingAnchor.constraint(equalTo: findPrevButton.trailingAnchor, constant: 2),
-            findNextButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-            findNextButton.widthAnchor.constraint(equalToConstant: 20),
-
-            findCloseButton.leadingAnchor.constraint(greaterThanOrEqualTo: findNextButton.trailingAnchor, constant: 8),
-            findCloseButton.trailingAnchor.constraint(equalTo: findBar.trailingAnchor, constant: -8),
-            findCloseButton.centerYAnchor.constraint(equalTo: findBar.centerYAnchor),
-            findCloseButton.widthAnchor.constraint(equalToConstant: 20),
-        ])
-    }
-
-    // MARK: - Load More Bar Setup
-
-    private func setupLoadMoreBar() {
-        loadMoreBar.translatesAutoresizingMaskIntoConstraints = false
-        loadMoreBar.isHidden = true
-
-        loadMoreButton.bezelStyle = .rounded
-        loadMoreButton.target = self
-        loadMoreButton.action = #selector(loadMoreTapped)
-        loadMoreButton.translatesAutoresizingMaskIntoConstraints = false
-
-        loadMoreSpinner.style = .spinning
-        loadMoreSpinner.controlSize = .small
-        loadMoreSpinner.translatesAutoresizingMaskIntoConstraints = false
-        loadMoreSpinner.isHidden = true
-
-        loadMoreBar.addSubview(loadMoreButton)
-        loadMoreBar.addSubview(loadMoreSpinner)
-
-        NSLayoutConstraint.activate([
-            loadMoreButton.centerXAnchor.constraint(equalTo: loadMoreBar.centerXAnchor),
-            loadMoreButton.centerYAnchor.constraint(equalTo: loadMoreBar.centerYAnchor),
-
-            loadMoreSpinner.leadingAnchor.constraint(equalTo: loadMoreButton.trailingAnchor, constant: 8),
-            loadMoreSpinner.centerYAnchor.constraint(equalTo: loadMoreBar.centerYAnchor),
-        ])
-    }
-
     // MARK: - Public API
 
     func showResult(_ result: QueryResult) {
@@ -429,12 +176,10 @@ class ResultsGridVC: NSViewController {
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
 
-        // Precompute type categories
         columnCategories = Dictionary(uniqueKeysWithValues: columns.map {
             ($0.name, PGTypeCategory(dataType: $0.dataType))
         })
 
-        // Initialize display order
         displayRows = Array(0..<rows.count)
         unfilteredDisplayRows = displayRows
         sortController.clearSortState()
@@ -450,7 +195,6 @@ class ResultsGridVC: NSViewController {
         updateLoadMoreVisibility()
         updateStatusBarText()
 
-        // Close find if open
         if findController.isFindVisible {
             findController.closeFind(nil)
         }
@@ -461,12 +205,10 @@ class ResultsGridVC: NSViewController {
         rows.append(contentsOf: result.rows)
         hasMore = result.hasMore
 
-        // Extend with new indices
         let newIndices = Array(oldCount..<rows.count)
         unfilteredDisplayRows.append(contentsOf: newIndices)
         displayRows = unfilteredDisplayRows
 
-        // Re-apply sort if active
         if sortController.currentSortColumn != nil {
             sortController.reapplySortIfActive()
         } else if findController.isFindVisible {
@@ -506,7 +248,6 @@ class ResultsGridVC: NSViewController {
         columnCategories = [:]
         sortController.clearSortState()
 
-        // Remove all table columns
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
         }
@@ -532,7 +273,7 @@ class ResultsGridVC: NSViewController {
     func showHistoryContext(schema: String?, timestamp: String) {
         let schemaText = schema ?? "default"
         let timeText = formatAbsoluteDate(timestamp)
-        historyContextLabel.stringValue = "\(schemaText) · \(timeText)"
+        historyContextLabel.stringValue = "\(schemaText) \u{00B7} \(timeText)"
         historyContextLabel.isHidden = false
     }
 
@@ -566,12 +307,10 @@ class ResultsGridVC: NSViewController {
     // MARK: - Column Setup
 
     private func rebuildColumns() {
-        // Remove existing columns
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
         }
 
-        // Row number column
         let rowNumCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("__rownum__"))
         rowNumCol.title = "#"
         rowNumCol.width = 40
@@ -579,7 +318,6 @@ class ResultsGridVC: NSViewController {
         rowNumCol.maxWidth = 60
         tableView.addTableColumn(rowNumCol)
 
-        // Data columns
         for colDef in columns {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(colDef.name))
             col.title = colDef.name
@@ -587,7 +325,6 @@ class ResultsGridVC: NSViewController {
             col.minWidth = 50
             col.maxWidth = 600
 
-            // Header: "name  type" with type styled lighter
             let attrStr = NSMutableAttributedString(
                 string: colDef.name,
                 attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]
@@ -600,10 +337,7 @@ class ResultsGridVC: NSViewController {
                 ]
             ))
             col.headerCell.attributedStringValue = attrStr
-
-            // Sort descriptor for click-to-sort
             col.sortDescriptorPrototype = NSSortDescriptor(key: colDef.name, ascending: true)
-
             tableView.addTableColumn(col)
         }
     }
@@ -626,7 +360,7 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Status Bar
 
-    private func updateStatusBarText() {
+    func updateStatusBarText() {
         let timeStr = formatDuration(executionTimeMs)
         let moreStr = hasMore ? " (more available)" : ""
 
@@ -653,7 +387,7 @@ class ResultsGridVC: NSViewController {
         scrollViewBottomToContainer.isActive = !hasMore
     }
 
-    @objc private func loadMoreTapped() {
+    @objc func loadMoreTapped() {
         onLoadMore?()
     }
 
@@ -667,14 +401,14 @@ class ResultsGridVC: NSViewController {
         }
     }
 
-    // MARK: - Find (Forwarding to FindController)
+    // MARK: - Find (Forwarding)
 
     @objc func showFind() { findController.showFind() }
     @objc func showFilter() { findController.showFilter() }
 
     // MARK: - Pin Results
 
-    @objc private func togglePin() {
+    @objc func togglePin() {
         isPinned.toggle()
         updatePinUI()
         onPinToggle?(isPinned)
@@ -700,7 +434,7 @@ class ResultsGridVC: NSViewController {
         }
     }
 
-    // MARK: - Copy Forwarding
+    // MARK: - Copy (Forwarding)
 
     @objc func copy(_ sender: Any?) {
         copyExport.copy(sender)
@@ -708,7 +442,7 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Helper Coordination
 
-    private func pushDataToHelpers() {
+    func pushDataToHelpers() {
         dataSource.columns = columns
         dataSource.rows = rows
         dataSource.displayRows = displayRows
@@ -720,7 +454,7 @@ class ResultsGridVC: NSViewController {
         copyExport.columnCategories = columnCategories
     }
 
-    private func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {
+    func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {
         dataSource.isFindVisible = findController.isFindVisible
         dataSource.findMatchSet = matchSet
         dataSource.currentMatchRow = currentMatchRow
@@ -729,7 +463,7 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Formatting
 
-    private func formatDuration(_ ms: UInt64) -> String {
+    func formatDuration(_ ms: UInt64) -> String {
         if ms < 1000 {
             return "\(ms)ms"
         }
@@ -752,96 +486,7 @@ class ResultsGridVC: NSViewController {
         return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
     }
 
-    private func formatRowCount(_ count: Int) -> String {
+    func formatRowCount(_ count: Int) -> String {
         Self.rowCountFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
-    }
-}
-
-// MARK: - ResultsFindControllerDelegate
-
-extension ResultsGridVC: ResultsFindControllerDelegate {
-    var findRows: [[String: AnyCodable]] { rows }
-    var findColumns: [ColumnDef] { columns }
-    var findUnfilteredDisplayRows: [Int] { unfilteredDisplayRows }
-
-    func findControllerDidUpdateResults(
-        displayRows newDisplayRows: [Int]?,
-        matchSet: Set<CellAddress>,
-        currentMatchRow: Int,
-        currentMatchColId: String?
-    ) {
-        if let newDisplayRows {
-            displayRows = newDisplayRows
-        }
-        pushDataToHelpers()
-        pushFindStateToDataSource(matchSet: matchSet, currentMatchRow: currentMatchRow, currentMatchColId: currentMatchColId)
-        tableView.reloadData()
-        updateStatusBarText()
-    }
-
-    func findControllerDidClose(displayRows newDisplayRows: [Int]) {
-        displayRows = newDisplayRows
-        pushDataToHelpers()
-        pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
-        tableView.reloadData()
-        updateStatusBarText()
-        view.window?.makeFirstResponder(tableView)
-    }
-
-    func findControllerDidToggleVisibility(visible: Bool) {
-        scrollViewTopToFindBar.isActive = visible
-        scrollViewTopToToolbar.isActive = !visible
-    }
-
-    func findControllerUpdateStatusBar() {
-        updateStatusBarText()
-    }
-}
-
-// MARK: - ResultsDataSourceDelegate
-
-extension ResultsGridVC: ResultsDataSourceDelegate {
-    func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor]) {
-        sortController.handleSortDescriptorsChanged(oldDescriptors)
-    }
-}
-
-// MARK: - ResultsSortControllerDelegate
-
-extension ResultsGridVC: ResultsSortControllerDelegate {
-    var sortableRows: [[String: AnyCodable]] { rows }
-    var sortableColumnCategories: [String: PGTypeCategory] { columnCategories }
-
-    func sortControllerDidSort(unfilteredDisplayRows newUnfiltered: [Int], isSorted: Bool) {
-        unfilteredDisplayRows = newUnfiltered
-        // Re-apply find filter on new sort order if active
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = newUnfiltered
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-        updateStatusBarText()
-    }
-
-    func sortControllerDidReset(unfilteredDisplayRows newUnfiltered: [Int]) {
-        unfilteredDisplayRows = newUnfiltered
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = newUnfiltered
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-        updateStatusBarText()
-    }
-}
-
-// MARK: - ResultsCopyExportDelegate
-
-extension ResultsGridVC: ResultsCopyExportDelegate {
-    func copyExportWindow() -> NSWindow? {
-        view.window
     }
 }
