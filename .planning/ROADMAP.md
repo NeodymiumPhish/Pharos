@@ -73,10 +73,10 @@ Plans:
   3. `cargo clippy` reports no dead code warnings for internal Rust structs and functions
   4. `Cargo.toml` contains no dependencies that are unused after cleanup
   5. All app functionality works after FFI cleanup (three-way sync between ffi.rs, header, and PharosCore.swift verified)
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 04-01: TBD
+- [ ] 04-01-PLAN.md — Remove 6 dead FFI exports, cascade into dead internal code, audit deps, verify three-way sync
 
 ### Phase 5: View Controller Extraction
 **Goal**: Monolithic view controllers are split into focused, single-responsibility components
@@ -114,6 +114,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Editor Text Rendering Fix | 2/2 | Complete | 2026-02-25 |
 | 2. Git Cleanup | 1/1 | Complete | 2026-02-25 |
 | 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
-| 4. Rust FFI Dead Code Removal | 0/0 | Not started | - |
+| 4. Rust FFI Dead Code Removal | 0/1 | Planned | - |
 | 5. View Controller Extraction | 0/0 | Not started | - |
 | 6. FFI Layer Organization | 0/0 | Not started | - |

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-02-25T15:12:42Z"
+last_updated: "2026-02-25T16:13:44Z"
 progress:
-  total_phases: 6
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 3 complete, ready for Phase 4 - Rust FFI Dead Code Removal
+**Current focus:** Phase 4 complete, ready for Phase 5 - Rust Internal Cleanup
 
 ## Current Position
 
-Phase: 3 of 6 (Swift Dead Code Removal) -- COMPLETE
-Plan: 2 of 2 in current phase -- COMPLETE
-Status: Phase 3 complete. All plans finished. Ready for Phase 4.
-Last activity: 2026-02-25 -- Phase 3 Plan 2 (manual sweep + final Periphery scan) completed
+Phase: 4 of 6 (Rust FFI Dead Code Removal) -- COMPLETE
+Plan: 1 of 1 in current phase -- COMPLETE
+Status: Phase 4 complete. All plans finished. Ready for Phase 5.
+Last activity: 2026-02-25 -- Phase 4 Plan 1 (FFI dead code removal + dependency cleanup) completed
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 5 min
-- Total execution time: 0.28 hours
+- Total execution time: 0.36 hours
 
 **By Phase:**
 
@@ -43,9 +43,10 @@ Progress: [█████░░░░░] 50%
 | 01-editor-text-rendering-fix | 2 | - | - |
 | 02-git-cleanup | 1 | 2 min | 2 min |
 | 03-swift-dead-code-removal | 2 | 15 min | 7.5 min |
+| 04-rust-ffi-dead-code-removal | 1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min)
+- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min), 04-01 (5 min)
 - Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
@@ -68,6 +69,9 @@ Recent decisions affecting current work:
 - [03-01]: Removed 4 PharosCore FFI wrappers (reorderConnections, generateTableDDL, generateIndexDDL, clearQueryHistory): Rust FFI endpoints now have no Swift callers
 - [03-02]: Manual sweep found zero additional dead code: Plan 01 Periphery cleanup was comprehensive
 - [03-02]: CellAddress.row/colId confirmed as false positives (synthesized Hashable): 2 known Periphery warnings accepted
+- [04-01]: Keep ipnetwork/mac_address as sqlx feature dependencies (low risk of runtime failure vs tiny dep cost)
+- [04-01]: Module-level clippy::not_unsafe_ptr_arg_deref allowance for FFI code (vs marking 35 functions unsafe extern C)
+- [04-01]: Pre-existing clippy warnings (9 total) left as-is -- out of scope for dead code removal phase
 
 ### Pending Todos
 
@@ -80,5 +84,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 03-02-PLAN.md. Phase 3 complete (both plans). Ready for Phase 4 (Rust FFI dead code removal).
+Stopped at: Completed 04-01-PLAN.md. Phase 4 complete (1 plan). Ready for Phase 5 (Rust internal cleanup).
 Resume file: none

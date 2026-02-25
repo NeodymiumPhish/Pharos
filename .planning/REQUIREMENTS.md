@@ -19,10 +19,10 @@
 
 ### Dead Code Removal (Rust FFI)
 
-- [ ] **RUST-01**: FFI functions in ffi.rs that have no Swift callers are removed
-- [ ] **RUST-02**: Corresponding C header declarations are regenerated to match
-- [ ] **RUST-03**: Unused Rust internal code (structs, functions not called by FFI) is removed
-- [ ] **RUST-04**: Cargo.toml dependencies are audited and unused ones removed
+- [x] **RUST-01**: FFI functions in ffi.rs that have no Swift callers are removed
+- [x] **RUST-02**: Corresponding C header declarations are regenerated to match
+- [x] **RUST-03**: Unused Rust internal code (structs, functions not called by FFI) is removed
+- [x] **RUST-04**: Cargo.toml dependencies are audited and unused ones removed
 
 ### Git Cleanup
 
@@ -71,10 +71,10 @@
 | SWFT-01 | Phase 3 | Complete |
 | SWFT-02 | Phase 3 | Complete |
 | SWFT-03 | Phase 3 | Complete |
-| RUST-01 | Phase 4 | Pending |
-| RUST-02 | Phase 4 | Pending |
-| RUST-03 | Phase 4 | Pending |
-| RUST-04 | Phase 4 | Pending |
+| RUST-01 | Phase 4 | Complete |
+| RUST-02 | Phase 4 | Complete |
+| RUST-03 | Phase 4 | Complete |
+| RUST-04 | Phase 4 | Complete |
 | ARCH-01 | Phase 5 | Pending |
 | ARCH-02 | Phase 5 | Pending |
 | ARCH-03 | Phase 6 | Pending |
