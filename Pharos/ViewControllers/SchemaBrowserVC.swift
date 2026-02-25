@@ -7,12 +7,15 @@ extension Notification.Name {
 
 // MARK: - SchemaBrowserVC
 
-class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
+class SchemaBrowserVC: NSViewController {
 
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
+    private var schemaDataSource: SchemaDataSource!
 
-    private var rootNodes: [SchemaTreeNode] = []
+    private var rootNodes: [SchemaTreeNode] = [] {
+        didSet { schemaDataSource?.rootNodes = rootNodes }
+    }
     private var unfilteredRootNodes: [SchemaTreeNode] = []
     private var filterText: String?
     private var activeSchemaFilter: String?
@@ -28,14 +31,13 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
-        outlineView.dataSource = self
-        outlineView.delegate = self
         outlineView.rowSizeStyle = .default
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 16
         outlineView.menu = buildContextMenu()
-        outlineView.doubleAction = #selector(outlineDoubleClicked(_:))
-        outlineView.target = self
+
+        schemaDataSource = SchemaDataSource(outlineView: outlineView)
+        schemaDataSource.delegate = self
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -312,56 +314,9 @@ class SchemaBrowserVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewD
         rebuildDisplayTree()
     }
 
-    // MARK: - NSOutlineViewDataSource
-
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        guard let node = item as? SchemaTreeNode else { return rootNodes.count }
-        return node.children.count
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        guard let node = item as? SchemaTreeNode else { return rootNodes[index] }
-        return node.children[index]
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        (item as? SchemaTreeNode)?.isExpandable ?? false
-    }
-
-    // MARK: - NSOutlineViewDelegate
-
-    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        guard let node = item as? SchemaTreeNode else { return nil }
-
-        let cellId = NSUserInterfaceItemIdentifier("SchemaCell")
-        let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SchemaTreeCellView
-            ?? SchemaTreeCellView(identifier: cellId)
-
-        cell.configure(node: node)
-        return cell
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard let node = item as? SchemaTreeNode else { return 22 }
-        return node.subtitle != nil ? 32 : 22
-    }
-
-    // MARK: - Double Click
-
-    @objc private func outlineDoubleClicked(_: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0, let item = outlineView.item(atRow: row) as? SchemaTreeNode else { return }
-        if outlineView.isItemExpanded(item) {
-            outlineView.collapseItem(item)
-        } else if outlineView.isExpandable(item) {
-            outlineView.expandItem(item)
-        }
-    }
-
     // MARK: - Lazy Column Loading
 
-    func outlineViewItemWillExpand(_ notification: Notification) {
-        guard let node = notification.userInfo?["NSObject"] as? SchemaTreeNode else { return }
+    private func lazyLoadColumnsIfNeeded(for node: SchemaTreeNode) {
         guard !node.isLoaded else { return }
 
         switch node.kind {
@@ -809,5 +764,13 @@ extension SchemaBrowserVC: NSMenuDelegate {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: limit)) ?? "\(limit)"
+    }
+}
+
+// MARK: - SchemaDataSourceDelegate
+
+extension SchemaBrowserVC: SchemaDataSourceDelegate {
+    func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode) {
+        lazyLoadColumnsIfNeeded(for: node)
     }
 }
