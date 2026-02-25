@@ -3,11 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-last_updated: "2026-02-25T16:13:44Z"
+last_updated: "2026-02-25T18:00:00Z"
 progress:
-  total_phases: 4
+  total_phases: 6
   completed_phases: 4
-  total_plans: 6
+  total_plans: 8
   completed_plans: 6
 ---
 
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-24)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 4 complete, ready for Phase 5 - Rust Internal Cleanup
+**Current focus:** Phase 5 planned, ready for execution - View Controller Extraction
 
 ## Current Position
 
-Phase: 4 of 6 (Rust FFI Dead Code Removal) -- COMPLETE
-Plan: 1 of 1 in current phase -- COMPLETE
-Status: Phase 4 complete. All plans finished. Ready for Phase 5.
-Last activity: 2026-02-25 -- Phase 4 Plan 1 (FFI dead code removal + dependency cleanup) completed
+Phase: 5 of 6 (View Controller Extraction) -- IN PROGRESS
+Plan: 1 of 2 in current phase -- 05-02 complete
+Status: Plan 05-02 (SchemaBrowserVC extraction) complete. SchemaBrowserVC reduced from 1009 to 383 lines. Plan 05-01 (ResultsGridVC) may still be in progress (parallel execution).
+Last activity: 2026-02-25 -- Plan 05-02 executed (4 tasks, 3 commits)
 
-Progress: [██████░░░░] 67%
+Progress: [███████░░░] 81%
 
 ## Performance Metrics
 
@@ -45,8 +45,10 @@ Progress: [██████░░░░] 67%
 | 03-swift-dead-code-removal | 2 | 15 min | 7.5 min |
 | 04-rust-ffi-dead-code-removal | 1 | 5 min | 5 min |
 
+| 05-view-controller-extraction | 1 | 7 min | 7 min |
+
 **Recent Trend:**
-- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min), 04-01 (5 min)
+- Last 5 plans: 02-01 (2 min), 03-01 (12 min), 03-02 (3 min), 04-01 (5 min), 05-02 (7 min)
 - Trend: variable (depends on scope of changes)
 
 *Updated after each plan completion*
@@ -72,6 +74,9 @@ Recent decisions affecting current work:
 - [04-01]: Keep ipnetwork/mac_address as sqlx feature dependencies (low risk of runtime failure vs tiny dep cost)
 - [04-01]: Module-level clippy::not_unsafe_ptr_arg_deref allowance for FFI code (vs marking 35 functions unsafe extern C)
 - [04-01]: Pre-existing clippy warnings (9 total) left as-is -- out of scope for dead code removal phase
+- [05-02]: Used didSet on rootNodes to sync state to SchemaDataSource helper (avoids manual sync calls at every mutation site)
+- [05-02]: All context menu items use explicit target = self on helper (21 instances) since helper is not in NSResponder chain
+- [05-02]: SchemaContextMenu owns its own AppStateManager.shared reference (avoids passing through delegate for destructive confirmation checks)
 
 ### Pending Todos
 
@@ -84,5 +89,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-25
-Stopped at: Completed 04-01-PLAN.md. Phase 4 complete (1 plan). Ready for Phase 5 (Rust internal cleanup).
+Stopped at: Completed 05-02-PLAN.md (SchemaBrowserVC extraction). 05-01-PLAN.md (ResultsGridVC) executing in parallel.
 Resume file: none

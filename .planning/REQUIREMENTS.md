@@ -31,8 +31,8 @@
 
 ### Architecture Tidy
 
-- [ ] **ARCH-01**: ResultsGridVC (1429 lines) responsibilities extracted into helper classes
-- [ ] **ARCH-02**: SchemaBrowserVC (1009 lines) context menu and data source extracted
+- [x] **ARCH-01**: ResultsGridVC (1429 lines) responsibilities extracted into helper classes
+- [x] **ARCH-02**: SchemaBrowserVC (1009 lines) context menu and data source extracted
 - [ ] **ARCH-03**: PharosCore.swift FFI wrapper organized by domain (connection, query, metadata, etc.)
 - [ ] **ARCH-04**: ffi.rs organized into domain-grouped submodules
 - [ ] **ARCH-05**: All existing functionality verified after restructuring
@@ -75,8 +75,8 @@
 | RUST-02 | Phase 4 | Complete |
 | RUST-03 | Phase 4 | Complete |
 | RUST-04 | Phase 4 | Complete |
-| ARCH-01 | Phase 5 | Pending |
-| ARCH-02 | Phase 5 | Pending |
+| ARCH-01 | Phase 5 | Complete |
+| ARCH-02 | Phase 5 | Complete |
 | ARCH-03 | Phase 6 | Pending |
 | ARCH-04 | Phase 6 | Pending |
 | ARCH-05 | Phase 6 | Pending |

@@ -86,10 +86,11 @@ Plans:
   1. ResultsGridVC is under 500 lines with data source, delegate, and export logic extracted into separate helper classes
   2. SchemaBrowserVC is under 500 lines with context menu handling and data source logic extracted
   3. All existing functionality (results display, pagination, schema browsing, context menus, table operations) works identically after extraction
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 05-01: TBD
+- [ ] 05-01-PLAN.md — Extract ResultsGridVC into helper classes (DataSource, CopyExport, FindController, SortController) + PGTypeCategory utility
+- [ ] 05-02-PLAN.md — Extract SchemaBrowserVC into helper classes (DataSource, ContextMenu) + move SchemaTreeNode to Models/ and SchemaTreeCellView to Views/
 
 ### Phase 6: FFI Layer Organization
 **Goal**: The FFI bridge code is organized by domain for navigability and maintainability
@@ -115,5 +116,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Git Cleanup | 1/1 | Complete | 2026-02-25 |
 | 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
 | 4. Rust FFI Dead Code Removal | 1/1 | Complete | 2026-02-25 |
-| 5. View Controller Extraction | 0/0 | Not started | - |
+| 5. View Controller Extraction | 0/2 | Planned | - |
 | 6. FFI Layer Organization | 0/0 | Not started | - |
