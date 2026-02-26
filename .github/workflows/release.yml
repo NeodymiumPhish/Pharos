@@ -9,16 +9,7 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-            rust-target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            arch: x86_64
-            rust-target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +18,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "pharos-core -> pharos-core/target"
-          prefix-key: "v0-rust-${{ matrix.arch }}"
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -55,8 +45,6 @@ jobs:
             -project Pharos.xcodeproj \
             -scheme Pharos \
             -configuration Release \
-            ARCHS=${{ matrix.arch }} \
-            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY="-" \
             -derivedDataPath ./build
 
@@ -66,12 +54,12 @@ jobs:
             -volname "Pharos" \
             -srcfolder ./build/Build/Products/Release/Pharos.app \
             -ov -format UDZO \
-            "Pharos-${GITHUB_REF_NAME}-${{ matrix.arch }}.dmg"
+            "Pharos-${GITHUB_REF_NAME}.dmg"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dmg-${{ matrix.arch }}
+          name: dmg
           path: "*.dmg"
 
   release:
@@ -83,8 +71,7 @@ jobs:
       - name: Download DMG artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: dmg-*
-          merge-multiple: true
+          name: dmg
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
