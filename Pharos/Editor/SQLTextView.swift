@@ -214,6 +214,52 @@ class SQLTextView: NSTextView {
         super.insertText(string, replacementRange: replacementRange)
     }
 
+    // MARK: - Indent-Aware Paste
+
+    override func paste(_ sender: Any?) {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else {
+            super.paste(sender)
+            return
+        }
+
+        let lines = pasted.components(separatedBy: "\n")
+        guard lines.count > 1 else {
+            super.paste(sender)
+            return
+        }
+
+        // Determine indentation at the cursor position
+        let text = self.string as NSString
+        let cursor = selectedRange().location
+        let lineRange = text.lineRange(for: NSRange(location: cursor, length: 0))
+        let colInLine = cursor - lineRange.location
+        let currentLine = text.substring(with: NSRange(location: lineRange.location, length: colInLine))
+        let cursorIndent = String(currentLine.prefix(while: { $0 == " " || $0 == "\t" }))
+        // Only use cursor indent if cursor is at or within the leading whitespace
+        let effectiveIndent = colInLine <= cursorIndent.count ? cursorIndent : String(repeating: " ", count: colInLine)
+
+        // Find the base indentation of the pasted block (min indent of lines 2+, ignoring empty lines)
+        let tailLines = lines.dropFirst()
+        let baseIndent: String = tailLines
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { line in String(line.prefix(while: { $0 == " " || $0 == "\t" })) }
+            .min(by: { $0.count < $1.count }) ?? ""
+
+        // Re-indent: first line stays as-is, subsequent lines get rebased
+        var result = lines[0]
+        for line in tailLines {
+            result += "\n"
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                result += line
+            } else {
+                let stripped = line.hasPrefix(baseIndent) ? String(line.dropFirst(baseIndent.count)) : line
+                result += effectiveIndent + stripped
+            }
+        }
+
+        insertText(result, replacementRange: selectedRange())
+    }
+
     override func deleteBackward(_ sender: Any?) {
         let cursor = selectedRange().location
         let text = self.string as NSString
@@ -251,9 +297,71 @@ class SQLTextView: NSTextView {
     }
 
     override func insertTab(_ sender: Any?) {
-        // Insert spaces instead of tab
+        let text = self.string as NSString
+        let sel = selectedRange()
+
+        // Check if selection spans multiple lines
+        if sel.length > 0 {
+            let selString = text.substring(with: sel)
+            if selString.contains("\n") {
+                // Multi-line indent: prepend tabSize spaces to each selected line
+                let blockRange = text.lineRange(for: sel)
+                let block = text.substring(with: blockRange)
+                let indent = String(repeating: " ", count: tabSize)
+                let lines = block.components(separatedBy: "\n")
+
+                // Don't indent trailing empty component from a trailing newline
+                var indented: [String] = []
+                for (i, line) in lines.enumerated() {
+                    if i == lines.count - 1 && line.isEmpty {
+                        indented.append(line)
+                    } else {
+                        indented.append(indent + line)
+                    }
+                }
+                let result = indented.joined(separator: "\n")
+
+                insertText(result, replacementRange: blockRange)
+
+                // Re-select the indented block (adjust for added spaces)
+                let nonEmptyCount = lines.count - (lines.last?.isEmpty == true ? 1 : 0)
+                let newLength = blockRange.length + nonEmptyCount * tabSize
+                setSelectedRange(NSRange(location: blockRange.location, length: newLength))
+                return
+            }
+        }
+
+        // Single-line / no selection: insert spaces
         let spaces = String(repeating: " ", count: tabSize)
-        super.insertText(spaces, replacementRange: selectedRange())
+        super.insertText(spaces, replacementRange: sel)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        let text = self.string as NSString
+        let sel = selectedRange()
+        let blockRange = text.lineRange(for: sel)
+        let block = text.substring(with: blockRange)
+        let lines = block.components(separatedBy: "\n")
+
+        var dedented: [String] = []
+        var totalRemoved = 0
+        for (i, line) in lines.enumerated() {
+            if i == lines.count - 1 && line.isEmpty {
+                dedented.append(line)
+            } else {
+                let leading = line.prefix(while: { $0 == " " })
+                let removeCount = min(tabSize, leading.count)
+                dedented.append(String(line.dropFirst(removeCount)))
+                totalRemoved += removeCount
+            }
+        }
+        let result = dedented.joined(separator: "\n")
+
+        insertText(result, replacementRange: blockRange)
+
+        // Re-select the dedented block
+        let newLength = max(0, blockRange.length - totalRemoved)
+        setSelectedRange(NSRange(location: blockRange.location, length: newLength))
     }
 
     override func insertNewline(_ sender: Any?) {
