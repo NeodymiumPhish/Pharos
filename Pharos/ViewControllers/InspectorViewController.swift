@@ -137,11 +137,119 @@ class InspectorViewController: NSViewController {
         selectionCount: Int,
         columnCategories: [String: PGTypeCategory]
     ) {
-        // Stub for Plan 02 — show selection count
         currentRowNumber = nil
-        scrollView.isHidden = true
-        noSelectionLabel.stringValue = "\(selectionCount) rows selected"
-        noSelectionLabel.isHidden = false
+        noSelectionLabel.isHidden = true
+        scrollView.isHidden = false
+
+        // Clear previous content
+        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        // Compute aggregations
+        let aggregations = computeAggregations(columns: columns, rows: rows, categories: columnCategories)
+
+        // Header: "Selection Summary" + "N rows"
+        let titleLabel = NSTextField(labelWithString: "Selection Summary")
+        titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
+
+        let countLabel = NSTextField(labelWithString: "\(selectionCount) rows")
+        countLabel.font = .systemFont(ofSize: 11)
+        countLabel.textColor = .tertiaryLabelColor
+        countLabel.alignment = .right
+        countLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let headerStack = NSStackView(views: [titleLabel, countLabel])
+        headerStack.orientation = .horizontal
+        headerStack.distribution = .fill
+        stackView.addArrangedSubview(headerStack)
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        // Separator
+        let separator = NSBox()
+        separator.boxType = .separator
+        stackView.addArrangedSubview(separator)
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        // Summary line
+        let summaryLabel = NSTextField(labelWithString: "Count: \(selectionCount)  Columns: \(columns.count)")
+        summaryLabel.font = .systemFont(ofSize: 11)
+        summaryLabel.textColor = .labelColor
+        stackView.addArrangedSubview(summaryLabel)
+
+        // Second separator
+        let separator2 = NSBox()
+        separator2.boxType = .separator
+        stackView.addArrangedSubview(separator2)
+        separator2.translatesAutoresizingMaskIntoConstraints = false
+        separator2.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        // Per-column sections
+        for agg in aggregations {
+            // Column header
+            let colHeader = makeKeyLabel(name: agg.columnName, dataType: agg.dataType)
+            stackView.addArrangedSubview(colHeader)
+
+            // Count / Distinct / NULL line
+            var countParts = "Count: \(agg.nonNullCount)  Distinct: \(agg.distinctCount)"
+            let nullCount = agg.totalCount - agg.nonNullCount
+            if nullCount > 0 {
+                countParts += "  NULL: \(nullCount)"
+            }
+            let countLine = NSTextField(labelWithString: countParts)
+            countLine.font = .systemFont(ofSize: 11)
+            countLine.textColor = .labelColor
+            stackView.addArrangedSubview(countLine)
+
+            // Type-specific stats
+            switch agg.category {
+            case .numeric:
+                if let numMin = agg.numericMin, let numMax = agg.numericMax {
+                    let minMaxLine = makeStatLine(pairs: [
+                        ("Min: ", formatAggregate(numMin), .systemBlue),
+                        ("  Max: ", formatAggregate(numMax), .systemBlue),
+                    ])
+                    stackView.addArrangedSubview(minMaxLine)
+
+                    let sumAvgLine = makeStatLine(pairs: [
+                        ("Sum: ", formatAggregate(agg.numericSum), .systemBlue),
+                        ("  Avg: ", formatAggregate(agg.numericAvg ?? 0), .systemBlue),
+                    ])
+                    stackView.addArrangedSubview(sumAvgLine)
+                }
+
+            case .temporal:
+                if let earliest = agg.earliest {
+                    let earliestLine = makeStatLine(pairs: [
+                        ("Earliest: ", earliest, .systemPurple),
+                    ])
+                    stackView.addArrangedSubview(earliestLine)
+                }
+                if let latest = agg.latest {
+                    let latestLine = makeStatLine(pairs: [
+                        ("Latest: ", latest, .systemPurple),
+                    ])
+                    stackView.addArrangedSubview(latestLine)
+                }
+
+            case .boolean:
+                let boolLine = makeStatLine(pairs: [
+                    ("True: ", "\(agg.trueCount)", .systemGreen),
+                    ("  False: ", "\(agg.falseCount)", .systemRed),
+                ])
+                stackView.addArrangedSubview(boolLine)
+
+            default:
+                break
+            }
+
+            // Spacer between column sections
+            let spacer = NSView()
+            spacer.translatesAutoresizingMaskIntoConstraints = false
+            spacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
+            stackView.addArrangedSubview(spacer)
+        }
     }
 
     // MARK: - Helpers
@@ -224,6 +332,31 @@ class InspectorViewController: NSViewController {
         }
 
         return label
+    }
+
+    private func makeStatLine(pairs: [(label: String, value: String, color: NSColor)]) -> NSTextField {
+        let field = NSTextField(labelWithString: "")
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
+        let attrStr = NSMutableAttributedString()
+        for pair in pairs {
+            attrStr.append(NSAttributedString(
+                string: pair.label,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+            ))
+            attrStr.append(NSAttributedString(
+                string: pair.value,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: pair.color,
+                ]
+            ))
+        }
+        field.attributedStringValue = attrStr
+        return field
     }
 
     // MARK: - Aggregation Model
