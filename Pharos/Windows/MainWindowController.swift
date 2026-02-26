@@ -401,6 +401,14 @@ extension MainWindowController: NSToolbarDelegate {
             item.action = #selector(ContentViewController.menuFormatSQL(_:))
             return item
 
+        case .toggleInspector:
+            let item = NSToolbarItem(itemIdentifier: .toggleInspector)
+            item.label = "Inspector"
+            item.image = NSImage(systemSymbolName: "sidebar.trailing",
+                                 accessibilityDescription: "Toggle Inspector")
+            item.action = #selector(NSSplitViewController.toggleInspector(_:))
+            return item
+
         case .flexibleSpace:
             return NSToolbarItem(itemIdentifier: .flexibleSpace)
 
@@ -418,6 +426,7 @@ extension MainWindowController: NSToolbarDelegate {
             .saveQuery,
             .formatQuery,
             .runQuery,
+            .toggleInspector,
         ]
     }
 
@@ -430,6 +439,7 @@ extension MainWindowController: NSToolbarDelegate {
             .saveQuery,
             .formatQuery,
             .runQuery,
+            .toggleInspector,
         ]
     }
 }

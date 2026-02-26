@@ -91,6 +91,13 @@ enum MainMenu {
         viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
+        let inspectorToggle = viewMenu.addItem(
+            withTitle: "Toggle Inspector",
+            action: #selector(NSSplitViewController.toggleInspector(_:)),
+            keyEquivalent: "0"
+        )
+        inspectorToggle.keyEquivalentModifierMask = [.command, .option]
+
         viewMenu.addItem(.separator())
 
         // Tab switching shortcuts Cmd+1-9
