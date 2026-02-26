@@ -11,6 +11,7 @@ struct CellAddress: Hashable {
 
 protocol ResultsDataSourceDelegate: AnyObject {
     func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor])
+    func dataSourceSelectionDidChange()
 }
 
 // MARK: - ResultsDataSource
@@ -111,6 +112,10 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         delegate?.dataSourceSortDescriptorsDidChange(oldDescriptors)
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        delegate?.dataSourceSelectionDidChange()
     }
 
     // MARK: - Cell Styling

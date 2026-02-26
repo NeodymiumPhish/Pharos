@@ -17,8 +17,8 @@ Requirements for v1.1 Polish & Detail milestone. Each maps to roadmap phases.
 
 ### Sidebar
 
-- [ ] **SIDE-01**: Left sidebar has consistent border styling on both left and right edges
-- [ ] **SIDE-02**: Library/History segmented control uses modern macOS capsule appearance
+- [x] **SIDE-01**: Left sidebar has consistent border styling on both left and right edges
+- [x] **SIDE-02**: Library/History segmented control uses modern macOS capsule appearance
 
 ### Library
 
@@ -75,8 +75,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INSP-03 | Phase 8 | Pending |
 | INSP-04 | Phase 8 | Pending |
 | INSP-05 | Phase 7 | Complete |
-| SIDE-01 | Phase 7 | Pending |
-| SIDE-02 | Phase 7 | Pending |
+| SIDE-01 | Phase 7 | Complete |
+| SIDE-02 | Phase 7 | Complete |
 | LIB-01 | Phase 9 | Pending |
 | LIB-02 | Phase 9 | Pending |
 | LIB-03 | Phase 9 | Pending |

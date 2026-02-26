@@ -85,6 +85,11 @@ class ContentViewController: NSViewController {
             self?.handlePinToggle(pinned)
         }
 
+        // Wire up selection changes for inspector
+        resultsVC.onSelectionChanged = { [weak self] selectedIndices in
+            self?.updateInspector(selectedIndices: selectedIndices)
+        }
+
         // Observe state
         stateManager.$activeConnectionId
             .receive(on: RunLoop.main)
@@ -182,6 +187,47 @@ class ContentViewController: NSViewController {
             hasSetInitialSplit = true
             let editorHeight = splitView.bounds.height * 0.6
             splitView.setPosition(editorHeight, ofDividerAt: 0)
+        }
+    }
+
+    // MARK: - Inspector
+
+    private func updateInspector(selectedIndices: IndexSet) {
+        guard let splitVC = parent as? PharosSplitViewController else { return }
+
+        if selectedIndices.isEmpty {
+            splitVC.inspectorVC.showNoSelection()
+            return
+        }
+
+        if selectedIndices.count == 1 {
+            let displayIndex = selectedIndices.first!
+            guard displayIndex < resultsVC.displayRows.count else { return }
+            let dataIndex = resultsVC.displayRows[displayIndex]
+            guard dataIndex < resultsVC.rows.count else { return }
+            let rowData = resultsVC.rows[dataIndex]
+            splitVC.inspectorVC.showRowDetail(
+                columns: resultsVC.columns,
+                row: rowData,
+                rowNumber: displayIndex + 1,
+                totalRows: resultsVC.displayRows.count,
+                columnCategories: resultsVC.columnCategories
+            )
+        } else {
+            let dataIndices = selectedIndices.compactMap { idx -> Int? in
+                guard idx < resultsVC.displayRows.count else { return nil }
+                return resultsVC.displayRows[idx]
+            }
+            let selectedRows = dataIndices.compactMap { idx -> [String: AnyCodable]? in
+                guard idx < resultsVC.rows.count else { return nil }
+                return resultsVC.rows[idx]
+            }
+            splitVC.inspectorVC.showAggregation(
+                columns: resultsVC.columns,
+                rows: selectedRows,
+                selectionCount: selectedIndices.count,
+                columnCategories: resultsVC.columnCategories
+            )
         }
     }
 

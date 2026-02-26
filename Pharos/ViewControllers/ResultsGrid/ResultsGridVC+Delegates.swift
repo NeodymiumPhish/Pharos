@@ -47,6 +47,11 @@ extension ResultsGridVC: ResultsDataSourceDelegate {
     func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor]) {
         sortController.handleSortDescriptorsChanged(oldDescriptors)
     }
+
+    func dataSourceSelectionDidChange() {
+        let indices = tableView.selectedRowIndexes
+        onSelectionChanged?(indices)
+    }
 }
 
 // MARK: - ResultsSortControllerDelegate

@@ -62,6 +62,7 @@ class ResultsGridVC: NSViewController {
     // Callbacks
     var onLoadMore: (() -> Void)?
     var onPinToggle: ((Bool) -> Void)?
+    var onSelectionChanged: ((IndexSet) -> Void)?
 
     // Pin state
     private var isPinned = false

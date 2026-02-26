@@ -21,7 +21,7 @@
 
 ### v1.1 Polish & Detail
 
-- [ ] **Phase 7: Three-Pane Foundation** — Add collapsible right inspector pane, toolbar toggle, sidebar visual polish
+- [x] **Phase 7: Three-Pane Foundation** — Add collapsible right inspector pane, toolbar toggle, sidebar visual polish
 - [ ] **Phase 8: Inspector Content** — Single-row detail view and multi-row type-aware aggregation
 - [ ] **Phase 9: Library & History** — Parsed table names, action bar, Save/Save As workflow, multi-select batch delete
 - [ ] **Phase 10: Column Filters** — Per-column filter popovers with type-specific operators composing with find and sort
@@ -39,8 +39,8 @@
   4. Editor text remains fully opaque (no vibrancy regression from the third pane)
   5. Left sidebar has consistent border styling on both edges, and Library/History toggle uses modern capsule appearance
 **Plans**: 2 plans
-  - [ ] 07-01-PLAN.md — Inspector pane infrastructure + toolbar + keyboard shortcut
-  - [ ] 07-02-PLAN.md — Sidebar visual polish + full visual verification
+  - [x] 07-01-PLAN.md — Inspector pane infrastructure + toolbar + keyboard shortcut
+  - [x] 07-02-PLAN.md — Sidebar visual polish + full visual verification
 
 ### Phase 8: Inspector Content
 **Goal**: Users can inspect row data in the right sidebar — single-row detail and multi-row aggregation
@@ -88,7 +88,7 @@
 | 4. Rust FFI Dead Code Removal | v1.0 | 1/1 | Complete | 2026-02-25 |
 | 5. View Controller Extraction | v1.0 | 2/2 | Complete | 2026-02-25 |
 | 6. FFI Layer Organization | v1.0 | 2/2 | Complete | 2026-02-25 |
-| 7. Three-Pane Foundation | v1.1 | 0/2 | Planned | - |
+| 7. Three-Pane Foundation | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 8. Inspector Content | v1.1 | 0/0 | Not started | - |
 | 9. Library & History | v1.1 | 0/0 | Not started | - |
 | 10. Column Filters | v1.1 | 0/0 | Not started | - |
