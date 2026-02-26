@@ -20,6 +20,8 @@ class SavedQueryNode: NSObject {
     var children: [SavedQueryNode] = []
     /// For section nodes: whether this is the connection section (true) or general (false).
     var isConnectionSection = false
+    /// Cached parsed table display name (e.g. "users", "orders (+1)", or truncated SQL fallback).
+    var parsedTableDisplay: String?
 
     init(_ kind: Kind) {
         self.kind = kind
@@ -77,7 +79,10 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     private var rootNodes: [SavedQueryNode] = []
     private var allQueries: [SavedQuery] = []
     private var filterText: String?
-    private var activeConnectionId: String?
+    private(set) var activeConnectionId: String?
+
+    /// Called when outline view selection changes. Bool indicates whether a query is selected.
+    var onSelectionChanged: ((Bool) -> Void)?
 
     override func loadView() {
         let container = NSView()
@@ -117,6 +122,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         do {
             allQueries = try PharosCore.loadSavedQueries()
             rebuildTree()
+            cacheTableDisplayNames()
             outlineView.reloadData()
             expandAllSections()
         } catch {
@@ -129,6 +135,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     func applyFilter(_ text: String) {
         filterText = text.lowercased()
         rebuildTree()
+        cacheTableDisplayNames()
         outlineView.reloadData()
         expandAllSections()
     }
@@ -136,8 +143,35 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     func clearFilter() {
         filterText = nil
         rebuildTree()
+        cacheTableDisplayNames()
         outlineView.reloadData()
         expandAllSections()
+    }
+
+    /// Delete the currently selected saved query with confirmation.
+    func deleteSelectedQuery() {
+        let row = outlineView.selectedRow
+        guard row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode,
+              case .query(let q) = node.kind else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete '\(q.name)'?"
+        alert.informativeText = "This action cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            do {
+                _ = try PharosCore.deleteSavedQuery(id: q.id)
+                self?.reload(connectionId: self?.activeConnectionId)
+                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            } catch {
+                NSLog("Failed to delete saved query: \(error)")
+            }
+        }
     }
 
     // MARK: - Tree Building
@@ -224,6 +258,45 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 }
             }
         }
+    }
+
+    // MARK: - Table Name Parsing
+
+    /// Format parsed table names for display: single table name, "table (+N)", or truncated SQL fallback.
+    private static func formatTableDisplay(rawNames: String?, sql: String) -> String {
+        if let names = rawNames, !names.isEmpty {
+            let tables = names.components(separatedBy: ", ")
+            if tables.count == 1 {
+                return tables[0]
+            }
+            return "\(tables[0]) (+\(tables.count - 1))"
+        }
+        // Fallback: truncated first non-empty line of SQL
+        let firstLine = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines)
+            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+            ?? sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        if trimmed.count > 30 {
+            return String(trimmed.prefix(30)) + "..."
+        }
+        return trimmed.isEmpty ? "Untitled" : trimmed
+    }
+
+    /// Populate parsedTableDisplay on all query nodes in the tree.
+    private func cacheTableDisplayNames() {
+        func walk(_ nodes: [SavedQueryNode]) {
+            for node in nodes {
+                if case .query(let q) = node.kind {
+                    node.parsedTableDisplay = Self.formatTableDisplay(
+                        rawNames: PharosCore.extractTableNames(from: q.sql),
+                        sql: q.sql
+                    )
+                }
+                walk(node.children)
+            }
+        }
+        walk(rootNodes)
     }
 
     // MARK: - Actions
@@ -499,7 +572,12 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             let cellId = NSUserInterfaceItemIdentifier("QueryCell")
             let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
                 ?? SavedQueryCellView(identifier: cellId)
-            cell.configure(icon: node.icon, tint: .secondaryLabelColor, title: node.title, snippet: node.sqlSnippet)
+            cell.configure(
+                icon: node.icon,
+                tint: .secondaryLabelColor,
+                title: node.parsedTableDisplay ?? node.title,
+                snippet: node.sqlSnippet
+            )
             return cell
         }
     }
@@ -509,7 +587,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         switch node.kind {
         case .section: return 22
         case .folder: return 22
-        case .query: return node.sqlSnippet != nil ? 30 : 22
+        case .query: return node.sqlSnippet != nil ? 34 : 22
         }
     }
 
@@ -530,6 +608,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         // Hide disclosure triangle for section headers (always expanded)
         if case .section = node.kind { return false }
         return true
+    }
+
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        let row = outlineView.selectedRow
+        if row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode,
+           case .query = node.kind {
+            onSelectionChanged?(true)
+        } else {
+            onSelectionChanged?(false)
+        }
     }
 }
 
@@ -585,7 +673,7 @@ private class SavedQueryCellView: NSTableCellView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.font = .systemFont(ofSize: 12)
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -596,7 +684,7 @@ private class SavedQueryCellView: NSTableCellView {
         snippetLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         labelStack.orientation = .vertical
-        labelStack.spacing = 0
+        labelStack.spacing = 1
         labelStack.alignment = .leading
         labelStack.addArrangedSubview(titleLabel)
         labelStack.addArrangedSubview(snippetLabel)

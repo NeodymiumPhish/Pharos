@@ -290,6 +290,12 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             .sink { [weak self] _ in self?.updateActionBarSaveState() }
             .store(in: &cancellables)
 
+        // Observe saved queries selection changes for delete button
+        savedQueries.onSelectionChanged = { [weak self] hasSelection in
+            guard let self, self.actionBar.mode == .library else { return }
+            self.actionBar.isDeleteEnabled = hasSelection
+        }
+
         // Observe history selection changes for delete button
         queryHistory.onSelectionChanged = { [weak self] count in
             guard let self, self.actionBar.mode == .history else { return }

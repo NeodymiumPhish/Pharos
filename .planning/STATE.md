@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Polish & Detail
-status: unknown
-last_updated: "2026-02-26T12:06:42.798Z"
+status: in-progress
+last_updated: "2026-02-26T12:50:55Z"
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,24 +18,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 8 — Inspector Content
+**Current focus:** Phase 9 — Library & History
 
 ## Current Position
 
-Phase: 8 of 10 (Inspector Content) — second of 4 phases in v1.1
-Plan: 2 of 2 complete
-Status: Phase Complete
-Last activity: 2026-02-26 — Completed 08-02 (multi-row aggregation in inspector)
+Phase: 9 of 10 (Library & History) — third of 4 phases in v1.1
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-02-26 — Completed 09-01 (FFI endpoints, action bar, history multi-select)
 
-Progress: [##########] 100% (Phase 8)
+Progress: [#####-----] 50% (Phase 9)
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 10 (v1.0)
-- v1.1 plans completed: 4
-- Average duration: 1.75min
-- Total execution time: 7min
+- v1.1 plans completed: 5
+- Average duration: 2.4min
+- Total execution time: 12min
 
 **By Phase:**
 
@@ -43,6 +43,7 @@ Progress: [##########] 100% (Phase 8)
 |-------|-------|-------|----------|
 | 07-three-pane-foundation | 2/2 | 3min | 1.5min |
 | 08-inspector-content | 2/2 | 4min | 2min |
+| 09-library-history | 1/2 | 5min | 5min |
 
 ## Accumulated Context
 
@@ -55,11 +56,12 @@ Full decision log in PROJECT.md Key Decisions table.
 - Inspector starts collapsed -- user must explicitly open
 - System automatic divider color for sidebar borders -- no custom colors, adapts to light/dark mode
 - Capsule segmentStyle for modern segmented controls
-- sqlparser vs regex for table name parsing to be resolved before Phase 9
 - NSStackView (not NSGridView) for inspector key-value layout to support variable-height word-wrapped values
 - displayRows mapping in selection pipeline ensures correct data indices through sort/filter
 - Always rebuild aggregation display (no caching) since row count alone cannot detect same selection
 - NSMutableAttributedString for mixed label/value coloring in inspector stat lines
+- Icon-only SidebarActionBar with Library/History modes, Save/SaveAs via responder chain
+- onSelectionChanged callback pattern for cross-VC button state management
 
 ### Pending Todos
 
@@ -73,5 +75,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 08-02-PLAN.md (Phase 8 complete)
-Resume file: .planning/phases/08-inspector-content/08-02-SUMMARY.md
+Stopped at: Completed 09-01-PLAN.md
+Resume file: .planning/phases/09-library-history/09-01-SUMMARY.md

@@ -22,7 +22,7 @@ Requirements for v1.1 Polish & Detail milestone. Each maps to roadmap phases.
 
 ### Library
 
-- [ ] **LIB-01**: Library list items display table names parsed from each saved query's SQL
+- [x] **LIB-01**: Library list items display table names parsed from each saved query's SQL
 - [ ] **LIB-02**: Library list has refined, modern visual appearance
 - [ ] **LIB-03**: Library panel has bottom action bar with New, Save, Save As, and Delete buttons
 - [ ] **LIB-04**: Query tabs opened from library are linked to the saved query entry
@@ -30,8 +30,8 @@ Requirements for v1.1 Polish & Detail milestone. Each maps to roadmap phases.
 
 ### History
 
-- [ ] **HIST-01**: User can multi-select history items
-- [ ] **HIST-02**: User can batch delete selected history items
+- [x] **HIST-01**: User can multi-select history items
+- [x] **HIST-02**: User can batch delete selected history items
 
 ### Grid
 
@@ -77,13 +77,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INSP-05 | Phase 7 | Complete |
 | SIDE-01 | Phase 7 | Complete |
 | SIDE-02 | Phase 7 | Complete |
-| LIB-01 | Phase 9 | Pending |
+| LIB-01 | Phase 9 | Complete |
 | LIB-02 | Phase 9 | Pending |
 | LIB-03 | Phase 9 | Pending |
 | LIB-04 | Phase 9 | Pending |
 | LIB-05 | Phase 9 | Pending |
-| HIST-01 | Phase 9 | Pending |
-| HIST-02 | Phase 9 | Pending |
+| HIST-01 | Phase 9 | Complete |
+| HIST-02 | Phase 9 | Complete |
 | GRID-01 | Phase 10 | Pending |
 | GRID-02 | Phase 10 | Pending |
 | GRID-03 | Phase 10 | Pending |
