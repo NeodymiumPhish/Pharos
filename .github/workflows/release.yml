@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            rust-target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            arch: x86_64
+            rust-target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "pharos-core -> pharos-core/target"
+          prefix-key: "v0-rust-${{ matrix.arch }}"
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Pharos/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Pharos/App/Info.plist
+          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pharos-core/Cargo.toml
+
+      - name: Build Rust library
+        run: |
+          cd pharos-core
+          cargo build --release
+
+      - name: Build Xcode project
+        env:
+          PHAROS_CI: "1"
+        run: |
+          xcodebuild build \
+            -project Pharos.xcodeproj \
+            -scheme Pharos \
+            -configuration Release \
+            ARCHS=${{ matrix.arch }} \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY="-" \
+            -derivedDataPath ./build
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "Pharos" \
+            -srcfolder ./build/Build/Products/Release/Pharos.app \
+            -ov -format UDZO \
+            "Pharos-${GITHUB_REF_NAME}-${{ matrix.arch }}.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: "*.dmg"
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download DMG artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.dmg"
+          generate_release_notes: true
