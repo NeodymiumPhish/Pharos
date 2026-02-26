@@ -52,21 +52,6 @@ class SavedQueryNode: NSObject {
         }
     }
 
-    /// First non-empty line of SQL, trimmed and truncated for preview.
-    var sqlSnippet: String? {
-        guard case .query(let q) = kind else { return nil }
-        let sql = q.sql.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sql.isEmpty else { return nil }
-        // Take first line, trim, truncate
-        let firstLine = sql.components(separatedBy: .newlines)
-            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
-            ?? sql
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        if trimmed.count > 60 {
-            return String(trimmed.prefix(60)) + "…"
-        }
-        return trimmed
-    }
 }
 
 // MARK: - SavedQueriesVC
@@ -262,25 +247,40 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Table Name Parsing
 
-    /// Format parsed table names for display: single table name, "table (+N)", or truncated SQL fallback.
-    private static func formatTableDisplay(rawNames: String?, sql: String) -> String {
+    /// Build subtitle: "table (+N) · SQL preview" or just "SQL preview" if no tables parsed.
+    private static func formatTableDisplay(rawNames: String?, sql: String) -> String? {
+        let sqlPreview = Self.sqlPreview(from: sql)
+
         if let names = rawNames, !names.isEmpty {
             let tables = names.components(separatedBy: ", ")
+            let tablePrefix: String
             if tables.count == 1 {
-                return tables[0]
+                tablePrefix = tables[0]
+            } else {
+                tablePrefix = "\(tables[0]) (+\(tables.count - 1))"
             }
-            return "\(tables[0]) (+\(tables.count - 1))"
+            if let preview = sqlPreview {
+                return "\(tablePrefix) · \(preview)"
+            }
+            return tablePrefix
         }
-        // Fallback: truncated first non-empty line of SQL
-        let firstLine = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        // No tables — just show SQL preview
+        return sqlPreview
+    }
+
+    /// Flattened SQL preview: first ~40 chars, newlines collapsed to spaces.
+    private static func sqlPreview(from sql: String) -> String? {
+        let flat = sql
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             .components(separatedBy: .newlines)
-            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
-            ?? sql.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        if trimmed.count > 30 {
-            return String(trimmed.prefix(30)) + "..."
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !flat.isEmpty else { return nil }
+        if flat.count > 40 {
+            return String(flat.prefix(40)) + "..."
         }
-        return trimmed.isEmpty ? "Untitled" : trimmed
+        return flat
     }
 
     /// Populate parsedTableDisplay on all query nodes in the tree.
@@ -575,8 +575,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             cell.configure(
                 icon: node.icon,
                 tint: .secondaryLabelColor,
-                title: node.parsedTableDisplay ?? node.title,
-                snippet: node.sqlSnippet
+                title: node.title,
+                snippet: node.parsedTableDisplay
             )
             return cell
         }
@@ -587,7 +587,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         switch node.kind {
         case .section: return 22
         case .folder: return 22
-        case .query: return node.sqlSnippet != nil ? 34 : 22
+        case .query: return node.parsedTableDisplay != nil ? 34 : 22
         }
     }
 
