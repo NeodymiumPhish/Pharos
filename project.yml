@@ -23,6 +23,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pharos.client
         PRODUCT_NAME: Pharos
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: Pharos/App/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: ""
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Pharos/CPharosCore"
@@ -46,6 +47,10 @@ targets:
     preBuildScripts:
       - name: "Build Rust Library"
         script: |
+          if [ -n "$PHAROS_CI" ]; then
+            echo "Skipping Rust build — CI pre-built library"
+            exit 0
+          fi
           export PATH="$HOME/.cargo/bin:$PATH"
           cd "${SRCROOT}/pharos-core"
           cargo build --release

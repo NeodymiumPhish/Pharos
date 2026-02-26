@@ -38,6 +38,7 @@
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
 		9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */; };
+		9B9F6D8FA3841680CC02ED11 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
@@ -123,6 +124,7 @@
 		EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaContextMenu.swift; sourceTree = "<group>"; };
 		EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGTypeCategory.swift; sourceTree = "<group>"; };
 		F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCopyExport.swift; sourceTree = "<group>"; };
+		F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
@@ -150,6 +152,7 @@
 		15A6B69EB37C129DA97CF21B /* Pharos */ = {
 			isa = PBXGroup;
 			children = (
+				F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */,
 				771A4DDA07703A5A2298593A /* App */,
 				A7553A40CD3394A1A32C5AA2 /* Core */,
 				D58A7CB7DF31C6A419D7A3D9 /* Editor */,
@@ -310,6 +313,7 @@
 			buildPhases = (
 				D2CBADC93ADE21874D96CF85 /* Build Rust Library */,
 				C34FAC18C180738B0FB011B2 /* Sources */,
+				DC045A128AD04C2276073CD4 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -350,6 +354,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		DC045A128AD04C2276073CD4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9B9F6D8FA3841680CC02ED11 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		D2CBADC93ADE21874D96CF85 /* Build Rust Library */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -368,7 +383,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "export PATH=\"$HOME/.cargo/bin:$PATH\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
+			shellScript = "if [ -n \"$PHAROS_CI\" ]; then\n  echo \"Skipping Rust build — CI pre-built library\"\n  exit 0\nfi\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
