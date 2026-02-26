@@ -119,7 +119,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         librarySegment.segmentCount = 2
         librarySegment.setLabel("Saved", forSegment: 0)
         librarySegment.setLabel("History", forSegment: 1)
-        librarySegment.segmentStyle = .texturedSquare
+        librarySegment.segmentStyle = .capsule
         librarySegment.selectedSegment = 0
         librarySegment.target = self
         librarySegment.action = #selector(librarySegmentChanged(_:))

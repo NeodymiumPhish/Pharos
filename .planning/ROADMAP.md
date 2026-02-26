@@ -1,121 +1,94 @@
-# Roadmap: Pharos Cleanup Milestone
+# Roadmap: Pharos
 
-## Overview
+## Milestones
 
-This milestone cleans up the Pharos codebase after the Tauri-to-AppKit migration. It starts with the most visible user-facing issue (faded editor text), then cleans the git history, removes dead code from both Swift and Rust layers, and finishes by restructuring the remaining code for maintainability. Each phase builds on the previous -- dead code removal precedes architecture work so we restructure clean code, not noisy code.
+- ✅ **v1.0 Cleanup** — Phases 1-6 (shipped 2026-02-25)
+- **v1.1 Polish & Detail** — Phases 7-10 (in progress)
 
 ## Phases
 
-**Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+<details>
+<summary>v1.0 Cleanup (Phases 1-6) — SHIPPED 2026-02-25</summary>
 
-Decimal phases appear between their surrounding integers in numeric order.
+- [x] Phase 1: Editor Text Rendering Fix (2/2 plans) — completed 2026-02-25
+- [x] Phase 2: Git Cleanup (1/1 plan) — completed 2026-02-25
+- [x] Phase 3: Swift Dead Code Removal (2/2 plans) — completed 2026-02-25
+- [x] Phase 4: Rust FFI Dead Code Removal (1/1 plan) — completed 2026-02-25
+- [x] Phase 5: View Controller Extraction (2/2 plans) — completed 2026-02-25
+- [x] Phase 6: FFI Layer Organization (2/2 plans) — completed 2026-02-25
 
-- [x] **Phase 1: Editor Text Rendering Fix** - Resolve faded/washed-out text in SQL editor and line number gutter
-- [x] **Phase 2: Git Cleanup** - Commit tracked-but-deleted Tauri files and update .gitignore for AppKit
-- [x] **Phase 3: Swift Dead Code Removal** - Remove unused Swift types, functions, and protocols from Tauri era
-- [x] **Phase 4: Rust FFI Dead Code Removal** - Remove unused FFI exports, internal Rust code, and stale dependencies
-- [x] **Phase 5: View Controller Extraction** - Break apart monolithic view controllers into focused helper classes
-- [ ] **Phase 6: FFI Layer Organization** - Organize PharosCore.swift and ffi.rs by domain with full verification
+</details>
+
+### v1.1 Polish & Detail
+
+- [ ] **Phase 7: Three-Pane Foundation** — Add collapsible right inspector pane, toolbar toggle, sidebar visual polish
+- [ ] **Phase 8: Inspector Content** — Single-row detail view and multi-row type-aware aggregation
+- [ ] **Phase 9: Library & History** — Parsed table names, action bar, Save/Save As workflow, multi-select batch delete
+- [ ] **Phase 10: Column Filters** — Per-column filter popovers with type-specific operators composing with find and sort
 
 ## Phase Details
 
-### Phase 1: Editor Text Rendering Fix
-**Goal**: SQL text and line numbers in the query editor display at full readability with proper contrast
-**Depends on**: Nothing (first phase)
-**Requirements**: EDIT-01, EDIT-02, EDIT-03
+### Phase 7: Three-Pane Foundation
+**Goal**: Users can toggle a right inspector sidebar that collapses and expands smoothly alongside a visually polished left sidebar
+**Depends on**: Phase 6 (v1.0 complete)
+**Requirements**: INSP-01, INSP-02, INSP-05, SIDE-01, SIDE-02
 **Success Criteria** (what must be TRUE):
-  1. SQL text in the query editor appears at full opacity with sharp, readable contrast in both light and dark themes
-  2. Line numbers in the gutter display with full readability and proper contrast against the gutter background
-  3. Syntax highlighting colors, bracket matching highlights, and error markers continue to render correctly after the fix
-  4. The editor renders correctly across window resize, scroll, and tab switching without compositing artifacts
+  1. User can click a toolbar button to show/hide the right inspector pane
+  2. User can press a keyboard shortcut to show/hide the right inspector pane
+  3. Inspector pane collapses and expands with smooth animation (no jump cuts)
+  4. Editor text remains fully opaque (no vibrancy regression from the third pane)
+  5. Left sidebar has consistent border styling on both edges, and Library/History toggle uses modern capsule appearance
 **Plans**: 2 plans
+  - [ ] 07-01-PLAN.md — Inspector pane infrastructure + toolbar + keyboard shortcut
+  - [ ] 07-02-PLAN.md — Sidebar visual polish + full visual verification
 
-Plans:
-- [x] 01-01-PLAN.md — Test NSSplitViewItem initializer fix in isolation, apply rendering fix + gutter
-- [x] 01-02-PLAN.md — Xcode-like syntax theme, SF Mono default, accent cursor
-
-### Phase 2: Git Cleanup
-**Goal**: The git working tree is clean with no ghost files from the Tauri era polluting status output
-**Depends on**: Phase 1
-**Requirements**: GIT-01, GIT-02
+### Phase 8: Inspector Content
+**Goal**: Users can inspect row data in the right sidebar — single-row detail and multi-row aggregation
+**Depends on**: Phase 7
+**Requirements**: INSP-03, INSP-04
 **Success Criteria** (what must be TRUE):
-  1. `git status` shows no tracked-but-deleted files from the Tauri era (src-tauri/, src/, docs/, etc.)
-  2. `.gitignore` correctly excludes AppKit build artifacts, Xcode derived data, and Rust target directories
-  3. `git status` on a clean checkout shows a clean working tree (no untracked noise from build artifacts)
-**Plans**: 1 plan
+  1. Selecting a single row in the results grid shows all column names and their values in the inspector
+  2. Selecting multiple rows shows type-aware aggregated data (count/distinct for all types, min/max/sum/avg for numeric, earliest/latest for temporal, unique count for inet, true/false counts for boolean)
+  3. Inspector updates immediately when selection changes (no manual refresh)
+  4. NULL values are visually distinguishable from empty strings in the inspector
+**Plans**: TBD
 
-Plans:
-- [x] 02-01-PLAN.md — Remove Tauri-era files, build artifacts from tracking; update .gitignore for AppKit+Rust
-
-### Phase 3: Swift Dead Code Removal
-**Goal**: The Swift codebase contains only code that is actively used, with zero actionable Periphery warnings
-**Depends on**: Phase 2
-**Requirements**: SWFT-01, SWFT-02, SWFT-03
+### Phase 9: Library & History
+**Goal**: Users have a modernized library panel with parsed table names and a Save/Save As workflow, plus history batch delete
+**Depends on**: Phase 7 (sidebar polish landed)
+**Requirements**: LIB-01, LIB-02, LIB-03, LIB-04, LIB-05, HIST-01, HIST-02
 **Success Criteria** (what must be TRUE):
-  1. Running `periphery scan` produces zero actionable warnings (false positives from responder chain / #selector excluded)
-  2. All existing app functionality (connections, queries, schema browsing, saved queries, settings) works identically after removal
-  3. The project builds with zero errors and zero new warnings after dead code removal
-**Plans**: 2 plans
+  1. Library list items display parsed table names extracted from each saved query's SQL (not raw SQL snippets)
+  2. Library panel has a bottom action bar with New, Save, Save As, and Delete buttons
+  3. Opening a saved query from the library creates a tab linked to that query entry, enabling Save to overwrite it and Save As to create a new entry
+  4. Library panel has a refined, modern visual appearance
+  5. User can multi-select history items and batch delete them
+**Plans**: TBD
 
-Plans:
-- [x] 03-01-PLAN.md — Install Periphery, configure for AppKit, remove all Periphery-flagged dead code
-- [x] 03-02-PLAN.md — Manual sweep beyond Periphery (stale imports, empty extensions), final zero-warning verification
-
-### Phase 4: Rust FFI Dead Code Removal
-**Goal**: The Rust FFI layer contains only functions actively called from Swift, with no stale exports or unused dependencies
-**Depends on**: Phase 3
-**Requirements**: RUST-01, RUST-02, RUST-03, RUST-04
+### Phase 10: Column Filters
+**Goal**: Users can filter results grid data per-column with type-aware operators that compose with existing find and sort
+**Depends on**: Phase 7 (stable results grid — Phases 8 and 9 do not touch grid filtering)
+**Requirements**: GRID-01, GRID-02, GRID-03, GRID-04
 **Success Criteria** (what must be TRUE):
-  1. Every `pub extern "C"` function in ffi.rs has a corresponding caller in PharosCore.swift
-  2. The regenerated C header (pharos_core.h) matches the current ffi.rs exports with no stale declarations
-  3. `cargo clippy` reports no dead code warnings for internal Rust structs and functions
-  4. `Cargo.toml` contains no dependencies that are unused after cleanup
-  5. All app functionality works after FFI cleanup (three-way sync between ffi.rs, header, and PharosCore.swift verified)
-**Plans**: 1 plan
-
-Plans:
-- [x] 04-01-PLAN.md — Remove 6 dead FFI exports, cascade into dead internal code, audit deps, verify three-way sync
-
-### Phase 5: View Controller Extraction
-**Goal**: Monolithic view controllers are split into focused, single-responsibility components
-**Depends on**: Phase 4
-**Requirements**: ARCH-01, ARCH-02
-**Success Criteria** (what must be TRUE):
-  1. ResultsGridVC is under 500 lines with data source, delegate, and export logic extracted into separate helper classes
-  2. SchemaBrowserVC is under 500 lines with context menu handling and data source logic extracted
-  3. All existing functionality (results display, pagination, schema browsing, context menus, table operations) works identically after extraction
-**Plans**: 2 plans
-
-Plans:
-- [x] 05-01-PLAN.md — Extract ResultsGridVC into helper classes (DataSource, CopyExport, FindController, SortController) + PGTypeCategory utility
-- [x] 05-02-PLAN.md — Extract SchemaBrowserVC into helper classes (DataSource, ContextMenu) + move SchemaTreeNode to Models/ and SchemaTreeCellView to Views/
-
-### Phase 6: FFI Layer Organization
-**Goal**: The FFI bridge code is organized by domain for navigability and maintainability
-**Depends on**: Phase 5
-**Requirements**: ARCH-03, ARCH-04, ARCH-05
-**Success Criteria** (what must be TRUE):
-  1. PharosCore.swift FFI wrapper methods are grouped into logical extensions by domain (connection, query, metadata, settings, etc.)
-  2. ffi.rs is organized into domain-grouped submodules (or clearly separated sections) instead of one monolithic file
-  3. All existing app functionality verified end-to-end after the complete architecture restructuring (connections, queries, schema browsing, saved queries, import/export, settings)
-**Plans**: 2 plans
-
-Plans:
-- [ ] 06-01-PLAN.md — Split ffi.rs into ffi/ directory module with mod.rs + 9 domain submodules, verify cargo build and C header
-- [ ] 06-02-PLAN.md — Split PharosCore.swift into base + 8 domain extension files, xcodegen + full Xcode build verification
+  1. User can click a filter icon in any column header to open a filter popover
+  2. Filter popover provides type-specific operators (contains/starts-with for text, comparison operators for numeric, before/after for timestamps, true/false toggle for boolean, NULL/NOT NULL for all)
+  3. Columns with active filters have a visual indicator in their header
+  4. Column filters compose correctly with the existing find bar and sort — applying a column filter does not break find, and closing find does not clear column filters
+**Plans**: TBD
 
 ## Progress
 
-**Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
+**Execution Order:** 7 > 8 > 9 > 10 (Phases 8 and 9 can proceed in parallel after 7)
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Editor Text Rendering Fix | 2/2 | Complete | 2026-02-25 |
-| 2. Git Cleanup | 1/1 | Complete | 2026-02-25 |
-| 3. Swift Dead Code Removal | 2/2 | Complete | 2026-02-25 |
-| 4. Rust FFI Dead Code Removal | 1/1 | Complete | 2026-02-25 |
-| 5. View Controller Extraction | 2/2 | Complete | 2026-02-25 |
-| 6. FFI Layer Organization | 0/2 | Not started | - |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Editor Text Rendering Fix | v1.0 | 2/2 | Complete | 2026-02-25 |
+| 2. Git Cleanup | v1.0 | 1/1 | Complete | 2026-02-25 |
+| 3. Swift Dead Code Removal | v1.0 | 2/2 | Complete | 2026-02-25 |
+| 4. Rust FFI Dead Code Removal | v1.0 | 1/1 | Complete | 2026-02-25 |
+| 5. View Controller Extraction | v1.0 | 2/2 | Complete | 2026-02-25 |
+| 6. FFI Layer Organization | v1.0 | 2/2 | Complete | 2026-02-25 |
+| 7. Three-Pane Foundation | v1.1 | 0/2 | Planned | - |
+| 8. Inspector Content | v1.1 | 0/0 | Not started | - |
+| 9. Library & History | v1.1 | 0/0 | Not started | - |
+| 10. Column Filters | v1.1 | 0/0 | Not started | - |
