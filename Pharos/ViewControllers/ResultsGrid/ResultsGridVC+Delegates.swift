@@ -5,7 +5,7 @@ import AppKit
 extension ResultsGridVC: ResultsFindControllerDelegate {
     var findRows: [[String: AnyCodable]] { rows }
     var findColumns: [ColumnDef] { columns }
-    var findUnfilteredDisplayRows: [Int] { unfilteredDisplayRows }
+    var findUnfilteredDisplayRows: [Int] { columnFilteredDisplayRows }
 
     func findControllerDidUpdateResults(
         displayRows newDisplayRows: [Int]?,
@@ -32,8 +32,7 @@ extension ResultsGridVC: ResultsFindControllerDelegate {
     }
 
     func findControllerDidToggleVisibility(visible: Bool) {
-        scrollViewTopToFindBar.isActive = visible
-        scrollViewTopToToolbar.isActive = !visible
+        // Find controls are inline in the toolbar bar, no layout changes needed
     }
 
     func findControllerUpdateStatusBar() {
@@ -62,27 +61,12 @@ extension ResultsGridVC: ResultsSortControllerDelegate {
 
     func sortControllerDidSort(unfilteredDisplayRows newUnfiltered: [Int], isSorted: Bool) {
         unfilteredDisplayRows = newUnfiltered
-        // Re-apply find filter on new sort order if active
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = newUnfiltered
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-        updateStatusBarText()
+        recomputeColumnFilteredRows()
     }
 
     func sortControllerDidReset(unfilteredDisplayRows newUnfiltered: [Int]) {
         unfilteredDisplayRows = newUnfiltered
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = newUnfiltered
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-        updateStatusBarText()
+        recomputeColumnFilteredRows()
     }
 }
 
@@ -91,5 +75,66 @@ extension ResultsGridVC: ResultsSortControllerDelegate {
 extension ResultsGridVC: ResultsCopyExportDelegate {
     func copyExportWindow() -> NSWindow? {
         view.window
+    }
+}
+
+// MARK: - ResultsColumnFilterControllerDelegate
+
+extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
+    var filterableRows: [[String: AnyCodable]] { rows }
+    var filterableColumnCategories: [String: PGTypeCategory] { columnCategories }
+
+    func columnFilterControllerDidUpdate(columnFilteredDisplayRows newFiltered: [Int]) {
+        columnFilteredDisplayRows = newFiltered
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
+        } else {
+            displayRows = columnFilteredDisplayRows
+            pushDataToHelpers()
+            tableView.reloadData()
+        }
+        updateStatusBarText()
+    }
+}
+
+// MARK: - ColumnFilterPopoverDelegate
+
+extension ResultsGridVC: ColumnFilterPopoverDelegate {
+    func columnFilterPopover(_ popover: ColumnFilterPopoverVC, didApplyFilter filter: ColumnFilter) {
+        columnFilterController.setFilter(filter, forColumn: filter.columnName)
+        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
+        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
+        recomputeColumnFilteredRows()
+    }
+
+    func columnFilterPopover(_ popover: ColumnFilterPopoverVC, didClearFilterForColumn column: String) {
+        columnFilterController.clearFilter(forColumn: column)
+        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
+        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
+        recomputeColumnFilteredRows()
+    }
+}
+
+// MARK: - FilterableHeaderViewDelegate
+
+extension ResultsGridVC: FilterableHeaderViewDelegate {
+    func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect) {
+        let colName = column.identifier.rawValue
+        let category = columnCategories[colName] ?? .string
+        let rawDataType = columns.first(where: { $0.name == colName })?.dataType ?? ""
+        let existing = columnFilterController.filter(forColumn: colName)
+
+        let popoverVC = ColumnFilterPopoverVC(
+            columnName: colName,
+            category: category,
+            dataType: rawDataType,
+            existingFilter: existing
+        )
+        popoverVC.filterDelegate = self
+
+        let popover = NSPopover()
+        popover.contentViewController = popoverVC
+        popover.behavior = .transient
+        popover.show(relativeTo: rect, of: headerView, preferredEdge: .maxY)
     }
 }

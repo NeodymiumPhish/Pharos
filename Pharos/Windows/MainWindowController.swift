@@ -413,9 +413,9 @@ extension MainWindowController: NSToolbarDelegate {
             .toggleSidebar,
             .connectionPopup,
             .schemaPopup,
-            .flexibleSpace,
             .formatQuery,
             .runQuery,
+            .flexibleSpace,
             .toggleInspector,
         ]
     }
@@ -425,9 +425,9 @@ extension MainWindowController: NSToolbarDelegate {
             .toggleSidebar,
             .connectionPopup,
             .schemaPopup,
-            .flexibleSpace,
             .formatQuery,
             .runQuery,
+            .flexibleSpace,
             .toggleInspector,
         ]
     }

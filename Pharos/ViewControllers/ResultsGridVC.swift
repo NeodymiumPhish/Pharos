@@ -14,6 +14,8 @@ class ResultsGridVC: NSViewController {
     var copyExport: ResultsCopyExport!
     var findController: ResultsFindController!
     var sortController: ResultsSortController!
+    var columnFilterController: ResultsColumnFilterController!
+    var filterableHeaderView: FilterableHeaderView!
 
     // Toolbar
     let toolbarBar = NSView()
@@ -21,6 +23,7 @@ class ResultsGridVC: NSViewController {
     let pinSourceLabel = NSTextField(labelWithString: "")
     let historyContextLabel = NSTextField(labelWithString: "")
     let resetSortButton = NSButton()
+    let resetFiltersButton = NSButton()
     let pinButton = NSButton()
     let findToolbarButton = NSButton()
     let copyButton = NSButton()
@@ -36,9 +39,10 @@ class ResultsGridVC: NSViewController {
     // Display ordering
     var displayRows: [Int] = []
     var unfilteredDisplayRows: [Int] = []
+    var columnFilteredDisplayRows: [Int] = []
 
-    // Find bar views
-    let findBar = NSView()
+    // Find controls (inline in toolbar)
+    let findControlsStack = NSStackView()
     let findField = NSSearchField()
     let filterToggleButton = NSButton()
     let findClearButton = NSButton()
@@ -55,7 +59,6 @@ class ResultsGridVC: NSViewController {
 
     // Layout constraints to toggle
     var scrollViewTopToToolbar: NSLayoutConstraint!
-    var scrollViewTopToFindBar: NSLayoutConstraint!
     var scrollViewBottomToLoadMore: NSLayoutConstraint!
     var scrollViewBottomToContainer: NSLayoutConstraint!
 
@@ -80,7 +83,6 @@ class ResultsGridVC: NSViewController {
         self.view = container
 
         setupToolbar()
-        setupFindBar()
 
         // Table view
         dataSource = ResultsDataSource(tableView: tableView)
@@ -106,7 +108,7 @@ class ResultsGridVC: NSViewController {
         exportButton.action = #selector(ResultsCopyExport.showExportMenu)
 
         findController = ResultsFindController(
-            tableView: tableView, findBar: findBar, findField: findField,
+            tableView: tableView, findBar: findControlsStack, findField: findField,
             filterToggleButton: filterToggleButton, findClearButton: findClearButton,
             findCountLabel: findCountLabel, findPrevButton: findPrevButton,
             findNextButton: findNextButton, findCloseButton: findCloseButton
@@ -117,6 +119,13 @@ class ResultsGridVC: NSViewController {
         sortController.delegate = self
         resetSortButton.target = sortController
         resetSortButton.action = #selector(ResultsSortController.resetSort)
+
+        columnFilterController = ResultsColumnFilterController()
+        columnFilterController.delegate = self
+
+        filterableHeaderView = FilterableHeaderView()
+        filterableHeaderView.filterDelegate = self
+        tableView.headerView = filterableHeaderView
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -133,13 +142,11 @@ class ResultsGridVC: NSViewController {
         setupLoadMoreBar()
 
         container.addSubview(toolbarBar)
-        container.addSubview(findBar)
         container.addSubview(scrollView)
         container.addSubview(loadMoreBar)
         container.addSubview(emptyLabel)
 
         scrollViewTopToToolbar = scrollView.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor, constant: 2)
-        scrollViewTopToFindBar = scrollView.topAnchor.constraint(equalTo: findBar.bottomAnchor, constant: 2)
         scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         scrollViewBottomToLoadMore = scrollView.bottomAnchor.constraint(equalTo: loadMoreBar.topAnchor)
 
@@ -148,11 +155,6 @@ class ResultsGridVC: NSViewController {
             toolbarBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             toolbarBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             toolbarBar.heightAnchor.constraint(equalToConstant: 28),
-
-            findBar.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor),
-            findBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            findBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            findBar.heightAnchor.constraint(equalToConstant: 28),
 
             scrollViewTopToToolbar,
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -183,6 +185,10 @@ class ResultsGridVC: NSViewController {
 
         displayRows = Array(0..<rows.count)
         unfilteredDisplayRows = displayRows
+        columnFilteredDisplayRows = displayRows
+        columnFilterController.clearAll()
+        filterableHeaderView.activeFilterColumns = []
+        resetFiltersButton.isHidden = true
         sortController.clearSortState()
 
         rebuildColumns()
@@ -208,15 +214,11 @@ class ResultsGridVC: NSViewController {
 
         let newIndices = Array(oldCount..<rows.count)
         unfilteredDisplayRows.append(contentsOf: newIndices)
-        displayRows = unfilteredDisplayRows
 
         if sortController.currentSortColumn != nil {
             sortController.reapplySortIfActive()
-        } else if findController.isFindVisible {
-            findController.findFieldChanged(findField)
         } else {
-            pushDataToHelpers()
-            tableView.reloadData()
+            recomputeColumnFilteredRows()
         }
 
         updateLoadMoreVisibility()
@@ -244,9 +246,13 @@ class ResultsGridVC: NSViewController {
         rows = []
         displayRows = []
         unfilteredDisplayRows = []
+        columnFilteredDisplayRows = []
         hasMore = false
         executionTimeMs = 0
         columnCategories = [:]
+        columnFilterController.clearAll()
+        filterableHeaderView.activeFilterColumns = []
+        resetFiltersButton.isHidden = true
         sortController.clearSortState()
 
         while let col = tableView.tableColumns.last {
@@ -359,24 +365,43 @@ class ResultsGridVC: NSViewController {
         return max(nameWidth, typeWidth)
     }
 
+    // MARK: - Column Filter Pipeline
+
+    /// Recomputes columnFilteredDisplayRows from unfilteredDisplayRows, then cascades to find.
+    func recomputeColumnFilteredRows() {
+        columnFilteredDisplayRows = columnFilterController.applyFilters(inputDisplayRows: unfilteredDisplayRows)
+        if findController.isFindVisible {
+            findController.findFieldChanged(findField)
+        } else {
+            displayRows = columnFilteredDisplayRows
+            pushDataToHelpers()
+            tableView.reloadData()
+        }
+        updateStatusBarText()
+    }
+
     // MARK: - Status Bar
 
     func updateStatusBarText() {
         let timeStr = formatDuration(executionTimeMs)
         let moreStr = hasMore ? " (more available)" : ""
+        let filterCount = columnFilterController.activeFilterCount
+        let filterSuffix = filterCount > 0
+            ? " \u{2022} \(filterCount) filter\(filterCount == 1 ? "" : "s")"
+            : ""
 
         let findVisible = findController.isFindVisible
         let findMatchCount = findController.findMatches.count
-        if findVisible && displayRows.count < rows.count {
+        if (findVisible || filterCount > 0) && displayRows.count < rows.count {
             let visibleCount = formatRowCount(displayRows.count)
             let total = formatRowCount(rows.count)
-            statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(moreStr)"
+            statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(filterSuffix)\(moreStr)"
         } else if findVisible && findMatchCount > 0 {
             let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(moreStr)"
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(filterSuffix)\(moreStr)"
         } else {
             let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(moreStr)"
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(filterSuffix)\(moreStr)"
         }
     }
 
@@ -402,9 +427,24 @@ class ResultsGridVC: NSViewController {
         }
     }
 
+    // MARK: - Reset Column Filters
+
+    @objc func resetAllColumnFilters() {
+        columnFilterController.clearAll()
+        filterableHeaderView.activeFilterColumns = []
+        resetFiltersButton.isHidden = true
+        recomputeColumnFilteredRows()
+    }
+
     // MARK: - Find (Forwarding)
 
-    @objc func showFind() { findController.showFind() }
+    @objc func showFind() {
+        if findController.isFindVisible {
+            findController.closeFind(nil)
+        } else {
+            findController.showFind()
+        }
+    }
     @objc func showFilter() { findController.showFilter() }
 
     // MARK: - Pin Results

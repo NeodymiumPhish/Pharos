@@ -276,7 +276,7 @@ class InspectorViewController: NSViewController {
     }
 
     private func makeValueLabel(value: AnyCodable?, category: PGTypeCategory) -> NSTextField {
-        let label = NSTextField(labelWithString: "")
+        let label = CopyableValueLabel(labelWithString: "")
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.preferredMaxLayoutWidth = 200
@@ -285,6 +285,7 @@ class InspectorViewController: NSViewController {
         guard let value else {
             // Key missing from dict entirely — treat as NULL
             label.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
+            label.copyableValue = label.stringValue
             label.textColor = .tertiaryLabelColor
             label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
             return label
@@ -292,6 +293,7 @@ class InspectorViewController: NSViewController {
 
         if value.isNull {
             label.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
+            label.copyableValue = label.stringValue
             label.textColor = .tertiaryLabelColor
             label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
             return label
@@ -299,6 +301,7 @@ class InspectorViewController: NSViewController {
 
         if value.displayString.isEmpty {
             label.stringValue = "(empty string)"
+            label.copyableValue = ""
             label.textColor = .tertiaryLabelColor
             return label
         }
@@ -331,6 +334,7 @@ class InspectorViewController: NSViewController {
             label.textColor = .labelColor
         }
 
+        label.copyableValue = label.stringValue
         return label
     }
 
@@ -441,6 +445,64 @@ class InspectorViewController: NSViewController {
                 }
             }
             return agg
+        }
+    }
+}
+
+// MARK: - CopyableValueLabel
+
+private class CopyableValueLabel: NSTextField {
+    var copyableValue: String = ""
+    private var savedAttributedString: NSAttributedString?
+    private var restoreTimer: Timer?
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            copyToPasteboard()
+            showCopiedFeedback()
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        let display = copyableValue.count > 50
+            ? String(copyableValue.prefix(50)) + "\u{2026}"
+            : copyableValue
+        let item = NSMenuItem(title: "Copy \"\(display)\"", action: #selector(copyValue), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func copyValue() {
+        copyToPasteboard()
+        showCopiedFeedback()
+    }
+
+    private func copyToPasteboard() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(copyableValue, forType: .string)
+    }
+
+    private func showCopiedFeedback() {
+        restoreTimer?.invalidate()
+        savedAttributedString = attributedStringValue
+
+        let feedback = NSMutableAttributedString(
+            string: "\u{2713} Copied",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.systemGreen,
+            ]
+        )
+        attributedStringValue = feedback
+
+        restoreTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
+            guard let self, let saved = self.savedAttributedString else { return }
+            self.attributedStringValue = saved
+            self.savedAttributedString = nil
         }
     }
 }
