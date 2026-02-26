@@ -334,52 +334,9 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
     private func actionBarDelete() {
         switch actionBar.mode {
         case .library:
-            actionBarDeleteSavedQuery()
+            savedQueries.deleteSelectedQuery()
         case .history:
             queryHistory.deleteSelectedEntries()
-        }
-    }
-
-    private func actionBarDeleteSavedQuery() {
-        let row = savedQueries.outlineView.selectedRow
-        guard row >= 0,
-              let node = savedQueries.outlineView.item(atRow: row) as? SavedQueryNode else { return }
-
-        switch node.kind {
-        case .query(let q):
-            do {
-                _ = try PharosCore.deleteSavedQuery(id: q.id)
-                savedQueries.reload(connectionId: stateManager.activeConnectionId)
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-            } catch {
-                NSLog("Failed to delete saved query: \(error)")
-            }
-        case .folder(let name):
-            let count = node.children.count
-            guard count > 0 else {
-                savedQueries.reload(connectionId: stateManager.activeConnectionId)
-                return
-            }
-            let alert = NSAlert()
-            alert.messageText = "Delete folder \"\(name)\"?"
-            alert.informativeText = "This will delete \(count) saved quer\(count == 1 ? "y" : "ies") in this folder."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Delete")
-            alert.addButton(withTitle: "Cancel")
-
-            guard let window = view.window else { return }
-            alert.beginSheetModal(for: window) { [weak self] response in
-                guard response == .alertFirstButtonReturn else { return }
-                for child in node.children {
-                    if case .query(let q) = child.kind {
-                        _ = try? PharosCore.deleteSavedQuery(id: q.id)
-                    }
-                }
-                self?.savedQueries.reload(connectionId: self?.stateManager.activeConnectionId)
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-            }
-        default:
-            break
         }
     }
 
