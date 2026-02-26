@@ -11,7 +11,7 @@ Requirements for v1.1 Polish & Detail milestone. Each maps to roadmap phases.
 
 - [x] **INSP-01**: User can toggle a right inspector sidebar via toolbar button
 - [x] **INSP-02**: User can toggle inspector sidebar via keyboard shortcut
-- [ ] **INSP-03**: User can view column names and values for a selected row in the inspector
+- [x] **INSP-03**: User can view column names and values for a selected row in the inspector
 - [ ] **INSP-04**: User can see type-aware aggregated data when multiple rows are selected (count/distinct for all, min/max/sum/avg for numeric, earliest/latest for temporal, unique count for inet, true/false counts for boolean)
 - [x] **INSP-05**: Inspector collapses and expands with smooth animation
 
@@ -72,7 +72,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | INSP-01 | Phase 7 | Complete |
 | INSP-02 | Phase 7 | Complete |
-| INSP-03 | Phase 8 | Pending |
+| INSP-03 | Phase 8 | Complete |
 | INSP-04 | Phase 8 | Pending |
 | INSP-05 | Phase 7 | Complete |
 | SIDE-01 | Phase 7 | Complete |

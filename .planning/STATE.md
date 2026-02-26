@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
+milestone: v1.0
 milestone_name: Polish & Detail
-status: executing
-last_updated: "2026-02-26"
+status: unknown
+last_updated: "2026-02-26T11:39:57.124Z"
 progress:
-  total_phases: 4
+  total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
@@ -18,30 +18,31 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-25)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 7 — Three-Pane Foundation
+**Current focus:** Phase 8 — Inspector Content
 
 ## Current Position
 
-Phase: 7 of 10 (Three-Pane Foundation) — first of 4 phases in v1.1
-Plan: 2 of 2 complete
-Status: Phase 7 Complete
-Last activity: 2026-02-26 — Completed 07-02 (sidebar visual polish + visual verification)
+Phase: 8 of 10 (Inspector Content) — second of 4 phases in v1.1
+Plan: 1 of 2 complete
+Status: In Progress
+Last activity: 2026-02-26 — Completed 08-01 (inspector row detail wiring + single-row view)
 
-Progress: [##########] 100% (Phase 7)
+Progress: [#####-----] 50% (Phase 8)
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 10 (v1.0)
-- v1.1 plans completed: 2
-- Average duration: 1.5min
-- Total execution time: 3min
+- v1.1 plans completed: 3
+- Average duration: 1.7min
+- Total execution time: 5min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 07-three-pane-foundation | 2/2 | 3min | 1.5min |
+| 08-inspector-content | 1/2 | 2min | 2min |
 
 ## Accumulated Context
 
@@ -55,6 +56,8 @@ Full decision log in PROJECT.md Key Decisions table.
 - System automatic divider color for sidebar borders -- no custom colors, adapts to light/dark mode
 - Capsule segmentStyle for modern segmented controls
 - sqlparser vs regex for table name parsing to be resolved before Phase 9
+- NSStackView (not NSGridView) for inspector key-value layout to support variable-height word-wrapped values
+- displayRows mapping in selection pipeline ensures correct data indices through sort/filter
 
 ### Pending Todos
 
@@ -68,5 +71,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 07-02-PLAN.md — Phase 7 fully complete
-Resume file: .planning/phases/07-three-pane-foundation/07-02-SUMMARY.md
+Stopped at: Completed 08-01-PLAN.md
+Resume file: .planning/phases/08-inspector-content/08-01-SUMMARY.md

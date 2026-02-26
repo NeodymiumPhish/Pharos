@@ -225,6 +225,91 @@ class InspectorViewController: NSViewController {
 
         return label
     }
+
+    // MARK: - Aggregation Model
+
+    private struct ColumnAggregation {
+        let columnName: String
+        let dataType: String
+        let category: PGTypeCategory
+        var totalCount: Int = 0
+        var nonNullCount: Int = 0
+        var distinctValues: Set<String> = []
+        // Numeric
+        var numericMin: Double?
+        var numericMax: Double?
+        var numericSum: Double = 0
+        // Temporal
+        var earliest: String?
+        var latest: String?
+        // Boolean
+        var trueCount: Int = 0
+        var falseCount: Int = 0
+
+        var distinctCount: Int { distinctValues.count }
+        var numericAvg: Double? {
+            nonNullCount > 0 && numericMin != nil ? numericSum / Double(nonNullCount) : nil
+        }
+    }
+
+    private static let aggregateFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 4
+        f.minimumFractionDigits = 0
+        f.groupingSeparator = ","
+        f.usesGroupingSeparator = true
+        return f
+    }()
+
+    private func formatAggregate(_ value: Double) -> String {
+        Self.aggregateFormatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    private func computeAggregations(
+        columns: [ColumnDef],
+        rows: [[String: AnyCodable]],
+        categories: [String: PGTypeCategory]
+    ) -> [ColumnAggregation] {
+        columns.map { col in
+            var agg = ColumnAggregation(
+                columnName: col.name,
+                dataType: col.dataType,
+                category: categories[col.name] ?? .string
+            )
+            for row in rows {
+                let value = row[col.name]
+                agg.totalCount += 1
+
+                guard let val = value, !val.isNull else { continue }
+                agg.nonNullCount += 1
+                agg.distinctValues.insert(val.displayString)
+
+                switch agg.category {
+                case .numeric:
+                    if let d = Double(val.displayString) {
+                        agg.numericMin = min(agg.numericMin ?? d, d)
+                        agg.numericMax = max(agg.numericMax ?? d, d)
+                        agg.numericSum += d
+                    }
+                case .temporal:
+                    // Skip min/max for interval types — lexicographic comparison is meaningless
+                    let dt = col.dataType.lowercased()
+                    guard dt != "interval" else { break }
+                    let s = val.displayString
+                    if agg.earliest == nil || s < agg.earliest! { agg.earliest = s }
+                    if agg.latest == nil || s > agg.latest! { agg.latest = s }
+                case .boolean:
+                    let b = val.displayString.lowercased()
+                    if b == "t" || b == "true" { agg.trueCount += 1 }
+                    else if b == "f" || b == "false" { agg.falseCount += 1 }
+                default:
+                    break
+                }
+            }
+            return agg
+        }
+    }
 }
 
 // MARK: - FlippedView

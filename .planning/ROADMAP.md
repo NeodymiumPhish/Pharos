@@ -51,7 +51,9 @@
   2. Selecting multiple rows shows type-aware aggregated data (count/distinct for all types, min/max/sum/avg for numeric, earliest/latest for temporal, unique count for inet, true/false counts for boolean)
   3. Inspector updates immediately when selection changes (no manual refresh)
   4. NULL values are visually distinguishable from empty strings in the inspector
-**Plans**: TBD
+**Plans**: 2 plans
+  - [x] 08-01-PLAN.md — Selection change wiring + single-row detail inspector view
+  - [ ] 08-02-PLAN.md — Multi-row type-aware aggregation
 
 ### Phase 9: Library & History
 **Goal**: Users have a modernized library panel with parsed table names and a Save/Save As workflow, plus history batch delete
@@ -89,6 +91,6 @@
 | 5. View Controller Extraction | v1.0 | 2/2 | Complete | 2026-02-25 |
 | 6. FFI Layer Organization | v1.0 | 2/2 | Complete | 2026-02-25 |
 | 7. Three-Pane Foundation | v1.1 | 2/2 | Complete | 2026-02-26 |
-| 8. Inspector Content | v1.1 | 0/0 | Not started | - |
+| 8. Inspector Content | v1.1 | 1/2 | In Progress | - |
 | 9. Library & History | v1.1 | 0/0 | Not started | - |
 | 10. Column Filters | v1.1 | 0/0 | Not started | - |
