@@ -32,7 +32,7 @@ class MainWindowController: NSWindowController {
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.setFrameAutosaveName("PharosMainWindow")
-        window.minSize = NSSize(width: 600, height: 400)
+        window.minSize = NSSize(width: 800, height: 400)
         window.center()
 
         super.init(window: window)

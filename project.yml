@@ -46,6 +46,7 @@ targets:
     preBuildScripts:
       - name: "Build Rust Library"
         script: |
+          export PATH="$HOME/.cargo/bin:$PATH"
           cd "${SRCROOT}/pharos-core"
           cargo build --release
         basedOnDependencyAnalysis: false
