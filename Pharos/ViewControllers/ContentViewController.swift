@@ -15,6 +15,7 @@ class ContentViewController: NSViewController {
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasSetInitialSplit = false
+    private static let splitRatioKey = "PharosEditorSplitRatio"
 
     override func loadView() {
         let container = NSView()
@@ -182,10 +183,12 @@ class ContentViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Set initial split position once (60% editor, 40% results)
+        // Restore saved split ratio once the split view has real height
         if !hasSetInitialSplit, splitView.bounds.height > 0 {
             hasSetInitialSplit = true
-            let editorHeight = splitView.bounds.height * 0.6
+            let saved = UserDefaults.standard.double(forKey: Self.splitRatioKey)
+            let ratio = saved > 0 ? saved : 0.6
+            let editorHeight = splitView.bounds.height * ratio
             splitView.setPosition(editorHeight, ofDividerAt: 0)
         }
     }
@@ -730,5 +733,11 @@ extension ContentViewController: NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         splitView.bounds.height - 60 // Minimum results height
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard hasSetInitialSplit, splitView.bounds.height > 0 else { return }
+        let ratio = editorVC.view.frame.height / splitView.bounds.height
+        UserDefaults.standard.set(ratio, forKey: Self.splitRatioKey)
     }
 }

@@ -30,13 +30,23 @@ class MainWindowController: NSWindowController {
         window.title = "Pharos"
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
-        window.setFrameAutosaveName("PharosMainWindow")
         window.minSize = NSSize(width: 800, height: 400)
-        window.center()
 
         super.init(window: window)
 
         window.contentViewController = splitViewController
+
+        // Restore saved window frame (manual — setFrameAutosaveName doesn't
+        // reliably write on resize under macOS 26).
+        if !window.setFrameUsingName("PharosMainWindow") {
+            window.center()
+        }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(saveWindowFrame),
+            name: NSWindow.didResizeNotification, object: window)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(saveWindowFrame),
+            name: NSWindow.didMoveNotification, object: window)
 
         // Setup toolbar
         let toolbar = NSToolbar(identifier: "PharosToolbar")
@@ -78,6 +88,10 @@ class MainWindowController: NSWindowController {
             .receive(on: RunLoop.main)
             .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
             .store(in: &cancellables)
+    }
+
+    @objc private func saveWindowFrame() {
+        window?.saveFrame(usingName: "PharosMainWindow")
     }
 
     required init?(coder: NSCoder) {
