@@ -217,6 +217,7 @@ class SQLTextView: NSTextView {
     override func deleteBackward(_ sender: Any?) {
         let cursor = selectedRange().location
         let text = self.string as NSString
+
         // If deleting an open bracket and the next char is its matching close, delete both
         if cursor > 0, cursor < text.length {
             let prevChar = String(Character(UnicodeScalar(text.character(at: cursor - 1))!))
@@ -229,6 +230,23 @@ class SQLTextView: NSTextView {
                 }
             }
         }
+
+        // Indent-level-aware backspace: if the cursor sits at an indent boundary
+        // (only spaces to its left on the current line), delete one full indent level.
+        if cursor >= tabSize, selectedRange().length == 0 {
+            let lineRange = text.lineRange(for: NSRange(location: cursor, length: 0))
+            let offsetInLine = cursor - lineRange.location
+            if offsetInLine >= tabSize, offsetInLine % tabSize == 0 {
+                let leadingRange = NSRange(location: lineRange.location, length: offsetInLine)
+                let leading = text.substring(with: leadingRange)
+                if leading.allSatisfy({ $0 == " " }) {
+                    setSelectedRange(NSRange(location: cursor - tabSize, length: tabSize))
+                    super.insertText("", replacementRange: selectedRange())
+                    return
+                }
+            }
+        }
+
         super.deleteBackward(sender)
     }
 
