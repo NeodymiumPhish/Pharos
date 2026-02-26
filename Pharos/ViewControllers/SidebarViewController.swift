@@ -11,6 +11,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
     private let librarySegment = NSSegmentedControl()
     private let savedContainer = NSView()
     private let historyContainer = NSView()
+    private let actionBar = SidebarActionBar()
 
     // Navigator pane (bottom)
     private let navigatorContainer = NSView()
@@ -128,11 +129,13 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         savedContainer.translatesAutoresizingMaskIntoConstraints = false
         historyContainer.translatesAutoresizingMaskIntoConstraints = false
         historyContainer.isHidden = true
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
 
         libraryContainer.addSubview(header)
         libraryContainer.addSubview(librarySegment)
         libraryContainer.addSubview(savedContainer)
         libraryContainer.addSubview(historyContainer)
+        libraryContainer.addSubview(actionBar)
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: libraryContainer.topAnchor, constant: 8),
@@ -145,16 +148,23 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             savedContainer.topAnchor.constraint(equalTo: librarySegment.bottomAnchor, constant: 4),
             savedContainer.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
             savedContainer.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
-            savedContainer.bottomAnchor.constraint(equalTo: libraryContainer.bottomAnchor),
+            savedContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
 
             historyContainer.topAnchor.constraint(equalTo: librarySegment.bottomAnchor, constant: 4),
             historyContainer.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
             historyContainer.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
-            historyContainer.bottomAnchor.constraint(equalTo: libraryContainer.bottomAnchor),
+            historyContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
+
+            actionBar.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
+            actionBar.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
+            actionBar.bottomAnchor.constraint(equalTo: libraryContainer.bottomAnchor),
         ])
 
         embedChild(savedQueries, in: savedContainer)
         embedChild(queryHistory, in: historyContainer)
+
+        // Wire action bar callbacks
+        setupActionBarCallbacks()
     }
 
     // MARK: - Navigator Pane (Bottom)
@@ -208,6 +218,9 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         let isSaved = sender.selectedSegment == 0
         savedContainer.isHidden = !isSaved
         historyContainer.isHidden = isSaved
+        actionBar.mode = isSaved ? .library : .history
+        // Reset delete button state on mode switch
+        actionBar.isDeleteEnabled = false
     }
 
     // MARK: - NSSplitViewDelegate
@@ -247,6 +260,120 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             schemaBrowser.loadSchemas(connectionId: activeId)
         } else if status == .disconnected || status == .error {
             schemaBrowser.clear()
+        }
+    }
+
+    // MARK: - Action Bar
+
+    private func setupActionBarCallbacks() {
+        actionBar.onNew = { [weak self] in
+            self?.actionBarNewQuery()
+        }
+        actionBar.onSave = { [weak self] in
+            NSApp.sendAction(#selector(ContentViewController.menuSaveQuery), to: nil, from: self)
+        }
+        actionBar.onSaveAs = { [weak self] in
+            NSApp.sendAction(#selector(ContentViewController.menuSaveQueryAs), to: nil, from: self)
+        }
+        actionBar.onDelete = { [weak self] in
+            self?.actionBarDelete()
+        }
+
+        // Observe tab state for save button enabling
+        stateManager.$activeTabId
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateActionBarSaveState() }
+            .store(in: &cancellables)
+
+        stateManager.$tabs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateActionBarSaveState() }
+            .store(in: &cancellables)
+
+        // Observe history selection changes for delete button
+        queryHistory.onSelectionChanged = { [weak self] count in
+            guard let self, self.actionBar.mode == .history else { return }
+            self.actionBar.isDeleteEnabled = count > 0
+        }
+
+        // Initial button state
+        actionBar.isSaveEnabled = false
+        actionBar.isSaveAsEnabled = false
+        actionBar.isDeleteEnabled = false
+    }
+
+    private func updateActionBarSaveState() {
+        let tab = stateManager.activeTab
+        actionBar.isSaveEnabled = tab?.savedQueryId != nil
+        actionBar.isSaveAsEnabled = tab != nil
+    }
+
+    private func actionBarNewQuery() {
+        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: stateManager.activeConnectionId)
+        do {
+            let saved = try PharosCore.createSavedQuery(query)
+            savedQueries.reload(connectionId: stateManager.activeConnectionId)
+            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            // Open the new query in a tab via notification
+            NotificationCenter.default.post(
+                name: .openSavedQuery,
+                object: nil,
+                userInfo: ["query": saved]
+            )
+        } catch {
+            NSLog("Failed to create query: \(error)")
+        }
+    }
+
+    private func actionBarDelete() {
+        switch actionBar.mode {
+        case .library:
+            actionBarDeleteSavedQuery()
+        case .history:
+            queryHistory.deleteSelectedEntries()
+        }
+    }
+
+    private func actionBarDeleteSavedQuery() {
+        let row = savedQueries.outlineView.selectedRow
+        guard row >= 0,
+              let node = savedQueries.outlineView.item(atRow: row) as? SavedQueryNode else { return }
+
+        switch node.kind {
+        case .query(let q):
+            do {
+                _ = try PharosCore.deleteSavedQuery(id: q.id)
+                savedQueries.reload(connectionId: stateManager.activeConnectionId)
+                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            } catch {
+                NSLog("Failed to delete saved query: \(error)")
+            }
+        case .folder(let name):
+            let count = node.children.count
+            guard count > 0 else {
+                savedQueries.reload(connectionId: stateManager.activeConnectionId)
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = "Delete folder \"\(name)\"?"
+            alert.informativeText = "This will delete \(count) saved quer\(count == 1 ? "y" : "ies") in this folder."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Delete")
+            alert.addButton(withTitle: "Cancel")
+
+            guard let window = view.window else { return }
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                for child in node.children {
+                    if case .query(let q) = child.kind {
+                        _ = try? PharosCore.deleteSavedQuery(id: q.id)
+                    }
+                }
+                self?.savedQueries.reload(connectionId: self?.stateManager.activeConnectionId)
+                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            }
+        default:
+            break
         }
     }
 

@@ -657,6 +657,11 @@ extension ContentViewController {
         }
     }
 
+    @objc func menuSaveQueryAs(_: Any?) {
+        guard let tab = stateManager.activeTab else { return }
+        presentSaveQuerySheet(tab: tab)
+    }
+
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,

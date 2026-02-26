@@ -54,6 +54,9 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private var connectionFilter: String?
     private var filterText: String?
 
+    /// Called when the table selection changes; passes the number of selected rows.
+    var onSelectionChanged: ((Int) -> Void)?
+
     override func loadView() {
         let container = NSView()
         self.view = container
@@ -69,6 +72,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         tableView.rowSizeStyle = .custom
         tableView.rowHeight = 40
         tableView.usesAlternatingRowBackgroundColors = true
+        tableView.allowsMultipleSelection = true
         tableView.doubleAction = #selector(doubleClickedRow(_:))
         tableView.target = self
         tableView.menu = buildContextMenu()
@@ -115,6 +119,33 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     func clearFilter() {
         filterText = nil
         requery()
+    }
+
+    // MARK: - Batch Delete
+
+    /// Delete the currently selected history entries with confirmation.
+    func deleteSelectedEntries() {
+        let selectedRows = tableView.selectedRowIndexes
+        guard !selectedRows.isEmpty else { return }
+        let ids = selectedRows.map { entries[$0].id }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete \(ids.count) history item\(ids.count == 1 ? "" : "s")?"
+        alert.informativeText = "This action cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            do {
+                _ = try PharosCore.batchDeleteQueryHistory(ids: ids)
+                self?.reload(connectionId: self?.connectionFilter)
+            } catch {
+                NSLog("Failed to batch delete history entries: \(error)")
+            }
+        }
     }
 
     // MARK: - Query
@@ -226,6 +257,10 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         }
 
         return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        onSelectionChanged?(tableView.selectedRowIndexes.count)
     }
 
     // MARK: - Formatting

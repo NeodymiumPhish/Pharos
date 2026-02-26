@@ -71,7 +71,7 @@ class SavedQueryNode: NSObject {
 
 class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate {
 
-    private let outlineView = NSOutlineView()
+    let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
 
     private var rootNodes: [SavedQueryNode] = []
