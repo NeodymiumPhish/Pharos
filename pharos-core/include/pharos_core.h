@@ -144,6 +144,12 @@ char *pharos_load_query_history(const char *json);
  char *pharos_get_query_history_result(const char *entry_id);
 
 /**
+ * Batch delete query history entries. `json` is a JSON array of ID strings.
+ * Returns the count of deleted entries as a string, or error JSON.
+ */
+ char *pharos_batch_delete_query_history(const char *json);
+
+/**
  * Load saved queries. Returns JSON array. Caller must free.
  */
  char *pharos_load_saved_queries(void);
@@ -162,6 +168,11 @@ char *pharos_load_query_history(const char *json);
  * Delete a saved query. Returns "true" or "false".
  */
  char *pharos_delete_saved_query(const char *query_id);
+
+/**
+ * Extract table names from SQL for display. Returns comma-separated names or NULL.
+ */
+ char *pharos_extract_table_names(const char *sql);
 
 /**
  * Get schemas. Returns JSON array via callback.

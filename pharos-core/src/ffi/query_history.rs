@@ -66,3 +66,20 @@ pub extern "C" fn pharos_get_query_history_result(entry_id: *const c_char) -> *m
         Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
     }
 }
+
+/// Batch delete query history entries. `json` is a JSON array of ID strings.
+/// Returns the count of deleted entries as a string, or error JSON.
+#[no_mangle]
+pub extern "C" fn pharos_batch_delete_query_history(json: *const c_char) -> *mut c_char {
+    let state = app_state();
+    let rt = runtime();
+    let json_str = unsafe { c_str_to_string(json) };
+    let ids: Vec<String> = match serde_json::from_str(&json_str) {
+        Ok(ids) => ids,
+        Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+    };
+    match rt.block_on(crate::commands::batch_delete_query_history_entries(ids, state)) {
+        Ok(count) => to_c_string(&format!("{}", count)),
+        Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+    }
+}

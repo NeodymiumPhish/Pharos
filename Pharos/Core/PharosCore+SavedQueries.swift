@@ -47,4 +47,14 @@ extension PharosCore {
         defer { pharos_free_string(ptr) }
         return String(cString: ptr) == "true"
     }
+
+    /// Extract table names from SQL for display.
+    /// Returns formatted string like "users", "users, orders", or nil if no tables found.
+    static func extractTableNames(from sql: String) -> String? {
+        guard let ptr = sql.withCString({ pharos_extract_table_names($0) }) else {
+            return nil  // NULL = no tables found
+        }
+        defer { pharos_free_string(ptr) }
+        return String(cString: ptr)
+    }
 }

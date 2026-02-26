@@ -38,4 +38,23 @@ extension PharosCore {
         }
         return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
     }
+
+    /// Batch delete query history entries.
+    /// Returns the count of deleted entries.
+    static func batchDeleteQueryHistory(ids: [String]) throws -> Int {
+        let json = try JSONEncoder.pharos.encode(ids)
+        let jsonStr = String(data: json, encoding: .utf8)!
+        guard let ptr = jsonStr.withCString({ pharos_batch_delete_query_history($0) }) else {
+            throw PharosCoreError.nullResult
+        }
+        defer { pharos_free_string(ptr) }
+        let result = String(cString: ptr)
+        if result.hasPrefix("{\"error\":") {
+            throw PharosCoreError.rustError(result)
+        }
+        guard let count = Int(result) else {
+            throw PharosCoreError.rustError("Unexpected result: \(result)")
+        }
+        return count
+    }
 }

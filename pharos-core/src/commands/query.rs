@@ -617,7 +617,7 @@ fn clean_error_message(error_msg: &str) -> String {
 
 /// Extract table names from SQL for history display.
 /// Scans for FROM and JOIN keywords, returns comma-separated table names.
-fn extract_table_names_for_history(sql: &str) -> Option<String> {
+pub fn extract_table_names_for_history(sql: &str) -> Option<String> {
     // Strip single-line comments and normalize whitespace
     let normalized: String = sql
         .lines()

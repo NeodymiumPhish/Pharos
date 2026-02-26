@@ -65,7 +65,9 @@
   3. Opening a saved query from the library creates a tab linked to that query entry, enabling Save to overwrite it and Save As to create a new entry
   4. Library panel has a refined, modern visual appearance
   5. User can multi-select history items and batch delete them
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 09-01-PLAN.md — Rust FFI endpoints + shared action bar + history multi-select/batch delete
+  - [ ] 09-02-PLAN.md — Library parsed table names + visual polish + Save/Save As workflow
 
 ### Phase 10: Column Filters
 **Goal**: Users can filter results grid data per-column with type-aware operators that compose with existing find and sort
@@ -92,5 +94,5 @@
 | 6. FFI Layer Organization | v1.0 | 2/2 | Complete | 2026-02-25 |
 | 7. Three-Pane Foundation | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 8. Inspector Content | v1.1 | 1/2 | In Progress | - |
-| 9. Library & History | v1.1 | 0/0 | Not started | - |
+| 9. Library & History | v1.1 | 0/2 | Not started | - |
 | 10. Column Filters | v1.1 | 0/0 | Not started | - |

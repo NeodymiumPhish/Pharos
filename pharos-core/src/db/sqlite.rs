@@ -568,6 +568,21 @@ pub fn delete_query_history_entry(conn: &Connection, entry_id: &str) -> SqliteRe
     Ok(rows_affected > 0)
 }
 
+/// Batch delete query history entries by IDs
+pub fn batch_delete_query_history_entries(conn: &Connection, ids: &[String]) -> SqliteResult<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+    let sql = format!(
+        "DELETE FROM query_history WHERE id IN ({})",
+        placeholders.join(", ")
+    );
+    let params: Vec<&dyn rusqlite::ToSql> =
+        ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+    conn.execute(&sql, params.as_slice())
+}
+
 /// Load cached result data for a specific history entry
 pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResult<Option<(String, String)>> {
     let mut stmt = conn.prepare(

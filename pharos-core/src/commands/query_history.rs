@@ -43,6 +43,16 @@ pub async fn delete_query_history_entry(
         .map_err(|e| format!("Failed to delete history entry: {}", e))
 }
 
+/// Batch delete query history entries
+pub async fn batch_delete_query_history_entries(
+    ids: Vec<String>,
+    state: &AppState,
+) -> Result<usize, String> {
+    let db = state.metadata_db.lock().unwrap();
+    sqlite::batch_delete_query_history_entries(&db, &ids)
+        .map_err(|e| format!("Failed to batch delete history entries: {}", e))
+}
+
 /// Load cached result data for a specific history entry
 pub async fn get_query_history_result(
     entry_id: String,

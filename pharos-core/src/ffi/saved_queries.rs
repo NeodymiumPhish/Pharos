@@ -60,3 +60,13 @@ pub extern "C" fn pharos_delete_saved_query(query_id: *const c_char) -> *mut c_c
         Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
     }
 }
+
+/// Extract table names from SQL for display. Returns comma-separated names or NULL.
+#[no_mangle]
+pub extern "C" fn pharos_extract_table_names(sql: *const c_char) -> *mut c_char {
+    let sql_str = unsafe { c_str_to_string(sql) };
+    match crate::commands::query::extract_table_names_for_history(&sql_str) {
+        Some(names) => to_c_string(&names),
+        None => std::ptr::null_mut(),
+    }
+}
