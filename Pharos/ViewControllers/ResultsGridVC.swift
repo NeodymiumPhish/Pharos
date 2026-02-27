@@ -179,9 +179,10 @@ class ResultsGridVC: NSViewController {
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
 
-        columnCategories = Dictionary(uniqueKeysWithValues: columns.map {
-            ($0.name, PGTypeCategory(dataType: $0.dataType))
-        })
+        columnCategories = Dictionary(
+            columns.map { ($0.name, PGTypeCategory(dataType: $0.dataType)) },
+            uniquingKeysWith: { _, last in last }
+        )
 
         displayRows = Array(0..<rows.count)
         unfilteredDisplayRows = displayRows

@@ -211,7 +211,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             guard response == .OK, let url = panel.url else { return }
             do {
                 let jsonArray = data.rows.map { row in
-                    Dictionary(uniqueKeysWithValues: zip(data.columnNames, row))
+                    Dictionary(zip(data.columnNames, row), uniquingKeysWith: { _, last in last })
                 }
                 let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
                 try jsonData.write(to: url)
