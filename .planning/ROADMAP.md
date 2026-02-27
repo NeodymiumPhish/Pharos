@@ -34,7 +34,7 @@
 
 - [x] **Phase 11: Build Pipeline** -- Merge appkit to main and establish automated CI/CD producing dual-architecture DMGs
 - [x] **Phase 12: Documentation** -- Rewrite all doc pages for the AppKit version with new feature pages (completed 2026-02-27)
-- [ ] **Phase 13: Release** -- Update README and ship v2.0.0
+- [x] **Phase 13: Release** -- Update README and ship v2.1.0 (completed 2026-02-27)
 
 ## Phase Details
 
@@ -67,20 +67,20 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 12-01-PLAN.md -- Create site infrastructure and rewrite all existing documentation pages for native AppKit version
-- [ ] 12-02-PLAN.md -- Write new Inspector and Column Filters pages, full verification sweep
+- [x] 12-01-PLAN.md -- Create site infrastructure and rewrite all existing documentation pages for native AppKit version
+- [x] 12-02-PLAN.md -- Write new Inspector and Column Filters pages, full verification sweep
 
 ### Phase 13: Release
-**Goal**: The project README accurately represents the native app and v2.0.0 is tagged and released
+**Goal**: The project README accurately represents the native app and v2.1.0 is tagged and released
 **Depends on**: Phase 11, Phase 12
 **Requirements**: README-01
 **Success Criteria** (what must be TRUE):
   1. README.md describes Pharos as a native AppKit + Rust application with accurate feature list, build-from-source instructions, and download links pointing to GitHub Releases
-  2. The v2.0.0 tag is pushed, triggering a successful build, and the GitHub Release page has downloadable arm64 and x86_64 DMGs
-**Plans**: TBD
+  2. A version tag is pushed, triggering a successful CI build, and the GitHub Release page has a downloadable DMG
+**Plans**: 1 plan
 
 Plans:
-- [ ] 13-01: TBD
+- [ ] 13-01-PLAN.md -- Rewrite README for native AppKit app and tag v2.1.0 release
 
 ## Progress
 
@@ -99,5 +99,5 @@ Plans:
 | 9. Library & History | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 10. Column Filters | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 11. Build Pipeline | v2.0 | Complete    | 2026-02-26 | 2026-02-26 |
-| 12. Documentation | 2/2 | Complete   | 2026-02-27 | - |
-| 13. Release | v2.0 | 0/0 | Not started | - |
+| 12. Documentation | 2/2 | Complete    | 2026-02-27 | - |
+| 13. Release | 1/1 | Complete   | 2026-02-27 | - |

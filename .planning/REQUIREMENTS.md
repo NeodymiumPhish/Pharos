@@ -30,7 +30,7 @@ Requirements for v2.0 Docs & Release milestone. Each maps to roadmap phases.
 
 ### README
 
-- [ ] **README-01**: README reflects the native AppKit app with accurate description, build instructions, and download links
+- [x] **README-01**: README reflects the native AppKit app with accurate description, build instructions, and download links
 
 ## Future Requirements
 
@@ -78,7 +78,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-03 | Phase 12 | Complete |
 | DOC-04 | Phase 12 | Complete |
 | DOC-05 | Phase 12 | Complete |
-| README-01 | Phase 13 | Pending |
+| README-01 | Phase 13 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 13 total
