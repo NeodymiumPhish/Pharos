@@ -195,9 +195,19 @@ class ResultsGridVC: NSViewController {
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
-        emptyLabel.isHidden = true
-        scrollView.isHidden = false
-        toolbarBar.isHidden = false
+
+        // 0 rows with no column info — show clear empty state
+        if rows.isEmpty && columns.isEmpty {
+            emptyLabel.stringValue = "Query returned no results"
+            emptyLabel.textColor = .tertiaryLabelColor
+            emptyLabel.isHidden = false
+            scrollView.isHidden = true
+            toolbarBar.isHidden = false
+        } else {
+            emptyLabel.isHidden = true
+            scrollView.isHidden = false
+            toolbarBar.isHidden = false
+        }
 
         updateLoadMoreVisibility()
         updateStatusBarText()

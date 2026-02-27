@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use sqlx::{Column, Row, ValueRef};
+use sqlx::{Column, Executor, Row, ValueRef};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -136,8 +136,20 @@ pub async fn execute_query(
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     if rows.is_empty() {
+        // Use describe() to get column metadata even for 0-row results
+        let columns = match (&mut *conn).describe(sql.as_str()).await {
+            Ok(desc) => desc
+                .columns()
+                .iter()
+                .map(|col| ColumnDef {
+                    name: col.name().to_string(),
+                    data_type: col.type_info().to_string(),
+                })
+                .collect(),
+            Err(_) => vec![],
+        };
         return Ok(QueryResult {
-            columns: vec![],
+            columns,
             rows: vec![],
             row_count: 0,
             execution_time_ms,
