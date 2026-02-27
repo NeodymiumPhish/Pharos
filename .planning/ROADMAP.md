@@ -33,7 +33,7 @@
 ### v2.0 Docs & Release
 
 - [x] **Phase 11: Build Pipeline** -- Merge appkit to main and establish automated CI/CD producing dual-architecture DMGs
-- [ ] **Phase 12: Documentation** -- Rewrite all doc pages for the AppKit version with new feature pages
+- [x] **Phase 12: Documentation** -- Rewrite all doc pages for the AppKit version with new feature pages (completed 2026-02-27)
 - [ ] **Phase 13: Release** -- Update README and ship v2.0.0
 
 ## Phase Details
@@ -99,5 +99,5 @@ Plans:
 | 9. Library & History | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 10. Column Filters | v1.1 | 2/2 | Complete | 2026-02-26 |
 | 11. Build Pipeline | v2.0 | Complete    | 2026-02-26 | 2026-02-26 |
-| 12. Documentation | 1/2 | In Progress|  | - |
+| 12. Documentation | 2/2 | Complete   | 2026-02-27 | - |
 | 13. Release | v2.0 | 0/0 | Not started | - |

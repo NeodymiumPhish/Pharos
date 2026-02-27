@@ -24,8 +24,8 @@ Requirements for v2.0 Docs & Release milestone. Each maps to roadmap phases.
 
 - [x] **DOC-01**: All existing doc pages are rewritten to describe the AppKit version (not Tauri/React)
 - [x] **DOC-02**: Obsolete pages removed (inline-editing, explain)
-- [ ] **DOC-03**: New Inspector page documents single-row detail and multi-row aggregation
-- [ ] **DOC-04**: New Column Filters page documents per-column filter popovers
+- [x] **DOC-03**: New Inspector page documents single-row detail and multi-row aggregation
+- [x] **DOC-04**: New Column Filters page documents per-column filter popovers
 - [x] **DOC-05**: `_config.yml` updated to remove Tauri references from description/footer
 
 ### README
@@ -75,8 +75,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CI-06 | Phase 11 | Complete |
 | DOC-01 | Phase 12 | Complete |
 | DOC-02 | Phase 12 | Complete |
-| DOC-03 | Phase 12 | Pending |
-| DOC-04 | Phase 12 | Pending |
+| DOC-03 | Phase 12 | Complete |
+| DOC-04 | Phase 12 | Complete |
 | DOC-05 | Phase 12 | Complete |
 | README-01 | Phase 13 | Pending |
 
