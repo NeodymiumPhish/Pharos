@@ -78,3 +78,14 @@ jobs:
         with:
           files: "*.dmg"
           generate_release_notes: true
+
+      - name: Trigger Homebrew tap update
+        env:
+          HOMEBREW_PAT: ${{ secrets.HOMEBREW_PAT }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          curl -X POST \
+            -H "Authorization: token $HOMEBREW_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/NeodymiumPhish/homebrew-Pharos/dispatches \
+            -d "{\"event_type\": \"release-published\", \"client_payload\": {\"version\": \"$VERSION\"}}"
