@@ -207,6 +207,62 @@ class ResultsGridVC: NSViewController {
         }
     }
 
+    /// Captures current grid view state (column widths, sort, filters, scroll, selection).
+    func captureGridState() -> ResultsGridState? {
+        guard !columns.isEmpty else { return nil }
+
+        var widths: [String: CGFloat] = [:]
+        for col in tableView.tableColumns where col.identifier.rawValue != "__rownum__" {
+            widths[col.identifier.rawValue] = col.width
+        }
+
+        let sortCol = sortController.currentSortColumn
+        let sortAsc = tableView.sortDescriptors.first?.ascending ?? true
+
+        return ResultsGridState(
+            columnWidths: widths,
+            sortColumn: sortCol,
+            sortAscending: sortAsc,
+            columnFilters: columnFilterController.activeFilters,
+            scrollPosition: scrollView.contentView.bounds.origin,
+            selectedRows: tableView.selectedRowIndexes
+        )
+    }
+
+    /// Restores previously captured grid view state after `showResult()`.
+    func restoreGridState(_ state: ResultsGridState) {
+        // 1. Column widths
+        for col in tableView.tableColumns {
+            if let saved = state.columnWidths[col.identifier.rawValue] {
+                col.width = saved
+            }
+        }
+
+        // 2. Sort — setting sortDescriptors triggers handleSortDescriptorsChanged via delegate
+        if let sortCol = state.sortColumn {
+            tableView.sortDescriptors = [NSSortDescriptor(key: sortCol, ascending: state.sortAscending)]
+        }
+
+        // 3. Column filters
+        if !state.columnFilters.isEmpty {
+            for (colName, filter) in state.columnFilters {
+                columnFilterController.setFilter(filter, forColumn: colName)
+            }
+            filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
+            resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
+            recomputeColumnFilteredRows()
+        }
+
+        // 4. Scroll position
+        scrollView.contentView.setBoundsOrigin(state.scrollPosition)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        // 5. Selection
+        if !state.selectedRows.isEmpty {
+            tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
+        }
+    }
+
     func appendRows(from result: QueryResult) {
         let oldCount = rows.count
         rows.append(contentsOf: result.rows)

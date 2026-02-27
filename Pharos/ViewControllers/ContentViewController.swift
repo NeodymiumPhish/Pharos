@@ -300,11 +300,13 @@ class ContentViewController: NSViewController {
     // MARK: - Tab Switching
 
     private func tabChanged(_ tabId: String?) {
-        // Save cursor position of the tab we're leaving
+        // Save cursor position and grid state of the tab we're leaving
         if let previousTabId = editorVC.tabId {
             let cursorPos = editorVC.getCursorPosition()
+            let gridState = resultsVC.captureGridState()
             stateManager.updateTab(id: previousTabId) { tab in
                 tab.cursorPosition = cursorPos
+                tab.gridState = gridState
             }
         }
 
@@ -329,6 +331,9 @@ class ContentViewController: NSViewController {
             resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
         } else if let result = tab.result {
             resultsVC.showResult(result)
+            if let gridState = tab.gridState {
+                resultsVC.restoreGridState(gridState)
+            }
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
         } else if let error = tab.error {

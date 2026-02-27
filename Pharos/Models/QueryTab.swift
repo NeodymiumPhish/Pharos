@@ -1,5 +1,15 @@
 import Foundation
 
+/// Snapshot of the results grid view state for a tab.
+struct ResultsGridState {
+    var columnWidths: [String: CGFloat]
+    var sortColumn: String?
+    var sortAscending: Bool
+    var columnFilters: [String: ColumnFilter]
+    var scrollPosition: NSPoint
+    var selectedRows: IndexSet
+}
+
 /// Represents a single query editor tab.
 struct QueryTab: Identifiable {
     let id: String
@@ -16,6 +26,7 @@ struct QueryTab: Identifiable {
     var savedQueryId: String?
     var historySchema: String?
     var historyTimestamp: String?
+    var gridState: ResultsGridState?
 
     init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, sql: String = "") {
         self.id = id
