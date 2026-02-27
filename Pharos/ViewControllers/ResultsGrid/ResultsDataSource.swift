@@ -14,6 +14,20 @@ protocol ResultsDataSourceDelegate: AnyObject {
     func dataSourceSelectionDidChange()
 }
 
+// MARK: - ResultCellView
+
+private class ResultCellView: NSTableCellView {
+    var normalTextColor: NSColor = .labelColor
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet {
+            textField?.textColor = backgroundStyle == .emphasized
+                ? .alternateSelectedControlTextColor
+                : normalTextColor
+        }
+    }
+}
+
 // MARK: - ResultsDataSource
 
 class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -52,12 +66,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard let colId = tableColumn?.identifier, row < displayRows.count else { return nil }
 
         let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colId.rawValue)")
-        let cell: NSTableCellView
+        let cell: ResultCellView
 
-        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? NSTableCellView {
+        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? ResultCellView {
             cell = existing
         } else {
-            cell = NSTableCellView()
+            cell = ResultCellView()
             cell.identifier = cellId
             cell.wantsLayer = true
             let textField = NSTextField(labelWithString: "")
@@ -77,17 +91,19 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
         if colId.rawValue == "__rownum__" {
             cell.textField?.stringValue = "\(row + 1)"
-            cell.textField?.textColor = .tertiaryLabelColor
             cell.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            cell.normalTextColor = .tertiaryLabelColor
+            cell.textField?.textColor = .tertiaryLabelColor
         } else {
             let rowData = rows[dataRowIdx]
             let category = columnCategories[colId.rawValue] ?? .string
             if let value = rowData[colId.rawValue] {
-                styleCell(cell.textField!, value: value, category: category)
+                styleCell(cell, value: value, category: category)
             } else {
                 cell.textField?.stringValue = ""
-                cell.textField?.textColor = .labelColor
                 cell.textField?.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+                cell.normalTextColor = .labelColor
+                cell.textField?.textColor = .labelColor
             }
         }
 
@@ -120,40 +136,46 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Cell Styling
 
-    private func styleCell(_ textField: NSTextField, value: AnyCodable, category: PGTypeCategory) {
+    private func styleCell(_ cell: ResultCellView, value: AnyCodable, category: PGTypeCategory) {
+        guard let textField = cell.textField else { return }
+
         if value.isNull {
             textField.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
-            textField.textColor = .tertiaryLabelColor
             textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
+            cell.normalTextColor = .tertiaryLabelColor
+            textField.textColor = .tertiaryLabelColor
             return
         }
 
         textField.stringValue = value.displayString
         textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
 
+        let color: NSColor
         switch category {
         case .numeric:
-            textField.textColor = .systemBlue
+            color = .systemBlue
         case .boolean:
             let str = value.displayString.lowercased()
             let boolDisplay = AppStateManager.shared.settings.boolDisplay
             if str == "t" || str == "true" {
                 textField.stringValue = boolDisplay.trueString
-                textField.textColor = .systemGreen
+                color = .systemGreen
             } else if str == "f" || str == "false" {
                 textField.stringValue = boolDisplay.falseString
-                textField.textColor = .systemRed
+                color = .systemRed
             } else {
-                textField.textColor = .labelColor
+                color = .labelColor
             }
         case .temporal:
-            textField.textColor = .systemPurple
+            color = .systemPurple
         case .json:
-            textField.textColor = .systemOrange
+            color = .systemOrange
         case .array:
-            textField.textColor = .secondaryLabelColor
+            color = .secondaryLabelColor
         case .string:
-            textField.textColor = .labelColor
+            color = .labelColor
         }
+        cell.normalTextColor = color
+        textField.textColor = color
     }
 }
