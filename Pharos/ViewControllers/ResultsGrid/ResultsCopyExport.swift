@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct CopyData {
     let columnNames: [String]
     let rows: [[String]]
+    let includeHeaders: Bool
 }
 
 // MARK: - Copy Export Delegate
@@ -70,7 +71,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
 
         guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: selectedColIds, rows: rowData)
+        return CopyData(columnNames: selectedColIds, rows: rowData, includeHeaders: false)
     }
 
     /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
@@ -106,7 +107,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
 
         guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: colIds, rows: rowData)
+        return CopyData(columnNames: colIds, rows: rowData, includeHeaders: true)
     }
 
     // MARK: - Copy Support
@@ -117,27 +118,36 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     @objc func copyAsTSV(_: Any?) {
         guard let data = gatherData() else { return }
-        let header = data.columnNames.joined(separator: "\t")
-        let lines = data.rows.map { $0.joined(separator: "\t") }
+        var lines = data.rows.map { $0.joined(separator: "\t") }
+        if data.includeHeaders {
+            lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(([header] + lines).joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     @objc func copyAsCSV(_: Any?) {
         guard let data = gatherData() else { return }
-        let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-        let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
-        let result = ([header] + rows).joined(separator: "\n")
+        var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+        if data.includeHeaders {
+            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+            lines.insert(header, at: 0)
+        }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result, forType: .string)
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     @objc func copyAsMarkdown(_: Any?) {
         guard let data = gatherData() else { return }
-        let header = "| " + data.columnNames.joined(separator: " | ") + " |"
-        let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
         let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
-        let result = ([header, divider] + rows).joined(separator: "\n")
+        let result: String
+        if data.includeHeaders {
+            let header = "| " + data.columnNames.joined(separator: " | ") + " |"
+            let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
+            result = ([header, divider] + rows).joined(separator: "\n")
+        } else {
+            result = rows.joined(separator: "\n")
+        }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(result, forType: .string)
     }
@@ -220,17 +230,22 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     @objc private func exportAsCSV(_: Any?) {
         exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
-            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-            let rows = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
-            return ([header] + rows).joined(separator: "\n")
+            var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+            if data.includeHeaders {
+                let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+                lines.insert(header, at: 0)
+            }
+            return lines.joined(separator: "\n")
         }
     }
 
     @objc private func exportAsTSV(_: Any?) {
         exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
-            let header = data.columnNames.joined(separator: "\t")
-            let rows = data.rows.map { $0.joined(separator: "\t") }
-            return ([header] + rows).joined(separator: "\n")
+            var lines = data.rows.map { $0.joined(separator: "\t") }
+            if data.includeHeaders {
+                lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
+            }
+            return lines.joined(separator: "\n")
         }
     }
 
@@ -279,10 +294,14 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     @objc private func exportAsMarkdown(_: Any?) {
         exportToFile(filename: "export.md", contentType: UTType(filenameExtension: "md") ?? .plainText) { data in
-            let header = "| " + data.columnNames.joined(separator: " | ") + " |"
-            let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
             let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
-            return ([header, divider] + rows).joined(separator: "\n")
+            if data.includeHeaders {
+                let header = "| " + data.columnNames.joined(separator: " | ") + " |"
+                let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
+                return ([header, divider] + rows).joined(separator: "\n")
+            } else {
+                return rows.joined(separator: "\n")
+            }
         }
     }
 

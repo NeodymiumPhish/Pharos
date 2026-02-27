@@ -14,6 +14,12 @@ struct CellSelectionState {
     var active: CellPosition?
     var isSelecting: Bool = false
 
+    /// Row-mode selection (clicking row numbers).
+    var selectedRows: IndexSet = IndexSet()
+
+    /// True when the user has selected whole rows (via row number column).
+    var isRowMode: Bool { !selectedRows.isEmpty }
+
     var selectedRange: (topLeft: CellPosition, bottomRight: CellPosition)? {
         guard let a = anchor, let b = active else { return nil }
         return (
@@ -29,8 +35,15 @@ struct CellSelectionState {
     }
 
     func selectedRowIndices() -> IndexSet {
+        if isRowMode { return selectedRows }
         guard let range = selectedRange else { return IndexSet() }
         return IndexSet(integersIn: range.topLeft.row...range.bottomRight.row)
+    }
+
+    /// Column indices covered by the cell selection range (for header highlight).
+    var selectedColumnIndices: IndexSet {
+        guard let range = selectedRange else { return IndexSet() }
+        return IndexSet(integersIn: range.topLeft.column...range.bottomRight.column)
     }
 }
 
@@ -50,6 +63,9 @@ class CellSelectionController {
         return tv.tableColumns[0].identifier.rawValue == "__rownum__" ? 1 : 0
     }
 
+    /// Anchor row for row-drag selection.
+    private var rowAnchor: Int?
+
     // MARK: - Cell Position from Event
 
     func cellPosition(from event: NSEvent) -> CellPosition? {
@@ -67,34 +83,78 @@ class CellSelectionController {
         return CellPosition(row: row, column: col)
     }
 
+    /// Returns the row index if the click is on the __rownum__ column.
+    func rowIndex(from event: NSEvent) -> Int? {
+        guard let tv = tableView else { return nil }
+        let point = tv.convert(event.locationInWindow, from: nil)
+        let row = tv.row(at: point)
+        let col = tv.column(at: point)
+        guard row >= 0, col >= 0 else { return nil }
+        guard col == 0, tv.tableColumns[0].identifier.rawValue == "__rownum__" else { return nil }
+        return row
+    }
+
     // MARK: - Mouse Handling
 
     func handleMouseDown(with event: NSEvent) {
-        guard let pos = cellPosition(from: event) else {
-            clear()
+        // Check for row number click first
+        if let rowIdx = rowIndex(from: event) {
+            // Row selection mode
+            state.anchor = nil
+            state.active = nil
+            if event.modifierFlags.contains(.shift), let anchor = rowAnchor {
+                // Extend from anchor to clicked row
+                let lo = min(anchor, rowIdx)
+                let hi = max(anchor, rowIdx)
+                state.selectedRows = IndexSet(integersIn: lo...hi)
+            } else {
+                state.selectedRows = IndexSet(integer: rowIdx)
+                rowAnchor = rowIdx
+            }
+            state.isSelecting = true
+            onChange?(state)
             return
         }
 
-        if event.modifierFlags.contains(.shift) {
-            // Shift+click: keep anchor, set active to clicked cell
-            state.active = pos
-        } else {
-            state.anchor = pos
-            state.active = pos
-            state.isSelecting = true
+        // Data cell click
+        if let pos = cellPosition(from: event) {
+            state.selectedRows = IndexSet()
+            rowAnchor = nil
+            if event.modifierFlags.contains(.shift) {
+                state.active = pos
+            } else {
+                state.anchor = pos
+                state.active = pos
+                state.isSelecting = true
+            }
+            onChange?(state)
+            return
         }
 
-        onChange?(state)
+        // Click on empty area
+        clear()
     }
 
     func handleMouseDragged(with event: NSEvent) {
         guard state.isSelecting else { return }
 
+        if state.isRowMode, let anchor = rowAnchor {
+            // Row drag: extend selection from anchor to current row
+            guard let tv = tableView else { return }
+            let point = tv.convert(event.locationInWindow, from: nil)
+            let dragRow = tv.row(at: point)
+            guard dragRow >= 0 else { return }
+            let lo = min(anchor, dragRow)
+            let hi = max(anchor, dragRow)
+            state.selectedRows = IndexSet(integersIn: lo...hi)
+            onChange?(state)
+            return
+        }
+
+        // Cell drag
         if let pos = cellPosition(from: event) {
             state.active = pos
         }
-        // If position returns nil (e.g., over row number column), keep last valid active
-
         onChange?(state)
     }
 
@@ -106,6 +166,14 @@ class CellSelectionController {
 
     /// Returns true if the event was handled.
     func handleKeyDown(with event: NSEvent) -> Bool {
+        // Row mode: only handle Escape
+        if state.isRowMode {
+            if event.keyCode == 53 { // Escape
+                clear()
+                return true
+            }
+            return false
+        }
         guard let current = state.active else { return false }
 
         let shift = event.modifierFlags.contains(.shift)
@@ -203,6 +271,7 @@ class CellSelectionController {
 
     func clear() {
         state = CellSelectionState()
+        rowAnchor = nil
         onChange?(state)
     }
 }

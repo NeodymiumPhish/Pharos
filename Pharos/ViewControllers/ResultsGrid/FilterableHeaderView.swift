@@ -1,5 +1,29 @@
 import AppKit
 
+// MARK: - Sort Aware Header Cell
+
+/// Custom header cell that draws a sort indicator (▲/▼) on the left and insets the column name.
+class SortAwareHeaderCell: NSTableHeaderCell {
+    var sortIndicator: String?  // "▲" or "▼", nil when unsorted
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        var frame = cellFrame
+        if let indicator = sortIndicator {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            let indicatorStr = NSAttributedString(string: indicator, attributes: attrs)
+            let size = indicatorStr.size()
+            let y = frame.midY - size.height / 2
+            indicatorStr.draw(at: NSPoint(x: frame.minX + 4, y: y))
+            frame.origin.x += size.width + 8
+            frame.size.width -= size.width + 8
+        }
+        super.drawInterior(withFrame: frame, in: controlView)
+    }
+}
+
 // MARK: - Filterable Header View Delegate
 
 protocol FilterableHeaderViewDelegate: AnyObject {
@@ -24,6 +48,14 @@ class FilterableHeaderView: NSTableHeaderView {
 
     /// Sort directions per column identifier, pushed by sort controller.
     var sortDirections: [String: ResultsSortController.SortDirection] = [:] {
+        didSet {
+            updateSortCellIndicators()
+            needsDisplay = true
+        }
+    }
+
+    /// Column indices to highlight with a grey background (for cell selection).
+    var highlightedColumnIndices: IndexSet = IndexSet() {
         didSet { needsDisplay = true }
     }
 
@@ -113,8 +145,21 @@ class FilterableHeaderView: NSTableHeaderView {
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
+        // Draw column highlights BEFORE super so header cell text renders on top
+        if let tableView = tableView, !highlightedColumnIndices.isEmpty {
+            for colIndex in highlightedColumnIndices {
+                guard colIndex < tableView.tableColumns.count else { continue }
+                let colId = tableView.tableColumns[colIndex].identifier.rawValue
+                guard colId != "__rownum__" else { continue }
+                let headerRect = self.headerRect(ofColumn: colIndex)
+                NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+                headerRect.fill()
+            }
+        }
+
         super.draw(dirtyRect)
 
+        // Filter icons drawn AFTER super (topmost visual element)
         guard let tableView = tableView else { return }
 
         for (colIndex, column) in tableView.tableColumns.enumerated() {
@@ -123,25 +168,6 @@ class FilterableHeaderView: NSTableHeaderView {
 
             let headerRect = self.headerRect(ofColumn: colIndex)
 
-            // Draw sort indicator on LEFT (always visible when sort is active on this column)
-            if let sortDir = sortDirections[colId] {
-                let symbolName = sortDir == .ascending ? "chevron.up" : "chevron.down"
-                let sortRect = sortIconRect(inHeaderRect: headerRect)
-                if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Sort")?
-                    .withSymbolConfiguration(.init(pointSize: iconSize, weight: .medium)) {
-                    let tinted = image.tinted(with: .secondaryLabelColor)
-                    let imageSize = tinted.size
-                    let drawRect = NSRect(
-                        x: sortRect.midX - imageSize.width / 2,
-                        y: sortRect.midY - imageSize.height / 2,
-                        width: imageSize.width,
-                        height: imageSize.height
-                    )
-                    tinted.draw(in: drawRect)
-                }
-            }
-
-            // Draw filter icon on RIGHT (on hover or when active -- existing logic)
             let isActive = activeFilterColumns.contains(colId)
             let isHovered = colIndex == hoveredColumnIndex
             guard isActive || isHovered else { continue }
@@ -167,17 +193,22 @@ class FilterableHeaderView: NSTableHeaderView {
         }
     }
 
-    // MARK: - Geometry
+    // MARK: - Sort Cell Indicators
 
-    private func sortIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
-        let side = iconSize + iconPadding * 2
-        return NSRect(
-            x: headerRect.minX + 2,
-            y: headerRect.midY - side / 2,
-            width: side,
-            height: side
-        )
+    private func updateSortCellIndicators() {
+        guard let tv = tableView else { return }
+        for col in tv.tableColumns {
+            guard let cell = col.headerCell as? SortAwareHeaderCell else { continue }
+            let colId = col.identifier.rawValue
+            if let dir = sortDirections[colId] {
+                cell.sortIndicator = dir == .ascending ? "▲" : "▼"
+            } else {
+                cell.sortIndicator = nil
+            }
+        }
     }
+
+    // MARK: - Geometry
 
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2

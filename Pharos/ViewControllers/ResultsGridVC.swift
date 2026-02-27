@@ -96,7 +96,7 @@ class ResultsGridVC: NSViewController {
         tableView.rowHeight = 22
         tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
         tableView.gridColor = .separatorColor
-        tableView.intercellSpacing = NSSize(width: 8, height: 0)
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
 
         cellSelectionController = CellSelectionController()
@@ -435,7 +435,9 @@ class ResultsGridVC: NSViewController {
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]
             ))
-            col.headerCell.attributedStringValue = attrStr
+            let headerCell = SortAwareHeaderCell()
+            headerCell.attributedStringValue = attrStr
+            col.headerCell = headerCell
             col.sortDescriptorPrototype = NSSortDescriptor(key: colDef.name, ascending: true)
             tableView.addTableColumn(col)
         }
@@ -599,18 +601,29 @@ class ResultsGridVC: NSViewController {
     // MARK: - Cell Selection
 
     func cellSelectionDidChange(_ state: CellSelectionState) {
-        // Push to data source for rendering
-        dataSource.cellSelection = state
-        // Push to copy/export for cell-range-aware copy
-        copyExport.cellSelection = state
-        // Reload table to update cell highlights
-        tableView.reloadData()
-        // Update NSTableView row selection for inspector integration
-        let rowIndices = state.selectedRowIndices()
-        if rowIndices.isEmpty {
+        if state.isRowMode {
+            dataSource.cellSelection = nil
+            copyExport.cellSelection = nil
+            tableView.reloadData()
+            tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
+            filterableHeaderView.highlightedColumnIndices = IndexSet()
+            filterableHeaderView.needsDisplay = true
+        } else if state.selectedRange != nil {
+            dataSource.cellSelection = state
+            copyExport.cellSelection = state
             tableView.deselectAll(nil)
+            dataSource.updateVisibleCellSelectionAppearance()
+            onSelectionChanged?(state.selectedRowIndices())
+            filterableHeaderView.highlightedColumnIndices = state.selectedColumnIndices
+            filterableHeaderView.needsDisplay = true
         } else {
-            tableView.selectRowIndexes(rowIndices, byExtendingSelection: false)
+            dataSource.cellSelection = nil
+            copyExport.cellSelection = nil
+            tableView.deselectAll(nil)
+            dataSource.updateVisibleCellSelectionAppearance()
+            onSelectionChanged?(IndexSet())
+            filterableHeaderView.highlightedColumnIndices = IndexSet()
+            filterableHeaderView.needsDisplay = true
         }
     }
 

@@ -21,9 +21,11 @@ private class ResultCellView: NSTableCellView {
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
-            // Always use our custom text color -- cell selection highlighting
-            // is done via layer backgrounds, not the system's row selection style.
-            textField?.textColor = normalTextColor
+            // In row mode, NSTableView sets .emphasized → use white text on blue.
+            // In cell mode we never call selectRowIndexes, so .emphasized is never set.
+            textField?.textColor = backgroundStyle == .emphasized
+                ? .alternateSelectedControlTextColor
+                : normalTextColor
         }
     }
 }
@@ -84,8 +86,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.addSubview(textField)
             cell.textField = textField
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
         }
@@ -126,41 +128,60 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.layer?.backgroundColor = nil
         }
 
-        // Cell selection highlighting
-        if let selection = cellSelection, let tableColumn = tableColumn {
-            let colIndex = tableView.column(withIdentifier: tableColumn.identifier)
-            if colIndex >= 0 {
-                let pos = CellPosition(row: row, column: colIndex)
-                if selection.contains(pos) {
-                    // Range fill (only if find didn't already set a background)
-                    if cell.layer?.backgroundColor == nil {
-                        cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor
-                            .withAlphaComponent(0.15).cgColor
-                    }
-                    // Active cell (cursor) gets a prominent border
-                    if pos == selection.active {
-                        cell.layer?.borderWidth = 2
-                        cell.layer?.borderColor = NSColor.controlAccentColor.cgColor
-                    } else {
-                        cell.layer?.borderWidth = 0
-                        cell.layer?.borderColor = nil
-                    }
-                } else {
-                    // Not in selection -- clear stale highlights (preserve find highlights)
-                    if !(isFindVisible && !findMatchSet.isEmpty) {
-                        cell.layer?.backgroundColor = nil
-                    }
-                    cell.layer?.borderWidth = 0
-                    cell.layer?.borderColor = nil
-                }
+        // Clear stale borders from recycled cells
+        cell.layer?.borderWidth = 0
+        cell.layer?.borderColor = nil
+
+        // Cell selection: blue fill + white text (overlay handles intercell gaps + border)
+        let colIndex = tableColumn.map { tableView.column(withIdentifier: $0.identifier) } ?? -1
+        if let selection = cellSelection, selection.contains(CellPosition(row: row, column: colIndex)) {
+            let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
+                && (findMatchSet.contains(CellAddress(row: row, colId: colId.rawValue))
+                    || (currentMatchRow == row && currentMatchColId == colId.rawValue))
+            if !isFindHighlighted {
+                cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
+                cell.normalTextColor = .white
+                cell.textField?.textColor = .white
             }
-        } else {
-            // No cell selection active -- clear borders
-            cell.layer?.borderWidth = 0
-            cell.layer?.borderColor = nil
         }
 
         return cell
+    }
+
+    // MARK: - Cell Selection Fast Path
+
+    /// Iterates visible cells and updates fill + text color for cell selection
+    /// without calling reloadData(). Used during drag for smooth updates.
+    func updateVisibleCellSelectionAppearance() {
+        let visibleRows = tableView.rows(in: tableView.visibleRect)
+        guard visibleRows.length > 0 else { return }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+
+        for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
+            for colIdx in 0..<tableView.numberOfColumns {
+                guard let cell = tableView.view(atColumn: colIdx, row: row, makeIfNecessary: false) as? ResultCellView else { continue }
+                let colId = tableView.tableColumns[colIdx].identifier.rawValue
+                let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
+                    && (findMatchSet.contains(CellAddress(row: row, colId: colId))
+                        || (currentMatchRow == row && currentMatchColId == colId))
+
+                if let selection = cellSelection, selection.contains(CellPosition(row: row, column: colIdx)) {
+                    if !isFindHighlighted {
+                        cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
+                        cell.textField?.textColor = .white
+                    }
+                } else {
+                    if !isFindHighlighted {
+                        cell.layer?.backgroundColor = nil
+                    }
+                    cell.textField?.textColor = cell.normalTextColor
+                }
+            }
+        }
+
+        CATransaction.commit()
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
