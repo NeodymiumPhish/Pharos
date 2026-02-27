@@ -12,6 +12,11 @@ protocol ResultsSortControllerDelegate: AnyObject {
 // MARK: - ResultsSortController
 
 class ResultsSortController: NSObject {
+
+    enum SortDirection {
+        case ascending, descending
+    }
+
     private let tableView: NSTableView
     private let resetSortButton: NSButton
 
@@ -19,6 +24,9 @@ class ResultsSortController: NSObject {
     private(set) var currentSortColumn: String?
     private var currentSortAscending = true
     private var sortClickCount = 0
+
+    /// Sort direction per column identifier, for header view drawing.
+    private(set) var sortDirections: [String: SortDirection] = [:]
 
     weak var delegate: ResultsSortControllerDelegate?
 
@@ -128,7 +136,9 @@ class ResultsSortController: NSObject {
     func clearSortState() {
         currentSortColumn = nil
         sortClickCount = 0
+        sortDirections.removeAll()
         resetSortButton.isHidden = true
+        (tableView.headerView as? FilterableHeaderView)?.sortDirections = [:]
     }
 
     // MARK: - Re-apply After Data Change
@@ -142,16 +152,16 @@ class ResultsSortController: NSObject {
     // MARK: - Sort Indicators
 
     private func updateSortIndicators() {
-        for col in tableView.tableColumns {
-            if col.identifier.rawValue == currentSortColumn {
-                let symbolName = currentSortAscending ? "chevron.up" : "chevron.down"
-                let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-                    .withSymbolConfiguration(.init(pointSize: 8, weight: .medium))
-                tableView.setIndicatorImage(image, in: col)
-            } else {
-                tableView.setIndicatorImage(nil, in: col)
-            }
+        sortDirections.removeAll()
+        if let col = currentSortColumn {
+            sortDirections[col] = currentSortAscending ? .ascending : .descending
         }
+        // Clear any old indicator images (we now draw manually in the header view)
+        for col in tableView.tableColumns {
+            tableView.setIndicatorImage(nil, in: col)
+        }
+        // Trigger header view redraw
+        (tableView.headerView as? FilterableHeaderView)?.sortDirections = sortDirections
     }
 
     // MARK: - Numeric Helpers

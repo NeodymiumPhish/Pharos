@@ -56,3 +56,15 @@
 | 11. Build Pipeline | v2.0 | 2/2 | Complete | 2026-02-26 |
 | 12. Documentation | v2.0 | 2/2 | Complete | 2026-02-27 |
 | 13. Release | v2.0 | 1/1 | Complete | 2026-02-27 |
+
+### Phase 1: Fix results grid column sort/filter and cell selection
+
+**Goal:** Cell-based selection, column header redesign with sort/filter, and copy from cell range
+**Requirements**: Cell selection, keyboard navigation, sort/filter header layout, TSV copy
+**Depends on:** Phase 10 (Column Filters)
+**Plans:** 3 plans
+
+Plans:
+- [x] Plan 01: Cell Selection (2/2 tasks) -- completed 2026-02-27
+- [ ] Plan 02: Header Redesign (sort left, filter right, auto-fit)
+- [ ] Plan 03: TSV Copy from Cell Range
