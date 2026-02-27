@@ -4,20 +4,26 @@ import AppKit
 
 protocol FilterableHeaderViewDelegate: AnyObject {
     func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect)
+    func headerView(_ headerView: FilterableHeaderView, didDoubleClickResizeForColumn columnIndex: Int)
 }
 
 // MARK: - FilterableHeaderView
 
-/// Custom NSTableHeaderView that draws a filter icon in each column header's trailing edge.
-/// - Hidden by default
-/// - Shown on hover (tertiary color)
-/// - Always shown when active filter (accent color, filled icon)
+/// Custom NSTableHeaderView that draws sort and filter indicators in each column header.
+/// - Sort chevron on the LEFT side of the column name (always visible when sort active)
+/// - Filter icon on the RIGHT side (shown on hover or when filter active)
+/// - Double-click on column right edge triggers auto-fit
 class FilterableHeaderView: NSTableHeaderView {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
+        didSet { needsDisplay = true }
+    }
+
+    /// Sort directions per column identifier, pushed by sort controller.
+    var sortDirections: [String: ResultsSortController.SortDirection] = [:] {
         didSet { needsDisplay = true }
     }
 
@@ -70,8 +76,16 @@ class FilterableHeaderView: NSTableHeaderView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let colIndex = column(at: point)
 
+        // Detect double-click near column right edge for auto-fit
+        if event.clickCount == 2 {
+            if let resizeColIndex = columnIndexForResizeEdge(at: point) {
+                filterDelegate?.headerView(self, didDoubleClickResizeForColumn: resizeColIndex)
+                return
+            }
+        }
+
+        let colIndex = column(at: point)
         guard colIndex >= 0, let tableView = tableView else {
             super.mouseDown(with: event)
             return
@@ -91,6 +105,7 @@ class FilterableHeaderView: NSTableHeaderView {
         if iconRect.contains(point) {
             filterDelegate?.headerView(self, didClickFilterForColumn: column, at: iconRect)
         } else {
+            // Header text/sort icon click -> triggers sort via super (sortDescriptorPrototype)
             super.mouseDown(with: event)
         }
     }
@@ -107,21 +122,38 @@ class FilterableHeaderView: NSTableHeaderView {
             guard colId != "__rownum__" else { continue }
 
             let headerRect = self.headerRect(ofColumn: colIndex)
+
+            // Draw sort indicator on LEFT (always visible when sort is active on this column)
+            if let sortDir = sortDirections[colId] {
+                let symbolName = sortDir == .ascending ? "chevron.up" : "chevron.down"
+                let sortRect = sortIconRect(inHeaderRect: headerRect)
+                if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Sort")?
+                    .withSymbolConfiguration(.init(pointSize: iconSize, weight: .medium)) {
+                    let tinted = image.tinted(with: .secondaryLabelColor)
+                    let imageSize = tinted.size
+                    let drawRect = NSRect(
+                        x: sortRect.midX - imageSize.width / 2,
+                        y: sortRect.midY - imageSize.height / 2,
+                        width: imageSize.width,
+                        height: imageSize.height
+                    )
+                    tinted.draw(in: drawRect)
+                }
+            }
+
+            // Draw filter icon on RIGHT (on hover or when active -- existing logic)
             let isActive = activeFilterColumns.contains(colId)
             let isHovered = colIndex == hoveredColumnIndex
-
             guard isActive || isHovered else { continue }
 
             let iconRect = filterIconRect(inHeaderRect: headerRect)
             let symbolName = isActive
                 ? "line.3.horizontal.decrease.circle.fill"
                 : "line.3.horizontal.decrease.circle"
-
             let tintColor: NSColor = isActive ? .controlAccentColor : .tertiaryLabelColor
 
             if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Filter")?
                 .withSymbolConfiguration(.init(pointSize: iconSize, weight: .medium)) {
-
                 let tinted = image.tinted(with: tintColor)
                 let imageSize = tinted.size
                 let drawRect = NSRect(
@@ -137,6 +169,16 @@ class FilterableHeaderView: NSTableHeaderView {
 
     // MARK: - Geometry
 
+    private func sortIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
+        let side = iconSize + iconPadding * 2
+        return NSRect(
+            x: headerRect.minX + 2,
+            y: headerRect.midY - side / 2,
+            width: side,
+            height: side
+        )
+    }
+
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
         return NSRect(
@@ -145,6 +187,19 @@ class FilterableHeaderView: NSTableHeaderView {
             width: side,
             height: side
         )
+    }
+
+    /// Returns the column index to auto-fit if the point is near a column's right edge (~4px).
+    private func columnIndexForResizeEdge(at point: NSPoint) -> Int? {
+        guard let tableView = tableView else { return nil }
+        let threshold: CGFloat = 4
+        for (index, _) in tableView.tableColumns.enumerated() {
+            let rect = headerRect(ofColumn: index)
+            if abs(point.x - rect.maxX) <= threshold {
+                return index
+            }
+        }
+        return nil
     }
 }
 
