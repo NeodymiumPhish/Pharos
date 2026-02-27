@@ -20,7 +20,7 @@ pub async fn load_query_history(
     offset: Option<i64>,
     state: &AppState,
 ) -> Result<Vec<QueryHistoryEntry>, String> {
-    let db = state.metadata_db.lock().unwrap();
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
     let entries = sqlite::load_query_history(
         &db,
         connection_id.as_deref(),
@@ -38,7 +38,7 @@ pub async fn delete_query_history_entry(
     entry_id: String,
     state: &AppState,
 ) -> Result<bool, String> {
-    let db = state.metadata_db.lock().unwrap();
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
     sqlite::delete_query_history_entry(&db, &entry_id)
         .map_err(|e| format!("Failed to delete history entry: {}", e))
 }
@@ -48,7 +48,7 @@ pub async fn batch_delete_query_history_entries(
     ids: Vec<String>,
     state: &AppState,
 ) -> Result<usize, String> {
-    let db = state.metadata_db.lock().unwrap();
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
     sqlite::batch_delete_query_history_entries(&db, &ids)
         .map_err(|e| format!("Failed to batch delete history entries: {}", e))
 }
@@ -58,7 +58,7 @@ pub async fn get_query_history_result(
     entry_id: String,
     state: &AppState,
 ) -> Result<Option<QueryHistoryResultData>, String> {
-    let db = state.metadata_db.lock().unwrap();
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
     let result = sqlite::get_query_history_result(&db, &entry_id)
         .map_err(|e| format!("Failed to load history result: {}", e))?;
 

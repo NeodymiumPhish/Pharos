@@ -50,7 +50,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private static func appSupportDirectory() -> String {
         let fm = FileManager.default
         let urls = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-        let dir = urls.first!.appendingPathComponent("com.pharos.client")
+        guard let baseURL = urls.first else {
+            return fm.temporaryDirectory.path
+        }
+        let dir = baseURL.appendingPathComponent("com.pharos.client")
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.path
     }

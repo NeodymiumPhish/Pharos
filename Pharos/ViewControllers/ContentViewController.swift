@@ -109,11 +109,6 @@ class ContentViewController: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateVisibility()
-                // Load metadata when connection transitions to .connected
-                if let id = self?.stateManager.activeConnectionId,
-                   self?.stateManager.status(for: id) == .connected {
-                    self?.metadataCache.load(connectionId: id)
-                }
             }
             .store(in: &cancellables)
 

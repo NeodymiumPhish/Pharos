@@ -91,9 +91,11 @@ class ResultsSortController: NSObject {
                 let dB = numericValue(valB)
                 result = dA < dB
             case .boolean:
-                let bA = (valA?.value as? Bool) ?? false
-                let bB = (valB?.value as? Bool) ?? false
-                result = !bA && bB // false < true
+                let sA = (valA?.value as? Bool).map { $0 ? "t" : "f" }
+                    ?? (valA?.value as? String) ?? ""
+                let sB = (valB?.value as? Bool).map { $0 ? "t" : "f" }
+                    ?? (valB?.value as? String) ?? ""
+                result = sA < sB // "f" < "t"
             default:
                 let sA = valA?.displayString ?? ""
                 let sB = valB?.displayString ?? ""

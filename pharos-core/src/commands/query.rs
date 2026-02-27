@@ -8,6 +8,32 @@ use crate::db::sqlite;
 use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
 
+/// Validate and set the search_path on a connection for a given schema.
+/// Validates: ASCII alphanumeric + `_` + `-`, 1-63 chars. Escapes `"` as `""`.
+pub(crate) async fn set_search_path(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    schema_name: &str,
+) -> Result<(), String> {
+    if schema_name.is_empty() || schema_name.len() > 63 {
+        return Err("Invalid schema name: must be 1-63 characters".to_string());
+    }
+    if !schema_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(
+            "Invalid schema name: only letters, numbers, underscores, and hyphens allowed"
+                .to_string(),
+        );
+    }
+    let escaped = schema_name.replace('"', "\"\"");
+    sqlx::query(&format!("SET search_path TO \"{}\", public", escaped))
+        .execute(&mut **conn)
+        .await
+        .map_err(|e| format!("Failed to set schema: {}", e))?;
+    Ok(())
+}
+
 /// Format a database error, preserving PostgreSQL's character position if available.
 /// sqlx's `.to_string()` drops the position field; this re-extracts it from PgDatabaseError.
 fn format_db_error(e: &sqlx::Error) -> String {
@@ -69,21 +95,7 @@ pub async fn execute_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        // Strict validation: allow alphanumeric, underscores, and hyphens
-        // PostgreSQL allows these in quoted identifiers
-        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name: only letters, numbers, underscores, and hyphens allowed".to_string());
-        }
-        if schema_name.is_empty() || schema_name.len() > 63 {
-            return Err("Invalid schema name: must be 1-63 characters".to_string());
-        }
-        // Use double-quote escaping for the identifier (escape any " as "")
-        let escaped_schema = schema_name.replace('"', "\"\"");
-        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
-        sqlx::query(&set_schema_sql)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| format!("Failed to set schema: {}", e))?;
+        set_search_path(&mut conn, schema_name).await?;
     }
 
     // Use simple query protocol (text format) — PostgreSQL formats all values as text,
@@ -257,18 +269,7 @@ pub async fn fetch_more_rows(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name".to_string());
-        }
-        if schema_name.is_empty() || schema_name.len() > 63 {
-            return Err("Invalid schema name: must be 1-63 characters".to_string());
-        }
-        let escaped_schema = schema_name.replace('"', "\"\"");
-        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
-        sqlx::query(&set_schema_sql)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| format!("Failed to set schema: {}", e))?;
+        set_search_path(&mut conn, schema_name).await?;
     }
 
     // Wrap the original SQL with LIMIT/OFFSET
@@ -366,18 +367,7 @@ pub async fn execute_statement(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name: only letters, numbers, underscores, and hyphens allowed".to_string());
-        }
-        if schema_name.is_empty() || schema_name.len() > 63 {
-            return Err("Invalid schema name: must be 1-63 characters".to_string());
-        }
-        let escaped_schema = schema_name.replace('"', "\"\"");
-        let set_schema_sql = format!("SET search_path TO \"{}\", public", escaped_schema);
-        sqlx::query(&set_schema_sql)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| format!("Failed to set schema: {}", e))?;
+        set_search_path(&mut conn, schema_name).await?;
     }
 
     let result = sqlx::query(&sql)
@@ -502,14 +492,7 @@ pub async fn validate_sql(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = schema {
-        if !schema_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name".to_string());
-        }
-        let set_schema_sql = format!("SET search_path TO \"{}\", public", schema_name);
-        sqlx::query(&set_schema_sql)
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| e.to_string())?;
+        set_search_path(&mut conn, schema_name).await?;
     }
 
     // Generate a unique prepared statement name

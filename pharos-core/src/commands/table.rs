@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
+use crate::commands::query::set_search_path;
 use crate::db::postgres;
 use crate::state::AppState;
 
@@ -793,17 +794,7 @@ pub async fn export_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = options.schema {
-        if !schema_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-            return Err("Invalid schema name".to_string());
-        }
-        if schema_name.is_empty() || schema_name.len() > 63 {
-            return Err("Invalid schema name: must be 1-63 characters".to_string());
-        }
-        let escaped = schema_name.replace('"', "\"\"");
-        sqlx::query(&format!("SET search_path TO \"{}\", public", escaped))
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| format!("Failed to set schema: {}", e))?;
+        set_search_path(&mut conn, schema_name).await?;
     }
 
     let batch_size: i64 = 5000;
@@ -1066,7 +1057,8 @@ fn validate_identifier(name: &str) -> Result<(), String> {
 
     // Strict whitelist: ASCII alphanumeric, underscores, and hyphens
     // First character must be a letter, underscore, or hyphen (PostgreSQL allows this in quoted identifiers)
-    let first_char = name.chars().next().unwrap();
+    let first_char = name.chars().next()
+        .ok_or_else(|| "Identifier cannot be empty".to_string())?;
     if !first_char.is_ascii_alphabetic() && first_char != '_' && first_char != '-' {
         return Err(format!("Invalid identifier '{}': must start with a letter, underscore, or hyphen", name));
     }
