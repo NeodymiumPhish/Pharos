@@ -28,6 +28,8 @@ Pharos is a native macOS PostgreSQL client built with Swift and Rust. It provide
 - **[Query Editor](query-editor.md)** -- Write SQL with syntax highlighting, auto-completion, and bracket matching
 - **[Query Execution](query-execution.md)** -- Run queries with cancellation support and paginated results
 - **[Results Grid](results-grid.md)** -- View results in a native table with sorting, find, and filter
+- **[Inspector](inspector.md)** -- View detailed row data and multi-row aggregate statistics
+- **[Column Filters](column-filters.md)** -- Filter results by column with type-aware operators
 - **[Data Export](data-export.md)** -- Copy and export data in multiple formats including CSV, JSON, and Excel
 - **[Saved Queries](saved-queries.md)** -- Organize and reuse queries with folder-based organization
 - **[Query History](query-history.md)** -- Browse and revisit previously executed queries
