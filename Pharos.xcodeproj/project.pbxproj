@@ -35,6 +35,7 @@
 		65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028712E3F9210287025ADAE8 /* AppStateManager.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
+		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
 		9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */; };
@@ -71,6 +72,7 @@
 /* Begin PBXFileReference section */
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
+		06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCellSelection.swift; sourceTree = "<group>"; };
 		080E74E651B82BE21F196DDC /* ImportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportDataSheet.swift; sourceTree = "<group>"; };
 		0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaBrowserVC.swift; sourceTree = "<group>"; };
 		0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTab.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 			children = (
 				6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */,
 				D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */,
+				06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */,
 				745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */,
 				F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */,
 				D662512D7219078869005EED /* ResultsDataSource.swift */,
@@ -425,6 +428,7 @@
 				313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */,
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
 				E5A5D43ABE9FA6D326341B5C /* QueryTabBar.swift in Sources */,
+				8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */,
 				D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */,
 				9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */,
 				325C5B2F6705581E09653999 /* ResultsDataSource.swift in Sources */,
