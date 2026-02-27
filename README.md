@@ -1,62 +1,54 @@
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Pharos">
+  <img src="docs/assets/images/pharos-logo.png" width="128" height="128" alt="Pharos">
 </p>
 
 <h1 align="center">Pharos</h1>
 
-<p align="center">A PostgreSQL client for macOS.</p>
+<p align="center">A native macOS PostgreSQL client built with Swift and Rust.</p>
 
 ---
 
-Pharos is a native macOS database client built with Tauri v2 and Rust. It's designed to be fast, stay out of your way, and handle the things you actually need a database client to do.
-
 ## Install
 
+Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/releases/latest). The app is unsigned -- after extracting, run:
+
 ```
-brew tap NeodymiumPhish/Pharos
-brew install pharos
+xattr -c Pharos.app
 ```
 
-Or grab a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/releases). - This method requires running `xattr -c Pharos.app` to get around Mac's unsigned application security measure.
+Requires macOS 14.0 (Sonoma) or later. Supports PostgreSQL 10+ servers.
 
-Requires macOS 10.15+. Supports PostgreSQL 10+ servers.
+## Features
 
-## What it does
+- **Schema browser** -- Tree view with tables, views, foreign tables, functions, indexes, and constraints. Search bar, row count estimates, table sizes, and context menus (view rows, clone, import, export, copy DDL).
+- **SQL editor** -- Syntax highlighting, schema-aware autocomplete, bracket matching, and multi-tab support.
+- **Query execution** -- Run and cancel queries with paginated results.
+- **Results grid** -- Native table with click-to-sort columns, find-in-results, and display options for grid lines, row numbers, zebra striping, and NULL format.
+- **Inspector** -- Single-row detail view and multi-row aggregation with type-aware statistics.
+- **Column filters** -- Per-column filter popovers with type-specific operators (text, numeric, boolean, null).
+- **Data export** -- Export results or full tables to CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, or XLSX.
+- **Data import** -- Import CSV files with automatic type inference.
+- **Saved queries** -- Organize queries into folders with drag-and-drop.
+- **Query history** -- Search and browse past queries with date grouping.
+- **Connections** -- SSL support (disable/prefer/require), color-coded server icons, and Keychain password storage.
+- **Settings** -- Theme, font, tab size, word wrap, and row limit configuration.
 
-**Schema browser** — Expandable tree with tables, views, foreign tables, functions, indexes, and constraints. Row count estimates, table sizes, and a search bar. Right-click for context menus (view rows, clone, import, export, copy DDL).
+## Build from Source
 
-**Query editor** — Monaco-based editor with PostgreSQL syntax highlighting, schema-aware autocomplete, live SQL validation, and auto-formatting. Multi-tab support with `Cmd+T`/`Cmd+W` and `Cmd+1`–`Cmd+9` tab switching.
-
-**Results grid** — Virtualized scrolling, click-to-sort columns, column filtering (text, numeric, boolean, null), find-in-results (`Cmd+F`), cell copy, and an aggregates footer. Display options for wrap, grid lines, row numbers, zebra striping, and configurable NULL format.
-
-**EXPLAIN visualization** — Run `EXPLAIN` or `EXPLAIN ANALYZE` and get an interactive plan tree with cost bars, timing breakdowns, buffer stats, and row estimate accuracy warnings. Toggle to raw JSON when you need it.
-
-**Data export** — Export results or full tables to CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, or XLSX.
-
-**Inline editing** — Edit cells and delete rows directly in the results grid for single-table queries with a primary key. Changes are staged and committed in a transaction.
-
-**Query library** — Save queries into folders, drag-and-drop to reorganize. Full query history with search, date grouping, and cached result replay.
-
-**Connections** — SSL support (disable/prefer/require), color-coded server icons, connection testing with latency display.
-
-## Build from source
+Requires macOS 14.0+, Xcode 16+, and a [Rust toolchain](https://rustup.rs).
 
 ```
 git clone https://github.com/NeodymiumPhish/Pharos.git
 cd Pharos
-npm install
-npm run tauri dev
+cd pharos-core && cargo build --release && cd ..
+open Pharos.xcodeproj
 ```
 
-Production build:
-
-```
-npm run tauri build
-```
+Build and run with **Cmd+R** in Xcode.
 
 ## Stack
 
-Tauri v2 / Rust / sqlx / React 19 / Zustand / Monaco Editor / TanStack Virtual / SQLite (local storage)
+AppKit / Swift / Rust / sqlx / cbindgen / SQLite
 
 ## Docs
 
@@ -64,4 +56,4 @@ Full documentation at **[neodymiumphish.github.io/Pharos](https://neodymiumphish
 
 ## License
 
-[MIT with Non-Commercial Clause](LICENSE) — free to use, modify, and distribute, but the software and derivatives may not be sold or commercially monetized without permission.
+[MIT with Non-Commercial Clause](LICENSE) -- free to use, modify, and distribute, but the software and derivatives may not be sold or commercially monetized without permission.
