@@ -118,6 +118,10 @@ extension ResultsGridVC: ColumnFilterPopoverDelegate {
 // MARK: - FilterableHeaderViewDelegate
 
 extension ResultsGridVC: FilterableHeaderViewDelegate {
+    func headerView(_ headerView: FilterableHeaderView, didDoubleClickResizeForColumn columnIndex: Int) {
+        autoFitColumn(at: columnIndex)
+    }
+
     func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect) {
         let colName = column.identifier.rawValue
         let category = columnCategories[colName] ?? .string

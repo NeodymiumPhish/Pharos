@@ -5,7 +5,7 @@ import AppKit
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
 class ResultsGridVC: NSViewController {
 
-    let tableView = NSTableView()
+    let tableView = ResultsTableView()
     let scrollView = InsetScrollView()
     private let emptyLabel = NSTextField(labelWithString: "Run a query to see results")
 
@@ -16,6 +16,7 @@ class ResultsGridVC: NSViewController {
     var sortController: ResultsSortController!
     var columnFilterController: ResultsColumnFilterController!
     var filterableHeaderView: FilterableHeaderView!
+    var cellSelectionController: CellSelectionController!
 
     // Toolbar
     let toolbarBar = NSView()
@@ -97,6 +98,13 @@ class ResultsGridVC: NSViewController {
         tableView.gridColor = .separatorColor
         tableView.intercellSpacing = NSSize(width: 8, height: 0)
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
+
+        cellSelectionController = CellSelectionController()
+        cellSelectionController.tableView = tableView
+        cellSelectionController.onChange = { [weak self] state in
+            self?.cellSelectionDidChange(state)
+        }
+        tableView.cellSelectionController = cellSelectionController
 
         copyExport = ResultsCopyExport(tableView: tableView, copyButton: copyButton, exportButton: exportButton)
         copyExport.delegate = self
@@ -191,6 +199,8 @@ class ResultsGridVC: NSViewController {
         filterableHeaderView.activeFilterColumns = []
         resetFiltersButton.isHidden = true
         sortController.clearSortState()
+
+        cellSelectionController.clear()
 
         rebuildColumns()
         pushDataToHelpers()
@@ -321,6 +331,7 @@ class ResultsGridVC: NSViewController {
         filterableHeaderView.activeFilterColumns = []
         resetFiltersButton.isHidden = true
         sortController.clearSortState()
+        cellSelectionController.clear()
 
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
@@ -397,7 +408,7 @@ class ResultsGridVC: NSViewController {
             col.title = colDef.name
             col.width = estimateColumnWidth(colDef)
             col.minWidth = 50
-            col.maxWidth = 600
+            col.maxWidth = 720
 
             let attrStr = NSMutableAttributedString(
                 string: colDef.name,
@@ -490,7 +501,7 @@ class ResultsGridVC: NSViewController {
         if findController.isFindVisible {
             findController.closeFind(nil)
         } else {
-            tableView.deselectAll(nil)
+            cellSelectionController.clear()
         }
     }
 
@@ -567,6 +578,64 @@ class ResultsGridVC: NSViewController {
         dataSource.findMatchSet = matchSet
         dataSource.currentMatchRow = currentMatchRow
         dataSource.currentMatchColId = currentMatchColId
+    }
+
+    // MARK: - Cell Selection
+
+    func cellSelectionDidChange(_ state: CellSelectionState) {
+        // Push to data source for rendering
+        dataSource.cellSelection = state
+        // Reload table to update cell highlights
+        tableView.reloadData()
+        // Update NSTableView row selection for inspector integration
+        let rowIndices = state.selectedRowIndices()
+        if rowIndices.isEmpty {
+            tableView.deselectAll(nil)
+        } else {
+            tableView.selectRowIndexes(rowIndices, byExtendingSelection: false)
+        }
+    }
+
+    // MARK: - Auto-Fit Column
+
+    func autoFitColumn(at columnIndex: Int) {
+        guard columnIndex >= 0, columnIndex < tableView.tableColumns.count else { return }
+        let column = tableView.tableColumns[columnIndex]
+        let colId = column.identifier.rawValue
+        guard colId != "__rownum__" else { return }
+
+        // Measure header text width
+        let headerWidth = column.headerCell.attributedStringValue
+            .size().width + 40  // Padding for sort+filter icons + margins
+
+        // Sample visible rows + first/last 100
+        let visibleRange = tableView.rows(in: tableView.visibleRect)
+        var sampleIndices = Set<Int>()
+        if visibleRange.length > 0 {
+            for i in visibleRange.location..<(visibleRange.location + visibleRange.length) {
+                sampleIndices.insert(i)
+            }
+        }
+        let totalRows = displayRows.count
+        for i in 0..<min(100, totalRows) { sampleIndices.insert(i) }
+        for i in max(0, totalRows - 100)..<totalRows { sampleIndices.insert(i) }
+
+        var maxWidth: CGFloat = headerWidth
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+
+        for rowIdx in sampleIndices {
+            guard rowIdx < displayRows.count else { continue }
+            let dataIdx = displayRows[rowIdx]
+            guard dataIdx < rows.count else { continue }
+            if let value = rows[dataIdx][colId] {
+                let text = value.displayString
+                let width = (text as NSString).size(withAttributes: attrs).width + 12
+                maxWidth = max(maxWidth, width)
+            }
+        }
+
+        column.width = min(max(maxWidth, column.minWidth), 720)
     }
 
     // MARK: - Formatting

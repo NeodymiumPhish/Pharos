@@ -21,9 +21,9 @@ private class ResultCellView: NSTableCellView {
 
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet {
-            textField?.textColor = backgroundStyle == .emphasized
-                ? .alternateSelectedControlTextColor
-                : normalTextColor
+            // Always use our custom text color -- cell selection highlighting
+            // is done via layer backgrounds, not the system's row selection style.
+            textField?.textColor = normalTextColor
         }
     }
 }
@@ -44,6 +44,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var findMatchSet: Set<CellAddress> = Set()
     var currentMatchRow: Int = -1
     var currentMatchColId: String?
+
+    // Cell selection state (pushed by VC)
+    var cellSelection: CellSelectionState?
 
     weak var delegate: ResultsDataSourceDelegate?
 
@@ -121,6 +124,40 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             }
         } else {
             cell.layer?.backgroundColor = nil
+        }
+
+        // Cell selection highlighting
+        if let selection = cellSelection, let tableColumn = tableColumn {
+            let colIndex = tableView.column(withIdentifier: tableColumn.identifier)
+            if colIndex >= 0 {
+                let pos = CellPosition(row: row, column: colIndex)
+                if selection.contains(pos) {
+                    // Range fill (only if find didn't already set a background)
+                    if cell.layer?.backgroundColor == nil {
+                        cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor
+                            .withAlphaComponent(0.15).cgColor
+                    }
+                    // Active cell (cursor) gets a prominent border
+                    if pos == selection.active {
+                        cell.layer?.borderWidth = 2
+                        cell.layer?.borderColor = NSColor.controlAccentColor.cgColor
+                    } else {
+                        cell.layer?.borderWidth = 0
+                        cell.layer?.borderColor = nil
+                    }
+                } else {
+                    // Not in selection -- clear stale highlights (preserve find highlights)
+                    if !(isFindVisible && !findMatchSet.isEmpty) {
+                        cell.layer?.backgroundColor = nil
+                    }
+                    cell.layer?.borderWidth = 0
+                    cell.layer?.borderColor = nil
+                }
+            }
+        } else {
+            // No cell selection active -- clear borders
+            cell.layer?.borderWidth = 0
+            cell.layer?.borderColor = nil
         }
 
         return cell
