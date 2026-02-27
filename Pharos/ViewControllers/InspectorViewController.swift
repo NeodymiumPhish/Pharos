@@ -122,6 +122,9 @@ class InspectorViewController: NSViewController {
 
             stackView.addArrangedSubview(keyLabel)
             stackView.addArrangedSubview(valueLabel)
+            valueLabel.translatesAutoresizingMaskIntoConstraints = false
+            valueLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            valueLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
             // Add spacer between column groups
             let spacer = NSView()
@@ -279,7 +282,6 @@ class InspectorViewController: NSViewController {
         let label = CopyableValueLabel(labelWithString: "")
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
-        label.preferredMaxLayoutWidth = 200
         label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
 
         guard let value else {
@@ -455,6 +457,13 @@ private class CopyableValueLabel: NSTextField {
     var copyableValue: String = ""
     private var savedAttributedString: NSAttributedString?
     private var restoreTimer: Timer?
+
+    override func layout() {
+        if preferredMaxLayoutWidth != bounds.width {
+            preferredMaxLayoutWidth = bounds.width
+        }
+        super.layout()
+    }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
