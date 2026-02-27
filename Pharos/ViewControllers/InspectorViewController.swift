@@ -282,6 +282,8 @@ class InspectorViewController: NSViewController {
         let label = CopyableValueLabel(labelWithString: "")
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.usesSingleLineMode = false
+        label.cell?.wraps = true
         label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
 
         guard let value else {
