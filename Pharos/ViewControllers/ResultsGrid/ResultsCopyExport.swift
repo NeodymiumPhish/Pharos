@@ -27,6 +27,9 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
     var displayRows: [Int] = []
     var columnCategories: [String: PGTypeCategory] = [:]
 
+    /// Cell selection state, pushed by the VC. When set, copy/export uses the cell range.
+    var cellSelection: CellSelectionState?
+
     weak var delegate: ResultsCopyExportDelegate?
 
     init(tableView: NSTableView, copyButton: NSButton, exportButton: NSButton) {
@@ -39,13 +42,44 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
     // MARK: - Selection Helper
 
     private var hasSelection: Bool {
-        !tableView.selectedRowIndexes.isEmpty
+        (cellSelection?.selectedRange != nil) || !tableView.selectedRowIndexes.isEmpty
     }
 
     // MARK: - Data Gathering
 
+    /// Gathers data from the selected cell range. Returns nil if no cell range is active.
+    private func gatherCellRangeData() -> CopyData? {
+        guard let selection = cellSelection, let range = selection.selectedRange else { return nil }
+
+        let columns = tableView.tableColumns
+        let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
+            guard idx >= 0, idx < columns.count else { return nil }
+            let id = columns[idx].identifier.rawValue
+            return id == "__rownum__" ? nil : id
+        }
+        guard !selectedColIds.isEmpty else { return nil }
+
+        var rowData: [[String]] = []
+        for row in range.topLeft.row...range.bottomRight.row {
+            guard row >= 0, row < displayRows.count else { continue }
+            let dataIdx = displayRows[row]
+            guard dataIdx < rows.count else { continue }
+            let data = rows[dataIdx]
+            let values = selectedColIds.map { data[$0]?.displayString ?? "" }
+            rowData.append(values)
+        }
+
+        guard !rowData.isEmpty else { return nil }
+        return CopyData(columnNames: selectedColIds, rows: rowData)
+    }
+
     /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
     func gatherData() -> CopyData? {
+        // If a cell range is selected, use that instead of row-based selection
+        if let cellRangeData = gatherCellRangeData() {
+            return cellRangeData
+        }
+
         let selectedRows = tableView.selectedRowIndexes
 
         let colIds = tableView.tableColumns.compactMap { col -> String? in

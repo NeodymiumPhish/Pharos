@@ -237,11 +237,14 @@ class ResultsGridVC: NSViewController {
             widths[col.identifier.rawValue] = col.width
         }
 
+        let order = tableView.tableColumns.map { $0.identifier.rawValue }
+
         let sortCol = sortController.currentSortColumn
         let sortAsc = tableView.sortDescriptors.first?.ascending ?? true
 
         return ResultsGridState(
             columnWidths: widths,
+            columnOrder: order,
             sortColumn: sortCol,
             sortAscending: sortAsc,
             columnFilters: columnFilterController.activeFilters,
@@ -252,6 +255,17 @@ class ResultsGridVC: NSViewController {
 
     /// Restores previously captured grid view state after `showResult()`.
     func restoreGridState(_ state: ResultsGridState) {
+        // 0. Column order
+        if let order = state.columnOrder {
+            for (targetIndex, colId) in order.enumerated() {
+                guard targetIndex < tableView.tableColumns.count else { continue }
+                if let currentIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == colId }),
+                   currentIndex != targetIndex {
+                    tableView.moveColumn(currentIndex, toColumn: targetIndex)
+                }
+            }
+        }
+
         // 1. Column widths
         for col in tableView.tableColumns {
             if let saved = state.columnWidths[col.identifier.rawValue] {
@@ -556,6 +570,7 @@ class ResultsGridVC: NSViewController {
     // MARK: - Copy (Forwarding)
 
     @objc func copy(_ sender: Any?) {
+        copyExport.cellSelection = cellSelectionController?.state
         copyExport.copy(sender)
     }
 
@@ -571,6 +586,7 @@ class ResultsGridVC: NSViewController {
         copyExport.rows = rows
         copyExport.displayRows = displayRows
         copyExport.columnCategories = columnCategories
+        copyExport.cellSelection = cellSelectionController?.state
     }
 
     func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {
@@ -585,6 +601,8 @@ class ResultsGridVC: NSViewController {
     func cellSelectionDidChange(_ state: CellSelectionState) {
         // Push to data source for rendering
         dataSource.cellSelection = state
+        // Push to copy/export for cell-range-aware copy
+        copyExport.cellSelection = state
         // Reload table to update cell highlights
         tableView.reloadData()
         // Update NSTableView row selection for inspector integration

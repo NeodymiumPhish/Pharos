@@ -3,6 +3,7 @@ import Foundation
 /// Snapshot of the results grid view state for a tab.
 struct ResultsGridState {
     var columnWidths: [String: CGFloat]
+    var columnOrder: [String]?  // Column identifiers in display order (nil = default)
     var sortColumn: String?
     var sortAscending: Bool
     var columnFilters: [String: ColumnFilter]
