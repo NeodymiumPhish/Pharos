@@ -11,17 +11,12 @@ extension Notification.Name {
 
 class SavedQueryNode: NSObject {
     enum Kind {
-        case section(String)     // "Connection: mydb" or "General"
         case folder(String)      // user-created folder
         case query(SavedQuery)   // saved query with SQL
     }
 
     let kind: Kind
     var children: [SavedQueryNode] = []
-    /// For section nodes: whether this is the connection section (true) or general (false).
-    var isConnectionSection = false
-    /// Cached parsed table display name (e.g. "users", "orders (+1)", or truncated SQL fallback).
-    var parsedTableDisplay: String?
 
     init(_ kind: Kind) {
         self.kind = kind
@@ -29,7 +24,6 @@ class SavedQueryNode: NSObject {
 
     var title: String {
         switch kind {
-        case .section(let name): return name
         case .folder(let name): return name
         case .query(let q): return q.name
         }
@@ -37,17 +31,23 @@ class SavedQueryNode: NSObject {
 
     var icon: NSImage? {
         switch kind {
-        case .section: return nil
         case .folder:
-            return NSImage(systemSymbolName: "folder", accessibilityDescription: "Folder")
+            return NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
         case .query:
-            return NSImage(systemSymbolName: "doc.text", accessibilityDescription: "Query")
+            return NSImage(systemSymbolName: "doc.text.fill", accessibilityDescription: "Query")
+        }
+    }
+
+    var tintColor: NSColor {
+        switch kind {
+        case .folder: return .systemBlue
+        case .query: return .systemIndigo
         }
     }
 
     var isExpandable: Bool {
         switch kind {
-        case .section, .folder: return true
+        case .folder: return true
         case .query: return false
         }
     }
@@ -64,7 +64,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     private var rootNodes: [SavedQueryNode] = []
     private var allQueries: [SavedQuery] = []
     private var filterText: String?
-    private(set) var activeConnectionId: String?
+    private var editingFolderNode: SavedQueryNode?
 
     /// Called when outline view selection changes. Bool indicates whether a query is selected.
     var onSelectionChanged: ((Bool) -> Void)?
@@ -91,25 +91,52 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        // Bottom bar with New Folder button
+        let bottomBar = NSView()
+        bottomBar.translatesAutoresizingMaskIntoConstraints = false
+
+        let newFolderButton = NSButton()
+        let folderConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        newFolderButton.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "New Folder")?.withSymbolConfiguration(folderConfig)
+        newFolderButton.bezelStyle = .recessed
+        newFolderButton.isBordered = false
+        newFolderButton.toolTip = "New Folder"
+        newFolderButton.target = self
+        newFolderButton.action = #selector(newFolderClicked)
+        newFolderButton.translatesAutoresizingMaskIntoConstraints = false
+        newFolderButton.contentTintColor = .secondaryLabelColor
+
+        bottomBar.addSubview(newFolderButton)
+        NSLayoutConstraint.activate([
+            newFolderButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 8),
+            newFolderButton.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
+            newFolderButton.widthAnchor.constraint(equalToConstant: 28),
+            newFolderButton.heightAnchor.constraint(equalToConstant: 28),
+        ])
+
         container.addSubview(scrollView)
+        container.addSubview(bottomBar)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
+
+            bottomBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            bottomBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            bottomBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            bottomBar.heightAnchor.constraint(equalToConstant: 32),
         ])
     }
 
     // MARK: - Public API
 
-    func reload(connectionId: String? = nil) {
-        self.activeConnectionId = connectionId
+    func reload() {
         do {
             allQueries = try PharosCore.loadSavedQueries()
             rebuildTree()
-            cacheTableDisplayNames()
             outlineView.reloadData()
-            expandAllSections()
+            expandAll()
         } catch {
             NSLog("Failed to load saved queries: \(error)")
         }
@@ -120,17 +147,15 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     func applyFilter(_ text: String) {
         filterText = text.lowercased()
         rebuildTree()
-        cacheTableDisplayNames()
         outlineView.reloadData()
-        expandAllSections()
+        expandAll()
     }
 
     func clearFilter() {
         filterText = nil
         rebuildTree()
-        cacheTableDisplayNames()
         outlineView.reloadData()
-        expandAllSections()
+        expandAll()
     }
 
     /// Delete the currently selected saved query with confirmation.
@@ -151,7 +176,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             guard response == .alertFirstButtonReturn else { return }
             do {
                 _ = try PharosCore.deleteSavedQuery(id: q.id)
-                self?.reload(connectionId: self?.activeConnectionId)
+                self?.reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             } catch {
                 NSLog("Failed to delete saved query: \(error)")
@@ -173,43 +198,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             queries = allQueries
         }
 
-        var sections: [SavedQueryNode] = []
-
-        // Connection section (only if a connection is active)
-        if let connId = activeConnectionId {
-            let connName = AppStateManager.shared.activeConnection?.name ?? "Connection"
-            let connQueries = queries.filter { $0.connectionId == connId }
-            let section = buildSection(title: connName, queries: connQueries, isConnectionSection: true)
-            if section != nil || (filterText == nil || filterText!.isEmpty) {
-                // Always show connection section when no filter, even if empty
-                let node = section ?? SavedQueryNode(.section(connName))
-                node.isConnectionSection = true
-                sections.append(node)
-            }
-        }
-
-        // General section (always visible)
-        let generalQueries = queries.filter { $0.connectionId == nil }
-        let generalSection = buildSection(title: "General", queries: generalQueries, isConnectionSection: false)
-        if let section = generalSection {
-            sections.append(section)
-        } else if filterText == nil || filterText!.isEmpty {
-            // Show empty General section when no filter
-            sections.append(SavedQueryNode(.section("General")))
-        }
-
-        rootNodes = sections
-    }
-
-    private func buildSection(title: String, queries: [SavedQuery], isConnectionSection: Bool) -> SavedQueryNode? {
-        if queries.isEmpty && filterText != nil && !filterText!.isEmpty {
-            return nil // Hide empty sections during filtering
-        }
-
-        let section = SavedQueryNode(.section(title))
-        section.isConnectionSection = isConnectionSection
-
-        // Group by folder
+        // Group by folder — flat list of folders + unfiled queries at root
         var folders: [String: SavedQueryNode] = [:]
         var unfiled: [SavedQueryNode] = []
 
@@ -228,76 +217,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         // Sort folders alphabetically, then unfiled queries by name
         let sortedFolders = folders.keys.sorted().compactMap { folders[$0] }
         unfiled.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        section.children = sortedFolders + unfiled
-
-        return section
+        rootNodes = sortedFolders + unfiled
     }
 
-    private func expandAllSections() {
-        for node in rootNodes {
+    private func expandAll() {
+        for node in rootNodes where node.isExpandable {
             outlineView.expandItem(node)
-            // Also expand folders
-            for child in node.children {
-                if child.isExpandable {
-                    outlineView.expandItem(child)
-                }
-            }
         }
     }
 
-    // MARK: - Table Name Parsing
 
-    /// Build subtitle: "table (+N) · SQL preview" or just "SQL preview" if no tables parsed.
-    private static func formatTableDisplay(rawNames: String?, sql: String) -> String? {
-        let sqlPreview = Self.sqlPreview(from: sql)
-
-        if let names = rawNames, !names.isEmpty {
-            let tables = names.components(separatedBy: ", ")
-            let tablePrefix: String
-            if tables.count == 1 {
-                tablePrefix = tables[0]
-            } else {
-                tablePrefix = "\(tables[0]) (+\(tables.count - 1))"
-            }
-            if let preview = sqlPreview {
-                return "\(tablePrefix) · \(preview)"
-            }
-            return tablePrefix
-        }
-        // No tables — just show SQL preview
-        return sqlPreview
-    }
-
-    /// Flattened SQL preview: first ~40 chars, newlines collapsed to spaces.
-    private static func sqlPreview(from sql: String) -> String? {
-        let flat = sql
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        guard !flat.isEmpty else { return nil }
-        if flat.count > 40 {
-            return String(flat.prefix(40)) + "..."
-        }
-        return flat
-    }
-
-    /// Populate parsedTableDisplay on all query nodes in the tree.
-    private func cacheTableDisplayNames() {
-        func walk(_ nodes: [SavedQueryNode]) {
-            for node in nodes {
-                if case .query(let q) = node.kind {
-                    node.parsedTableDisplay = Self.formatTableDisplay(
-                        rawNames: PharosCore.extractTableNames(from: q.sql),
-                        sql: q.sql
-                    )
-                }
-                walk(node.children)
-            }
-        }
-        walk(rootNodes)
-    }
 
     // MARK: - Actions
 
@@ -328,40 +257,12 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         NSPasteboard.general.setString(q.sql, forType: .string)
     }
 
-    @objc private func contextMoveToConnection(_: Any?) {
-        guard let node = clickedNode(), case .query(let q) = node.kind,
-              let connId = activeConnectionId else { return }
-        do {
-            let updated = CreateSavedQuery(name: q.name, folder: q.folder, sql: q.sql, connectionId: connId)
-            _ = try PharosCore.deleteSavedQuery(id: q.id)
-            _ = try PharosCore.createSavedQuery(updated)
-            reload(connectionId: activeConnectionId)
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-        } catch {
-            NSLog("Failed to move query: \(error)")
-        }
-    }
-
-    @objc private func contextMoveToGeneral(_: Any?) {
-        guard let node = clickedNode(), case .query(let q) = node.kind else { return }
-        do {
-            let updated = CreateSavedQuery(name: q.name, folder: q.folder, sql: q.sql, connectionId: nil)
-            _ = try PharosCore.deleteSavedQuery(id: q.id)
-            _ = try PharosCore.createSavedQuery(updated)
-            reload(connectionId: activeConnectionId)
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-        } catch {
-            NSLog("Failed to move query: \(error)")
-        }
-    }
-
     @objc private func contextRename(_: Any?) {
         guard let node = clickedNode() else { return }
         let currentName: String
         switch node.kind {
         case .query(let q): currentName = q.name
         case .folder(let name): currentName = name
-        default: return
         }
 
         let alert = NSAlert()
@@ -388,7 +289,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             do {
                 let update = UpdateSavedQuery(id: q.id, name: newName, folder: q.folder, sql: q.sql)
                 _ = try PharosCore.updateSavedQuery(update)
-                reload(connectionId: activeConnectionId)
+                reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             } catch {
                 NSLog("Failed to rename query: \(error)")
@@ -404,9 +305,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                     NSLog("Failed to rename folder query: \(error)")
                 }
             }
-            reload(connectionId: activeConnectionId)
+            reload()
             NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-        default: break
         }
     }
 
@@ -417,7 +317,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         case .query(let q):
             do {
                 _ = try PharosCore.deleteSavedQuery(id: q.id)
-                reload(connectionId: activeConnectionId)
+                reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             } catch {
                 NSLog("Failed to delete saved query: \(error)")
@@ -427,7 +327,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             let count = node.children.count
             guard count > 0 else {
                 // Empty folder — just reload (it'll disappear)
-                reload(connectionId: activeConnectionId)
+                reload()
                 return
             }
             let alert = NSAlert()
@@ -445,47 +345,49 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                         _ = try? PharosCore.deleteSavedQuery(id: q.id)
                     }
                 }
-                self?.reload(connectionId: self?.activeConnectionId)
+                self?.reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             }
-
-        default: break
         }
     }
 
     @objc private func contextNewFolder(_: Any?) {
-        let alert = NSAlert()
-        alert.messageText = "New Folder"
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
+        createNewFolderInline()
+    }
 
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.placeholderString = "Folder name"
-        alert.accessoryView = textField
+    @objc private func newFolderClicked(_: Any?) {
+        createNewFolderInline()
+    }
 
-        guard let window = view.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            let name = textField.stringValue.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { return }
-            self?.createEmptyFolder(name: name)
+    /// Creates a new folder named "New Folder" and immediately begins inline editing of its name.
+    private func createNewFolderInline() {
+        createEmptyFolder(name: "New Folder")
+
+        // Find the newly created folder node and begin editing
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for i in 0..<self.outlineView.numberOfRows {
+                guard let node = self.outlineView.item(atRow: i) as? SavedQueryNode,
+                      case .folder(let name) = node.kind,
+                      name == "New Folder" else { continue }
+                self.editingFolderNode = node
+                self.outlineView.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
+                self.outlineView.scrollRowToVisible(i)
+                // Begin inline editing on the cell's text field
+                if let cellView = self.outlineView.view(atColumn: 0, row: i, makeIfNecessary: false) as? SavedQueryCellView {
+                    cellView.beginEditing(delegate: self)
+                }
+                break
+            }
         }
     }
 
     private func createEmptyFolder(name: String) {
-        // Determine scope from clicked section
-        let connectionId: String?
-        if let node = clickedNode(), case .section = node.kind, node.isConnectionSection {
-            connectionId = activeConnectionId
-        } else {
-            connectionId = nil
-        }
-
         // Create a placeholder query in the folder so the folder persists
-        let query = CreateSavedQuery(name: "New Query", folder: name, sql: "", connectionId: connectionId)
+        let query = CreateSavedQuery(name: "New Query", folder: name, sql: "", connectionId: nil)
         do {
             _ = try PharosCore.createSavedQuery(query)
-            reload(connectionId: activeConnectionId)
+            reload()
             NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
         } catch {
             NSLog("Failed to create folder: \(error)")
@@ -493,20 +395,11 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     @objc private func contextNewQuery(_: Any?) {
-        // Determine scope from clicked section
-        let connectionId: String?
-        if let node = clickedNode(), case .section = node.kind, node.isConnectionSection {
-            connectionId = activeConnectionId
-        } else {
-            connectionId = nil
-        }
-
-        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: connectionId)
+        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: nil)
         do {
             let saved = try PharosCore.createSavedQuery(query)
-            reload(connectionId: activeConnectionId)
+            reload()
             NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-            // Open the new query in a tab
             openQueryInTab(saved)
         } catch {
             NSLog("Failed to create query: \(error)")
@@ -546,68 +439,41 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let node = item as? SavedQueryNode else { return nil }
 
-        switch node.kind {
-        case .section:
-            let cellId = NSUserInterfaceItemIdentifier("SectionCell")
-            let cell: NSTextField
-            if let existing = outlineView.makeView(withIdentifier: cellId, owner: self) as? NSTextField {
-                cell = existing
-            } else {
-                cell = NSTextField(labelWithString: "")
-                cell.identifier = cellId
-                cell.font = .systemFont(ofSize: 10, weight: .bold)
-                cell.textColor = .tertiaryLabelColor
-            }
-            cell.stringValue = node.title.uppercased()
-            return cell
+        let cellId = NSUserInterfaceItemIdentifier("NavigatorCell")
+        let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
+            ?? SavedQueryCellView(identifier: cellId)
+        cell.configure(icon: node.icon, tint: node.tintColor, title: node.title)
 
-        case .folder:
-            let cellId = NSUserInterfaceItemIdentifier("FolderCell")
-            let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
-                ?? SavedQueryCellView(identifier: cellId)
-            cell.configure(icon: node.icon, tint: .secondaryLabelColor, title: node.title, snippet: nil)
-            return cell
-
-        case .query:
-            let cellId = NSUserInterfaceItemIdentifier("QueryCell")
-            let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
-                ?? SavedQueryCellView(identifier: cellId)
-            cell.configure(
-                icon: node.icon,
-                tint: .secondaryLabelColor,
-                title: node.title,
-                snippet: node.parsedTableDisplay
-            )
-            return cell
+        // Show SQL preview as tooltip for query nodes
+        if case .query(let q) = node.kind {
+            let flat = q.sql
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            cell.toolTip = flat.isEmpty ? nil : (flat.count > 80 ? String(flat.prefix(80)) + "…" : flat)
+        } else {
+            cell.toolTip = nil
         }
+
+        return cell
     }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard let node = item as? SavedQueryNode else { return 22 }
-        switch node.kind {
-        case .section: return 22
-        case .folder: return 22
-        case .query: return node.parsedTableDisplay != nil ? 34 : 22
-        }
+        24
     }
 
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
-        guard let node = item as? SavedQueryNode else { return false }
-        if case .section = node.kind { return true }
-        return false
+        false
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-        guard let node = item as? SavedQueryNode else { return false }
-        if case .section = node.kind { return false }
-        return true
+        item is SavedQueryNode
     }
 
     func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
-        guard let node = item as? SavedQueryNode else { return true }
-        // Hide disclosure triangle for section headers (always expanded)
-        if case .section = node.kind { return false }
-        return true
+        (item as? SavedQueryNode)?.isExpandable ?? true
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -629,41 +495,59 @@ extension SavedQueriesVC: NSMenuDelegate {
         guard let node = clickedNode() else { return }
 
         switch node.kind {
-        case .query(let q):
+        case .query:
             menu.addItem(withTitle: "Open in Tab", action: #selector(contextOpenInTab), keyEquivalent: "")
             menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
             menu.addItem(.separator())
-            // Move options
-            if q.connectionId != nil {
-                menu.addItem(withTitle: "Move to General", action: #selector(contextMoveToGeneral), keyEquivalent: "")
-            } else if activeConnectionId != nil {
-                let connName = AppStateManager.shared.activeConnection?.name ?? "Connection"
-                menu.addItem(withTitle: "Move to \(connName)", action: #selector(contextMoveToConnection), keyEquivalent: "")
-            }
             menu.addItem(withTitle: "Rename…", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
 
         case .folder:
+            menu.addItem(withTitle: "New Query", action: #selector(contextNewQuery), keyEquivalent: "")
+            menu.addItem(.separator())
             menu.addItem(withTitle: "Rename…", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
-
-        case .section:
-            menu.addItem(withTitle: "New Query", action: #selector(contextNewQuery), keyEquivalent: "")
-            menu.addItem(withTitle: "New Folder…", action: #selector(contextNewFolder), keyEquivalent: "")
         }
+    }
+}
+
+// MARK: - SavedQueryCellEditingDelegate
+
+extension SavedQueriesVC: SavedQueryCellEditingDelegate {
+    func cellView(_ cellView: SavedQueryCellView, didFinishEditingWithText text: String) {
+        guard let node = editingFolderNode, case .folder(let oldName) = node.kind else {
+            editingFolderNode = nil
+            return
+        }
+        editingFolderNode = nil
+
+        // If the name didn't change, nothing to do
+        guard text != oldName else { return }
+
+        // Rename all queries in this folder from oldName to the new name
+        let folderQueries = allQueries.filter { $0.folder == oldName }
+        for q in folderQueries {
+            do {
+                let update = UpdateSavedQuery(id: q.id, name: q.name, folder: text, sql: q.sql)
+                _ = try PharosCore.updateSavedQuery(update)
+            } catch {
+                NSLog("Failed to rename folder query: \(error)")
+            }
+        }
+        reload()
+        NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
     }
 }
 
 // MARK: - Compact Cell View
 
-private class SavedQueryCellView: NSTableCellView {
+class SavedQueryCellView: NSTableCellView {
 
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let snippetLabel = NSTextField(labelWithString: "")
-    private let labelStack = NSStackView()
+    private weak var editingDelegate: SavedQueryCellEditingDelegate?
 
     convenience init(identifier: NSUserInterfaceItemIdentifier) {
         self.init()
@@ -672,49 +556,64 @@ private class SavedQueryCellView: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.font = .systemFont(ofSize: 13)
+        titleLabel.textColor = .labelColor
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        snippetLabel.lineBreakMode = .byTruncatingTail
-        snippetLabel.font = .systemFont(ofSize: 10)
-        snippetLabel.textColor = .tertiaryLabelColor
-        snippetLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        snippetLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        labelStack.orientation = .vertical
-        labelStack.spacing = 1
-        labelStack.alignment = .leading
-        labelStack.addArrangedSubview(titleLabel)
-        labelStack.addArrangedSubview(snippetLabel)
-        labelStack.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(iconView)
-        addSubview(labelStack)
+        addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
 
-            labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
-            labelStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
-    func configure(icon: NSImage?, tint: NSColor, title: String, snippet: String?) {
+    func configure(icon: NSImage?, tint: NSColor, title: String) {
         iconView.image = icon
         iconView.contentTintColor = tint
         titleLabel.stringValue = title
+    }
 
-        if let snippet {
-            snippetLabel.stringValue = snippet
-            snippetLabel.isHidden = false
-        } else {
-            snippetLabel.isHidden = true
+    /// Makes the title label editable and selects all text for immediate renaming.
+    func beginEditing(delegate: SavedQueryCellEditingDelegate) {
+        editingDelegate = delegate
+        titleLabel.isEditable = true
+        titleLabel.isBezeled = false
+        titleLabel.drawsBackground = false
+        titleLabel.delegate = self
+        titleLabel.selectText(nil)
+        window?.makeFirstResponder(titleLabel)
+    }
+
+    fileprivate func endEditing() {
+        titleLabel.isEditable = false
+        titleLabel.delegate = nil
+        editingDelegate = nil
+    }
+}
+
+protocol SavedQueryCellEditingDelegate: AnyObject {
+    func cellView(_ cellView: SavedQueryCellView, didFinishEditingWithText text: String)
+}
+
+extension SavedQueryCellView: NSTextFieldDelegate {
+    func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
+        let newName = fieldEditor.string.trimmingCharacters(in: .whitespaces)
+        let delegate = editingDelegate
+        endEditing()
+        if !newName.isEmpty {
+            delegate?.cellView(self, didFinishEditingWithText: newName)
         }
+        return true
     }
 }

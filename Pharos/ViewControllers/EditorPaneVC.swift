@@ -9,6 +9,10 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didFocus paneId: String)
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
+    func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
+    func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC)
+    func editorPaneDidRequestSave(_ pane: EditorPaneVC)
+    func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
 }
 
 /// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
@@ -18,6 +22,13 @@ class EditorPaneVC: NSViewController {
     let paneId: String
     let editorVC = QueryEditorVC()
     private(set) var paneTabBar: PaneTabBar!
+
+    // Editor toolbar (below tab bar)
+    private let editorToolbar = NSView()
+    private let formatButton = NSButton()
+    private let runStopButton = NSButton()
+    private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
+    private var isExecuting = false
 
     weak var delegate: EditorPaneDelegate?
 
@@ -37,6 +48,10 @@ class EditorPaneVC: NSViewController {
     }
 
     // MARK: - View Lifecycle
+
+    private let tabBarHeight: CGFloat = 32
+    private let editorToolbarHeight: CGFloat = 32
+    private var totalHeaderHeight: CGFloat { tabBarHeight + editorToolbarHeight }
 
     override func loadView() {
         let container = NSView()
@@ -80,26 +95,34 @@ class EditorPaneVC: NSViewController {
             self.stateManager.reorderTabs(newTabIds, inPane: self.paneId)
         }
 
+        // Editor toolbar (below tab bar)
+        setupEditorToolbar()
+
         // Editor
         addChild(editorVC)
 
         container.addSubview(paneTabBar)
+        container.addSubview(editorToolbar)
         container.addSubview(editorVC.view)
 
         NSLayoutConstraint.activate([
             paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
             paneTabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             paneTabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            paneTabBar.heightAnchor.constraint(equalToConstant: 28),
+            paneTabBar.heightAnchor.constraint(equalToConstant: tabBarHeight),
+
+            editorToolbar.topAnchor.constraint(equalTo: paneTabBar.bottomAnchor),
+            editorToolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            editorToolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            editorToolbar.heightAnchor.constraint(equalToConstant: editorToolbarHeight),
         ])
 
         // Editor view uses frame-based layout — positioned in viewDidLayout.
-        // Set initial frame below the tab bar so it doesn't cover it.
-        let tabBarHeight: CGFloat = 28
+        // Set initial frame below the tab bar + editor toolbar so it doesn't cover them.
         editorVC.view.frame = NSRect(
             x: 0, y: 0,
             width: container.bounds.width,
-            height: max(0, container.bounds.height - tabBarHeight)
+            height: max(0, container.bounds.height - totalHeaderHeight)
         )
 
         // Observe pane state changes
@@ -115,6 +138,7 @@ class EditorPaneVC: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshTabBar()
+                self?.updateEditorToolbarState()
             }
             .store(in: &cancellables)
 
@@ -149,13 +173,12 @@ class EditorPaneVC: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        let tabBarHeight: CGFloat = 28
-        // Non-flipped: y=0 is bottom. Tab bar is at top via Auto Layout.
-        // Editor fills from bottom up to the tab bar.
+        // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
+        // Editor fills from bottom up to the editor toolbar.
         editorVC.view.frame = NSRect(
             x: 0, y: 0,
             width: view.bounds.width,
-            height: max(0, view.bounds.height - tabBarHeight)
+            height: max(0, view.bounds.height - totalHeaderHeight)
         )
     }
 
@@ -266,6 +289,134 @@ class EditorPaneVC: NSViewController {
         guard let tabId = editorVC.tabId else { return }
         let cursorPos = editorVC.getCursorPosition()
         stateManager.updateTab(id: tabId) { $0.cursorPosition = cursorPos }
+    }
+
+    // MARK: - Editor Toolbar
+
+    private func setupEditorToolbar() {
+        editorToolbar.wantsLayer = true
+        editorToolbar.translatesAutoresizingMaskIntoConstraints = false
+
+        // Format button (left side)
+        let fmtConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        formatButton.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: "Format SQL")?.withSymbolConfiguration(fmtConfig)
+        formatButton.bezelStyle = .recessed
+        formatButton.isBordered = false
+        formatButton.toolTip = "Format SQL (Ctrl+I)"
+        formatButton.contentTintColor = .secondaryLabelColor
+        formatButton.target = self
+        formatButton.action = #selector(formatSQLTapped)
+        formatButton.translatesAutoresizingMaskIntoConstraints = false
+
+        // Run/Stop button (right side)
+        let runConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(runConfig)
+        runStopButton.bezelStyle = .recessed
+        runStopButton.isBordered = false
+        runStopButton.toolTip = "Run Query (Cmd+Return)"
+        runStopButton.contentTintColor = .controlAccentColor
+        runStopButton.target = self
+        runStopButton.action = #selector(runStopTapped)
+        runStopButton.translatesAutoresizingMaskIntoConstraints = false
+
+        // Save dropdown (pull-down button)
+        saveDropdown.bezelStyle = .recessed
+        saveDropdown.isBordered = false
+        saveDropdown.controlSize = .regular
+        saveDropdown.translatesAutoresizingMaskIntoConstraints = false
+        (saveDropdown.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        let saveConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let saveImage = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Save")?.withSymbolConfiguration(saveConfig)
+
+        // Pull-down: first item is the displayed button title/image
+        saveDropdown.addItem(withTitle: "")
+        saveDropdown.item(at: 0)?.image = saveImage
+
+        let saveItem = NSMenuItem(title: "Save", action: #selector(saveTapped), keyEquivalent: "")
+        saveItem.target = self
+        saveItem.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
+        saveDropdown.menu?.addItem(saveItem)
+
+        let saveAsItem = NSMenuItem(title: "Save As…", action: #selector(saveAsTapped), keyEquivalent: "")
+        saveAsItem.target = self
+        saveAsItem.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: nil)
+        saveDropdown.menu?.addItem(saveAsItem)
+
+        // Bottom separator line
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        editorToolbar.addSubview(separator)
+
+        // Layout — all buttons on the left: Format, Save, Execute
+        let buttonStack = NSStackView(views: [formatButton, saveDropdown, runStopButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.spacing = 4
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+
+        editorToolbar.addSubview(buttonStack)
+
+        NSLayoutConstraint.activate([
+            formatButton.widthAnchor.constraint(equalToConstant: 28),
+            formatButton.heightAnchor.constraint(equalToConstant: 28),
+            runStopButton.widthAnchor.constraint(equalToConstant: 28),
+            runStopButton.heightAnchor.constraint(equalToConstant: 28),
+            saveDropdown.widthAnchor.constraint(equalToConstant: 32),
+
+            buttonStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
+            buttonStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+
+            separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: editorToolbar.bottomAnchor),
+        ])
+    }
+
+    @objc private func formatSQLTapped() {
+        formatSQL()
+    }
+
+    @objc private func runStopTapped() {
+        if isExecuting {
+            delegate?.editorPaneDidRequestCancelQuery(self)
+        } else {
+            delegate?.editorPaneDidRequestRunQuery(self)
+        }
+    }
+
+    @objc private func saveTapped() {
+        delegate?.editorPaneDidRequestSave(self)
+    }
+
+    @objc private func saveAsTapped() {
+        delegate?.editorPaneDidRequestSaveAs(self)
+    }
+
+    private func updateEditorToolbarState() {
+        guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
+        let activeTab = stateManager.tabs.first { $0.id == pane.activeTabId }
+        let executing = activeTab?.isExecuting ?? false
+
+        if executing != isExecuting {
+            isExecuting = executing
+            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+            if executing {
+                runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Query")?.withSymbolConfiguration(config)
+                runStopButton.toolTip = "Stop Query"
+                runStopButton.contentTintColor = .systemRed
+            } else {
+                runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
+                runStopButton.toolTip = "Run Query (Cmd+Return)"
+                runStopButton.contentTintColor = .controlAccentColor
+            }
+        }
+
+        // Update save dropdown: "Save" item enabled only when tab has a saved query link
+        let hasSavedQuery = activeTab?.savedQueryId != nil
+        if let saveItem = saveDropdown.menu?.item(at: 1) {
+            saveItem.isEnabled = hasSavedQuery
+        }
     }
 
     deinit {

@@ -1,24 +1,19 @@
 import AppKit
 
 /// Sheet for saving the current query to the library.
-/// Allows choosing a name, folder, and scope (connection-specific or general).
+/// Allows choosing a name and folder.
 class SaveQuerySheet: NSViewController {
 
     private let nameField = NSTextField()
     private let folderPopup = NSPopUpButton()
-    private let scopeControl = NSSegmentedControl()
 
     private let initialName: String
     private let sql: String
-    private let connectionId: String?
-    private let connectionName: String?
     private var onSave: ((SavedQuery) -> Void)?
 
-    init(tabName: String, sql: String, connectionId: String?, connectionName: String?, onSave: @escaping (SavedQuery) -> Void) {
+    init(tabName: String, sql: String, onSave: @escaping (SavedQuery) -> Void) {
         self.initialName = tabName
         self.sql = sql
-        self.connectionId = connectionId
-        self.connectionName = connectionName
         self.onSave = onSave
         super.init(nibName: nil, bundle: nil)
     }
@@ -28,7 +23,7 @@ class SaveQuerySheet: NSViewController {
     }
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 220))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 180))
         self.view = container
 
         // Title
@@ -54,25 +49,10 @@ class SaveQuerySheet: NSViewController {
         folderPopup.menu?.addItem(.separator())
         folderPopup.addItem(withTitle: "New Folder…")
 
-        // Scope
-        let scopeLabel = makeLabel("Save to")
-        scopeControl.segmentCount = 2
-        if let name = connectionName {
-            scopeControl.setLabel(name, forSegment: 0)
-        } else {
-            scopeControl.setLabel("Connection", forSegment: 0)
-            scopeControl.setEnabled(false, forSegment: 0)
-        }
-        scopeControl.setLabel("General", forSegment: 1)
-        scopeControl.segmentStyle = .texturedSquare
-        // Default to connection if available, otherwise general
-        scopeControl.selectedSegment = connectionId != nil ? 0 : 1
-
         // Grid
         let grid = NSGridView(views: [
             [nameLabel, nameField],
             [folderLabel, folderPopup],
-            [scopeLabel, scopeControl],
         ])
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 70
@@ -146,14 +126,7 @@ class SaveQuerySheet: NSViewController {
             folder = selectedTitle
         }
 
-        let scopeConnectionId: String?
-        if scopeControl.selectedSegment == 0, connectionId != nil {
-            scopeConnectionId = connectionId
-        } else {
-            scopeConnectionId = nil
-        }
-
-        let create = CreateSavedQuery(name: name, folder: folder, sql: sql, connectionId: scopeConnectionId)
+        let create = CreateSavedQuery(name: name, folder: folder, sql: sql, connectionId: nil)
         do {
             let saved = try PharosCore.createSavedQuery(create)
             onSave?(saved)

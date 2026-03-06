@@ -56,8 +56,8 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
     }
 
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard let node = item as? SchemaTreeNode else { return 22 }
-        return node.subtitle != nil ? 32 : 22
+        guard let node = item as? SchemaTreeNode else { return 24 }
+        return node.subtitle != nil ? 34 : 24
     }
 
     func outlineViewItemWillExpand(_ notification: Notification) {

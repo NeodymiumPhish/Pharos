@@ -34,11 +34,11 @@ class PaneTabBar: NSView {
     private let segmentedControl = NSSegmentedControl()
 
     // Layout constants
-    private let paneButtonWidth: CGFloat = 26
-    private let addButtonWidth: CGFloat = 28
-    private let barHeight: CGFloat = 28
+    private let paneButtonWidth: CGFloat = 30
+    private let addButtonWidth: CGFloat = 30
+    private let barHeight: CGFloat = 32
     private let segmentInsetH: CGFloat = 4
-    private let segmentInsetV: CGFloat = 3
+    private let segmentInsetV: CGFloat = 4
 
     // MARK: - Init
 
@@ -56,7 +56,7 @@ class PaneTabBar: NSView {
         wantsLayer = true
 
         // Close pane button (X)
-        let closeConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        let closeConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         closePaneButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Pane")?.withSymbolConfiguration(closeConfig)
         closePaneButton.bezelStyle = .recessed
         closePaneButton.isBordered = false
@@ -67,7 +67,7 @@ class PaneTabBar: NSView {
         addSubview(closePaneButton)
 
         // Expand pane button (↗)
-        let expandConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        let expandConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         expandPaneButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Expand Pane")?.withSymbolConfiguration(expandConfig)
         expandPaneButton.bezelStyle = .recessed
         expandPaneButton.isBordered = false
@@ -78,7 +78,7 @@ class PaneTabBar: NSView {
         addSubview(expandPaneButton)
 
         // Add button (+)
-        let addConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        let addConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add")?.withSymbolConfiguration(addConfig)
         addButton.bezelStyle = .recessed
         addButton.isBordered = false
@@ -88,10 +88,11 @@ class PaneTabBar: NSView {
         addButton.action = #selector(addButtonClicked(_:))
         addSubview(addButton)
 
-        // Segmented control (capsule style)
+        // Segmented control
         segmentedControl.segmentStyle = .capsule
         segmentedControl.trackingMode = .selectOne
         segmentedControl.controlSize = .regular
+        segmentedControl.selectedSegmentBezelColor = .white
         segmentedControl.target = self
         segmentedControl.action = #selector(segmentChanged(_:))
         addSubview(segmentedControl)
@@ -107,11 +108,11 @@ class PaneTabBar: NSView {
 
         // Update expand button appearance
         if isExpanded {
-            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .bold)
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
             expandPaneButton.image = NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Collapse Pane")?.withSymbolConfiguration(config)
             expandPaneButton.contentTintColor = .controlAccentColor
         } else {
-            let config = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
             expandPaneButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Expand Pane")?.withSymbolConfiguration(config)
             expandPaneButton.contentTintColor = .secondaryLabelColor
         }
@@ -349,8 +350,8 @@ class PaneTabBar: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Bar background
-        NSColor.windowBackgroundColor.setFill()
+        // Bar background — slightly darker than window to contrast with white active segment
+        NSColor.controlBackgroundColor.setFill()
         bounds.fill()
 
         // Bottom border

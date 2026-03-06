@@ -1,5 +1,18 @@
 import AppKit
 
+// MARK: - Newline Flattening
+
+private extension String {
+    /// Replaces newlines with a visible ↵ indicator so multi-line data
+    /// displays as a single line in the results grid.
+    var flattenedForCell: String {
+        guard contains(where: \.isNewline) else { return self }
+        return replacingOccurrences(of: "\r\n", with: "↵")
+            .replacingOccurrences(of: "\n", with: "↵")
+            .replacingOccurrences(of: "\r", with: "↵")
+    }
+}
+
 // MARK: - Find Match Address
 
 struct CellAddress: Hashable {
@@ -81,6 +94,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.wantsLayer = true
             let textField = NSTextField(labelWithString: "")
             textField.lineBreakMode = .byTruncatingTail
+            textField.maximumNumberOfLines = 1
+            textField.cell?.wraps = false
+            textField.cell?.isScrollable = false
             textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
@@ -205,7 +221,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             return
         }
 
-        textField.stringValue = value.displayString
+        textField.stringValue = value.displayString.flattenedForCell
         textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
 
         let color: NSColor
@@ -213,7 +229,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         case .numeric:
             color = .systemBlue
         case .boolean:
-            let str = value.displayString.lowercased()
+            let str = textField.stringValue.lowercased()
             let boolDisplay = AppStateManager.shared.settings.boolDisplay
             if str == "t" || str == "true" {
                 textField.stringValue = boolDisplay.trueString

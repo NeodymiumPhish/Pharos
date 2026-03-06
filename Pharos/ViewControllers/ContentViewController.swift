@@ -55,7 +55,7 @@ class ContentViewController: NSViewController {
     private var isDragging = false
     private var dragStartY: CGFloat = 0
     private var dragStartEditorHeight: CGFloat = 0
-    private static let actionBarHeight: CGFloat = 28
+    private static let actionBarHeight: CGFloat = 32
 
     override func loadView() {
         let container = NSView()
@@ -513,10 +513,10 @@ class ContentViewController: NSViewController {
         resultsVC.findControlsStack.addArrangedSubview(resultsVC.findCloseButton)
 
         NSLayoutConstraint.activate([
-            resultsVC.findClearButton.widthAnchor.constraint(equalToConstant: 20),
-            resultsVC.findPrevButton.widthAnchor.constraint(equalToConstant: 20),
-            resultsVC.findNextButton.widthAnchor.constraint(equalToConstant: 20),
-            resultsVC.findCloseButton.widthAnchor.constraint(equalToConstant: 20),
+            resultsVC.findClearButton.widthAnchor.constraint(equalToConstant: 24),
+            resultsVC.findPrevButton.widthAnchor.constraint(equalToConstant: 24),
+            resultsVC.findNextButton.widthAnchor.constraint(equalToConstant: 24),
+            resultsVC.findCloseButton.widthAnchor.constraint(equalToConstant: 24),
         ])
 
         // -- Action Buttons (left side) --
@@ -592,15 +592,16 @@ class ContentViewController: NSViewController {
     }
 
     private func configureToolbarButtonAppearance(_ button: NSButton, symbol: String, tooltip: String) {
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?.withSymbolConfiguration(config)
         button.bezelStyle = .recessed
         button.isBordered = false
         button.toolTip = tooltip
         button.translatesAutoresizingMaskIntoConstraints = false
         button.contentTintColor = .secondaryLabelColor
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 24),
-            button.heightAnchor.constraint(equalToConstant: 24),
+            button.widthAnchor.constraint(equalToConstant: 28),
+            button.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
@@ -970,6 +971,23 @@ extension ContentViewController: EditorPaneDelegate {
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
         renameTab(id: tabId)
     }
+
+    func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC) {
+        stateManager.focusPane(id: pane.paneId)
+        executeQuery()
+    }
+
+    func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC) {
+        cancelQuery()
+    }
+
+    func editorPaneDidRequestSave(_ pane: EditorPaneVC) {
+        menuSaveQuery(nil)
+    }
+
+    func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC) {
+        menuSaveQueryAs(nil)
+    }
 }
 
 // MARK: - Open Saved Query
@@ -1073,9 +1091,7 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: focusedPaneVC?.getSQL() ?? "",
-            connectionId: stateManager.activeConnectionId,
-            connectionName: stateManager.activeConnection?.name
+            sql: focusedPaneVC?.getSQL() ?? ""
         ) { [weak self] savedQuery in
             guard let self else { return }
             self.stateManager.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }

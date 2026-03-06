@@ -6,8 +6,6 @@ import Combine
 private extension NSToolbarItem.Identifier {
     static let connectionPopup = NSToolbarItem.Identifier("ConnectionPopup")
     static let schemaPopup = NSToolbarItem.Identifier("SchemaPopup")
-    static let runQuery = NSToolbarItem.Identifier("RunQuery")
-    static let formatQuery = NSToolbarItem.Identifier("FormatQuery")
 }
 
 class MainWindowController: NSWindowController {
@@ -31,6 +29,7 @@ class MainWindowController: NSWindowController {
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 800, height: 400)
+        window.tabbingMode = .disallowed
 
         super.init(window: window)
 
@@ -390,22 +389,6 @@ extension MainWindowController: NSToolbarDelegate {
             rebuildSchemaMenu(popup)
             return item
 
-        case .runQuery:
-            let item = NSToolbarItem(itemIdentifier: .runQuery)
-            item.label = "Run"
-            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")
-            item.toolTip = "Execute query (Cmd+Return)"
-            item.action = #selector(ContentViewController.menuRunQuery(_:))
-            return item
-
-        case .formatQuery:
-            let item = NSToolbarItem(itemIdentifier: .formatQuery)
-            item.label = "Format"
-            item.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: "Format SQL")
-            item.toolTip = "Format SQL (Ctrl+I)"
-            item.action = #selector(ContentViewController.menuFormatSQL(_:))
-            return item
-
         case .toggleInspector:
             let item = NSToolbarItem(itemIdentifier: .toggleInspector)
             item.label = "Inspector"
@@ -427,8 +410,6 @@ extension MainWindowController: NSToolbarDelegate {
             .toggleSidebar,
             .connectionPopup,
             .schemaPopup,
-            .formatQuery,
-            .runQuery,
             .flexibleSpace,
             .toggleInspector,
         ]
@@ -439,8 +420,6 @@ extension MainWindowController: NSToolbarDelegate {
             .toggleSidebar,
             .connectionPopup,
             .schemaPopup,
-            .formatQuery,
-            .runQuery,
             .flexibleSpace,
             .toggleInspector,
         ]

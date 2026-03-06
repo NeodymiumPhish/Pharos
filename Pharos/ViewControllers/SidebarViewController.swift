@@ -1,20 +1,16 @@
 import AppKit
 import Combine
 
-class SidebarViewController: NSViewController, NSSplitViewDelegate {
+class SidebarViewController: NSViewController {
 
     private let searchField = NSSearchField()
-    private let splitView = NSSplitView()
+    private let segmentBar = NSSegmentedControl()
+    private let contentArea = NSView()
 
-    // Library pane (top)
-    private let libraryContainer = NSView()
-    private let librarySegment = NSSegmentedControl()
+    // Containers for each panel (only one visible at a time)
     private let savedContainer = NSView()
     private let historyContainer = NSView()
-    private let actionBar = SidebarActionBar()
-
-    // Navigator pane (bottom)
-    private let navigatorContainer = NSView()
+    private let browserContainer = NSView()
 
     // Child view controllers
     let schemaBrowser = SchemaBrowserVC()
@@ -23,14 +19,13 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
 
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
-    private var didSetInitialPosition = false
 
     override func loadView() {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         self.view = container
 
-        // Unified search field
+        // Search field
         searchField.placeholderString = "Filter"
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.sendsWholeSearchString = false
@@ -38,33 +33,71 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
 
-        // Split view — horizontal divider (top/bottom)
-        splitView.isVertical = false
-        splitView.dividerStyle = .thin
-        splitView.delegate = self
-        splitView.autosaveName = "PharosSidebarInternalSplit"
-        splitView.translatesAutoresizingMaskIntoConstraints = false
+        // Segment bar (bottom) — icon-only segments
+        segmentBar.segmentCount = 3
+        segmentBar.trackingMode = .selectOne
+        segmentBar.segmentStyle = .capsule
+        segmentBar.selectedSegment = 0
+        segmentBar.target = self
+        segmentBar.action = #selector(segmentChanged(_:))
+        segmentBar.translatesAutoresizingMaskIntoConstraints = false
 
+        let segConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        segmentBar.setImage(NSImage(systemSymbolName: "folder", accessibilityDescription: "Queries")?.withSymbolConfiguration(segConfig), forSegment: 0)
+        segmentBar.setImage(NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: "History")?.withSymbolConfiguration(segConfig), forSegment: 1)
+        segmentBar.setImage(NSImage(systemSymbolName: "cylinder.split.1x2", accessibilityDescription: "Database")?.withSymbolConfiguration(segConfig), forSegment: 2)
+
+        segmentBar.setToolTip("Query Library", forSegment: 0)
+        segmentBar.setToolTip("Results History", forSegment: 1)
+        segmentBar.setToolTip("Database Navigation", forSegment: 2)
+
+        // Content area holds all three containers
+        contentArea.translatesAutoresizingMaskIntoConstraints = false
+        savedContainer.translatesAutoresizingMaskIntoConstraints = false
+        historyContainer.translatesAutoresizingMaskIntoConstraints = false
+        browserContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        historyContainer.isHidden = true
+        browserContainer.isHidden = true
+
+        contentArea.addSubview(savedContainer)
+        contentArea.addSubview(historyContainer)
+        contentArea.addSubview(browserContainer)
+
+        // Each container fills the entire content area
+        for child in [savedContainer, historyContainer, browserContainer] {
+            NSLayoutConstraint.activate([
+                child.topAnchor.constraint(equalTo: contentArea.topAnchor),
+                child.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
+                child.trailingAnchor.constraint(equalTo: contentArea.trailingAnchor),
+                child.bottomAnchor.constraint(equalTo: contentArea.bottomAnchor),
+            ])
+        }
+
+        // Embed child VCs
+        embedChild(savedQueries, in: savedContainer)
+        embedChild(queryHistory, in: historyContainer)
+        embedChild(schemaBrowser, in: browserContainer)
+
+        // Layout: segment bar at top, then search field, then content area
+        container.addSubview(segmentBar)
         container.addSubview(searchField)
-        container.addSubview(splitView)
+        container.addSubview(contentArea)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            segmentBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            segmentBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            segmentBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+
+            searchField.topAnchor.constraint(equalTo: segmentBar.bottomAnchor, constant: 8),
             searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            splitView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
-            splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            contentArea.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-
-        // Build panes
-        setupLibraryPane()
-        setupNavigatorPane()
-
-        splitView.addSubview(libraryContainer)
-        splitView.addSubview(navigatorContainer)
 
         // Observe connection changes
         stateManager.$activeConnectionId
@@ -92,145 +125,42 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
         NotificationCenter.default.addObserver(
             forName: .savedQueriesDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.savedQueries.reload(connectionId: self?.stateManager.activeConnectionId)
+            self?.savedQueries.reload()
         }
     }
 
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        // Set initial 50/50 split (once, before autosave restores)
-        if !didSetInitialPosition && splitView.bounds.height > 0 {
-            didSetInitialPosition = true
-            splitView.setPosition(splitView.bounds.height / 2, ofDividerAt: 0)
-        }
-    }
+    // MARK: - Segment Switching
 
-    // MARK: - Library Pane (Top)
+    @objc private func segmentChanged(_ sender: NSSegmentedControl) {
+        let index = sender.selectedSegment
+        savedContainer.isHidden = (index != 0)
+        historyContainer.isHidden = (index != 1)
+        browserContainer.isHidden = (index != 2)
 
-    private func setupLibraryPane() {
-        libraryContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        // Header label
-        let header = NSTextField(labelWithString: "Library")
-        header.font = .systemFont(ofSize: 11, weight: .bold)
-        header.textColor = .secondaryLabelColor
-        header.translatesAutoresizingMaskIntoConstraints = false
-
-        // Segmented control: Saved | History
-        librarySegment.segmentCount = 2
-        librarySegment.setLabel("Saved", forSegment: 0)
-        librarySegment.setLabel("History", forSegment: 1)
-        librarySegment.segmentStyle = .capsule
-        librarySegment.selectedSegment = 0
-        librarySegment.target = self
-        librarySegment.action = #selector(librarySegmentChanged(_:))
-        librarySegment.translatesAutoresizingMaskIntoConstraints = false
-
-        savedContainer.translatesAutoresizingMaskIntoConstraints = false
-        historyContainer.translatesAutoresizingMaskIntoConstraints = false
-        historyContainer.isHidden = true
-        actionBar.translatesAutoresizingMaskIntoConstraints = false
-
-        libraryContainer.addSubview(header)
-        libraryContainer.addSubview(librarySegment)
-        libraryContainer.addSubview(savedContainer)
-        libraryContainer.addSubview(historyContainer)
-        libraryContainer.addSubview(actionBar)
-
-        NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: libraryContainer.topAnchor, constant: 8),
-            header.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor, constant: 12),
-
-            librarySegment.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
-            librarySegment.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor, constant: 12),
-            librarySegment.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor, constant: -12),
-
-            savedContainer.topAnchor.constraint(equalTo: librarySegment.bottomAnchor, constant: 4),
-            savedContainer.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
-            savedContainer.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
-            savedContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
-
-            historyContainer.topAnchor.constraint(equalTo: librarySegment.bottomAnchor, constant: 4),
-            historyContainer.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
-            historyContainer.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
-            historyContainer.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
-
-            actionBar.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
-            actionBar.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
-            actionBar.bottomAnchor.constraint(equalTo: libraryContainer.bottomAnchor),
-        ])
-
-        embedChild(savedQueries, in: savedContainer)
-        embedChild(queryHistory, in: historyContainer)
-
-        // Wire action bar callbacks
-        setupActionBarCallbacks()
-    }
-
-    // MARK: - Navigator Pane (Bottom)
-
-    private func setupNavigatorPane() {
-        navigatorContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        // Header label
-        let header = NSTextField(labelWithString: "Navigator")
-        header.font = .systemFont(ofSize: 11, weight: .bold)
-        header.textColor = .secondaryLabelColor
-        header.translatesAutoresizingMaskIntoConstraints = false
-
-        let browserContainer = NSView()
-        browserContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        navigatorContainer.addSubview(header)
-        navigatorContainer.addSubview(browserContainer)
-
-        NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: navigatorContainer.topAnchor, constant: 8),
-            header.leadingAnchor.constraint(equalTo: navigatorContainer.leadingAnchor, constant: 12),
-
-            browserContainer.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
-            browserContainer.leadingAnchor.constraint(equalTo: navigatorContainer.leadingAnchor),
-            browserContainer.trailingAnchor.constraint(equalTo: navigatorContainer.trailingAnchor),
-            browserContainer.bottomAnchor.constraint(equalTo: navigatorContainer.bottomAnchor),
-        ])
-
-        embedChild(schemaBrowser, in: browserContainer)
+        // Re-apply search filter to the newly visible child
+        applyFilterToVisibleChild(searchField.stringValue)
     }
 
     // MARK: - Search
 
     @objc private func searchChanged(_ sender: NSSearchField) {
-        let text = sender.stringValue
-        if text.isEmpty {
-            schemaBrowser.clearFilter()
-            savedQueries.clearFilter()
-            queryHistory.clearFilter()
-        } else {
-            schemaBrowser.applyFilter(text)
-            savedQueries.applyFilter(text)
-            queryHistory.applyFilter(text)
+        applyFilterToVisibleChild(sender.stringValue)
+    }
+
+    private func applyFilterToVisibleChild(_ text: String) {
+        // Clear all filters first
+        schemaBrowser.clearFilter()
+        savedQueries.clearFilter()
+        queryHistory.clearFilter()
+
+        guard !text.isEmpty else { return }
+
+        switch segmentBar.selectedSegment {
+        case 0: savedQueries.applyFilter(text)
+        case 1: queryHistory.applyFilter(text)
+        case 2: schemaBrowser.applyFilter(text)
+        default: break
         }
-    }
-
-    // MARK: - Segment Actions
-
-    @objc private func librarySegmentChanged(_ sender: NSSegmentedControl) {
-        let isSaved = sender.selectedSegment == 0
-        savedContainer.isHidden = !isSaved
-        historyContainer.isHidden = isSaved
-        actionBar.mode = isSaved ? .library : .history
-        // Reset delete button state on mode switch
-        actionBar.isDeleteEnabled = false
-    }
-
-    // MARK: - NSSplitViewDelegate
-
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        return 80
-    }
-
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        return splitView.bounds.height - 80
     }
 
     // MARK: - Connection State
@@ -238,7 +168,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
     private func activeConnectionChanged() {
         guard let activeId = stateManager.activeConnectionId else {
             schemaBrowser.clear()
-            savedQueries.reload(connectionId: nil)
+            savedQueries.reload()
             return
         }
         let status = stateManager.status(for: activeId)
@@ -248,8 +178,7 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             schemaBrowser.clear()
         }
 
-        // Reload library data (always visible now)
-        savedQueries.reload(connectionId: activeId)
+        savedQueries.reload()
         queryHistory.reload()
     }
 
@@ -260,83 +189,6 @@ class SidebarViewController: NSViewController, NSSplitViewDelegate {
             schemaBrowser.loadSchemas(connectionId: activeId)
         } else if status == .disconnected || status == .error {
             schemaBrowser.clear()
-        }
-    }
-
-    // MARK: - Action Bar
-
-    private func setupActionBarCallbacks() {
-        actionBar.onNew = { [weak self] in
-            self?.actionBarNewQuery()
-        }
-        actionBar.onSave = { [weak self] in
-            NSApp.sendAction(#selector(ContentViewController.menuSaveQuery), to: nil, from: self)
-        }
-        actionBar.onSaveAs = { [weak self] in
-            NSApp.sendAction(#selector(ContentViewController.menuSaveQueryAs), to: nil, from: self)
-        }
-        actionBar.onDelete = { [weak self] in
-            self?.actionBarDelete()
-        }
-
-        // Observe tab state for save button enabling
-        stateManager.$activeTabId
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateActionBarSaveState() }
-            .store(in: &cancellables)
-
-        stateManager.$tabs
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateActionBarSaveState() }
-            .store(in: &cancellables)
-
-        // Observe saved queries selection changes for delete button
-        savedQueries.onSelectionChanged = { [weak self] hasSelection in
-            guard let self, self.actionBar.mode == .library else { return }
-            self.actionBar.isDeleteEnabled = hasSelection
-        }
-
-        // Observe history selection changes for delete button
-        queryHistory.onSelectionChanged = { [weak self] count in
-            guard let self, self.actionBar.mode == .history else { return }
-            self.actionBar.isDeleteEnabled = count > 0
-        }
-
-        // Initial button state
-        actionBar.isSaveEnabled = false
-        actionBar.isSaveAsEnabled = false
-        actionBar.isDeleteEnabled = false
-    }
-
-    private func updateActionBarSaveState() {
-        let tab = stateManager.activeTab
-        actionBar.isSaveEnabled = tab?.savedQueryId != nil
-        actionBar.isSaveAsEnabled = tab != nil
-    }
-
-    private func actionBarNewQuery() {
-        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: stateManager.activeConnectionId)
-        do {
-            let saved = try PharosCore.createSavedQuery(query)
-            savedQueries.reload(connectionId: stateManager.activeConnectionId)
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
-            // Open the new query in a tab via notification
-            NotificationCenter.default.post(
-                name: .openSavedQuery,
-                object: nil,
-                userInfo: ["query": saved]
-            )
-        } catch {
-            NSLog("Failed to create query: \(error)")
-        }
-    }
-
-    private func actionBarDelete() {
-        switch actionBar.mode {
-        case .library:
-            savedQueries.deleteSelectedQuery()
-        case .history:
-            queryHistory.deleteSelectedEntries()
         }
     }
 
