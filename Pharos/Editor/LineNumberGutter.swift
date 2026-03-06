@@ -4,6 +4,9 @@ import AppKit
 /// Unlike the previous NSRulerView implementation, this view lives *outside* the
 /// NSScrollView hierarchy, which avoids the system-injected NSVisualEffectView
 /// that macOS 26 attaches to ruler infrastructure (causing washed-out text).
+///
+/// Also draws SQL segment bars (similar to Xcode's source control change bars)
+/// to visually delineate individual SQL statements, with a hoverable run button.
 class LineNumberGutter: NSView {
 
     private weak var textView: NSTextView?
@@ -19,6 +22,29 @@ class LineNumberGutter: NSView {
 
     /// The line number containing the insertion point (1-based), used to highlight the active line number.
     private var currentLine: Int = 0
+
+    // MARK: - Segment Bar State
+
+    /// Parsed SQL segments for the current editor text.
+    private var segments: [SQLSegment] = []
+
+    /// Index of the segment the cursor is currently inside (nil if none).
+    private var activeSegmentIndex: Int?
+
+    /// Maps segment index → color (set when a result tab is created for that segment).
+    private var segmentColors: [Int: NSColor] = [:]
+
+    /// Index of the segment currently being hovered (nil if none).
+    private var hoveredSegmentIndex: Int?
+
+    /// Callback fired when the user clicks the run button on a segment bar.
+    var onRunSegment: ((SQLSegment) -> Void)?
+
+    // Segment bar layout constants
+    private let segmentBarWidth: CGFloat = 4
+    private let segmentBarGap: CGFloat = 6  // gap between line numbers and bar
+
+    private var gutterTrackingArea: NSTrackingArea?
 
     init(textView: NSTextView, scrollView: NSScrollView) {
         self.textView = textView
@@ -71,6 +97,29 @@ class LineNumberGutter: NSView {
         needsDisplay = true
     }
 
+    /// Update the segment data. Called by the host VC when text changes or cursor moves.
+    func setSegments(_ newSegments: [SQLSegment], activeIndex: Int?) {
+        segments = newSegments
+        activeSegmentIndex = activeIndex
+        needsDisplay = true
+    }
+
+    /// Set the color for a segment (e.g., after a result tab is created).
+    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
+        if let color {
+            segmentColors[index] = color
+        } else {
+            segmentColors.removeValue(forKey: index)
+        }
+        needsDisplay = true
+    }
+
+    /// Clear all segment result colors.
+    func clearSegmentColors() {
+        segmentColors.removeAll()
+        needsDisplay = true
+    }
+
     // MARK: - Notifications
 
     @objc private func textDidChange(_: Notification) {
@@ -104,11 +153,97 @@ class LineNumberGutter: NSView {
         let lineCount = max(textView.string.components(separatedBy: "\n").count, 1)
         let digits = max(String(lineCount).count, 3)
         let digitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
-        let newWidth = CGFloat(digits) * digitWidth + 20
+        let newWidth = CGFloat(digits) * digitWidth + 20 + segmentBarWidth + segmentBarGap
         if abs(desiredWidth - newWidth) > 1 {
             desiredWidth = newWidth
             onWidthChange?()
         }
+    }
+
+    // MARK: - Mouse Tracking
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = gutterTrackingArea {
+            removeTrackingArea(old)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow],
+            owner: self, userInfo: nil
+        )
+        addTrackingArea(area)
+        gutterTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+        // Only respond to hovers in the segment bar column area (with some padding)
+        guard point.x >= barColumnX - 4 else {
+            if hoveredSegmentIndex != nil {
+                hoveredSegmentIndex = nil
+                needsDisplay = true
+            }
+            return
+        }
+
+        let lineAtPoint = lineNumber(at: point)
+        let newHovered = segments.firstIndex { seg in
+            lineAtPoint >= seg.startLine && lineAtPoint <= seg.endLine
+        }
+
+        if hoveredSegmentIndex != newHovered {
+            hoveredSegmentIndex = newHovered
+            needsDisplay = true
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if hoveredSegmentIndex != nil {
+            hoveredSegmentIndex = nil
+            needsDisplay = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+
+        // Only handle clicks in the segment bar column
+        guard point.x >= barColumnX - 4,
+              let idx = hoveredSegmentIndex,
+              idx < segments.count else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        onRunSegment?(segments[idx])
+    }
+
+    /// Map a point (in gutter coordinates) to a 1-based line number.
+    private func lineNumber(at point: NSPoint) -> Int {
+        guard let textView, let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return 0 }
+
+        let scrollOffset = scrollView.contentView.bounds.origin.y
+        let textInset = textView.textContainerInset
+
+        // Convert gutter y to text view y
+        let textY = point.y + scrollOffset - textInset.height
+
+        let text = textView.string as NSString
+        guard text.length > 0 else { return 1 }
+
+        // Find the glyph at this y position
+        let testPoint = NSPoint(x: 0, y: textY)
+        let glyphIndex = layoutManager.glyphIndex(for: testPoint, in: textContainer)
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+
+        // Count newlines up to charIndex to get line number
+        let prefix = text.substring(to: min(charIndex, text.length))
+        return prefix.components(separatedBy: "\n").count
     }
 
     // MARK: - Drawing
@@ -151,6 +286,9 @@ class LineNumberGutter: NSView {
             lineNumber += 1
         }
 
+        // Build a map of line number → y position and line height for segment bar drawing
+        var lineYPositions: [(line: Int, y: CGFloat, height: CGFloat)] = []
+
         // Draw line numbers for visible lines
         var charIndex = visibleCharRange.location
         while charIndex < NSMaxRange(visibleCharRange) {
@@ -160,6 +298,8 @@ class LineNumberGutter: NSView {
 
             // y position in our coordinate space: line's position in text + inset - scroll offset
             let y = lineRect.origin.y + textInset.height - scrollOffset
+
+            lineYPositions.append((line: lineNumber, y: y, height: lineRect.height))
 
             // Error indicator dot
             if errorLines.contains(lineNumber) {
@@ -174,13 +314,13 @@ class LineNumberGutter: NSView {
                 NSBezierPath(ovalIn: dotRect).fill()
             }
 
-            // Line number text — bright for current line, muted for others
+            // Line number text — right-aligned before the segment bar column
             let numberString = "\(lineNumber)"
             let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
             let attrString = NSAttributedString(string: numberString, attributes: attrs)
             let stringSize = attrString.size()
             let drawPoint = NSPoint(
-                x: desiredWidth - stringSize.width - 8,
+                x: desiredWidth - segmentBarWidth - segmentBarGap - stringSize.width - 4,
                 y: y + (lineRect.height - stringSize.height) / 2
             )
             attrString.draw(at: drawPoint)
@@ -188,5 +328,81 @@ class LineNumberGutter: NSView {
             lineNumber += 1
             charIndex = NSMaxRange(lineRange)
         }
+
+        // Draw segment bars
+        guard !segments.isEmpty, !lineYPositions.isEmpty else { return }
+
+        let barX = desiredWidth - segmentBarGap / 2 - segmentBarWidth
+        let firstVisibleLine = lineYPositions.first!.line
+        let lastVisibleLine = lineYPositions.last!.line
+
+        for (segIdx, segment) in segments.enumerated() {
+            // Skip segments that don't overlap the visible line range
+            guard segment.endLine >= firstVisibleLine && segment.startLine <= lastVisibleLine else { continue }
+
+            // Find y-coordinates for the segment's visible extent
+            let clampedStart = max(segment.startLine, firstVisibleLine)
+            let clampedEnd = min(segment.endLine, lastVisibleLine)
+
+            guard let startEntry = lineYPositions.first(where: { $0.line == clampedStart }),
+                  let endEntry = lineYPositions.first(where: { $0.line == clampedEnd }) else { continue }
+
+            let barY = startEntry.y + 2
+            let barBottom = endEntry.y + endEntry.height - 2
+            let barHeight = max(barBottom - barY, 4)
+
+            // Determine bar color
+            let barColor: NSColor
+            if let resultColor = segmentColors[segIdx] {
+                barColor = resultColor
+            } else if segIdx == activeSegmentIndex {
+                barColor = NSColor.controlAccentColor
+            } else {
+                barColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.35)
+            }
+
+            // Draw the bar
+            let barRect = NSRect(x: barX, y: barY, width: segmentBarWidth, height: barHeight)
+            barColor.setFill()
+            NSBezierPath(roundedRect: barRect, xRadius: 2, yRadius: 2).fill()
+
+            // Draw run button on hover
+            if segIdx == hoveredSegmentIndex {
+                drawRunButton(at: barRect, color: barColor)
+            }
+        }
+    }
+
+    /// Draw a small play triangle button overlaying the segment bar.
+    private func drawRunButton(at barRect: NSRect, color: NSColor) {
+        let buttonSize: CGFloat = 16
+        let buttonRect = NSRect(
+            x: barRect.midX - buttonSize / 2,
+            y: barRect.minY - 1,
+            width: buttonSize,
+            height: buttonSize
+        )
+
+        // Background circle
+        let bgColor = NSColor.controlAccentColor
+        bgColor.setFill()
+        NSBezierPath(ovalIn: buttonRect).fill()
+
+        // Play triangle (white)
+        let triangleInset: CGFloat = 4.5
+        let triLeft = buttonRect.minX + triangleInset + 1
+        let triRight = buttonRect.maxX - triangleInset + 1
+        let triTop = buttonRect.minY + triangleInset
+        let triBottom = buttonRect.maxY - triangleInset
+        let triMidY = (triTop + triBottom) / 2
+
+        let triangle = NSBezierPath()
+        triangle.move(to: NSPoint(x: triLeft, y: triTop))
+        triangle.line(to: NSPoint(x: triRight, y: triMidY))
+        triangle.line(to: NSPoint(x: triLeft, y: triBottom))
+        triangle.close()
+
+        NSColor.white.setFill()
+        triangle.fill()
     }
 }

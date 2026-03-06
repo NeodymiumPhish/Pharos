@@ -12,13 +12,24 @@ class ContentViewController: NSViewController {
     // Action bar — independent element between editor panes and results grid
     let actionBar = ResultsToolbarBar()
 
-    // Container that holds paneSplitView + actionBar + resultsVC.view with constraints
+    // Result tab bar — between action bar and results grid
+    private let resultTabBar = ResultTabBar()
+
+    // Container that holds paneSplitView + actionBar + resultTabBar + resultsVC.view with constraints
     private let contentStack = NSView()
 
     // Layout constraints for the editor/results split
     private var editorHeightConstraint: NSLayoutConstraint!
-    private var resultsTopToActionBar: NSLayoutConstraint!
+    private var resultsTopToResultTabBar: NSLayoutConstraint!
     private var resultsBottomToContainer: NSLayoutConstraint!
+    private var resultTabBarHeightConstraint: NSLayoutConstraint!
+
+    // Result tab management — scoped per editor tab
+    private var resultTabs: [ResultTab] = []
+    private var activeResultTabId: String?
+    private var resultTabsByEditorTab: [String: [ResultTab]] = [:]
+    private var activeResultTabIdByEditorTab: [String: String] = [:]
+    private static let resultTabBarHeight: CGFloat = 26
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
     let statusLabel = NSTextField(labelWithString: "")
@@ -76,7 +87,18 @@ class ContentViewController: NSViewController {
 
         contentStack.addSubview(paneSplitView)
         contentStack.addSubview(actionBar)
+        contentStack.addSubview(resultTabBar)
         contentStack.addSubview(resultsVC.view)
+
+        // Result tab bar setup
+        resultTabBar.translatesAutoresizingMaskIntoConstraints = false
+        resultTabBar.isHidden = true  // Hidden until first result
+        resultTabBar.onSelectTab = { [weak self] tabId in
+            self?.selectResultTab(tabId)
+        }
+        resultTabBar.onCloseTab = { [weak self] tabId in
+            self?.closeResultTab(tabId)
+        }
 
         // Action bar setup
         setupActionBar()
@@ -97,7 +119,8 @@ class ContentViewController: NSViewController {
         editorHeightConstraint = paneSplitView.heightAnchor.constraint(equalToConstant: 300)
         editorHeightConstraint.priority = .defaultHigh
 
-        resultsTopToActionBar = resultsVC.view.topAnchor.constraint(equalTo: actionBar.bottomAnchor)
+        resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
+        resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
         resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor)
 
         NSLayoutConstraint.activate([
@@ -118,8 +141,14 @@ class ContentViewController: NSViewController {
             actionBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: Self.actionBarHeight),
 
-            // Results: below action bar, full width, fills remaining space
-            resultsTopToActionBar,
+            // Result tab bar: below action bar, full width
+            resultTabBar.topAnchor.constraint(equalTo: actionBar.bottomAnchor),
+            resultTabBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            resultTabBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            resultTabBarHeightConstraint,
+
+            // Results: below result tab bar, full width, fills remaining space
+            resultsTopToResultTabBar,
             resultsVC.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             resultsVC.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             resultsBottomToContainer,
@@ -338,25 +367,47 @@ class ContentViewController: NSViewController {
     private var lastActiveTabId: String?
 
     private func activeTabChanged(_ tabId: String?) {
-        // Save grid state of the tab we're leaving
+        // Save grid state and result tabs of the tab we're leaving
         if let previousTabId = lastActiveTabId {
             let gridState = resultsVC.captureGridState()
             stateManager.updateTab(id: previousTabId) { tab in
                 tab.gridState = gridState
+            }
+            // Persist result tabs for the previous editor tab
+            resultTabsByEditorTab[previousTabId] = resultTabs
+            if let activeRTId = activeResultTabId {
+                activeResultTabIdByEditorTab[previousTabId] = activeRTId
+            } else {
+                activeResultTabIdByEditorTab.removeValue(forKey: previousTabId)
             }
         }
         lastActiveTabId = tabId
 
         guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
             resultsVC.clear()
+            resultTabs = []
+            activeResultTabId = nil
+            updateResultTabBarVisibility()
             updateSplitViewVisibility()
             return
         }
 
         updateSplitViewVisibility()
 
-        // Update results grid for the new active tab
-        if let pinnedResult = stateManager.pinnedResult {
+        // Restore result tabs for the new editor tab
+        resultTabs = resultTabsByEditorTab[tabId] ?? []
+        activeResultTabId = activeResultTabIdByEditorTab[tabId]
+        updateResultTabBarVisibility()
+
+        // Show result from the active result tab, or fall back to legacy behavior
+        if let activeRTId = activeResultTabId,
+           let activeRT = resultTabs.first(where: { $0.id == activeRTId }) {
+            if let result = activeRT.queryResult {
+                resultsVC.showResult(result)
+            } else if let execResult = activeRT.executeResult {
+                resultsVC.showExecuteResult(execResult)
+            }
+        } else if let pinnedResult = stateManager.pinnedResult {
             resultsVC.showResult(pinnedResult)
             resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
         } else if let result = tab.result {
@@ -370,6 +421,12 @@ class ContentViewController: NSViewController {
             resultsVC.showError(error)
         } else {
             resultsVC.clear()
+        }
+
+        // Restore segment colors in the gutter
+        focusedPaneVC?.clearSegmentColors()
+        for rt in resultTabs where !rt.isStale {
+            focusedPaneVC?.setSegmentColor(rt.color, forSegmentIndex: rt.segmentIndex)
         }
 
         // Show/hide history context for this tab
@@ -698,7 +755,8 @@ class ContentViewController: NSViewController {
     }
 
     private func applyExpandState() {
-        let totalHeight = contentStack.bounds.height - Self.actionBarHeight
+        let rtBarH = resultTabs.isEmpty ? 0 : Self.resultTabBarHeight
+        let totalHeight = contentStack.bounds.height - Self.actionBarHeight - rtBarH
         guard totalHeight > 0 else { return }
 
         switch expandState {
@@ -767,15 +825,130 @@ class ContentViewController: NSViewController {
     func executeQuery(_ sql: String? = nil) {
         guard let connectionId = stateManager.activeConnectionId,
               stateManager.status(for: connectionId) == .connected else { return }
+        guard stateManager.activeTabId != nil else { return }
+
+        if let sql {
+            // Explicit SQL passed (e.g., from context menu, saved query) — use direct execution
+            executeDirectSQL(sql)
+        } else {
+            // Cmd+Return — execute the segment at the cursor
+            if let segment = focusedPaneVC?.editorVC.getSegmentSQLAtCursor() {
+                executeSegment(segment)
+            } else {
+                // Fallback: no segments parsed, execute full editor text
+                let fullSQL = focusedPaneVC?.getSQL() ?? ""
+                executeDirectSQL(fullSQL)
+            }
+        }
+    }
+
+    /// Execute a specific SQL segment, creating a result tab on success.
+    func executeSegment(_ segment: SQLSegment) {
+        guard let connectionId = stateManager.activeConnectionId,
+              stateManager.status(for: connectionId) == .connected else { return }
         guard let tabId = stateManager.activeTabId else { return }
 
-        let querySQL = sql ?? focusedPaneVC?.getSQL() ?? ""
+        let sql = segment.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sql.isEmpty else { return }
+
+        let queryId = UUID().uuidString
+        let color = ResultTab.nextColor()
+
+        // Mark tab as executing
+        stateManager.updateTab(id: tabId) { tab in
+            tab.isExecuting = true
+            tab.queryId = queryId
+            tab.error = nil
+        }
+        focusedPaneVC?.clearErrorMarkers()
+
+        let limit = Int32(stateManager.settings.query.defaultLimit)
+        let isSelectLike = Self.isSelectLikeSQL(sql)
+
+        Task {
+            do {
+                if isSelectLike {
+                    let result = try await PharosCore.executeQuery(
+                        connectionId: connectionId,
+                        sql: sql,
+                        queryId: queryId,
+                        limit: limit,
+                        schema: self.stateManager.activeSchema
+                    )
+                    await MainActor.run {
+                        var rt = ResultTab(
+                            id: UUID().uuidString,
+                            segmentIndex: segment.index,
+                            sql: sql,
+                            lineRange: segment.startLine...segment.endLine,
+                            color: color,
+                            timestamp: Date()
+                        )
+                        rt.queryResult = result
+                        rt.executionTimeMs = result.executionTimeMs
+
+                        self.stateManager.updateTab(id: tabId) { tab in
+                            tab.isExecuting = false
+                            tab.queryId = nil
+                            tab.result = result
+                        }
+                        self.addResultTab(rt)
+                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                    }
+                } else {
+                    let result = try await PharosCore.executeStatement(
+                        connectionId: connectionId,
+                        sql: sql,
+                        schema: self.stateManager.activeSchema
+                    )
+                    await MainActor.run {
+                        var rt = ResultTab(
+                            id: UUID().uuidString,
+                            segmentIndex: segment.index,
+                            sql: sql,
+                            lineRange: segment.startLine...segment.endLine,
+                            color: color,
+                            timestamp: Date()
+                        )
+                        rt.executeResult = result
+                        rt.executionTimeMs = result.executionTimeMs
+
+                        self.stateManager.updateTab(id: tabId) { tab in
+                            tab.isExecuting = false
+                            tab.queryId = nil
+                            tab.executeResult = result
+                        }
+                        self.addResultTab(rt)
+                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    let message = error.localizedDescription
+                    self.stateManager.updateTab(id: tabId) { tab in
+                        tab.isExecuting = false
+                        tab.queryId = nil
+                        tab.error = message
+                    }
+                    if self.stateManager.activeTabId == tabId {
+                        self.resultsVC.showError(message)
+                        self.markEditorError(message: message, sql: sql)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Execute SQL directly without creating a result tab (legacy path for explicit SQL).
+    private func executeDirectSQL(_ querySQL: String) {
+        guard let connectionId = stateManager.activeConnectionId,
+              let tabId = stateManager.activeTabId else { return }
+
         let trimmed = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let queryId = UUID().uuidString
 
-        // Mark tab as executing
         stateManager.updateTab(id: tabId) { tab in
             tab.isExecuting = true
             tab.queryId = queryId
@@ -787,12 +960,7 @@ class ContentViewController: NSViewController {
         focusedPaneVC?.clearErrorMarkers()
 
         let limit = Int32(stateManager.settings.query.defaultLimit)
-        let isSelectLike = trimmed.uppercased().hasPrefix("SELECT")
-            || trimmed.uppercased().hasPrefix("WITH")
-            || trimmed.uppercased().hasPrefix("EXPLAIN")
-            || trimmed.uppercased().hasPrefix("SHOW")
-            || trimmed.uppercased().hasPrefix("TABLE")
-            || trimmed.uppercased().hasPrefix("VALUES")
+        let isSelectLike = Self.isSelectLikeSQL(trimmed)
 
         Task {
             do {
@@ -848,6 +1016,86 @@ class ContentViewController: NSViewController {
                 }
             }
         }
+    }
+
+    private static func isSelectLikeSQL(_ sql: String) -> Bool {
+        let upper = sql.uppercased()
+        return upper.hasPrefix("SELECT")
+            || upper.hasPrefix("WITH")
+            || upper.hasPrefix("EXPLAIN")
+            || upper.hasPrefix("SHOW")
+            || upper.hasPrefix("TABLE")
+            || upper.hasPrefix("VALUES")
+    }
+
+    // MARK: - Result Tab Management
+
+    private func addResultTab(_ tab: ResultTab) {
+        resultTabs.append(tab)
+        activeResultTabId = tab.id
+        updateResultTabBarVisibility()
+
+        // Set segment color in gutter
+        focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
+
+        // Show this result in the grid
+        if let result = tab.queryResult {
+            resultsVC.showResult(result)
+        } else if let execResult = tab.executeResult {
+            resultsVC.showExecuteResult(execResult)
+        }
+    }
+
+    private func selectResultTab(_ tabId: String) {
+        activeResultTabId = tabId
+        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+
+        guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
+
+        // Show the result in the grid
+        if let result = tab.queryResult {
+            resultsVC.showResult(result)
+        } else if let execResult = tab.executeResult {
+            resultsVC.showExecuteResult(execResult)
+        }
+
+        // Highlight source lines in the editor
+        focusedPaneVC?.highlightLines(tab.lineRange)
+    }
+
+    private func closeResultTab(_ tabId: String) {
+        guard let idx = resultTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = resultTabs.remove(at: idx)
+
+        // Clear the segment color
+        focusedPaneVC?.setSegmentColor(nil, forSegmentIndex: closedTab.segmentIndex)
+
+        if resultTabs.isEmpty {
+            activeResultTabId = nil
+            updateResultTabBarVisibility()
+            resultsVC.clear()
+        } else if activeResultTabId == tabId {
+            let newIdx = min(idx, resultTabs.count - 1)
+            selectResultTab(resultTabs[newIdx].id)
+        } else {
+            resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+        }
+    }
+
+    private func updateResultTabBarVisibility() {
+        let hasResultTabs = !resultTabs.isEmpty
+        resultTabBar.isHidden = !hasResultTabs
+        resultTabBarHeightConstraint.constant = hasResultTabs ? Self.resultTabBarHeight : 0
+        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+    }
+
+    /// Mark all result tabs for the current editor tab as stale (text was edited).
+    private func markResultTabsStale() {
+        guard !resultTabs.isEmpty else { return }
+        for i in resultTabs.indices {
+            resultTabs[i].isStale = true
+        }
+        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
     }
 
     /// Load more rows for pagination.
@@ -987,6 +1235,15 @@ extension ContentViewController: EditorPaneDelegate {
 
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC) {
         menuSaveQueryAs(nil)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment) {
+        stateManager.focusPane(id: pane.paneId)
+        executeSegment(segment)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didEditText paneId: String) {
+        markResultTabsStale()
     }
 }
 
@@ -1179,7 +1436,8 @@ extension ContentViewController {
             guard isDragging else { return }
             // Window coordinates: y increases upward. Dragging down = negative delta = editor grows.
             let deltaY = dragStartY - event.locationInWindow.y
-            let totalAvailable = contentStack.bounds.height - Self.actionBarHeight
+            let rtBarH = resultTabs.isEmpty ? CGFloat(0) : Self.resultTabBarHeight
+            let totalAvailable = contentStack.bounds.height - Self.actionBarHeight - rtBarH
             let newHeight = max(100, min(totalAvailable - 60, dragStartEditorHeight + deltaY))
             editorHeightConstraint.constant = newHeight
             savedSplitRatio = newHeight / totalAvailable

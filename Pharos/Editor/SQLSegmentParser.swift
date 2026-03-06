@@ -164,10 +164,37 @@ struct SQLSegmentParser {
 
         // Compute line numbers
         let textBeforeSegment = nsText.substring(to: range.location)
-        let startLine = textBeforeSegment.components(separatedBy: "\n").count
+        let rawStartLine = textBeforeSegment.components(separatedBy: "\n").count
         let segmentText = nsText.substring(with: range)
-        let linesInSegment = segmentText.components(separatedBy: "\n").count
-        let endLine = startLine + linesInSegment - 1
+        let lines = segmentText.components(separatedBy: "\n")
+        let rawEndLine = rawStartLine + lines.count - 1
+
+        // Trim startLine to skip leading empty/whitespace-only lines.
+        var startLine = rawStartLine
+        for lineIdx in 0..<lines.count {
+            let stripped = lines[lineIdx].trimmingCharacters(in: .whitespaces)
+            if stripped.isEmpty {
+                startLine = rawStartLine + lineIdx + 1
+            } else {
+                break
+            }
+        }
+
+        // Trim endLine to exclude trailing lines that only contain `;` and/or whitespace.
+        // This creates a visual gap between segments in the gutter.
+        var endLine = rawEndLine
+        for lineIdx in stride(from: lines.count - 1, through: 0, by: -1) {
+            let stripped = lines[lineIdx].trimmingCharacters(in: .whitespaces)
+            if stripped.isEmpty || stripped == ";" {
+                endLine = rawStartLine + lineIdx - 1
+            } else {
+                break
+            }
+        }
+
+        // Ensure valid range (startLine <= endLine, and both within bounds)
+        startLine = min(startLine, rawEndLine)
+        endLine = max(endLine, startLine)
 
         segments.append(SQLSegment(
             index: segments.count,

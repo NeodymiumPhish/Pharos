@@ -12,9 +12,21 @@ class QueryEditorVC: NSViewController {
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
     private var validationTask: Task<Void, Never>?
+    private var segmentTask: Task<Void, Never>?
+    private var highlightOverlay: NSView?
+    private var highlightFadeTask: Task<Void, Never>?
 
     /// The tab ID this editor is associated with.
     var tabId: String?
+
+    /// Current parsed SQL segments.
+    private(set) var segments: [SQLSegment] = []
+
+    /// Callback fired when the user clicks the gutter run button on a segment.
+    var onRunSegment: ((SQLSegment) -> Void)?
+
+    /// Callback fired when editor text changes (for result tab staleness tracking).
+    var onTextEdited: (() -> Void)?
 
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
@@ -47,6 +59,9 @@ class QueryEditorVC: NSViewController {
         gutterView.onWidthChange = { [weak self] in
             self?.view.needsLayout = true
         }
+        gutterView.onRunSegment = { [weak self] segment in
+            self?.onRunSegment?(segment)
+        }
         gutter = gutterView
 
         container.addSubview(gutterView)
@@ -60,6 +75,12 @@ class QueryEditorVC: NSViewController {
         textView.onTextChange = { [weak self] newText in
             self?.textDidChange(newText)
         }
+
+        // Track cursor movement for active segment highlighting
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(editorSelectionDidChange(_:)),
+            name: NSTextView.didChangeSelectionNotification, object: textView
+        )
 
         applySettings()
 
@@ -101,6 +122,15 @@ class QueryEditorVC: NSViewController {
         textView.string = sql
         textView.highlightSyntax()
         gutter?.invalidateLineNumbers()
+        // Immediately recalculate segments for the new text
+        segments = SQLSegmentParser.parse(sql)
+        let cursor = textView.selectedRange().location
+        let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments)
+        gutter?.setSegments(segments, activeIndex: activeIndex)
+    }
+
+    @objc private func editorSelectionDidChange(_: Notification) {
+        updateActiveSegment()
     }
 
     func getSQL() -> String {
@@ -208,6 +238,116 @@ class QueryEditorVC: NSViewController {
         textView.highlightSyntax()
     }
 
+    // MARK: - Segment API
+
+    /// Returns the SQL segment at the current cursor position, or nil if none.
+    func getSegmentSQLAtCursor() -> SQLSegment? {
+        let cursor = textView.selectedRange().location
+        guard let idx = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments),
+              idx < segments.count else { return nil }
+        return segments[idx]
+    }
+
+    /// Set the result color for a segment bar in the gutter.
+    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
+        gutter?.setSegmentColor(color, forSegmentIndex: index)
+    }
+
+    /// Clear all segment result colors in the gutter.
+    func clearSegmentColors() {
+        gutter?.clearSegmentColors()
+    }
+
+    /// Highlight a line range in the editor (scroll to visible + 3-second fade overlay).
+    func highlightLines(_ range: ClosedRange<Int>) {
+        let text = textView.string as NSString
+        guard text.length > 0 else { return }
+
+        var charStart = 0
+        var currentLine = 1
+        // Advance to the start line
+        while currentLine < range.lowerBound && charStart < text.length {
+            if text.character(at: charStart) == UInt16(Character("\n").asciiValue!) {
+                currentLine += 1
+            }
+            charStart += 1
+        }
+        var charEnd = charStart
+        // Advance to the end line
+        while currentLine <= range.upperBound && charEnd < text.length {
+            if text.character(at: charEnd) == UInt16(Character("\n").asciiValue!) {
+                currentLine += 1
+            }
+            charEnd += 1
+        }
+        let charRange = NSRange(location: charStart, length: charEnd - charStart)
+        textView.scrollRangeToVisible(charRange)
+
+        // Show a highlight overlay that lasts 3 seconds then fades out
+        showHighlightOverlay(for: charRange)
+    }
+
+    private func showHighlightOverlay(for charRange: NSRange) {
+        // Cancel any previous fade
+        highlightFadeTask?.cancel()
+        highlightOverlay?.removeFromSuperview()
+
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+
+        // Get the bounding rect for the character range
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+
+        // Adjust for text container inset
+        let inset = textView.textContainerInset
+        rect.origin.x = 0
+        rect.origin.y += inset.height
+        rect.size.width = textView.bounds.width
+
+        let overlay = NSView(frame: rect)
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
+        overlay.layer?.cornerRadius = 3
+        textView.addSubview(overlay)
+        highlightOverlay = overlay
+
+        // Hold for 3 seconds, then fade out over 0.5 seconds
+        highlightFadeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self, let overlay = self.highlightOverlay else { return }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.5
+                overlay.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                self?.highlightOverlay?.removeFromSuperview()
+                self?.highlightOverlay = nil
+            }
+        }
+    }
+
+    /// Recalculate segments from the current editor text (debounced).
+    private func recalculateSegments() {
+        segmentTask?.cancel()
+        segmentTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
+            guard !Task.isCancelled, let self else { return }
+            let text = self.textView.string
+            self.segments = SQLSegmentParser.parse(text)
+            let cursor = self.textView.selectedRange().location
+            let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: self.segments)
+            self.gutter?.setSegments(self.segments, activeIndex: activeIndex)
+        }
+    }
+
+    /// Update the active segment highlight based on current cursor position (no debounce).
+    private func updateActiveSegment() {
+        let cursor = textView.selectedRange().location
+        let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments)
+        gutter?.setSegments(segments, activeIndex: activeIndex)
+    }
+
     // MARK: - Text Changes
 
     private func textDidChange(_ newText: String) {
@@ -220,6 +360,12 @@ class QueryEditorVC: NSViewController {
             tab.sql = newText
             tab.isDirty = true
         }
+
+        // Recalculate SQL segments
+        recalculateSegments()
+
+        // Notify for result tab staleness
+        onTextEdited?()
 
         // Debounced validation
         validationTask?.cancel()

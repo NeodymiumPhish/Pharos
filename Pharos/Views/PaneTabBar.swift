@@ -33,6 +33,14 @@ class PaneTabBar: NSView {
     private let addButton = NSButton()
     private let segmentedControl = NSSegmentedControl()
 
+    /// Close buttons overlaid on each segment of the segmented control.
+    private var closeButtons: [NSButton] = []
+
+    /// Tracking area for hover detection on the segmented control.
+    private var segmentTrackingArea: NSTrackingArea?
+    /// The segment index currently being hovered (-1 if none).
+    private var hoveredSegmentIndex: Int = -1
+
     // Layout constants
     private let paneButtonWidth: CGFloat = 30
     private let addButtonWidth: CGFloat = 30
@@ -139,6 +147,8 @@ class PaneTabBar: NSView {
     override func layout() {
         super.layout()
         layoutSubviews()
+        applyEqualSegmentWidths()
+        layoutCloseButtons()
     }
 
     private func layoutSubviews() {
@@ -168,6 +178,31 @@ class PaneTabBar: NSView {
             width: max(0, segWidth),
             height: barHeight - segmentInsetV * 2
         )
+
+        // Position close buttons on each segment
+        layoutCloseButtons()
+    }
+
+    private func layoutCloseButtons() {
+        let segFrame = segmentedControl.frame
+        let count = segmentedControl.segmentCount
+        guard count > 0, !closeButtons.isEmpty else { return }
+
+        let closeSize: CGFloat = 16
+
+        var segX: CGFloat = 0
+        for i in 0..<count {
+            let segW = segmentedControl.width(forSegment: i)
+
+            if i < closeButtons.count {
+                // Place close button at the trailing edge of the segment, vertically centered
+                let btnX = segFrame.origin.x + segX + segW - closeSize - 4
+                let btnY = segFrame.origin.y + (segFrame.height - closeSize) / 2
+                closeButtons[i].frame = NSRect(x: btnX, y: btnY, width: closeSize, height: closeSize)
+            }
+
+            segX += segW
+        }
     }
 
     // MARK: - Rebuild Segments
@@ -181,6 +216,10 @@ class PaneTabBar: NSView {
             segmentedControl.setToolTip(tab.name, forSegment: index)
         }
 
+        // Explicitly set equal widths so we can reliably position close buttons.
+        // Must be done after layoutSubviews() sets the segmented control frame.
+        // We call layoutSubviews() first, then set widths, then layout close buttons.
+
         // Select the active segment
         if let activeId = activeTabId,
            let activeIndex = tabs.firstIndex(where: { $0.id == activeId }) {
@@ -189,8 +228,54 @@ class PaneTabBar: NSView {
             segmentedControl.selectedSegment = -1
         }
 
+        rebuildCloseButtons()
         layoutSubviews()
+        applyEqualSegmentWidths()
+        layoutCloseButtons()
+        updateCloseButtonVisibility()
+        updateTrackingAreas()
         needsDisplay = true
+    }
+
+    /// Set explicit equal widths on every segment so that `width(forSegment:)`
+    /// returns accurate values for close-button positioning and hit-testing.
+    private func applyEqualSegmentWidths() {
+        let count = segmentedControl.segmentCount
+        guard count > 0 else { return }
+        let totalWidth = segmentedControl.bounds.width
+        let perSegment = floor(totalWidth / CGFloat(count))
+        for i in 0..<count {
+            segmentedControl.setWidth(perSegment, forSegment: i)
+        }
+    }
+
+    private func rebuildCloseButtons() {
+        // Remove old close buttons
+        for btn in closeButtons { btn.removeFromSuperview() }
+        closeButtons.removeAll()
+
+        for i in 0..<tabs.count {
+            let btn = NSButton(frame: .zero)
+            let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+            btn.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
+                .withSymbolConfiguration(config)
+            btn.bezelStyle = .recessed
+            btn.isBordered = false
+            btn.imageScaling = .scaleNone
+            btn.contentTintColor = .tertiaryLabelColor
+            btn.target = self
+            btn.action = #selector(closeTabButtonTapped(_:))
+            btn.tag = i
+            btn.isHidden = true  // Only shown on hover or for active tab
+            addSubview(btn)
+            closeButtons.append(btn)
+        }
+    }
+
+    @objc private func closeTabButtonTapped(_ sender: NSButton) {
+        let index = sender.tag
+        guard index >= 0, index < tabs.count else { return }
+        onCloseTab?(tabs[index].id)
     }
 
     /// Build label with dirty/executing indicators.
@@ -198,9 +283,59 @@ class PaneTabBar: NSView {
         if tab.isExecuting {
             return "⟳ \(tab.name)"
         } else if tab.isDirty {
-            return "● \(tab.name)"
+            return "· \(tab.name)"
         }
         return tab.name
+    }
+
+    // MARK: - Mouse Tracking for Close Buttons
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = segmentTrackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: segmentedControl.frame,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp],
+            owner: self,
+            userInfo: nil
+        )
+        segmentTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let segLocal = convert(localPoint, to: segmentedControl)
+
+        if let index = segmentIndex(at: segLocal) {
+            if hoveredSegmentIndex != index {
+                hoveredSegmentIndex = index
+                updateCloseButtonVisibility()
+            }
+        } else {
+            if hoveredSegmentIndex != -1 {
+                hoveredSegmentIndex = -1
+                updateCloseButtonVisibility()
+            }
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredSegmentIndex = -1
+        updateCloseButtonVisibility()
+    }
+
+    private func updateCloseButtonVisibility() {
+        for (i, btn) in closeButtons.enumerated() {
+            // Show close button if this segment is hovered or is the active tab
+            let isHovered = (i == hoveredSegmentIndex)
+            let isActive = (i < tabs.count && tabs[i].id == activeTabId)
+            btn.isHidden = !(isHovered || isActive)
+            // Brighter tint when hovered directly
+            btn.contentTintColor = isHovered ? .secondaryLabelColor : .tertiaryLabelColor
+        }
     }
 
     // MARK: - Segment Actions
@@ -274,8 +409,7 @@ class PaneTabBar: NSView {
     private func segmentIndex(at point: NSPoint) -> Int? {
         var x: CGFloat = 0
         for i in 0..<segmentedControl.segmentCount {
-            let w = segmentedControl.width(forSegment: i)
-            let segWidth = w > 0 ? w : segmentedControl.bounds.width / CGFloat(segmentedControl.segmentCount)
+            let segWidth = segmentedControl.width(forSegment: i)
             if point.x >= x && point.x < x + segWidth {
                 return i
             }

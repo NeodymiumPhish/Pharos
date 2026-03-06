@@ -13,6 +13,8 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
+    func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
+    func editorPane(_ pane: EditorPaneVC, didEditText paneId: String)
 }
 
 /// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
@@ -98,7 +100,15 @@ class EditorPaneVC: NSViewController {
         // Editor toolbar (below tab bar)
         setupEditorToolbar()
 
-        // Editor
+        // Editor — wire segment run and text edit callbacks
+        editorVC.onRunSegment = { [weak self] segment in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestRunSegment: segment)
+        }
+        editorVC.onTextEdited = { [weak self] in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didEditText: self.paneId)
+        }
         addChild(editorVC)
 
         container.addSubview(paneTabBar)
@@ -282,6 +292,18 @@ class EditorPaneVC: NSViewController {
     func insertText(_ text: String) {
         let range = editorVC.textView.selectedRange()
         editorVC.textView.insertText(text, replacementRange: range)
+    }
+
+    func highlightLines(_ range: ClosedRange<Int>) {
+        editorVC.highlightLines(range)
+    }
+
+    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
+        editorVC.setSegmentColor(color, forSegmentIndex: index)
+    }
+
+    func clearSegmentColors() {
+        editorVC.clearSegmentColors()
     }
 
     /// Save the current tab's cursor position.
