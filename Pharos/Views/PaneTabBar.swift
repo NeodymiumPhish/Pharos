@@ -583,6 +583,7 @@ private class PillTabItemView: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
+        layer?.masksToBounds = true
         layer?.cornerRadius = 6
         toolTip = tab.name
 
@@ -666,18 +667,29 @@ private class PillTabItemView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        let pillRect = bounds.insetBy(dx: 0.5, dy: 0.5)
+
         if isActive {
-            // Active pill: filled background
+            // Active pill: white fill with subtle border for contrast
             NSColor.textBackgroundColor.setFill()
-            let pillPath = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
+            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
             pillPath.fill()
+
+            NSColor.separatorColor.setStroke()
+            let strokePath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
+            strokePath.lineWidth = 0.5
+            strokePath.stroke()
         } else if isHovered {
             // Hover: subtle fill
             NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
-            let pillPath = NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6)
+            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
+            pillPath.fill()
+        } else {
+            // Inactive: darker fill to distinguish from the active tab
+            NSColor.underPageBackgroundColor.setFill()
+            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
             pillPath.fill()
         }
-        // Inactive, not hovered: transparent (bar background shows through)
     }
 
     // MARK: - Mouse Handling

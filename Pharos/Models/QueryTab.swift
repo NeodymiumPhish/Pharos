@@ -28,11 +28,13 @@ struct QueryTab: Identifiable {
     var historySchema: String?
     var historyTimestamp: String?
     var gridState: ResultsGridState?
+    var paneId: String?
 
-    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, sql: String = "") {
+    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, sql: String = "", paneId: String? = nil) {
         self.id = id
         self.name = name
         self.connectionId = connectionId
         self.sql = sql
+        self.paneId = paneId
     }
 }

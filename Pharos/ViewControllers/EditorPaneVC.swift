@@ -23,7 +23,7 @@ class EditorPaneVC: NSViewController {
 
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
-    private var cancellables = Set<AnyCancellable>()\
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
 
@@ -93,14 +93,14 @@ class EditorPaneVC: NSViewController {
             paneTabBar.heightAnchor.constraint(equalToConstant: 28),
         ])
 
-        // Editor view uses frame-based layout (NSSplitView parent requirement)
-        // We'll layout it manually in viewDidLayout
-        editorVC.view.autoresizingMask = [.width, .height]
-
-        // Text change handler
-        editorVC.textView.onTextChange = { [weak self] newText in
-            self?.editorTextDidChange(newText)
-        }
+        // Editor view uses frame-based layout — positioned in viewDidLayout.
+        // Set initial frame below the tab bar so it doesn't cover it.
+        let tabBarHeight: CGFloat = 28
+        editorVC.view.frame = NSRect(
+            x: 0, y: 0,
+            width: container.bounds.width,
+            height: max(0, container.bounds.height - tabBarHeight)
+        )
 
         // Observe pane state changes
         stateManager.$panes
@@ -149,11 +149,13 @@ class EditorPaneVC: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        let editorTop: CGFloat = 28 // Tab bar height
+        let tabBarHeight: CGFloat = 28
+        // Non-flipped: y=0 is bottom. Tab bar is at top via Auto Layout.
+        // Editor fills from bottom up to the tab bar.
         editorVC.view.frame = NSRect(
-            x: 0, y: editorTop,
+            x: 0, y: 0,
             width: view.bounds.width,
-            height: max(0, view.bounds.height - editorTop)
+            height: max(0, view.bounds.height - tabBarHeight)
         )
     }
 
@@ -216,17 +218,6 @@ class EditorPaneVC: NSViewController {
         editorVC.setSQL(tab.sql)
         editorVC.setCursorPosition(tab.cursorPosition)
         editorVC.clearErrorMarkers()
-    }
-
-    // MARK: - Editor Text Changes
-
-    private func editorTextDidChange(_ newText: String) {
-        guard let tabId = editorVC.tabId else { return }
-        editorVC.clearErrorMarkers()
-        stateManager.updateTab(id: tabId) { tab in
-            tab.sql = newText
-            tab.isDirty = true
-        }
     }
 
     // MARK: - Focus Tracking

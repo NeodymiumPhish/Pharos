@@ -17,6 +17,9 @@ class LineNumberGutter: NSView {
     /// Called when `desiredWidth` changes so the host VC can re-layout.
     var onWidthChange: (() -> Void)?
 
+    /// The line number containing the insertion point (1-based), used to highlight the active line number.
+    private var currentLine: Int = 0
+
     init(textView: NSTextView, scrollView: NSScrollView) {
         self.textView = textView
         self.scrollView = scrollView
@@ -34,6 +37,11 @@ class LineNumberGutter: NSView {
         NotificationCenter.default.addObserver(
             self, selector: #selector(boundsDidChange(_:)),
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView
+        )
+        // Track cursor position for current-line highlighting
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(selectionDidChange(_:)),
+            name: NSTextView.didChangeSelectionNotification, object: textView
         )
     }
 
@@ -74,6 +82,21 @@ class LineNumberGutter: NSView {
         needsDisplay = true
     }
 
+    @objc private func selectionDidChange(_: Notification) {
+        guard let textView else { return }
+        let cursor = textView.selectedRange().location
+        let text = textView.string
+        // Count newlines before the cursor to determine the 1-based line number
+        let end = text.index(text.startIndex, offsetBy: min(cursor, text.count))
+        let line = text[text.startIndex..<end].reduce(1) { count, ch in
+            ch == "\n" ? count + 1 : count
+        }
+        if currentLine != line {
+            currentLine = line
+            needsDisplay = true
+        }
+    }
+
     // MARK: - Width
 
     private func recalculateWidth() {
@@ -101,17 +124,14 @@ class LineNumberGutter: NSView {
         let scrollOffset = scrollView.contentView.bounds.origin.y
         let textInset = textView.textContainerInset
 
-        // Background — opaque is safe here since we're outside the VEV hierarchy
-        NSColor.controlBackgroundColor.setFill()
+        // Background — seamless with editor (no visible boundary)
+        NSColor.textBackgroundColor.setFill()
         bounds.fill()
 
-        // Right border
-        NSColor.separatorColor.setStroke()
-        let borderX = bounds.maxX - 0.5
-        NSBezierPath.strokeLine(
-            from: NSPoint(x: borderX, y: dirtyRect.minY),
-            to: NSPoint(x: borderX, y: dirtyRect.maxY)
-        )
+        // Prepare attributes for current-line vs normal line numbers
+        let normalAttributes = lineAttributes
+        var activeAttributes = lineAttributes
+        activeAttributes[.foregroundColor] = NSColor.labelColor
 
         // Visible range in the text view
         let visibleTextRect = NSRect(
@@ -154,9 +174,10 @@ class LineNumberGutter: NSView {
                 NSBezierPath(ovalIn: dotRect).fill()
             }
 
-            // Line number text
+            // Line number text — bright for current line, muted for others
             let numberString = "\(lineNumber)"
-            let attrString = NSAttributedString(string: numberString, attributes: lineAttributes)
+            let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
+            let attrString = NSAttributedString(string: numberString, attributes: attrs)
             let stringSize = attrString.size()
             let drawPoint = NSPoint(
                 x: desiredWidth - stringSize.width - 8,

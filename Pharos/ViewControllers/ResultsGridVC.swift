@@ -18,17 +18,18 @@ class ResultsGridVC: NSViewController {
     var filterableHeaderView: FilterableHeaderView!
     var cellSelectionController: CellSelectionController!
 
-    // Toolbar
-    let toolbarBar = NSView()
-    let statusLabel = NSTextField(labelWithString: "")
-    let pinSourceLabel = NSTextField(labelWithString: "")
-    let historyContextLabel = NSTextField(labelWithString: "")
-    let resetSortButton = NSButton()
-    let resetFiltersButton = NSButton()
-    let pinButton = NSButton()
-    let findToolbarButton = NSButton()
-    let copyButton = NSButton()
-    let exportButton = NSButton()
+    // Toolbar elements — owned by ContentViewController, accessed via contentVC
+    var statusLabel: NSTextField { contentVC?.statusLabel ?? NSTextField(labelWithString: "") }
+    var pinSourceLabel: NSTextField { contentVC?.pinSourceLabel ?? NSTextField(labelWithString: "") }
+    var historyContextLabel: NSTextField { contentVC?.historyContextLabel ?? NSTextField(labelWithString: "") }
+    var resetSortButton: NSButton { contentVC?.resetSortButton ?? NSButton() }
+    var resetFiltersButton: NSButton { contentVC?.resetFiltersButton ?? NSButton() }
+    var pinButton: NSButton { contentVC?.pinButton ?? NSButton() }
+    var copyButton: NSButton { contentVC?.copyButton ?? NSButton() }
+    var exportButton: NSButton { contentVC?.exportButton ?? NSButton() }
+
+    /// Reference to the owning ContentViewController for toolbar access
+    weak var contentVC: ContentViewController?
 
     // Data
     var columns: [ColumnDef] = []
@@ -59,7 +60,6 @@ class ResultsGridVC: NSViewController {
     private var isLoadingMore = false
 
     // Layout constraints to toggle
-    var scrollViewTopToToolbar: NSLayoutConstraint!
     var scrollViewBottomToLoadMore: NSLayoutConstraint!
     var scrollViewBottomToContainer: NSLayoutConstraint!
 
@@ -67,6 +67,7 @@ class ResultsGridVC: NSViewController {
     var onLoadMore: (() -> Void)?
     var onPinToggle: ((Bool) -> Void)?
     var onSelectionChanged: ((IndexSet) -> Void)?
+
 
     // Pin state
     private var isPinned = false
@@ -82,8 +83,6 @@ class ResultsGridVC: NSViewController {
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         self.view = container
-
-        setupToolbar()
 
         // Table view
         dataSource = ResultsDataSource(tableView: tableView)
@@ -106,28 +105,6 @@ class ResultsGridVC: NSViewController {
         }
         tableView.cellSelectionController = cellSelectionController
 
-        copyExport = ResultsCopyExport(tableView: tableView, copyButton: copyButton, exportButton: exportButton)
-        copyExport.delegate = self
-        tableView.menu = copyExport.buildContextMenu()
-
-        copyButton.target = copyExport
-        copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
-        exportButton.target = copyExport
-        exportButton.action = #selector(ResultsCopyExport.showExportMenu)
-
-        findController = ResultsFindController(
-            tableView: tableView, findBar: findControlsStack, findField: findField,
-            filterToggleButton: filterToggleButton, findClearButton: findClearButton,
-            findCountLabel: findCountLabel, findPrevButton: findPrevButton,
-            findNextButton: findNextButton, findCloseButton: findCloseButton
-        )
-        findController.delegate = self
-
-        sortController = ResultsSortController(tableView: tableView, resetSortButton: resetSortButton)
-        sortController.delegate = self
-        resetSortButton.target = sortController
-        resetSortButton.action = #selector(ResultsSortController.resetSort)
-
         columnFilterController = ResultsColumnFilterController()
         columnFilterController.delegate = self
 
@@ -149,22 +126,15 @@ class ResultsGridVC: NSViewController {
 
         setupLoadMoreBar()
 
-        container.addSubview(toolbarBar)
         container.addSubview(scrollView)
         container.addSubview(loadMoreBar)
         container.addSubview(emptyLabel)
 
-        scrollViewTopToToolbar = scrollView.topAnchor.constraint(equalTo: toolbarBar.bottomAnchor, constant: 2)
         scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         scrollViewBottomToLoadMore = scrollView.bottomAnchor.constraint(equalTo: loadMoreBar.topAnchor)
 
         NSLayoutConstraint.activate([
-            toolbarBar.topAnchor.constraint(equalTo: container.topAnchor),
-            toolbarBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            toolbarBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            toolbarBar.heightAnchor.constraint(equalToConstant: 28),
-
-            scrollViewTopToToolbar,
+            scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollViewBottomToContainer,
@@ -177,6 +147,32 @@ class ResultsGridVC: NSViewController {
             emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
+    }
+
+    /// Called by ContentViewController after setting contentVC and toolbar buttons.
+    /// Initializes helpers that depend on toolbar elements.
+    func setupHelpers() {
+        copyExport = ResultsCopyExport(tableView: tableView, copyButton: copyButton, exportButton: exportButton)
+        copyExport.delegate = self
+        tableView.menu = copyExport.buildContextMenu()
+
+        copyButton.target = copyExport
+        copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
+        exportButton.target = copyExport
+        exportButton.action = #selector(ResultsCopyExport.showExportMenu)
+
+        findController = ResultsFindController(
+            tableView: tableView, findBar: findControlsStack, findField: findField,
+            filterToggleButton: filterToggleButton, findClearButton: findClearButton,
+            findCountLabel: findCountLabel, findPrevButton: findPrevButton,
+            findNextButton: findNextButton, findCloseButton: findCloseButton
+        )
+        findController.delegate = self
+
+        sortController = ResultsSortController(tableView: tableView, resetSortButton: resetSortButton)
+        sortController.delegate = self
+        resetSortButton.target = sortController
+        resetSortButton.action = #selector(ResultsSortController.resetSort)
     }
 
     // MARK: - Public API
@@ -213,11 +209,9 @@ class ResultsGridVC: NSViewController {
             emptyLabel.textColor = .tertiaryLabelColor
             emptyLabel.isHidden = false
             scrollView.isHidden = true
-            toolbarBar.isHidden = false
         } else {
             emptyLabel.isHidden = true
             scrollView.isHidden = false
-            toolbarBar.isHidden = false
         }
 
         updateLoadMoreVisibility()
@@ -319,7 +313,6 @@ class ResultsGridVC: NSViewController {
 
     func showExecuteResult(_ result: ExecuteResult) {
         clear()
-        toolbarBar.isHidden = false
         let timeStr = formatDuration(result.executionTimeMs)
         let count = formatRowCount(Int(result.rowsAffected))
         statusLabel.stringValue = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
@@ -357,7 +350,6 @@ class ResultsGridVC: NSViewController {
         emptyLabel.textColor = .tertiaryLabelColor
         emptyLabel.isHidden = false
         scrollView.isHidden = true
-        toolbarBar.isHidden = true
         hideHistoryContext()
 
         updateLoadMoreVisibility()
@@ -696,5 +688,88 @@ class ResultsGridVC: NSViewController {
 
     func formatRowCount(_ count: Int) -> String {
         Self.rowCountFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
+    }
+}
+
+// MARK: - Results Toolbar Bar
+
+/// Custom toolbar bar that draws an Xcode-style debug area action bar:
+/// opaque background with a top separator line, optional bottom separator,
+/// and drag-to-resize cursor behavior.
+class ResultsToolbarBar: NSView {
+
+    /// When true, draws a bottom separator line as well.
+    var drawsBottomSeparator = false
+
+    /// The ContentViewController that owns this bar, used for drag-to-resize.
+    weak var contentViewController: ContentViewController?
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        // Background — matches window chrome
+        NSColor.controlBackgroundColor.setFill()
+        bounds.fill()
+
+        NSColor.separatorColor.setStroke()
+
+        // Top separator line
+        let topPath = NSBezierPath()
+        topPath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
+        topPath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
+        topPath.stroke()
+
+        // Bottom separator line
+        if drawsBottomSeparator {
+            let bottomPath = NSBezierPath()
+            bottomPath.move(to: NSPoint(x: bounds.minX, y: bounds.minY + 0.5))
+            bottomPath.line(to: NSPoint(x: bounds.maxX, y: bounds.minY + 0.5))
+            bottomPath.stroke()
+        }
+    }
+
+    /// Returns true if the deepest view at the given point is an interactive control (button, text field).
+    private func isInteractiveControl(at windowPoint: NSPoint) -> Bool {
+        let loc = convert(windowPoint, from: nil)
+        guard let hit = hitTest(loc) else { return false }
+        return hit is NSButton || hit is NSTextField || hit is NSSearchField || hit is NSSegmentedControl
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard contentViewController != nil else { return }
+        // Default: resize cursor for the whole bar
+        addCursorRect(bounds, cursor: .resizeUpDown)
+        // Override with arrow cursor for each interactive control
+        enumerateInteractiveControls(in: self) { controlRect in
+            addCursorRect(controlRect, cursor: .arrow)
+        }
+    }
+
+    /// Recursively finds interactive controls and calls the closure with their rects in this view's coordinates.
+    private func enumerateInteractiveControls(in view: NSView, handler: (NSRect) -> Void) {
+        for sub in view.subviews {
+            if sub is NSButton || sub is NSSearchField || sub is NSSegmentedControl {
+                let rect = convert(sub.bounds, from: sub)
+                handler(rect)
+            } else if sub is NSStackView {
+                enumerateInteractiveControls(in: sub, handler: handler)
+            }
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let vc = contentViewController else { super.mouseDown(with: event); return }
+        if isInteractiveControl(at: event.locationInWindow) {
+            super.mouseDown(with: event)
+            return
+        }
+        // Start drag tracking loop for resize
+        vc.handleActionBarDrag(event: event)
+        while true {
+            guard let nextEvent = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
+            vc.handleActionBarDrag(event: nextEvent)
+            if nextEvent.type == .leftMouseUp { break }
+        }
     }
 }

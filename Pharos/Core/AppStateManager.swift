@@ -44,6 +44,10 @@ final class AppStateManager: ObservableObject {
     private var closedTabHistory: [QueryTab] = []
     private let maxClosedHistory = 20
 
+    // Pane management
+    @Published var panes: [EditorPane] = []
+    @Published var focusedPaneId: String?
+
     // Pin state
     @Published var pinnedResult: QueryResult?
     @Published var pinnedTabId: String?
@@ -164,92 +168,10 @@ final class AppStateManager: ObservableObject {
         return tabs.first { $0.id == id }
     }
 
-    @discardableResult
-    func createTab(sql: String = "", name: String? = nil) -> QueryTab {
-        let tabName = name ?? "Query \(tabs.count + 1)"
-        let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql)
-        tabs.append(tab)
-        activeTabId = tab.id
-        return tab
-    }
-
-    func closeTab(id: String) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let closedTab = tabs[idx]
-        closedTabHistory.append(closedTab)
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory.removeFirst()
-        }
-        tabs.remove(at: idx)
-
-        // Auto-unpin if closing the pinned source tab
-        if pinnedTabId == id {
-            unpinResults()
-        }
-
-        if activeTabId == id {
-            if tabs.isEmpty {
-                activeTabId = nil
-            } else {
-                let newIdx = min(idx, tabs.count - 1)
-                activeTabId = tabs[newIdx].id
-            }
-        }
-    }
-
     func unpinResults() {
         pinnedResult = nil
         pinnedTabId = nil
         pinnedTabName = nil
-    }
-
-    func closeOtherTabs(exceptId id: String) {
-        for tab in tabs where tab.id != id {
-            closedTabHistory.append(tab)
-        }
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
-        }
-        tabs = tabs.filter { $0.id == id }
-        activeTabId = id
-    }
-
-    func closeTabsToRight(ofId id: String) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let toClose = Array(tabs[(idx + 1)...])
-        closedTabHistory.append(contentsOf: toClose)
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
-        }
-        tabs = Array(tabs[...idx])
-        if let activeId = activeTabId, !tabs.contains(where: { $0.id == activeId }) {
-            activeTabId = id
-        }
-    }
-
-    func duplicateTab(id: String) {
-        guard let tab = tabs.first(where: { $0.id == id }) else { return }
-        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, sql: tab.sql)
-        if let idx = tabs.firstIndex(where: { $0.id == id }) {
-            tabs.insert(newTab, at: idx + 1)
-        } else {
-            tabs.append(newTab)
-        }
-        activeTabId = newTab.id
-    }
-
-    func reopenLastClosedTab() {
-        guard !closedTabHistory.isEmpty else { return }
-        let tab = closedTabHistory.removeLast()
-        // Give it a new ID to avoid conflicts
-        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, sql: tab.sql)
-        tabs.append(reopened)
-        activeTabId = reopened.id
-    }
-
-    func selectTabByIndex(_ index: Int) {
-        guard index >= 0, index < tabs.count else { return }
-        activeTabId = tabs[index].id
     }
 
     func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {
@@ -259,9 +181,309 @@ final class AppStateManager: ObservableObject {
 
     /// Ensure at least one tab exists. Call after connections load.
     func ensureTab() {
-        if tabs.isEmpty {
-            createTab()
+        ensurePaneAndTab()
+    }
+
+    // MARK: - Pane Management
+
+    /// Ensure at least one pane with one tab exists.
+    /// Also adopts any orphaned tabs (paneId == nil) into the first pane.
+    func ensurePaneAndTab() {
+        if panes.isEmpty {
+            let pane = EditorPane(id: UUID().uuidString)
+            panes.append(pane)
+            focusedPaneId = pane.id
         }
+
+        // Adopt orphaned tabs (created before pane system) into the first pane
+        let paneId = panes[0].id
+        for i in tabs.indices where tabs[i].paneId == nil {
+            tabs[i].paneId = paneId
+            if !panes[0].tabIds.contains(tabs[i].id) {
+                panes[0].tabIds.append(tabs[i].id)
+            }
+        }
+
+        if panes[0].tabIds.isEmpty {
+            createTab(inPane: paneId)
+        } else if panes[0].activeTabId == nil {
+            panes[0].activeTabId = activeTabId ?? panes[0].tabIds.first
+            syncActiveTabId()
+        }
+    }
+
+    /// Create a new pane with a default tab and focus it.
+    @discardableResult
+    func addPane() -> EditorPane {
+        // Collapse any expanded pane
+        for i in panes.indices {
+            panes[i].isExpanded = false
+        }
+        var pane = EditorPane(id: UUID().uuidString)
+        let tab = QueryTab(name: "Query \(tabs.count + 1)", connectionId: activeConnectionId, paneId: pane.id)
+        tabs.append(tab)
+        pane.tabIds = [tab.id]
+        pane.activeTabId = tab.id
+        panes.append(pane)
+        focusedPaneId = pane.id
+        activeTabId = tab.id
+        return pane
+    }
+
+    /// Close a pane and archive its tabs. If it's the last pane, create a new empty one.
+    func closePane(id: String) {
+        guard let paneIdx = panes.firstIndex(where: { $0.id == id }) else { return }
+        let pane = panes[paneIdx]
+
+        // Archive tabs from this pane
+        for tabId in pane.tabIds {
+            if let tab = tabs.first(where: { $0.id == tabId }) {
+                closedTabHistory.append(tab)
+            }
+        }
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+        }
+
+        // Remove the tabs belonging to this pane
+        tabs.removeAll { pane.tabIds.contains($0.id) }
+
+        // Auto-unpin if the pinned tab was in this pane
+        if let pinnedId = pinnedTabId, pane.tabIds.contains(pinnedId) {
+            unpinResults()
+        }
+
+        panes.remove(at: paneIdx)
+
+        if panes.isEmpty {
+            // Always keep at least one pane
+            ensurePaneAndTab()
+        } else {
+            // Focus adjacent pane
+            let newIdx = min(paneIdx, panes.count - 1)
+            focusedPaneId = panes[newIdx].id
+            syncActiveTabId()
+        }
+    }
+
+    /// Toggle a pane's expanded state.
+    func togglePaneExpansion(id: String) {
+        guard let idx = panes.firstIndex(where: { $0.id == id }) else { return }
+        panes[idx].isExpanded.toggle()
+        // If expanding, collapse all others
+        if panes[idx].isExpanded {
+            for i in panes.indices where i != idx {
+                panes[i].isExpanded = false
+            }
+        }
+    }
+
+    /// Set the focused pane.
+    func focusPane(id: String) {
+        guard panes.contains(where: { $0.id == id }) else { return }
+        focusedPaneId = id
+        syncActiveTabId()
+    }
+
+    /// Create a tab in a specific pane (defaults to focused pane).
+    @discardableResult
+    func createTab(inPane paneId: String? = nil, sql: String = "", name: String? = nil) -> QueryTab {
+        let targetPaneId = paneId ?? focusedPaneId ?? panes.first?.id
+        guard let targetPaneId, let paneIdx = panes.firstIndex(where: { $0.id == targetPaneId }) else {
+            // Fallback: create without pane (backward compat)
+            let tabName = name ?? "Query \(tabs.count + 1)"
+            let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql)
+            tabs.append(tab)
+            activeTabId = tab.id
+            return tab
+        }
+
+        let tabName = name ?? "Query \(tabs.count + 1)"
+        let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql, paneId: targetPaneId)
+        tabs.append(tab)
+        panes[paneIdx].tabIds.append(tab.id)
+        panes[paneIdx].activeTabId = tab.id
+        focusedPaneId = targetPaneId
+        activeTabId = tab.id
+        return tab
+    }
+
+    /// Select a tab within its pane and focus that pane.
+    func selectTab(id: String, inPane paneId: String? = nil) {
+        let targetPaneId = paneId ?? tabs.first(where: { $0.id == id })?.paneId ?? focusedPaneId
+        if let targetPaneId, let paneIdx = panes.firstIndex(where: { $0.id == targetPaneId }) {
+            panes[paneIdx].activeTabId = id
+            focusedPaneId = targetPaneId
+        }
+        activeTabId = id
+    }
+
+    /// Reorder tab IDs within a pane.
+    func reorderTabs(_ newTabIds: [String], inPane paneId: String) {
+        guard let paneIdx = panes.firstIndex(where: { $0.id == paneId }) else { return }
+        panes[paneIdx].tabIds = newTabIds
+    }
+
+    /// Get ordered tabs for a specific pane.
+    func tabs(forPane paneId: String) -> [QueryTab] {
+        guard let pane = panes.first(where: { $0.id == paneId }) else { return [] }
+        return pane.tabIds.compactMap { tabId in
+            tabs.first { $0.id == tabId }
+        }
+    }
+
+    /// Sync `activeTabId` from the focused pane's active tab.
+    private func syncActiveTabId() {
+        guard let focusedId = focusedPaneId,
+              let pane = panes.first(where: { $0.id == focusedId }) else {
+            activeTabId = nil
+            return
+        }
+        activeTabId = pane.activeTabId
+    }
+
+    // MARK: - Pane-Aware Tab Closing
+
+    /// Close a tab, removing it from its pane's tab list.
+    func closeTab(id: String) {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let closedTab = tabs[idx]
+        closedTabHistory.append(closedTab)
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory.removeFirst()
+        }
+
+        // Remove from pane
+        if let paneId = closedTab.paneId,
+           let paneIdx = panes.firstIndex(where: { $0.id == paneId }) {
+            panes[paneIdx].tabIds.removeAll { $0 == id }
+
+            // Update pane's active tab
+            if panes[paneIdx].activeTabId == id {
+                let remainingIds = panes[paneIdx].tabIds
+                if remainingIds.isEmpty {
+                    // If this is the only pane, create a new tab; otherwise close the pane
+                    if panes.count == 1 {
+                        panes[paneIdx].activeTabId = nil
+                        tabs.remove(at: idx)
+                        if pinnedTabId == id { unpinResults() }
+                        // Create a fresh tab in this pane
+                        createTab(inPane: paneId)
+                        return
+                    } else {
+                        tabs.remove(at: idx)
+                        if pinnedTabId == id { unpinResults() }
+                        closePane(id: paneId)
+                        return
+                    }
+                } else {
+                    // Select adjacent tab within the pane
+                    let tabIdxInPane = min(panes[paneIdx].tabIds.count - 1,
+                                           max(0, (closedTab.paneId != nil ? panes[paneIdx].tabIds.firstIndex(of: id) ?? 0 : 0)))
+                    // The tab is already removed from tabIds, so just pick last valid
+                    let newIdx = min(remainingIds.count - 1, max(0, tabIdxInPane))
+                    panes[paneIdx].activeTabId = remainingIds[newIdx]
+                }
+            }
+        }
+
+        tabs.remove(at: idx)
+        if pinnedTabId == id { unpinResults() }
+        syncActiveTabId()
+    }
+
+    func closeOtherTabs(exceptId id: String) {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let paneId = tab.paneId
+
+        if let paneId, let paneIdx = panes.firstIndex(where: { $0.id == paneId }) {
+            // Close other tabs within the same pane
+            let otherIds = panes[paneIdx].tabIds.filter { $0 != id }
+            for otherId in otherIds {
+                if let t = tabs.first(where: { $0.id == otherId }) {
+                    closedTabHistory.append(t)
+                }
+            }
+            if closedTabHistory.count > maxClosedHistory {
+                closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+            }
+            tabs.removeAll { otherIds.contains($0.id) }
+            panes[paneIdx].tabIds = [id]
+            panes[paneIdx].activeTabId = id
+        } else {
+            // Fallback: close all others globally
+            for t in tabs where t.id != id {
+                closedTabHistory.append(t)
+            }
+            if closedTabHistory.count > maxClosedHistory {
+                closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+            }
+            tabs = tabs.filter { $0.id == id }
+        }
+        activeTabId = id
+    }
+
+    func closeTabsToRight(ofId id: String) {
+        guard let tab = tabs.first(where: { $0.id == id }),
+              let paneId = tab.paneId,
+              let paneIdx = panes.firstIndex(where: { $0.id == paneId }),
+              let idxInPane = panes[paneIdx].tabIds.firstIndex(of: id) else { return }
+
+        let toCloseIds = Array(panes[paneIdx].tabIds[(idxInPane + 1)...])
+        for closeId in toCloseIds {
+            if let t = tabs.first(where: { $0.id == closeId }) {
+                closedTabHistory.append(t)
+            }
+        }
+        if closedTabHistory.count > maxClosedHistory {
+            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
+        }
+        tabs.removeAll { toCloseIds.contains($0.id) }
+        panes[paneIdx].tabIds = Array(panes[paneIdx].tabIds[...idxInPane])
+
+        if let activeId = activeTabId, toCloseIds.contains(activeId) {
+            panes[paneIdx].activeTabId = id
+            activeTabId = id
+        }
+    }
+
+    func duplicateTab(id: String) {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let paneId = tab.paneId
+        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, sql: tab.sql, paneId: paneId)
+
+        if let paneId, let paneIdx = panes.firstIndex(where: { $0.id == paneId }),
+           let idxInPane = panes[paneIdx].tabIds.firstIndex(of: id) {
+            tabs.append(newTab)
+            panes[paneIdx].tabIds.insert(newTab.id, at: idxInPane + 1)
+            panes[paneIdx].activeTabId = newTab.id
+        } else {
+            tabs.append(newTab)
+        }
+        activeTabId = newTab.id
+    }
+
+    func reopenLastClosedTab() {
+        guard !closedTabHistory.isEmpty else { return }
+        let tab = closedTabHistory.removeLast()
+        let targetPaneId = focusedPaneId ?? panes.first?.id
+        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, sql: tab.sql, paneId: targetPaneId)
+        tabs.append(reopened)
+
+        if let targetPaneId, let paneIdx = panes.firstIndex(where: { $0.id == targetPaneId }) {
+            panes[paneIdx].tabIds.append(reopened.id)
+            panes[paneIdx].activeTabId = reopened.id
+        }
+        activeTabId = reopened.id
+    }
+
+    func selectTabByIndex(_ index: Int) {
+        // Select tab by index within the focused pane
+        guard let focusedId = focusedPaneId,
+              let pane = panes.first(where: { $0.id == focusedId }),
+              index >= 0, index < pane.tabIds.count else { return }
+        let tabId = pane.tabIds[index]
+        selectTab(id: tabId, inPane: focusedId)
     }
 
     // MARK: - Helpers

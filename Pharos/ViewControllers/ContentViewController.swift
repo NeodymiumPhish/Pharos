@@ -6,9 +6,32 @@ import Combine
 class ContentViewController: NSViewController {
 
     private let resultsVC = ResultsGridVC()
-    private let splitView = NSSplitView()           // Vertical: panes on top, results on bottom
     private let paneSplitView = NSSplitView()       // Horizontal: side-by-side editor panes
     private let emptyState = NSView()
+
+    // Action bar — independent element between editor panes and results grid
+    let actionBar = ResultsToolbarBar()
+
+    // Container that holds paneSplitView + actionBar + resultsVC.view with constraints
+    private let contentStack = NSView()
+
+    // Layout constraints for the editor/results split
+    private var editorHeightConstraint: NSLayoutConstraint!
+    private var resultsTopToActionBar: NSLayoutConstraint!
+    private var resultsBottomToContainer: NSLayoutConstraint!
+
+    // Toolbar UI elements (owned here, configured in setupActionBar)
+    let statusLabel = NSTextField(labelWithString: "")
+    let pinSourceLabel = NSTextField(labelWithString: "")
+    let historyContextLabel = NSTextField(labelWithString: "")
+    let resetSortButton = NSButton()
+    let resetFiltersButton = NSButton()
+    let pinButton = NSButton()
+    let findToolbarButton = NSButton()
+    let copyButton = NSButton()
+    let exportButton = NSButton()
+    let expandEditorButton = NSButton()
+    let expandResultsButton = NSButton()
 
     private var editorPanes: [EditorPaneVC] = []
 
@@ -23,6 +46,17 @@ class ContentViewController: NSViewController {
     private var hasSetInitialSplit = false
     private static let splitRatioKey = "PharosEditorSplitRatio"
 
+    // Editor/results expand state
+    enum ContentExpandState { case normal, editorExpanded, resultsExpanded }
+    private(set) var expandState: ContentExpandState = .normal
+    private var savedSplitRatio: CGFloat = 0.6
+
+    // Drag-to-resize state
+    private var isDragging = false
+    private var dragStartY: CGFloat = 0
+    private var dragStartEditorHeight: CGFloat = 0
+    private static let actionBarHeight: CGFloat = 28
+
     override func loadView() {
         let container = NSView()
         self.view = container
@@ -32,32 +66,63 @@ class ContentViewController: NSViewController {
         paneSplitView.dividerStyle = .thin
         paneSplitView.delegate = self
 
-        // Main split view: paneSplitView (top) + results (bottom)
-        splitView.translatesAutoresizingMaskIntoConstraints = false
-        splitView.isVertical = false
-        splitView.dividerStyle = .thin
-        splitView.delegate = self
-        splitView.autosaveName = "PharosEditorResultsSplit"
-
         addChild(resultsVC)
 
-        // NSSplitView manages subview frames — do NOT disable autoresizing masks
-        splitView.addSubview(paneSplitView)
-        splitView.addSubview(resultsVC.view)
+        // Content stack: paneSplitView (top) | actionBar (middle, 28pt) | resultsVC (bottom)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        paneSplitView.translatesAutoresizingMaskIntoConstraints = false
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
+        resultsVC.view.translatesAutoresizingMaskIntoConstraints = false
+
+        contentStack.addSubview(paneSplitView)
+        contentStack.addSubview(actionBar)
+        contentStack.addSubview(resultsVC.view)
+
+        // Action bar setup
+        setupActionBar()
+
+        // Wire results VC to use toolbar elements from this VC
+        resultsVC.contentVC = self
+        resultsVC.setupHelpers()
 
         // Empty state (no connection)
         setupEmptyState()
 
-        container.addSubview(splitView)
+        container.addSubview(contentStack)
         container.addSubview(emptyState)
 
         let safeTop = container.safeAreaLayoutGuide.topAnchor
 
+        // Editor height starts at a default; will be updated in viewDidLayout
+        editorHeightConstraint = paneSplitView.heightAnchor.constraint(equalToConstant: 300)
+        editorHeightConstraint.priority = .defaultHigh
+
+        resultsTopToActionBar = resultsVC.view.topAnchor.constraint(equalTo: actionBar.bottomAnchor)
+        resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor)
+
         NSLayoutConstraint.activate([
-            splitView.topAnchor.constraint(equalTo: safeTop),
-            splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            contentStack.topAnchor.constraint(equalTo: safeTop),
+            contentStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            // PaneSplitView: top, full width
+            paneSplitView.topAnchor.constraint(equalTo: contentStack.topAnchor),
+            paneSplitView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            paneSplitView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            editorHeightConstraint,
+
+            // Action bar: below editor, full width, fixed height
+            actionBar.topAnchor.constraint(equalTo: paneSplitView.bottomAnchor),
+            actionBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            actionBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            actionBar.heightAnchor.constraint(equalToConstant: Self.actionBarHeight),
+
+            // Results: below action bar, full width, fills remaining space
+            resultsTopToActionBar,
+            resultsVC.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            resultsVC.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            resultsBottomToContainer,
 
             emptyState.topAnchor.constraint(equalTo: safeTop),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -79,6 +144,8 @@ class ContentViewController: NSViewController {
         resultsVC.onSelectionChanged = { [weak self] selectedIndices in
             self?.updateInspector(selectedIndices: selectedIndices)
         }
+
+        // Wire up expand editor / results (handled by action bar buttons directly)
 
         // Observe state
         stateManager.$activeConnectionId
@@ -162,13 +229,12 @@ class ContentViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Restore saved split ratio once the split view has real height
-        if !hasSetInitialSplit, splitView.bounds.height > 0 {
+        // Restore saved split ratio once the content area has real height
+        if !hasSetInitialSplit, contentStack.bounds.height > 0 {
             hasSetInitialSplit = true
             let saved = UserDefaults.standard.double(forKey: Self.splitRatioKey)
-            let ratio = saved > 0 ? saved : 0.6
-            let editorHeight = splitView.bounds.height * ratio
-            splitView.setPosition(editorHeight, ofDividerAt: 0)
+            savedSplitRatio = saved > 0 ? saved : 0.6
+            applyExpandState()
         }
     }
 
@@ -186,12 +252,11 @@ class ContentViewController: NSViewController {
         }
         editorPanes.removeAll { !targetPaneIds.contains($0.paneId) }
 
-        // Add new panes
+        // Add new panes (don't add to split view yet — we rebuild below)
         for pane in panes where !currentPaneIds.contains(pane.id) {
             let paneVC = EditorPaneVC(paneId: pane.id)
             paneVC.delegate = self
             addChild(paneVC)
-            paneSplitView.addSubview(paneVC.view)
             editorPanes.append(paneVC)
         }
 
@@ -201,23 +266,66 @@ class ContentViewController: NSViewController {
         }
         editorPanes = ordered
 
-        // Handle expansion: hide non-expanded panes when one is expanded
+        // Determine which pane views should be arranged in the split view
         let expandedPane = panes.first(where: { $0.isExpanded })
-        for paneVC in editorPanes {
-            if let expanded = expandedPane {
-                paneVC.view.isHidden = paneVC.paneId != expanded.id
-            } else {
-                paneVC.view.isHidden = false
+        let visiblePaneVCs: [EditorPaneVC]
+        if let expanded = expandedPane {
+            // Only show the expanded pane
+            visiblePaneVCs = editorPanes.filter { $0.paneId == expanded.id }
+        } else {
+            visiblePaneVCs = editorPanes
+        }
+
+        // Rebuild paneSplitView's arranged subviews to match visiblePaneVCs.
+        // Remove subviews that shouldn't be visible, add those that should be.
+        let currentArranged = paneSplitView.arrangedSubviews
+        let targetViews = visiblePaneVCs.map(\.view)
+
+        // Remove views that are no longer visible
+        for view in currentArranged where !targetViews.contains(view) {
+            paneSplitView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        // Add views that are missing, in the correct order
+        for (index, paneVC) in visiblePaneVCs.enumerated() {
+            let view = paneVC.view
+            view.isHidden = false
+            if !paneSplitView.arrangedSubviews.contains(view) {
+                if index < paneSplitView.arrangedSubviews.count {
+                    // Insert at correct position
+                    paneSplitView.insertArrangedSubview(view, at: index)
+                } else {
+                    paneSplitView.addArrangedSubview(view)
+                }
             }
         }
 
-        // Split evenly when adding a new pane
-        if editorPanes.count > 1 && expandedPane == nil {
+        // Ensure correct ordering of arranged subviews
+        let arranged = paneSplitView.arrangedSubviews
+        for (index, paneVC) in visiblePaneVCs.enumerated() {
+            let view = paneVC.view
+            if index < arranged.count && arranged[index] !== view {
+                // Wrong order — remove and re-insert
+                paneSplitView.removeArrangedSubview(view)
+                view.removeFromSuperview()
+                paneSplitView.insertArrangedSubview(view, at: index)
+            }
+        }
+
+        paneSplitView.adjustSubviews()
+
+        // Split evenly when we have multiple visible panes
+        if visiblePaneVCs.count > 1 {
             DispatchQueue.main.async {
                 let totalWidth = self.paneSplitView.bounds.width
-                let paneWidth = totalWidth / CGFloat(self.editorPanes.count)
-                for i in 0..<(self.editorPanes.count - 1) {
-                    self.paneSplitView.setPosition(paneWidth * CGFloat(i + 1), ofDividerAt: i)
+                let dividerThickness = self.paneSplitView.dividerThickness
+                let count = CGFloat(visiblePaneVCs.count)
+                let totalDividers = dividerThickness * (count - 1)
+                let paneWidth = (totalWidth - totalDividers) / count
+                for i in 0..<(visiblePaneVCs.count - 1) {
+                    let position = paneWidth * CGFloat(i + 1) + dividerThickness * CGFloat(i)
+                    self.paneSplitView.setPosition(position, ofDividerAt: i)
                 }
             }
         }
@@ -313,6 +421,189 @@ class ContentViewController: NSViewController {
         }
     }
 
+    // MARK: - Action Bar Setup
+
+    private func setupActionBar() {
+        // Draw separator lines on top and bottom of action bar
+        actionBar.drawsBottomSeparator = true
+        actionBar.contentViewController = self
+
+        // -- Status Labels (right-justified, order: pinned | history | row/time) --
+
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
+        statusLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        pinSourceLabel.translatesAutoresizingMaskIntoConstraints = false
+        pinSourceLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        pinSourceLabel.textColor = .systemOrange
+        pinSourceLabel.isHidden = true
+        pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        historyContextLabel.translatesAutoresizingMaskIntoConstraints = false
+        historyContextLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        historyContextLabel.textColor = .systemIndigo
+        historyContextLabel.isHidden = true
+        historyContextLabel.lineBreakMode = .byTruncatingTail
+        historyContextLabel.setContentHuggingPriority(.required, for: .horizontal)
+        historyContextLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        let labelStack = NSStackView(views: [pinSourceLabel, historyContextLabel, statusLabel])
+        labelStack.orientation = .horizontal
+        labelStack.spacing = 8
+        labelStack.setHuggingPriority(.required, for: .horizontal)
+        labelStack.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        // -- Find Controls (inline, hidden by default) --
+
+        resultsVC.findControlsStack.orientation = .horizontal
+        resultsVC.findControlsStack.spacing = 4
+        resultsVC.findControlsStack.isHidden = true
+        resultsVC.findControlsStack.setContentHuggingPriority(.required, for: .horizontal)
+        resultsVC.findControlsStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        resultsVC.findField.translatesAutoresizingMaskIntoConstraints = false
+        resultsVC.findField.placeholderString = "Find in results..."
+        resultsVC.findField.sendsSearchStringImmediately = true
+        resultsVC.findField.font = .systemFont(ofSize: 12)
+
+        resultsVC.filterToggleButton.setButtonType(.pushOnPushOff)
+        resultsVC.filterToggleButton.title = "Filter"
+        resultsVC.filterToggleButton.bezelStyle = .recessed
+        resultsVC.filterToggleButton.font = .systemFont(ofSize: 11)
+        resultsVC.filterToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        resultsVC.filterToggleButton.toolTip = "Filter rows to matches only"
+
+        resultsVC.findClearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear")
+        resultsVC.findClearButton.bezelStyle = .recessed
+        resultsVC.findClearButton.isBordered = false
+        resultsVC.findClearButton.translatesAutoresizingMaskIntoConstraints = false
+        resultsVC.findClearButton.contentTintColor = .tertiaryLabelColor
+        resultsVC.findClearButton.isHidden = true
+
+        resultsVC.findCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        resultsVC.findCountLabel.font = .systemFont(ofSize: 11)
+        resultsVC.findCountLabel.textColor = .secondaryLabelColor
+        resultsVC.findCountLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        resultsVC.findPrevButton.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: "Previous")
+        resultsVC.findPrevButton.bezelStyle = .recessed
+        resultsVC.findPrevButton.isBordered = false
+        resultsVC.findPrevButton.translatesAutoresizingMaskIntoConstraints = false
+
+        resultsVC.findNextButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Next")
+        resultsVC.findNextButton.bezelStyle = .recessed
+        resultsVC.findNextButton.isBordered = false
+        resultsVC.findNextButton.translatesAutoresizingMaskIntoConstraints = false
+
+        resultsVC.findCloseButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
+        resultsVC.findCloseButton.bezelStyle = .recessed
+        resultsVC.findCloseButton.isBordered = false
+        resultsVC.findCloseButton.translatesAutoresizingMaskIntoConstraints = false
+
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findField)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.filterToggleButton)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findClearButton)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findCountLabel)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findPrevButton)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findNextButton)
+        resultsVC.findControlsStack.addArrangedSubview(resultsVC.findCloseButton)
+
+        NSLayoutConstraint.activate([
+            resultsVC.findClearButton.widthAnchor.constraint(equalToConstant: 20),
+            resultsVC.findPrevButton.widthAnchor.constraint(equalToConstant: 20),
+            resultsVC.findNextButton.widthAnchor.constraint(equalToConstant: 20),
+            resultsVC.findCloseButton.widthAnchor.constraint(equalToConstant: 20),
+        ])
+
+        // -- Action Buttons (left side) --
+
+        configureToolbarButton(pinButton, symbol: "pin",
+                               target: resultsVC, action: #selector(ResultsGridVC.togglePin), tooltip: "Pin Results")
+        configureToolbarButtonAppearance(exportButton, symbol: "square.and.arrow.up", tooltip: "Export")
+        configureToolbarButtonAppearance(copyButton, symbol: "doc.on.doc", tooltip: "Copy")
+        configureToolbarButton(findToolbarButton, symbol: "magnifyingglass",
+                               target: resultsVC, action: #selector(ResultsGridVC.showFind), tooltip: "Find (Cmd+F)")
+
+        configureToolbarButtonAppearance(resetSortButton, symbol: "arrow.up.arrow.down.circle.fill", tooltip: "Reset Sort")
+        resetSortButton.contentTintColor = .controlAccentColor
+        resetSortButton.isHidden = true
+
+        configureToolbarButtonAppearance(resetFiltersButton, symbol: "line.3.horizontal.decrease.circle.fill", tooltip: "Reset Column Filters")
+        resetFiltersButton.contentTintColor = .controlAccentColor
+        resetFiltersButton.isHidden = true
+        resetFiltersButton.target = resultsVC
+        resetFiltersButton.action = #selector(ResultsGridVC.resetAllColumnFilters)
+
+        let actionStack = NSStackView(views: [pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton])
+        actionStack.orientation = .horizontal
+        actionStack.spacing = 2
+        actionStack.setHuggingPriority(.required, for: .horizontal)
+        actionStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // -- Expand Buttons (right side) --
+
+        configureToolbarButton(expandEditorButton, symbol: "rectangle.tophalf.inset.filled",
+                               target: self, action: #selector(expandEditorTapped), tooltip: "Expand Editor")
+        configureToolbarButton(expandResultsButton, symbol: "rectangle.bottomhalf.inset.filled",
+                               target: self, action: #selector(expandResultsTapped), tooltip: "Expand Results")
+
+        let expandStack = NSStackView(views: [expandEditorButton, expandResultsButton])
+        expandStack.orientation = .horizontal
+        expandStack.spacing = 2
+        expandStack.setHuggingPriority(.required, for: .horizontal)
+        expandStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // -- Root Layout: actionStack | findControlsStack | <spacer> | labelStack | expandStack --
+
+        // Spacer view absorbs all extra space, pushing labels + expand flush right
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+
+        let rootStack = NSStackView(views: [actionStack, resultsVC.findControlsStack, spacer, labelStack, expandStack])
+        rootStack.orientation = .horizontal
+        rootStack.spacing = 8
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+
+        actionBar.addSubview(rootStack)
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 8),
+            rootStack.trailingAnchor.constraint(equalTo: actionBar.trailingAnchor, constant: -8),
+            rootStack.centerYAnchor.constraint(equalTo: actionBar.centerYAnchor),
+
+            // Find field: 25% of action bar width
+            resultsVC.findField.widthAnchor.constraint(equalTo: actionBar.widthAnchor, multiplier: 0.25),
+        ])
+    }
+
+    @objc private func expandEditorTapped() { toggleExpandEditor() }
+    @objc private func expandResultsTapped() { toggleExpandResults() }
+
+    private func configureToolbarButton(_ button: NSButton, symbol: String, target: AnyObject, action: Selector, tooltip: String) {
+        configureToolbarButtonAppearance(button, symbol: symbol, tooltip: tooltip)
+        button.target = target
+        button.action = action
+    }
+
+    private func configureToolbarButtonAppearance(_ button: NSButton, symbol: String, tooltip: String) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        button.bezelStyle = .recessed
+        button.isBordered = false
+        button.toolTip = tooltip
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.contentTintColor = .secondaryLabelColor
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
+        ])
+    }
+
     // MARK: - Empty State
 
     private func setupEmptyState() {
@@ -370,7 +661,78 @@ class ContentViewController: NSViewController {
             hasConnection = false
         }
         let hasTab = stateManager.activeTabId != nil
-        splitView.isHidden = !hasConnection || !hasTab
+        contentStack.isHidden = !hasConnection || !hasTab
+    }
+
+    // MARK: - Expand Editor / Results
+
+    func toggleExpandEditor() {
+        if expandState == .editorExpanded {
+            expandState = .normal
+        } else {
+            if expandState == .normal {
+                let totalHeight = contentStack.bounds.height - Self.actionBarHeight
+                if totalHeight > 0 {
+                    savedSplitRatio = paneSplitView.frame.height / totalHeight
+                }
+            }
+            expandState = .editorExpanded
+        }
+        applyExpandState()
+    }
+
+    func toggleExpandResults() {
+        if expandState == .resultsExpanded {
+            expandState = .normal
+        } else {
+            if expandState == .normal {
+                let totalHeight = contentStack.bounds.height - Self.actionBarHeight
+                if totalHeight > 0 {
+                    savedSplitRatio = paneSplitView.frame.height / totalHeight
+                }
+            }
+            expandState = .resultsExpanded
+        }
+        applyExpandState()
+    }
+
+    private func applyExpandState() {
+        let totalHeight = contentStack.bounds.height - Self.actionBarHeight
+        guard totalHeight > 0 else { return }
+
+        switch expandState {
+        case .normal:
+            paneSplitView.isHidden = false
+            resultsVC.view.isHidden = false
+            let editorHeight = totalHeight * savedSplitRatio
+            editorHeightConstraint.constant = max(100, editorHeight)
+
+        case .editorExpanded:
+            // Hide results grid, editor fills all available space
+            paneSplitView.isHidden = false
+            resultsVC.view.isHidden = true
+            editorHeightConstraint.constant = totalHeight
+
+        case .resultsExpanded:
+            // Hide editor panes, results fill all available space
+            paneSplitView.isHidden = true
+            resultsVC.view.isHidden = false
+            editorHeightConstraint.constant = 0
+        }
+
+        updateExpandButtonUI()
+        persistSplitRatio()
+        contentStack.layoutSubtreeIfNeeded()
+    }
+
+    private func updateExpandButtonUI() {
+        expandEditorButton.contentTintColor = expandState == .editorExpanded ? .controlAccentColor : .secondaryLabelColor
+        expandResultsButton.contentTintColor = expandState == .resultsExpanded ? .controlAccentColor : .secondaryLabelColor
+    }
+
+    private func persistSplitRatio() {
+        guard expandState == .normal else { return }
+        UserDefaults.standard.set(Double(savedSplitRatio), forKey: Self.splitRatioKey)
     }
 
     // MARK: - Rename Tab
@@ -771,24 +1133,47 @@ extension ContentViewController {
 extension ContentViewController: NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if splitView === self.splitView {
-            return 100 // Minimum editor area height
-        }
         return 100 // Minimum editor pane width
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if splitView === self.splitView {
-            return splitView.bounds.height - 60 // Minimum results height
-        }
         return splitView.bounds.width - 100 // Minimum right editor pane width
     }
+}
 
-    func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard let notifSplit = notification.object as? NSSplitView,
-              notifSplit === self.splitView else { return }
-        guard hasSetInitialSplit, self.splitView.bounds.height > 0 else { return }
-        let ratio = paneSplitView.frame.height / self.splitView.bounds.height
-        UserDefaults.standard.set(ratio, forKey: Self.splitRatioKey)
+// MARK: - Action Bar Drag-to-Resize
+
+extension ContentViewController {
+
+    func handleActionBarDrag(event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            // If in an expanded state, restore normal before dragging
+            if expandState != .normal {
+                expandState = .normal
+                paneSplitView.isHidden = false
+                resultsVC.view.isHidden = false
+                updateExpandButtonUI()
+            }
+            isDragging = true
+            dragStartY = event.locationInWindow.y
+            dragStartEditorHeight = editorHeightConstraint.constant
+
+        case .leftMouseDragged:
+            guard isDragging else { return }
+            // Window coordinates: y increases upward. Dragging down = negative delta = editor grows.
+            let deltaY = dragStartY - event.locationInWindow.y
+            let totalAvailable = contentStack.bounds.height - Self.actionBarHeight
+            let newHeight = max(100, min(totalAvailable - 60, dragStartEditorHeight + deltaY))
+            editorHeightConstraint.constant = newHeight
+            savedSplitRatio = newHeight / totalAvailable
+            persistSplitRatio()
+
+        case .leftMouseUp:
+            isDragging = false
+
+        default:
+            break
+        }
     }
 }
