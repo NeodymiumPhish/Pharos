@@ -1,15 +1,21 @@
 import AppKit
 import Combine
 
-/// Main content area: tab bar + SQL editor + results grid.
-/// Manages tab switching and query execution.
+/// Main content area: editor panes + results grid.
+/// Manages multiple EditorPaneVCs and query execution.
 class ContentViewController: NSViewController {
 
-    private let tabBar = QueryTabBar()
-    private let editorVC = QueryEditorVC()
     private let resultsVC = ResultsGridVC()
-    private let splitView = NSSplitView()
+    private let splitView = NSSplitView()           // Vertical: panes on top, results on bottom
+    private let paneSplitView = NSSplitView()       // Horizontal: side-by-side editor panes
     private let emptyState = NSView()
+
+    private var editorPanes: [EditorPaneVC] = []
+
+    /// The focused editor pane.
+    private var focusedPaneVC: EditorPaneVC? {
+        editorPanes.first { $0.paneId == stateManager.focusedPaneId }
+    }
 
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
@@ -21,51 +27,34 @@ class ContentViewController: NSViewController {
         let container = NSView()
         self.view = container
 
-        // Tab bar
-        tabBar.translatesAutoresizingMaskIntoConstraints = false
-        tabBar.onSelectTab = { [weak self] id in
-            self?.stateManager.activeTabId = id
-        }
-        tabBar.onCloseTab = { [weak self] id in
-            self?.stateManager.closeTab(id: id)
-        }
-        tabBar.onNewTab = { [weak self] in
-            self?.stateManager.createTab()
-        }
-        tabBar.onDoubleClickTab = { [weak self] id in
-            self?.renameTab(id: id)
-        }
+        // Pane split view: horizontal split for side-by-side editor panes
+        paneSplitView.isVertical = true
+        paneSplitView.dividerStyle = .thin
+        paneSplitView.delegate = self
 
-        // Split view: editor (top) + results (bottom)
+        // Main split view: paneSplitView (top) + results (bottom)
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.isVertical = false
         splitView.dividerStyle = .thin
         splitView.delegate = self
         splitView.autosaveName = "PharosEditorResultsSplit"
 
-        addChild(editorVC)
         addChild(resultsVC)
 
         // NSSplitView manages subview frames — do NOT disable autoresizing masks
-        splitView.addSubview(editorVC.view)
+        splitView.addSubview(paneSplitView)
         splitView.addSubview(resultsVC.view)
 
         // Empty state (no connection)
         setupEmptyState()
 
-        container.addSubview(tabBar)
         container.addSubview(splitView)
         container.addSubview(emptyState)
 
         let safeTop = container.safeAreaLayoutGuide.topAnchor
 
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: safeTop),
-            tabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: 30),
-
-            splitView.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            splitView.topAnchor.constraint(equalTo: safeTop),
             splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -96,7 +85,6 @@ class ContentViewController: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] connectionId in
                 self?.updateVisibility()
-                // Load schema metadata for autocomplete
                 if let connectionId, self?.stateManager.status(for: connectionId) == .connected {
                     self?.metadataCache.load(connectionId: connectionId)
                 } else {
@@ -121,23 +109,19 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        stateManager.$activeTabId
+        // Observe pane changes to sync pane view controllers
+        stateManager.$panes
             .receive(on: RunLoop.main)
-            .sink { [weak self] tabId in self?.tabChanged(tabId) }
+            .sink { [weak self] panes in
+                self?.syncPaneViewControllers(with: panes)
+            }
             .store(in: &cancellables)
 
-        // Push schema metadata to editor for autocomplete
-        Publishers.CombineLatest3(
-            metadataCache.$schemas,
-            metadataCache.$tables,
-            metadataCache.$columnsByTable
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] schemas, tables, columns in
-            self?.editorVC.updateSchemaMetadata(
-                schemas: schemas, tables: tables, columnsByTable: columns)
-        }
-        .store(in: &cancellables)
+        // Observe active tab changes to update results grid
+        stateManager.$activeTabId
+            .receive(on: RunLoop.main)
+            .sink { [weak self] tabId in self?.activeTabChanged(tabId) }
+            .store(in: &cancellables)
 
         // Observe pin state changes (e.g. auto-unpin on tab close)
         stateManager.$pinnedTabId
@@ -185,6 +169,106 @@ class ContentViewController: NSViewController {
             let ratio = saved > 0 ? saved : 0.6
             let editorHeight = splitView.bounds.height * ratio
             splitView.setPosition(editorHeight, ofDividerAt: 0)
+        }
+    }
+
+    // MARK: - Pane Sync
+
+    /// Add/remove EditorPaneVC instances to match the state manager's panes.
+    private func syncPaneViewControllers(with panes: [EditorPane]) {
+        let currentPaneIds = Set(editorPanes.map(\.paneId))
+        let targetPaneIds = Set(panes.map(\.id))
+
+        // Remove panes that no longer exist
+        for paneVC in editorPanes where !targetPaneIds.contains(paneVC.paneId) {
+            paneVC.view.removeFromSuperview()
+            paneVC.removeFromParent()
+        }
+        editorPanes.removeAll { !targetPaneIds.contains($0.paneId) }
+
+        // Add new panes
+        for pane in panes where !currentPaneIds.contains(pane.id) {
+            let paneVC = EditorPaneVC(paneId: pane.id)
+            paneVC.delegate = self
+            addChild(paneVC)
+            paneSplitView.addSubview(paneVC.view)
+            editorPanes.append(paneVC)
+        }
+
+        // Reorder to match state manager order
+        let ordered = panes.compactMap { pane in
+            editorPanes.first { $0.paneId == pane.id }
+        }
+        editorPanes = ordered
+
+        // Handle expansion: hide non-expanded panes when one is expanded
+        let expandedPane = panes.first(where: { $0.isExpanded })
+        for paneVC in editorPanes {
+            if let expanded = expandedPane {
+                paneVC.view.isHidden = paneVC.paneId != expanded.id
+            } else {
+                paneVC.view.isHidden = false
+            }
+        }
+
+        // Split evenly when adding a new pane
+        if editorPanes.count > 1 && expandedPane == nil {
+            DispatchQueue.main.async {
+                let totalWidth = self.paneSplitView.bounds.width
+                let paneWidth = totalWidth / CGFloat(self.editorPanes.count)
+                for i in 0..<(self.editorPanes.count - 1) {
+                    self.paneSplitView.setPosition(paneWidth * CGFloat(i + 1), ofDividerAt: i)
+                }
+            }
+        }
+
+        updateSplitViewVisibility()
+    }
+
+    // MARK: - Active Tab Changed (results grid update)
+
+    private var lastActiveTabId: String?
+
+    private func activeTabChanged(_ tabId: String?) {
+        // Save grid state of the tab we're leaving
+        if let previousTabId = lastActiveTabId {
+            let gridState = resultsVC.captureGridState()
+            stateManager.updateTab(id: previousTabId) { tab in
+                tab.gridState = gridState
+            }
+        }
+        lastActiveTabId = tabId
+
+        guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
+            resultsVC.clear()
+            updateSplitViewVisibility()
+            return
+        }
+
+        updateSplitViewVisibility()
+
+        // Update results grid for the new active tab
+        if let pinnedResult = stateManager.pinnedResult {
+            resultsVC.showResult(pinnedResult)
+            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
+        } else if let result = tab.result {
+            resultsVC.showResult(result)
+            if let gridState = tab.gridState {
+                resultsVC.restoreGridState(gridState)
+            }
+        } else if let execResult = tab.executeResult {
+            resultsVC.showExecuteResult(execResult)
+        } else if let error = tab.error {
+            resultsVC.showError(error)
+        } else {
+            resultsVC.clear()
+        }
+
+        // Show/hide history context for this tab
+        if let historyTimestamp = tab.historyTimestamp {
+            resultsVC.showHistoryContext(schema: tab.historySchema, timestamp: historyTimestamp)
+        } else {
+            resultsVC.hideHistoryContext()
         }
     }
 
@@ -270,7 +354,6 @@ class ContentViewController: NSViewController {
         }
 
         emptyState.isHidden = hasConnection
-        tabBar.isHidden = !hasConnection
 
         if hasConnection {
             stateManager.ensureTab()
@@ -279,8 +362,6 @@ class ContentViewController: NSViewController {
         updateSplitViewVisibility()
     }
 
-    /// Single source of truth for split view visibility.
-    /// Requires BOTH an active connection AND an active tab.
     private func updateSplitViewVisibility() {
         let hasConnection: Bool
         if let activeId = stateManager.activeConnectionId {
@@ -290,61 +371,6 @@ class ContentViewController: NSViewController {
         }
         let hasTab = stateManager.activeTabId != nil
         splitView.isHidden = !hasConnection || !hasTab
-    }
-
-    // MARK: - Tab Switching
-
-    private func tabChanged(_ tabId: String?) {
-        // Save cursor position and grid state of the tab we're leaving
-        if let previousTabId = editorVC.tabId {
-            let cursorPos = editorVC.getCursorPosition()
-            let gridState = resultsVC.captureGridState()
-            stateManager.updateTab(id: previousTabId) { tab in
-                tab.cursorPosition = cursorPos
-                tab.gridState = gridState
-            }
-        }
-
-        guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
-            // No active tab — hide editor and results
-            editorVC.tabId = nil
-            editorVC.setSQL("")
-            resultsVC.clear()
-            updateSplitViewVisibility()
-            return
-        }
-
-        updateSplitViewVisibility()
-
-        editorVC.tabId = tabId
-        editorVC.setSQL(tab.sql)
-        editorVC.setCursorPosition(tab.cursorPosition)
-
-        // If results are pinned, keep showing pinned results
-        if let pinnedResult = stateManager.pinnedResult {
-            resultsVC.showResult(pinnedResult)
-            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
-        } else if let result = tab.result {
-            resultsVC.showResult(result)
-            if let gridState = tab.gridState {
-                resultsVC.restoreGridState(gridState)
-            }
-        } else if let execResult = tab.executeResult {
-            resultsVC.showExecuteResult(execResult)
-        } else if let error = tab.error {
-            resultsVC.showError(error)
-        } else {
-            resultsVC.clear()
-        }
-
-        // Show/hide history context for this tab
-        if let historyTimestamp = tab.historyTimestamp {
-            resultsVC.showHistoryContext(schema: tab.historySchema, timestamp: historyTimestamp)
-        } else {
-            resultsVC.hideHistoryContext()
-        }
-
-        editorVC.focus()
     }
 
     // MARK: - Rename Tab
@@ -380,7 +406,7 @@ class ContentViewController: NSViewController {
               stateManager.status(for: connectionId) == .connected else { return }
         guard let tabId = stateManager.activeTabId else { return }
 
-        let querySQL = sql ?? editorVC.getSQL()
+        let querySQL = sql ?? focusedPaneVC?.getSQL() ?? ""
         let trimmed = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
@@ -395,7 +421,7 @@ class ContentViewController: NSViewController {
             tab.executeResult = nil
         }
         resultsVC.clear()
-        editorVC.clearErrorMarkers()
+        focusedPaneVC?.clearErrorMarkers()
 
         let limit = Int32(stateManager.settings.query.defaultLimit)
         let isSelectLike = trimmed.uppercased().hasPrefix("SELECT")
@@ -485,7 +511,6 @@ class ContentViewController: NSViewController {
                     schema: self.stateManager.activeSchema
                 )
                 await MainActor.run {
-                    // Merge into the tab's stored result
                     let merged = QueryResult(
                         columns: existingResult.columns,
                         rows: existingResult.rows + moreResult.rows,
@@ -518,7 +543,6 @@ class ContentViewController: NSViewController {
         } else {
             stateManager.unpinResults()
             resultsVC.setPinState(pinned: false, tabName: nil)
-            // Restore active tab's own results
             if let tab = stateManager.activeTab {
                 if let result = tab.result {
                     resultsVC.showResult(result)
@@ -544,17 +568,45 @@ class ContentViewController: NSViewController {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: queryId)
         }
     }
+
     // MARK: - Error Position Parsing
 
-    /// Parse the PostgreSQL error position and mark the error in the editor.
     private func markEditorError(message: String, sql: String) {
-        // Look for "at character N" appended by format_db_error()
         guard let range = message.range(of: #"at character (\d+)"#, options: .regularExpression),
               let digitRange = message.range(of: #"\d+"#, options: .regularExpression, range: range),
               let charPos = Int(message[digitRange]) else { return }
 
         let tokenLength = QueryEditorVC.parseTokenLength(from: message)
-        editorVC.markError(charPosition: charPos, tokenLength: tokenLength)
+        focusedPaneVC?.markError(charPosition: charPos, tokenLength: tokenLength)
+    }
+}
+
+// MARK: - EditorPaneDelegate
+
+extension ContentViewController: EditorPaneDelegate {
+
+    func editorPane(_ pane: EditorPaneVC, didRequestClosePane paneId: String) {
+        stateManager.closePane(id: paneId)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestExpandPane paneId: String) {
+        stateManager.togglePaneExpansion(id: paneId)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestAddPane paneId: String) {
+        stateManager.addPane()
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didFocus paneId: String) {
+        // Pane focus is handled by state manager; results update via activeTabId
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?) {
+        // activeTabId publisher handles results grid update
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
+        renameTab(id: tabId)
     }
 }
 
@@ -564,9 +616,8 @@ extension ContentViewController {
 
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
-        // Check if a tab already has this saved query open
         if let existingTab = stateManager.tabs.first(where: { $0.savedQueryId == query.id }) {
-            stateManager.activeTabId = existingTab.id
+            stateManager.selectTab(id: existingTab.id)
             return
         }
         let tab = stateManager.createTab(sql: query.sql, name: query.name)
@@ -579,13 +630,11 @@ extension ContentViewController {
         let tabName = entry.tableNames ?? "History"
         let tab = stateManager.createTab(sql: entry.sql, name: tabName)
 
-        // Store history metadata on the tab
         stateManager.updateTab(id: tab.id) { t in
             t.historySchema = entry.schema
             t.historyTimestamp = entry.executedAt
         }
 
-        // Load cached results if available
         do {
             if let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) {
                 let result = QueryResult(
@@ -599,7 +648,6 @@ extension ContentViewController {
                 stateManager.updateTab(id: tab.id) { t in
                     t.result = result
                 }
-                // If this is now the active tab, show results immediately
                 if stateManager.activeTabId == tab.id {
                     resultsVC.showResult(result)
                     resultsVC.showHistoryContext(schema: entry.schema, timestamp: entry.executedAt)
@@ -618,7 +666,6 @@ extension ContentViewController {
     @objc private func handleRunQueryInNewTab(_ notification: Notification) {
         guard let sql = notification.userInfo?["sql"] as? String else { return }
         let tab = stateManager.createTab(sql: sql, name: "Query")
-        // Brief delay to let the tab render before executing
         DispatchQueue.main.async {
             if self.stateManager.activeTabId == tab.id {
                 self.executeQuery(sql)
@@ -629,9 +676,8 @@ extension ContentViewController {
     @objc private func handleInsertTextInEditor(_ notification: Notification) {
         guard let text = notification.userInfo?["text"] as? String else { return }
         guard stateManager.activeTab != nil else { return }
-        let range = editorVC.textView.selectedRange()
-        editorVC.textView.insertText(text, replacementRange: range)
-        editorVC.focus()
+        focusedPaneVC?.insertText(text)
+        focusedPaneVC?.focus()
     }
 }
 
@@ -643,19 +689,16 @@ extension ContentViewController {
         guard let tab = stateManager.activeTab else { return }
 
         if let savedId = tab.savedQueryId {
-            // Update existing saved query silently
-            let currentSQL = editorVC.getSQL()
+            let currentSQL = focusedPaneVC?.getSQL() ?? ""
             do {
                 let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL)
                 _ = try PharosCore.updateSavedQuery(update)
-                // Also update the tab's SQL
                 stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             } catch {
                 NSLog("Failed to update saved query: \(error)")
             }
         } else {
-            // Show save sheet
             presentSaveQuerySheet(tab: tab)
         }
     }
@@ -668,7 +711,7 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: editorVC.getSQL(),
+            sql: focusedPaneVC?.getSQL() ?? "",
             connectionId: stateManager.activeConnectionId,
             connectionName: stateManager.activeConnection?.name
         ) { [weak self] savedQuery in
@@ -706,7 +749,7 @@ extension ContentViewController {
     }
 
     @objc func menuSelectTab(_ sender: NSMenuItem) {
-        let index = sender.tag // Zero-based
+        let index = sender.tag
         stateManager.selectTabByIndex(index)
     }
 
@@ -719,7 +762,7 @@ extension ContentViewController {
     }
 
     @objc func menuFormatSQL(_: Any?) {
-        editorVC.formatSQL()
+        focusedPaneVC?.formatSQL()
     }
 }
 
@@ -728,16 +771,24 @@ extension ContentViewController {
 extension ContentViewController: NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        100 // Minimum editor height
+        if splitView === self.splitView {
+            return 100 // Minimum editor area height
+        }
+        return 100 // Minimum editor pane width
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        splitView.bounds.height - 60 // Minimum results height
+        if splitView === self.splitView {
+            return splitView.bounds.height - 60 // Minimum results height
+        }
+        return splitView.bounds.width - 100 // Minimum right editor pane width
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard hasSetInitialSplit, splitView.bounds.height > 0 else { return }
-        let ratio = editorVC.view.frame.height / splitView.bounds.height
+        guard let notifSplit = notification.object as? NSSplitView,
+              notifSplit === self.splitView else { return }
+        guard hasSetInitialSplit, self.splitView.bounds.height > 0 else { return }
+        let ratio = paneSplitView.frame.height / self.splitView.bounds.height
         UserDefaults.standard.set(ratio, forKey: Self.splitRatioKey)
     }
 }
