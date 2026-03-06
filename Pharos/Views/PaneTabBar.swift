@@ -1,10 +1,9 @@
 import AppKit
 import Combine
 
-/// Tab bar for a single editor pane. Features pane control buttons (close, expand),
-/// pill-shaped tabs with hover states, and a "+" dropdown menu.
+/// Tab bar for a single editor pane using a native NSSegmentedControl with capsule style.
 ///
-/// Layout: [X close] [↗ expand] [  ╭─Tab1─╮  ╭─Tab2─╮  ] [+ add]
+/// Layout: [X close] [↗ expand] [  ‹SegmentedControl›  ] [+ add]
 class PaneTabBar: NSView {
 
     // MARK: - Callbacks
@@ -32,29 +31,14 @@ class PaneTabBar: NSView {
     private let closePaneButton = NSButton()
     private let expandPaneButton = NSButton()
     private let addButton = NSButton()
-    private var tabItemViews: [PillTabItemView] = []
+    private let segmentedControl = NSSegmentedControl()
 
     // Layout constants
     private let paneButtonWidth: CGFloat = 26
     private let addButtonWidth: CGFloat = 28
     private let barHeight: CGFloat = 28
-    private let tabPadding: CGFloat = 2    // Between pills
-    private let tabVerticalInset: CGFloat = 4
-
-    // MARK: - Drag State
-
-    private var isDragging = false
-    private var dragState: DragState?
-
-    private struct DragState {
-        let draggedTabId: String
-        var currentIndex: Int
-        let draggedLayer: CALayer
-        let tabLayers: [String: CALayer]
-        let tabWidth: CGFloat
-        let tabAreaX: CGFloat
-        let dragOffset: CGFloat
-    }
+    private let segmentInsetH: CGFloat = 4
+    private let segmentInsetV: CGFloat = 3
 
     // MARK: - Init
 
@@ -103,6 +87,14 @@ class PaneTabBar: NSView {
         addButton.target = self
         addButton.action = #selector(addButtonClicked(_:))
         addSubview(addButton)
+
+        // Segmented control (capsule style)
+        segmentedControl.segmentStyle = .capsule
+        segmentedControl.trackingMode = .selectOne
+        segmentedControl.controlSize = .regular
+        segmentedControl.target = self
+        segmentedControl.action = #selector(segmentChanged(_:))
+        addSubview(segmentedControl)
     }
 
     // MARK: - Public API
@@ -125,8 +117,9 @@ class PaneTabBar: NSView {
         }
 
         closePaneButton.isHidden = !canClose
+        expandPaneButton.isHidden = !canClose
 
-        rebuildTabs()
+        rebuildSegments()
     }
 
     func setFocused(_ focused: Bool) {
@@ -144,7 +137,6 @@ class PaneTabBar: NSView {
 
     override func layout() {
         super.layout()
-        guard !isDragging else { return }
         layoutSubviews()
     }
 
@@ -157,64 +149,65 @@ class PaneTabBar: NSView {
             x += paneButtonWidth
         }
 
-        // Expand button
-        expandPaneButton.frame = NSRect(x: x, y: 0, width: paneButtonWidth, height: barHeight)
-        x += paneButtonWidth
+        // Expand button (hidden in single-pane mode)
+        if canClose {
+            expandPaneButton.frame = NSRect(x: x, y: 0, width: paneButtonWidth, height: barHeight)
+            x += paneButtonWidth
+        }
 
         // Add button at trailing edge
         addButton.frame = NSRect(x: bounds.width - addButtonWidth, y: 0, width: addButtonWidth, height: barHeight)
 
-        // Tab area fills between pane buttons and add button
-        let tabAreaX = x
-        let tabAreaWidth = bounds.width - x - addButtonWidth
-        layoutPillTabs(x: tabAreaX, width: tabAreaWidth)
+        // Segmented control fills between pane buttons and add button
+        let segX = x + segmentInsetH
+        let segWidth = bounds.width - x - addButtonWidth - segmentInsetH * 2
+        segmentedControl.frame = NSRect(
+            x: segX,
+            y: segmentInsetV,
+            width: max(0, segWidth),
+            height: barHeight - segmentInsetV * 2
+        )
     }
 
-    private func layoutPillTabs(x: CGFloat, width: CGFloat) {
-        guard !tabItemViews.isEmpty else { return }
-        let count = CGFloat(tabItemViews.count)
-        let totalPadding = tabPadding * (count - 1) + tabPadding * 2 // Padding on edges too
-        let tabWidth = max(40, (width - totalPadding) / count)
+    // MARK: - Rebuild Segments
 
-        for (index, tabView) in tabItemViews.enumerated() {
-            let tabX = x + tabPadding + CGFloat(index) * (tabWidth + tabPadding)
-            tabView.frame = NSRect(
-                x: tabX,
-                y: tabVerticalInset,
-                width: tabWidth,
-                height: barHeight - tabVerticalInset * 2
-            )
+    private func rebuildSegments() {
+        segmentedControl.segmentCount = tabs.count
+
+        for (index, tab) in tabs.enumerated() {
+            let label = segmentLabel(for: tab)
+            segmentedControl.setLabel(label, forSegment: index)
+            segmentedControl.setToolTip(tab.name, forSegment: index)
         }
-    }
 
-    // MARK: - Rebuild Tabs
-
-    private func rebuildTabs() {
-        guard !isDragging else { return }
-
-        tabItemViews.forEach { $0.removeFromSuperview() }
-        tabItemViews.removeAll()
-
-        for tab in tabs {
-            let isActive = tab.id == activeTabId
-            let tabView = PillTabItemView(tab: tab, isActive: isActive)
-
-            tabView.onMouseDown = { [weak self] event in
-                self?.handleTabMouseDown(event: event, tabId: tab.id)
-            }
-            tabView.onClose = { [weak self] in
-                self?.onCloseTab?(tab.id)
-            }
-            tabView.onContextMenu = { [weak self] in
-                self?.showContextMenu(tabId: tab.id)
-            }
-
-            addSubview(tabView)
-            tabItemViews.append(tabView)
+        // Select the active segment
+        if let activeId = activeTabId,
+           let activeIndex = tabs.firstIndex(where: { $0.id == activeId }) {
+            segmentedControl.selectedSegment = activeIndex
+        } else {
+            segmentedControl.selectedSegment = -1
         }
 
         layoutSubviews()
         needsDisplay = true
+    }
+
+    /// Build label with dirty/executing indicators.
+    private func segmentLabel(for tab: QueryTab) -> String {
+        if tab.isExecuting {
+            return "⟳ \(tab.name)"
+        } else if tab.isDirty {
+            return "● \(tab.name)"
+        }
+        return tab.name
+    }
+
+    // MARK: - Segment Actions
+
+    @objc private func segmentChanged(_ sender: NSSegmentedControl) {
+        let index = sender.selectedSegment
+        guard index >= 0, index < tabs.count else { return }
+        onSelectTab?(tabs[index].id)
     }
 
     // MARK: - Button Actions
@@ -252,227 +245,45 @@ class PaneTabBar: NSView {
         onAddPane?()
     }
 
-    // MARK: - Mouse Handling for Tabs
+    // MARK: - Right-Click Context Menu
 
-    private func handleTabMouseDown(event: NSEvent, tabId: String) {
-        guard let window = self.window else { return }
+    override func rightMouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
 
-        let mouseDownPoint = event.locationInWindow
-        var didDrag = false
-
-        window.trackEvents(matching: [.leftMouseDragged, .leftMouseUp],
-                           timeout: NSEvent.foreverDuration,
-                           mode: .default) { [weak self] trackedEvent, stop in
-            guard let self, let trackedEvent else {
-                stop.pointee = true
-                return
-            }
-
-            switch trackedEvent.type {
-            case .leftMouseDragged:
-                if !didDrag {
-                    let dx = abs(trackedEvent.locationInWindow.x - mouseDownPoint.x)
-                    if dx < 5 { return }
-                    didDrag = true
-                    self.beginVisualDrag(tabId: tabId, mousePoint: mouseDownPoint)
-                }
-                self.updateVisualDrag(windowPoint: trackedEvent.locationInWindow)
-
-            case .leftMouseUp:
-                if didDrag {
-                    self.endVisualDrag()
-                } else {
-                    if trackedEvent.clickCount == 2 {
-                        self.onDoubleClickTab?(tabId)
-                    } else {
-                        self.onSelectTab?(tabId)
-                    }
-                }
-                stop.pointee = true
-
-            default:
-                break
-            }
-        }
-    }
-
-    // MARK: - Visual Drag (CALayer bitmap snapshots)
-
-    private func beginVisualDrag(tabId: String, mousePoint: NSPoint) {
-        isDragging = true
-        layer?.masksToBounds = false
-
-        guard let draggedIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-
-        var tabLayers: [String: CALayer] = [:]
-        var dragOffset: CGFloat = 0
-        var draggedLayer: CALayer!
-        let scale = window?.backingScaleFactor ?? 2.0
-
-        // Compute tab area X
-        var tabAreaX: CGFloat = canClose ? paneButtonWidth : 0
-        tabAreaX += paneButtonWidth
-
-        let tabAreaWidth = bounds.width - tabAreaX - addButtonWidth
-        let count = CGFloat(tabs.count)
-        let totalPadding = tabPadding * (count - 1) + tabPadding * 2
-        let tabWidth = max(40, (tabAreaWidth - totalPadding) / count)
-
-        for tabView in tabItemViews {
-            let id = tabView.tabId
-            let frameInBar = tabView.frame
-
-            guard let bitmapRep = tabView.bitmapImageRepForCachingDisplay(in: tabView.bounds) else { continue }
-            tabView.cacheDisplay(in: tabView.bounds, to: bitmapRep)
-
-            let layer = CALayer()
-            layer.frame = frameInBar
-            layer.contents = bitmapRep.cgImage
-            layer.contentsScale = scale
-            layer.contentsGravity = .resizeAspectFill
-            layer.cornerRadius = 6
-
-            if id == tabId {
-                layer.zPosition = 100
-                layer.shadowColor = NSColor.black.cgColor
-                layer.shadowOpacity = 0.3
-                layer.shadowRadius = 8
-                layer.shadowOffset = CGSize(width: 0, height: -2)
-                draggedLayer = layer
-
-                let mouseInBar = self.convert(mousePoint, from: nil)
-                dragOffset = mouseInBar.x - frameInBar.minX
-            } else {
-                layer.zPosition = 0
-            }
-
-            tabLayers[id] = layer
-            self.layer?.addSublayer(layer)
-        }
-
-        for tabView in tabItemViews {
-            tabView.alphaValue = 0
-        }
-
-        dragState = DragState(
-            draggedTabId: tabId,
-            currentIndex: draggedIndex,
-            draggedLayer: draggedLayer,
-            tabLayers: tabLayers,
-            tabWidth: tabWidth,
-            tabAreaX: tabAreaX,
-            dragOffset: dragOffset
-        )
-    }
-
-    private func updateVisualDrag(windowPoint: NSPoint) {
-        guard var state = dragState else { return }
-
-        let localPoint = self.convert(windowPoint, from: nil)
-
-        // Move dragged layer
-        var targetX = localPoint.x - state.dragOffset
-        let maxX = bounds.width - addButtonWidth - state.tabWidth
-        targetX = max(state.tabAreaX, min(targetX, maxX))
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        state.draggedLayer.frame.origin.x = targetX
-        CATransaction.commit()
-
-        // Compute insertion index
-        let nonDraggedIds = tabs.map(\.id).filter { $0 != state.draggedTabId }
-        let cursorX = localPoint.x
-
-        var newIndex = nonDraggedIds.count
-        for (i, id) in nonDraggedIds.enumerated() {
-            guard let layer = state.tabLayers[id] else { continue }
-            if cursorX < layer.frame.midX {
-                newIndex = i
-                break
-            }
-        }
-
-        if newIndex != state.currentIndex {
-            state.currentIndex = newIndex
-            dragState = state
-            animateTabLayers(state: state)
-        } else {
-            dragState = state
-        }
-    }
-
-    private func animateTabLayers(state: DragState) {
-        let draggedId = state.draggedTabId
-        let nonDraggedIds = tabs.map(\.id).filter { $0 != draggedId }
-
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.15)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-
-        var x: CGFloat = state.tabAreaX + tabPadding
-        for (i, id) in nonDraggedIds.enumerated() {
-            if i == state.currentIndex {
-                x += state.tabWidth + tabPadding
-            }
-            if let layer = state.tabLayers[id] {
-                layer.frame = CGRect(x: x, y: tabVerticalInset,
-                                     width: state.tabWidth,
-                                     height: barHeight - tabVerticalInset * 2)
-                x += state.tabWidth + tabPadding
-            }
-        }
-
-        CATransaction.commit()
-    }
-
-    private func endVisualDrag() {
-        guard let state = dragState else {
-            isDragging = false
+        // Check if click is within the segmented control
+        guard segmentedControl.frame.contains(localPoint) else {
+            super.rightMouseDown(with: event)
             return
         }
 
-        let targetX = state.tabAreaX + tabPadding + CGFloat(state.currentIndex) * (state.tabWidth + tabPadding)
-        let targetFrame = CGRect(x: targetX, y: tabVerticalInset,
-                                 width: state.tabWidth,
-                                 height: barHeight - tabVerticalInset * 2)
-
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.15)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-        CATransaction.setCompletionBlock { [weak self] in
-            self?.finalizeDrag(state: state)
+        // Determine which segment was clicked
+        let segLocal = convert(localPoint, to: segmentedControl)
+        guard let index = segmentIndex(at: segLocal) else {
+            super.rightMouseDown(with: event)
+            return
         }
 
-        state.draggedLayer.shadowOpacity = 0
-        state.draggedLayer.frame = targetFrame
-
-        CATransaction.commit()
+        let tabId = tabs[index].id
+        // Select the tab first
+        onSelectTab?(tabId)
+        showContextMenu(tabId: tabId, event: event)
     }
 
-    private func finalizeDrag(state: DragState) {
-        for (_, layer) in state.tabLayers {
-            layer.removeFromSuperlayer()
+    /// Determine which segment index a point falls in.
+    private func segmentIndex(at point: NSPoint) -> Int? {
+        var x: CGFloat = 0
+        for i in 0..<segmentedControl.segmentCount {
+            let w = segmentedControl.width(forSegment: i)
+            let segWidth = w > 0 ? w : segmentedControl.bounds.width / CGFloat(segmentedControl.segmentCount)
+            if point.x >= x && point.x < x + segWidth {
+                return i
+            }
+            x += segWidth
         }
-        for tabView in tabItemViews {
-            tabView.alphaValue = 1
-        }
-
-        var reordered = tabs.filter { $0.id != state.draggedTabId }
-        if let draggedTab = tabs.first(where: { $0.id == state.draggedTabId }) {
-            let insertAt = min(state.currentIndex, reordered.count)
-            reordered.insert(draggedTab, at: insertAt)
-        }
-
-        dragState = nil
-        isDragging = false
-
-        onReorderTabs?(reordered.map(\.id))
+        return nil
     }
 
-    // MARK: - Context Menu
-
-    private func showContextMenu(tabId: String) {
+    private func showContextMenu(tabId: String, event: NSEvent) {
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let menu = NSMenu()
 
@@ -505,7 +316,7 @@ class PaneTabBar: NSView {
         renameItem.target = self
         menu.addItem(renameItem)
 
-        NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent!, for: self)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     @objc private func contextClose(_ sender: NSMenuItem) {
@@ -555,188 +366,4 @@ class PaneTabBar: NSView {
             NSRect(x: 0, y: 0, width: bounds.width, height: 1.5).fill()
         }
     }
-}
-
-// MARK: - Pill Tab Item View
-
-private class PillTabItemView: NSView {
-
-    let tabId: String
-    let isActive: Bool
-    var onMouseDown: ((NSEvent) -> Void)?
-    var onClose: (() -> Void)?
-    var onContextMenu: (() -> Void)?
-
-    private let label = NSTextField(labelWithString: "")
-    private let closeButton = NSButton()
-    private let dirtyDot = NSView()
-    private let isDirty: Bool
-    private let isExecuting: Bool
-    private var isHovered = false
-    private var spinner: NSProgressIndicator?
-
-    init(tab: QueryTab, isActive: Bool) {
-        self.tabId = tab.id
-        self.isActive = isActive
-        self.isDirty = tab.isDirty
-        self.isExecuting = tab.isExecuting
-        super.init(frame: .zero)
-
-        wantsLayer = true
-        layer?.masksToBounds = true
-        layer?.cornerRadius = 6
-        toolTip = tab.name
-
-        // Label
-        label.stringValue = tab.name
-        label.font = .systemFont(ofSize: 11, weight: .regular)
-        label.textColor = isActive ? .labelColor : .secondaryLabelColor
-        label.alignment = .center
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        // Close button
-        let closeConfig = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?.withSymbolConfiguration(closeConfig)
-        closeButton.bezelStyle = .recessed
-        closeButton.isBordered = false
-        closeButton.imageScaling = .scaleNone
-        closeButton.target = self
-        closeButton.action = #selector(closeTapped)
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.contentTintColor = .secondaryLabelColor
-        closeButton.isHidden = !isActive && !tab.isDirty
-
-        // Dirty dot
-        dirtyDot.wantsLayer = true
-        dirtyDot.layer?.backgroundColor = NSColor.secondaryLabelColor.cgColor
-        dirtyDot.layer?.cornerRadius = 3
-        dirtyDot.translatesAutoresizingMaskIntoConstraints = false
-        dirtyDot.isHidden = !tab.isDirty || isActive
-
-        // Executing spinner
-        if tab.isExecuting {
-            let spin = NSProgressIndicator()
-            spin.style = .spinning
-            spin.controlSize = .small
-            spin.translatesAutoresizingMaskIntoConstraints = false
-            spin.startAnimation(nil)
-            addSubview(spin)
-            self.spinner = spin
-            closeButton.isHidden = true
-            dirtyDot.isHidden = true
-        }
-
-        addSubview(label)
-        addSubview(closeButton)
-        addSubview(dirtyDot)
-
-        NSLayoutConstraint.activate([
-            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 14),
-            closeButton.heightAnchor.constraint(equalToConstant: 14),
-
-            dirtyDot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            dirtyDot.centerYAnchor.constraint(equalTo: centerYAnchor),
-            dirtyDot.widthAnchor.constraint(equalToConstant: 6),
-            dirtyDot.heightAnchor.constraint(equalToConstant: 6),
-
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 22),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
-        ])
-
-        if let spin = spinner {
-            NSLayoutConstraint.activate([
-                spin.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-                spin.centerYAnchor.constraint(equalTo: centerYAnchor),
-                spin.widthAnchor.constraint(equalToConstant: 12),
-                spin.heightAnchor.constraint(equalToConstant: 12),
-            ])
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
-    }
-
-    // MARK: - Drawing
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        let pillRect = bounds.insetBy(dx: 0.5, dy: 0.5)
-
-        if isActive {
-            // Active pill: white fill with subtle border for contrast
-            NSColor.textBackgroundColor.setFill()
-            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
-            pillPath.fill()
-
-            NSColor.separatorColor.setStroke()
-            let strokePath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
-            strokePath.lineWidth = 0.5
-            strokePath.stroke()
-        } else if isHovered {
-            // Hover: subtle fill
-            NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
-            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
-            pillPath.fill()
-        } else {
-            // Inactive: darker fill to distinguish from the active tab
-            NSColor.underPageBackgroundColor.setFill()
-            let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 5.5, yRadius: 5.5)
-            pillPath.fill()
-        }
-    }
-
-    // MARK: - Mouse Handling
-
-    override func mouseDown(with event: NSEvent) {
-        onMouseDown?(event)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onSelectTab()
-        onContextMenu?()
-    }
-
-    private func onSelectTab() {
-        // Bubble up selection through the parent's callback
-        if let paneTabBar = superview as? PaneTabBar {
-            paneTabBar.onSelectTab?(tabId)
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
-            owner: self
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        needsDisplay = true
-        if !isExecuting {
-            closeButton.isHidden = false
-            dirtyDot.isHidden = true
-        }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        needsDisplay = true
-        if !isExecuting {
-            closeButton.isHidden = !isActive && !isDirty
-            dirtyDot.isHidden = !isDirty || isActive
-        }
-    }
-
-    @objc private func closeTapped() { onClose?() }
 }
