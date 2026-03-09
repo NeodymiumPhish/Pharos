@@ -376,6 +376,11 @@ class ContentViewController: NSViewController {
             stateManager.updateTab(id: previousTabId) { tab in
                 tab.gridState = gridState
             }
+            // Also save grid state to the active result tab
+            if let activeRTId = activeResultTabId,
+               let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
+                resultTabs[rtIdx].gridState = gridState
+            }
             // Persist result tabs for the previous editor tab
             resultTabsByEditorTab[previousTabId] = resultTabs
             if let activeRTId = activeResultTabId {
@@ -409,6 +414,9 @@ class ContentViewController: NSViewController {
                 resultsVC.showResult(result)
             } else if let execResult = activeRT.executeResult {
                 resultsVC.showExecuteResult(execResult)
+            }
+            if let gridState = activeRT.gridState {
+                resultsVC.restoreGridState(gridState)
             }
         } else if let pinnedResult = stateManager.pinnedResult {
             resultsVC.showResult(pinnedResult)
@@ -1050,6 +1058,12 @@ class ContentViewController: NSViewController {
     }
 
     private func selectResultTab(_ tabId: String) {
+        // Capture outgoing result tab's grid state
+        if let outgoingId = activeResultTabId,
+           let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
+            resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+        }
+
         activeResultTabId = tabId
         resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
 
@@ -1060,6 +1074,11 @@ class ContentViewController: NSViewController {
             resultsVC.showResult(result)
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
+        }
+
+        // Restore saved grid state (column widths, scroll position, etc.)
+        if let gridState = tab.gridState {
+            resultsVC.restoreGridState(gridState)
         }
 
         // Highlight source lines in the editor (skip if stale — line numbers may have shifted)

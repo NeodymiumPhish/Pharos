@@ -62,7 +62,7 @@ class FilterableHeaderView: NSTableHeaderView {
     private var hoveredColumnIndex: Int = -1
     private var trackingArea: NSTrackingArea?
 
-    private let iconSize: CGFloat = 10
+    private let iconSize: CGFloat = 13
     private let iconPadding: CGFloat = 6
 
     // MARK: - Tracking Areas
@@ -132,6 +132,12 @@ class FilterableHeaderView: NSTableHeaderView {
         }
 
         let headerRect = self.headerRect(ofColumn: colIndex)
+        // Near column edge -> let super handle resize drag
+        if columnIndexForResizeEdge(at: point) != nil {
+            super.mouseDown(with: event)
+            return
+        }
+
         let iconRect = filterIconRect(inHeaderRect: headerRect)
 
         if iconRect.contains(point) {
@@ -213,7 +219,7 @@ class FilterableHeaderView: NSTableHeaderView {
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
         return NSRect(
-            x: headerRect.maxX - side - 2,
+            x: headerRect.maxX - side - 8,
             y: headerRect.midY - side / 2,
             width: side,
             height: side
@@ -223,7 +229,7 @@ class FilterableHeaderView: NSTableHeaderView {
     /// Returns the column index to auto-fit if the point is near a column's right edge (~4px).
     private func columnIndexForResizeEdge(at point: NSPoint) -> Int? {
         guard let tableView = tableView else { return nil }
-        let threshold: CGFloat = 4
+        let threshold: CGFloat = 6
         for (index, _) in tableView.tableColumns.enumerated() {
             let rect = headerRect(ofColumn: index)
             if abs(point.x - rect.maxX) <= threshold {

@@ -14,6 +14,9 @@ struct ResultTab: Identifiable {
     var executeResult: ExecuteResult?
     var executionTimeMs: UInt64 = 0
 
+    /// Captured grid state (column widths, scroll position, sort, filters, selection).
+    var gridState: ResultsGridState?
+
     /// Whether the editor text has been modified since this result was produced.
     var isStale: Bool = false
 

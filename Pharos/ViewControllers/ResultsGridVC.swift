@@ -629,7 +629,7 @@ class ResultsGridVC: NSViewController {
 
         // Measure header text width
         let headerWidth = column.headerCell.attributedStringValue
-            .size().width + 40  // Padding for sort+filter icons + margins
+            .size().width + 50  // Padding for sort+filter icons + margins
 
         // Sample visible rows + first/last 100
         let visibleRange = tableView.rows(in: tableView.visibleRect)
