@@ -113,6 +113,10 @@ final class AppStateManager: ObservableObject {
                 await MainActor.run {
                     self.connectionStatuses[id] = info.status
                     self.activeConnectionId = id
+                    // Default to "public" schema on first connection
+                    if self.schemaSelections[id] == nil {
+                        self.activeSchema = "public"
+                    }
                     self.postStatusChange(id)
                 }
             } catch {
