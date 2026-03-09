@@ -162,9 +162,11 @@ struct SQLSegmentParser {
         // Skip empty segments
         guard !sql.isEmpty else { return }
 
-        // Compute line numbers
-        let textBeforeSegment = nsText.substring(to: range.location)
-        let rawStartLine = textBeforeSegment.components(separatedBy: "\n").count
+        // Compute line numbers by counting newlines directly (avoids allocating substring arrays)
+        var rawStartLine = 1
+        for j in 0..<range.location {
+            if nsText.character(at: j) == 0x0A { rawStartLine += 1 }
+        }
         let segmentText = nsText.substring(with: range)
         let lines = segmentText.components(separatedBy: "\n")
         let rawEndLine = rawStartLine + lines.count - 1

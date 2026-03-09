@@ -99,6 +99,9 @@ class ContentViewController: NSViewController {
         resultTabBar.onCloseTab = { [weak self] tabId in
             self?.closeResultTab(tabId)
         }
+        resultTabBar.onViewDetail = { [weak self] tabId in
+            self?.showResultTabDetail(tabId)
+        }
 
         // Action bar setup
         setupActionBar()
@@ -1059,8 +1062,10 @@ class ContentViewController: NSViewController {
             resultsVC.showExecuteResult(execResult)
         }
 
-        // Highlight source lines in the editor
-        focusedPaneVC?.highlightLines(tab.lineRange)
+        // Highlight source lines in the editor (skip if stale — line numbers may have shifted)
+        if !tab.isStale {
+            focusedPaneVC?.highlightLines(tab.lineRange)
+        }
     }
 
     private func closeResultTab(_ tabId: String) {
@@ -1080,6 +1085,22 @@ class ContentViewController: NSViewController {
         } else {
             resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
         }
+    }
+
+    private func showResultTabDetail(_ tabId: String) {
+        guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
+
+        let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
+            guard let self else { return }
+            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql) { _ in
+                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            }
+            // Delay briefly so the detail sheet dismiss animation completes
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.presentAsSheet(saveSheet)
+            }
+        }
+        presentAsSheet(sheet)
     }
 
     private func updateResultTabBarVisibility() {

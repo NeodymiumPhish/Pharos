@@ -73,7 +73,8 @@ class QueryEditorVC: NSViewController {
 
         // Text change handler — sync back to tab state and validate
         textView.onTextChange = { [weak self] newText in
-            self?.textDidChange(newText)
+            guard let self, !self.suppressTextChange else { return }
+            self.textDidChange(newText)
         }
 
         // Track cursor movement for active segment highlighting
@@ -118,8 +119,16 @@ class QueryEditorVC: NSViewController {
         textDidChange(formatted)
     }
 
+    /// Flag to suppress the onTextChange callback during programmatic text updates.
+    private var suppressTextChange = false
+
     func setSQL(_ sql: String) {
+        // Suppress the onTextChange callback to avoid double-parsing:
+        // setSQL already parses segments, and onTextChange would trigger
+        // recalculateSegments which parses again.
+        suppressTextChange = true
         textView.string = sql
+        suppressTextChange = false
         textView.highlightSyntax()
         gutter?.invalidateLineNumbers()
         // Immediately recalculate segments for the new text
@@ -267,7 +276,7 @@ class QueryEditorVC: NSViewController {
         var currentLine = 1
         // Advance to the start line
         while currentLine < range.lowerBound && charStart < text.length {
-            if text.character(at: charStart) == UInt16(Character("\n").asciiValue!) {
+            if text.character(at: charStart) == 0x0A /* newline */ {
                 currentLine += 1
             }
             charStart += 1
@@ -275,7 +284,7 @@ class QueryEditorVC: NSViewController {
         var charEnd = charStart
         // Advance to the end line
         while currentLine <= range.upperBound && charEnd < text.length {
-            if text.character(at: charEnd) == UInt16(Character("\n").asciiValue!) {
+            if text.character(at: charEnd) == 0x0A /* newline */ {
                 currentLine += 1
             }
             charEnd += 1
@@ -402,15 +411,16 @@ class QueryEditorVC: NSViewController {
 
     /// Extract token length from a PostgreSQL error message like `syntax error at or near "WHERE"`.
     /// Returns 0 if no token is found (caller falls back to underlining to end of line).
+    private static let nearTokenRegex = try! NSRegularExpression(pattern: #"near "([^"]+)""#)
+
     static func parseTokenLength(from message: String) -> Int {
-        guard let nearRange = message.range(of: #"near "([^"]+)""#, options: .regularExpression) else {
+        let nsMessage = message as NSString
+        guard let match = nearTokenRegex.firstMatch(
+            in: message, range: NSRange(location: 0, length: nsMessage.length)
+        ), match.numberOfRanges > 1 else {
             return 0
         }
-        let nearStr = message[nearRange]
-        guard let quoteStart = nearStr.firstIndex(of: "\"") else { return 0 }
-        let tokenStart = nearStr.index(after: quoteStart)
-        guard let quoteEnd = nearStr[tokenStart...].firstIndex(of: "\"") else { return 0 }
-        return nearStr[tokenStart..<quoteEnd].count
+        return match.range(at: 1).length
     }
 
     private func lineNumber(forCharacterIndex index: Int, in text: String) -> Int {

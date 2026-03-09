@@ -8,6 +8,7 @@ class ResultTabBar: NSView {
 
     var onSelectTab: ((String) -> Void)?
     var onCloseTab: ((String) -> Void)?
+    var onViewDetail: ((String) -> Void)?
 
     // MARK: - State
 
@@ -124,6 +125,51 @@ class ResultTabBar: NSView {
 
     @objc private func tabClosed(_ sender: ResultTabButton) {
         onCloseTab?(sender.resultTabId)
+    }
+
+    // MARK: - Context Menu
+
+    override func rightMouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let containerPoint = containerView.convert(localPoint, from: self)
+
+        // Find which tab button was right-clicked
+        guard let button = tabButtons.first(where: { $0.frame.contains(containerPoint) }) else {
+            super.rightMouseDown(with: event)
+            return
+        }
+
+        let tabId = button.resultTabId
+        onSelectTab?(tabId)
+        showContextMenu(tabId: tabId, event: event)
+    }
+
+    private func showContextMenu(tabId: String, event: NSEvent) {
+        let menu = NSMenu()
+
+        let viewItem = NSMenuItem(title: "View SQL Query", action: #selector(contextViewDetail(_:)), keyEquivalent: "")
+        viewItem.representedObject = tabId
+        viewItem.target = self
+        menu.addItem(viewItem)
+
+        menu.addItem(.separator())
+
+        let closeItem = NSMenuItem(title: "Close", action: #selector(contextClose(_:)), keyEquivalent: "")
+        closeItem.representedObject = tabId
+        closeItem.target = self
+        menu.addItem(closeItem)
+
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func contextViewDetail(_ sender: NSMenuItem) {
+        guard let tabId = sender.representedObject as? String else { return }
+        onViewDetail?(tabId)
+    }
+
+    @objc private func contextClose(_ sender: NSMenuItem) {
+        guard let tabId = sender.representedObject as? String else { return }
+        onCloseTab?(tabId)
     }
 
     // MARK: - Drawing

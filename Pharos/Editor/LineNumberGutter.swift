@@ -150,7 +150,7 @@ class LineNumberGutter: NSView {
 
     private func recalculateWidth() {
         guard let textView else { return }
-        let lineCount = max(textView.string.components(separatedBy: "\n").count, 1)
+        let lineCount = max(textView.string.utf16.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }, 1)
         let digits = max(String(lineCount).count, 3)
         let digitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
         let newWidth = CGFloat(digits) * digitWidth + 20 + segmentBarWidth + segmentBarGap
@@ -242,8 +242,12 @@ class LineNumberGutter: NSView {
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
 
         // Count newlines up to charIndex to get line number
-        let prefix = text.substring(to: min(charIndex, text.length))
-        return prefix.components(separatedBy: "\n").count
+        let end = min(charIndex, text.length)
+        var line = 1
+        for j in 0..<end {
+            if text.character(at: j) == 0x0A { line += 1 }
+        }
+        return line
     }
 
     // MARK: - Drawing
@@ -330,11 +334,20 @@ class LineNumberGutter: NSView {
         }
 
         // Draw segment bars
-        guard !segments.isEmpty, !lineYPositions.isEmpty else { return }
+        guard !segments.isEmpty, !lineYPositions.isEmpty,
+              let firstEntry = lineYPositions.first,
+              let lastEntry = lineYPositions.last else { return }
 
         let barX = desiredWidth - segmentBarGap / 2 - segmentBarWidth
-        let firstVisibleLine = lineYPositions.first!.line
-        let lastVisibleLine = lineYPositions.last!.line
+        let firstVisibleLine = firstEntry.line
+        let lastVisibleLine = lastEntry.line
+
+        // Build lookup dictionary for O(1) line → position mapping
+        var linePositionMap: [Int: (y: CGFloat, height: CGFloat)] = [:]
+        linePositionMap.reserveCapacity(lineYPositions.count)
+        for entry in lineYPositions {
+            linePositionMap[entry.line] = (entry.y, entry.height)
+        }
 
         for (segIdx, segment) in segments.enumerated() {
             // Skip segments that don't overlap the visible line range
@@ -344,8 +357,8 @@ class LineNumberGutter: NSView {
             let clampedStart = max(segment.startLine, firstVisibleLine)
             let clampedEnd = min(segment.endLine, lastVisibleLine)
 
-            guard let startEntry = lineYPositions.first(where: { $0.line == clampedStart }),
-                  let endEntry = lineYPositions.first(where: { $0.line == clampedEnd }) else { continue }
+            guard let startEntry = linePositionMap[clampedStart],
+                  let endEntry = linePositionMap[clampedEnd] else { continue }
 
             let barY = startEntry.y + 2
             let barBottom = endEntry.y + endEntry.height - 2
