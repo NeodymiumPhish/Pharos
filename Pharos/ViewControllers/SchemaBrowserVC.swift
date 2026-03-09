@@ -3,6 +3,7 @@ import AppKit
 extension Notification.Name {
     static let runQueryInNewTab = Notification.Name("PharosRunQueryInNewTab")
     static let insertTextInEditor = Notification.Name("PharosInsertTextInEditor")
+    static let connectionMetadataRefreshRequested = Notification.Name("PharosConnectionMetadataRefreshRequested")
 }
 
 // MARK: - SchemaBrowserVC

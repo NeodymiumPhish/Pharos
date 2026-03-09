@@ -163,6 +163,16 @@ class MainWindowController: NSWindowController {
             disconnectItem.target = self
             popup.menu?.addItem(disconnectItem)
 
+            let refreshItem = NSMenuItem(title: "Refresh Connection", action: #selector(refreshConnection), keyEquivalent: "")
+            refreshItem.target = self
+            // Only enable when the active connection is connected
+            if let activeId, stateManager.status(for: activeId) == .connected {
+                refreshItem.isEnabled = true
+            } else {
+                refreshItem.isEnabled = false
+            }
+            popup.menu?.addItem(refreshItem)
+
             popup.menu?.addItem(.separator())
 
             let editItem = NSMenuItem(title: "Edit Connection...", action: #selector(editConnection), keyEquivalent: "")
@@ -299,6 +309,13 @@ class MainWindowController: NSWindowController {
     @objc private func disconnectSelected() {
         guard let id = selectedConnectionId() else { return }
         stateManager.disconnect(id: id)
+    }
+
+    @objc private func refreshConnection() {
+        guard let id = selectedConnectionId(),
+              stateManager.status(for: id) == .connected else { return }
+        metadataCache.load(connectionId: id)
+        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
     @objc func showAddConnectionSheet() {

@@ -127,6 +127,16 @@ class SidebarViewController: NSViewController {
         ) { [weak self] _ in
             self?.savedQueries.reload()
         }
+
+        // Manual refresh from connection menu
+        NotificationCenter.default.addObserver(
+            forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self,
+                  let activeId = self.stateManager.activeConnectionId,
+                  self.stateManager.status(for: activeId) == .connected else { return }
+            self.schemaBrowser.loadSchemas(connectionId: activeId)
+        }
     }
 
     // MARK: - Segment Switching
