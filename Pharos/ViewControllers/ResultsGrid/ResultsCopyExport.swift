@@ -180,6 +180,36 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         NSPasteboard.general.setString(statements.joined(separator: "\n"), forType: .string)
     }
 
+    @objc func copyAsSQLWith(_: Any?) {
+        guard var data = gatherData() else { return }
+        data = CopyData(columnNames: data.columnNames, rows: data.rows, includeHeaders: false)
+        let cats = columnCategories
+        let colTypes = columns.reduce(into: [String: String]()) { $0[$1.name] = $1.dataType }
+
+        let colList = data.columnNames.joined(separator: ", ")
+        let valueRows = data.rows.enumerated().map { (rowIdx, row) in
+            let values = zip(data.columnNames, row).map { (col, val) -> String in
+                if val.isEmpty || val == "NULL" { return "NULL" }
+                let category = cats[col] ?? .string
+                let pgType = colTypes[col] ?? "text"
+                let literal: String
+                switch category {
+                case .numeric, .boolean:
+                    literal = val
+                default:
+                    literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                }
+                // Cast on first row so PG infers types for the rest
+                return rowIdx == 0 ? "\(literal)::\(pgType)" : literal
+            }
+            return "    (\(values.joined(separator: ", ")))"
+        }
+
+        let sql = "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(sql, forType: .string)
+    }
+
     static func csvEscape(_ s: String) -> String {
         if s.contains(",") || s.contains("\"") || s.contains("\n") {
             return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
@@ -203,6 +233,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             ("\(prefix) as CSV", #selector(copyAsCSV)),
             ("\(prefix) as Markdown", #selector(copyAsMarkdown)),
             ("\(prefix) as SQL INSERT", #selector(copyAsSQLInsert)),
+            ("\(prefix) as SQL WITH", #selector(copyAsSQLWith)),
         ]
         showPopover(from: copyButton, items: items)
     }
@@ -374,6 +405,9 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         let sql = menu.addItem(withTitle: "Copy as SQL INSERT", action: #selector(copyAsSQLInsert), keyEquivalent: "")
         sql.tag = 4
         sql.target = self
+        let sqlWith = menu.addItem(withTitle: "Copy as SQL WITH", action: #selector(copyAsSQLWith), keyEquivalent: "")
+        sqlWith.tag = 5
+        sqlWith.target = self
 
         return menu
     }
@@ -388,6 +422,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             case 2: item.title = "\(prefix) as CSV"
             case 3: item.title = "\(prefix) as Markdown"
             case 4: item.title = "\(prefix) as SQL INSERT"
+            case 5: item.title = "\(prefix) as SQL WITH"
             case 10: item.state = includeHeaders ? .on : .off
             default: break
             }
