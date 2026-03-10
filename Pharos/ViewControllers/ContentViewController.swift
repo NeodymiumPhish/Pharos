@@ -705,6 +705,10 @@ class ContentViewController: NSViewController {
     // MARK: - Visibility
 
     private func updateVisibility() {
+        // Always show the editor — users can select a connection from the editor toolbar.
+        // Empty state is hidden; content stack always visible.
+        emptyState.isHidden = true
+
         let hasConnection: Bool
         if let activeId = stateManager.activeConnectionId {
             let status = stateManager.status(for: activeId)
@@ -713,24 +717,19 @@ class ContentViewController: NSViewController {
             hasConnection = false
         }
 
-        emptyState.isHidden = hasConnection
-
         if hasConnection {
             stateManager.ensureTab()
         }
+
+        // Always ensure at least one tab so the editor is usable
+        stateManager.ensureTab()
 
         updateSplitViewVisibility()
     }
 
     private func updateSplitViewVisibility() {
-        let hasConnection: Bool
-        if let activeId = stateManager.activeConnectionId {
-            hasConnection = stateManager.status(for: activeId) == .connected
-        } else {
-            hasConnection = false
-        }
-        let hasTab = stateManager.activeTabId != nil
-        contentStack.isHidden = !hasConnection || !hasTab
+        // Content stack is always visible — editor is usable without a connection.
+        contentStack.isHidden = false
     }
 
     // MARK: - Expand Editor / Results

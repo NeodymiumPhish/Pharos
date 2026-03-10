@@ -32,6 +32,11 @@ class EditorPaneVC: NSViewController {
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private var isExecuting = false
 
+    // Connection / Schema selectors (in editor toolbar, right side)
+    private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let schemaPopup = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let schemaSpinner = NSProgressIndicator()
+
     weak var delegate: EditorPaneDelegate?
 
     private let stateManager = AppStateManager.shared
@@ -173,6 +178,40 @@ class EditorPaneVC: NSViewController {
                 schemas: schemas, tables: tables, columnsByTable: columns)
         }
         .store(in: &cancellables)
+
+        // Observe connection/schema state for editor toolbar selectors
+        stateManager.$connections
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildConnectionMenu() }
+            .store(in: &cancellables)
+
+        stateManager.$activeConnectionId
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.rebuildConnectionMenu()
+                self?.rebuildSchemaMenu()
+            }
+            .store(in: &cancellables)
+
+        stateManager.$connectionStatuses
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildConnectionMenu() }
+            .store(in: &cancellables)
+
+        metadataCache.$schemas
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildSchemaMenu() }
+            .store(in: &cancellables)
+
+        stateManager.$activeSchema
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.rebuildSchemaMenu() }
+            .store(in: &cancellables)
+
+        metadataCache.$isLoading
+            .receive(on: RunLoop.main)
+            .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
+            .store(in: &cancellables)
 
         // Track focus: when editor text view becomes first responder, notify delegate
         NotificationCenter.default.addObserver(
@@ -330,7 +369,7 @@ class EditorPaneVC: NSViewController {
         formatButton.action = #selector(formatSQLTapped)
         formatButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // Run/Stop button (right side)
+        // Run/Stop button
         let runConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(runConfig)
         runStopButton.bezelStyle = .recessed
@@ -360,10 +399,35 @@ class EditorPaneVC: NSViewController {
         saveItem.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
         saveDropdown.menu?.addItem(saveItem)
 
-        let saveAsItem = NSMenuItem(title: "Save As…", action: #selector(saveAsTapped), keyEquivalent: "")
+        let saveAsItem = NSMenuItem(title: "Save As\u{2026}", action: #selector(saveAsTapped), keyEquivalent: "")
         saveAsItem.target = self
         saveAsItem.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: nil)
         saveDropdown.menu?.addItem(saveAsItem)
+
+        // Connection popup (right side)
+        connectionPopup.bezelStyle = .recessed
+        connectionPopup.isBordered = false
+        connectionPopup.controlSize = .small
+        connectionPopup.translatesAutoresizingMaskIntoConstraints = false
+        (connectionPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+
+        // Schema popup (right side)
+        schemaPopup.bezelStyle = .recessed
+        schemaPopup.isBordered = false
+        schemaPopup.controlSize = .small
+        schemaPopup.translatesAutoresizingMaskIntoConstraints = false
+        (schemaPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+
+        // Schema spinner overlay
+        schemaSpinner.style = .spinning
+        schemaSpinner.controlSize = .small
+        schemaSpinner.isDisplayedWhenStopped = false
+        schemaSpinner.translatesAutoresizingMaskIntoConstraints = false
+        schemaPopup.addSubview(schemaSpinner)
+        NSLayoutConstraint.activate([
+            schemaSpinner.trailingAnchor.constraint(equalTo: schemaPopup.trailingAnchor, constant: -20),
+            schemaSpinner.centerYAnchor.constraint(equalTo: schemaPopup.centerYAnchor),
+        ])
 
         // Bottom separator line
         let separator = NSBox()
@@ -371,13 +435,20 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // Layout — all buttons on the left: Format, Save, Execute
+        // Left buttons: Format, Save, Run/Stop
         let buttonStack = NSStackView(views: [formatButton, saveDropdown, runStopButton])
         buttonStack.orientation = .horizontal
         buttonStack.spacing = 4
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
 
+        // Right selectors: Connection, Schema
+        let selectorStack = NSStackView(views: [connectionPopup, schemaPopup])
+        selectorStack.orientation = .horizontal
+        selectorStack.spacing = 4
+        selectorStack.translatesAutoresizingMaskIntoConstraints = false
+
         editorToolbar.addSubview(buttonStack)
+        editorToolbar.addSubview(selectorStack)
 
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
@@ -386,8 +457,16 @@ class EditorPaneVC: NSViewController {
             runStopButton.heightAnchor.constraint(equalToConstant: 28),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
 
+            connectionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+            connectionPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+            schemaPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            schemaPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
+
             buttonStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
             buttonStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+
+            selectorStack.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
+            selectorStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
@@ -439,6 +518,235 @@ class EditorPaneVC: NSViewController {
         if let saveItem = saveDropdown.menu?.item(at: 1) {
             saveItem.isEnabled = hasSavedQuery
         }
+    }
+
+    // MARK: - Connection / Schema Selectors
+
+    private func rebuildConnectionMenu() {
+        connectionPopup.removeAllItems()
+
+        let connections = stateManager.connections
+        let activeId = stateManager.activeConnectionId
+
+        // First item in a pull-down button is the button's displayed title
+        let buttonTitle: String
+        if let activeId,
+           let config = connections.first(where: { $0.id == activeId }) {
+            let status = stateManager.status(for: config.id)
+            let statusIcon = statusString(for: status)
+            buttonTitle = "\(statusIcon)\(config.name)"
+        } else if connections.isEmpty {
+            buttonTitle = "No Connections"
+        } else {
+            buttonTitle = "Select Connection"
+        }
+        connectionPopup.addItem(withTitle: buttonTitle)
+        connectionPopup.isEnabled = true
+
+        // Style the title item with colored status indicator
+        if let activeId,
+           let config = connections.first(where: { $0.id == activeId }) {
+            let status = stateManager.status(for: config.id)
+            if let titleItem = connectionPopup.item(at: 0) {
+                titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
+            }
+        }
+
+        if !connections.isEmpty {
+            connectionPopup.menu?.addItem(.separator())
+            for config in connections {
+                let status = stateManager.status(for: config.id)
+                let icon = statusString(for: status)
+                let title = "\(icon)\(config.name)"
+                let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = config.id
+                menuItem.attributedTitle = styledTitle(title, status: status)
+                if config.id == activeId {
+                    menuItem.state = .on
+                }
+                connectionPopup.menu?.addItem(menuItem)
+            }
+
+            connectionPopup.menu?.addItem(.separator())
+
+            let connectItem = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
+            connectItem.target = self
+            connectionPopup.menu?.addItem(connectItem)
+
+            let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(disconnectSelected), keyEquivalent: "")
+            disconnectItem.target = self
+            connectionPopup.menu?.addItem(disconnectItem)
+
+            let refreshItem = NSMenuItem(title: "Refresh Connection", action: #selector(refreshConnection), keyEquivalent: "")
+            refreshItem.target = self
+            if let activeId, stateManager.status(for: activeId) == .connected {
+                refreshItem.isEnabled = true
+            } else {
+                refreshItem.isEnabled = false
+            }
+            connectionPopup.menu?.addItem(refreshItem)
+
+            connectionPopup.menu?.addItem(.separator())
+
+            let editItem = NSMenuItem(title: "Edit Connection...", action: #selector(editConnection), keyEquivalent: "")
+            editItem.target = self
+            connectionPopup.menu?.addItem(editItem)
+
+            let deleteItem = NSMenuItem(title: "Delete Connection", action: #selector(deleteConnection), keyEquivalent: "")
+            deleteItem.target = self
+            connectionPopup.menu?.addItem(deleteItem)
+        }
+
+        connectionPopup.menu?.addItem(.separator())
+        let newItem = NSMenuItem(title: "New Connection...", action: #selector(showAddConnectionSheet), keyEquivalent: "")
+        newItem.target = self
+        connectionPopup.menu?.addItem(newItem)
+    }
+
+    private func rebuildSchemaMenu() {
+        schemaPopup.removeAllItems()
+
+        let schemas = metadataCache.schemas
+        let activeSchema = stateManager.activeSchema
+
+        let isConnected: Bool
+        if let activeId = stateManager.activeConnectionId {
+            isConnected = stateManager.status(for: activeId) == .connected
+        } else {
+            isConnected = false
+        }
+
+        guard isConnected, !schemas.isEmpty else {
+            schemaPopup.addItem(withTitle: "No Schema")
+            schemaPopup.isEnabled = false
+            return
+        }
+
+        schemaPopup.isEnabled = true
+
+        let titleText = activeSchema ?? "All Schemas"
+        schemaPopup.addItem(withTitle: titleText)
+
+        let allItem = NSMenuItem(title: "All Schemas", action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
+        allItem.target = self
+        allItem.representedObject = nil
+        if activeSchema == nil { allItem.state = .on }
+        schemaPopup.menu?.addItem(allItem)
+
+        schemaPopup.menu?.addItem(.separator())
+
+        for schema in schemas {
+            let item = NSMenuItem(title: schema.name, action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = schema.name
+            if activeSchema == schema.name { item.state = .on }
+            schemaPopup.menu?.addItem(item)
+        }
+    }
+
+    private func updateSchemaLoading(_ loading: Bool) {
+        if loading {
+            schemaPopup.removeAllItems()
+            schemaPopup.addItem(withTitle: "Loading\u{2026}")
+            schemaPopup.isEnabled = false
+            schemaSpinner.startAnimation(nil)
+        } else {
+            schemaSpinner.stopAnimation(nil)
+            rebuildSchemaMenu()
+        }
+    }
+
+    // MARK: - Connection / Schema Helpers
+
+    private func statusString(for status: ConnectionStatus) -> String {
+        switch status {
+        case .connected: return "\u{25CF} "   // filled circle
+        case .connecting: return "\u{25CB} "   // empty circle
+        case .error: return "\u{25CF} "        // filled circle (red)
+        case .disconnected: return "  "
+        }
+    }
+
+    private func styledTitle(_ title: String, status: ConnectionStatus) -> NSAttributedString {
+        let attributed = NSMutableAttributedString(string: title)
+        let color: NSColor?
+        switch status {
+        case .connected: color = .systemGreen
+        case .error: color = .systemRed
+        default: color = nil
+        }
+        if let color {
+            attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 2))
+        }
+        return attributed
+    }
+
+    // MARK: - Connection / Schema Actions
+
+    @objc private func connectionItemClicked(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        stateManager.activeConnectionId = id
+        let status = stateManager.status(for: id)
+        if status == .disconnected {
+            stateManager.connect(id: id)
+        }
+    }
+
+    @objc private func connectSelected() {
+        guard let id = stateManager.activeConnectionId else { return }
+        stateManager.connect(id: id)
+    }
+
+    @objc private func disconnectSelected() {
+        guard let id = stateManager.activeConnectionId else { return }
+        stateManager.disconnect(id: id)
+    }
+
+    @objc private func refreshConnection() {
+        guard let id = stateManager.activeConnectionId,
+              stateManager.status(for: id) == .connected else { return }
+        metadataCache.load(connectionId: id)
+        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
+    }
+
+    @objc private func showAddConnectionSheet() {
+        let sheet = ConnectionSheet.forNew { [weak self] config in
+            self?.stateManager.saveConnection(config)
+        }
+        view.window?.contentViewController?.presentAsSheet(sheet)
+    }
+
+    @objc private func editConnection() {
+        guard let id = stateManager.activeConnectionId,
+              let config = stateManager.connections.first(where: { $0.id == id }) else { return }
+        let sheet = ConnectionSheet.forEdit(config) { [weak self] updated in
+            self?.stateManager.saveConnection(updated)
+        }
+        view.window?.contentViewController?.presentAsSheet(sheet)
+    }
+
+    @objc private func deleteConnection() {
+        guard let id = stateManager.activeConnectionId,
+              let config = stateManager.connections.first(where: { $0.id == id }) else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete \"\(config.name)\"?"
+        alert.informativeText = "This will remove the connection and its saved password."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                self.stateManager.deleteConnection(id: id)
+            }
+        }
+    }
+
+    @objc private func schemaItemClicked(_ sender: NSMenuItem) {
+        stateManager.activeSchema = sender.representedObject as? String
     }
 
     deinit {
