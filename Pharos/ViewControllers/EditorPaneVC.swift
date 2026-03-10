@@ -698,9 +698,15 @@ class EditorPaneVC: NSViewController {
     /// Update the active tab's connectionId and also sync global state.
     private func setTabConnection(_ connectionId: String) {
         guard let tab = activeTab else { return }
-        stateManager.updateTab(id: tab.id) { $0.connectionId = connectionId }
+        // Clear schema when switching connections so stale schema doesn't stick
+        let connectionChanged = tab.connectionId != connectionId
+        stateManager.updateTab(id: tab.id) {
+            $0.connectionId = connectionId
+            if connectionChanged { $0.schemaName = nil }
+        }
         // Also update global active connection so sidebar/metadata stay in sync
         stateManager.activeConnectionId = connectionId
+        if connectionChanged { stateManager.activeSchema = nil }
     }
 
     /// Update the active tab's schemaName and also sync global state.
