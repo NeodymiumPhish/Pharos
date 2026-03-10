@@ -185,7 +185,8 @@ class EditorPaneVC: NSViewController {
             .sink { [weak self] _ in self?.rebuildConnectionMenu() }
             .store(in: &cancellables)
 
-        stateManager.$activeConnectionId
+        // Rebuild selectors when tabs change (per-tab connection/schema)
+        stateManager.$tabs
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.rebuildConnectionMenu()
@@ -199,11 +200,6 @@ class EditorPaneVC: NSViewController {
             .store(in: &cancellables)
 
         metadataCache.$schemas
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuildSchemaMenu() }
-            .store(in: &cancellables)
-
-        stateManager.$activeSchema
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.rebuildSchemaMenu() }
             .store(in: &cancellables)
@@ -290,6 +286,12 @@ class EditorPaneVC: NSViewController {
         editorVC.setSQL(tab.sql)
         editorVC.setCursorPosition(tab.cursorPosition)
         editorVC.clearErrorMarkers()
+
+        // Sync global state to this tab's connection/schema so sidebar updates
+        if let connId = tab.connectionId {
+            stateManager.activeConnectionId = connId
+        }
+        stateManager.activeSchema = tab.schemaName
     }
 
     // MARK: - Focus Tracking
@@ -435,20 +437,13 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // Left buttons: Format, Save, Run/Stop
-        let buttonStack = NSStackView(views: [formatButton, saveDropdown, runStopButton])
-        buttonStack.orientation = .horizontal
-        buttonStack.spacing = 4
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        // All controls in one row: Format, Save, Run/Stop, Connection, Schema
+        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup])
+        toolbarStack.orientation = .horizontal
+        toolbarStack.spacing = 4
+        toolbarStack.translatesAutoresizingMaskIntoConstraints = false
 
-        // Right selectors: Connection, Schema
-        let selectorStack = NSStackView(views: [connectionPopup, schemaPopup])
-        selectorStack.orientation = .horizontal
-        selectorStack.spacing = 4
-        selectorStack.translatesAutoresizingMaskIntoConstraints = false
-
-        editorToolbar.addSubview(buttonStack)
-        editorToolbar.addSubview(selectorStack)
+        editorToolbar.addSubview(toolbarStack)
 
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
@@ -462,11 +457,8 @@ class EditorPaneVC: NSViewController {
             schemaPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
             schemaPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
 
-            buttonStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
-            buttonStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
-
-            selectorStack.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
-            selectorStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+            toolbarStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
+            toolbarStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
@@ -520,13 +512,32 @@ class EditorPaneVC: NSViewController {
         }
     }
 
+    // MARK: - Per-Tab Connection / Schema Helpers
+
+    /// Returns the active tab for this pane.
+    private var activeTab: QueryTab? {
+        guard let pane = stateManager.panes.first(where: { $0.id == paneId }),
+              let tabId = pane.activeTabId else { return nil }
+        return stateManager.tabs.first { $0.id == tabId }
+    }
+
+    /// The connection ID for the active tab in this pane.
+    private var tabConnectionId: String? {
+        activeTab?.connectionId
+    }
+
+    /// The schema name for the active tab in this pane.
+    private var tabSchemaName: String? {
+        activeTab?.schemaName
+    }
+
     // MARK: - Connection / Schema Selectors
 
     private func rebuildConnectionMenu() {
         connectionPopup.removeAllItems()
 
         let connections = stateManager.connections
-        let activeId = stateManager.activeConnectionId
+        let activeId = tabConnectionId
 
         // First item in a pull-down button is the button's displayed title
         let buttonTitle: String
@@ -608,10 +619,10 @@ class EditorPaneVC: NSViewController {
         schemaPopup.removeAllItems()
 
         let schemas = metadataCache.schemas
-        let activeSchema = stateManager.activeSchema
+        let activeSchema = tabSchemaName
 
         let isConnected: Bool
-        if let activeId = stateManager.activeConnectionId {
+        if let activeId = tabConnectionId {
             isConnected = stateManager.status(for: activeId) == .connected
         } else {
             isConnected = false
@@ -684,9 +695,24 @@ class EditorPaneVC: NSViewController {
 
     // MARK: - Connection / Schema Actions
 
+    /// Update the active tab's connectionId and also sync global state.
+    private func setTabConnection(_ connectionId: String) {
+        guard let tab = activeTab else { return }
+        stateManager.updateTab(id: tab.id) { $0.connectionId = connectionId }
+        // Also update global active connection so sidebar/metadata stay in sync
+        stateManager.activeConnectionId = connectionId
+    }
+
+    /// Update the active tab's schemaName and also sync global state.
+    private func setTabSchema(_ schemaName: String?) {
+        guard let tab = activeTab else { return }
+        stateManager.updateTab(id: tab.id) { $0.schemaName = schemaName }
+        stateManager.activeSchema = schemaName
+    }
+
     @objc private func connectionItemClicked(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
-        stateManager.activeConnectionId = id
+        setTabConnection(id)
         let status = stateManager.status(for: id)
         if status == .disconnected {
             stateManager.connect(id: id)
@@ -694,17 +720,17 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func connectSelected() {
-        guard let id = stateManager.activeConnectionId else { return }
+        guard let id = tabConnectionId else { return }
         stateManager.connect(id: id)
     }
 
     @objc private func disconnectSelected() {
-        guard let id = stateManager.activeConnectionId else { return }
+        guard let id = tabConnectionId else { return }
         stateManager.disconnect(id: id)
     }
 
     @objc private func refreshConnection() {
-        guard let id = stateManager.activeConnectionId,
+        guard let id = tabConnectionId,
               stateManager.status(for: id) == .connected else { return }
         metadataCache.load(connectionId: id)
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
@@ -718,7 +744,7 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func editConnection() {
-        guard let id = stateManager.activeConnectionId,
+        guard let id = tabConnectionId,
               let config = stateManager.connections.first(where: { $0.id == id }) else { return }
         let sheet = ConnectionSheet.forEdit(config) { [weak self] updated in
             self?.stateManager.saveConnection(updated)
@@ -727,7 +753,7 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func deleteConnection() {
-        guard let id = stateManager.activeConnectionId,
+        guard let id = tabConnectionId,
               let config = stateManager.connections.first(where: { $0.id == id }) else { return }
 
         let alert = NSAlert()
@@ -746,7 +772,7 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func schemaItemClicked(_ sender: NSMenuItem) {
-        stateManager.activeSchema = sender.representedObject as? String
+        setTabSchema(sender.representedObject as? String)
     }
 
     deinit {

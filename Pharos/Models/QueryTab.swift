@@ -16,6 +16,7 @@ struct QueryTab: Identifiable {
     let id: String
     var name: String
     var connectionId: String?
+    var schemaName: String?
     var sql: String
     var cursorPosition: Int = 0
     var isDirty: Bool = false
@@ -30,10 +31,11 @@ struct QueryTab: Identifiable {
     var gridState: ResultsGridState?
     var paneId: String?
 
-    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, sql: String = "", paneId: String? = nil) {
+    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "", paneId: String? = nil) {
         self.id = id
         self.name = name
         self.connectionId = connectionId
+        self.schemaName = schemaName
         self.sql = sql
         self.paneId = paneId
     }

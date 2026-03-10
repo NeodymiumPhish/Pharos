@@ -833,9 +833,9 @@ class ContentViewController: NSViewController {
     // MARK: - Query Execution
 
     func executeQuery(_ sql: String? = nil) {
-        guard let connectionId = stateManager.activeConnectionId,
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
-        guard stateManager.activeTabId != nil else { return }
 
         if let sql {
             // Explicit SQL passed (e.g., from context menu, saved query) — use direct execution
@@ -854,9 +854,11 @@ class ContentViewController: NSViewController {
 
     /// Execute a specific SQL segment, creating a result tab on success.
     func executeSegment(_ segment: SQLSegment) {
-        guard let connectionId = stateManager.activeConnectionId,
+        guard let activeTab = stateManager.activeTab,
+              let connectionId = activeTab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
-        guard let tabId = stateManager.activeTabId else { return }
+        let tabId = activeTab.id
+        let tabSchema = activeTab.schemaName
 
         let sql = segment.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
@@ -883,7 +885,7 @@ class ContentViewController: NSViewController {
                         sql: sql,
                         queryId: queryId,
                         limit: limit,
-                        schema: self.stateManager.activeSchema
+                        schema: tabSchema
                     )
                     await MainActor.run {
                         var rt = ResultTab(
@@ -909,7 +911,7 @@ class ContentViewController: NSViewController {
                     let result = try await PharosCore.executeStatement(
                         connectionId: connectionId,
                         sql: sql,
-                        schema: self.stateManager.activeSchema
+                        schema: tabSchema
                     )
                     await MainActor.run {
                         var rt = ResultTab(
@@ -951,8 +953,11 @@ class ContentViewController: NSViewController {
 
     /// Execute SQL directly without creating a result tab (legacy path for explicit SQL).
     private func executeDirectSQL(_ querySQL: String) {
-        guard let connectionId = stateManager.activeConnectionId,
-              let tabId = stateManager.activeTabId else { return }
+        guard let activeTab = stateManager.activeTab,
+              let connectionId = activeTab.connectionId,
+              stateManager.status(for: connectionId) == .connected else { return }
+        let tabId = activeTab.id
+        let tabSchema = activeTab.schemaName
 
         let trimmed = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -980,7 +985,7 @@ class ContentViewController: NSViewController {
                         sql: trimmed,
                         queryId: queryId,
                         limit: limit,
-                        schema: self.stateManager.activeSchema
+                        schema: tabSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -997,7 +1002,7 @@ class ContentViewController: NSViewController {
                     let result = try await PharosCore.executeStatement(
                         connectionId: connectionId,
                         sql: trimmed,
-                        schema: self.stateManager.activeSchema
+                        schema: tabSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -1139,15 +1144,16 @@ class ContentViewController: NSViewController {
 
     /// Load more rows for pagination.
     private func loadMoreRows() {
-        guard let connectionId = stateManager.activeConnectionId,
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected,
-              let tab = stateManager.activeTab,
               let existingResult = tab.result,
               existingResult.hasMore else { return }
 
         let sql = tab.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         let offset = Int64(existingResult.rows.count)
         let limit = Int64(stateManager.settings.query.defaultLimit)
+        let tabSchema = tab.schemaName
 
         resultsVC.setLoadingMore(true)
 
@@ -1158,7 +1164,7 @@ class ContentViewController: NSViewController {
                     sql: sql,
                     limit: limit,
                     offset: offset,
-                    schema: self.stateManager.activeSchema
+                    schema: tabSchema
                 )
                 await MainActor.run {
                     let merged = QueryResult(
@@ -1209,8 +1215,8 @@ class ContentViewController: NSViewController {
 
     /// Cancel a running query in the active tab.
     func cancelQuery() {
-        guard let connectionId = stateManager.activeConnectionId,
-              let tab = stateManager.activeTab,
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
               tab.isExecuting,
               let queryId = tab.queryId else { return }
 

@@ -224,7 +224,7 @@ final class AppStateManager: ObservableObject {
             panes[i].isExpanded = false
         }
         var pane = EditorPane(id: UUID().uuidString)
-        let tab = QueryTab(name: "Query \(tabs.count + 1)", connectionId: activeConnectionId, paneId: pane.id)
+        let tab = QueryTab(name: "Query \(tabs.count + 1)", connectionId: activeConnectionId, schemaName: activeSchema, paneId: pane.id)
         tabs.append(tab)
         pane.tabIds = [tab.id]
         pane.activeTabId = tab.id
@@ -296,14 +296,14 @@ final class AppStateManager: ObservableObject {
         guard let targetPaneId, let paneIdx = panes.firstIndex(where: { $0.id == targetPaneId }) else {
             // Fallback: create without pane (backward compat)
             let tabName = name ?? "Query \(tabs.count + 1)"
-            let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql)
+            let tab = QueryTab(name: tabName, connectionId: activeConnectionId, schemaName: activeSchema, sql: sql)
             tabs.append(tab)
             activeTabId = tab.id
             return tab
         }
 
         let tabName = name ?? "Query \(tabs.count + 1)"
-        let tab = QueryTab(name: tabName, connectionId: activeConnectionId, sql: sql, paneId: targetPaneId)
+        let tab = QueryTab(name: tabName, connectionId: activeConnectionId, schemaName: activeSchema, sql: sql, paneId: targetPaneId)
         tabs.append(tab)
         panes[paneIdx].tabIds.append(tab.id)
         panes[paneIdx].activeTabId = tab.id
