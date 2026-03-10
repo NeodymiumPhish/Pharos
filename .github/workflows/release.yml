@@ -19,6 +19,9 @@ jobs:
         with:
           workspaces: "pharos-core -> pharos-core/target"
 
+      - name: Add Intel Rust target
+        run: rustup target add x86_64-apple-darwin
+
       - name: Install xcodegen
         run: brew install xcodegen
 
@@ -32,12 +35,18 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Pharos/App/Info.plist
           sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pharos-core/Cargo.toml
 
-      - name: Build Rust library
+      - name: Build Rust library (universal)
         run: |
           cd pharos-core
-          cargo build --release
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/release
+          lipo -create \
+            target/aarch64-apple-darwin/release/libpharos_core.a \
+            target/x86_64-apple-darwin/release/libpharos_core.a \
+            -output target/release/libpharos_core.a
 
-      - name: Build Xcode project
+      - name: Build Xcode project (universal)
         env:
           PHAROS_CI: "1"
         run: |
@@ -45,6 +54,7 @@ jobs:
             -project Pharos.xcodeproj \
             -scheme Pharos \
             -configuration Release \
+            ARCHS="arm64 x86_64" \
             CODE_SIGN_IDENTITY="-" \
             -derivedDataPath ./build
 
