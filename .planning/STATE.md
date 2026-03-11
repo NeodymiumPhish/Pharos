@@ -1,14 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Docs & Release
-status: in-progress
-last_updated: "2026-02-27"
+milestone: v1.0
+milestone_name: milestone
+current_plan: 3 of 3
+status: unknown
+stopped_at: Completed quick-2-PLAN.md
+last_updated: "2026-03-11T13:23:29.519Z"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
 ---
 
 # Project State
@@ -41,6 +43,7 @@ v2.0 decisions archived to .planning/milestones/v2.0-ROADMAP.md.
 - backgroundStyle override suppresses default row highlighting; controlAccentColor for active cell border
 - Sort state exposed via sortDirections dictionary pushed to header view, replacing setIndicatorImage
 - Sort chevron always visible when active (not hover-dependent); filter icon remains hover/active conditional
+- [Phase quick-2]: Per-connection dictionary caches in MetadataCache and SchemaBrowserVC for instant tab switching
 
 ### Pending Todos
 
@@ -52,6 +55,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-27
-Stopped at: Completed 01-02-PLAN.md (Header Redesign)
-Resume file: .planning/phases/01-fix-results-grid-column-sort-filter-and-cell-selection/01-02-SUMMARY.md
+Last session: 2026-03-11T13:23:29.470Z
+Stopped at: Completed quick-2-PLAN.md
+Resume file: None
