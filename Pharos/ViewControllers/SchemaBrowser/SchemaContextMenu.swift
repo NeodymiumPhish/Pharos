@@ -90,7 +90,8 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
         let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
-        NotificationCenter.default.post(name: .runQueryInNewTab, object: nil, userInfo: ["sql": sql])
+        NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
+            userInfo: ["sql": sql, "resultName": tableName])
     }
 
     @objc private func contextViewContentsWithLimit(_ sender: NSMenuItem) {
@@ -98,7 +99,8 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let tableName = tableNameFromNode(node) else { return }
         let limit = sender.tag
         let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\" LIMIT \(limit)"
-        NotificationCenter.default.post(name: .runQueryInNewTab, object: nil, userInfo: ["sql": sql])
+        NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
+            userInfo: ["sql": sql, "resultName": "\(tableName) (\(formatLimit(limit)))"])
     }
 
     // MARK: - Clipboard Actions
