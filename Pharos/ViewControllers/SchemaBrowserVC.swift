@@ -111,6 +111,8 @@ class SchemaBrowserVC: NSViewController {
                 }
 
                 await MainActor.run {
+                    // Only update display if this connection is still active
+                    guard self.connectionId == connectionId else { return }
                     self.unfilteredRootNodes = schemaNodes
                     self.rootNodes = schemaNodes
                     self.outlineView.reloadData()
@@ -128,17 +130,17 @@ class SchemaBrowserVC: NSViewController {
                     }
                 }
 
-                // Store loaded tree in cache
+                // Store loaded tree in cache using the local schemaNodes
+                // (self.unfilteredRootNodes may belong to a different connection now)
                 await MainActor.run {
                     self.treeCaches[connectionId] = CachedTreeState(
-                        unfilteredRootNodes: self.unfilteredRootNodes,
-                        refreshedSchemas: self.refreshedSchemas
+                        unfilteredRootNodes: schemaNodes,
+                        refreshedSchemas: self.connectionId == connectionId
+                            ? self.refreshedSchemas : []
                     )
-                }
-
-                // Auto-refresh row counts for the initially visible schema
-                await MainActor.run {
-                    if self.unfilteredRootNodes.contains(where: { $0.schemaName == "public" }) {
+                    // Auto-refresh row counts if still active
+                    if self.connectionId == connectionId,
+                       schemaNodes.contains(where: { $0.schemaName == "public" }) {
                         self.refreshRowCounts(for: "public")
                     }
                 }
@@ -184,14 +186,9 @@ class SchemaBrowserVC: NSViewController {
                     schemaNode.addChild(viewNode)
                 }
 
-                self.refreshAfterLoad()
-
-                // Update cache with loaded tables
-                if let connId = self.connectionId {
-                    self.treeCaches[connId] = CachedTreeState(
-                        unfilteredRootNodes: self.unfilteredRootNodes,
-                        refreshedSchemas: self.refreshedSchemas
-                    )
+                // Only refresh display if this connection is still active
+                if self.connectionId == connectionId {
+                    self.refreshAfterLoad()
                 }
             }
         } catch {
@@ -206,13 +203,14 @@ class SchemaBrowserVC: NSViewController {
         guard let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) else { return }
 
         refreshedSchemas.insert(schemaName)
+        let capturedConnectionId = connectionId
 
         Task {
             // ANALYZE unanalyzed tables (fire-and-forget — don't block UI update)
-            _ = try? await PharosCore.analyzeSchema(connectionId: connectionId, schema: schemaName)
+            _ = try? await PharosCore.analyzeSchema(connectionId: capturedConnectionId, schema: schemaName)
 
             // Re-fetch tables to get fresh row counts (works even if ANALYZE was a no-op)
-            guard let updatedTables = try? await PharosCore.getTables(connectionId: connectionId, schema: schemaName) else {
+            guard let updatedTables = try? await PharosCore.getTables(connectionId: capturedConnectionId, schema: schemaName) else {
                 NSLog("Failed to refresh row counts for \(schemaName)")
                 return
             }
@@ -220,6 +218,7 @@ class SchemaBrowserVC: NSViewController {
             let countMap = Dictionary(uniqueKeysWithValues: updatedTables.map { ($0.name, $0) })
 
             await MainActor.run {
+                // Update the schema node in-place (reference type — updates cache too)
                 for child in schemaNode.children {
                     switch child.kind {
                     case .table(let info):
@@ -235,14 +234,16 @@ class SchemaBrowserVC: NSViewController {
                     default: break
                     }
                 }
-                self.outlineView.reloadData()
 
-                // Update cache with refreshed row counts
-                if let connId = self.connectionId {
-                    self.treeCaches[connId] = CachedTreeState(
-                        unfilteredRootNodes: self.unfilteredRootNodes,
-                        refreshedSchemas: self.refreshedSchemas
-                    )
+                // Only refresh display if this connection is still active
+                if self.connectionId == capturedConnectionId {
+                    self.outlineView.reloadData()
+                }
+
+                // Update cache for the specific connection
+                if var cached = self.treeCaches[capturedConnectionId] {
+                    cached.refreshedSchemas.insert(schemaName)
+                    self.treeCaches[capturedConnectionId] = cached
                 }
             }
         }

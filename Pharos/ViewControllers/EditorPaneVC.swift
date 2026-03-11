@@ -287,11 +287,16 @@ class EditorPaneVC: NSViewController {
         editorVC.setCursorPosition(tab.cursorPosition)
         editorVC.clearErrorMarkers()
 
-        // Sync global state to this tab's connection/schema so sidebar updates
-        if let connId = tab.connectionId {
+        // Sync global state to this tab's connection/schema so sidebar updates.
+        // Only set when the value actually changes to avoid redundant reloads.
+        if let connId = tab.connectionId, connId != stateManager.activeConnectionId {
             stateManager.activeConnectionId = connId
+        } else if tab.connectionId == nil && stateManager.activeConnectionId != nil {
+            stateManager.activeConnectionId = nil
         }
-        stateManager.activeSchema = tab.schemaName
+        if tab.schemaName != stateManager.activeSchema {
+            stateManager.activeSchema = tab.schemaName
+        }
     }
 
     // MARK: - Focus Tracking
@@ -698,15 +703,15 @@ class EditorPaneVC: NSViewController {
     /// Update the active tab's connectionId and also sync global state.
     private func setTabConnection(_ connectionId: String) {
         guard let tab = activeTab else { return }
-        // Clear schema when switching connections so stale schema doesn't stick
+        // Default to "public" schema when switching connections
         let connectionChanged = tab.connectionId != connectionId
         stateManager.updateTab(id: tab.id) {
             $0.connectionId = connectionId
-            if connectionChanged { $0.schemaName = nil }
+            if connectionChanged { $0.schemaName = "public" }
         }
         // Also update global active connection so sidebar/metadata stay in sync
         stateManager.activeConnectionId = connectionId
-        if connectionChanged { stateManager.activeSchema = nil }
+        if connectionChanged { stateManager.activeSchema = "public" }
     }
 
     /// Update the active tab's schemaName and also sync global state.
@@ -738,7 +743,7 @@ class EditorPaneVC: NSViewController {
     @objc private func refreshConnection() {
         guard let id = tabConnectionId,
               stateManager.status(for: id) == .connected else { return }
-        metadataCache.load(connectionId: id)
+        metadataCache.load(connectionId: id, force: true)
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 

@@ -117,6 +117,14 @@ final class AppStateManager: ObservableObject {
                     if self.schemaSelections[id] == nil {
                         self.activeSchema = "public"
                     }
+                    // Also update the active tab's schema to match
+                    if let tabId = self.activeTabId {
+                        self.updateTab(id: tabId) { tab in
+                            if tab.connectionId == id && tab.schemaName == nil {
+                                tab.schemaName = self.activeSchema ?? "public"
+                            }
+                        }
+                    }
                     self.postStatusChange(id)
                 }
             } catch {
