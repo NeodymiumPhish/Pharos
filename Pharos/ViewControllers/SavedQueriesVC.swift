@@ -52,6 +52,17 @@ class SavedQueryNode: NSObject {
         }
     }
 
+    /// Returns the query ID if this is a query node, nil for folders.
+    var queryId: String? {
+        if case .query(let q) = kind { return q.id }
+        return nil
+    }
+}
+
+// MARK: - Drag Pasteboard Type
+
+private extension NSPasteboard.PasteboardType {
+    static let savedQueryDrag = NSPasteboard.PasteboardType("com.pharos.savedQuery")
 }
 
 // MARK: - SavedQueriesVC
@@ -85,6 +96,13 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         outlineView.doubleAction = #selector(doubleClickedRow(_:))
         outlineView.target = self
         outlineView.menu = buildContextMenu()
+
+        // Multi-select support
+        outlineView.allowsMultipleSelection = true
+
+        // Drag-and-drop support
+        outlineView.registerForDraggedTypes([.savedQueryDrag])
+        outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -158,14 +176,19 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         expandAll()
     }
 
-    /// Delete the currently selected saved query with confirmation.
-    func deleteSelectedQuery() {
-        let row = outlineView.selectedRow
-        guard row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode,
-              case .query(let q) = node.kind else { return }
+    /// Delete the currently selected saved queries with confirmation (supports multi-select).
+    func deleteSelectedQueries() {
+        let selectedIds = collectSelectedQueryIds()
+        guard !selectedIds.isEmpty else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Delete '\(q.name)'?"
+        if selectedIds.count == 1 {
+            // Find the name for a nicer message
+            let name = selectedQueryNames().first ?? "this query"
+            alert.messageText = "Delete '\(name)'?"
+        } else {
+            alert.messageText = "Delete \(selectedIds.count) queries?"
+        }
         alert.informativeText = "This action cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
@@ -175,13 +198,51 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
             do {
-                _ = try PharosCore.deleteSavedQuery(id: q.id)
+                _ = try PharosCore.batchDeleteSavedQueries(ids: selectedIds)
                 self?.reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             } catch {
-                NSLog("Failed to delete saved query: \(error)")
+                NSLog("Failed to batch delete saved queries: \(error)")
             }
         }
+    }
+
+    // MARK: - Key Events
+
+    override func keyDown(with event: NSEvent) {
+        // Delete/Backspace key
+        if event.keyCode == 51 || event.keyCode == 117 {
+            let selectedIds = collectSelectedQueryIds()
+            if !selectedIds.isEmpty {
+                deleteSelectedQueries()
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+
+    // MARK: - Selection Helpers
+
+    /// Collect query IDs from all selected rows (skips folder nodes).
+    private func collectSelectedQueryIds() -> [String] {
+        var ids: [String] = []
+        for row in outlineView.selectedRowIndexes {
+            guard let node = outlineView.item(atRow: row) as? SavedQueryNode,
+                  let qId = node.queryId else { continue }
+            ids.append(qId)
+        }
+        return ids
+    }
+
+    /// Collect query names from all selected rows (skips folder nodes).
+    private func selectedQueryNames() -> [String] {
+        var names: [String] = []
+        for row in outlineView.selectedRowIndexes {
+            guard let node = outlineView.item(atRow: row) as? SavedQueryNode,
+                  case .query(let q) = node.kind else { continue }
+            names.append(q.name)
+        }
+        return names
     }
 
     // MARK: - Tree Building
@@ -198,7 +259,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             queries = allQueries
         }
 
-        // Group by folder — flat list of folders + unfiled queries at root
+        // Group by folder -- flat list of folders + unfiled queries at root
         var folders: [String: SavedQueryNode] = [:]
         var unfiled: [SavedQueryNode] = []
 
@@ -326,7 +387,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         case .folder(let name):
             let count = node.children.count
             guard count > 0 else {
-                // Empty folder — just reload (it'll disappear)
+                // Empty folder -- just reload (it'll disappear)
                 reload()
                 return
             }
@@ -340,15 +401,19 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             guard let window = view.window else { return }
             alert.beginSheetModal(for: window) { [weak self] response in
                 guard response == .alertFirstButtonReturn else { return }
-                for child in node.children {
-                    if case .query(let q) = child.kind {
-                        _ = try? PharosCore.deleteSavedQuery(id: q.id)
-                    }
+                let ids = node.children.compactMap { $0.queryId }
+                if !ids.isEmpty {
+                    _ = try? PharosCore.batchDeleteSavedQueries(ids: ids)
                 }
                 self?.reload()
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             }
         }
+    }
+
+    /// Context menu action for batch deleting multiple selected queries.
+    @objc private func contextDeleteSelected(_: Any?) {
+        deleteSelectedQueries()
     }
 
     @objc private func contextNewFolder(_: Any?) {
@@ -434,6 +499,73 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         (item as? SavedQueryNode)?.isExpandable ?? false
     }
 
+    // MARK: - Drag-and-Drop (NSOutlineViewDataSource)
+
+    func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
+        guard let node = item as? SavedQueryNode, let qId = node.queryId else { return nil }
+        let pbItem = NSPasteboardItem()
+        pbItem.setString(qId, forType: .savedQueryDrag)
+        return pbItem
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView,
+        validateDrop info: any NSDraggingInfo,
+        proposedItem item: Any?,
+        proposedChildIndex index: Int
+    ) -> NSDragOperation {
+        // Accept drops on folder nodes or on root (nil = move to no folder)
+        if let node = item as? SavedQueryNode {
+            switch node.kind {
+            case .folder:
+                return .move
+            case .query:
+                // Can't drop onto a query node
+                return []
+            }
+        }
+        // item is nil => root level drop
+        return .move
+    }
+
+    func outlineView(
+        _ outlineView: NSOutlineView,
+        acceptDrop info: any NSDraggingInfo,
+        item: Any?,
+        childIndex index: Int
+    ) -> Bool {
+        let pasteboard = info.draggingPasteboard
+
+        // Collect all dragged query IDs
+        guard let items = pasteboard.pasteboardItems else { return false }
+        var draggedIds: [String] = []
+        for pbItem in items {
+            if let qId = pbItem.string(forType: .savedQueryDrag) {
+                draggedIds.append(qId)
+            }
+        }
+        guard !draggedIds.isEmpty else { return false }
+
+        // Determine target folder
+        let targetFolder: String?
+        if let node = item as? SavedQueryNode, case .folder(let name) = node.kind {
+            targetFolder = name
+        } else {
+            targetFolder = nil  // dropped on root = no folder
+        }
+
+        // Move each query to the target folder
+        for qId in draggedIds {
+            guard let query = allQueries.first(where: { $0.id == qId }) else { continue }
+            let update = UpdateSavedQuery(id: qId, name: query.name, folder: targetFolder, sql: query.sql)
+            _ = try? PharosCore.updateSavedQuery(update)
+        }
+
+        reload()
+        NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+        return true
+    }
+
     // MARK: - NSOutlineViewDelegate
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -452,7 +584,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
-            cell.toolTip = flat.isEmpty ? nil : (flat.count > 80 ? String(flat.prefix(80)) + "…" : flat)
+            cell.toolTip = flat.isEmpty ? nil : (flat.count > 80 ? String(flat.prefix(80)) + "..." : flat)
         } else {
             cell.toolTip = nil
         }
@@ -477,13 +609,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
-        let row = outlineView.selectedRow
-        if row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode,
-           case .query = node.kind {
-            onSelectionChanged?(true)
-        } else {
-            onSelectionChanged?(false)
+        // Check if any selected row is a query node
+        var hasQuery = false
+        for row in outlineView.selectedRowIndexes {
+            if let node = outlineView.item(atRow: row) as? SavedQueryNode,
+               case .query = node.kind {
+                hasQuery = true
+                break
+            }
         }
+        onSelectionChanged?(hasQuery)
     }
 }
 
@@ -492,6 +627,20 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 extension SavedQueriesVC: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+
+        // Check if multiple queries are selected
+        let selectedQueryCount = collectSelectedQueryIds().count
+        if selectedQueryCount > 1 {
+            // Multi-select context menu: only batch operations
+            let deleteItem = NSMenuItem(
+                title: "Delete \(selectedQueryCount) Queries",
+                action: #selector(contextDeleteSelected),
+                keyEquivalent: ""
+            )
+            menu.addItem(deleteItem)
+            return
+        }
+
         guard let node = clickedNode() else { return }
 
         switch node.kind {
@@ -499,14 +648,14 @@ extension SavedQueriesVC: NSMenuDelegate {
             menu.addItem(withTitle: "Open in Tab", action: #selector(contextOpenInTab), keyEquivalent: "")
             menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
 
         case .folder:
             menu.addItem(withTitle: "New Query", action: #selector(contextNewQuery), keyEquivalent: "")
             menu.addItem(.separator())
-            menu.addItem(withTitle: "Rename…", action: #selector(contextRename), keyEquivalent: "")
+            menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
         }
