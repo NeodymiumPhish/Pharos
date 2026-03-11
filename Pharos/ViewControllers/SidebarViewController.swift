@@ -99,8 +99,9 @@ class SidebarViewController: NSViewController {
             contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        // Observe connection changes
+        // Observe connection changes (deduplicate to avoid redundant reloads on tab switch)
         stateManager.$activeConnectionId
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.activeConnectionChanged() }
             .store(in: &cancellables)
@@ -111,6 +112,7 @@ class SidebarViewController: NSViewController {
             .store(in: &cancellables)
 
         stateManager.$activeSchema
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] schema in
                 if let schema {
@@ -135,7 +137,7 @@ class SidebarViewController: NSViewController {
             guard let self,
                   let activeId = self.stateManager.activeConnectionId,
                   self.stateManager.status(for: activeId) == .connected else { return }
-            self.schemaBrowser.loadSchemas(connectionId: activeId)
+            self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
         }
     }
 
@@ -198,7 +200,8 @@ class SidebarViewController: NSViewController {
         if status == .connected {
             schemaBrowser.loadSchemas(connectionId: activeId)
         } else if status == .disconnected || status == .error {
-            schemaBrowser.clear()
+            // Clear only this connection's cache; preserve other connections' caches
+            schemaBrowser.clearConnection(activeId)
         }
     }
 

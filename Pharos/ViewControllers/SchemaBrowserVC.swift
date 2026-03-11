@@ -24,6 +24,13 @@ class SchemaBrowserVC: NSViewController {
     private var connectionId: String?
     private var refreshedSchemas: Set<String> = []
 
+    /// Per-connection tree state cache for instant tab switching
+    private struct CachedTreeState {
+        var unfilteredRootNodes: [SchemaTreeNode]
+        var refreshedSchemas: Set<String>
+    }
+    private var treeCaches: [String: CachedTreeState] = [:]
+
     override func loadView() {
         let container = NSView()
         self.view = container
@@ -61,8 +68,37 @@ class SchemaBrowserVC: NSViewController {
 
     // MARK: - Public API
 
-    func loadSchemas(connectionId: String) {
+    func loadSchemas(connectionId: String, force: Bool = false) {
+        // Cache-hit: restore tree instantly with no FFI calls
+        if !force, let cached = treeCaches[connectionId] {
+            // Save current tree to cache before switching
+            if let currentId = self.connectionId {
+                treeCaches[currentId] = CachedTreeState(
+                    unfilteredRootNodes: unfilteredRootNodes,
+                    refreshedSchemas: refreshedSchemas
+                )
+            }
+            self.connectionId = connectionId
+            self.unfilteredRootNodes = cached.unfilteredRootNodes
+            self.refreshedSchemas = cached.refreshedSchemas
+            rebuildDisplayTree()
+            return
+        }
+
+        // Save current tree to cache before switching (cache-miss or force path)
+        if let currentId = self.connectionId, currentId != connectionId {
+            treeCaches[currentId] = CachedTreeState(
+                unfilteredRootNodes: unfilteredRootNodes,
+                refreshedSchemas: refreshedSchemas
+            )
+        }
+
         self.connectionId = connectionId
+        if force {
+            refreshedSchemas.removeAll()
+            treeCaches.removeValue(forKey: connectionId)
+        }
+
         Task {
             do {
                 let schemas = try await PharosCore.getSchemas(connectionId: connectionId)
@@ -90,6 +126,14 @@ class SchemaBrowserVC: NSViewController {
                             await self?.loadTablesForSchema(schemaNode, connectionId: connectionId)
                         }
                     }
+                }
+
+                // Store loaded tree in cache
+                await MainActor.run {
+                    self.treeCaches[connectionId] = CachedTreeState(
+                        unfilteredRootNodes: self.unfilteredRootNodes,
+                        refreshedSchemas: self.refreshedSchemas
+                    )
                 }
 
                 // Auto-refresh row counts for the initially visible schema
@@ -141,6 +185,14 @@ class SchemaBrowserVC: NSViewController {
                 }
 
                 self.refreshAfterLoad()
+
+                // Update cache with loaded tables
+                if let connId = self.connectionId {
+                    self.treeCaches[connId] = CachedTreeState(
+                        unfilteredRootNodes: self.unfilteredRootNodes,
+                        refreshedSchemas: self.refreshedSchemas
+                    )
+                }
             }
         } catch {
             NSLog("Failed to load tables for schema \(schemaName): \(error)")
@@ -184,17 +236,47 @@ class SchemaBrowserVC: NSViewController {
                     }
                 }
                 self.outlineView.reloadData()
+
+                // Update cache with refreshed row counts
+                if let connId = self.connectionId {
+                    self.treeCaches[connId] = CachedTreeState(
+                        unfilteredRootNodes: self.unfilteredRootNodes,
+                        refreshedSchemas: self.refreshedSchemas
+                    )
+                }
             }
         }
     }
 
     func clear() {
+        // Save current tree to cache before clearing display
+        // (so switching back to this connection restores instantly)
+        if let currentId = connectionId {
+            treeCaches[currentId] = CachedTreeState(
+                unfilteredRootNodes: unfilteredRootNodes,
+                refreshedSchemas: refreshedSchemas
+            )
+        }
         connectionId = nil
         activeSchemaFilter = nil
         refreshedSchemas.removeAll()
         unfilteredRootNodes.removeAll()
         rootNodes.removeAll()
         outlineView.reloadData()
+    }
+
+    /// Clear a specific connection's cached tree (e.g. on disconnect).
+    /// If it's the active connection, also clears the display.
+    func clearConnection(_ id: String) {
+        treeCaches.removeValue(forKey: id)
+        if id == connectionId {
+            connectionId = nil
+            activeSchemaFilter = nil
+            refreshedSchemas.removeAll()
+            unfilteredRootNodes.removeAll()
+            rootNodes.removeAll()
+            outlineView.reloadData()
+        }
     }
 
     // MARK: - Filter API (called by SidebarViewController)
@@ -371,7 +453,7 @@ extension SchemaBrowserVC: SchemaContextMenuDelegate {
 
     func contextMenuDidRequestReload() {
         guard let connectionId else { return }
-        loadSchemas(connectionId: connectionId)
+        loadSchemas(connectionId: connectionId, force: true)
     }
 
     func contextMenuPresentSheet(_ viewController: NSViewController) {
