@@ -1,8 +1,9 @@
 import Foundation
 import Combine
 
-/// Caches schema metadata for the active connection.
+/// Caches schema metadata for ALL active connections.
 /// Used to feed SQL autocomplete with schema/table/column info.
+/// Switching connections restores cached data instantly; only force=true triggers network fetches.
 final class MetadataCache: ObservableObject {
 
     static let shared = MetadataCache()
@@ -12,26 +13,49 @@ final class MetadataCache: ObservableObject {
     @Published private(set) var columnsByTable: [String: [ColumnInfo]] = [:]
     @Published private(set) var isLoading = false
 
-    private var loadedConnectionId: String?
-    private var loadTask: Task<Void, Never>?
-    private var detailTask: Task<Void, Never>?
+    /// Per-connection cached metadata
+    private struct ConnectionMetadata {
+        var schemas: [SchemaInfo] = []
+        var tables: [String: [TableInfo]] = [:]
+        var columnsByTable: [String: [ColumnInfo]] = [:]
+        var isLoaded: Bool = false
+    }
+
+    private var activeConnectionId: String?
+    private var connectionCaches: [String: ConnectionMetadata] = [:]
+    private var loadTasks: [String: Task<Void, Never>] = [:]
+    private var detailTasks: [String: Task<Void, Never>] = [:]
 
     private init() {}
 
-    /// Load metadata for a connection. Cancels any in-progress load.
-    func load(connectionId: String) {
-        guard connectionId != loadedConnectionId else { return }
-        loadTask?.cancel()
-        detailTask?.cancel()
-        loadedConnectionId = connectionId
+    /// Load metadata for a connection. Restores from cache if available; fetches from network only when forced or uncached.
+    func load(connectionId: String, force: Bool = false) {
+        // Cache-hit: restore instantly with no FFI calls
+        if !force, let cached = connectionCaches[connectionId], cached.isLoaded {
+            activeConnectionId = connectionId
+            schemas = cached.schemas
+            tables = cached.tables
+            columnsByTable = cached.columnsByTable
+            isLoading = false
+            return
+        }
 
-        // Clear stale data immediately and show loading state
+        // Cancel any in-flight tasks for this connection
+        loadTasks[connectionId]?.cancel()
+        detailTasks[connectionId]?.cancel()
+
+        activeConnectionId = connectionId
+
+        // Clear only this connection's cache entry for fresh fetch
+        connectionCaches[connectionId] = ConnectionMetadata()
+
+        // Clear published state and show loading
         schemas = []
         tables = [:]
         columnsByTable = [:]
         isLoading = true
 
-        loadTask = Task {
+        loadTasks[connectionId] = Task {
             do {
                 let fetchedSchemas = try await PharosCore.getSchemas(connectionId: connectionId)
                 guard !Task.isCancelled else { return }
@@ -40,10 +64,17 @@ final class MetadataCache: ObservableObject {
                 await MainActor.run {
                     self.schemas = fetchedSchemas
                     self.isLoading = false
+                    // Store schemas in cache
+                    self.connectionCaches[connectionId]?.schemas = fetchedSchemas
                 }
 
                 // Load tables + columns in the background for autocomplete
                 await self.loadDetails(connectionId: connectionId, schemas: fetchedSchemas)
+
+                // Mark as fully loaded
+                await MainActor.run {
+                    self.connectionCaches[connectionId]?.isLoaded = true
+                }
             } catch {
                 await MainActor.run {
                     self.isLoading = false
@@ -56,26 +87,64 @@ final class MetadataCache: ObservableObject {
     /// Prioritize loading a specific schema's tables/columns first.
     /// Cancels the current detail load and restarts with the priority schema.
     func prioritize(schema: String) {
-        guard let connectionId = loadedConnectionId else { return }
+        guard let connectionId = activeConnectionId else { return }
         // Already have this schema's data loaded
         if tables[schema] != nil { return }
 
-        detailTask?.cancel()
+        detailTasks[connectionId]?.cancel()
 
-        detailTask = Task {
+        detailTasks[connectionId] = Task {
             await self.loadDetails(connectionId: connectionId, schemas: self.schemas, priority: schema)
         }
     }
 
-    /// Clear cached metadata (e.g. on disconnect).
+    /// Clear the active connection's cache and reset published properties (e.g. on disconnect of active).
     func clear() {
-        loadTask?.cancel()
-        detailTask?.cancel()
-        loadedConnectionId = nil
+        if let activeId = activeConnectionId {
+            loadTasks[activeId]?.cancel()
+            detailTasks[activeId]?.cancel()
+            loadTasks.removeValue(forKey: activeId)
+            detailTasks.removeValue(forKey: activeId)
+            connectionCaches.removeValue(forKey: activeId)
+        }
+        activeConnectionId = nil
         schemas = []
         tables = [:]
         columnsByTable = [:]
         isLoading = false
+    }
+
+    /// Clear all cached metadata (app-level cleanup).
+    func clearAll() {
+        for (id, _) in loadTasks { loadTasks[id]?.cancel() }
+        for (id, _) in detailTasks { detailTasks[id]?.cancel() }
+        loadTasks.removeAll()
+        detailTasks.removeAll()
+        connectionCaches.removeAll()
+        activeConnectionId = nil
+        schemas = []
+        tables = [:]
+        columnsByTable = [:]
+        isLoading = false
+    }
+
+    /// Clear a specific connection's cache (e.g. when it disconnects).
+    /// Preserves other connections' caches.
+    func clearConnection(_ id: String) {
+        loadTasks[id]?.cancel()
+        detailTasks[id]?.cancel()
+        loadTasks.removeValue(forKey: id)
+        detailTasks.removeValue(forKey: id)
+        connectionCaches.removeValue(forKey: id)
+
+        // If this was the active connection, also reset published properties
+        if id == activeConnectionId {
+            activeConnectionId = nil
+            schemas = []
+            tables = [:]
+            columnsByTable = [:]
+            isLoading = false
+        }
     }
 
     // MARK: - Private
@@ -131,6 +200,9 @@ final class MetadataCache: ObservableObject {
                 await MainActor.run {
                     self.tables = allTables
                     self.columnsByTable = allColumns
+                    // Update cache incrementally
+                    self.connectionCaches[connectionId]?.tables = allTables
+                    self.connectionCaches[connectionId]?.columnsByTable = allColumns
                 }
             } catch {
                 NSLog("MetadataCache: Failed to load tables/columns for \(schema.name): \(error)")

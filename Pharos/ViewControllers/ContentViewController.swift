@@ -181,6 +181,7 @@ class ContentViewController: NSViewController {
 
         // Observe state
         stateManager.$activeConnectionId
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] connectionId in
                 self?.updateVisibility()
@@ -194,12 +195,30 @@ class ContentViewController: NSViewController {
 
         stateManager.$connectionStatuses
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] statuses in
                 self?.updateVisibility()
+                // Trigger metadata load when active connection becomes connected
+                // (needed because .removeDuplicates on activeConnectionId may suppress
+                // the second publish after connection completes)
+                if let connId = self?.stateManager.activeConnectionId,
+                   self?.stateManager.status(for: connId) == .connected {
+                    self?.metadataCache.load(connectionId: connId)
+                } else if self?.stateManager.activeConnectionId == nil {
+                    self?.metadataCache.clear()
+                }
+
+                // Clear cache for connections that disconnected or errored,
+                // preserving other connections' caches
+                for (connId, status) in statuses {
+                    if status == .disconnected || status == .error {
+                        self?.metadataCache.clearConnection(connId)
+                    }
+                }
             }
             .store(in: &cancellables)
 
         stateManager.$activeSchema
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] schema in
                 if let schema {
