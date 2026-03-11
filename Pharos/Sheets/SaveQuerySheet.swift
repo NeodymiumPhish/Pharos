@@ -1,7 +1,13 @@
 import AppKit
 
+/// Result of a save query operation.
+enum SaveQueryAction {
+    case created(SavedQuery)
+    case replaced(SavedQuery)
+}
+
 /// Sheet for saving the current query to the library.
-/// Allows choosing a name and folder.
+/// Allows choosing a name and folder. Detects duplicate names and offers replace.
 class SaveQuerySheet: NSViewController {
 
     private let nameField = NSTextField()
@@ -9,9 +15,10 @@ class SaveQuerySheet: NSViewController {
 
     private let initialName: String
     private let sql: String
-    private var onSave: ((SavedQuery) -> Void)?
+    private var existingQueries: [SavedQuery] = []
+    private var onSave: ((SaveQueryAction) -> Void)?
 
-    init(tabName: String, sql: String, onSave: @escaping (SavedQuery) -> Void) {
+    init(tabName: String, sql: String, onSave: @escaping (SaveQueryAction) -> Void) {
         self.initialName = tabName
         self.sql = sql
         self.onSave = onSave
@@ -26,6 +33,9 @@ class SaveQuerySheet: NSViewController {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 180))
         self.view = container
 
+        // Load existing queries for duplicate detection and folder list
+        existingQueries = (try? PharosCore.loadSavedQueries()) ?? []
+
         // Title
         let titleLabel = NSTextField(labelWithString: "Save Query")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -38,8 +48,8 @@ class SaveQuerySheet: NSViewController {
         // Folder
         let folderLabel = makeLabel("Folder")
         folderPopup.addItem(withTitle: "No Folder")
-        // Load existing folders
-        let existingFolders = loadExistingFolders()
+        // Load existing folders from cached queries
+        let existingFolders = Set(existingQueries.compactMap { $0.folder }).filter { !$0.isEmpty }.sorted()
         if !existingFolders.isEmpty {
             folderPopup.menu?.addItem(.separator())
             for folder in existingFolders {
@@ -47,7 +57,7 @@ class SaveQuerySheet: NSViewController {
             }
         }
         folderPopup.menu?.addItem(.separator())
-        folderPopup.addItem(withTitle: "New Folder…")
+        folderPopup.addItem(withTitle: "New Folder...")
 
         // Grid
         let grid = NSGridView(views: [
@@ -102,10 +112,10 @@ class SaveQuerySheet: NSViewController {
             return
         }
 
-        // Handle "New Folder…" selection
+        // Handle "New Folder..." selection
         var folder: String?
         let selectedTitle = folderPopup.titleOfSelectedItem ?? "No Folder"
-        if selectedTitle == "New Folder…" {
+        if selectedTitle == "New Folder..." {
             // Prompt for folder name synchronously
             let alert = NSAlert()
             alert.messageText = "New Folder"
@@ -126,10 +136,63 @@ class SaveQuerySheet: NSViewController {
             folder = selectedTitle
         }
 
+        // Check for duplicate name in the same folder
+        let duplicate = existingQueries.first { q in
+            q.name.lowercased() == name.lowercased() &&
+            q.folder == folder
+        }
+
+        if let duplicate = duplicate {
+            showDuplicateAlert(name: name, folder: folder, duplicate: duplicate)
+        } else {
+            createNewQuery(name: name, folder: folder)
+        }
+    }
+
+    // MARK: - Duplicate Handling
+
+    private func showDuplicateAlert(name: String, folder: String?, duplicate: SavedQuery) {
+        let alert = NSAlert()
+        alert.messageText = "A query named '\(name)' already exists in this folder."
+        alert.informativeText = "Do you want to replace it or save as a new query?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Save as New")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                // Replace: update the existing query's SQL (and name casing)
+                self.replaceQuery(duplicate: duplicate, name: name, folder: folder)
+            case .alertSecondButtonReturn:
+                // Save as New: create a new query
+                self.createNewQuery(name: name, folder: folder)
+            default:
+                // Cancel: stay on sheet
+                break
+            }
+        }
+    }
+
+    private func replaceQuery(duplicate: SavedQuery, name: String, folder: String?) {
+        do {
+            let update = UpdateSavedQuery(id: duplicate.id, name: name, folder: folder, sql: sql)
+            let updated = try PharosCore.updateSavedQuery(update)
+            onSave?(.replaced(updated))
+            dismiss(nil)
+        } catch {
+            NSLog("Failed to replace saved query: \(error)")
+        }
+    }
+
+    private func createNewQuery(name: String, folder: String?) {
         let create = CreateSavedQuery(name: name, folder: folder, sql: sql, connectionId: nil)
         do {
             let saved = try PharosCore.createSavedQuery(create)
-            onSave?(saved)
+            onSave?(.created(saved))
             dismiss(nil)
         } catch {
             NSLog("Failed to save query: \(error)")
@@ -137,12 +200,6 @@ class SaveQuerySheet: NSViewController {
     }
 
     // MARK: - Helpers
-
-    private func loadExistingFolders() -> [String] {
-        guard let queries = try? PharosCore.loadSavedQueries() else { return [] }
-        let folders = Set(queries.compactMap { $0.folder }).filter { !$0.isEmpty }
-        return folders.sorted()
-    }
 
     private func makeLabel(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text + ":")

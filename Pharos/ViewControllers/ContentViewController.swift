@@ -1413,8 +1413,13 @@ extension ContentViewController {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
             sql: focusedPaneVC?.getSQL() ?? ""
-        ) { [weak self] savedQuery in
+        ) { [weak self] action in
             guard let self else { return }
+            let savedQuery: SavedQuery
+            switch action {
+            case .created(let q): savedQuery = q
+            case .replaced(let q): savedQuery = q
+            }
             self.stateManager.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
             NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
         }
