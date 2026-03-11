@@ -424,6 +424,21 @@ pub fn delete_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<boo
     Ok(rows_affected > 0)
 }
 
+/// Batch delete saved queries by IDs
+pub fn batch_delete_saved_queries(conn: &Connection, ids: &[String]) -> SqliteResult<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+    let sql = format!(
+        "DELETE FROM saved_queries WHERE id IN ({})",
+        placeholders.join(", ")
+    );
+    let params: Vec<&dyn rusqlite::ToSql> =
+        ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+    conn.execute(&sql, params.as_slice())
+}
+
 // ==================== App Settings ====================
 
 /// Load app settings from the database, returns default if none exist

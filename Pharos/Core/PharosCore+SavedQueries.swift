@@ -48,6 +48,21 @@ extension PharosCore {
         return String(cString: ptr) == "true"
     }
 
+    /// Batch delete saved queries by IDs.
+    static func batchDeleteSavedQueries(ids: [String]) throws -> Int {
+        let json = try JSONEncoder.pharos.encode(ids)
+        let jsonStr = String(data: json, encoding: .utf8)!
+        guard let ptr = jsonStr.withCString({ pharos_batch_delete_saved_queries($0) }) else {
+            throw PharosCoreError.nullResult
+        }
+        defer { pharos_free_string(ptr) }
+        let result = String(cString: ptr)
+        guard let count = Int(result) else {
+            throw PharosCoreError.rustError(result)
+        }
+        return count
+    }
+
     /// Extract table names from SQL for display.
     /// Returns formatted string like "users", "users, orders", or nil if no tables found.
     static func extractTableNames(from sql: String) -> String? {

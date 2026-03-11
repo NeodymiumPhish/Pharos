@@ -45,3 +45,12 @@ pub async fn delete_saved_query(
 
     sqlite::delete_saved_query(&db, &query_id).map_err(|e| format!("Failed to delete saved query: {}", e))
 }
+
+pub async fn batch_delete_saved_queries(
+    state: &AppState,
+    ids: Vec<String>,
+) -> Result<usize, String> {
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+
+    sqlite::batch_delete_saved_queries(&db, &ids).map_err(|e| format!("Failed to batch delete saved queries: {}", e))
+}

@@ -61,6 +61,22 @@ pub extern "C" fn pharos_delete_saved_query(query_id: *const c_char) -> *mut c_c
     }
 }
 
+/// Batch delete saved queries. `json` is JSON array of IDs. Returns deleted count as string.
+#[no_mangle]
+pub extern "C" fn pharos_batch_delete_saved_queries(json: *const c_char) -> *mut c_char {
+    let state = app_state();
+    let rt = runtime();
+    let json_str = unsafe { c_str_to_string(json) };
+    let ids: Vec<String> = match serde_json::from_str(&json_str) {
+        Ok(ids) => ids,
+        Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+    };
+    match rt.block_on(crate::commands::batch_delete_saved_queries(state, ids)) {
+        Ok(count) => to_c_string(&count.to_string()),
+        Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+    }
+}
+
 /// Extract table names from SQL for display. Returns comma-separated names or NULL.
 #[no_mangle]
 pub extern "C" fn pharos_extract_table_names(sql: *const c_char) -> *mut c_char {
