@@ -123,11 +123,24 @@ class SidebarViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Highlight saved query that's open in the active tab
+        stateManager.$activeTabId
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                let savedQueryId = self?.stateManager.activeTab?.savedQueryId
+                self?.savedQueries.highlightQuery(id: savedQueryId)
+            }
+            .store(in: &cancellables)
+
         // Refresh saved queries when they change (save, move, delete)
         NotificationCenter.default.addObserver(
             forName: .savedQueriesDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             self?.savedQueries.reload()
+            // Re-apply highlight (savedQueryId may have changed after save)
+            let savedQueryId = self?.stateManager.activeTab?.savedQueryId
+            self?.savedQueries.highlightQuery(id: savedQueryId)
         }
 
         // Manual refresh from connection menu

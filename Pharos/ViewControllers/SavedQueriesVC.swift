@@ -76,6 +76,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     private var allQueries: [SavedQuery] = []
     private var filterText: String?
     private var editingFolderNode: SavedQueryNode?
+    private var highlightedQueryId: String?
 
     /// Called when outline view selection changes. Bool indicates whether a query is selected.
     var onSelectionChanged: ((Bool) -> Void)?
@@ -174,6 +175,31 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         rebuildTree()
         outlineView.reloadData()
         expandAll()
+    }
+
+    /// Highlight the saved query that's open in the active tab.
+    func highlightQuery(id: String?) {
+        guard highlightedQueryId != id else { return }
+        highlightedQueryId = id
+        outlineView.reloadData()
+        expandAll()
+
+        // Auto-expand folder containing highlighted query and scroll to it
+        if let queryId = id {
+            for node in rootNodes {
+                if case .folder = node.kind,
+                   node.children.contains(where: { $0.queryId == queryId }) {
+                    outlineView.expandItem(node)
+                    if let child = node.children.first(where: { $0.queryId == queryId }) {
+                        let row = outlineView.row(forItem: child)
+                        if row >= 0 {
+                            outlineView.scrollRowToVisible(row)
+                        }
+                    }
+                    break
+                }
+            }
+        }
     }
 
     /// Delete the currently selected saved queries with confirmation (supports multi-select).
@@ -574,7 +600,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         let cellId = NSUserInterfaceItemIdentifier("NavigatorCell")
         let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
             ?? SavedQueryCellView(identifier: cellId)
-        cell.configure(icon: node.icon, tint: node.tintColor, title: node.title)
+        let isHighlighted = node.queryId != nil && node.queryId == highlightedQueryId
+        cell.configure(icon: node.icon, tint: node.tintColor, title: node.title, isHighlighted: isHighlighted)
 
         // Show SQL preview as tooltip for query nodes
         if case .query(let q) = node.kind {
@@ -727,10 +754,11 @@ class SavedQueryCellView: NSTableCellView {
         ])
     }
 
-    func configure(icon: NSImage?, tint: NSColor, title: String) {
+    func configure(icon: NSImage?, tint: NSColor, title: String, isHighlighted: Bool = false) {
         iconView.image = icon
         iconView.contentTintColor = tint
         titleLabel.stringValue = title
+        titleLabel.font = isHighlighted ? .boldSystemFont(ofSize: 13) : .systemFont(ofSize: 13)
     }
 
     /// Makes the title label editable and selects all text for immediate renaming.
