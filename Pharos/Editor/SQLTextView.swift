@@ -49,6 +49,12 @@ class SQLTextView: NSTextView {
     /// Called whenever the text changes (after highlighting).
     var onTextChange: ((String) -> Void)?
 
+    /// Called when fold state changes (fold or unfold) so the host VC can re-sync gutter.
+    var onFoldStateChanged: (() -> Void)?
+
+    /// Tracks which character ranges are currently folded, ordered by position in text.
+    private(set) var foldedRanges: [(originalText: String, placeholderRange: NSRange, placeholder: String)] = []
+
     private var isHighlighting = false
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -375,6 +381,94 @@ class SQLTextView: NSTextView {
         if !indent.isEmpty {
             insertText(String(indent), replacementRange: selectedRange())
         }
+    }
+
+    // MARK: - Code Folding
+
+    /// Fold a region: replace the text in `range` with a short placeholder.
+    /// The original text is stored for later restoration.
+    /// Process folds bottom-to-top when folding multiple regions to avoid offset issues.
+    func foldRange(_ range: NSRange, placeholder: String) {
+        guard let textStorage, range.location + range.length <= (string as NSString).length else { return }
+
+        let originalText = (string as NSString).substring(with: range)
+
+        // Replace the range with the placeholder
+        let placeholderAttr = NSAttributedString(string: placeholder, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: max((font?.pointSize ?? 13) - 2, 9), weight: .regular),
+            .foregroundColor: NSColor.systemGray,
+            .backgroundColor: NSColor.quaternaryLabelColor,
+        ])
+
+        // Use shouldChangeText/didChangeText for undo support
+        if shouldChangeText(in: range, replacementString: placeholder) {
+            textStorage.replaceCharacters(in: range, with: placeholderAttr)
+            didChangeText()
+        }
+
+        let placeholderRange = NSRange(location: range.location, length: (placeholder as NSString).length)
+
+        // Adjust existing folded ranges that come after this one
+        let delta = placeholderRange.length - range.length
+        for idx in 0..<foldedRanges.count {
+            if foldedRanges[idx].placeholderRange.location > range.location {
+                foldedRanges[idx].placeholderRange.location += delta
+            }
+        }
+
+        foldedRanges.append((originalText: originalText, placeholderRange: placeholderRange, placeholder: placeholder))
+        // Sort by position for consistent ordering
+        foldedRanges.sort { $0.placeholderRange.location < $1.placeholderRange.location }
+
+        highlightSyntax()
+        onFoldStateChanged?()
+    }
+
+    /// Unfold a specific folded range by its index in `foldedRanges`.
+    func unfoldRange(at index: Int) {
+        guard index >= 0, index < foldedRanges.count, let textStorage else { return }
+
+        let entry = foldedRanges[index]
+        let range = entry.placeholderRange
+
+        guard range.location + range.length <= (string as NSString).length else { return }
+
+        // Restore original text
+        if shouldChangeText(in: range, replacementString: entry.originalText) {
+            textStorage.replaceCharacters(in: range, with: entry.originalText)
+            didChangeText()
+        }
+
+        let delta = (entry.originalText as NSString).length - range.length
+
+        // Remove this entry
+        foldedRanges.remove(at: index)
+
+        // Adjust subsequent folded ranges
+        for idx in 0..<foldedRanges.count {
+            if foldedRanges[idx].placeholderRange.location > range.location {
+                foldedRanges[idx].placeholderRange.location += delta
+            }
+        }
+
+        highlightSyntax()
+        onFoldStateChanged?()
+    }
+
+    /// Unfold all folded regions (bottom-to-top to preserve offsets).
+    func unfoldAll() {
+        guard !foldedRanges.isEmpty else { return }
+        // Unfold from last to first to keep offsets valid
+        while !foldedRanges.isEmpty {
+            unfoldRange(at: foldedRanges.count - 1)
+        }
+    }
+
+    /// Check if a 1-based line number is inside a folded region.
+    func isFolded(line: Int, in text: String) -> Bool {
+        // This is a simplified check - in practice the fold state
+        // is tracked via foldedRanges and the gutter handles visibility
+        return false
     }
 
     // MARK: - Error Underlines
