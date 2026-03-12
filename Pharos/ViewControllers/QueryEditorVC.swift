@@ -448,10 +448,33 @@ class QueryEditorVC: NSViewController {
         // Clear any execution error markers when user starts typing
         clearErrorMarkers()
 
-        // Unfold all regions on text edit to avoid complex offset tracking
+        // Selectively unfold only regions whose placeholder overlaps or is adjacent to the edit location.
+        // This preserves folds in distant parts of the document while ensuring correctness near the edit.
         if !textView.foldedRanges.isEmpty {
             isUnfoldingAll = true
-            textView.unfoldAll()
+            if let editRange = textView.lastEditRange {
+                // Expand the edit range by 1 in each direction for adjacency
+                let editStart = max(0, editRange.location - 1)
+                let editEnd = editRange.location + editRange.length + 1
+
+                // Collect indices of folded ranges that overlap the edit (reverse order for safe removal)
+                var indicesToUnfold: [Int] = []
+                for (idx, folded) in textView.foldedRanges.enumerated() {
+                    let foldStart = folded.placeholderRange.location
+                    let foldEnd = foldStart + folded.placeholderRange.length
+                    // Check overlap: edit region intersects or is adjacent to the folded placeholder
+                    if foldStart < editEnd && foldEnd > editStart {
+                        indicesToUnfold.append(idx)
+                    }
+                }
+                // Unfold in reverse order to preserve indices
+                for idx in indicesToUnfold.reversed() {
+                    textView.unfoldRange(at: idx)
+                }
+            } else {
+                // No edit range info — fall back to unfold all
+                textView.unfoldAll()
+            }
             isUnfoldingAll = false
         }
 

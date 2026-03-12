@@ -55,6 +55,10 @@ class SQLTextView: NSTextView {
     /// Tracks which character ranges are currently folded, ordered by position in text.
     private(set) var foldedRanges: [(originalText: String, placeholderRange: NSRange, placeholder: String)] = []
 
+    /// The character range of the most recent edit (set before text changes, cleared after).
+    /// Used by QueryEditorVC to selectively unfold only affected regions.
+    private(set) var lastEditRange: NSRange?
+
     private var isHighlighting = false
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -115,10 +119,16 @@ class SQLTextView: NSTextView {
 
     // MARK: - Text Changes
 
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        lastEditRange = affectedCharRange
+        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    }
+
     override func didChangeText() {
         super.didChangeText()
         highlightSyntax()
         onTextChange?(string)
+        lastEditRange = nil
 
         // Completion triggers after text change
         if completionDelegate?.isCompletionShown == true {
