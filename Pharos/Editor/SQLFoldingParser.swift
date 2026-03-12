@@ -258,6 +258,87 @@ struct SQLFoldingParser {
                     continue
                 }
 
+                // CREATE ... AS $$ ... $$ (dollar-quoted function/procedure body)
+                if matchesKeyword("CREATE", chars: chars, at: i, length: length) {
+                    // Scan forward from CREATE to find AS followed by a dollar-quote opening
+                    let createPos = i
+                    var scan = i + 6 // skip past "CREATE"
+                    // Scan forward looking for "AS" keyword followed by a dollar-quote
+                    // Limit scan to avoid running forever (max ~2000 chars from CREATE)
+                    let scanLimit = min(scan + 2000, length)
+                    var foundCreateBody = false
+                    while scan < scanLimit {
+                        guard isNormal(scan) else { scan += 1; continue }
+                        if isWordStart(chars: chars, at: scan) && matchesKeyword("AS", chars: chars, at: scan, length: length) {
+                            // Found AS — check if followed by a dollar-quote
+                            let afterAS = skipWhitespace(chars: chars, from: scan + 2, length: length, stateMap: stateMap)
+                            if afterAS < length, chars[afterAS] == uc("$") {
+                                // This should be the start of a dollar-quote — the stateMap marks it
+                                if case .dollarQuote(let tag) = stateMap[afterAS] {
+                                    let tagLen = tag.utf16.count
+                                    let bodyStart = afterAS + tagLen // first char after opening $$
+                                    // Scan forward to find where this dollar-quote ends
+                                    // (the lex state transitions back to .normal after the closing tag)
+                                    var endPos = bodyStart
+                                    while endPos < length {
+                                        if case .dollarQuote(let t) = stateMap[endPos], t == tag {
+                                            // Check if this is the closing tag (next char after tag is normal or end)
+                                            let tagEnd = endPos + tagLen
+                                            if tagEnd <= length {
+                                                let afterTag = tagEnd < length ? stateMap[tagEnd] : .normal
+                                                let isClosing: Bool
+                                                switch afterTag {
+                                                case .normal: isClosing = true
+                                                case .dollarQuote: isClosing = false
+                                                default: isClosing = true
+                                                }
+                                                if isClosing && endPos > bodyStart {
+                                                    // Found closing dollar-quote at endPos..endPos+tagLen-1
+                                                    let foldEndCharIdx = min(endPos + tagLen - 1, length - 1)
+                                                    let startLine = lineFor(createPos)
+                                                    let endLine = lineFor(foldEndCharIdx)
+                                                    if endLine - startLine + 1 >= 3 {
+                                                        let startCharIdx: Int
+                                                        if startLine < totalLines {
+                                                            startCharIdx = lineStarts[startLine]
+                                                        } else {
+                                                            startCharIdx = afterAS + tagLen
+                                                        }
+                                                        let endCharIdx2 = endOfLine(endLine)
+                                                        regions.append(SQLFoldRegion(
+                                                            startLine: startLine,
+                                                            endLine: endLine,
+                                                            startCharIndex: startCharIdx,
+                                                            endCharIndex: endCharIdx2,
+                                                            kind: .createBody
+                                                        ))
+                                                        foundCreateBody = true
+                                                    }
+                                                    break
+                                                }
+                                            }
+                                        }
+                                        endPos += 1
+                                    }
+                                    break // Done scanning for AS $$ from this CREATE
+                                }
+                            }
+                            break // Found AS but no dollar-quote follows; stop scanning
+                        }
+                        // Also stop if we hit a semicolon (end of statement) before finding AS
+                        if chars[scan] == uc(";") { break }
+                        scan += 1
+                    }
+                    // Don't skip past CREATE — let paren matching still work for CREATE TABLE (...)
+                    if !foundCreateBody {
+                        i += 6
+                        continue
+                    } else {
+                        i += 6
+                        continue
+                    }
+                }
+
                 // END — close CASE or BEGIN
                 if matchesKeyword("END", chars: chars, at: i, length: length) {
                     let endLine = lineFor(i)
