@@ -21,14 +21,19 @@ pub async fn load_query_history(
     state: &AppState,
 ) -> Result<Vec<QueryHistoryEntry>, String> {
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
-    let entries = sqlite::load_query_history(
-        &db,
-        connection_id.as_deref(),
-        search.as_deref(),
-        limit.unwrap_or(100),
-        offset.unwrap_or(0),
-    )
-    .map_err(|e| format!("Failed to load query history: {}", e))?;
+    let limit = limit.unwrap_or(100);
+    let offset = offset.unwrap_or(0);
+
+    // Try FTS5 search first; fall back to no search on FTS errors (e.g., corrupted index)
+    let entries = match sqlite::load_query_history(&db, connection_id.as_deref(), search.as_deref(), limit, offset) {
+        Ok(entries) => entries,
+        Err(e) if search.is_some() => {
+            log::warn!("FTS5 search failed, falling back to unfiltered: {}", e);
+            sqlite::load_query_history(&db, connection_id.as_deref(), None, limit, offset)
+                .map_err(|e| format!("Failed to load query history: {}", e))?
+        }
+        Err(e) => return Err(format!("Failed to load query history: {}", e)),
+    };
 
     Ok(entries)
 }

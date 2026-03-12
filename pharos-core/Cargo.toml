@@ -37,6 +37,7 @@ rust_xlsxwriter = "0.82"
 keyring = { version = "3", features = ["apple-native"] }
 urlencoding = "2"
 sqlformat = "0.3"
+flate2 = "1"
 
 [build-dependencies]
 cbindgen = "0.27"

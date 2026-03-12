@@ -1414,6 +1414,7 @@ dependencies = [
  "chrono",
  "csv",
  "env_logger",
+ "flate2",
  "futures",
  "ipnetwork",
  "keyring",

@@ -3,12 +3,60 @@ use std::path::Path;
 
 use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, QueryHistoryEntry, SavedQuery, SslMode, UpdateSavedQuery};
 
+// ==================== Compression Helpers ====================
+
+fn compress_data(data: &str) -> Vec<u8> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(data.as_bytes()).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
+    if data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+        // Gzip compressed data
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let mut decoder = GzDecoder::new(&data[..]);
+        let mut result = String::new();
+        decoder.read_to_string(&mut result).map_err(|e| e.to_string())?;
+        Ok(result)
+    } else {
+        // Legacy uncompressed text
+        String::from_utf8(data).map_err(|e| e.to_string())
+    }
+}
+
+// ==================== FTS5 Helpers ====================
+
+/// Escape user input for safe use in FTS5 MATCH queries.
+/// Each token is quoted as a literal with prefix matching (*).
+fn escape_fts5_query(input: &str) -> String {
+    input
+        .split_whitespace()
+        .map(|word| {
+            let escaped = word.replace('"', "\"\"");
+            format!("\"{}\"*", escaped)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Initialize the SQLite database and create tables if they don't exist
 pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
     std::fs::create_dir_all(app_data_dir).ok();
     let db_path = app_data_dir.join("pharos.db");
 
     let conn = Connection::open(&db_path)?;
+
+    // Enable WAL mode for better concurrent read/write performance
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA busy_timeout=5000;"
+    )?;
 
     // Create tables
     conn.execute_batch(
@@ -184,6 +232,25 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
 
         CREATE INDEX IF NOT EXISTS idx_query_history_connection
             ON query_history(connection_id, executed_at DESC);
+
+        -- FTS5 virtual table for full-text search on query history
+        CREATE VIRTUAL TABLE IF NOT EXISTS query_history_fts USING fts5(
+            sql,
+            connection_name,
+            content='query_history',
+            content_rowid='rowid'
+        );
+
+        -- Triggers to keep FTS5 index in sync
+        CREATE TRIGGER IF NOT EXISTS query_history_ai AFTER INSERT ON query_history BEGIN
+            INSERT INTO query_history_fts(rowid, sql, connection_name)
+            VALUES (new.rowid, new.sql, new.connection_name);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS query_history_ad AFTER DELETE ON query_history BEGIN
+            INSERT INTO query_history_fts(query_history_fts, rowid, sql, connection_name)
+            VALUES ('delete', old.rowid, old.sql, old.connection_name);
+        END;
         "#,
     )?;
 
@@ -213,6 +280,21 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             "ALTER TABLE query_history ADD COLUMN schema TEXT;
              ALTER TABLE query_history ADD COLUMN column_count INTEGER;
              ALTER TABLE query_history ADD COLUMN table_names TEXT;"
+        )?;
+    }
+
+    // Migration: Backfill FTS5 index if it's empty but history has data
+    let fts_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM query_history_fts", [], |row| row.get(0))
+        .unwrap_or(0);
+    let history_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM query_history", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    if fts_count == 0 && history_count > 0 {
+        conn.execute_batch(
+            "INSERT INTO query_history_fts(rowid, sql, connection_name)
+             SELECT rowid, sql, connection_name FROM query_history;"
         )?;
     }
 
@@ -485,6 +567,10 @@ pub fn save_query_history(
     result_columns_json: Option<&str>,
     result_rows_json: Option<&str>,
 ) -> SqliteResult<()> {
+    // Compress result data if present
+    let compressed_columns = result_columns_json.map(compress_data);
+    let compressed_rows = result_rows_json.map(compress_data);
+
     conn.execute(
         r#"
         INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names)
@@ -498,8 +584,8 @@ pub fn save_query_history(
             &entry.row_count,
             entry.execution_time_ms,
             &entry.executed_at,
-            &result_columns_json,
-            &result_rows_json,
+            &compressed_columns.as_deref(),
+            &compressed_rows.as_deref(),
             &entry.schema,
             &entry.column_count,
             &entry.table_names,
@@ -539,15 +625,13 @@ pub fn load_query_history(
 
     if let Some(q) = search {
         if !q.is_empty() {
+            let escaped = escape_fts5_query(q);
             sql.push_str(&format!(
-                " AND (LOWER(sql) LIKE LOWER(?{}) OR LOWER(connection_name) LIKE LOWER(?{}))",
-                param_idx,
-                param_idx + 1
+                " AND rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{})",
+                param_idx
             ));
-            let pattern = format!("%{}%", q);
-            params.push(Box::new(pattern.clone()));
-            params.push(Box::new(pattern));
-            param_idx += 2;
+            params.push(Box::new(escaped));
+            param_idx += 1;
         }
     }
 
@@ -598,14 +682,20 @@ pub fn batch_delete_query_history_entries(conn: &Connection, ids: &[String]) -> 
     conn.execute(&sql, params.as_slice())
 }
 
-/// Load cached result data for a specific history entry
+/// Load cached result data for a specific history entry (decompresses if gzip-compressed)
 pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResult<Option<(String, String)>> {
     let mut stmt = conn.prepare(
         "SELECT result_columns, result_rows FROM query_history WHERE id = ?1 AND result_columns IS NOT NULL"
     )?;
     let mut rows = stmt.query([entry_id])?;
     if let Some(row) = rows.next()? {
-        Ok(Some((row.get(0)?, row.get(1)?)))
+        let columns_raw: Vec<u8> = row.get(0)?;
+        let rows_raw: Vec<u8> = row.get(1)?;
+        let columns = decompress_or_passthrough(columns_raw)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
+        let rows_str = decompress_or_passthrough(rows_raw)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
+        Ok(Some((columns, rows_str)))
     } else {
         Ok(None)
     }
