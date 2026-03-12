@@ -22,6 +22,12 @@ class QueryEditorVC: NSViewController {
     /// Current parsed SQL segments.
     private(set) var segments: [SQLSegment] = []
 
+    /// Current fold regions for code folding.
+    private var foldRegions: [SQLFoldRegion] = []
+
+    /// Flag to prevent re-entrant fold state changes during unfold-all.
+    private var isUnfoldingAll = false
+
     /// Callback fired when the user clicks the gutter run button on a segment.
     var onRunSegment: ((SQLSegment) -> Void)?
 
@@ -62,6 +68,9 @@ class QueryEditorVC: NSViewController {
         gutterView.onRunSegment = { [weak self] segment in
             self?.onRunSegment?(segment)
         }
+        gutterView.onToggleFold = { [weak self] regionIndex in
+            self?.toggleFold(at: regionIndex)
+        }
         gutter = gutterView
 
         container.addSubview(gutterView)
@@ -75,6 +84,12 @@ class QueryEditorVC: NSViewController {
         textView.onTextChange = { [weak self] newText in
             guard let self, !self.suppressTextChange else { return }
             self.textDidChange(newText)
+        }
+
+        // Fold state changed — re-sync gutter line numbers
+        textView.onFoldStateChanged = { [weak self] in
+            guard let self, !self.isUnfoldingAll else { return }
+            self.gutter?.invalidateLineNumbers()
         }
 
         // Track cursor movement for active segment highlighting
@@ -136,6 +151,9 @@ class QueryEditorVC: NSViewController {
         let cursor = textView.selectedRange().location
         let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments)
         gutter?.setSegments(segments, activeIndex: activeIndex)
+
+        // Recalculate fold regions
+        recalculateFoldRegions()
     }
 
     @objc private func editorSelectionDidChange(_: Notification) {
@@ -357,6 +375,71 @@ class QueryEditorVC: NSViewController {
         gutter?.setSegments(segments, activeIndex: activeIndex)
     }
 
+    // MARK: - Code Folding
+
+    /// Recalculate fold regions from the current editor text.
+    private func recalculateFoldRegions() {
+        let text = textView.string
+        var newRegions = SQLFoldingParser.parse(text)
+
+        // Preserve collapsed state from previous regions at matching startLines
+        let previousCollapsed = Set(foldRegions.filter { $0.isCollapsed }.map { $0.startLine })
+        for idx in 0..<newRegions.count {
+            if previousCollapsed.contains(newRegions[idx].startLine) {
+                newRegions[idx].isCollapsed = true
+            }
+        }
+
+        foldRegions = newRegions
+        gutter?.setFoldRegions(foldRegions)
+    }
+
+    /// Toggle fold/unfold for a region at the given index.
+    private func toggleFold(at regionIndex: Int) {
+        guard regionIndex >= 0, regionIndex < foldRegions.count else { return }
+
+        let region = foldRegions[regionIndex]
+
+        if region.isCollapsed {
+            // Unfold: find the matching folded range entry
+            // The placeholder should be on the startLine
+            if let foldedIdx = textView.foldedRanges.firstIndex(where: {
+                // Match by position: the placeholder range location should be near the region's startCharIndex
+                $0.placeholderRange.location >= region.startCharIndex - 5 &&
+                $0.placeholderRange.location <= region.startCharIndex + 5
+            }) {
+                textView.unfoldRange(at: foldedIdx)
+            } else if !textView.foldedRanges.isEmpty {
+                // Fallback: unfold the last one if we can't match exactly
+                textView.unfoldRange(at: textView.foldedRanges.count - 1)
+            }
+
+            // Re-parse fold regions from restored text
+            foldRegions = SQLFoldingParser.parse(textView.string)
+            gutter?.setFoldRegions(foldRegions)
+        } else {
+            // Fold: calculate the char range to fold
+            // Fold from the first char of the line after startLine to the end of endLine
+            let text = textView.string as NSString
+            guard text.length > 0 else { return }
+
+            let startCharIdx = region.startCharIndex
+            let endCharIdx = min(region.endCharIndex, text.length - 1)
+
+            guard startCharIdx < text.length, startCharIdx <= endCharIdx else { return }
+
+            let foldRange = NSRange(location: startCharIdx, length: endCharIdx - startCharIdx + 1)
+            let lineCount = region.endLine - region.startLine
+            let placeholder = "/* ... \(lineCount) lines ... */"
+
+            textView.foldRange(foldRange, placeholder: placeholder)
+
+            // Mark as collapsed
+            foldRegions[regionIndex].isCollapsed = true
+            gutter?.setFoldRegions(foldRegions)
+        }
+    }
+
     // MARK: - Text Changes
 
     private func textDidChange(_ newText: String) {
@@ -365,13 +448,23 @@ class QueryEditorVC: NSViewController {
         // Clear any execution error markers when user starts typing
         clearErrorMarkers()
 
+        // Unfold all regions on text edit to avoid complex offset tracking
+        if !textView.foldedRanges.isEmpty {
+            isUnfoldingAll = true
+            textView.unfoldAll()
+            isUnfoldingAll = false
+        }
+
         stateManager.updateTab(id: tabId) { tab in
-            tab.sql = newText
+            tab.sql = textView.string
             tab.isDirty = true
         }
 
         // Recalculate SQL segments
         recalculateSegments()
+
+        // Recalculate fold regions
+        recalculateFoldRegions()
 
         // Notify for result tab staleness
         onTextEdited?()

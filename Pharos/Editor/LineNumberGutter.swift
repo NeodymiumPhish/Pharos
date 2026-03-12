@@ -40,6 +40,17 @@ class LineNumberGutter: NSView {
     /// Callback fired when the user clicks the run button on a segment bar.
     var onRunSegment: ((SQLSegment) -> Void)?
 
+    // MARK: - Fold Chevron State
+
+    /// Current fold regions for chevron display.
+    private var foldRegions: [SQLFoldRegion] = []
+
+    /// Callback when user clicks a fold chevron. Passes the region index.
+    var onToggleFold: ((Int) -> Void)?
+
+    /// Whether the mouse is currently inside the gutter (for showing expanded chevrons).
+    private var mouseInGutter: Bool = false
+
     // Segment bar layout constants
     private let segmentBarWidth: CGFloat = 4
     private let segmentBarGap: CGFloat = 6  // gap between line numbers and bar
@@ -120,6 +131,12 @@ class LineNumberGutter: NSView {
         needsDisplay = true
     }
 
+    /// Update the fold regions for chevron display.
+    func setFoldRegions(_ regions: [SQLFoldRegion]) {
+        foldRegions = regions
+        needsDisplay = true
+    }
+
     // MARK: - Notifications
 
     @objc private func textDidChange(_: Notification) {
@@ -176,10 +193,22 @@ class LineNumberGutter: NSView {
         gutterTrackingArea = area
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        mouseInGutter = true
+        needsDisplay = true
+    }
+
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
-        // Only respond to hovers in the segment bar column area (with some padding)
+
+        // Track mouse-in-gutter for fold chevron visibility
+        if !mouseInGutter {
+            mouseInGutter = true
+            needsDisplay = true
+        }
+
+        // Only respond to segment bar hovers in the segment bar column area (with some padding)
         guard point.x >= barColumnX - 4 else {
             if hoveredSegmentIndex != nil {
                 hoveredSegmentIndex = nil
@@ -200,14 +229,25 @@ class LineNumberGutter: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        mouseInGutter = false
         if hoveredSegmentIndex != nil {
             hoveredSegmentIndex = nil
-            needsDisplay = true
         }
+        needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+
+        // Check fold chevron click first (leftmost 14pt column)
+        if point.x < 14 {
+            let lineAtPoint = lineNumber(at: point)
+            if let regionIdx = foldRegions.firstIndex(where: { $0.startLine == lineAtPoint }) {
+                onToggleFold?(regionIdx)
+                return
+            }
+        }
+
         let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
 
         // Only handle clicks in the segment bar column
@@ -318,6 +358,19 @@ class LineNumberGutter: NSView {
                 NSBezierPath(ovalIn: dotRect).fill()
             }
 
+            // Fold chevron — draw on fold region start lines
+            if let regionIdx = foldRegions.firstIndex(where: { $0.startLine == lineNumber }) {
+                let region = foldRegions[regionIdx]
+                let showChevron = region.isCollapsed || mouseInGutter
+                if showChevron {
+                    drawFoldChevron(
+                        collapsed: region.isCollapsed,
+                        at: NSPoint(x: 3, y: y),
+                        lineHeight: lineRect.height
+                    )
+                }
+            }
+
             // Line number text — right-aligned before the segment bar column
             let numberString = "\(lineNumber)"
             let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
@@ -384,6 +437,39 @@ class LineNumberGutter: NSView {
                 drawRunButton(at: barRect, color: barColor)
             }
         }
+    }
+
+    /// Draw a fold disclosure chevron (right-pointing when collapsed, down-pointing when expanded).
+    private func drawFoldChevron(collapsed: Bool, at origin: NSPoint, lineHeight: CGFloat) {
+        let size: CGFloat = 8
+        let centerY = origin.y + lineHeight / 2
+        let centerX = origin.x + size / 2
+
+        let chevron = NSBezierPath()
+        if collapsed {
+            // Right-pointing triangle
+            let left = centerX - size / 4
+            let right = centerX + size / 4
+            let top = centerY - size / 3
+            let bottom = centerY + size / 3
+            chevron.move(to: NSPoint(x: left, y: top))
+            chevron.line(to: NSPoint(x: right, y: centerY))
+            chevron.line(to: NSPoint(x: left, y: bottom))
+            chevron.close()
+            NSColor.secondaryLabelColor.setFill()
+        } else {
+            // Down-pointing triangle
+            let left = centerX - size / 3
+            let right = centerX + size / 3
+            let top = centerY - size / 4
+            let bottom = centerY + size / 4
+            chevron.move(to: NSPoint(x: left, y: top))
+            chevron.line(to: NSPoint(x: right, y: top))
+            chevron.line(to: NSPoint(x: centerX, y: bottom))
+            chevron.close()
+            NSColor.tertiaryLabelColor.setFill()
+        }
+        chevron.fill()
     }
 
     /// Draw a small play triangle button overlaying the segment bar.
