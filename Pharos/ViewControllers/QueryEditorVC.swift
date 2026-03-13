@@ -25,9 +25,6 @@ class QueryEditorVC: NSViewController {
     /// Current fold regions for code folding.
     private var foldRegions: [SQLFoldRegion] = []
 
-    /// Flag to prevent re-entrant fold state changes during unfold-all.
-    private var isUnfoldingAll = false
-
     /// Callback fired when the user clicks the gutter run button on a segment.
     var onRunSegment: ((SQLSegment) -> Void)?
 
@@ -88,8 +85,14 @@ class QueryEditorVC: NSViewController {
 
         // Fold state changed — re-sync gutter line numbers
         textView.onFoldStateChanged = { [weak self] in
-            guard let self, !self.isUnfoldingAll else { return }
-            self.gutter?.invalidateLineNumbers()
+            self?.gutter?.invalidateLineNumbers()
+        }
+
+        // Click on fold placeholder — unfold that region
+        textView.onPlaceholderClicked = { [weak self] foldEntryId in
+            guard let self else { return }
+            self.textView.unfold(id: foldEntryId)
+            self.recalculateFoldRegions()
         }
 
         // Track cursor movement for active segment highlighting
@@ -127,6 +130,8 @@ class QueryEditorVC: NSViewController {
     // MARK: - Public API
 
     func formatSQL() {
+        // Unfold all before formatting so we format the full original text
+        textView.unfoldAll()
         let current = getSQL()
         guard !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let formatted = PharosCore.formatSQL(current)
@@ -272,6 +277,9 @@ class QueryEditorVC: NSViewController {
         let cursor = textView.selectedRange().location
         guard let idx = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments),
               idx < segments.count else { return nil }
+
+        // Text storage always contains the full SQL (folds are display-layer only),
+        // so segments parsed from textView.string are always correct.
         return segments[idx]
     }
 
@@ -379,19 +387,30 @@ class QueryEditorVC: NSViewController {
 
     /// Recalculate fold regions from the current editor text.
     private func recalculateFoldRegions() {
-        let text = textView.string
-        var newRegions = SQLFoldingParser.parse(text)
+        foldRegions = rebuildFoldRegions()
+        gutter?.setFoldRegions(foldRegions)
+    }
 
-        // Preserve collapsed state from previous regions at matching startLines
-        let previousCollapsed = Set(foldRegions.filter { $0.isCollapsed }.map { $0.startLine })
+    /// Re-parse fold regions from the full text and sync collapsed state from FoldState.
+    /// Text storage is never modified for folding, so the parser always sees the full SQL.
+    private func rebuildFoldRegions() -> [SQLFoldRegion] {
+        var newRegions = SQLFoldingParser.parse(textView.string)
+        let foldEntries = textView.foldState.entries
+
+        // Mark regions as collapsed if FoldState has a matching entry
         for idx in 0..<newRegions.count {
-            if previousCollapsed.contains(newRegions[idx].startLine) {
+            let region = newRegions[idx]
+            // A fold entry matches a region if it starts near the region's fold start
+            if let entry = foldEntries.first(where: { entry in
+                let foldStart = entry.range.location
+                return abs(foldStart - region.startCharIndex) <= 2
+            }) {
                 newRegions[idx].isCollapsed = true
+                newRegions[idx].foldEntryId = entry.id
             }
         }
 
-        foldRegions = newRegions
-        gutter?.setFoldRegions(foldRegions)
+        return newRegions
     }
 
     /// Toggle fold/unfold for a region at the given index.
@@ -401,43 +420,39 @@ class QueryEditorVC: NSViewController {
         let region = foldRegions[regionIndex]
 
         if region.isCollapsed {
-            // Unfold: find the matching folded range entry
-            // The placeholder should be on the startLine
-            if let foldedIdx = textView.foldedRanges.firstIndex(where: {
-                // Match by position: the placeholder range location should be near the region's startCharIndex
-                $0.placeholderRange.location >= region.startCharIndex - 5 &&
-                $0.placeholderRange.location <= region.startCharIndex + 5
-            }) {
-                textView.unfoldRange(at: foldedIdx)
-            } else if !textView.foldedRanges.isEmpty {
-                // Fallback: unfold the last one if we can't match exactly
-                textView.unfoldRange(at: textView.foldedRanges.count - 1)
-            }
-
-            // Re-parse fold regions from restored text
-            foldRegions = SQLFoldingParser.parse(textView.string)
-            gutter?.setFoldRegions(foldRegions)
+            // Unfold: remove the fold entry from FoldState
+            guard let entryId = region.foldEntryId else { return }
+            textView.unfold(id: entryId)
         } else {
             // Fold: calculate the char range to fold
-            // Fold from the first char of the line after startLine to the end of endLine
             let text = textView.string as NSString
             guard text.length > 0 else { return }
 
-            let startCharIdx = region.startCharIndex
-            let endCharIdx = min(region.endCharIndex, text.length - 1)
+            let startCharIdx: Int
+            let endCharIdx: Int
+
+            switch region.kind {
+            case .parenBlock, .subquery, .cte:
+                // Fold only the inner content between ( and )
+                startCharIdx = region.startCharIndex // char after '('
+                endCharIdx = min(region.closeCharIndex - 1, text.length - 1) // char before ')'
+            default:
+                // Keyword-based folds: fold the full range
+                startCharIdx = region.startCharIndex
+                endCharIdx = min(region.endCharIndex, text.length - 1)
+            }
 
             guard startCharIdx < text.length, startCharIdx <= endCharIdx else { return }
 
             let foldRange = NSRange(location: startCharIdx, length: endCharIdx - startCharIdx + 1)
             let lineCount = region.endLine - region.startLine
-            let placeholder = "/* ... \(lineCount) lines ... */"
+            let placeholder = " \u{25B8} \(lineCount) lines "
 
-            textView.foldRange(foldRange, placeholder: placeholder)
-
-            // Mark as collapsed
-            foldRegions[regionIndex].isCollapsed = true
-            gutter?.setFoldRegions(foldRegions)
+            textView.fold(range: foldRange, placeholder: placeholder)
         }
+
+        // Rebuild fold regions to sync gutter state
+        recalculateFoldRegions()
     }
 
     // MARK: - Text Changes
@@ -448,38 +463,11 @@ class QueryEditorVC: NSViewController {
         // Clear any execution error markers when user starts typing
         clearErrorMarkers()
 
-        // Selectively unfold only regions whose placeholder overlaps or is adjacent to the edit location.
-        // This preserves folds in distant parts of the document while ensuring correctness near the edit.
-        if !textView.foldedRanges.isEmpty {
-            isUnfoldingAll = true
-            if let editRange = textView.lastEditRange {
-                // Expand the edit range by 1 in each direction for adjacency
-                let editStart = max(0, editRange.location - 1)
-                let editEnd = editRange.location + editRange.length + 1
-
-                // Collect indices of folded ranges that overlap the edit (reverse order for safe removal)
-                var indicesToUnfold: [Int] = []
-                for (idx, folded) in textView.foldedRanges.enumerated() {
-                    let foldStart = folded.placeholderRange.location
-                    let foldEnd = foldStart + folded.placeholderRange.length
-                    // Check overlap: edit region intersects or is adjacent to the folded placeholder
-                    if foldStart < editEnd && foldEnd > editStart {
-                        indicesToUnfold.append(idx)
-                    }
-                }
-                // Unfold in reverse order to preserve indices
-                for idx in indicesToUnfold.reversed() {
-                    textView.unfoldRange(at: idx)
-                }
-            } else {
-                // No edit range info — fall back to unfold all
-                textView.unfoldAll()
-            }
-            isUnfoldingAll = false
-        }
+        // FoldState.adjustForEdit (called from SQLTextView.didChangeText) automatically
+        // removes folds that overlap the edit and shifts folds after it.
 
         stateManager.updateTab(id: tabId) { tab in
-            tab.sql = textView.string
+            tab.sql = self.textView.string
             tab.isDirty = true
         }
 

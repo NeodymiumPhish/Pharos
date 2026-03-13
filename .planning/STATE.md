@@ -57,14 +57,14 @@ None.
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 2 | Per-tab sidebar and schema caching — eliminate refreshes on tab switch | 2026-03-11 | 262cac3 | [2-per-tab-sidebar-and-schema-caching-elimi](./quick/2-per-tab-sidebar-and-schema-caching-elimi/) |
-| 3 | Saved queries UX overhaul — multi-select, drag-drop, batch delete, Save As replace | 2026-03-11 | 87d4026 | [3-saved-queries-ux-overhaul-multi-select-d](./quick/3-saved-queries-ux-overhaul-multi-select-d/) |
-| 4 | Add code folding chevrons to query editor | 2026-03-12 | eba1ec3 | [4-add-code-folding-chevrons-to-query-edito](./quick/4-add-code-folding-chevrons-to-query-edito/) |
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 2 | Per-tab sidebar and schema caching — eliminate refreshes on tab switch | 2026-03-11 | 262cac3 | | [2-per-tab-sidebar-and-schema-caching-elimi](./quick/2-per-tab-sidebar-and-schema-caching-elimi/) |
+| 3 | Saved queries UX overhaul — multi-select, drag-drop, batch delete, Save As replace | 2026-03-11 | 87d4026 | | [3-saved-queries-ux-overhaul-multi-select-d](./quick/3-saved-queries-ux-overhaul-multi-select-d/) |
+| 4 | Add code folding chevrons to query editor for SQL segments | 2026-03-12 | dd5a024 | Verified | [4-add-code-folding-chevrons-to-query-edito](./quick/4-add-code-folding-chevrons-to-query-edito/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-12 - Completed quick task 4: Add code folding chevrons to query editor
+Last activity: 2026-03-12 - Completed quick task 4: Add code folding chevrons to query editor for SQL segments
 Stopped at: Completed quick-4-PLAN.md
 Resume file: None

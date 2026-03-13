@@ -52,12 +52,15 @@ class SQLTextView: NSTextView {
     /// Called when fold state changes (fold or unfold) so the host VC can re-sync gutter.
     var onFoldStateChanged: (() -> Void)?
 
-    /// Tracks which character ranges are currently folded, ordered by position in text.
-    private(set) var foldedRanges: [(originalText: String, placeholderRange: NSRange, placeholder: String)] = []
+    /// Called when user clicks a fold placeholder to request unfold. Parameter is the fold entry UUID.
+    var onPlaceholderClicked: ((UUID) -> Void)?
 
-    /// The character range of the most recent edit (set before text changes, cleared after).
-    /// Used by QueryEditorVC to selectively unfold only affected regions.
-    private(set) var lastEditRange: NSRange?
+    /// Fold state — tracks collapsed regions separately from text storage.
+    /// Text storage always contains the full, unfolded SQL.
+    /// Owned by the FoldingLayoutManager; accessed here for convenience.
+    var foldState: FoldState {
+        (layoutManager as! FoldingLayoutManager).foldState
+    }
 
     private var isHighlighting = false
 
@@ -71,10 +74,10 @@ class SQLTextView: NSTextView {
         commonInit()
     }
 
-    /// Convenience initializer — creates the full text system (storage → layout → container → view).
+    /// Convenience initializer — creates the full text system with FoldingLayoutManager.
     convenience init() {
         let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
+        let layoutManager = FoldingLayoutManager(foldState: FoldState())
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer()
         container.widthTracksTextView = true
@@ -113,22 +116,63 @@ class SQLTextView: NSTextView {
 
     override func mouseDown(with event: NSEvent) {
         completionDelegate?.dismissCompletion()
+
+        // Check if click lands on a fold pill — if so, unfold it
+        if !foldState.entries.isEmpty, let foldingLM = layoutManager as? FoldingLayoutManager, let textContainer {
+            let localPoint = convert(event.locationInWindow, from: nil)
+            let textOrigin = textContainerOrigin
+            let pointInText = NSPoint(x: localPoint.x - textOrigin.x, y: localPoint.y - textOrigin.y)
+
+            if let entry = foldingLM.foldEntry(at: pointInText, in: textContainer) {
+                onPlaceholderClicked?(entry.id)
+                return
+            }
+        }
+
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        // Show pointing hand cursor over fold pills
+        guard !foldState.entries.isEmpty,
+              let foldingLM = layoutManager as? FoldingLayoutManager,
+              let textContainer else { return }
+        let textOrigin = textContainerOrigin
+        for entry in foldState.entries {
+            guard let rect = foldingLM.pillRect(for: entry, in: textContainer) else { continue }
+            let adjustedRect = rect.offsetBy(dx: textOrigin.x, dy: textOrigin.y)
+            addCursorRect(adjustedRect, cursor: .pointingHand)
+        }
+    }
+
     // MARK: - Text Changes
 
+    /// Tracks the range being edited so foldState can adjust on didChangeText.
+    private var pendingEditRange: NSRange?
+    private var pendingReplacementLength: Int?
+
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        lastEditRange = affectedCharRange
+        pendingEditRange = affectedCharRange
+        pendingReplacementLength = (replacementString as NSString?)?.length
         return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
     }
 
     override func didChangeText() {
         super.didChangeText()
+
+        // Adjust fold state for the edit — removes folds that overlap the edit, shifts others
+        if let editRange = pendingEditRange {
+            let changeInLength = (pendingReplacementLength ?? 0) - editRange.length
+            foldState.adjustForEdit(editedRange: editRange, changeInLength: changeInLength)
+            invalidateFoldLayout()
+        }
+        pendingEditRange = nil
+        pendingReplacementLength = nil
+
         highlightSyntax()
         onTextChange?(string)
-        lastEditRange = nil
 
         // Completion triggers after text change
         if completionDelegate?.isCompletionShown == true {
@@ -393,92 +437,39 @@ class SQLTextView: NSTextView {
         }
     }
 
-    // MARK: - Code Folding
+    // MARK: - Code Folding (Display-Layer)
 
-    /// Fold a region: replace the text in `range` with a short placeholder.
-    /// The original text is stored for later restoration.
-    /// Process folds bottom-to-top when folding multiple regions to avoid offset issues.
-    func foldRange(_ range: NSRange, placeholder: String) {
-        guard let textStorage, range.location + range.length <= (string as NSString).length else { return }
-
-        let originalText = (string as NSString).substring(with: range)
-
-        // Replace the range with the placeholder
-        let placeholderAttr = NSAttributedString(string: placeholder, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: max((font?.pointSize ?? 13) - 2, 9), weight: .regular),
-            .foregroundColor: NSColor.systemGray,
-            .backgroundColor: NSColor.quaternaryLabelColor,
-        ])
-
-        // Use shouldChangeText/didChangeText for undo support
-        if shouldChangeText(in: range, replacementString: placeholder) {
-            textStorage.replaceCharacters(in: range, with: placeholderAttr)
-            didChangeText()
-        }
-
-        let placeholderRange = NSRange(location: range.location, length: (placeholder as NSString).length)
-
-        // Adjust existing folded ranges that come after this one
-        let delta = placeholderRange.length - range.length
-        for idx in 0..<foldedRanges.count {
-            if foldedRanges[idx].placeholderRange.location > range.location {
-                foldedRanges[idx].placeholderRange.location += delta
-            }
-        }
-
-        foldedRanges.append((originalText: originalText, placeholderRange: placeholderRange, placeholder: placeholder))
-        // Sort by position for consistent ordering
-        foldedRanges.sort { $0.placeholderRange.location < $1.placeholderRange.location }
-
-        highlightSyntax()
-        onFoldStateChanged?()
+    /// Fold a character range. Text storage is NOT modified — the FoldingLayoutManager
+    /// hides the glyphs and draws a placeholder pill.
+    @discardableResult
+    func fold(range: NSRange, placeholder: String) -> FoldEntry {
+        let entry = foldState.add(range: range, placeholder: placeholder)
+        invalidateFoldLayout()
+        return entry
     }
 
-    /// Unfold a specific folded range by its index in `foldedRanges`.
-    func unfoldRange(at index: Int) {
-        guard index >= 0, index < foldedRanges.count, let textStorage else { return }
-
-        let entry = foldedRanges[index]
-        let range = entry.placeholderRange
-
-        guard range.location + range.length <= (string as NSString).length else { return }
-
-        // Restore original text
-        if shouldChangeText(in: range, replacementString: entry.originalText) {
-            textStorage.replaceCharacters(in: range, with: entry.originalText)
-            didChangeText()
-        }
-
-        let delta = (entry.originalText as NSString).length - range.length
-
-        // Remove this entry
-        foldedRanges.remove(at: index)
-
-        // Adjust subsequent folded ranges
-        for idx in 0..<foldedRanges.count {
-            if foldedRanges[idx].placeholderRange.location > range.location {
-                foldedRanges[idx].placeholderRange.location += delta
-            }
-        }
-
-        highlightSyntax()
-        onFoldStateChanged?()
+    /// Unfold a specific fold by its UUID.
+    func unfold(id: UUID) {
+        guard foldState.remove(id: id) != nil else { return }
+        invalidateFoldLayout()
     }
 
-    /// Unfold all folded regions (bottom-to-top to preserve offsets).
+    /// Unfold all folded regions.
     func unfoldAll() {
-        guard !foldedRanges.isEmpty else { return }
-        // Unfold from last to first to keep offsets valid
-        while !foldedRanges.isEmpty {
-            unfoldRange(at: foldedRanges.count - 1)
-        }
+        guard !foldState.entries.isEmpty else { return }
+        foldState.removeAll()
+        invalidateFoldLayout()
     }
 
-    /// Check if a 1-based line number is inside a folded region.
-    func isFolded(line: Int, in text: String) -> Bool {
-        // This is a simplified check - in practice the fold state
-        // is tracked via foldedRanges and the gutter handles visibility
-        return false
+    /// Invalidate layout for all fold-affected ranges so the layout manager recomputes glyphs.
+    private func invalidateFoldLayout() {
+        guard let layoutManager else { return }
+        let fullRange = NSRange(location: 0, length: (string as NSString).length)
+        layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        needsDisplay = true
+        window?.invalidateCursorRects(for: self)
+        onFoldStateChanged?()
     }
 
     // MARK: - Error Underlines

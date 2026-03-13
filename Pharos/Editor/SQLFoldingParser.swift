@@ -20,10 +20,14 @@ struct SQLFoldRegion {
     let startCharIndex: Int
     /// 0-based character offset of the last char on endLine (before newline).
     let endCharIndex: Int
+    /// 0-based character offset of the closing delimiter (`)` for paren-based, same as endCharIndex for keyword-based).
+    let closeCharIndex: Int
     /// What kind of fold this is.
     let kind: FoldKind
     /// Whether the region is currently collapsed.
     var isCollapsed: Bool = false
+    /// UUID of the FoldEntry in FoldState when collapsed (set by QueryEditorVC on rebuild).
+    var foldEntryId: UUID? = nil
 }
 
 /// Parses SQL text to find foldable regions for code folding.
@@ -220,13 +224,8 @@ struct SQLFoldingParser {
                             }
                         }
 
-                        // startCharIndex: first char on the line after startLine
-                        let startCharIdx: Int
-                        if openLine < totalLines {
-                            startCharIdx = lineStarts[openLine] // line after startLine (0-indexed array = openLine since 1-based)
-                        } else {
-                            startCharIdx = open.charIndex + 1
-                        }
+                        // startCharIndex: char right after the opening '('
+                        let startCharIdx = open.charIndex + 1
                         let endCharIdx = endOfLine(closeLine)
 
                         regions.append(SQLFoldRegion(
@@ -234,6 +233,7 @@ struct SQLFoldingParser {
                             endLine: closeLine,
                             startCharIndex: startCharIdx,
                             endCharIndex: endCharIdx,
+                            closeCharIndex: i, // position of the closing ')'
                             kind: kind
                         ))
                     }
@@ -310,6 +310,7 @@ struct SQLFoldingParser {
                                                             endLine: endLine,
                                                             startCharIndex: startCharIdx,
                                                             endCharIndex: endCharIdx2,
+                                                            closeCharIndex: endCharIdx2,
                                                             kind: .createBody
                                                         ))
                                                         foundCreateBody = true
@@ -359,6 +360,7 @@ struct SQLFoldingParser {
                                 endLine: endLine,
                                 startCharIndex: startCharIdx,
                                 endCharIndex: endCharIdx,
+                                closeCharIndex: endCharIdx,
                                 kind: .caseBlock
                             ))
                         }
@@ -376,6 +378,7 @@ struct SQLFoldingParser {
                                 endLine: endLine,
                                 startCharIndex: startCharIdx,
                                 endCharIndex: endCharIdx,
+                                closeCharIndex: endCharIdx,
                                 kind: .beginEnd
                             ))
                         }

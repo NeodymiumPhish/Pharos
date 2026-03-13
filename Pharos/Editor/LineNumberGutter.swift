@@ -112,6 +112,7 @@ class LineNumberGutter: NSView {
     func setSegments(_ newSegments: [SQLSegment], activeIndex: Int?) {
         segments = newSegments
         activeSegmentIndex = activeIndex
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
@@ -134,6 +135,7 @@ class LineNumberGutter: NSView {
     /// Update the fold regions for chevron display.
     func setFoldRegions(_ regions: [SQLFoldRegion]) {
         foldRegions = regions
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
@@ -145,6 +147,7 @@ class LineNumberGutter: NSView {
     }
 
     @objc private func boundsDidChange(_: Notification) {
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
@@ -191,6 +194,57 @@ class LineNumberGutter: NSView {
         )
         addTrackingArea(area)
         gutterTrackingArea = area
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let textView, let scrollView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else { return }
+
+        let scrollOffset = scrollView.contentView.bounds.origin.y
+        let textInset = textView.textContainerInset
+        let text = textView.string as NSString
+        guard text.length > 0 else { return }
+
+        let visibleRect = NSRect(
+            x: 0, y: scrollOffset,
+            width: scrollView.contentView.bounds.width,
+            height: scrollView.contentView.bounds.height
+        )
+        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+
+        // Build line → y map for visible lines
+        var charIndex = visibleCharRange.location
+        var lineNum = 1
+        text.enumerateSubstrings(
+            in: NSRange(location: 0, length: visibleCharRange.location),
+            options: [.byLines, .substringNotRequired]
+        ) { _, _, _, _ in lineNum += 1 }
+
+        while charIndex < NSMaxRange(visibleCharRange) {
+            let lineRange = text.lineRange(for: NSRange(location: charIndex, length: 0))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let y = lineRect.origin.y + textInset.height - scrollOffset
+
+            // Fold chevron cursor (leftmost 14pt)
+            if foldRegions.contains(where: { $0.startLine == lineNum }) {
+                let chevronRect = NSRect(x: 0, y: y, width: 14, height: lineRect.height)
+                addCursorRect(chevronRect, cursor: .pointingHand)
+            }
+
+            // Segment run button cursor (rightmost bar column)
+            let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+            if segments.contains(where: { lineNum >= $0.startLine && lineNum <= $0.endLine }) {
+                let barRect = NSRect(x: barColumnX - 4, y: y, width: segmentBarWidth + 8, height: lineRect.height)
+                addCursorRect(barRect, cursor: .pointingHand)
+            }
+
+            lineNum += 1
+            charIndex = NSMaxRange(lineRange)
+        }
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -441,9 +495,9 @@ class LineNumberGutter: NSView {
 
     /// Draw a fold disclosure chevron (right-pointing when collapsed, down-pointing when expanded).
     private func drawFoldChevron(collapsed: Bool, at origin: NSPoint, lineHeight: CGFloat) {
-        let size: CGFloat = 8
+        let size: CGFloat = 12
         let centerY = origin.y + lineHeight / 2
-        let centerX = origin.x + size / 2
+        let centerX = origin.x + 7 // center within the 14pt click column
 
         let chevron = NSBezierPath()
         if collapsed {
