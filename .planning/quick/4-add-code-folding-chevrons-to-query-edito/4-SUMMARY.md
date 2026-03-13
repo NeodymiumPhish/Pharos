@@ -19,7 +19,7 @@ key_files:
     - Pharos/ViewControllers/QueryEditorVC.swift
 decisions:
   - Text storage replacement approach for folding (simpler than NSLayoutManager glyph hiding)
-  - Unfold-all-on-edit strategy to avoid complex offset tracking
+  - Region-aware selective unfold on edit (replaced unfold-all-on-edit)
   - Chevrons visible on hover for expanded regions, always visible for collapsed
 metrics:
   duration: 253s
@@ -42,7 +42,7 @@ Added `foldRange`/`unfoldRange`/`unfoldAll` methods that replace text ranges wit
 Disclosure triangles drawn in the leftmost 14px of the gutter. Down-pointing (expanded) shown on mouse hover, right-pointing (collapsed) always visible. Click handling on the fold column triggers `onToggleFold` callback. Mouse enter/exit tracking for chevron visibility.
 
 ### QueryEditorVC Coordination
-Wires SQLFoldingParser, LineNumberGutter, and SQLTextView together. Fold regions recalculated on text change and `setSQL`. Collapsed state preserved across re-parses by matching startLine. Text edits trigger unfold-all before re-parsing. `isUnfoldingAll` flag prevents re-entrant gutter updates.
+Wires SQLFoldingParser, LineNumberGutter, and SQLTextView together. Fold regions recalculated on text change and `setSQL`. Collapsed state preserved across re-parses by matching startLine. Text edits selectively unfold only regions whose placeholder overlaps the edit location; distant folds survive. `isUnfoldingAll` flag prevents re-entrant gutter updates.
 
 ## Commits
 
@@ -50,6 +50,8 @@ Wires SQLFoldingParser, LineNumberGutter, and SQLTextView together. Fold regions
 |------|------|--------|-----------|
 | 1 | SQLFoldingParser + SQLTextView fold/unfold | 3baf7ba | SQLFoldingParser.swift, SQLTextView.swift |
 | 2 | Gutter chevrons + QueryEditorVC wiring | eba1ec3 | LineNumberGutter.swift, QueryEditorVC.swift |
+| Gap 1 | Region-aware fold preservation on edit | 14270a2 | SQLTextView.swift, QueryEditorVC.swift |
+| Gap 2 | CREATE body folding (dollar-quoted) | dd5a024 | SQLFoldingParser.swift |
 
 ## Deviations from Plan
 
@@ -58,5 +60,25 @@ None - plan executed exactly as written.
 ## Decisions Made
 
 1. **Text storage replacement over NSLayoutManager glyph hiding**: The plan offered both approaches and recommended the simpler one. Text storage replacement is more reliable and avoids complex layout manager delegate interactions.
-2. **Unfold-all-on-edit**: Rather than tracking which edits touch folded regions, all folds are cleared on any text change. This is the simpler approach recommended by the plan.
+2. **Region-aware selective unfold on edit**: Replaced the initial unfold-all-on-edit strategy with selective unfolding that only affects folds whose placeholder overlaps the edit location. Folds elsewhere in the document survive edits.
 3. **Shared chevron/error dot column**: Fold chevrons and error dots share the leftmost gutter space since they rarely co-occur on the same line.
+
+## Verification Gap Fixes
+
+### Gap 1: Fold state cleared on every keystroke (Truth 5 - FIXED)
+
+**Issue:** `textDidChange()` called `textView.unfoldAll()` unconditionally, destroying all folds on any keystroke.
+
+**Fix:** Added `lastEditRange` tracking in `SQLTextView` via `shouldChangeText(in:replacementString:)` override. `QueryEditorVC.textDidChange()` now only unfolds regions whose placeholder range overlaps or is adjacent to the edit location. Folds in distant parts of the document survive text edits.
+
+**Files modified:** `SQLTextView.swift`, `QueryEditorVC.swift`
+**Commit:** 14270a2
+
+### Gap 2: CREATE body folding unimplemented (Truth 4 - FIXED)
+
+**Issue:** The `createBody` FoldKind enum case existed but the parser's second pass had no scanning logic for `CREATE` keyword patterns.
+
+**Fix:** Added detection for `CREATE [OR REPLACE] FUNCTION/PROCEDURE ... AS $$ ... $$` in the second pass. Scans forward from `CREATE` to find `AS` followed by a dollar-quote tag, then uses the lex state map to locate the matching closing dollar-quote. Creates `.createBody` fold regions spanning 3+ lines. CREATE TABLE `(...)` patterns were already detected as `.parenBlock`.
+
+**Files modified:** `SQLFoldingParser.swift`
+**Commit:** dd5a024
