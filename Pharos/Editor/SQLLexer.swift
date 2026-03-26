@@ -6,6 +6,7 @@ import Foundation
 enum SQLLexState: Equatable {
     case normal
     case singleQuote
+    case doubleQuote           // quoted identifier: "First Seen"
     case dollarQuote(String)   // stores the full $tag$ delimiter
     case lineComment
     case blockComment(Int)     // nesting depth
@@ -37,6 +38,9 @@ struct SQLLexer {
                 if ch == Self.uc("'") {
                     state = .singleQuote
                     stateMap[i] = .singleQuote
+                } else if ch == Self.uc("\"") {
+                    state = .doubleQuote
+                    stateMap[i] = .doubleQuote
                 } else if ch == Self.uc("-"), i + 1 < length, chars[i + 1] == Self.uc("-") {
                     state = .lineComment
                     stateMap[i] = .lineComment
@@ -64,6 +68,18 @@ struct SQLLexer {
                     if i + 1 < length, chars[i + 1] == Self.uc("'") {
                         i += 1
                         if i < length { stateMap[i] = .singleQuote }
+                    } else {
+                        state = .normal
+                    }
+                }
+
+            case .doubleQuote:
+                stateMap[i] = .doubleQuote
+                if ch == Self.uc("\"") {
+                    // Handle "" escape inside quoted identifiers
+                    if i + 1 < length, chars[i + 1] == Self.uc("\"") {
+                        i += 1
+                        if i < length { stateMap[i] = .doubleQuote }
                     } else {
                         state = .normal
                     }

@@ -582,14 +582,17 @@ class SQLTextView: NSTextView {
             // When state changes, flush the current range
             if nextState != currentState || i == chars.count {
                 if !currentState.isNormal {
-                    let color: NSColor
+                    let color: NSColor?
                     switch currentState {
                     case .lineComment, .blockComment: color = theme.comment
                     case .singleQuote, .dollarQuote: color = theme.string
-                    default: color = theme.comment
+                    case .doubleQuote: color = nil  // quoted identifiers keep default text color
+                    default: color = nil
                     }
-                    let range = NSRange(location: rangeStart, length: i - rangeStart)
-                    layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+                    if let color {
+                        let range = NSRange(location: rangeStart, length: i - rangeStart)
+                        layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+                    }
                 }
                 rangeStart = i
                 currentState = nextState
