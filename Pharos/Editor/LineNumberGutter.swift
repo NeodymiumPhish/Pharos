@@ -110,6 +110,7 @@ class LineNumberGutter: NSView {
 
     /// Force a redraw — call after programmatic text changes (e.g. setSQL).
     func invalidateLineNumbers() {
+        rebuildLineStarts()
         recalculateWidth()
         needsDisplay = true
     }
