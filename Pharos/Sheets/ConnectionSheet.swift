@@ -48,25 +48,30 @@ class ConnectionSheet: NSViewController {
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Form fields
-        let nameLabel = makeLabel("Name")
+        let nameLabel = NSTextField.formLabel("Name")
         nameField.placeholderString = "My Database"
 
-        let hostLabel = makeLabel("Host")
+        let hostLabel = NSTextField.formLabel("Host")
         hostField.placeholderString = "localhost"
 
-        let portLabel = makeLabel("Port")
+        let portLabel = NSTextField.formLabel("Port")
         portField.placeholderString = "5432"
+        let formatter = NumberFormatter()
+        formatter.minimum = 1
+        formatter.maximum = 65535
+        formatter.allowsFloats = false
+        portField.formatter = formatter
 
-        let databaseLabel = makeLabel("Database")
+        let databaseLabel = NSTextField.formLabel("Database")
         databaseField.placeholderString = "postgres"
 
-        let usernameLabel = makeLabel("Username")
+        let usernameLabel = NSTextField.formLabel("Username")
         usernameField.placeholderString = "postgres"
 
-        let passwordLabel = makeLabel("Password")
+        let passwordLabel = NSTextField.formLabel("Password")
         passwordField.placeholderString = "Optional"
 
-        let sslLabel = makeLabel("SSL Mode")
+        let sslLabel = NSTextField.formLabel("SSL Mode")
         sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
 
         // Test connection row
@@ -229,10 +234,4 @@ class ConnectionSheet: NSViewController {
         )
     }
 
-    private func makeLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text + ":")
-        label.alignment = .right
-        label.font = .systemFont(ofSize: 13)
-        return label
-    }
 }

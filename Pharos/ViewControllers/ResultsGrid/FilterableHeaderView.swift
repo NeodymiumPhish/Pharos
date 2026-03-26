@@ -244,12 +244,13 @@ class FilterableHeaderView: NSTableHeaderView {
 
 private extension NSImage {
     func tinted(with color: NSColor) -> NSImage {
-        let image = self.copy() as! NSImage
-        image.lockFocus()
-        color.set()
-        let imageRect = NSRect(origin: .zero, size: image.size)
-        imageRect.fill(using: .sourceAtop)
-        image.unlockFocus()
-        return image
+        let tinted = NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.isTemplate = false
+        return tinted
     }
 }

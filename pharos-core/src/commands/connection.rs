@@ -68,10 +68,8 @@ pub async fn delete_connection(
     state: &AppState,
 ) -> Result<(), String> {
     // Disconnect if connected
-    if state.has_pool(&connection_id) {
-        if let Some(pool) = state.remove_pool(&connection_id) {
-            pool.close().await;
-        }
+    if let Some(pool) = state.remove_pool(&connection_id) {
+        pool.close().await;
     }
 
     // Delete password from keychain and update cache

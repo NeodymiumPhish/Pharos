@@ -263,8 +263,9 @@ class QueryEditorVC: NSViewController {
             textView.textContainer?.size.width = textView.enclosingScrollView?.contentSize.width ?? 0
             textView.isHorizontallyResizable = false
         } else {
-            textView.textContainer?.widthTracksTextView = true
-            textView.isHorizontallyResizable = false
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.size.width = CGFloat.greatestFiniteMagnitude
+            textView.isHorizontallyResizable = true
         }
 
         textView.highlightSyntax()
