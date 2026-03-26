@@ -1059,13 +1059,52 @@ class ContentViewController: NSViewController {
     }
 
     private static func isSelectLikeSQL(_ sql: String) -> Bool {
-        let upper = sql.uppercased()
+        let stripped = stripLeadingComments(sql)
+        let upper = stripped.uppercased()
         return upper.hasPrefix("SELECT")
             || upper.hasPrefix("WITH")
             || upper.hasPrefix("EXPLAIN")
             || upper.hasPrefix("SHOW")
             || upper.hasPrefix("TABLE")
             || upper.hasPrefix("VALUES")
+    }
+
+    /// Strips leading SQL comments (block and line) and whitespace.
+    private static func stripLeadingComments(_ sql: String) -> String {
+        var s = sql[sql.startIndex...]
+        while !s.isEmpty {
+            if s.first?.isWhitespace == true {
+                s = s.drop(while: { $0.isWhitespace })
+                continue
+            }
+            if s.hasPrefix("--") {
+                if let newline = s.firstIndex(of: "\n") {
+                    s = s[s.index(after: newline)...]
+                } else {
+                    return ""
+                }
+                continue
+            }
+            if s.hasPrefix("/*") {
+                var depth = 1
+                var i = s.index(s.startIndex, offsetBy: 2)
+                while i < s.endIndex && depth > 0 {
+                    if s[i] == "/" && s.index(after: i) < s.endIndex && s[s.index(after: i)] == "*" {
+                        depth += 1
+                        i = s.index(i, offsetBy: 2)
+                    } else if s[i] == "*" && s.index(after: i) < s.endIndex && s[s.index(after: i)] == "/" {
+                        depth -= 1
+                        i = s.index(i, offsetBy: 2)
+                    } else {
+                        i = s.index(after: i)
+                    }
+                }
+                s = s[i...]
+                continue
+            }
+            break
+        }
+        return String(s)
     }
 
     // MARK: - Result Tab Management
