@@ -32,3 +32,4 @@ dist/
 .planning/
 design_requirements/
 .periphery.yml
+tasks/

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		017F1D6AD3F86E95B43774EF /* PaneTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */; };
 		050C066E656CA927DAE47838 /* ResultsGridVC+Delegates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */; };
+		069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */; };
 		0D06D23BAD7B85E3D848032E /* CloneTableSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147EF7BD64F5D8D49F5A76C /* CloneTableSheet.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
@@ -75,6 +76,7 @@
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
+		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -90,6 +92,7 @@
 		20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDataSheet.swift; sourceTree = "<group>"; };
 		21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataCache.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
+		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
 		45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+QueryHistory.swift"; sourceTree = "<group>"; };
 		4B5ECAA757C7692770A532EA /* FoldState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldState.swift; sourceTree = "<group>"; };
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
@@ -147,6 +150,7 @@
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
 		FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Settings.swift"; sourceTree = "<group>"; };
+		FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTextField+FormLabel.swift"; sourceTree = "<group>"; };
 		FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnFilter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -299,6 +303,7 @@
 				79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */,
 				A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */,
 				72D48095594419F14207C82F /* SQLFoldingParser.swift */,
+				3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */,
 				B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */,
 				5CA969614B127DE629649F33 /* SQLTextView.swift */,
 			);
@@ -316,6 +321,7 @@
 		FD1640F44D2DB2B3B35D8884 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */,
 				EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */,
 				0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
@@ -441,6 +447,7 @@
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
 				BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */,
 				19877E64248CE46809E223BA /* MetadataCache.swift in Sources */,
+				069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */,
 				8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */,
 				017F1D6AD3F86E95B43774EF /* PaneTabBar.swift in Sources */,
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,
@@ -472,6 +479,7 @@
 				A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
 				7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */,
+				FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */,
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
 				E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */,
