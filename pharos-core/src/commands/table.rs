@@ -479,7 +479,7 @@ pub struct ExportTableResult {
     pub rows_exported: u64,
 }
 
-/// Export table data in the specified format
+/// Export table data in the specified format (streams via pagination)
 pub async fn export_table(
     connection_id: String,
     options: ExportTableOptions,
@@ -516,168 +516,26 @@ pub async fn export_table(
         escape_identifier(&options.table_name)
     );
 
-    // Execute query
-    let rows = sqlx::query(&select_sql)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| format!("Failed to query table: {}", e))?;
+    // SQL INSERT target for this table export
+    let sql_insert_target = format!(
+        "\"{}\".\"{}\"",
+        escape_identifier(&options.schema_name),
+        escape_identifier(&options.table_name)
+    );
 
-    let rows_exported = rows.len() as u64;
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
-    match options.format {
-        ExportFormat::Csv | ExportFormat::Tsv => {
-            let file = File::create(&options.file_path)
-                .map_err(|e| format!("Failed to create file: {}", e))?;
-            let delimiter = match options.format {
-                ExportFormat::Tsv => b'\t',
-                _ => b',',
-            };
-            let mut writer = csv::WriterBuilder::new()
-                .delimiter(delimiter)
-                .from_writer(BufWriter::new(file));
-
-            if options.include_headers && !rows.is_empty() {
-                let headers: Vec<&str> = rows[0].columns().iter().map(|c| c.name()).collect();
-                writer.write_record(&headers).map_err(|e| format!("Failed to write headers: {}", e))?;
-            }
-
-            for row in &rows {
-                let record: Vec<String> = row.columns().iter().enumerate()
-                    .map(|(i, col)| extract_text_value(row, i, &col.type_info().to_string(), options.null_as_empty))
-                    .collect();
-                writer.write_record(&record).map_err(|e| format!("Failed to write row: {}", e))?;
-            }
-            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
-        }
-        ExportFormat::Json => {
-            let mut json_rows: Vec<serde_json::Map<String, serde_json::Value>> = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let mut obj = serde_json::Map::new();
-                for (i, col) in row.columns().iter().enumerate() {
-                    let type_name = col.type_info().to_string();
-                    let text = extract_text_value(row, i, &type_name, true);
-                    let val = text_to_json_value(&text, &type_name);
-                    obj.insert(col.name().to_string(), val);
-                }
-                json_rows.push(obj);
-            }
-            let json_str = serde_json::to_string_pretty(&json_rows)
-                .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
-            std::fs::write(&options.file_path, json_str)
-                .map_err(|e| format!("Failed to write file: {}", e))?;
-        }
-        ExportFormat::JsonLines => {
-            let file = File::create(&options.file_path)
-                .map_err(|e| format!("Failed to create file: {}", e))?;
-            let mut writer = BufWriter::new(file);
-            for row in &rows {
-                let mut obj = serde_json::Map::new();
-                for (i, col) in row.columns().iter().enumerate() {
-                    let type_name = col.type_info().to_string();
-                    let text = extract_text_value(row, i, &type_name, true);
-                    let val = text_to_json_value(&text, &type_name);
-                    obj.insert(col.name().to_string(), val);
-                }
-                let line = serde_json::to_string(&serde_json::Value::Object(obj))
-                    .map_err(|e| format!("Failed to serialize row: {}", e))?;
-                writeln!(writer, "{}", line).map_err(|e| format!("Failed to write line: {}", e))?;
-            }
-            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
-        }
-        ExportFormat::SqlInsert => {
-            let file = File::create(&options.file_path)
-                .map_err(|e| format!("Failed to create file: {}", e))?;
-            let mut writer = BufWriter::new(file);
-            if !rows.is_empty() {
-                let col_names: Vec<String> = rows[0].columns().iter()
-                    .map(|c| format!("\"{}\"", escape_identifier(c.name())))
-                    .collect();
-                let col_list = col_names.join(", ");
-
-                for row in &rows {
-                    let values: Vec<String> = row.columns().iter().enumerate()
-                        .map(|(i, col)| {
-                            let type_name = col.type_info().to_string();
-                            let text = extract_text_value(row, i, &type_name, false);
-                            if text == "NULL" {
-                                "NULL".to_string()
-                            } else {
-                                format_sql_value(&text, &type_name)
-                            }
-                        })
-                        .collect();
-                    writeln!(
-                        writer,
-                        "INSERT INTO \"{}\".\"{}\" ({}) VALUES ({});",
-                        escape_identifier(&options.schema_name),
-                        escape_identifier(&options.table_name),
-                        col_list,
-                        values.join(", ")
-                    ).map_err(|e| format!("Failed to write: {}", e))?;
-                }
-            }
-            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
-        }
-        ExportFormat::Markdown => {
-            let file = File::create(&options.file_path)
-                .map_err(|e| format!("Failed to create file: {}", e))?;
-            let mut writer = BufWriter::new(file);
-            if !rows.is_empty() {
-                let headers: Vec<&str> = rows[0].columns().iter().map(|c| c.name()).collect();
-                // Header row
-                writeln!(writer, "| {} |", headers.join(" | "))
-                    .map_err(|e| format!("Failed to write: {}", e))?;
-                // Separator row
-                let sep: Vec<&str> = headers.iter().map(|_| "---").collect();
-                writeln!(writer, "| {} |", sep.join(" | "))
-                    .map_err(|e| format!("Failed to write: {}", e))?;
-                // Data rows
-                for row in &rows {
-                    let values: Vec<String> = row.columns().iter().enumerate()
-                        .map(|(i, col)| {
-                            let text = extract_text_value(row, i, &col.type_info().to_string(), options.null_as_empty);
-                            // Escape pipes in markdown
-                            text.replace('|', "\\|")
-                        })
-                        .collect();
-                    writeln!(writer, "| {} |", values.join(" | "))
-                        .map_err(|e| format!("Failed to write: {}", e))?;
-                }
-            }
-            writer.flush().map_err(|e| format!("Failed to flush: {}", e))?;
-        }
-        ExportFormat::Xlsx => {
-            let mut workbook = rust_xlsxwriter::Workbook::new();
-            let worksheet = workbook.add_worksheet();
-
-            if !rows.is_empty() {
-                // Write headers
-                if options.include_headers {
-                    for (col_idx, col) in rows[0].columns().iter().enumerate() {
-                        worksheet.write_string(0, col_idx as u16, col.name())
-                            .map_err(|e| format!("Failed to write header: {}", e))?;
-                    }
-                }
-
-                let header_offset = if options.include_headers { 1u32 } else { 0u32 };
-                for (row_idx, row) in rows.iter().enumerate() {
-                    for (col_idx, col) in row.columns().iter().enumerate() {
-                        let type_name = col.type_info().to_string();
-                        write_xlsx_cell(worksheet, (row_idx as u32) + header_offset, col_idx as u16, row, col_idx, &type_name, options.null_as_empty)
-                            .map_err(|e| format!("Failed to write cell: {}", e))?;
-                    }
-                }
-            }
-
-            workbook.save(&options.file_path)
-                .map_err(|e| format!("Failed to save XLSX: {}", e))?;
-        }
-    }
-
-    Ok(ExportTableResult {
-        success: true,
-        rows_exported,
-    })
+    stream_export(
+        &mut conn,
+        &select_sql,
+        &options.file_path,
+        &options.format,
+        &sql_insert_target,
+        options.null_as_empty,
+        options.include_headers,
+        None,
+    )
+    .await
 }
 
 // ============================================================================
@@ -782,8 +640,6 @@ pub async fn export_query(
     state: &AppState,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
 ) -> Result<ExportTableResult, String> {
-    use futures::StreamExt;
-
     validate_file_path(&options.file_path)?;
 
     let pool = state
@@ -797,38 +653,73 @@ pub async fn export_query(
         set_search_path(&mut conn, schema_name).await?;
     }
 
+    let trimmed_sql = options.sql.trim().trim_end_matches(';').to_string();
+
+    stream_export(
+        &mut conn,
+        &trimmed_sql,
+        &options.file_path,
+        &options.format,
+        "\"_query_results\"",
+        true,  // null_as_empty
+        true,  // include_headers
+        progress_callback,
+    )
+    .await
+}
+
+// ============================================================================
+// Shared Streaming Export Engine
+// ============================================================================
+
+/// Shared streaming export: paginates through a SQL query with LIMIT/OFFSET
+/// and writes each batch to the target file in the specified format.
+///
+/// `base_sql` is the bare SELECT (no trailing semicolon).
+/// `sql_insert_target` is the quoted table name used for SQL INSERT format output.
+/// `null_as_empty` and `include_headers` control formatting behavior.
+async fn stream_export(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    base_sql: &str,
+    file_path: &str,
+    format: &ExportFormat,
+    sql_insert_target: &str,
+    null_as_empty: bool,
+    include_headers: bool,
+    progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
+) -> Result<ExportTableResult, String> {
+    use futures::StreamExt;
+
     let batch_size: i64 = 5000;
-    let trimmed_sql = options.sql.trim().trim_end_matches(';');
     let mut total_exported: u64 = 0;
     let mut offset: i64 = 0;
     let mut headers_written = false;
 
     // Column metadata (populated from first batch)
     let mut col_names: Vec<String> = Vec::new();
-    let mut col_types: Vec<String> = Vec::new();
 
-    let file = File::create(&options.file_path)
+    let file = File::create(file_path)
         .map_err(|e| format!("Failed to create file: {}", e))?;
     let mut writer = BufWriter::new(file);
 
     // JSON format: manually write array structure
-    let is_json = matches!(options.format, ExportFormat::Json);
+    let is_json = matches!(format, ExportFormat::Json);
     if is_json {
         writer.write_all(b"[\n").map_err(|e| format!("Failed to write: {}", e))?;
     }
 
     // XLSX: build workbook in memory
-    let is_xlsx = matches!(options.format, ExportFormat::Xlsx);
+    let is_xlsx = matches!(format, ExportFormat::Xlsx);
     let mut workbook = if is_xlsx { Some(rust_xlsxwriter::Workbook::new()) } else { None };
-    let xlsx_header_offset: u32 = 1; // row 0 = headers
+    let xlsx_header_offset: u32 = if include_headers { 1 } else { 0 };
 
     loop {
         let wrapped_sql = format!(
             "SELECT * FROM ({}) AS _pharos_export LIMIT {} OFFSET {}",
-            trimmed_sql, batch_size, offset
+            base_sql, batch_size, offset
         );
 
-        let mut stream = sqlx::query(&wrapped_sql).fetch(&mut *conn);
+        let mut stream = sqlx::query(&wrapped_sql).fetch(&mut **conn);
         let mut batch: Vec<sqlx::postgres::PgRow> = Vec::with_capacity(batch_size as usize);
 
         while let Some(row_result) = stream.next().await {
@@ -847,39 +738,39 @@ pub async fn export_query(
         }
 
         // Populate column metadata from first batch
-        if col_names.is_empty() && !batch.is_empty() {
+        if col_names.is_empty() {
             for col in batch[0].columns() {
                 col_names.push(col.name().to_string());
-                col_types.push(col.type_info().to_string());
             }
         }
 
         let batch_len = batch.len() as u64;
 
         // Write batch based on format
-        match options.format {
+        match format {
             ExportFormat::Csv | ExportFormat::Tsv => {
-                let delimiter = match options.format {
+                let delimiter = match format {
                     ExportFormat::Tsv => b'\t',
                     _ => b',',
                 };
-                // For CSV/TSV, we write raw lines (csv crate needs ownership of writer)
-                if !headers_written {
+                if !headers_written && include_headers {
                     let header_line: Vec<String> = col_names.iter()
                         .map(|n| escape_csv_field(n, delimiter))
                         .collect();
-                    writeln!(writer, "{}", header_line.join(if delimiter == b'\t' { "\t" } else { "," }))
+                    let sep = if delimiter == b'\t' { "\t" } else { "," };
+                    writeln!(writer, "{}", header_line.join(sep))
                         .map_err(|e| format!("Failed to write headers: {}", e))?;
                     headers_written = true;
                 }
+                let sep = if delimiter == b'\t' { "\t" } else { "," };
                 for row in &batch {
                     let record: Vec<String> = row.columns().iter().enumerate()
                         .map(|(i, col)| {
-                            let text = extract_text_value(row, i, &col.type_info().to_string(), true);
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), null_as_empty);
                             escape_csv_field(&text, delimiter)
                         })
                         .collect();
-                    writeln!(writer, "{}", record.join(if delimiter == b'\t' { "\t" } else { "," }))
+                    writeln!(writer, "{}", record.join(sep))
                         .map_err(|e| format!("Failed to write row: {}", e))?;
                 }
             }
@@ -888,13 +779,7 @@ pub async fn export_query(
                     if total_exported > 0 || i > 0 {
                         writer.write_all(b",\n").map_err(|e| format!("Failed to write: {}", e))?;
                     }
-                    let mut obj = serde_json::Map::new();
-                    for (i, col) in row.columns().iter().enumerate() {
-                        let type_name = col.type_info().to_string();
-                        let text = extract_text_value(row, i, &type_name, true);
-                        let val = text_to_json_value(&text, &type_name);
-                        obj.insert(col.name().to_string(), val);
-                    }
+                    let obj = row_to_json_object(row, true);
                     let json_str = serde_json::to_string_pretty(&serde_json::Value::Object(obj))
                         .map_err(|e| format!("Failed to serialize: {}", e))?;
                     writer.write_all(json_str.as_bytes())
@@ -903,13 +788,7 @@ pub async fn export_query(
             }
             ExportFormat::JsonLines => {
                 for row in &batch {
-                    let mut obj = serde_json::Map::new();
-                    for (i, col) in row.columns().iter().enumerate() {
-                        let type_name = col.type_info().to_string();
-                        let text = extract_text_value(row, i, &type_name, true);
-                        let val = text_to_json_value(&text, &type_name);
-                        obj.insert(col.name().to_string(), val);
-                    }
+                    let obj = row_to_json_object(row, true);
                     let line = serde_json::to_string(&serde_json::Value::Object(obj))
                         .map_err(|e| format!("Failed to serialize: {}", e))?;
                     writeln!(writer, "{}", line).map_err(|e| format!("Failed to write: {}", e))?;
@@ -935,8 +814,8 @@ pub async fn export_query(
                             }
                         })
                         .collect();
-                    writeln!(writer, "INSERT INTO \"_query_results\" ({}) VALUES ({});",
-                        col_list, values.join(", "))
+                    writeln!(writer, "INSERT INTO {} ({}) VALUES ({});",
+                        sql_insert_target, col_list, values.join(", "))
                         .map_err(|e| format!("Failed to write: {}", e))?;
                 }
             }
@@ -952,7 +831,7 @@ pub async fn export_query(
                 for row in &batch {
                     let values: Vec<String> = row.columns().iter().enumerate()
                         .map(|(i, col)| {
-                            let text = extract_text_value(row, i, &col.type_info().to_string(), true);
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), null_as_empty);
                             text.replace('|', "\\|")
                         })
                         .collect();
@@ -964,8 +843,7 @@ pub async fn export_query(
                 if let Some(ref mut wb) = workbook {
                     let worksheet = wb.worksheet_from_index(0)
                         .map_err(|e| format!("Failed to get worksheet: {}", e))?;
-                    // Write headers on first batch
-                    if !headers_written {
+                    if !headers_written && include_headers {
                         for (col_idx, name) in col_names.iter().enumerate() {
                             worksheet.write_string(0, col_idx as u16, name)
                                 .map_err(|e| format!("Failed to write header: {}", e))?;
@@ -983,7 +861,7 @@ pub async fn export_query(
                                 row,
                                 col_idx,
                                 &type_name,
-                                true,
+                                null_as_empty,
                             ).map_err(|e| format!("Failed to write cell: {}", e))?;
                         }
                     }
@@ -1014,7 +892,7 @@ pub async fn export_query(
     // Save XLSX workbook
     if let Some(mut wb) = workbook {
         drop(writer); // Release the file handle first
-        wb.save(&options.file_path)
+        wb.save(file_path)
             .map_err(|e| format!("Failed to save XLSX: {}", e))?;
     }
 
@@ -1193,6 +1071,21 @@ fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str
     }
 
     null_string()
+}
+
+/// Convert a PgRow into a JSON object (used by JSON and JSONL export formats)
+fn row_to_json_object(
+    row: &sqlx::postgres::PgRow,
+    null_as_empty: bool,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut obj = serde_json::Map::new();
+    for (i, col) in row.columns().iter().enumerate() {
+        let type_name = col.type_info().to_string();
+        let text = extract_text_value(row, i, &type_name, null_as_empty);
+        let val = text_to_json_value(&text, &type_name);
+        obj.insert(col.name().to_string(), val);
+    }
+    obj
 }
 
 /// Convert a text value to a typed JSON value based on the PostgreSQL type
