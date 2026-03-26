@@ -113,24 +113,40 @@ pub async fn analyze_schema(
     let had_unanalyzed = !unanalyzed.is_empty();
     let mut permission_denied_tables = Vec::new();
 
-    for table_name in &unanalyzed {
-        // Skip tables already known to be permission-denied this session
-        if skip_denied.contains(table_name) {
-            permission_denied_tables.push(table_name.clone());
-            continue;
+    // Filter out tables already known to be permission-denied
+    let to_analyze: Vec<&String> = unanalyzed.iter()
+        .filter(|t| !skip_denied.contains(*t))
+        .collect();
+    for t in &unanalyzed {
+        if skip_denied.contains(t) {
+            permission_denied_tables.push(t.clone());
         }
+    }
 
-        let analyze_sql = format!(
-            "ANALYZE \"{}\".\"{}\"",
-            schema_name.replace('"', "\"\""),
-            table_name.replace('"', "\"\"")
-        );
-        if let Err(e) = sqlx::query(&analyze_sql).execute(pool).await {
-            let msg = e.to_string().to_lowercase();
-            if msg.contains("permission denied") || msg.contains("only table or database owner can analyze") {
-                permission_denied_tables.push(table_name.clone());
+    if !to_analyze.is_empty() {
+        // Try batched ANALYZE first (single round-trip for all tables)
+        let escaped_schema = schema_name.replace('"', "\"\"");
+        let table_list: Vec<String> = to_analyze.iter()
+            .map(|t| format!("\"{}\".\"{}\"", escaped_schema, t.replace('"', "\"\"")))
+            .collect();
+        let batch_sql = format!("ANALYZE {}", table_list.join(", "));
+
+        if let Err(_) = sqlx::query(&batch_sql).execute(pool).await {
+            // Batch failed (likely permission denied on one+ tables).
+            // Fall back to per-table ANALYZE to identify which ones failed.
+            for table_name in &to_analyze {
+                let analyze_sql = format!(
+                    "ANALYZE \"{}\".\"{}\"",
+                    escaped_schema,
+                    table_name.replace('"', "\"\"")
+                );
+                if let Err(e) = sqlx::query(&analyze_sql).execute(pool).await {
+                    let msg = e.to_string().to_lowercase();
+                    if msg.contains("permission denied") || msg.contains("only table or database owner can analyze") {
+                        permission_denied_tables.push((*table_name).clone());
+                    }
+                }
             }
-            // Other errors (e.g., unreachable foreign servers) are silently ignored
         }
     }
 
