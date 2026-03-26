@@ -7,14 +7,7 @@ extension PharosCore {
 
     /// Load query history with optional filters.
     static func loadQueryHistory(filter: QueryHistoryFilter = QueryHistoryFilter()) throws -> [QueryHistoryEntry] {
-        let json = try JSONEncoder.pharos.encode(filter)
-        let jsonStr = String(data: json, encoding: .utf8)!
-        guard let ptr = jsonStr.withCString({ pharos_load_query_history($0) }) else {
-            throw PharosCoreError.nullResult
-        }
-        defer { pharos_free_string(ptr) }
-        let result = String(cString: ptr)
-        return try JSONDecoder.pharos.decode([QueryHistoryEntry].self, from: Data(result.utf8))
+        try callSync(input: filter) { pharos_load_query_history($0) }
     }
 
     /// Delete a query history entry.
@@ -42,10 +35,8 @@ extension PharosCore {
     }
 
     /// Batch delete query history entries.
-    /// Returns the count of deleted entries.
     static func batchDeleteQueryHistory(ids: [String]) throws -> Int {
-        let json = try JSONEncoder.pharos.encode(ids)
-        let jsonStr = String(data: json, encoding: .utf8)!
+        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(ids), as: UTF8.self)
         guard let ptr = jsonStr.withCString({ pharos_batch_delete_query_history($0) }) else {
             throw PharosCoreError.nullResult
         }

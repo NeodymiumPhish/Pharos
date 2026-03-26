@@ -95,6 +95,57 @@ extension JSONEncoder {
     static var pharos: JSONEncoder { JSONEncoder() }
 }
 
+// MARK: - Sync FFI Helpers
+
+extension PharosCore {
+
+    /// Call a sync FFI function that returns a JSON C-string, decode the result.
+    /// Handles null checks, freeing, and JSON error detection.
+    static func callSync<T: Decodable>(_ ffi: () -> UnsafeMutablePointer<CChar>?) throws -> T {
+        guard let ptr = ffi() else { throw PharosCoreError.nullResult }
+        defer { pharos_free_string(ptr) }
+        let json = String(cString: ptr)
+        return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+    }
+
+    /// Call a sync FFI function with a JSON-encoded input, decode the result.
+    static func callSync<T: Decodable, A: Encodable>(
+        input: A,
+        _ ffi: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    ) throws -> T {
+        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(input), as: UTF8.self)
+        guard let ptr = jsonStr.withCString({ ffi($0) }) else { throw PharosCoreError.nullResult }
+        defer { pharos_free_string(ptr) }
+        let json = String(cString: ptr)
+        return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+    }
+
+    /// Call a sync FFI function that returns NULL on success or error string on failure.
+    static func callSyncVoid<A: Encodable>(
+        input: A,
+        _ ffi: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    ) throws {
+        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(input), as: UTF8.self)
+        let error = jsonStr.withCString { ffi($0) }
+        if let error {
+            defer { pharos_free_string(error) }
+            throw PharosCoreError.rustError(String(cString: error))
+        }
+    }
+
+    /// Call a sync FFI function with a string arg that returns NULL on success or error string.
+    static func callSyncVoid(
+        id: String,
+        _ ffi: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    ) throws {
+        let error = id.withCString { ffi($0) }
+        if let error {
+            defer { pharos_free_string(error) }
+            throw PharosCoreError.rustError(String(cString: error))
+        }
+    }
+}
+
 // MARK: - Errors
 
 enum PharosCoreError: LocalizedError {
