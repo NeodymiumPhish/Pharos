@@ -71,17 +71,17 @@ struct ResultTab: Identifiable {
         .systemPink,
     ]
 
-    private static var colorIndex = 0
+    @MainActor private static var colorIndex = 0
 
     /// Returns the next color in the cycling palette.
-    static func nextColor() -> NSColor {
+    @MainActor static func nextColor() -> NSColor {
         let color = palette[colorIndex % palette.count]
         colorIndex += 1
         return color
     }
 
     /// Reset the color cycle (e.g. when all result tabs are cleared).
-    static func resetColorCycle() {
+    @MainActor static func resetColorCycle() {
         colorIndex = 0
     }
 }

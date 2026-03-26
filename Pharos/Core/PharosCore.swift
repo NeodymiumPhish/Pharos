@@ -85,12 +85,14 @@ func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) -
 
 extension JSONDecoder {
     /// Decoder for Rust JSON. No key strategy — models use explicit CodingKeys where needed.
-    static let pharos = JSONDecoder()
+    /// Returns a fresh instance each call since JSONDecoder is not thread-safe.
+    static var pharos: JSONDecoder { JSONDecoder() }
 }
 
 extension JSONEncoder {
     /// Encoder for Rust JSON. No key strategy — models use explicit CodingKeys where needed.
-    static let pharos = JSONEncoder()
+    /// Returns a fresh instance each call since JSONEncoder is not thread-safe.
+    static var pharos: JSONEncoder { JSONEncoder() }
 }
 
 // MARK: - Errors

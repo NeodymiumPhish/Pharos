@@ -4,6 +4,7 @@ import Combine
 /// Caches schema metadata for ALL active connections.
 /// Used to feed SQL autocomplete with schema/table/column info.
 /// Switching connections restores cached data instantly; only force=true triggers network fetches.
+@MainActor
 final class MetadataCache: ObservableObject {
 
     static let shared = MetadataCache()
@@ -61,24 +62,18 @@ final class MetadataCache: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 // Publish schema names immediately so the selector is usable
-                await MainActor.run {
-                    self.schemas = fetchedSchemas
-                    self.isLoading = false
-                    // Store schemas in cache
-                    self.connectionCaches[connectionId]?.schemas = fetchedSchemas
-                }
+                self.schemas = fetchedSchemas
+                self.isLoading = false
+                // Store schemas in cache
+                self.connectionCaches[connectionId]?.schemas = fetchedSchemas
 
                 // Load tables + columns in the background for autocomplete
                 await self.loadDetails(connectionId: connectionId, schemas: fetchedSchemas)
 
                 // Mark as fully loaded
-                await MainActor.run {
-                    self.connectionCaches[connectionId]?.isLoaded = true
-                }
+                self.connectionCaches[connectionId]?.isLoaded = true
             } catch {
-                await MainActor.run {
-                    self.isLoading = false
-                }
+                self.isLoading = false
                 NSLog("MetadataCache: Failed to load metadata: \(error)")
             }
         }
@@ -162,8 +157,8 @@ final class MetadataCache: ObservableObject {
         }
 
         // Preserve already-loaded data (from a previous partial load)
-        var allTables = await MainActor.run { self.tables }
-        var allColumns = await MainActor.run { self.columnsByTable }
+        var allTables = self.tables
+        var allColumns = self.columnsByTable
 
         for schema in ordered {
             guard !Task.isCancelled else { return }
@@ -197,13 +192,11 @@ final class MetadataCache: ObservableObject {
                 }
 
                 // Publish incrementally so autocomplete updates as each schema loads
-                await MainActor.run {
-                    self.tables = allTables
-                    self.columnsByTable = allColumns
-                    // Update cache incrementally
-                    self.connectionCaches[connectionId]?.tables = allTables
-                    self.connectionCaches[connectionId]?.columnsByTable = allColumns
-                }
+                self.tables = allTables
+                self.columnsByTable = allColumns
+                // Update cache incrementally
+                self.connectionCaches[connectionId]?.tables = allTables
+                self.connectionCaches[connectionId]?.columnsByTable = allColumns
             } catch {
                 NSLog("MetadataCache: Failed to load tables/columns for \(schema.name): \(error)")
             }

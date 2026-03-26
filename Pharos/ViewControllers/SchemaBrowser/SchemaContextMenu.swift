@@ -11,6 +11,7 @@ protocol SchemaContextMenuDelegate: AnyObject {
 
 // MARK: - SchemaContextMenu
 
+@MainActor
 class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     private let outlineView: NSOutlineView

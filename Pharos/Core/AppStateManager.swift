@@ -3,6 +3,7 @@ import Combine
 
 /// Central state manager for the Pharos app. Observable via Combine.
 /// Manages connections, active connection, settings, and connection status.
+@MainActor
 final class AppStateManager: ObservableObject {
 
     static let shared = AppStateManager()
@@ -110,29 +111,25 @@ final class AppStateManager: ObservableObject {
         Task {
             do {
                 let info = try await PharosCore.connect(connectionId: id)
-                await MainActor.run {
-                    self.connectionStatuses[id] = info.status
-                    self.activeConnectionId = id
-                    // Default to "public" schema on first connection
-                    if self.schemaSelections[id] == nil {
-                        self.activeSchema = "public"
-                    }
-                    // Also update the active tab's schema to match
-                    if let tabId = self.activeTabId {
-                        self.updateTab(id: tabId) { tab in
-                            if tab.connectionId == id && tab.schemaName == nil {
-                                tab.schemaName = self.activeSchema ?? "public"
-                            }
+                self.connectionStatuses[id] = info.status
+                self.activeConnectionId = id
+                // Default to "public" schema on first connection
+                if self.schemaSelections[id] == nil {
+                    self.activeSchema = "public"
+                }
+                // Also update the active tab's schema to match
+                if let tabId = self.activeTabId {
+                    self.updateTab(id: tabId) { tab in
+                        if tab.connectionId == id && tab.schemaName == nil {
+                            tab.schemaName = self.activeSchema ?? "public"
                         }
                     }
-                    self.postStatusChange(id)
                 }
+                self.postStatusChange(id)
             } catch {
-                await MainActor.run {
-                    self.connectionStatuses[id] = .error
-                    self.postStatusChange(id)
-                    NSLog("Connection failed: \(error)")
-                }
+                self.connectionStatuses[id] = .error
+                self.postStatusChange(id)
+                NSLog("Connection failed: \(error)")
             }
         }
     }
@@ -141,13 +138,11 @@ final class AppStateManager: ObservableObject {
         Task {
             do {
                 try await PharosCore.disconnect(connectionId: id)
-                await MainActor.run {
-                    self.connectionStatuses[id] = .disconnected
-                    if self.activeConnectionId == id {
-                        self.activeConnectionId = nil
-                    }
-                    self.postStatusChange(id)
+                self.connectionStatuses[id] = .disconnected
+                if self.activeConnectionId == id {
+                    self.activeConnectionId = nil
                 }
+                self.postStatusChange(id)
             } catch {
                 NSLog("Disconnect failed: \(error)")
             }

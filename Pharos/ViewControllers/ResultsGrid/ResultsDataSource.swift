@@ -45,6 +45,7 @@ private class ResultCellView: NSTableCellView {
 
 // MARK: - ResultsDataSource
 
+@MainActor
 class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private let tableView: NSTableView
 
