@@ -148,12 +148,15 @@ class EditorPaneVC: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Observe tab content changes (isDirty, isExecuting, name)
+        // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus
+        // Single subscription to $tabs to avoid duplicate work per mutation
         stateManager.$tabs
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshTabBar()
                 self?.updateEditorToolbarState()
+                self?.rebuildConnectionMenu()
+                self?.rebuildSchemaMenu()
             }
             .store(in: &cancellables)
 
@@ -179,25 +182,14 @@ class EditorPaneVC: NSViewController {
         }
         .store(in: &cancellables)
 
-        // Observe connection/schema state for editor toolbar selectors
-        stateManager.$connections
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuildConnectionMenu() }
-            .store(in: &cancellables)
-
-        // Rebuild selectors when tabs change (per-tab connection/schema)
-        stateManager.$tabs
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.rebuildConnectionMenu()
-                self?.rebuildSchemaMenu()
-            }
-            .store(in: &cancellables)
-
-        stateManager.$connectionStatuses
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuildConnectionMenu() }
-            .store(in: &cancellables)
+        // Coalesce connection/status changes to rebuild menus at most once per run loop pass
+        Publishers.CombineLatest(
+            stateManager.$connections,
+            stateManager.$connectionStatuses
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _, _ in self?.rebuildConnectionMenu() }
+        .store(in: &cancellables)
 
         metadataCache.$schemas
             .receive(on: RunLoop.main)
@@ -302,14 +294,14 @@ class EditorPaneVC: NSViewController {
     // MARK: - Focus Tracking
 
     @objc private func windowDidUpdate(_ notification: Notification) {
+        // Early exit if this pane is already focused (most common case)
+        guard stateManager.focusedPaneId != paneId else { return }
         guard let window = view.window,
               let responder = window.firstResponder as? NSView else { return }
 
         if responder === editorVC.textView || responder.isDescendant(of: editorVC.textView) {
-            if stateManager.focusedPaneId != paneId {
-                stateManager.focusPane(id: paneId)
-                delegate?.editorPane(self, didFocus: paneId)
-            }
+            stateManager.focusPane(id: paneId)
+            delegate?.editorPane(self, didFocus: paneId)
         }
     }
 
