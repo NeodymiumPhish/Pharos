@@ -879,24 +879,51 @@ class ContentViewController: NSViewController {
 
     /// Execute a specific SQL segment, creating a result tab on success.
     func executeSegment(_ segment: SQLSegment) {
+        performQuery(
+            segment.sql,
+            segmentIndex: segment.index,
+            lineRange: segment.startLine...segment.endLine,
+            customLabel: nil,
+            createResultTab: true
+        )
+    }
+
+    /// Execute SQL directly without creating a result tab (fallback when no segments parsed).
+    private func executeDirectSQL(_ querySQL: String) {
+        performQuery(querySQL, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: false)
+    }
+
+    /// Unified query execution.
+    /// - `createResultTab`: if true, results go into a new result tab; if false, shown inline.
+    private func performQuery(
+        _ querySQL: String,
+        segmentIndex: Int,
+        lineRange: ClosedRange<Int>,
+        customLabel: String?,
+        createResultTab: Bool
+    ) {
         guard let activeTab = stateManager.activeTab,
               let connectionId = activeTab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
         let tabId = activeTab.id
         let tabSchema = activeTab.schemaName
 
-        let sql = segment.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sql = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
 
         let queryId = UUID().uuidString
-        let color = ResultTab.nextColor()
+        let color = createResultTab ? ResultTab.nextColor() : .clear
 
-        // Mark tab as executing
         stateManager.updateTab(id: tabId) { tab in
             tab.isExecuting = true
             tab.queryId = queryId
             tab.error = nil
+            if !createResultTab {
+                tab.result = nil
+                tab.executeResult = nil
+            }
         }
+        if !createResultTab { resultsVC.clear() }
         focusedPaneVC?.clearErrorMarkers()
 
         let limit = Int32(stateManager.settings.query.defaultLimit)
@@ -906,111 +933,8 @@ class ContentViewController: NSViewController {
             do {
                 if isSelectLike {
                     let result = try await PharosCore.executeQuery(
-                        connectionId: connectionId,
-                        sql: sql,
-                        queryId: queryId,
-                        limit: limit,
-                        schema: tabSchema
-                    )
-                    await MainActor.run {
-                        var rt = ResultTab(
-                            id: UUID().uuidString,
-                            segmentIndex: segment.index,
-                            sql: sql,
-                            lineRange: segment.startLine...segment.endLine,
-                            color: color,
-                            timestamp: Date()
-                        )
-                        rt.queryResult = result
-                        rt.executionTimeMs = result.executionTimeMs
-
-                        self.stateManager.updateTab(id: tabId) { tab in
-                            tab.isExecuting = false
-                            tab.queryId = nil
-                            tab.result = result
-                        }
-                        self.addResultTab(rt)
-                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
-                    }
-                } else {
-                    let result = try await PharosCore.executeStatement(
-                        connectionId: connectionId,
-                        sql: sql,
-                        schema: tabSchema
-                    )
-                    await MainActor.run {
-                        var rt = ResultTab(
-                            id: UUID().uuidString,
-                            segmentIndex: segment.index,
-                            sql: sql,
-                            lineRange: segment.startLine...segment.endLine,
-                            color: color,
-                            timestamp: Date()
-                        )
-                        rt.executeResult = result
-                        rt.executionTimeMs = result.executionTimeMs
-
-                        self.stateManager.updateTab(id: tabId) { tab in
-                            tab.isExecuting = false
-                            tab.queryId = nil
-                            tab.executeResult = result
-                        }
-                        self.addResultTab(rt)
-                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    let message = error.localizedDescription
-                    self.stateManager.updateTab(id: tabId) { tab in
-                        tab.isExecuting = false
-                        tab.queryId = nil
-                        tab.error = message
-                    }
-                    if self.stateManager.activeTabId == tabId {
-                        self.resultsVC.showError(message)
-                        self.markEditorError(message: message, sql: sql)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Execute SQL directly without creating a result tab (legacy path for explicit SQL).
-    private func executeDirectSQL(_ querySQL: String) {
-        guard let activeTab = stateManager.activeTab,
-              let connectionId = activeTab.connectionId,
-              stateManager.status(for: connectionId) == .connected else { return }
-        let tabId = activeTab.id
-        let tabSchema = activeTab.schemaName
-
-        let trimmed = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let queryId = UUID().uuidString
-
-        stateManager.updateTab(id: tabId) { tab in
-            tab.isExecuting = true
-            tab.queryId = queryId
-            tab.error = nil
-            tab.result = nil
-            tab.executeResult = nil
-        }
-        resultsVC.clear()
-        focusedPaneVC?.clearErrorMarkers()
-
-        let limit = Int32(stateManager.settings.query.defaultLimit)
-        let isSelectLike = Self.isSelectLikeSQL(trimmed)
-
-        Task {
-            do {
-                if isSelectLike {
-                    let result = try await PharosCore.executeQuery(
-                        connectionId: connectionId,
-                        sql: trimmed,
-                        queryId: queryId,
-                        limit: limit,
-                        schema: tabSchema
+                        connectionId: connectionId, sql: sql, queryId: queryId,
+                        limit: limit, schema: tabSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -1018,16 +942,23 @@ class ContentViewController: NSViewController {
                             tab.queryId = nil
                             tab.result = result
                         }
-                        if self.stateManager.activeTabId == tabId {
+                        if createResultTab {
+                            var rt = ResultTab(
+                                id: UUID().uuidString, segmentIndex: segmentIndex,
+                                sql: sql, lineRange: lineRange, color: color, timestamp: Date()
+                            )
+                            rt.customLabel = customLabel
+                            rt.queryResult = result
+                            rt.executionTimeMs = result.executionTimeMs
+                            self.addResultTab(rt)
+                        } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
                         }
                         NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
                     }
                 } else {
                     let result = try await PharosCore.executeStatement(
-                        connectionId: connectionId,
-                        sql: trimmed,
-                        schema: tabSchema
+                        connectionId: connectionId, sql: sql, schema: tabSchema
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
@@ -1035,7 +966,16 @@ class ContentViewController: NSViewController {
                             tab.queryId = nil
                             tab.executeResult = result
                         }
-                        if self.stateManager.activeTabId == tabId {
+                        if createResultTab {
+                            var rt = ResultTab(
+                                id: UUID().uuidString, segmentIndex: segmentIndex,
+                                sql: sql, lineRange: lineRange, color: color, timestamp: Date()
+                            )
+                            rt.customLabel = customLabel
+                            rt.executeResult = result
+                            rt.executionTimeMs = result.executionTimeMs
+                            self.addResultTab(rt)
+                        } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showExecuteResult(result)
                         }
                         NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
@@ -1051,7 +991,7 @@ class ContentViewController: NSViewController {
                     }
                     if self.stateManager.activeTabId == tabId {
                         self.resultsVC.showError(message)
-                        self.markEditorError(message: message, sql: trimmed)
+                        self.markEditorError(message: message, sql: sql)
                     }
                 }
             }
@@ -1422,67 +1362,7 @@ extension ContentViewController {
     @objc private func handleRunQueryInCurrentTab(_ notification: Notification) {
         guard let sql = notification.userInfo?["sql"] as? String,
               let resultName = notification.userInfo?["resultName"] as? String else { return }
-        guard let activeTab = stateManager.activeTab,
-              let connectionId = activeTab.connectionId,
-              stateManager.status(for: connectionId) == .connected else { return }
-
-        let tabId = activeTab.id
-        let tabSchema = activeTab.schemaName
-        let queryId = UUID().uuidString
-        let color = ResultTab.nextColor()
-
-        stateManager.updateTab(id: tabId) { tab in
-            tab.isExecuting = true
-            tab.queryId = queryId
-            tab.error = nil
-        }
-
-        let limit = Int32(stateManager.settings.query.defaultLimit)
-
-        Task {
-            do {
-                let result = try await PharosCore.executeQuery(
-                    connectionId: connectionId,
-                    sql: sql,
-                    queryId: queryId,
-                    limit: limit,
-                    schema: tabSchema
-                )
-                await MainActor.run {
-                    var rt = ResultTab(
-                        id: UUID().uuidString,
-                        segmentIndex: -1,
-                        sql: sql,
-                        lineRange: 0...0,
-                        color: color,
-                        timestamp: Date()
-                    )
-                    rt.customLabel = resultName
-                    rt.queryResult = result
-                    rt.executionTimeMs = result.executionTimeMs
-
-                    self.stateManager.updateTab(id: tabId) { tab in
-                        tab.isExecuting = false
-                        tab.queryId = nil
-                        tab.result = result
-                    }
-                    self.addResultTab(rt)
-                    NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
-                }
-            } catch {
-                await MainActor.run {
-                    let message = error.localizedDescription
-                    self.stateManager.updateTab(id: tabId) { tab in
-                        tab.isExecuting = false
-                        tab.queryId = nil
-                        tab.error = message
-                    }
-                    if self.stateManager.activeTabId == tabId {
-                        self.resultsVC.showError(message)
-                    }
-                }
-            }
-        }
+        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: resultName, createResultTab: true)
     }
 
     @objc private func handleInsertTextInEditor(_ notification: Notification) {
