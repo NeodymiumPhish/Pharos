@@ -64,6 +64,68 @@ class SQLTextView: NSTextView {
 
     private var isHighlighting = false
 
+    // Cached regex objects (compiled once, reused per highlight call)
+    private static let commentLineRegex = try! NSRegularExpression(pattern: "--[^\n]*")
+    private static let stringRegex = try! NSRegularExpression(pattern: "'(?:[^']|'')*'")
+    private static let dollarQuoteRegex = try! NSRegularExpression(pattern: "\\$(\\w*)\\$[\\s\\S]*?\\$\\1\\$")
+    private static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
+    private static let keywordRegex: NSRegularExpression = {
+        let keywords = [
+            "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
+            "BETWEEN", "IS", "NULL", "TRUE", "FALSE",
+            "ORDER", "BY", "ASC", "DESC", "NULLS", "FIRST", "LAST",
+            "GROUP", "HAVING", "LIMIT", "OFFSET",
+            "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
+            "UNION", "ALL", "INTERSECT", "EXCEPT",
+            "INSERT", "INTO", "VALUES", "DEFAULT",
+            "UPDATE", "SET",
+            "DELETE",
+            "CREATE", "TABLE", "INDEX", "VIEW", "SCHEMA", "DATABASE",
+            "ALTER", "ADD", "DROP", "COLUMN", "CONSTRAINT",
+            "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK",
+            "CASCADE", "RESTRICT",
+            "AS", "DISTINCT", "CASE", "WHEN", "THEN", "ELSE", "END",
+            "COALESCE", "NULLIF", "CAST",
+            "EXISTS", "ANY", "SOME",
+            "WITH", "RECURSIVE",
+            "RETURNING", "IF", "REPLACE", "TEMP", "TEMPORARY",
+            "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION",
+            "EXPLAIN", "ANALYZE", "VERBOSE", "COSTS", "BUFFERS", "FORMAT",
+            "GRANT", "REVOKE", "TRUNCATE",
+            "OVER", "PARTITION", "WINDOW", "ROWS", "RANGE",
+            "LATERAL", "FETCH", "NEXT", "ONLY", "FOR",
+        ]
+        return try! NSRegularExpression(pattern: "\\b(" + keywords.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
+    }()
+    private static let functionRegex: NSRegularExpression = {
+        let builtins = [
+            "count", "sum", "avg", "min", "max", "array_agg", "string_agg", "bool_and", "bool_or",
+            "length", "lower", "upper", "trim", "ltrim", "rtrim", "substring", "concat", "replace",
+            "split_part", "regexp_replace", "regexp_matches", "position", "strpos",
+            "now", "current_date", "current_time", "current_timestamp", "date_trunc", "extract",
+            "age", "date_part", "to_char", "to_date", "to_timestamp",
+            "abs", "ceil", "floor", "round", "trunc", "mod", "power", "sqrt", "random",
+            "json_build_object", "json_agg", "jsonb_build_object", "jsonb_agg",
+            "json_extract_path", "jsonb_extract_path", "json_array_elements", "jsonb_array_elements",
+            "array_length", "unnest", "array_append", "array_prepend", "array_cat",
+            "greatest", "least", "generate_series",
+            "row_number", "rank", "dense_rank", "ntile", "lag", "lead", "first_value", "last_value",
+        ]
+        return try! NSRegularExpression(pattern: "\\b(" + builtins.joined(separator: "|") + ")\\s*(?=\\()", options: [.caseInsensitive])
+    }()
+    private static let typeRegex: NSRegularExpression = {
+        let types = [
+            "INTEGER", "INT", "BIGINT", "SMALLINT", "SERIAL", "BIGSERIAL",
+            "TEXT", "VARCHAR", "CHAR", "CHARACTER", "VARYING",
+            "BOOLEAN", "BOOL",
+            "TIMESTAMP", "TIMESTAMPTZ", "DATE", "TIME", "TIMETZ", "INTERVAL",
+            "NUMERIC", "DECIMAL", "REAL", "DOUBLE", "PRECISION", "FLOAT",
+            "UUID", "JSON", "JSONB", "BYTEA", "INET", "CIDR", "MACADDR",
+            "ARRAY", "RECORD", "VOID", "OID", "REGCLASS",
+        ]
+        return try! NSRegularExpression(pattern: "\\b(" + types.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
+    }()
+
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
         commonInit()
@@ -499,7 +561,7 @@ class SQLTextView: NSTextView {
     // MARK: - Syntax Highlighting
 
     func highlightSyntax() {
-        guard !isHighlighting, let layoutManager, let textStorage else { return }
+        guard !isHighlighting, let layoutManager else { return }
         isHighlighting = true
         defer { isHighlighting = false }
 
@@ -511,118 +573,103 @@ class SQLTextView: NSTextView {
 
         guard !text.isEmpty else { return }
 
-        // Apply highlighting via temporary attributes (doesn't affect undo stack)
-        highlightComments(text, layoutManager: layoutManager)
-        highlightStrings(text, layoutManager: layoutManager)
-        highlightKeywords(text, layoutManager: layoutManager)
-        highlightFunctions(text, layoutManager: layoutManager)
-        highlightTypes(text, layoutManager: layoutManager)
-        highlightNumbers(text, layoutManager: layoutManager)
+        // Phase 1: Build a set of "protected" ranges (comments + strings).
+        // These take priority and block keyword/type/function highlighting.
+        var protectedRanges: [NSRange] = []
+
+        // Single-line comments
+        Self.commentLineRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let range = match?.range else { return }
+            protectedRanges.append(range)
+            layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.comment, forCharacterRange: range)
+        }
+
+        // Block comments (with nesting support)
+        highlightBlockComments(text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: &protectedRanges)
+
+        // Single-quoted strings (PostgreSQL uses '' for escaping, not backslash)
+        Self.stringRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let range = match?.range else { return }
+            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
+                protectedRanges.append(range)
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.string, forCharacterRange: range)
+            }
+        }
+
+        // Dollar-quoted strings ($tag$...$tag$ including $$...$$)
+        Self.dollarQuoteRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+            guard let range = match?.range else { return }
+            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
+                protectedRanges.append(range)
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.string, forCharacterRange: range)
+            }
+        }
+
+        // Phase 2: Apply keyword/function/type/number highlighting, skipping protected ranges
+        applyRegex(Self.keywordRegex, color: theme.keyword, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
+        applyRegex(Self.functionRegex, color: theme.function, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
+        applyRegex(Self.typeRegex, color: theme.type, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
+        applyRegex(Self.numberRegex, color: theme.number, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
     }
 
-    // MARK: - Pattern Matching
+    // MARK: - Highlighting Helpers
 
-    private func highlightComments(_ text: String, layoutManager: NSLayoutManager) {
-        // Single-line comments: -- to end of line
-        applyPattern("--[^\n]*", color: theme.comment, in: text, layoutManager: layoutManager)
-        // Block comments: /* ... */
-        applyPattern("/\\*[\\s\\S]*?\\*/", color: theme.comment, in: text, layoutManager: layoutManager)
+    /// Highlight block comments with nesting support (PostgreSQL supports /* /* */ */).
+    private func highlightBlockComments(_ text: String, fullRange: NSRange, layoutManager: NSLayoutManager, protectedRanges: inout [NSRange]) {
+        let nsText = text as NSString
+        var i = 0
+        let length = nsText.length
+        while i < length - 1 {
+            if nsText.character(at: i) == 0x2F /* / */ && nsText.character(at: i + 1) == 0x2A /* * */ {
+                let start = i
+                var depth = 1
+                i += 2
+                while i < length && depth > 0 {
+                    if i < length - 1 && nsText.character(at: i) == 0x2F && nsText.character(at: i + 1) == 0x2A {
+                        depth += 1
+                        i += 2
+                    } else if i < length - 1 && nsText.character(at: i) == 0x2A && nsText.character(at: i + 1) == 0x2F {
+                        depth -= 1
+                        i += 2
+                    } else {
+                        i += 1
+                    }
+                }
+                let range = NSRange(location: start, length: i - start)
+                protectedRanges.append(range)
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.comment, forCharacterRange: range)
+            } else {
+                i += 1
+            }
+        }
     }
 
-    private func highlightStrings(_ text: String, layoutManager: NSLayoutManager) {
-        // Single-quoted strings (with escaped quotes)
-        applyPattern("'(?:[^'\\\\]|\\\\.)*'", color: theme.string, in: text, layoutManager: layoutManager)
-        // Dollar-quoted strings: $$...$$
-        applyPattern("\\$\\$[\\s\\S]*?\\$\\$", color: theme.string, in: text, layoutManager: layoutManager)
+    /// Check if a range overlaps any protected (comment/string) range.
+    private func rangeOverlapsProtected(_ range: NSRange, protectedRanges: [NSRange]) -> Bool {
+        let end = range.location + range.length
+        for pr in protectedRanges {
+            let prEnd = pr.location + pr.length
+            if range.location < prEnd && end > pr.location {
+                return true
+            }
+        }
+        return false
     }
 
-    private func highlightKeywords(_ text: String, layoutManager: NSLayoutManager) {
-        let keywords = [
-            "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
-            "BETWEEN", "IS", "NULL", "TRUE", "FALSE",
-            "ORDER", "BY", "ASC", "DESC", "NULLS", "FIRST", "LAST",
-            "GROUP", "HAVING", "LIMIT", "OFFSET",
-            "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
-            "UNION", "ALL", "INTERSECT", "EXCEPT",
-            "INSERT", "INTO", "VALUES", "DEFAULT",
-            "UPDATE", "SET",
-            "DELETE",
-            "CREATE", "TABLE", "INDEX", "VIEW", "SCHEMA", "DATABASE",
-            "ALTER", "ADD", "DROP", "COLUMN", "CONSTRAINT",
-            "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK",
-            "CASCADE", "RESTRICT",
-            "AS", "DISTINCT", "CASE", "WHEN", "THEN", "ELSE", "END",
-            "COALESCE", "NULLIF", "CAST",
-            "EXISTS", "ANY", "SOME",
-            "WITH", "RECURSIVE",
-            "RETURNING", "IF", "REPLACE", "TEMP", "TEMPORARY",
-            "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION",
-            "EXPLAIN", "ANALYZE", "VERBOSE", "COSTS", "BUFFERS", "FORMAT",
-            "GRANT", "REVOKE", "TRUNCATE",
-            "OVER", "PARTITION", "WINDOW", "ROWS", "RANGE",
-            "LATERAL", "FETCH", "NEXT", "ONLY", "FOR",
-        ]
-        let pattern = "\\b(" + keywords.joined(separator: "|") + ")\\b"
-        applyPattern(pattern, color: theme.keyword, in: text, layoutManager: layoutManager, options: [.caseInsensitive])
-    }
-
-    private func highlightFunctions(_ text: String, layoutManager: NSLayoutManager) {
-        // Match word followed by ( — common SQL function call pattern
-        let builtins = [
-            "count", "sum", "avg", "min", "max", "array_agg", "string_agg", "bool_and", "bool_or",
-            "length", "lower", "upper", "trim", "ltrim", "rtrim", "substring", "concat", "replace",
-            "split_part", "regexp_replace", "regexp_matches", "position", "strpos",
-            "now", "current_date", "current_time", "current_timestamp", "date_trunc", "extract",
-            "age", "date_part", "to_char", "to_date", "to_timestamp",
-            "abs", "ceil", "floor", "round", "trunc", "mod", "power", "sqrt", "random",
-            "json_build_object", "json_agg", "jsonb_build_object", "jsonb_agg",
-            "json_extract_path", "jsonb_extract_path", "json_array_elements", "jsonb_array_elements",
-            "array_length", "unnest", "array_append", "array_prepend", "array_cat",
-            "greatest", "least", "generate_series",
-            "row_number", "rank", "dense_rank", "ntile", "lag", "lead", "first_value", "last_value",
-        ]
-        let pattern = "\\b(" + builtins.joined(separator: "|") + ")\\s*(?=\\()"
-        applyPattern(pattern, color: theme.function, in: text, layoutManager: layoutManager, options: [.caseInsensitive])
-    }
-
-    private func highlightTypes(_ text: String, layoutManager: NSLayoutManager) {
-        let types = [
-            "INTEGER", "INT", "BIGINT", "SMALLINT", "SERIAL", "BIGSERIAL",
-            "TEXT", "VARCHAR", "CHAR", "CHARACTER", "VARYING",
-            "BOOLEAN", "BOOL",
-            "TIMESTAMP", "TIMESTAMPTZ", "DATE", "TIME", "TIMETZ", "INTERVAL",
-            "NUMERIC", "DECIMAL", "REAL", "DOUBLE", "PRECISION", "FLOAT",
-            "UUID", "JSON", "JSONB", "BYTEA", "INET", "CIDR", "MACADDR",
-            "ARRAY", "RECORD", "VOID", "OID", "REGCLASS",
-        ]
-        let pattern = "\\b(" + types.joined(separator: "|") + ")\\b"
-        applyPattern(pattern, color: theme.type, in: text, layoutManager: layoutManager, options: [.caseInsensitive])
-    }
-
-    private func highlightNumbers(_ text: String, layoutManager: NSLayoutManager) {
-        // Integers and decimals, but not part of identifiers
-        applyPattern("(?<![\\w.])\\d+\\.?\\d*(?![\\w.])", color: theme.number, in: text, layoutManager: layoutManager)
-    }
-
-    private func applyPattern(
-        _ pattern: String,
+    /// Apply a pre-compiled regex, skipping protected (comment/string) ranges.
+    private func applyRegex(
+        _ regex: NSRegularExpression,
         color: NSColor,
         in text: String,
+        fullRange: NSRange,
         layoutManager: NSLayoutManager,
-        options: NSRegularExpression.Options = []
+        protectedRanges: [NSRange]
     ) {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return }
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
         regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
             guard let range = match?.range else { return }
-            // Don't overwrite comments or strings (they're applied first and take priority)
-            if let existing = layoutManager.temporaryAttribute(.foregroundColor, atCharacterIndex: range.location, effectiveRange: nil) as? NSColor {
-                if existing == theme.comment || existing == theme.string {
-                    return
-                }
+            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
             }
-            layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
         }
     }
 

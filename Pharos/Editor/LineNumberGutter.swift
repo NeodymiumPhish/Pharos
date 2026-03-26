@@ -57,6 +57,10 @@ class LineNumberGutter: NSView {
 
     private var gutterTrackingArea: NSTrackingArea?
 
+    /// Cached character offsets of each line start for O(1) line-number lookups.
+    /// Element i holds the character index where line (i+1) begins; lineStarts[0] is always 0.
+    private var lineStarts: [Int] = [0]
+
     init(textView: NSTextView, scrollView: NSScrollView) {
         self.textView = textView
         self.scrollView = scrollView
@@ -80,6 +84,8 @@ class LineNumberGutter: NSView {
             self, selector: #selector(selectionDidChange(_:)),
             name: NSTextView.didChangeSelectionNotification, object: textView
         )
+
+        rebuildLineStarts()
     }
 
     required init?(coder: NSCoder) {
@@ -139,9 +145,39 @@ class LineNumberGutter: NSView {
         needsDisplay = true
     }
 
+    // MARK: - Line Start Cache
+
+    /// Rebuild the cached line-start offsets from the full text.
+    private func rebuildLineStarts() {
+        guard let textView else {
+            lineStarts = [0]
+            return
+        }
+        let text = textView.string
+        var starts = [0]
+        starts.reserveCapacity(text.utf16.count / 40 + 1)  // rough estimate
+        for (i, ch) in text.utf16.enumerated() {
+            if ch == 0x0A {
+                starts.append(i + 1)
+            }
+        }
+        lineStarts = starts
+    }
+
+    /// Binary search on `lineStarts` to find the 1-based line number for a character index.
+    private func lineNumber(forCharacterIndex index: Int) -> Int {
+        var lo = 0, hi = lineStarts.count
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if lineStarts[mid] <= index { lo = mid + 1 } else { hi = mid }
+        }
+        return lo  // 1-based line number
+    }
+
     // MARK: - Notifications
 
     @objc private func textDidChange(_: Notification) {
+        rebuildLineStarts()
         recalculateWidth()
         needsDisplay = true
     }
@@ -154,12 +190,7 @@ class LineNumberGutter: NSView {
     @objc private func selectionDidChange(_: Notification) {
         guard let textView else { return }
         let cursor = textView.selectedRange().location
-        let text = textView.string
-        // Count newlines before the cursor to determine the 1-based line number
-        let end = text.index(text.startIndex, offsetBy: min(cursor, text.count))
-        let line = text[text.startIndex..<end].reduce(1) { count, ch in
-            ch == "\n" ? count + 1 : count
-        }
+        let line = lineNumber(forCharacterIndex: min(cursor, textView.string.utf16.count))
         if currentLine != line {
             currentLine = line
             needsDisplay = true
@@ -335,13 +366,8 @@ class LineNumberGutter: NSView {
         let glyphIndex = layoutManager.glyphIndex(for: testPoint, in: textContainer)
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
 
-        // Count newlines up to charIndex to get line number
-        let end = min(charIndex, text.length)
-        var line = 1
-        for j in 0..<end {
-            if text.character(at: j) == 0x0A { line += 1 }
-        }
-        return line
+        // Binary search on cached line starts for O(1) lookup
+        return lineNumber(forCharacterIndex: min(charIndex, text.length))
     }
 
     // MARK: - Drawing

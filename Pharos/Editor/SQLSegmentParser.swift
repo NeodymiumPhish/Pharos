@@ -45,6 +45,7 @@ struct SQLSegmentParser {
         var segmentStart = 0  // UTF-16 offset of current segment start
         var i = 0
         var blockCommentDepth = 0
+        var currentLine = 1  // running line count for O(1) line number in emitSegment
 
         while i < length {
             let ch = chars[i]
@@ -54,7 +55,7 @@ struct SQLSegmentParser {
                 if ch == unichar(";") {
                     // End of statement — emit segment
                     let segRange = NSRange(location: segmentStart, length: i - segmentStart + 1)
-                    emitSegment(text: text, range: segRange, index: segments.count, into: &segments)
+                    emitSegment(text: text, range: segRange, index: segments.count, startLine: currentLine, into: &segments)
                     segmentStart = i + 1
 
                 } else if ch == unichar("'") {
@@ -116,13 +117,14 @@ struct SQLSegmentParser {
                 }
             }
 
+            if ch == 0x0A { currentLine += 1 }
             i += 1
         }
 
         // Handle trailing segment (no semicolon at end)
         if segmentStart < length {
             let segRange = NSRange(location: segmentStart, length: length - segmentStart)
-            emitSegment(text: text, range: segRange, index: segments.count, into: &segments)
+            emitSegment(text: text, range: segRange, index: segments.count, startLine: currentLine, into: &segments)
         }
 
         return segments
@@ -143,10 +145,12 @@ struct SQLSegmentParser {
     // MARK: - Helpers
 
     /// Emit a segment if it contains non-whitespace SQL.
+    /// `startLine` is the 1-based line number at the start of this segment's range (passed from the running count).
     private static func emitSegment(
         text: String,
         range: NSRange,
         index: Int,
+        startLine: Int,
         into segments: inout [SQLSegment]
     ) {
         let nsText = text as NSString
@@ -162,11 +166,8 @@ struct SQLSegmentParser {
         // Skip empty segments
         guard !sql.isEmpty else { return }
 
-        // Compute line numbers by counting newlines directly (avoids allocating substring arrays)
-        var rawStartLine = 1
-        for j in 0..<range.location {
-            if nsText.character(at: j) == 0x0A { rawStartLine += 1 }
-        }
+        // Use the running line count passed from parse() instead of re-scanning from start
+        let rawStartLine = startLine
         let segmentText = nsText.substring(with: range)
         let lines = segmentText.components(separatedBy: "\n")
         let rawEndLine = rawStartLine + lines.count - 1
