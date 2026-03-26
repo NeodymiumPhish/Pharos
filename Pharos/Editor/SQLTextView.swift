@@ -565,41 +565,46 @@ class SQLTextView: NSTextView {
         let text = string
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
+        guard nsText.length > 0 else { return }
 
-        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-        guard !text.isEmpty else { return }
-
-        // Build state map using shared lexer
+        // Build state map for the full document (needed for correctness — a string
+        // on line 1 affects all subsequent highlighting). Single linear scan.
         let chars = Array(text.utf16)
-        let stateMap = SQLLexer.buildStateMap(chars: chars, length: chars.count)
+        let length = chars.count
+        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
 
-        // Apply comment/string colors from state map
+        // Instead of remove-all + re-apply (which causes layout thrashing on large
+        // documents), overwrite every character range with its correct color. Normal
+        // text gets the foreground attribute removed; comments/strings/keywords get
+        // their color set. This avoids a full-document invalidation pass.
+        //
+        // Phase 1: Walk the state map and set comment/string colors directly.
+        // For normal ranges, remove the foreground attribute (clears old highlighting).
         var rangeStart = 0
-        var currentState: SQLLexState = chars.isEmpty ? .normal : stateMap[0]
+        var currentState: SQLLexState = stateMap[0]
 
-        for i in 1...chars.count {
-            let nextState: SQLLexState = (i < chars.count) ? stateMap[i] : .normal
-            // When state changes, flush the current range
-            if nextState != currentState || i == chars.count {
-                if !currentState.isNormal {
-                    let color: NSColor?
+        for i in 1...length {
+            let nextState: SQLLexState = (i < length) ? stateMap[i] : .normal
+            if nextState != currentState || i == length {
+                let range = NSRange(location: rangeStart, length: i - rangeStart)
+                if currentState.isNormal || currentState == .doubleQuote {
+                    // Normal code or quoted identifiers — remove any stale highlighting
+                    layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+                } else {
+                    let color: NSColor
                     switch currentState {
                     case .lineComment, .blockComment: color = theme.comment
                     case .singleQuote, .dollarQuote: color = theme.string
-                    case .doubleQuote: color = nil  // quoted identifiers keep default text color
-                    default: color = nil
+                    default: color = theme.comment
                     }
-                    if let color {
-                        let range = NSRange(location: rangeStart, length: i - rangeStart)
-                        layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
-                    }
+                    layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
                 }
                 rangeStart = i
                 currentState = nextState
             }
         }
 
-        // Apply keyword/function/type/number highlighting, skipping non-normal ranges
+        // Phase 2: Apply keyword/function/type/number highlighting on normal ranges.
         applyRegexWithStateMap(Self.keywordRegex, color: theme.keyword, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
         applyRegexWithStateMap(Self.functionRegex, color: theme.function, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
         applyRegexWithStateMap(Self.typeRegex, color: theme.type, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
