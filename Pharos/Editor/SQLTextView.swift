@@ -529,12 +529,36 @@ class SQLTextView: NSTextView {
         invalidateFoldLayout()
     }
 
-    /// Invalidate layout for all fold-affected ranges so the layout manager recomputes glyphs.
+    /// Invalidate layout for fold-affected ranges so the layout manager recomputes glyphs.
+    /// Only invalidates the specific fold ranges instead of the entire document to avoid
+    /// layout thrashing that causes visible text jumping.
     private func invalidateFoldLayout() {
         guard let layoutManager else { return }
-        let fullRange = NSRange(location: 0, length: (string as NSString).length)
-        layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
-        layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        let textLength = (string as NSString).length
+        guard textLength > 0 else { return }
+
+        // Invalidate each fold's range individually instead of the entire document.
+        // This is what triggers FoldingLayoutManager.setGlyphs() to re-evaluate
+        // which glyphs should be suppressed, but only for affected regions.
+        let foldRanges = foldState.foldedCharacterRanges
+        if foldRanges.isEmpty {
+            // No folds remain — still need one invalidation pass so previously
+            // suppressed glyphs become visible again. Use a targeted range
+            // covering from the first fold start to the end of the document
+            // (we don't know exact old ranges, but the layout manager will
+            // quickly no-op for non-folded regions in setGlyphs).
+            let fullRange = NSRange(location: 0, length: textLength)
+            layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+            layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+        } else {
+            for range in foldRanges {
+                let safeRange = NSRange(location: range.location, length: min(range.length, textLength - range.location))
+                guard safeRange.length > 0 else { continue }
+                layoutManager.invalidateGlyphs(forCharacterRange: safeRange, changeInLength: 0, actualCharacterRange: nil)
+                layoutManager.invalidateLayout(forCharacterRange: safeRange, actualCharacterRange: nil)
+            }
+        }
+
         needsDisplay = true
         window?.invalidateCursorRects(for: self)
         onFoldStateChanged?()
