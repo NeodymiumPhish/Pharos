@@ -13,6 +13,7 @@ class QueryEditorVC: NSViewController {
     private var cancellables = Set<AnyCancellable>()
     private var validationTask: Task<Void, Never>?
     private var segmentTask: Task<Void, Never>?
+    private var foldRegionTask: Task<Void, Never>?
     private var highlightOverlay: NSView?
     private var highlightFadeTask: Task<Void, Never>?
 
@@ -475,8 +476,13 @@ class QueryEditorVC: NSViewController {
         // Recalculate SQL segments
         recalculateSegments()
 
-        // Recalculate fold regions
-        recalculateFoldRegions()
+        // Debounced fold region recalculation (full document parse — not needed per keystroke)
+        foldRegionTask?.cancel()
+        foldRegionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000) // 200ms debounce
+            guard !Task.isCancelled, let self else { return }
+            self.recalculateFoldRegions()
+        }
 
         // Notify for result tab staleness
         onTextEdited?()

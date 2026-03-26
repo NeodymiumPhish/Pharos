@@ -224,8 +224,11 @@ class SQLTextView: NSTextView {
         // Adjust fold state for the edit — removes folds that overlap the edit, shifts others
         if let editRange = pendingEditRange {
             let changeInLength = (pendingReplacementLength ?? 0) - editRange.length
+            let hadFolds = !foldState.entries.isEmpty
             foldState.adjustForEdit(editedRange: editRange, changeInLength: changeInLength)
-            invalidateFoldLayout()
+            if hadFolds {
+                invalidateFoldLayout()
+            }
         }
         pendingEditRange = nil
         pendingReplacementLength = nil
