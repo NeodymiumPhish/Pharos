@@ -1032,7 +1032,7 @@ pub async fn export_query(
 /// Escape a field for CSV/TSV output
 fn escape_csv_field(value: &str, delimiter: u8) -> String {
     let delim_char = delimiter as char;
-    if value.contains(delim_char) || value.contains('"') || value.contains('\n') {
+    if value.contains(delim_char) || value.contains('"') || value.contains('\n') || value.contains('\r') {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
@@ -1197,9 +1197,6 @@ fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str
 
 /// Convert a text value to a typed JSON value based on the PostgreSQL type
 fn text_to_json_value(text: &str, type_name: &str) -> serde_json::Value {
-    if text.is_empty() {
-        return serde_json::Value::Null;
-    }
     let upper = type_name.to_uppercase();
     match upper.as_str() {
         "INT2" | "SMALLINT" | "INT4" | "INTEGER" | "SERIAL" | "INT8" | "BIGINT" | "BIGSERIAL" => {

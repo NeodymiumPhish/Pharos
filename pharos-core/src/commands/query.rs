@@ -9,7 +9,7 @@ use crate::models::QueryHistoryEntry;
 use crate::state::AppState;
 
 /// Validate and set the search_path on a connection for a given schema.
-/// Validates: ASCII alphanumeric + `_` + `-`, 1-63 chars. Escapes `"` as `""`.
+/// Validates: non-empty, 1-63 chars, no null bytes. Escapes `"` as `""`.
 pub(crate) async fn set_search_path(
     conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
     schema_name: &str,
@@ -17,14 +17,8 @@ pub(crate) async fn set_search_path(
     if schema_name.is_empty() || schema_name.len() > 63 {
         return Err("Invalid schema name: must be 1-63 characters".to_string());
     }
-    if !schema_name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(
-            "Invalid schema name: only letters, numbers, underscores, and hyphens allowed"
-                .to_string(),
-        );
+    if schema_name.contains('\0') {
+        return Err("Invalid schema name: must not contain null bytes".to_string());
     }
     let escaped = schema_name.replace('"', "\"\"");
     sqlx::query(&format!("SET search_path TO \"{}\", public", escaped))
@@ -665,10 +659,23 @@ pub fn extract_table_names_for_history(sql: &str) -> Option<String> {
 /// Returns (identifier, rest_of_string).
 fn parse_identifier(s: &str) -> Option<(String, &str)> {
     if s.starts_with('"') {
-        // Quoted identifier
-        let end = s[1..].find('"')?;
-        let ident = &s[1..end + 1];
-        Some((ident.to_string(), &s[end + 2..]))
+        // Handle "" escaped quotes in identifiers
+        let mut end = 1;
+        loop {
+            match s[end..].find('"') {
+                Some(pos) => {
+                    end += pos + 1;
+                    if end < s.len() && s.as_bytes()[end] == b'"' {
+                        end += 1; // skip escaped ""
+                    } else {
+                        break;
+                    }
+                }
+                None => return None,
+            }
+        }
+        let ident = s[1..end - 1].replace("\"\"", "\"");
+        Some((ident, &s[end..]))
     } else {
         // Unquoted identifier
         let end = s.find(|c: char| !c.is_ascii_alphanumeric() && c != '_').unwrap_or(s.len());

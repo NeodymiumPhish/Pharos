@@ -592,13 +592,17 @@ pub fn save_query_history(
         ),
     )?;
 
-    // Prune entries older than 90 days
-    conn.execute(
-        r#"
-        DELETE FROM query_history WHERE datetime(executed_at) < datetime('now', ?1)
-        "#,
-        [format!("-{} days", HISTORY_RETENTION_DAYS)],
-    )?;
+    // Prune old entries roughly every 100 queries to reduce write overhead
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static PRUNE_COUNTER: AtomicU32 = AtomicU32::new(0);
+    if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 == 0 {
+        conn.execute(
+            r#"
+            DELETE FROM query_history WHERE datetime(executed_at) < datetime('now', ?1)
+            "#,
+            [format!("-{} days", HISTORY_RETENTION_DAYS)],
+        )?;
+    }
 
     Ok(())
 }
