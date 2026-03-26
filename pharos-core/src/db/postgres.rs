@@ -7,17 +7,19 @@ use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo,
 
 /// Build a connection string with proper URL encoding and SSL mode
 fn build_connection_string(config: &ConnectionConfig) -> String {
-    // URL encode username and password to handle special characters safely
+    // URL encode all user-provided fields to prevent parameter injection
     let username = urlencoding::encode(&config.username);
     let password = urlencoding::encode(&config.password);
+    let host = urlencoding::encode(&config.host);
+    let database = urlencoding::encode(&config.database);
 
     format!(
         "postgres://{}:{}@{}:{}/{}?sslmode={}",
         username,
         password,
-        config.host,
+        host,
         config.port,
-        config.database,
+        database,
         config.ssl_mode
     )
 }

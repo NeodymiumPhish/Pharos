@@ -52,55 +52,55 @@ impl AppState {
 
     /// Initialize the password cache from the keychain (call once at startup)
     pub fn init_password_cache(&self, passwords: HashMap<String, String>) {
-        let mut cache = self.password_cache.lock().unwrap();
+        let mut cache = self.password_cache.lock().unwrap_or_else(|e| e.into_inner());
         *cache = passwords;
     }
 
     /// Get a password from the cache
     pub fn get_cached_password(&self, connection_id: &str) -> Option<String> {
-        let cache = self.password_cache.lock().unwrap();
+        let cache = self.password_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.get(connection_id).cloned()
     }
 
     /// Get a connection pool by ID
     pub fn get_pool(&self, connection_id: &str) -> Option<PgPool> {
-        let connections = self.connections.lock().unwrap();
+        let connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.get(connection_id).cloned()
     }
 
     /// Add a connection pool
     pub fn add_pool(&self, connection_id: String, pool: PgPool) {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.insert(connection_id, pool);
     }
 
     /// Remove a connection pool
     pub fn remove_pool(&self, connection_id: &str) -> Option<PgPool> {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.remove(connection_id)
     }
 
     /// Check if a connection pool exists
     pub fn has_pool(&self, connection_id: &str) -> bool {
-        let connections = self.connections.lock().unwrap();
+        let connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.contains_key(connection_id)
     }
 
     /// Get a connection config by ID
     pub fn get_config(&self, connection_id: &str) -> Option<ConnectionConfig> {
-        let configs = self.connection_configs.lock().unwrap();
+        let configs = self.connection_configs.lock().unwrap_or_else(|e| e.into_inner());
         configs.get(connection_id).cloned()
     }
 
     /// Add or update a connection config
     pub fn set_config(&self, config: ConnectionConfig) {
-        let mut configs = self.connection_configs.lock().unwrap();
+        let mut configs = self.connection_configs.lock().unwrap_or_else(|e| e.into_inner());
         configs.insert(config.id.clone(), config);
     }
 
     /// Remove a connection config
     pub fn remove_config(&self, connection_id: &str) -> Option<ConnectionConfig> {
-        let mut configs = self.connection_configs.lock().unwrap();
+        let mut configs = self.connection_configs.lock().unwrap_or_else(|e| e.into_inner());
         configs.remove(connection_id)
     }
 
@@ -111,26 +111,26 @@ impl AppState {
             backend_pid,
             cancelled: cancelled.clone(),
         };
-        let mut queries = self.running_queries.lock().unwrap();
+        let mut queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         queries.insert(query_id, running_query);
         cancelled
     }
 
     /// Unregister a running query
     pub fn unregister_query(&self, query_id: &str) {
-        let mut queries = self.running_queries.lock().unwrap();
+        let mut queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         queries.remove(query_id);
     }
 
     /// Get a running query's backend PID
     pub fn get_query_backend_pid(&self, query_id: &str) -> Option<i32> {
-        let queries = self.running_queries.lock().unwrap();
+        let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         queries.get(query_id).map(|q| q.backend_pid)
     }
 
     /// Get the set of tables denied ANALYZE for a connection+schema
     pub fn get_analyze_denied(&self, connection_id: &str, schema_name: &str) -> HashSet<String> {
-        let cache = self.analyze_denied.lock().unwrap();
+        let cache = self.analyze_denied.lock().unwrap_or_else(|e| e.into_inner());
         cache
             .get(connection_id)
             .and_then(|schemas| schemas.get(schema_name))
@@ -143,7 +143,7 @@ impl AppState {
         if tables.is_empty() {
             return;
         }
-        let mut cache = self.analyze_denied.lock().unwrap();
+        let mut cache = self.analyze_denied.lock().unwrap_or_else(|e| e.into_inner());
         let schemas = cache.entry(connection_id.to_string()).or_default();
         let denied = schemas.entry(schema_name.to_string()).or_default();
         for table in tables {
@@ -153,13 +153,13 @@ impl AppState {
 
     /// Clear analyze-denied cache for a connection (called on disconnect)
     pub fn clear_analyze_denied(&self, connection_id: &str) {
-        let mut cache = self.analyze_denied.lock().unwrap();
+        let mut cache = self.analyze_denied.lock().unwrap_or_else(|e| e.into_inner());
         cache.remove(connection_id);
     }
 
     /// Mark a query as cancelled
     pub fn mark_query_cancelled(&self, query_id: &str) -> bool {
-        let queries = self.running_queries.lock().unwrap();
+        let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(query) = queries.get(query_id) {
             query.cancelled.store(true, Ordering::SeqCst);
             true

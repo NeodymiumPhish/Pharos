@@ -16,6 +16,8 @@
  *
  * Exactly one of `result_json` / `error_msg` will be non-NULL.
  * The caller must NOT free the strings --- they are freed by Rust after the callback returns.
+ * **Note:** The callback may be invoked on any thread. The caller (Swift) must ensure
+ * the context pointer remains valid until the callback fires.
  */
 typedef void (*AsyncCallback)(void *context, const char *result_json, const char *error_msg);
 

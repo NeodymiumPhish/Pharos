@@ -1,10 +1,46 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::AssertUnwindSafe;
 use std::sync::OnceLock;
 
+use futures::FutureExt;
 use tokio::runtime::Runtime;
 
 use crate::state::AppState;
+
+// ---------------------------------------------------------------------------
+// Panic-safety macros for FFI boundary (must be defined before submodules)
+// ---------------------------------------------------------------------------
+
+/// Wrap a synchronous FFI function body in catch_unwind.
+/// Returns a JSON error C-string if the body panics.
+macro_rules! ffi_sync {
+    ($body:expr) => {
+        match std::panic::catch_unwind(AssertUnwindSafe(|| $body)) {
+            Ok(result) => result,
+            Err(_) => to_c_string("{\"error\":\"internal panic\"}")
+        }
+    };
+}
+
+/// Spawn an async FFI task with panic safety.
+/// If the future panics, the callback is invoked with an error instead of being silently dropped.
+/// The body should use its own `callback`/`ctx` variables as normal.
+/// AsyncCallback (fn ptr) and usize are Copy, so the monitor task gets its own copies.
+macro_rules! ffi_spawn {
+    ($cb:expr, $ctx:expr, $future:expr) => {{
+        let __ffi_cb: AsyncCallback = $cb;
+        let __ffi_ctx: usize = $ctx as usize;
+        let __handle = runtime().spawn(AssertUnwindSafe($future).catch_unwind());
+        runtime().spawn(async move {
+            match __handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => callback_err(__ffi_cb, __ffi_ctx, "internal panic"),
+                Err(_) => callback_err(__ffi_cb, __ffi_ctx, "task cancelled"),
+            }
+        });
+    }};
+}
 
 mod connection;
 mod lifecycle;
@@ -42,6 +78,8 @@ fn app_state() -> &'static AppState {
 ///
 /// Exactly one of `result_json` / `error_msg` will be non-NULL.
 /// The caller must NOT free the strings --- they are freed by Rust after the callback returns.
+/// **Note:** The callback may be invoked on any thread. The caller (Swift) must ensure
+/// the context pointer remains valid until the callback fires.
 pub type AsyncCallback = extern "C" fn(
     context: *mut std::ffi::c_void,
     result_json: *const c_char,

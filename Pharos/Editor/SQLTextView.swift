@@ -236,12 +236,16 @@ class SQLTextView: NSTextView {
 
         // Skip-over: typing a closing char that's already the next character
         if Self.closeChars.contains(str), cursor < text.length {
-            let nextChar = String(Character(UnicodeScalar(text.character(at: cursor))!))
+            guard let nextScalar = UnicodeScalar(text.character(at: cursor)) else {
+                super.insertText(string, replacementRange: replacementRange)
+                return
+            }
+            let nextChar = String(Character(nextScalar))
             if nextChar == str {
                 // For quote, only skip if we're inside a matching pair
                 if str == "'" {
-                    if cursor > 0 {
-                        let prevChar = Character(UnicodeScalar(text.character(at: cursor - 1))!)
+                    if cursor > 0, let prevScalar = UnicodeScalar(text.character(at: cursor - 1)) {
+                        let prevChar = Character(prevScalar)
                         // Don't skip if previous char is also a quote (empty string case handled)
                         if prevChar != "'" {
                             setSelectedRange(NSRange(location: cursor + 1, length: 0))
@@ -325,10 +329,12 @@ class SQLTextView: NSTextView {
         let text = self.string as NSString
 
         // If deleting an open bracket and the next char is its matching close, delete both
-        if cursor > 0, cursor < text.length {
-            let prevChar = String(Character(UnicodeScalar(text.character(at: cursor - 1))!))
+        if cursor > 0, cursor < text.length,
+           let prevScalar = UnicodeScalar(text.character(at: cursor - 1)),
+           let nextScalar = UnicodeScalar(text.character(at: cursor)) {
+            let prevChar = String(Character(prevScalar))
             if let closeChar = Self.autoClosePairs[prevChar] {
-                let nextChar = String(Character(UnicodeScalar(text.character(at: cursor))!))
+                let nextChar = String(Character(nextScalar))
                 if nextChar == closeChar {
                     setSelectedRange(NSRange(location: cursor - 1, length: 2))
                     super.insertText("", replacementRange: selectedRange())
@@ -644,7 +650,8 @@ class SQLTextView: NSTextView {
 
         // Check the character before the cursor
         let charIndex = cursor - 1
-        let char = Character(UnicodeScalar(nsText.character(at: charIndex))!)
+        guard let scalar = UnicodeScalar(nsText.character(at: charIndex)) else { return }
+        let char = Character(scalar)
 
         guard Self.openBrackets.contains(char) || Self.closeBrackets.contains(char) else { return }
 
@@ -678,7 +685,8 @@ class SQLTextView: NSTextView {
             // Scan forward
             var i = index + 1
             while i < length {
-                let c = Character(UnicodeScalar(text.character(at: i))!)
+                guard let s = UnicodeScalar(text.character(at: i)) else { i += 1; continue }
+                let c = Character(s)
                 if !isInsideStringOrComment(at: i, layoutManager: layoutManager) {
                     if c == char { depth += 1 }
                     else if c == target { depth -= 1; if depth == 0 { return i } }
@@ -689,7 +697,8 @@ class SQLTextView: NSTextView {
             // Scan backward
             var i = index - 1
             while i >= 0 {
-                let c = Character(UnicodeScalar(text.character(at: i))!)
+                guard let s = UnicodeScalar(text.character(at: i)) else { i -= 1; continue }
+                let c = Character(s)
                 if !isInsideStringOrComment(at: i, layoutManager: layoutManager) {
                     if c == char { depth += 1 }
                     else if c == target { depth -= 1; if depth == 0 { return i } }

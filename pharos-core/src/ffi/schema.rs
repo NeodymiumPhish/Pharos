@@ -17,8 +17,7 @@ pub extern "C" fn pharos_get_schemas(
     let conn_id = unsafe { c_str_to_string(connection_id) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_schemas(conn_id, state).await {
             Ok(schemas) => {
                 let json = serde_json::to_string(&schemas).unwrap_or_default();
@@ -42,8 +41,7 @@ pub extern "C" fn pharos_get_tables(
     let schema = unsafe { c_str_to_string(schema_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_tables(conn_id, schema, state).await {
             Ok(tables) => {
                 let json = serde_json::to_string(&tables).unwrap_or_default();
@@ -69,8 +67,7 @@ pub extern "C" fn pharos_get_columns(
     let table = unsafe { c_str_to_string(table_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_columns(conn_id, schema, table, state).await {
             Ok(columns) => {
                 let json = serde_json::to_string(&columns).unwrap_or_default();
@@ -94,7 +91,7 @@ pub extern "C" fn pharos_get_schema_columns(
     let schema = unsafe { c_str_to_string(schema_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_schema_columns(conn_id, schema, state).await {
             Ok(columns) => {
                 let json = serde_json::to_string(&columns).unwrap_or_default();
@@ -118,8 +115,7 @@ pub extern "C" fn pharos_analyze_schema(
     let schema = unsafe { c_str_to_string(schema_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::analyze_schema(conn_id, schema, state).await {
             Ok(result) => {
                 let json = serde_json::to_string(&result).unwrap_or_default();
@@ -143,8 +139,7 @@ pub extern "C" fn pharos_get_schema_functions(
     let schema = unsafe { c_str_to_string(schema_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_schema_functions(conn_id, schema, state).await {
             Ok(functions) => {
                 let json = serde_json::to_string(&functions).unwrap_or_default();

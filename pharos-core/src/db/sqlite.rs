@@ -5,13 +5,13 @@ use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, QueryHistor
 
 // ==================== Compression Helpers ====================
 
-fn compress_data(data: &str) -> Vec<u8> {
+fn compress_data(data: &str) -> Result<Vec<u8>, String> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Write;
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(data.as_bytes()).unwrap();
-    encoder.finish().unwrap()
+    encoder.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+    encoder.finish().map_err(|e| e.to_string())
 }
 
 fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
@@ -568,8 +568,8 @@ pub fn save_query_history(
     result_rows_json: Option<&str>,
 ) -> SqliteResult<()> {
     // Compress result data if present
-    let compressed_columns = result_columns_json.map(compress_data);
-    let compressed_rows = result_rows_json.map(compress_data);
+    let compressed_columns = result_columns_json.and_then(|s| compress_data(s).ok());
+    let compressed_rows = result_rows_json.and_then(|s| compress_data(s).ok());
 
     conn.execute(
         r#"

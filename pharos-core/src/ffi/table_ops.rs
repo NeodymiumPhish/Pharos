@@ -19,8 +19,7 @@ pub extern "C" fn pharos_clone_table(
     let json_str = unsafe { c_str_to_string(json) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         let options: crate::commands::table::CloneTableOptions = match serde_json::from_str(&json_str) {
             Ok(o) => o,
             Err(e) => {
@@ -51,8 +50,7 @@ pub extern "C" fn pharos_export_table(
     let json_str = unsafe { c_str_to_string(json) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         let options: crate::commands::table::ExportTableOptions = match serde_json::from_str(&json_str) {
             Ok(o) => o,
             Err(e) => {
@@ -83,8 +81,7 @@ pub extern "C" fn pharos_import_csv(
     let json_str = unsafe { c_str_to_string(json) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         let options: crate::commands::table::ImportCsvOptions = match serde_json::from_str(&json_str) {
             Ok(o) => o,
             Err(e) => {

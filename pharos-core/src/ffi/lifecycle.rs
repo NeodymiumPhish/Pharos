@@ -43,7 +43,7 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
 
     // Load connections and initialize password cache
     {
-        let db = state.metadata_db.lock().unwrap();
+        let db = state.metadata_db.lock().unwrap_or_else(|e| e.into_inner());
         if let Ok(configs) = crate::db::sqlite::load_connections(&db) {
             let connection_ids: Vec<String> = configs.iter().map(|c| c.id.clone()).collect();
             match crate::db::credentials::migrate_legacy_passwords(&connection_ids) {
@@ -70,7 +70,7 @@ pub extern "C" fn pharos_shutdown() {
     // OnceLock values are never dropped, but we can close open pools
     if let Some(state) = APP_STATE.get() {
         let pools: Vec<_> = {
-            let conns = state.connections.lock().unwrap();
+            let conns = state.connections.lock().unwrap_or_else(|e| e.into_inner());
             conns.values().cloned().collect()
         };
         if let Some(rt) = RUNTIME.get() {

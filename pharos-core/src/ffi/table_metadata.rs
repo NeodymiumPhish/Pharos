@@ -21,8 +21,7 @@ pub extern "C" fn pharos_get_table_indexes(
     let table = unsafe { c_str_to_string(table_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_table_indexes(conn_id, schema, table, state).await {
             Ok(indexes) => {
                 let json = serde_json::to_string(&indexes).unwrap_or_default();
@@ -48,8 +47,7 @@ pub extern "C" fn pharos_get_table_constraints(
     let table = unsafe { c_str_to_string(table_name) };
     let ctx = context as usize;
 
-    runtime().spawn(async move {
-
+    ffi_spawn!(callback, context, async move {
         match crate::commands::get_table_constraints(conn_id, schema, table, state).await {
             Ok(constraints) => {
                 let json = serde_json::to_string(&constraints).unwrap_or_default();
