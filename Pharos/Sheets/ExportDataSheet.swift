@@ -112,9 +112,9 @@ class ExportDataSheet: NSViewController {
 
         // Form grid
         let grid = NSGridView(views: [
-            [makeLabel("Format"), formatPopup],
-            [makeLabel("Headers"), includeHeadersCheckbox],
-            [makeLabel("NULL values"), nullDisplayPopup],
+            [NSTextField.formLabel("Format"), formatPopup],
+            [NSTextField.formLabel("Headers"), includeHeadersCheckbox],
+            [NSTextField.formLabel("NULL values"), nullDisplayPopup],
         ])
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 90
@@ -155,12 +155,7 @@ class ExportDataSheet: NSViewController {
         ])
     }
 
-    private func makeLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text + ":")
-        label.alignment = .right
-        label.font = .systemFont(ofSize: 13)
-        return label
-    }
+
 
     @objc private func selectAllColumns() {
         for (checkbox, _) in columnCheckboxes {

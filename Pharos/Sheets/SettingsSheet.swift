@@ -95,14 +95,14 @@ class SettingsSheet: NSViewController {
         themeControl.setLabel("Dark", forSegment: 2)
         themeControl.segmentStyle = .texturedSquare
 
-        let themeLabel = makeLabel("Appearance")
+        let themeLabel = NSTextField.formLabel("Appearance")
 
-        let nullLabel = makeLabel("NULL Display")
+        let nullLabel = NSTextField.formLabel("NULL Display")
         for format in NullDisplay.allCases {
             nullDisplayPopup.addItem(withTitle: format.displayLabel)
         }
 
-        let boolLabel = makeLabel("Bool Display")
+        let boolLabel = NSTextField.formLabel("Bool Display")
         for format in BoolDisplay.allCases {
             boolDisplayPopup.addItem(withTitle: format.displayLabel)
         }
@@ -132,11 +132,11 @@ class SettingsSheet: NSViewController {
         item.label = "Editor"
 
         // Font popup
-        let fontLabel = makeLabel("Font")
+        let fontLabel = NSTextField.formLabel("Font")
         populateFontPopup()
 
         // Font size
-        let sizeLabel = makeLabel("Font Size")
+        let sizeLabel = NSTextField.formLabel("Font Size")
         fontSizeField.integerValue = Int(settings.editor.fontSize)
         fontSizeField.formatter = numberFormatter(min: 9, max: 24)
         fontSizeField.alignment = .right
@@ -153,7 +153,7 @@ class SettingsSheet: NSViewController {
         sizeRow.spacing = 4
 
         // Tab size
-        let tabLabel = makeLabel("Tab Size")
+        let tabLabel = NSTextField.formLabel("Tab Size")
         tabSizePopup.addItems(withTitles: ["2 spaces", "4 spaces", "8 spaces"])
 
         // Checkboxes
@@ -183,12 +183,12 @@ class SettingsSheet: NSViewController {
         let item = NSTabViewItem()
         item.label = "Query"
 
-        let limitLabel = makeLabel("Row Limit")
+        let limitLabel = NSTextField.formLabel("Row Limit")
         defaultLimitField.formatter = numberFormatter(min: 1, max: 100_000)
         defaultLimitField.alignment = .right
         defaultLimitField.widthAnchor.constraint(equalToConstant: 80).isActive = true
 
-        let timeoutLabel = makeLabel("Timeout")
+        let timeoutLabel = NSTextField.formLabel("Timeout")
         timeoutField.formatter = numberFormatter(min: 1, max: 3600)
         timeoutField.alignment = .right
         timeoutField.widthAnchor.constraint(equalToConstant: 60).isActive = true
@@ -372,12 +372,7 @@ class SettingsSheet: NSViewController {
 
     // MARK: - Helpers
 
-    private func makeLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text + ":")
-        label.alignment = .right
-        label.font = .systemFont(ofSize: 13)
-        return label
-    }
+
 
     private func configureGrid(_ grid: NSGridView) {
         grid.column(at: 0).xPlacement = .trailing

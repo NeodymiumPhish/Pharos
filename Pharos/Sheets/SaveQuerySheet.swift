@@ -41,12 +41,12 @@ class SaveQuerySheet: NSViewController {
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Name
-        let nameLabel = makeLabel("Name")
+        let nameLabel = NSTextField.formLabel("Name")
         nameField.placeholderString = "Query name"
         nameField.stringValue = initialName
 
         // Folder
-        let folderLabel = makeLabel("Folder")
+        let folderLabel = NSTextField.formLabel("Folder")
         folderPopup.addItem(withTitle: "No Folder")
         // Load existing folders from cached queries
         let existingFolders = Set(existingQueries.compactMap { $0.folder }).filter { !$0.isEmpty }.sorted()
@@ -209,12 +209,4 @@ class SaveQuerySheet: NSViewController {
         }
     }
 
-    // MARK: - Helpers
-
-    private func makeLabel(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text + ":")
-        label.alignment = .right
-        label.font = .systemFont(ofSize: 13)
-        return label
-    }
 }
