@@ -45,7 +45,8 @@ struct SQLSegmentParser {
         var segmentStart = 0  // UTF-16 offset of current segment start
         var i = 0
         var blockCommentDepth = 0
-        var currentLine = 1  // running line count for O(1) line number in emitSegment
+        var currentLine = 1  // running line count
+        var segmentStartLine = 1  // line number at the start of the current segment
 
         while i < length {
             let ch = chars[i]
@@ -55,8 +56,11 @@ struct SQLSegmentParser {
                 if ch == unichar(";") {
                     // End of statement — emit segment
                     let segRange = NSRange(location: segmentStart, length: i - segmentStart + 1)
-                    emitSegment(text: text, range: segRange, index: segments.count, startLine: currentLine, into: &segments)
+                    emitSegment(text: text, range: segRange, index: segments.count, startLine: segmentStartLine, into: &segments)
                     segmentStart = i + 1
+                    // The next segment's range begins on the current line (semicolons aren't newlines).
+                    // emitSegment trims leading blank lines, so this is just the raw start.
+                    segmentStartLine = currentLine
 
                 } else if ch == unichar("'") {
                     state = .singleQuote
@@ -117,14 +121,16 @@ struct SQLSegmentParser {
                 }
             }
 
-            if ch == 0x0A { currentLine += 1 }
+            if ch == 0x0A {
+                currentLine += 1
+            }
             i += 1
         }
 
         // Handle trailing segment (no semicolon at end)
         if segmentStart < length {
             let segRange = NSRange(location: segmentStart, length: length - segmentStart)
-            emitSegment(text: text, range: segRange, index: segments.count, startLine: currentLine, into: &segments)
+            emitSegment(text: text, range: segRange, index: segments.count, startLine: segmentStartLine, into: &segments)
         }
 
         return segments
