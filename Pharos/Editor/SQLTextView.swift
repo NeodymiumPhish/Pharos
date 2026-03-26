@@ -34,7 +34,7 @@ protocol SQLTextViewCompletionDelegate: AnyObject {
 
 // MARK: - SQLTextView
 
-/// NSTextView subclass with SQL syntax highlighting via regex patterns.
+/// NSTextView subclass with SQL syntax highlighting via shared SQLLexer state map.
 class SQLTextView: NSTextView {
 
     weak var completionDelegate: SQLTextViewCompletionDelegate?
@@ -65,9 +65,6 @@ class SQLTextView: NSTextView {
     private var isHighlighting = false
 
     // Cached regex objects (compiled once, reused per highlight call)
-    private static let commentLineRegex = try! NSRegularExpression(pattern: "--[^\n]*")
-    private static let stringRegex = try! NSRegularExpression(pattern: "'(?:[^']|'')*'")
-    private static let dollarQuoteRegex = try! NSRegularExpression(pattern: "\\$(\\w*)\\$[\\s\\S]*?\\$\\1\\$")
     private static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
     private static let keywordRegex: NSRegularExpression = {
         let keywords = [
@@ -566,108 +563,62 @@ class SQLTextView: NSTextView {
         defer { isHighlighting = false }
 
         let text = string
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
 
-        // Reset all temporary attributes
         layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-
         guard !text.isEmpty else { return }
 
-        // Phase 1: Build a set of "protected" ranges (comments + strings).
-        // These take priority and block keyword/type/function highlighting.
-        var protectedRanges: [NSRange] = []
+        // Build state map using shared lexer
+        let chars = Array(text.utf16)
+        let stateMap = SQLLexer.buildStateMap(chars: chars, length: chars.count)
 
-        // Single-line comments
-        Self.commentLineRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-            guard let range = match?.range else { return }
-            protectedRanges.append(range)
-            layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.comment, forCharacterRange: range)
-        }
+        // Apply comment/string colors from state map
+        var rangeStart = 0
+        var currentState: SQLLexState = chars.isEmpty ? .normal : stateMap[0]
 
-        // Block comments (with nesting support)
-        highlightBlockComments(text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: &protectedRanges)
-
-        // Single-quoted strings (PostgreSQL uses '' for escaping, not backslash)
-        Self.stringRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-            guard let range = match?.range else { return }
-            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
-                protectedRanges.append(range)
-                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.string, forCharacterRange: range)
+        for i in 1...chars.count {
+            let nextState: SQLLexState = (i < chars.count) ? stateMap[i] : .normal
+            // When state changes, flush the current range
+            if nextState != currentState || i == chars.count {
+                if !currentState.isNormal {
+                    let color: NSColor
+                    switch currentState {
+                    case .lineComment, .blockComment: color = theme.comment
+                    case .singleQuote, .dollarQuote: color = theme.string
+                    default: color = theme.comment
+                    }
+                    let range = NSRange(location: rangeStart, length: i - rangeStart)
+                    layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+                }
+                rangeStart = i
+                currentState = nextState
             }
         }
 
-        // Dollar-quoted strings ($tag$...$tag$ including $$...$$)
-        Self.dollarQuoteRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-            guard let range = match?.range else { return }
-            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
-                protectedRanges.append(range)
-                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.string, forCharacterRange: range)
-            }
-        }
-
-        // Phase 2: Apply keyword/function/type/number highlighting, skipping protected ranges
-        applyRegex(Self.keywordRegex, color: theme.keyword, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
-        applyRegex(Self.functionRegex, color: theme.function, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
-        applyRegex(Self.typeRegex, color: theme.type, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
-        applyRegex(Self.numberRegex, color: theme.number, in: text, fullRange: fullRange, layoutManager: layoutManager, protectedRanges: protectedRanges)
+        // Apply keyword/function/type/number highlighting, skipping non-normal ranges
+        applyRegexWithStateMap(Self.keywordRegex, color: theme.keyword, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
+        applyRegexWithStateMap(Self.functionRegex, color: theme.function, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
+        applyRegexWithStateMap(Self.typeRegex, color: theme.type, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
+        applyRegexWithStateMap(Self.numberRegex, color: theme.number, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
     }
 
     // MARK: - Highlighting Helpers
 
-    /// Highlight block comments with nesting support (PostgreSQL supports /* /* */ */).
-    private func highlightBlockComments(_ text: String, fullRange: NSRange, layoutManager: NSLayoutManager, protectedRanges: inout [NSRange]) {
-        let nsText = text as NSString
-        var i = 0
-        let length = nsText.length
-        while i < length - 1 {
-            if nsText.character(at: i) == 0x2F /* / */ && nsText.character(at: i + 1) == 0x2A /* * */ {
-                let start = i
-                var depth = 1
-                i += 2
-                while i < length && depth > 0 {
-                    if i < length - 1 && nsText.character(at: i) == 0x2F && nsText.character(at: i + 1) == 0x2A {
-                        depth += 1
-                        i += 2
-                    } else if i < length - 1 && nsText.character(at: i) == 0x2A && nsText.character(at: i + 1) == 0x2F {
-                        depth -= 1
-                        i += 2
-                    } else {
-                        i += 1
-                    }
-                }
-                let range = NSRange(location: start, length: i - start)
-                protectedRanges.append(range)
-                layoutManager.addTemporaryAttribute(.foregroundColor, value: theme.comment, forCharacterRange: range)
-            } else {
-                i += 1
-            }
-        }
-    }
-
-    /// Check if a range overlaps any protected (comment/string) range.
-    private func rangeOverlapsProtected(_ range: NSRange, protectedRanges: [NSRange]) -> Bool {
-        let end = range.location + range.length
-        for pr in protectedRanges {
-            let prEnd = pr.location + pr.length
-            if range.location < prEnd && end > pr.location {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// Apply a pre-compiled regex, skipping protected (comment/string) ranges.
-    private func applyRegex(
+    /// Apply a pre-compiled regex, skipping ranges that are inside comments or strings
+    /// according to the shared SQLLexer state map.
+    private func applyRegexWithStateMap(
         _ regex: NSRegularExpression,
         color: NSColor,
         in text: String,
         fullRange: NSRange,
         layoutManager: NSLayoutManager,
-        protectedRanges: [NSRange]
+        stateMap: [SQLLexState]
     ) {
         regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
             guard let range = match?.range else { return }
-            if !self.rangeOverlapsProtected(range, protectedRanges: protectedRanges) {
+            // Only apply if the first character of the match is in normal state
+            if range.location < stateMap.count && stateMap[range.location].isNormal {
                 layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
             }
         }

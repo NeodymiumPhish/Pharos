@@ -18,16 +18,6 @@ struct SQLSegment {
 /// string literals, comments, and dollar-quoted strings.
 struct SQLSegmentParser {
 
-    // MARK: - Parse State
-
-    private enum State {
-        case normal
-        case singleQuote        // Inside '...'
-        case dollarQuote(String) // Inside $tag$...$tag$
-        case lineComment        // Inside -- ...\n
-        case blockComment       // Inside /* ... */
-    }
-
     /// Parse editor text into segments split on semicolons.
     ///
     /// Rules:
@@ -40,91 +30,27 @@ struct SQLSegmentParser {
 
         let chars = Array(text.utf16)
         let length = chars.count
-        var state: State = .normal
-        var segments: [SQLSegment] = []
-        var segmentStart = 0  // UTF-16 offset of current segment start
-        var i = 0
-        var blockCommentDepth = 0
-        var currentLine = 1  // running line count
-        var segmentStartLine = 1  // line number at the start of the current segment
+        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
 
-        while i < length {
+        var segments: [SQLSegment] = []
+        var segmentStart = 0
+        var currentLine = 1
+        var segmentStartLine = 1
+
+        for i in 0..<length {
             let ch = chars[i]
 
-            switch state {
-            case .normal:
-                if ch == unichar(";") {
-                    // End of statement — emit segment
-                    let segRange = NSRange(location: segmentStart, length: i - segmentStart + 1)
-                    emitSegment(text: text, range: segRange, index: segments.count, startLine: segmentStartLine, into: &segments)
-                    segmentStart = i + 1
-                    // The next segment's range begins on the current line (semicolons aren't newlines).
-                    // emitSegment trims leading blank lines, so this is just the raw start.
-                    segmentStartLine = currentLine
-
-                } else if ch == unichar("'") {
-                    state = .singleQuote
-
-                } else if ch == unichar("-"), i + 1 < length, chars[i + 1] == unichar("-") {
-                    state = .lineComment
-                    i += 1 // skip second '-'
-
-                } else if ch == unichar("/"), i + 1 < length, chars[i + 1] == unichar("*") {
-                    state = .blockComment
-                    blockCommentDepth = 1
-                    i += 1 // skip '*'
-
-                } else if ch == unichar("$") {
-                    // Potential dollar-quote: scan for closing '$'
-                    if let tag = scanDollarTag(chars: chars, from: i, length: length) {
-                        state = .dollarQuote(tag)
-                        i += tag.utf16.count - 1 // advance past the full $tag$ (minus 1 because loop increments)
-                    }
-                }
-
-            case .singleQuote:
-                if ch == unichar("'") {
-                    // Check for escaped quote ''
-                    if i + 1 < length, chars[i + 1] == unichar("'") {
-                        i += 1 // skip the second quote
-                    } else {
-                        state = .normal
-                    }
-                }
-
-            case .dollarQuote(let tag):
-                if ch == unichar("$") {
-                    // Check if we see the closing $tag$
-                    let tagUTF16 = Array(tag.utf16)
-                    if matchesAt(chars: chars, offset: i, pattern: tagUTF16, length: length) {
-                        state = .normal
-                        i += tagUTF16.count - 1
-                    }
-                }
-
-            case .lineComment:
-                if ch == unichar("\n") {
-                    state = .normal
-                }
-
-            case .blockComment:
-                if ch == unichar("/"), i + 1 < length, chars[i + 1] == unichar("*") {
-                    blockCommentDepth += 1
-                    i += 1
-                } else if ch == unichar("*"), i + 1 < length, chars[i + 1] == unichar("/") {
-                    blockCommentDepth -= 1
-                    i += 1
-                    if blockCommentDepth <= 0 {
-                        state = .normal
-                        blockCommentDepth = 0
-                    }
-                }
+            // Only split on semicolons in normal (non-string/comment) state
+            if ch == SQLLexer.uc(";") && stateMap[i].isNormal {
+                let segRange = NSRange(location: segmentStart, length: i - segmentStart + 1)
+                emitSegment(text: text, range: segRange, index: segments.count, startLine: segmentStartLine, into: &segments)
+                segmentStart = i + 1
+                segmentStartLine = currentLine
             }
 
             if ch == 0x0A {
                 currentLine += 1
             }
-            i += 1
         }
 
         // Handle trailing segment (no semicolon at end)
@@ -214,42 +140,4 @@ struct SQLSegmentParser {
         ))
     }
 
-    /// Scan for a dollar-quote tag starting at position `from`.
-    /// A dollar tag is: `$` followed by optional identifier chars, then `$`.
-    /// Returns the full tag including both `$` delimiters (e.g., `$$` or `$tag$`).
-    private static func scanDollarTag(chars: [unichar], from: Int, length: Int) -> String? {
-        guard from < length, chars[from] == unichar("$") else { return nil }
-
-        var j = from + 1
-        // Scan optional identifier: [A-Za-z0-9_]
-        while j < length {
-            let c = chars[j]
-            let isIdent = (c >= unichar("A") && c <= unichar("Z"))
-                || (c >= unichar("a") && c <= unichar("z"))
-                || (c >= unichar("0") && c <= unichar("9"))
-                || c == unichar("_")
-            if !isIdent { break }
-            j += 1
-        }
-
-        // Must end with another '$'
-        guard j < length, chars[j] == unichar("$") else { return nil }
-
-        // Build the tag string (includes both $ delimiters)
-        let tagChars = chars[from...j]
-        return String(utf16CodeUnits: Array(tagChars), count: tagChars.count)
-    }
-
-    /// Check if `pattern` matches at `offset` in `chars`.
-    private static func matchesAt(chars: [unichar], offset: Int, pattern: [unichar], length: Int) -> Bool {
-        guard offset + pattern.count <= length else { return false }
-        for k in 0..<pattern.count {
-            if chars[offset + k] != pattern[k] { return false }
-        }
-        return true
-    }
-
-    private static func unichar(_ c: Character) -> unichar {
-        return c.utf16.first!
-    }
 }
