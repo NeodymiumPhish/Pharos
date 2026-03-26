@@ -19,6 +19,13 @@ class SidebarViewController: NSViewController {
 
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
+    private var notificationObservers: [NSObjectProtocol] = []
+
+    deinit {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     override func loadView() {
         let container = NSView()
@@ -134,24 +141,28 @@ class SidebarViewController: NSViewController {
             .store(in: &cancellables)
 
         // Refresh saved queries when they change (save, move, delete)
-        NotificationCenter.default.addObserver(
-            forName: .savedQueriesDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.savedQueries.reload()
-            // Re-apply highlight (savedQueryId may have changed after save)
-            let savedQueryId = self?.stateManager.activeTab?.savedQueryId
-            self?.savedQueries.highlightQuery(id: savedQueryId)
-        }
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .savedQueriesDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.savedQueries.reload()
+                // Re-apply highlight (savedQueryId may have changed after save)
+                let savedQueryId = self?.stateManager.activeTab?.savedQueryId
+                self?.savedQueries.highlightQuery(id: savedQueryId)
+            }
+        )
 
         // Manual refresh from connection menu
-        NotificationCenter.default.addObserver(
-            forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
-        ) { [weak self] _ in
-            guard let self,
-                  let activeId = self.stateManager.activeConnectionId,
-                  self.stateManager.status(for: activeId) == .connected else { return }
-            self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
-        }
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
+            ) { [weak self] _ in
+                guard let self,
+                      let activeId = self.stateManager.activeConnectionId,
+                      self.stateManager.status(for: activeId) == .connected else { return }
+                self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
+            }
+        )
     }
 
     // MARK: - Segment Switching

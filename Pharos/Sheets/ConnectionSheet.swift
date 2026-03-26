@@ -158,10 +158,11 @@ class ConnectionSheet: NSViewController {
         testStatusLabel.stringValue = "Testing..."
         testStatusLabel.textColor = .secondaryLabelColor
 
-        Task {
+        Task { [weak self] in
             do {
                 let result = try await PharosCore.testConnection(config)
-                await MainActor.run {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
@@ -175,7 +176,8 @@ class ConnectionSheet: NSViewController {
                     }
                 }
             } catch {
-                await MainActor.run {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true

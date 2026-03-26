@@ -775,9 +775,9 @@ class EditorPaneVC: NSViewController {
         alert.addButton(withTitle: "Cancel")
 
         guard let window = view.window else { return }
-        alert.beginSheetModal(for: window) { response in
+        alert.beginSheetModal(for: window) { [weak self] response in
             if response == .alertFirstButtonReturn {
-                self.stateManager.deleteConnection(id: id)
+                self?.stateManager.deleteConnection(id: id)
             }
         }
     }

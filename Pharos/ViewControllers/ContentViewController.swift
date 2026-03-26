@@ -1183,8 +1183,8 @@ class ContentViewController: NSViewController {
                 NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
             }
             // Delay briefly so the detail sheet dismiss animation completes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.presentAsSheet(saveSheet)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.presentAsSheet(saveSheet)
             }
         }
         presentAsSheet(sheet)
