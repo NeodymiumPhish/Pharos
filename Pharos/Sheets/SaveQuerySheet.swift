@@ -185,6 +185,11 @@ class SaveQuerySheet: NSViewController {
             dismiss(nil)
         } catch {
             NSLog("Failed to replace saved query: \(error)")
+            let alert = NSAlert()
+            alert.messageText = "Failed to Save Query"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
         }
     }
 
@@ -196,6 +201,11 @@ class SaveQuerySheet: NSViewController {
             dismiss(nil)
         } catch {
             NSLog("Failed to save query: \(error)")
+            let alert = NSAlert()
+            alert.messageText = "Failed to Save Query"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
         }
     }
 

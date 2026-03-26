@@ -39,7 +39,7 @@ pub extern "C" fn pharos_load_query_history(json: *const c_char) -> *mut c_char 
             state,
         )) {
             Ok(entries) => to_json_c_string(&entries),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -53,7 +53,7 @@ pub extern "C" fn pharos_delete_query_history_entry(entry_id: *const c_char) -> 
         let id = unsafe { c_str_to_string(entry_id) };
         match rt.block_on(crate::commands::delete_query_history_entry(id, state)) {
             Ok(deleted) => to_c_string(if deleted { "true" } else { "false" }),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -68,7 +68,7 @@ pub extern "C" fn pharos_get_query_history_result(entry_id: *const c_char) -> *m
         match rt.block_on(crate::commands::get_query_history_result(id, state)) {
             Ok(Some(data)) => to_json_c_string(&data),
             Ok(None) => std::ptr::null_mut(),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -83,11 +83,11 @@ pub extern "C" fn pharos_batch_delete_query_history(json: *const c_char) -> *mut
         let json_str = unsafe { c_str_to_string(json) };
         let ids: Vec<String> = match serde_json::from_str(&json_str) {
             Ok(ids) => ids,
-            Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
         match rt.block_on(crate::commands::batch_delete_query_history_entries(ids, state)) {
             Ok(count) => to_c_string(&format!("{}", count)),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }

@@ -39,6 +39,9 @@ final class AppStateManager: ObservableObject {
     private var schemaSelections: [String: String] = [:]  // connectionId → schemaName
     @Published private(set) var settings: AppSettings = AppSettings()
 
+    /// Last error from a state operation (save, delete, load). Observed by UI to show alerts.
+    @Published var lastError: String?
+
     // Tab management
     @Published var tabs: [QueryTab] = []
     @Published var activeTabId: String?
@@ -88,6 +91,7 @@ final class AppStateManager: ObservableObject {
             loadConnections()
         } catch {
             NSLog("Failed to save connection: \(error)")
+            lastError = "Failed to save connection: \(error.localizedDescription)"
         }
     }
 
@@ -101,6 +105,7 @@ final class AppStateManager: ObservableObject {
             loadConnections()
         } catch {
             NSLog("Failed to delete connection: \(error)")
+            lastError = "Failed to delete connection: \(error.localizedDescription)"
         }
     }
 
@@ -165,6 +170,7 @@ final class AppStateManager: ObservableObject {
             settings = newSettings
         } catch {
             NSLog("Failed to save settings: \(error)")
+            lastError = "Failed to save settings: \(error.localizedDescription)"
         }
     }
 

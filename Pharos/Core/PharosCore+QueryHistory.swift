@@ -33,8 +33,10 @@ extension PharosCore {
         }
         defer { pharos_free_string(ptr) }
         let json = String(cString: ptr)
-        if json.hasPrefix("{\"error\":") {
-            throw PharosCoreError.rustError(json)
+        if let errorData = json.data(using: .utf8),
+           let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+           let errorMsg = errorDict["error"] as? String {
+            throw PharosCoreError.rustError(errorMsg)
         }
         return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
     }
@@ -49,8 +51,10 @@ extension PharosCore {
         }
         defer { pharos_free_string(ptr) }
         let result = String(cString: ptr)
-        if result.hasPrefix("{\"error\":") {
-            throw PharosCoreError.rustError(result)
+        if let errorData = result.data(using: .utf8),
+           let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
+           let errorMsg = errorDict["error"] as? String {
+            throw PharosCoreError.rustError(errorMsg)
         }
         guard let count = Int(result) else {
             throw PharosCoreError.rustError("Unexpected result: \(result)")

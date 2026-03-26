@@ -14,7 +14,7 @@ pub extern "C" fn pharos_load_settings() -> *mut c_char {
         let rt = runtime();
         match rt.block_on(crate::commands::load_settings(state)) {
             Ok(settings) => to_json_c_string(&settings),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }

@@ -193,11 +193,14 @@ class ConnectionSheet: NSViewController {
     }
 
     @objc private func saveSheet() {
-        let config = buildConfig()
-        guard !config.name.isEmpty, !config.host.isEmpty, !config.database.isEmpty, !config.username.isEmpty else {
+        guard !nameField.stringValue.isEmpty,
+              !hostField.stringValue.isEmpty,
+              !databaseField.stringValue.isEmpty,
+              !usernameField.stringValue.isEmpty else {
             NSSound.beep()
             return
         }
+        let config = buildConfig()
         onSave?(config)
         dismiss(nil)
     }

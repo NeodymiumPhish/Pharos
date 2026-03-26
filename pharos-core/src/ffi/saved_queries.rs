@@ -14,7 +14,7 @@ pub extern "C" fn pharos_load_saved_queries() -> *mut c_char {
         let rt = runtime();
         match rt.block_on(crate::commands::load_saved_queries(state)) {
             Ok(queries) => to_json_c_string(&queries),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -28,11 +28,11 @@ pub extern "C" fn pharos_create_saved_query(json: *const c_char) -> *mut c_char 
         let json_str = unsafe { c_str_to_string(json) };
         let query: crate::models::CreateSavedQuery = match serde_json::from_str(&json_str) {
             Ok(q) => q,
-            Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
         match rt.block_on(crate::commands::create_saved_query(state, query)) {
             Ok(saved) => to_json_c_string(&saved),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -46,11 +46,11 @@ pub extern "C" fn pharos_update_saved_query(json: *const c_char) -> *mut c_char 
         let json_str = unsafe { c_str_to_string(json) };
         let update: crate::models::UpdateSavedQuery = match serde_json::from_str(&json_str) {
             Ok(u) => u,
-            Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
         match rt.block_on(crate::commands::update_saved_query(state, update)) {
             Ok(saved) => to_json_c_string(&saved),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -64,7 +64,7 @@ pub extern "C" fn pharos_delete_saved_query(query_id: *const c_char) -> *mut c_c
         let id = unsafe { c_str_to_string(query_id) };
         match rt.block_on(crate::commands::delete_saved_query(state, id)) {
             Ok(deleted) => to_c_string(if deleted { "true" } else { "false" }),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
@@ -78,11 +78,11 @@ pub extern "C" fn pharos_batch_delete_saved_queries(json: *const c_char) -> *mut
         let json_str = unsafe { c_str_to_string(json) };
         let ids: Vec<String> = match serde_json::from_str(&json_str) {
             Ok(ids) => ids,
-            Err(e) => return to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
         match rt.block_on(crate::commands::batch_delete_saved_queries(state, ids)) {
             Ok(count) => to_c_string(&count.to_string()),
-            Err(e) => to_c_string(&format!("{{\"error\":\"{}\"}}", e)),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })
 }
