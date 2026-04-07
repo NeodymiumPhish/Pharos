@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 3 of 3
-status: unknown
-stopped_at: Completed quick-4-PLAN.md
-last_updated: "2026-03-12T15:53:47Z"
+current_plan: 0 of 0
+status: idle
+stopped_at: Completed quick task 260407-ew1
+last_updated: "2026-04-07T15:00:00Z"
 progress:
   total_phases: 1
   completed_phases: 1
@@ -20,14 +20,11 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Fast, native PostgreSQL exploration and querying on macOS
-**Current focus:** Phase 01 - Fix results grid column sort/filter and cell selection (Plan 02 of 03 complete)
+**Current focus:** No active phase — all milestones shipped, ready for new work
 
 ## Current Position
 
-Phase 01: Fix results grid column sort/filter and cell selection
-Current Plan: 3 of 3
-Plan 01 (Cell Selection) complete.
-Plan 02 (Header Redesign) complete.
+No active phase. All milestones (v1.0, v1.1, v2.0) shipped. Phase 02 (Sheets & Custom Views) removed.
 
 ## Accumulated Context
 
@@ -62,9 +59,11 @@ None.
 | 2 | Per-tab sidebar and schema caching — eliminate refreshes on tab switch | 2026-03-11 | 262cac3 | | [2-per-tab-sidebar-and-schema-caching-elimi](./quick/2-per-tab-sidebar-and-schema-caching-elimi/) |
 | 3 | Saved queries UX overhaul — multi-select, drag-drop, batch delete, Save As replace | 2026-03-11 | 87d4026 | | [3-saved-queries-ux-overhaul-multi-select-d](./quick/3-saved-queries-ux-overhaul-multi-select-d/) |
 | 4 | Add code folding chevrons to query editor for SQL segments | 2026-03-12 | dd5a024 | Verified | [4-add-code-folding-chevrons-to-query-edito](./quick/4-add-code-folding-chevrons-to-query-edito/) |
+| 260407-ew1 | Fix duplicate column name collision in query results | 2026-04-07 | bcbef35 | Needs Review | [260407-ew1-fix-duplicate-column-name-collision-in-q](./quick/260407-ew1-fix-duplicate-column-name-collision-in-q/) |
+| 260407-i50 | Fix open transaction leaks — pool timeouts and after_connect hook | 2026-04-07 | f4df216 | | [260407-i50-fix-open-transaction-leaks-add-pool-time](./quick/260407-i50-fix-open-transaction-leaks-add-pool-time/) |
 
 ## Session Continuity
 
-Last activity: 2026-03-12 - Completed quick task 4: Add code folding chevrons to query editor for SQL segments
-Stopped at: Completed quick-4-PLAN.md
+Last activity: 2026-04-07 - Completed quick task 260407-i50: Fix open transaction leaks
+Stopped at: Completed quick task 260407-i50
 Resume file: None

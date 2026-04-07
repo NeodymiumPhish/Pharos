@@ -1,5 +1,5 @@
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Row};
+use sqlx::{Executor, PgPool, Row};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,17 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .acquire_timeout(Duration::from_secs(10))
+        .idle_timeout(Duration::from_secs(600))
+        .max_lifetime(Duration::from_secs(1800))
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                conn.execute("SET idle_in_transaction_session_timeout = '30s'")
+                    .await?;
+                conn.execute("SET statement_timeout = '300000'")
+                    .await?;
+                Ok(())
+            })
+        })
         .connect(&connection_string)
         .await?;
 
@@ -46,6 +57,8 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .acquire_timeout(Duration::from_secs(10))
+        .idle_timeout(Duration::from_secs(600))
+        .max_lifetime(Duration::from_secs(1800))
         .connect(&connection_string)
         .await?;
 
