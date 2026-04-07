@@ -3,7 +3,7 @@ import AppKit
 // MARK: - ResultsFindControllerDelegate
 
 extension ResultsGridVC: ResultsFindControllerDelegate {
-    var findRows: [[String: AnyCodable]] { rows }
+    var findRows: [[AnyCodable]] { rows }
     var findColumns: [ColumnDef] { columns }
     var findUnfilteredDisplayRows: [Int] { columnFilteredDisplayRows }
 
@@ -56,8 +56,8 @@ extension ResultsGridVC: ResultsDataSourceDelegate {
 // MARK: - ResultsSortControllerDelegate
 
 extension ResultsGridVC: ResultsSortControllerDelegate {
-    var sortableRows: [[String: AnyCodable]] { rows }
-    var sortableColumnCategories: [String: PGTypeCategory] { columnCategories }
+    var sortableRows: [[AnyCodable]] { rows }
+    var sortableColumnCategories: [PGTypeCategory] { columnCategories }
 
     func sortControllerDidSort(unfilteredDisplayRows newUnfiltered: [Int], isSorted: Bool) {
         unfilteredDisplayRows = newUnfiltered
@@ -81,8 +81,8 @@ extension ResultsGridVC: ResultsCopyExportDelegate {
 // MARK: - ResultsColumnFilterControllerDelegate
 
 extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
-    var filterableRows: [[String: AnyCodable]] { rows }
-    var filterableColumnCategories: [String: PGTypeCategory] { columnCategories }
+    var filterableRows: [[AnyCodable]] { rows }
+    var filterableColumnCategories: [PGTypeCategory] { columnCategories }
 
     func columnFilterControllerDidUpdate(columnFilteredDisplayRows newFiltered: [Int]) {
         columnFilteredDisplayRows = newFiltered
@@ -123,13 +123,14 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
     }
 
     func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect) {
-        let colName = column.identifier.rawValue
-        let category = columnCategories[colName] ?? .string
-        let rawDataType = columns.first(where: { $0.name == colName })?.dataType ?? ""
-        let existing = columnFilterController.filter(forColumn: colName)
+        let colId = column.identifier.rawValue
+        guard let idx = colIndex(from: colId), idx < columns.count else { return }
+        let category = columnCategories[idx]
+        let rawDataType = columns[idx].dataType
+        let existing = columnFilterController.filter(forColumn: colId)
 
         let popoverVC = ColumnFilterPopoverVC(
-            columnName: colName,
+            columnName: colId,
             category: category,
             dataType: rawDataType,
             existingFilter: existing

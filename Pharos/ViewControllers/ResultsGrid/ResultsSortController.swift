@@ -3,8 +3,8 @@ import AppKit
 // MARK: - Sort Controller Delegate
 
 protocol ResultsSortControllerDelegate: AnyObject {
-    var sortableRows: [[String: AnyCodable]] { get }
-    var sortableColumnCategories: [String: PGTypeCategory] { get }
+    var sortableRows: [[AnyCodable]] { get }
+    var sortableColumnCategories: [PGTypeCategory] { get }
     func sortControllerDidSort(unfilteredDisplayRows: [Int], isSorted: Bool)
     func sortControllerDidReset(unfilteredDisplayRows: [Int])
 }
@@ -76,14 +76,15 @@ class ResultsSortController: NSObject {
 
         let rows = delegate.sortableRows
         let categories = delegate.sortableColumnCategories
-        let category = categories[sortKey] ?? .string
+        guard let sortIdx = colIndex(from: sortKey) else { return }
+        let category = sortIdx < categories.count ? categories[sortIdx] : .string
         let ascending = currentSortAscending
 
         // Sort all rows
         var unfilteredDisplayRows = Array(0..<rows.count)
         unfilteredDisplayRows.sort { a, b in
-            let valA = rows[a][sortKey]
-            let valB = rows[b][sortKey]
+            let valA: AnyCodable? = sortIdx < rows[a].count ? rows[a][sortIdx] : nil
+            let valB: AnyCodable? = sortIdx < rows[b].count ? rows[b][sortIdx] : nil
 
             // NULLs always sort to end
             if valA?.isNull ?? true {

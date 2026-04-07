@@ -1,5 +1,11 @@
 import AppKit
 
+/// Parses the 0-based column index from a "col_N" identifier string.
+func colIndex(from identifier: String) -> Int? {
+    guard identifier.hasPrefix("col_") else { return nil }
+    return Int(identifier.dropFirst(4))
+}
+
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
@@ -33,10 +39,10 @@ class ResultsGridVC: NSViewController {
 
     // Data
     var columns: [ColumnDef] = []
-    var rows: [[String: AnyCodable]] = []
+    var rows: [[AnyCodable]] = []
     var hasMore: Bool = false
     var executionTimeMs: UInt64 = 0
-    var columnCategories: [String: PGTypeCategory] = [:]
+    var columnCategories: [PGTypeCategory] = []
 
     // Display ordering
     var displayRows: [Int] = []
@@ -183,10 +189,7 @@ class ResultsGridVC: NSViewController {
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
 
-        columnCategories = Dictionary(
-            columns.map { ($0.name, PGTypeCategory(dataType: $0.dataType)) },
-            uniquingKeysWith: { _, last in last }
-        )
+        columnCategories = columns.map { PGTypeCategory(dataType: $0.dataType) }
 
         displayRows = Array(0..<rows.count)
         unfilteredDisplayRows = displayRows
@@ -333,7 +336,7 @@ class ResultsGridVC: NSViewController {
         columnFilteredDisplayRows = []
         hasMore = false
         executionTimeMs = 0
-        columnCategories = [:]
+        columnCategories = []
         columnFilterController.clearAll()
         filterableHeaderView.activeFilterColumns = []
         resetFiltersButton.isHidden = true
@@ -409,8 +412,8 @@ class ResultsGridVC: NSViewController {
         rowNumCol.maxWidth = 60
         tableView.addTableColumn(rowNumCol)
 
-        for colDef in columns {
-            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(colDef.name))
+        for (index, colDef) in columns.enumerated() {
+            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("col_\(index)"))
             col.title = colDef.name
             col.width = estimateColumnWidth(colDef)
             col.minWidth = 50
@@ -430,7 +433,7 @@ class ResultsGridVC: NSViewController {
             let headerCell = SortAwareHeaderCell()
             headerCell.attributedStringValue = attrStr
             col.headerCell = headerCell
-            col.sortDescriptorPrototype = NSSortDescriptor(key: colDef.name, ascending: true)
+            col.sortDescriptorPrototype = NSSortDescriptor(key: "col_\(index)", ascending: true)
             tableView.addTableColumn(col)
         }
     }
@@ -651,7 +654,8 @@ class ResultsGridVC: NSViewController {
             guard rowIdx < displayRows.count else { continue }
             let dataIdx = displayRows[rowIdx]
             guard dataIdx < rows.count else { continue }
-            if let value = rows[dataIdx][colId] {
+            if let idx = colIndex(from: colId), idx < rows[dataIdx].count {
+                let value = rows[dataIdx][idx]
                 let text = value.displayString
                 let width = (text as NSString).size(withAttributes: attrs).width + 12
                 maxWidth = max(maxWidth, width)

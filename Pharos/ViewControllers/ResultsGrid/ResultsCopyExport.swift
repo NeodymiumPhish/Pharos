@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct CopyData {
     let columnNames: [String]
+    let columnIndices: [Int]
     let rows: [[String]]
     let includeHeaders: Bool
 }
@@ -24,9 +25,9 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     // Data state (pushed by VC)
     var columns: [ColumnDef] = []
-    var rows: [[String: AnyCodable]] = []
+    var rows: [[AnyCodable]] = []
     var displayRows: [Int] = []
-    var columnCategories: [String: PGTypeCategory] = [:]
+    var columnCategories: [PGTypeCategory] = []
 
     /// Cell selection state, pushed by the VC. When set, copy/export uses the cell range.
     var cellSelection: CellSelectionState?
@@ -57,13 +58,19 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
     private func gatherCellRangeData() -> CopyData? {
         guard let selection = cellSelection, let range = selection.selectedRange else { return nil }
 
-        let columns = tableView.tableColumns
+        let tableCols = tableView.tableColumns
         let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
-            guard idx >= 0, idx < columns.count else { return nil }
-            let id = columns[idx].identifier.rawValue
+            guard idx >= 0, idx < tableCols.count else { return nil }
+            let id = tableCols[idx].identifier.rawValue
             return id == "__rownum__" ? nil : id
         }
         guard !selectedColIds.isEmpty else { return nil }
+
+        let indices = selectedColIds.compactMap { colIndex(from: $0) }
+        let displayNames = selectedColIds.compactMap { id -> String? in
+            guard let idx = colIndex(from: id), idx < self.columns.count else { return nil }
+            return self.columns[idx].name
+        }
 
         var rowData: [[String]] = []
         for row in range.topLeft.row...range.bottomRight.row {
@@ -71,12 +78,15 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             let dataIdx = displayRows[row]
             guard dataIdx < rows.count else { continue }
             let data = rows[dataIdx]
-            let values = selectedColIds.map { data[$0]?.displayString ?? "" }
+            let values = selectedColIds.map { id -> String in
+                guard let idx = colIndex(from: id), idx < data.count else { return "" }
+                return data[idx].displayString
+            }
             rowData.append(values)
         }
 
         guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: selectedColIds, rows: rowData, includeHeaders: false)
+        return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: false)
     }
 
     /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
@@ -94,25 +104,37 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
         guard !colIds.isEmpty else { return nil }
 
+        let indices = colIds.compactMap { colIndex(from: $0) }
+        let displayNames = colIds.compactMap { id -> String? in
+            guard let idx = colIndex(from: id), idx < self.columns.count else { return nil }
+            return self.columns[idx].name
+        }
+
         var rowData: [[String]] = []
 
         if !selectedRows.isEmpty {
             for row in selectedRows {
                 guard row < displayRows.count else { continue }
                 let data = rows[displayRows[row]]
-                let values = colIds.map { data[$0]?.displayString ?? "" }
+                let values = colIds.map { id -> String in
+                    guard let idx = colIndex(from: id), idx < data.count else { return "" }
+                    return data[idx].displayString
+                }
                 rowData.append(values)
             }
         } else {
             for row in 0..<displayRows.count {
                 let data = rows[displayRows[row]]
-                let values = colIds.map { data[$0]?.displayString ?? "" }
+                let values = colIds.map { id -> String in
+                    guard let idx = colIndex(from: id), idx < data.count else { return "" }
+                    return data[idx].displayString
+                }
                 rowData.append(values)
             }
         }
 
         guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: colIds, rows: rowData, includeHeaders: includeHeaders)
+        return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: includeHeaders)
     }
 
     // MARK: - Copy Support
@@ -162,9 +184,9 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         let cats = columnCategories
         let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
         let statements = data.rows.map { row in
-            let values = zip(data.columnNames, row).map { (col, val) -> String in
+            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
                 if val.isEmpty || val == "NULL" { return "NULL" }
-                let category = cats[col] ?? .string
+                let category = colIdx < cats.count ? cats[colIdx] : .string
                 switch category {
                 case .numeric:
                     return val
@@ -182,16 +204,15 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     @objc func copyAsSQLWith(_: Any?) {
         guard var data = gatherData() else { return }
-        data = CopyData(columnNames: data.columnNames, rows: data.rows, includeHeaders: false)
+        data = CopyData(columnNames: data.columnNames, columnIndices: data.columnIndices, rows: data.rows, includeHeaders: false)
         let cats = columnCategories
-        let colTypes = columns.reduce(into: [String: String]()) { $0[$1.name] = $1.dataType }
 
         let colList = data.columnNames.joined(separator: ", ")
         let valueRows = data.rows.enumerated().map { (rowIdx, row) in
-            let values = zip(data.columnNames, row).map { (col, val) -> String in
+            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
                 if val.isEmpty || val == "NULL" { return "NULL" }
-                let category = cats[col] ?? .string
-                let pgType = colTypes[col] ?? "text"
+                let category = colIdx < cats.count ? cats[colIdx] : .string
+                let pgType = colIdx < columns.count ? columns[colIdx].dataType : "text"
                 let literal: String
                 switch category {
                 case .numeric, .boolean:
@@ -347,9 +368,9 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         exportToFile(filename: "export.sql", contentType: UTType(filenameExtension: "sql") ?? .plainText) { data in
             let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
             let statements = data.rows.map { row in
-                let values = zip(data.columnNames, row).map { (col, val) -> String in
+                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
                     if val.isEmpty || val == "NULL" { return "NULL" }
-                    let category = cats[col] ?? .string
+                    let category = colIdx < cats.count ? cats[colIdx] : .string
                     switch category {
                     case .numeric, .boolean:
                         return val

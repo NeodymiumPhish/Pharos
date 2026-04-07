@@ -31,7 +31,13 @@ extension PharosCore {
            let errorMsg = errorDict["error"] as? String {
             throw PharosCoreError.rustError(errorMsg)
         }
-        return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
+        do {
+            return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
+        } catch {
+            // Old cached results were name-keyed objects; new format is index-based arrays.
+            // Gracefully return nil so the history entry is still visible but without cached result preview.
+            return nil
+        }
     }
 
     /// Batch delete query history entries.

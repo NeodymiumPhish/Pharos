@@ -3,8 +3,8 @@ import AppKit
 // MARK: - Column Filter Controller Delegate
 
 protocol ResultsColumnFilterControllerDelegate: AnyObject {
-    var filterableRows: [[String: AnyCodable]] { get }
-    var filterableColumnCategories: [String: PGTypeCategory] { get }
+    var filterableRows: [[AnyCodable]] { get }
+    var filterableColumnCategories: [PGTypeCategory] { get }
     func columnFilterControllerDidUpdate(columnFilteredDisplayRows: [Int])
 }
 
@@ -49,9 +49,10 @@ class ResultsColumnFilterController {
         let categories = delegate.filterableColumnCategories
 
         return inputDisplayRows.filter { rowIdx in
-            for (colName, filter) in activeFilters {
-                let category = categories[colName] ?? .string
-                let value = rows[rowIdx][colName]
+            for (colId, filter) in activeFilters {
+                guard let idx = colIndex(from: colId) else { continue }
+                let category = idx < categories.count ? categories[idx] : .string
+                let value: AnyCodable? = idx < rows[rowIdx].count ? rows[rowIdx][idx] : nil
                 if !evaluate(filter: filter, value: value, category: category) {
                     return false
                 }

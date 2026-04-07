@@ -74,10 +74,10 @@ class InspectorViewController: NSViewController {
 
     func showRowDetail(
         columns: [ColumnDef],
-        row: [String: AnyCodable],
+        row: [AnyCodable],
         rowNumber: Int,
         totalRows: Int,
-        columnCategories: [String: PGTypeCategory]
+        columnCategories: [PGTypeCategory]
     ) {
         // Skip rebuild if same row
         if currentRowNumber == rowNumber { return }
@@ -115,10 +115,11 @@ class InspectorViewController: NSViewController {
         separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         // Column key-value pairs
-        for colDef in columns {
-            let category = columnCategories[colDef.name] ?? .string
+        for (index, colDef) in columns.enumerated() {
+            let category = index < columnCategories.count ? columnCategories[index] : .string
             let keyLabel = makeKeyLabel(name: colDef.name, dataType: colDef.dataType)
-            let valueLabel = makeValueLabel(value: row[colDef.name], category: category)
+            let value: AnyCodable? = index < row.count ? row[index] : nil
+            let valueLabel = makeValueLabel(value: value, category: category)
 
             stackView.addArrangedSubview(keyLabel)
             stackView.addArrangedSubview(valueLabel)
@@ -136,9 +137,9 @@ class InspectorViewController: NSViewController {
 
     func showAggregation(
         columns: [ColumnDef],
-        rows: [[String: AnyCodable]],
+        rows: [[AnyCodable]],
         selectionCount: Int,
-        columnCategories: [String: PGTypeCategory]
+        columnCategories: [PGTypeCategory]
     ) {
         currentRowNumber = nil
         noSelectionLabel.isHidden = true
@@ -409,17 +410,17 @@ class InspectorViewController: NSViewController {
 
     private func computeAggregations(
         columns: [ColumnDef],
-        rows: [[String: AnyCodable]],
-        categories: [String: PGTypeCategory]
+        rows: [[AnyCodable]],
+        categories: [PGTypeCategory]
     ) -> [ColumnAggregation] {
-        columns.map { col in
+        columns.enumerated().map { (index, col) in
             var agg = ColumnAggregation(
                 columnName: col.name,
                 dataType: col.dataType,
-                category: categories[col.name] ?? .string
+                category: index < categories.count ? categories[index] : .string
             )
             for row in rows {
-                let value = row[col.name]
+                let value: AnyCodable? = index < row.count ? row[index] : nil
                 agg.totalCount += 1
 
                 guard let val = value, !val.isNull else { continue }

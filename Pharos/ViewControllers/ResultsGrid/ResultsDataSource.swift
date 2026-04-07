@@ -51,9 +51,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // Data state (pushed by VC)
     var columns: [ColumnDef] = []
-    var rows: [[String: AnyCodable]] = []
+    var rows: [[AnyCodable]] = []
     var displayRows: [Int] = []
-    var columnCategories: [String: PGTypeCategory] = [:]
+    var columnCategories: [PGTypeCategory] = []
 
     // Find highlight state (pushed by VC after find operations)
     var isFindVisible = false
@@ -118,8 +118,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.textColor = .tertiaryLabelColor
         } else {
             let rowData = rows[dataRowIdx]
-            let category = columnCategories[colId.rawValue] ?? .string
-            if let value = rowData[colId.rawValue] {
+            if let idx = colIndex(from: colId.rawValue), idx < rowData.count {
+                let category = idx < columnCategories.count ? columnCategories[idx] : .string
+                let value = rowData[idx]
                 styleCell(cell, value: value, category: category)
             } else {
                 cell.textField?.stringValue = ""

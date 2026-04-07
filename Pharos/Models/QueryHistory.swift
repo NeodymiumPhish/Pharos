@@ -38,5 +38,5 @@ struct QueryHistoryFilter: Codable {
 
 struct QueryHistoryResultData: Codable {
     let columns: [ColumnDef]
-    let rows: [[String: AnyCodable]]
+    let rows: [[AnyCodable]]
 }

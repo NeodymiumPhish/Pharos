@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Find Controller Delegate
 
 protocol ResultsFindControllerDelegate: AnyObject {
-    var findRows: [[String: AnyCodable]] { get }
+    var findRows: [[AnyCodable]] { get }
     var findColumns: [ColumnDef] { get }
     var findUnfilteredDisplayRows: [Int] { get }
     func findControllerDidUpdateResults(
@@ -158,7 +158,6 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate {
         }
 
         // Find all matching cells and track which rows have matches
-        let colIds = columns.map(\.name)
         var matchingRowIndices = Set<Int>()
 
         findMatches = []
@@ -166,9 +165,11 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate {
 
         for (displayIdx, rowIdx) in displayRows.enumerated() {
             let rowData = rows[rowIdx]
-            for colId in colIds {
-                if let value = rowData[colId], !value.isNull,
-                   value.displayString.lowercased().contains(query) {
+            for (colIdx, _) in columns.enumerated() {
+                let colId = "col_\(colIdx)"
+                guard colIdx < rowData.count else { continue }
+                let value = rowData[colIdx]
+                if !value.isNull, value.displayString.lowercased().contains(query) {
                     findMatches.append((row: displayIdx, colId: colId))
                     findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     matchingRowIndices.insert(rowIdx)
@@ -184,9 +185,11 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate {
             findMatchSet = Set()
             for (displayIdx, rowIdx) in displayRows.enumerated() {
                 let rowData = rows[rowIdx]
-                for colId in colIds {
-                    if let value = rowData[colId], !value.isNull,
-                       value.displayString.lowercased().contains(query) {
+                for (colIdx, _) in columns.enumerated() {
+                    let colId = "col_\(colIdx)"
+                    guard colIdx < rowData.count else { continue }
+                    let value = rowData[colIdx]
+                    if !value.isNull, value.displayString.lowercased().contains(query) {
                         findMatches.append((row: displayIdx, colId: colId))
                         findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     }

@@ -501,7 +501,7 @@ class ContentViewController: NSViewController {
                 guard idx < resultsVC.displayRows.count else { return nil }
                 return resultsVC.displayRows[idx]
             }
-            let selectedRows = dataIndices.compactMap { idx -> [String: AnyCodable]? in
+            let selectedRows = dataIndices.compactMap { idx -> [AnyCodable]? in
                 guard idx < resultsVC.rows.count else { return nil }
                 return resultsVC.rows[idx]
             }

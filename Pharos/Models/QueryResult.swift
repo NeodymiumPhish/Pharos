@@ -12,7 +12,7 @@ struct ColumnDef: Codable {
 
 struct QueryResult: Codable {
     let columns: [ColumnDef]
-    let rows: [[String: AnyCodable]]
+    let rows: [[AnyCodable]]
     let rowCount: Int
     let executionTimeMs: UInt64
     let hasMore: Bool
