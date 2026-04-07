@@ -131,6 +131,7 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
 
         let popoverVC = ColumnFilterPopoverVC(
             columnName: colId,
+            displayName: columns[idx].name,
             category: category,
             dataType: rawDataType,
             existingFilter: existing

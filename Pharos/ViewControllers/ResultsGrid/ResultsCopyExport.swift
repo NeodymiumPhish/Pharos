@@ -66,11 +66,12 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
         guard !selectedColIds.isEmpty else { return nil }
 
-        let indices = selectedColIds.compactMap { colIndex(from: $0) }
-        let displayNames = selectedColIds.compactMap { id -> String? in
+        let resolved = selectedColIds.compactMap { id -> (name: String, index: Int)? in
             guard let idx = colIndex(from: id), idx < self.columns.count else { return nil }
-            return self.columns[idx].name
+            return (self.columns[idx].name, idx)
         }
+        let displayNames = resolved.map(\.name)
+        let indices = resolved.map(\.index)
 
         var rowData: [[String]] = []
         for row in range.topLeft.row...range.bottomRight.row {
@@ -78,9 +79,8 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             let dataIdx = displayRows[row]
             guard dataIdx < rows.count else { continue }
             let data = rows[dataIdx]
-            let values = selectedColIds.map { id -> String in
-                guard let idx = colIndex(from: id), idx < data.count else { return "" }
-                return data[idx].displayString
+            let values = indices.map { idx in
+                idx < data.count ? data[idx].displayString : ""
             }
             rowData.append(values)
         }
@@ -104,11 +104,12 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
         guard !colIds.isEmpty else { return nil }
 
-        let indices = colIds.compactMap { colIndex(from: $0) }
-        let displayNames = colIds.compactMap { id -> String? in
+        let resolved = colIds.compactMap { id -> (name: String, index: Int)? in
             guard let idx = colIndex(from: id), idx < self.columns.count else { return nil }
-            return self.columns[idx].name
+            return (self.columns[idx].name, idx)
         }
+        let displayNames = resolved.map(\.name)
+        let indices = resolved.map(\.index)
 
         var rowData: [[String]] = []
 
@@ -116,18 +117,16 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             for row in selectedRows {
                 guard row < displayRows.count else { continue }
                 let data = rows[displayRows[row]]
-                let values = colIds.map { id -> String in
-                    guard let idx = colIndex(from: id), idx < data.count else { return "" }
-                    return data[idx].displayString
+                let values = indices.map { idx in
+                    idx < data.count ? data[idx].displayString : ""
                 }
                 rowData.append(values)
             }
         } else {
             for row in 0..<displayRows.count {
                 let data = rows[displayRows[row]]
-                let values = colIds.map { id -> String in
-                    guard let idx = colIndex(from: id), idx < data.count else { return "" }
-                    return data[idx].displayString
+                let values = indices.map { idx in
+                    idx < data.count ? data[idx].displayString : ""
                 }
                 rowData.append(values)
             }

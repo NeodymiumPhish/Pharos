@@ -22,6 +22,7 @@ private enum TemporalSubType {
 class ColumnFilterPopoverVC: NSViewController {
 
     private let columnName: String
+    private let displayName: String
     private let category: PGTypeCategory
     private let dataType: String
     private let existingFilter: ColumnFilter?
@@ -68,8 +69,9 @@ class ColumnFilterPopoverVC: NSViewController {
     private let applyButton = NSButton(title: "Apply", target: nil, action: nil)
     private let clearButton = NSButton(title: "Clear", target: nil, action: nil)
 
-    init(columnName: String, category: PGTypeCategory, dataType: String, existingFilter: ColumnFilter?) {
+    init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String, existingFilter: ColumnFilter?) {
         self.columnName = columnName
+        self.displayName = displayName
         self.category = category
         self.dataType = dataType
         self.existingFilter = existingFilter
@@ -102,7 +104,7 @@ class ColumnFilterPopoverVC: NSViewController {
         ])
 
         // Header
-        headerLabel.stringValue = "Filter: \(columnName)"
+        headerLabel.stringValue = "Filter: \(displayName)"
         headerLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         headerLabel.setContentHuggingPriority(.required, for: .vertical)
 
