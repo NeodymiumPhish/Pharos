@@ -172,12 +172,12 @@ pub async fn execute_query(
         .into_iter()
         .take(row_limit)
         .map(|row| {
-            let mut map = serde_json::Map::new();
-            for (i, col) in columns.iter().enumerate() {
-                let value = extract_value(&row, i, &col.data_type);
-                map.insert(col.name.clone(), value);
-            }
-            serde_json::Value::Object(map)
+            let values: Vec<serde_json::Value> = columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| extract_value(&row, i, &col.data_type))
+                .collect();
+            serde_json::Value::Array(values)
         })
         .collect();
 
@@ -335,12 +335,12 @@ pub async fn fetch_more_rows(
         .into_iter()
         .take(row_limit)
         .map(|row| {
-            let mut map = serde_json::Map::new();
-            for (i, col) in columns.iter().enumerate() {
-                let value = extract_value(&row, i, &col.data_type);
-                map.insert(col.name.clone(), value);
-            }
-            serde_json::Value::Object(map)
+            let values: Vec<serde_json::Value> = columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| extract_value(&row, i, &col.data_type))
+                .collect();
+            serde_json::Value::Array(values)
         })
         .collect();
 
