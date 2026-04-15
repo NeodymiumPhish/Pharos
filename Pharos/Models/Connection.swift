@@ -18,6 +18,7 @@ struct ConnectionConfig: Codable, Identifiable {
     var password: String = ""
     var sslMode: SslMode = .prefer
     var color: String?
+    var defaultSchema: String?
 
     // Custom decoder: Rust skips "password" when empty and "color" when nil,
     // so these keys may be absent in the JSON.
@@ -32,10 +33,12 @@ struct ConnectionConfig: Codable, Identifiable {
         password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
         sslMode = try c.decodeIfPresent(SslMode.self, forKey: .sslMode) ?? .prefer
         color = try c.decodeIfPresent(String.self, forKey: .color)
+        defaultSchema = try c.decodeIfPresent(String.self, forKey: .defaultSchema)
     }
 
     init(id: String, name: String, host: String, port: UInt16, database: String,
-         username: String, password: String = "", sslMode: SslMode = .prefer, color: String? = nil) {
+         username: String, password: String = "", sslMode: SslMode = .prefer,
+         color: String? = nil, defaultSchema: String? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -45,10 +48,11 @@ struct ConnectionConfig: Codable, Identifiable {
         self.password = password
         self.sslMode = sslMode
         self.color = color
+        self.defaultSchema = defaultSchema
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, host, port, database, username, password, sslMode, color
+        case id, name, host, port, database, username, password, sslMode, color, defaultSchema
     }
 }
 
