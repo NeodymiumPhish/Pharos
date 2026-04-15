@@ -633,6 +633,12 @@ class EditorPaneVC: NSViewController {
 
         schemaPopup.isEnabled = true
 
+        // Get default schema for the active connection
+        let defaultSchema: String? = {
+            guard let connId = tabConnectionId else { return nil }
+            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
+        }()
+
         let titleText = activeSchema ?? "All Schemas"
         schemaPopup.addItem(withTitle: titleText)
 
@@ -645,12 +651,26 @@ class EditorPaneVC: NSViewController {
         schemaPopup.menu?.addItem(.separator())
 
         for schema in schemas {
-            let item = NSMenuItem(title: schema.name, action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
+            var title = schema.name
+            if schema.name == defaultSchema {
+                title += "  \u{2605} default"  // ★ default
+            }
+            let item = NSMenuItem(title: title, action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = schema.name
             if activeSchema == schema.name { item.state = .on }
             schemaPopup.menu?.addItem(item)
         }
+
+        // Separator + "Set as Default Schema" action
+        schemaPopup.menu?.addItem(.separator())
+        let setDefaultItem = NSMenuItem(
+            title: "Set as Default Schema",
+            action: #selector(setDefaultSchemaClicked),
+            keyEquivalent: ""
+        )
+        setDefaultItem.target = self
+        schemaPopup.menu?.addItem(setDefaultItem)
     }
 
     private func updateSchemaLoading(_ loading: Bool) {
@@ -776,6 +796,19 @@ class EditorPaneVC: NSViewController {
 
     @objc private func schemaItemClicked(_ sender: NSMenuItem) {
         setTabSchema(sender.representedObject as? String)
+    }
+
+    @objc private func setDefaultSchemaClicked() {
+        guard let connId = tabConnectionId else { return }
+        guard var config = stateManager.connections.first(where: { $0.id == connId }) else { return }
+
+        // Current schema selection becomes the default (nil = "All Schemas" = clear default)
+        let currentSchema = tabSchemaName
+        config.defaultSchema = currentSchema
+        stateManager.saveConnection(config)
+
+        // Rebuild menu to update the badge
+        rebuildSchemaMenu()
     }
 
     deinit {
