@@ -157,6 +157,20 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         )?;
     }
 
+    // Migration: Add default_schema column if it doesn't exist
+    let has_default_schema: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'default_schema'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_default_schema {
+        conn.execute(
+            "ALTER TABLE connections ADD COLUMN default_schema TEXT",
+            [],
+        )?;
+    }
+
     conn.execute_batch(
         r#"
 
@@ -314,8 +328,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -324,6 +338,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             username = excluded.username,
             ssl_mode = excluded.ssl_mode,
             color = excluded.color,
+            default_schema = excluded.default_schema,
             updated_at = CURRENT_TIMESTAMP
         "#,
         (
@@ -336,6 +351,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.ssl_mode.to_string(),
             next_order,
             &config.color,
+            &config.default_schema,
         ),
     )?;
     Ok(())
@@ -344,7 +360,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color FROM connections ORDER BY sort_order, name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
@@ -364,6 +380,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             password: String::new(), // Password loaded from keychain separately
             ssl_mode,
             color: row.get(7)?,
+            default_schema: row.get(8)?,
         })
     })?;
 
