@@ -19,6 +19,8 @@ class ConnectionSheet: NSViewController {
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()
+    private let defaultSchemaPopup = NSPopUpButton()
+    private var fetchedSchemas: [String] = []
 
     // MARK: - Factory
 
@@ -40,7 +42,7 @@ class ConnectionSheet: NSViewController {
     // MARK: - View Lifecycle
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 380))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 410))
         self.view = container
 
         let title = existingConfig != nil ? "Edit Connection" : "New Connection"
@@ -74,6 +76,10 @@ class ConnectionSheet: NSViewController {
         let sslLabel = NSTextField.formLabel("SSL Mode")
         sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
 
+        let defaultSchemaLabel = NSTextField.formLabel("Default Schema")
+        defaultSchemaPopup.addItem(withTitle: "Test connection first")
+        defaultSchemaPopup.isEnabled = false
+
         // Test connection row
         testButton.title = "Test Connection"
         testButton.bezelStyle = .rounded
@@ -100,6 +106,7 @@ class ConnectionSheet: NSViewController {
             [usernameLabel, usernameField],
             [passwordLabel, passwordField],
             [sslLabel, sslPopup],
+            [defaultSchemaLabel, defaultSchemaPopup],
         ])
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 90
@@ -175,6 +182,37 @@ class ConnectionSheet: NSViewController {
                         let ms = result.latencyMs.map { "\($0)ms" } ?? ""
                         self.testStatusLabel.stringValue = "Connected \(ms)"
                         self.testStatusLabel.textColor = .systemGreen
+
+                        // Populate Default Schema dropdown from test connection
+                        Task {
+                            do {
+                                let connId = "__test_schema_fetch_\(UUID().uuidString)"
+                                var tempConfig = config
+                                tempConfig.id = connId
+                                try PharosCore.saveConnection(tempConfig)
+                                let _ = try await PharosCore.connect(connectionId: connId)
+                                let schemas: [SchemaInfo] = try await PharosCore.getSchemas(connectionId: connId)
+                                try await PharosCore.disconnect(connectionId: connId)
+                                try PharosCore.deleteConnection(id: connId)
+
+                                await MainActor.run { [weak self] in
+                                    guard let self else { return }
+                                    self.fetchedSchemas = schemas.map { $0.name }
+                                    self.defaultSchemaPopup.removeAllItems()
+                                    self.defaultSchemaPopup.addItem(withTitle: "None")
+                                    for schema in schemas {
+                                        self.defaultSchemaPopup.addItem(withTitle: schema.name)
+                                    }
+                                    self.defaultSchemaPopup.isEnabled = true
+                                    if let existing = self.existingConfig?.defaultSchema,
+                                       let idx = self.fetchedSchemas.firstIndex(of: existing) {
+                                        self.defaultSchemaPopup.selectItem(at: idx + 1)
+                                    }
+                                }
+                            } catch {
+                                NSLog("Failed to fetch schemas for default schema picker: \(error)")
+                            }
+                        }
                     } else {
                         self.testStatusLabel.stringValue = result.error ?? "Failed"
                         self.testStatusLabel.textColor = .systemRed
@@ -221,6 +259,14 @@ class ConnectionSheet: NSViewController {
             }
         }()
 
+        let defaultSchema: String? = {
+            if defaultSchemaPopup.isEnabled,
+               defaultSchemaPopup.indexOfSelectedItem > 0 {
+                return defaultSchemaPopup.titleOfSelectedItem
+            }
+            return existingConfig?.defaultSchema
+        }()
+
         return ConnectionConfig(
             id: existingConfig?.id ?? UUID().uuidString,
             name: nameField.stringValue.isEmpty ? "Untitled" : nameField.stringValue,
@@ -230,7 +276,8 @@ class ConnectionSheet: NSViewController {
             username: usernameField.stringValue.isEmpty ? "postgres" : usernameField.stringValue,
             password: passwordField.stringValue,
             sslMode: sslMode,
-            color: existingConfig?.color
+            color: existingConfig?.color,
+            defaultSchema: defaultSchema
         )
     }
 
