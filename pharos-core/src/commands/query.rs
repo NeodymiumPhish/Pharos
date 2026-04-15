@@ -21,8 +21,8 @@ pub(crate) async fn set_search_path(
         return Err("Invalid schema name: must not contain null bytes".to_string());
     }
     let escaped = schema_name.replace('"', "\"\"");
-    sqlx::query(&format!("SET search_path TO \"{}\", public", escaped))
-        .execute(&mut **conn)
+    let set_sql = format!("SET search_path TO \"{}\", public", escaped);
+    (&mut **conn).execute(sqlx::raw_sql(&set_sql))
         .await
         .map_err(|e| format!("Failed to set schema: {}", e))?;
     Ok(())
@@ -78,18 +78,39 @@ pub async fn execute_query(
     // and the query run on the same connection
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
-    // Get the backend PID for this connection so we can cancel it later
-    let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(|e| e.to_string())?;
+    // Get the backend PID for this connection so we can cancel it later.
+    // Use raw_sql (simple protocol) and make it optional — non-PG servers
+    // like ClickHouse don't have pg_backend_pid(). If the call fails and
+    // kills the connection, re-acquire a fresh one.
+    let backend_pid: i32 = {
+        let mut stream = sqlx::raw_sql("SELECT pg_backend_pid()").fetch(&mut *conn);
+        match stream.next().await {
+            Some(Ok(row)) => {
+                let pid = row.try_get::<i32, _>(0).unwrap_or(0);
+                drop(stream);
+                pid
+            }
+            _ => {
+                drop(stream);
+                // Connection may be dead — re-acquire
+                drop(conn);
+                conn = pool.acquire().await.map_err(|e| e.to_string())?;
+                0
+            }
+        }
+    };
 
     // Register this query for potential cancellation
     let cancelled = state.register_query(query_id.clone(), backend_pid);
 
-    // Set search_path if schema is specified
+    // Set search_path if schema is specified. Non-PG servers like ClickHouse
+    // don't support this — silently skip on failure rather than blocking the query.
     if let Some(ref schema_name) = schema {
-        set_search_path(&mut conn, schema_name).await?;
+        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+            // Connection may be dead — re-acquire
+            drop(conn);
+            conn = pool.acquire().await.map_err(|e| e.to_string())?;
+        }
     }
 
     // Use simple query protocol (text format) — PostgreSQL formats all values as text,
@@ -130,7 +151,8 @@ pub async fn execute_query(
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     if rows.is_empty() {
-        // Use describe() to get column metadata even for 0-row results
+        // describe() uses the extended query protocol which non-PG servers
+        // (e.g. ClickHouse) don't support. Fall back to empty columns on failure.
         let columns = match (&mut *conn).describe(sql.as_str()).await {
             Ok(desc) => desc
                 .columns()
@@ -273,9 +295,12 @@ pub async fn fetch_more_rows(
 
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
-    // Set search_path if schema is specified
+    // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        set_search_path(&mut conn, schema_name).await?;
+        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+            drop(conn);
+            conn = pool.acquire().await.map_err(|e| e.to_string())?;
+        }
     }
 
     // Wrap the original SQL with LIMIT/OFFSET
@@ -371,13 +396,15 @@ pub async fn execute_statement(
     // run on the same connection
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
-    // Set search_path if schema is specified
+    // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        set_search_path(&mut conn, schema_name).await?;
+        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+            drop(conn);
+            conn = pool.acquire().await.map_err(|e| e.to_string())?;
+        }
     }
 
-    let result = sqlx::query(&sql)
-        .execute(&mut *conn)
+    let result = (&mut *conn).execute(sqlx::raw_sql(&sql))
         .await
         .map_err(|e| format_db_error(&e))?;
 
@@ -443,12 +470,22 @@ pub async fn cancel_query(
     // Mark the query as cancelled
     state.mark_query_cancelled(&query_id);
 
-    // Send cancel signal to PostgreSQL
-    let cancelled: bool = sqlx::query_scalar("SELECT pg_cancel_backend($1)")
-        .bind(backend_pid)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    // Send cancel signal to PostgreSQL (pg_cancel_backend is PG-specific)
+    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+    let cancelled: bool = {
+        let mut stream = sqlx::raw_sql(&cancel_sql).fetch(&pool);
+        match stream.next().await {
+            Some(Ok(row)) => {
+                let val = row.try_get::<bool, _>(0).unwrap_or(false);
+                drop(stream);
+                val
+            }
+            _ => {
+                drop(stream);
+                false
+            }
+        }
+    };
 
     Ok(cancelled)
 }
@@ -496,9 +533,12 @@ pub async fn validate_sql(
     // Acquire a dedicated connection
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
-    // Set search_path if schema is specified
+    // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        set_search_path(&mut conn, schema_name).await?;
+        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+            drop(conn);
+            conn = pool.acquire().await.map_err(|e| e.to_string())?;
+        }
     }
 
     // Generate a unique prepared statement name
@@ -511,11 +551,11 @@ pub async fn validate_sql(
     // Try to prepare the statement - this validates the SQL without executing it
     let prepare_sql = format!("{}{}", prepare_prefix, sql_trimmed);
 
-    match sqlx::query(&prepare_sql).execute(&mut *conn).await {
+    match (&mut *conn).execute(sqlx::raw_sql(&prepare_sql)).await {
         Ok(_) => {
             // Clean up the prepared statement
             let deallocate_sql = format!("DEALLOCATE {}", stmt_name);
-            let _ = sqlx::query(&deallocate_sql).execute(&mut *conn).await;
+            let _ = (&mut *conn).execute(sqlx::raw_sql(&deallocate_sql)).await;
 
             Ok(ValidationResult {
                 valid: true,

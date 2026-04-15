@@ -1,9 +1,31 @@
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{Executor, PgPool, Row};
+use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
+
+/// Escape a string for safe use as a SQL string literal (防 SQL injection).
+/// Replaces single quotes with doubled single quotes.
+fn escape_sql_literal(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// Read a column value as a raw text string, bypassing type OID checks.
+/// Works reliably with non-PG servers (ClickHouse, CockroachDB) that may
+/// report non-standard type OIDs via the simple query protocol.
+fn raw_str(row: &sqlx::postgres::PgRow, col: &str) -> Option<String> {
+    match row.try_get_raw(col) {
+        Ok(raw) => {
+            if raw.is_null() {
+                None
+            } else {
+                raw.as_str().ok().map(|s| s.to_string())
+            }
+        }
+        Err(_) => None,
+    }
+}
 
 /// Build a connection string with proper URL encoding and SSL mode
 fn build_connection_string(config: &ConnectionConfig) -> String {
@@ -33,17 +55,26 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
         .acquire_timeout(Duration::from_secs(10))
         .idle_timeout(Duration::from_secs(600))
         .max_lifetime(Duration::from_secs(1800))
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                conn.execute("SET idle_in_transaction_session_timeout = '30s'")
-                    .await?;
-                conn.execute("SET statement_timeout = '300000'")
-                    .await?;
-                Ok(())
-            })
-        })
         .connect(&connection_string)
         .await?;
+
+    // Try to set session-level safety timeouts. These are PostgreSQL-specific
+    // and will fail (and may kill the connection) on non-PG servers like
+    // ClickHouse, so we run them after pool creation on a separate connection
+    // rather than in after_connect where a failure poisons every connection.
+    if let Ok(mut conn) = pool.acquire().await {
+        let ok = (&mut *conn)
+            .execute(sqlx::raw_sql(
+                "SET idle_in_transaction_session_timeout = '30s'",
+            ))
+            .await
+            .is_ok();
+        if ok {
+            let _ = (&mut *conn)
+                .execute(sqlx::raw_sql("SET statement_timeout = '300000'"))
+                .await;
+        }
+    }
 
     Ok(pool)
 }
@@ -62,8 +93,10 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
         .connect(&connection_string)
         .await?;
 
-    // Run a simple query to verify connection
-    sqlx::query("SELECT 1").execute(&pool).await?;
+    // Use raw_sql (simple query protocol) for compatibility with
+    // non-PostgreSQL servers (e.g. ClickHouse) that don't support
+    // the extended query protocol's ParameterDescription message.
+    sqlx::raw_sql("SELECT 1").execute(&pool).await?;
 
     let latency = start.elapsed().as_millis() as u64;
 
@@ -75,22 +108,23 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
 
 /// Get all schemas in the database
 pub async fn get_schemas(pool: &PgPool) -> Result<Vec<SchemaInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT schema_name, schema_owner
-        FROM information_schema.schemata
-        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-        ORDER BY schema_name
-        "#,
+    // No parameters needed — use raw_sql for simple protocol compatibility
+    let rows = sqlx::raw_sql(
+        "SELECT schema_name, schema_owner \
+         FROM information_schema.schemata \
+         WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+         ORDER BY schema_name",
     )
     .fetch_all(pool)
     .await?;
 
     let schemas = rows
         .into_iter()
-        .map(|row| SchemaInfo {
-            name: row.get("schema_name"),
-            owner: row.try_get("schema_owner").ok(),
+        .filter_map(|row| {
+            Some(SchemaInfo {
+                name: raw_str(&row, "schema_name")?,
+                owner: raw_str(&row, "schema_owner"),
+            })
         })
         .collect();
 
@@ -106,22 +140,22 @@ pub async fn analyze_schema(
     schema_name: &str,
     skip_denied: &HashSet<String>,
 ) -> Result<AnalyzeResult, sqlx::Error> {
-    let unanalyzed: Vec<String> = sqlx::query(
-        r#"
-        SELECT c.relname as table_name
-        FROM pg_catalog.pg_class c
-        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1
-          AND c.relkind = 'r'
-          AND c.reltuples = -1
-        "#,
-    )
-    .bind(schema_name)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|row| row.get::<String, _>("table_name"))
-    .collect();
+    let escaped_schema = escape_sql_literal(schema_name);
+    let sql = format!(
+        "SELECT c.relname as table_name \
+         FROM pg_catalog.pg_class c \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = '{}' \
+           AND c.relkind = 'r' \
+           AND c.reltuples = -1",
+        escaped_schema
+    );
+
+    // pg_catalog may not exist on non-PG servers — return empty result on failure
+    let unanalyzed: Vec<String> = match sqlx::raw_sql(&sql).fetch_all(pool).await {
+        Ok(rows) => rows.into_iter().map(|row| row.get::<String, _>("table_name")).collect(),
+        Err(_) => return Ok(AnalyzeResult { had_unanalyzed: false, permission_denied_tables: vec![] }),
+    };
 
     let had_unanalyzed = !unanalyzed.is_empty();
     let mut permission_denied_tables = Vec::new();
@@ -138,22 +172,22 @@ pub async fn analyze_schema(
 
     if !to_analyze.is_empty() {
         // Try batched ANALYZE first (single round-trip for all tables)
-        let escaped_schema = schema_name.replace('"', "\"\"");
+        let escaped_schema_ident = schema_name.replace('"', "\"\"");
         let table_list: Vec<String> = to_analyze.iter()
-            .map(|t| format!("\"{}\".\"{}\"", escaped_schema, t.replace('"', "\"\"")))
+            .map(|t| format!("\"{}\".\"{}\"", escaped_schema_ident, t.replace('"', "\"\"")))
             .collect();
         let batch_sql = format!("ANALYZE {}", table_list.join(", "));
 
-        if let Err(_) = sqlx::query(&batch_sql).execute(pool).await {
+        if let Err(_) = sqlx::raw_sql(&batch_sql).execute(pool).await {
             // Batch failed (likely permission denied on one+ tables).
             // Fall back to per-table ANALYZE to identify which ones failed.
             for table_name in &to_analyze {
                 let analyze_sql = format!(
                     "ANALYZE \"{}\".\"{}\"",
-                    escaped_schema,
+                    escaped_schema_ident,
                     table_name.replace('"', "\"\"")
                 );
-                if let Err(e) = sqlx::query(&analyze_sql).execute(pool).await {
+                if let Err(e) = sqlx::raw_sql(&analyze_sql).execute(pool).await {
                     let msg = e.to_string().to_lowercase();
                     if msg.contains("permission denied") || msg.contains("only table or database owner can analyze") {
                         permission_denied_tables.push((*table_name).clone());
@@ -171,59 +205,89 @@ pub async fn analyze_schema(
 
 /// Get all tables and views in a schema
 pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
-    // Use pg_catalog directly to get all relation types including foreign tables
-    // information_schema.tables doesn't reliably include foreign tables
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            c.relname as table_name,
-            CASE c.relkind
-                WHEN 'r' THEN 'BASE TABLE'
-                WHEN 'v' THEN 'VIEW'
-                WHEN 'm' THEN 'VIEW'
-                WHEN 'f' THEN 'FOREIGN TABLE'
-                ELSE 'BASE TABLE'
-            END as table_type,
-            CASE
-                WHEN c.reltuples >= 0 THEN c.reltuples::bigint
-                WHEN s.n_live_tup IS NOT NULL THEN s.n_live_tup
-                ELSE NULL
-            END as row_estimate,
-            CASE WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END as total_size_bytes
-        FROM pg_catalog.pg_class c
-        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid
-        WHERE n.nspname = $1
-          AND c.relkind IN ('r', 'v', 'm', 'f')
-        ORDER BY
-            CASE c.relkind
-                WHEN 'r' THEN 1
-                WHEN 'f' THEN 2
-                WHEN 'v' THEN 3
-                WHEN 'm' THEN 4
-            END,
-            c.relname
-        "#,
-    )
-    .bind(schema_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped = escape_sql_literal(schema_name);
+
+    // Try pg_catalog first for full metadata (row estimates, sizes, foreign tables)
+    let pg_catalog_sql = format!(
+        "SELECT \
+            c.relname as table_name, \
+            CASE c.relkind \
+                WHEN 'r' THEN 'BASE TABLE' \
+                WHEN 'v' THEN 'VIEW' \
+                WHEN 'm' THEN 'VIEW' \
+                WHEN 'f' THEN 'FOREIGN TABLE' \
+                ELSE 'BASE TABLE' \
+            END as table_type, \
+            CASE \
+                WHEN c.reltuples >= 0 THEN c.reltuples::bigint \
+                WHEN s.n_live_tup IS NOT NULL THEN s.n_live_tup \
+                ELSE NULL \
+            END as row_estimate, \
+            CASE WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END as total_size_bytes \
+         FROM pg_catalog.pg_class c \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid \
+         WHERE n.nspname = '{}' \
+           AND c.relkind IN ('r', 'v', 'm', 'f') \
+         ORDER BY \
+            CASE c.relkind \
+                WHEN 'r' THEN 1 \
+                WHEN 'f' THEN 2 \
+                WHEN 'v' THEN 3 \
+                WHEN 'm' THEN 4 \
+            END, \
+            c.relname",
+        escaped
+    );
+
+    if let Ok(rows) = sqlx::raw_sql(&pg_catalog_sql).fetch_all(pool).await {
+        let tables = rows
+            .into_iter()
+            .map(|row| {
+                let table_type_str: String = row.get("table_type");
+                TableInfo {
+                    name: row.get("table_name"),
+                    schema_name: schema_name.to_string(),
+                    table_type: match table_type_str.as_str() {
+                        "VIEW" => TableType::View,
+                        "FOREIGN TABLE" => TableType::ForeignTable,
+                        _ => TableType::Table,
+                    },
+                    row_count_estimate: row.try_get("row_estimate").ok(),
+                    total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
+                }
+            })
+            .collect();
+
+        return Ok(tables);
+    }
+
+    // Fallback: use information_schema (works on ClickHouse and other PG-compatible servers)
+    let fallback_sql = format!(
+        "SELECT table_name, table_type \
+         FROM information_schema.tables \
+         WHERE table_schema = '{}' \
+         ORDER BY table_type, table_name",
+        escaped
+    );
+
+    let rows = sqlx::raw_sql(&fallback_sql).fetch_all(pool).await?;
 
     let tables = rows
         .into_iter()
-        .map(|row| {
-            let table_type_str: String = row.get("table_type");
-            TableInfo {
-                name: row.get("table_name"),
+        .filter_map(|row| {
+            let table_type_str = raw_str(&row, "table_type").unwrap_or_default();
+            Some(TableInfo {
+                name: raw_str(&row, "table_name")?,
                 schema_name: schema_name.to_string(),
                 table_type: match table_type_str.as_str() {
                     "VIEW" => TableType::View,
                     "FOREIGN TABLE" => TableType::ForeignTable,
                     _ => TableType::Table,
                 },
-                row_count_estimate: row.try_get("row_estimate").ok(),
-                total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
-            }
+                row_count_estimate: None,
+                total_size_bytes: None,
+            })
         })
         .collect();
 
@@ -236,48 +300,87 @@ pub async fn get_columns(
     schema_name: &str,
     table_name: &str,
 ) -> Result<Vec<ColumnInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            c.column_name,
-            c.data_type,
-            c.is_nullable,
-            c.ordinal_position,
-            c.column_default,
-            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key
-        FROM information_schema.columns c
-        LEFT JOIN (
-            SELECT kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = $1
-                AND tc.table_name = $2
-        ) pk ON c.column_name = pk.column_name
-        WHERE c.table_schema = $1
-          AND c.table_name = $2
-        ORDER BY c.ordinal_position
-        "#,
-    )
-    .bind(schema_name)
-    .bind(table_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_table = escape_sql_literal(table_name);
+
+    // Try the full query with PK detection first
+    let full_sql = format!(
+        "SELECT \
+            c.column_name, \
+            c.data_type, \
+            c.is_nullable, \
+            c.ordinal_position, \
+            c.column_default, \
+            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key \
+         FROM information_schema.columns c \
+         LEFT JOIN ( \
+            SELECT kcu.column_name \
+            FROM information_schema.table_constraints tc \
+            JOIN information_schema.key_column_usage kcu \
+                ON tc.constraint_name = kcu.constraint_name \
+                AND tc.table_schema = kcu.table_schema \
+            WHERE tc.constraint_type = 'PRIMARY KEY' \
+                AND tc.table_schema = '{}' \
+                AND tc.table_name = '{}' \
+         ) pk ON c.column_name = pk.column_name \
+         WHERE c.table_schema = '{}' \
+           AND c.table_name = '{}' \
+         ORDER BY c.ordinal_position",
+        escaped_schema, escaped_table, escaped_schema, escaped_table
+    );
+
+    if let Ok(rows) = sqlx::raw_sql(&full_sql).fetch_all(pool).await {
+        let columns: Vec<ColumnInfo> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let is_pk_str = raw_str(&row, "is_primary_key").unwrap_or_default();
+                Some(ColumnInfo {
+                    name: raw_str(&row, "column_name")?,
+                    data_type: raw_str(&row, "data_type").unwrap_or_default(),
+                    is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                    is_primary_key: matches!(is_pk_str.as_str(), "t" | "true" | "1"),
+                    ordinal_position: raw_str(&row, "ordinal_position")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0),
+                    column_default: raw_str(&row, "column_default"),
+                })
+            })
+            .collect();
+        if !columns.is_empty() {
+            return Ok(columns);
+        }
+    }
+
+    // Fallback: simpler query without PK detection
+    let fallback_sql = format!(
+        "SELECT \
+            column_name, \
+            data_type, \
+            is_nullable, \
+            ordinal_position, \
+            column_default \
+         FROM information_schema.columns \
+         WHERE table_schema = '{}' \
+           AND table_name = '{}' \
+         ORDER BY ordinal_position",
+        escaped_schema, escaped_table
+    );
+
+    let rows = sqlx::raw_sql(&fallback_sql).fetch_all(pool).await?;
 
     let columns = rows
         .into_iter()
-        .map(|row| {
-            let is_nullable_str: String = row.get("is_nullable");
-            ColumnInfo {
-                name: row.get("column_name"),
-                data_type: row.get("data_type"),
-                is_nullable: is_nullable_str == "YES",
-                is_primary_key: row.get("is_primary_key"),
-                ordinal_position: row.get("ordinal_position"),
-                column_default: row.try_get("column_default").ok(),
-            }
+        .filter_map(|row| {
+            Some(ColumnInfo {
+                name: raw_str(&row, "column_name")?,
+                data_type: raw_str(&row, "data_type").unwrap_or_default(),
+                is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                is_primary_key: false,
+                ordinal_position: raw_str(&row, "ordinal_position")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                column_default: raw_str(&row, "column_default"),
+            })
         })
         .collect();
 
@@ -290,47 +393,87 @@ pub async fn get_schema_columns(
     pool: &PgPool,
     schema_name: &str,
 ) -> Result<Vec<SchemaColumnInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            c.table_name,
-            c.column_name,
-            c.data_type,
-            c.is_nullable,
-            c.ordinal_position,
-            c.column_default,
-            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key
-        FROM information_schema.columns c
-        LEFT JOIN (
-            SELECT kcu.table_name, kcu.column_name
-            FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu
-                ON tc.constraint_name = kcu.constraint_name
-                AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-                AND tc.table_schema = $1
-        ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name
-        WHERE c.table_schema = $1
-        ORDER BY c.table_name, c.ordinal_position
-        "#,
-    )
-    .bind(schema_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped_schema = escape_sql_literal(schema_name);
+
+    // Try the full query with PK detection first
+    let full_sql = format!(
+        "SELECT \
+            c.table_name, \
+            c.column_name, \
+            c.data_type, \
+            c.is_nullable, \
+            c.ordinal_position, \
+            c.column_default, \
+            CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key \
+         FROM information_schema.columns c \
+         LEFT JOIN ( \
+            SELECT kcu.table_name, kcu.column_name \
+            FROM information_schema.table_constraints tc \
+            JOIN information_schema.key_column_usage kcu \
+                ON tc.constraint_name = kcu.constraint_name \
+                AND tc.table_schema = kcu.table_schema \
+            WHERE tc.constraint_type = 'PRIMARY KEY' \
+                AND tc.table_schema = '{}' \
+         ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name \
+         WHERE c.table_schema = '{}' \
+         ORDER BY c.table_name, c.ordinal_position",
+        escaped_schema, escaped_schema
+    );
+
+    if let Ok(rows) = sqlx::raw_sql(&full_sql).fetch_all(pool).await {
+        let columns: Vec<SchemaColumnInfo> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let is_pk_str = raw_str(&row, "is_primary_key").unwrap_or_default();
+                Some(SchemaColumnInfo {
+                    table_name: raw_str(&row, "table_name")?,
+                    name: raw_str(&row, "column_name")?,
+                    data_type: raw_str(&row, "data_type").unwrap_or_default(),
+                    is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                    is_primary_key: matches!(is_pk_str.as_str(), "t" | "true" | "1"),
+                    ordinal_position: raw_str(&row, "ordinal_position")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(0),
+                    column_default: raw_str(&row, "column_default"),
+                })
+            })
+            .collect();
+        if !columns.is_empty() {
+            return Ok(columns);
+        }
+    }
+
+    // Fallback: simpler query without PK detection
+    let fallback_sql = format!(
+        "SELECT \
+            table_name, \
+            column_name, \
+            data_type, \
+            is_nullable, \
+            ordinal_position, \
+            column_default \
+         FROM information_schema.columns \
+         WHERE table_schema = '{}' \
+         ORDER BY table_name, ordinal_position",
+        escaped_schema
+    );
+
+    let rows = sqlx::raw_sql(&fallback_sql).fetch_all(pool).await?;
 
     let columns = rows
         .into_iter()
-        .map(|row| {
-            let is_nullable_str: String = row.get("is_nullable");
-            SchemaColumnInfo {
-                table_name: row.get("table_name"),
-                name: row.get("column_name"),
-                data_type: row.get("data_type"),
-                is_nullable: is_nullable_str == "YES",
-                is_primary_key: row.get("is_primary_key"),
-                ordinal_position: row.get("ordinal_position"),
-                column_default: row.try_get("column_default").ok(),
-            }
+        .filter_map(|row| {
+            Some(SchemaColumnInfo {
+                table_name: raw_str(&row, "table_name")?,
+                name: raw_str(&row, "column_name")?,
+                data_type: raw_str(&row, "data_type").unwrap_or_default(),
+                is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                is_primary_key: false,
+                ordinal_position: raw_str(&row, "ordinal_position")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                column_default: raw_str(&row, "column_default"),
+            })
         })
         .collect();
 
@@ -343,33 +486,33 @@ pub async fn get_table_indexes(
     schema_name: &str,
     table_name: &str,
 ) -> Result<Vec<IndexInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            i.relname AS index_name,
-            am.amname AS index_type,
-            ix.indisunique AS is_unique,
-            ix.indisprimary AS is_primary,
-            pg_relation_size(i.oid) AS size_bytes,
-            ARRAY(
-                SELECT a.attname
-                FROM unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord)
-                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-                ORDER BY k.ord
-            ) AS columns
-        FROM pg_index ix
-        JOIN pg_class t ON t.oid = ix.indrelid
-        JOIN pg_class i ON i.oid = ix.indexrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        JOIN pg_am am ON am.oid = i.relam
-        WHERE n.nspname = $1 AND t.relname = $2
-        ORDER BY ix.indisprimary DESC, i.relname
-        "#,
-    )
-    .bind(schema_name)
-    .bind(table_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_table = escape_sql_literal(table_name);
+
+    let sql = format!(
+        "SELECT \
+            i.relname AS index_name, \
+            am.amname AS index_type, \
+            ix.indisunique AS is_unique, \
+            ix.indisprimary AS is_primary, \
+            pg_relation_size(i.oid) AS size_bytes, \
+            ARRAY( \
+                SELECT a.attname \
+                FROM unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) \
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum \
+                ORDER BY k.ord \
+            ) AS columns \
+         FROM pg_index ix \
+         JOIN pg_class t ON t.oid = ix.indrelid \
+         JOIN pg_class i ON i.oid = ix.indexrelid \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         JOIN pg_am am ON am.oid = i.relam \
+         WHERE n.nspname = '{}' AND t.relname = '{}' \
+         ORDER BY ix.indisprimary DESC, i.relname",
+        escaped_schema, escaped_table
+    );
+
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
 
     let indexes = rows
         .into_iter()
@@ -392,60 +535,60 @@ pub async fn get_table_constraints(
     schema_name: &str,
     table_name: &str,
 ) -> Result<Vec<ConstraintInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            con.conname AS constraint_name,
-            CASE con.contype
-                WHEN 'p' THEN 'PRIMARY KEY'
-                WHEN 'f' THEN 'FOREIGN KEY'
-                WHEN 'u' THEN 'UNIQUE'
-                WHEN 'c' THEN 'CHECK'
-                WHEN 'x' THEN 'EXCLUSION'
-                ELSE 'OTHER'
-            END AS constraint_type,
-            ARRAY(
-                SELECT a.attname
-                FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
-                JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum
-                ORDER BY k.ord
-            ) AS columns,
-            CASE WHEN con.contype = 'f' THEN
-                (SELECT n2.nspname || '.' || c2.relname
-                 FROM pg_class c2
-                 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace
-                 WHERE c2.oid = con.confrelid)
-            ELSE NULL END AS referenced_table,
-            CASE WHEN con.contype = 'f' THEN
-                ARRAY(
-                    SELECT a.attname
-                    FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord)
-                    JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum
-                    ORDER BY k.ord
-                )
-            ELSE NULL END AS referenced_columns,
-            CASE WHEN con.contype = 'c' THEN
-                pg_get_constraintdef(con.oid)
-            ELSE NULL END AS check_clause
-        FROM pg_constraint con
-        JOIN pg_class t ON t.oid = con.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE n.nspname = $1 AND t.relname = $2
-        ORDER BY
-            CASE con.contype
-                WHEN 'p' THEN 1
-                WHEN 'u' THEN 2
-                WHEN 'f' THEN 3
-                WHEN 'c' THEN 4
-                ELSE 5
-            END,
-            con.conname
-        "#,
-    )
-    .bind(schema_name)
-    .bind(table_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_table = escape_sql_literal(table_name);
+
+    let sql = format!(
+        "SELECT \
+            con.conname AS constraint_name, \
+            CASE con.contype \
+                WHEN 'p' THEN 'PRIMARY KEY' \
+                WHEN 'f' THEN 'FOREIGN KEY' \
+                WHEN 'u' THEN 'UNIQUE' \
+                WHEN 'c' THEN 'CHECK' \
+                WHEN 'x' THEN 'EXCLUSION' \
+                ELSE 'OTHER' \
+            END AS constraint_type, \
+            ARRAY( \
+                SELECT a.attname \
+                FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) \
+                JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.attnum \
+                ORDER BY k.ord \
+            ) AS columns, \
+            CASE WHEN con.contype = 'f' THEN \
+                (SELECT n2.nspname || '.' || c2.relname \
+                 FROM pg_class c2 \
+                 JOIN pg_namespace n2 ON n2.oid = c2.relnamespace \
+                 WHERE c2.oid = con.confrelid) \
+            ELSE NULL END AS referenced_table, \
+            CASE WHEN con.contype = 'f' THEN \
+                ARRAY( \
+                    SELECT a.attname \
+                    FROM unnest(con.confkey) WITH ORDINALITY AS k(attnum, ord) \
+                    JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.attnum \
+                    ORDER BY k.ord \
+                ) \
+            ELSE NULL END AS referenced_columns, \
+            CASE WHEN con.contype = 'c' THEN \
+                pg_get_constraintdef(con.oid) \
+            ELSE NULL END AS check_clause \
+         FROM pg_constraint con \
+         JOIN pg_class t ON t.oid = con.conrelid \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE n.nspname = '{}' AND t.relname = '{}' \
+         ORDER BY \
+            CASE con.contype \
+                WHEN 'p' THEN 1 \
+                WHEN 'u' THEN 2 \
+                WHEN 'f' THEN 3 \
+                WHEN 'c' THEN 4 \
+                ELSE 5 \
+            END, \
+            con.conname",
+        escaped_schema, escaped_table
+    );
+
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
 
     let constraints = rows
         .into_iter()
@@ -467,31 +610,31 @@ pub async fn get_schema_functions(
     pool: &PgPool,
     schema_name: &str,
 ) -> Result<Vec<FunctionInfo>, sqlx::Error> {
-    let rows = sqlx::query(
-        r#"
-        SELECT
-            p.proname AS func_name,
-            n.nspname AS schema_name,
-            pg_catalog.format_type(p.prorettype, NULL) AS return_type,
-            pg_catalog.pg_get_function_arguments(p.oid) AS argument_types,
-            CASE p.prokind
-                WHEN 'f' THEN 'function'
-                WHEN 'p' THEN 'procedure'
-                WHEN 'a' THEN 'aggregate'
-                WHEN 'w' THEN 'window'
-                ELSE 'function'
-            END AS function_type,
-            l.lanname AS language
-        FROM pg_catalog.pg_proc p
-        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-        JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-        WHERE n.nspname = $1 AND p.prokind IN ('f', 'p')
-        ORDER BY p.proname
-        "#,
-    )
-    .bind(schema_name)
-    .fetch_all(pool)
-    .await?;
+    let escaped_schema = escape_sql_literal(schema_name);
+
+    let sql = format!(
+        "SELECT \
+            p.proname AS func_name, \
+            n.nspname AS schema_name, \
+            pg_catalog.format_type(p.prorettype, NULL) AS return_type, \
+            pg_catalog.pg_get_function_arguments(p.oid) AS argument_types, \
+            CASE p.prokind \
+                WHEN 'f' THEN 'function' \
+                WHEN 'p' THEN 'procedure' \
+                WHEN 'a' THEN 'aggregate' \
+                WHEN 'w' THEN 'window' \
+                ELSE 'function' \
+            END AS function_type, \
+            l.lanname AS language \
+         FROM pg_catalog.pg_proc p \
+         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace \
+         JOIN pg_catalog.pg_language l ON l.oid = p.prolang \
+         WHERE n.nspname = '{}' AND p.prokind IN ('f', 'p') \
+         ORDER BY p.proname",
+        escaped_schema
+    );
+
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
 
     let functions = rows
         .into_iter()
@@ -507,4 +650,3 @@ pub async fn get_schema_functions(
 
     Ok(functions)
 }
-
