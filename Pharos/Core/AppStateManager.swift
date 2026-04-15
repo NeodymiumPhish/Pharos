@@ -118,15 +118,22 @@ final class AppStateManager: ObservableObject {
                 let info = try await PharosCore.connect(connectionId: id)
                 self.connectionStatuses[id] = info.status
                 self.activeConnectionId = id
-                // Default to "public" schema on first connection
+                // Apply default schema from connection config, falling back to "public"
+                let defaultSchema: String = {
+                    if let config = self.connections.first(where: { $0.id == id }),
+                       let ds = config.defaultSchema {
+                        return ds
+                    }
+                    return "public"
+                }()
                 if self.schemaSelections[id] == nil {
-                    self.activeSchema = "public"
+                    self.activeSchema = defaultSchema
                 }
                 // Also update the active tab's schema to match
                 if let tabId = self.activeTabId {
                     self.updateTab(id: tabId) { tab in
                         if tab.connectionId == id && tab.schemaName == nil {
-                            tab.schemaName = self.activeSchema ?? "public"
+                            tab.schemaName = self.activeSchema ?? defaultSchema
                         }
                     }
                 }
@@ -305,20 +312,32 @@ final class AppStateManager: ObservableObject {
         guard let targetPaneId, let paneIdx = panes.firstIndex(where: { $0.id == targetPaneId }) else {
             // Fallback: create without pane (backward compat)
             let tabName = name ?? "Query \(tabs.count + 1)"
-            let tab = QueryTab(name: tabName, sql: sql)
+            var tab = QueryTab(name: tabName, sql: sql)
+            applyDefaultSchema(&tab)
             tabs.append(tab)
             activeTabId = tab.id
             return tab
         }
 
         let tabName = name ?? "Query \(tabs.count + 1)"
-        let tab = QueryTab(name: tabName, sql: sql, paneId: targetPaneId)
+        var tab = QueryTab(name: tabName, sql: sql, paneId: targetPaneId)
+        applyDefaultSchema(&tab)
         tabs.append(tab)
         panes[paneIdx].tabIds.append(tab.id)
         panes[paneIdx].activeTabId = tab.id
         focusedPaneId = targetPaneId
         activeTabId = tab.id
         return tab
+    }
+
+    /// Apply the active connection's default schema to a new tab.
+    private func applyDefaultSchema(_ tab: inout QueryTab) {
+        guard let connId = activeConnectionId else { return }
+        if let config = connections.first(where: { $0.id == connId }),
+           let defaultSchema = config.defaultSchema {
+            tab.connectionId = connId
+            tab.schemaName = defaultSchema
+        }
     }
 
     /// Select a tab within its pane and focus that pane.
