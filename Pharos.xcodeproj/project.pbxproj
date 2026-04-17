@@ -13,6 +13,7 @@
 		0D06D23BAD7B85E3D848032E /* CloneTableSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147EF7BD64F5D8D49F5A76C /* CloneTableSheet.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
+		1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C254B3E566A636E1216FE4 /* CrashLogger.swift */; };
 		1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061E832235866E86FB1BD81 /* MainMenu.swift */; };
 		1896442191A1723DA4AC8F11 /* PharosCore+TableOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */; };
 		19877E64248CE46809E223BA /* MetadataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */; };
@@ -114,6 +115,7 @@
 		79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
 		819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
+		83C254B3E566A636E1216FE4 /* CrashLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLogger.swift; sourceTree = "<group>"; };
 		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 			isa = PBXGroup;
 			children = (
 				BE2842DA42F9D759036177BC /* AppDelegate.swift */,
+				83C254B3E566A636E1216FE4 /* CrashLogger.swift */,
 				9993005117CA5F91ED0A2692 /* Info.plist */,
 				C9154BC81016709ADD201F2C /* main.swift */,
 				C061E832235866E86FB1BD81 /* MainMenu.swift */,
@@ -435,6 +438,7 @@
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
 				5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
+				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
 				685684742A13BC19F782590E /* EditorPane.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
 				C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */,
