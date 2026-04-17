@@ -715,15 +715,18 @@ class EditorPaneVC: NSViewController {
     /// Update the active tab's connectionId and also sync global state.
     private func setTabConnection(_ connectionId: String) {
         guard let tab = activeTab else { return }
-        // Default to "public" schema when switching connections
         let connectionChanged = tab.connectionId != connectionId
+        // Apply the target connection's configured default schema when switching,
+        // falling back to "public" if none is configured.
+        let newSchema = stateManager.connections
+            .first(where: { $0.id == connectionId })?.defaultSchema ?? "public"
         stateManager.updateTab(id: tab.id) {
             $0.connectionId = connectionId
-            if connectionChanged { $0.schemaName = "public" }
+            if connectionChanged { $0.schemaName = newSchema }
         }
         // Also update global active connection so sidebar/metadata stay in sync
         stateManager.activeConnectionId = connectionId
-        if connectionChanged { stateManager.activeSchema = "public" }
+        if connectionChanged { stateManager.activeSchema = newSchema }
     }
 
     /// Update the active tab's schemaName and also sync global state.
