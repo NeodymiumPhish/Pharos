@@ -100,7 +100,7 @@ class MainWindowController: NSWindowController {
 
         let accessoryVC = NSTitlebarAccessoryViewController()
         accessoryVC.view = container
-        accessoryVC.layoutAttribute = .right
+        accessoryVC.layoutAttribute = .leading
         window.addTitlebarAccessoryViewController(accessoryVC)
 
         didInstallTitlebarAccessory = true
