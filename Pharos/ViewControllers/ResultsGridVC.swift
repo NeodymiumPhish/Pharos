@@ -121,7 +121,8 @@ class ResultsGridVC: NSViewController {
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .legacy
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
 
