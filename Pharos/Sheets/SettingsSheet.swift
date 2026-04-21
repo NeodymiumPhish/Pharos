@@ -38,7 +38,7 @@ class SettingsSheet: NSViewController {
     }
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 340))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 440))
         self.view = container
 
         // Title
@@ -79,8 +79,8 @@ class SettingsSheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            tabView.widthAnchor.constraint(equalToConstant: 440),
-            tabView.heightAnchor.constraint(equalToConstant: 220),
+            tabView.widthAnchor.constraint(equalToConstant: 520),
+            tabView.heightAnchor.constraint(equalToConstant: 320),
         ])
 
         populateFromSettings()

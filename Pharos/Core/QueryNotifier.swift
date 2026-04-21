@@ -194,12 +194,13 @@ extension QueryNotifier: UNUserNotificationCenterDelegate {
 
     /// Allow banners while the app is frontmost (users may still want to see
     /// the notification for a background-tab completion even if the app is active).
+    /// Including `.list` ensures the notification also persists in Notification Center.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler([.banner, .list, .sound])
     }
 }
 
