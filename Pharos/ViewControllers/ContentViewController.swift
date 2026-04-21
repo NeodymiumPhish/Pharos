@@ -917,6 +917,7 @@ class ContentViewController: NSViewController {
         stateManager.updateTab(id: tabId) { tab in
             tab.isExecuting = true
             tab.queryId = queryId
+            tab.runningSegmentIndex = segmentIndex  // -1 for direct SQL, >= 0 for segment
             tab.error = nil
             if !createResultTab {
                 tab.result = nil
@@ -940,6 +941,7 @@ class ContentViewController: NSViewController {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.isExecuting = false
                             tab.queryId = nil
+                            tab.runningSegmentIndex = nil
                             tab.result = result
                         }
                         if createResultTab {
@@ -964,6 +966,7 @@ class ContentViewController: NSViewController {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.isExecuting = false
                             tab.queryId = nil
+                            tab.runningSegmentIndex = nil
                             tab.executeResult = result
                         }
                         if createResultTab {
@@ -987,6 +990,7 @@ class ContentViewController: NSViewController {
                     self.stateManager.updateTab(id: tabId) { tab in
                         tab.isExecuting = false
                         tab.queryId = nil
+                        tab.runningSegmentIndex = nil
                         tab.error = message
                     }
                     if self.stateManager.activeTabId == tabId {
