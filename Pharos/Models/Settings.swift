@@ -105,4 +105,5 @@ struct AppSettings: Codable {
     var emptyFolders: [String] = []
     var nullDisplay: NullDisplay = .uppercase
     var boolDisplay: BoolDisplay = .trueFalse
+    var checkForUpdates: Bool = true
 }
