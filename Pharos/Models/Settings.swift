@@ -72,6 +72,9 @@ struct QuerySettings: Codable {
     var timeoutSeconds: UInt32 = 30
     var autoCommit: Bool = true
     var confirmDestructive: Bool = true
+    var notifyWhenAppInactive: Bool = true
+    var notifyWhenBackgroundTab: Bool = true
+    var notifyMinDurationSeconds: UInt32 = 5
 }
 
 struct UISettings: Codable {
