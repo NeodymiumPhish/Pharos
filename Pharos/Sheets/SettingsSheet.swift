@@ -10,6 +10,7 @@ class SettingsSheet: NSViewController {
     private let themeControl = NSSegmentedControl()
     private let nullDisplayPopup = NSPopUpButton()
     private let boolDisplayPopup = NSPopUpButton()
+    private let checkForUpdatesCheck = NSButton(checkboxWithTitle: "Check for updates in the background", target: nil, action: nil)
 
     // Editor
     private let fontPopup = NSPopUpButton()
@@ -114,6 +115,7 @@ class SettingsSheet: NSViewController {
             [themeLabel, themeControl],
             [nullLabel, nullDisplayPopup],
             [boolLabel, boolDisplayPopup],
+            [NSGridCell.emptyContentView, checkForUpdatesCheck],
         ])
         configureGrid(grid)
 
@@ -249,6 +251,8 @@ class SettingsSheet: NSViewController {
             boolDisplayPopup.selectItem(at: idx)
         }
 
+        checkForUpdatesCheck.state = settings.checkForUpdates ? .on : .off
+
         // Editor
         selectFont(settings.editor.fontFamily)
         fontSizeField.integerValue = Int(settings.editor.fontSize)
@@ -290,6 +294,8 @@ class SettingsSheet: NSViewController {
         let boolCases = BoolDisplay.allCases
         let boolIdx = boolDisplayPopup.indexOfSelectedItem
         s.boolDisplay = boolIdx >= 0 && boolIdx < boolCases.count ? boolCases[boolIdx] : .trueFalse
+
+        s.checkForUpdates = checkForUpdatesCheck.state == .on
 
         // Editor
         if let selected = fontPopup.titleOfSelectedItem {
