@@ -32,6 +32,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Build the main menu
         NSApp.mainMenu = MainMenu.build()
 
+        // Register query-completion notification category and delegate.
+        QueryNotifier.shared.registerCategories()
+
+        // Listen for notification taps that request tab activation.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleActivateTabNotification(_:)),
+            name: QueryNotifier.activateTabNotification,
+            object: nil
+        )
+
         // Show the main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
@@ -43,6 +54,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
+    }
+
+    @MainActor
+    @objc private func handleActivateTabNotification(_ notification: Notification) {
+        NSApp.activate(ignoringOtherApps: true)
+        mainWindowController?.window?.makeKeyAndOrderFront(nil)
+
+        guard let tabId = notification.userInfo?["tabId"] as? String else { return }
+        let state = AppStateManager.shared
+        guard state.tabs.contains(where: { $0.id == tabId }) else {
+            // Tab is gone (user closed it). App is already activated; graceful degrade.
+            return
+        }
+        state.selectTab(id: tabId)
     }
 
     // MARK: - Helpers
