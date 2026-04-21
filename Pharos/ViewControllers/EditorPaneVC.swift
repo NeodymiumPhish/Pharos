@@ -152,11 +152,13 @@ class EditorPaneVC: NSViewController {
         // Single subscription to $tabs to avoid duplicate work per mutation
         stateManager.$tabs
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.refreshTabBar()
-                self?.updateEditorToolbarState()
-                self?.rebuildConnectionMenu()
-                self?.rebuildSchemaMenu()
+            .sink { [weak self] tabs in
+                guard let self else { return }
+                self.refreshTabBar()
+                self.updateEditorToolbarState()
+                self.rebuildConnectionMenu()
+                self.rebuildSchemaMenu()
+                self.updateGutterPulseForActiveTab(tabs: tabs)
             }
             .store(in: &cancellables)
 
@@ -245,6 +247,17 @@ class EditorPaneVC: NSViewController {
         }
     }
 
+    /// Read the pane's active tab from the tabs array and push its running-segment
+    /// index to the gutter (or `nil` if the tab isn't executing).
+    private func updateGutterPulseForActiveTab(tabs: [QueryTab]) {
+        guard let activeTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId,
+              let tab = tabs.first(where: { $0.id == activeTabId }) else {
+            editorVC.setRunningSegmentIndex(nil)
+            return
+        }
+        editorVC.setRunningSegmentIndex(tab.isExecuting ? tab.runningSegmentIndex : nil)
+    }
+
     private func refreshTabBar() {
         guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
         let paneTabs = stateManager.tabs(forPane: paneId)
@@ -289,6 +302,9 @@ class EditorPaneVC: NSViewController {
         if tab.schemaName != stateManager.activeSchema {
             stateManager.activeSchema = tab.schemaName
         }
+
+        // Sync gutter pulse to the newly-activated tab.
+        editorVC.setRunningSegmentIndex(tab.isExecuting ? tab.runningSegmentIndex : nil)
     }
 
     // MARK: - Focus Tracking
