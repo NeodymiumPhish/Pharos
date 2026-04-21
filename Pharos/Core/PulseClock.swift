@@ -9,7 +9,7 @@ import QuartzCore
 /// All three surfaces subscribe to the same publisher so their animations stay
 /// phase-locked.
 ///
-/// The underlying `CADisplayLink` is reference-counted: it starts on the first
+/// The underlying `CVDisplayLink` is reference-counted: it starts on the first
 /// `observe()` call and stops when the observer count returns to zero, so idle
 /// sessions have zero CPU cost.
 ///
@@ -30,6 +30,7 @@ final class PulseClock {
 
     private var displayLink: CVDisplayLink?
     private var observerCount: Int = 0
+    private let lock = NSLock()
     private let startTime = CACurrentMediaTime()
     private let period: CFTimeInterval = 1.2
 
@@ -62,12 +63,19 @@ final class PulseClock {
     // MARK: - Display Link Lifecycle
 
     private func start() {
+        lock.lock()
+        defer { lock.unlock() }
+
         observerCount += 1
         guard observerCount == 1, displayLink == nil else { return }
 
         var link: CVDisplayLink?
         CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let link else { return }
+        guard let link else {
+            // Creation failed — roll back the refcount so a future observe() can retry.
+            observerCount -= 1
+            return
+        }
 
         let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, userInfo in
             guard let userInfo else { return kCVReturnSuccess }
@@ -81,6 +89,9 @@ final class PulseClock {
     }
 
     private func stop() {
+        lock.lock()
+        defer { lock.unlock() }
+
         observerCount = max(0, observerCount - 1)
         guard observerCount == 0, let link = displayLink else { return }
         CVDisplayLinkStop(link)
