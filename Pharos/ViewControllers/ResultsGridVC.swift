@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Parses the 0-based column index from a "col_N" identifier string.
 func colIndex(from identifier: String) -> Int? {
@@ -709,6 +710,47 @@ class ResultsToolbarBar: NSView {
     /// The ContentViewController that owns this bar, used for drag-to-resize.
     weak var contentViewController: ContentViewController?
 
+    /// Whether the top separator should pulse in the accent color (query running in focused tab).
+    var isPulsing: Bool = false {
+        didSet {
+            guard oldValue != isPulsing else { return }
+            if isPulsing {
+                startPulseSubscription()
+            } else {
+                beginPulseFadeOut()
+            }
+            needsDisplay = true
+        }
+    }
+
+    private var pulseSubscription: AnyCancellable?
+    private var pulseValue: CGFloat = 1.0
+    private var fadeOutUntil: CFTimeInterval?
+    private var fadeStartAlpha: CGFloat = 0
+    private let fadeOutDuration: CFTimeInterval = 0.25
+
+    private func startPulseSubscription() {
+        fadeOutUntil = nil
+        guard pulseSubscription == nil else { return }
+        let token = PulseClock.shared.observe()
+        let sub = PulseClock.shared.value.sink { [weak self] v in
+            self?.pulseValue = v
+            self?.needsDisplay = true
+        }
+        pulseSubscription = AnyCancellable {
+            sub.cancel()
+            token.cancel()
+        }
+    }
+
+    private func beginPulseFadeOut() {
+        // Snapshot current alpha and cancel subscription immediately. The fade-out
+        // redraw loop in draw(_:) is the only redraw driver during the fade.
+        fadeStartAlpha = 0.55 + 0.45 * pulseValue
+        pulseSubscription = nil
+        fadeOutUntil = CACurrentMediaTime() + fadeOutDuration
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
@@ -716,16 +758,50 @@ class ResultsToolbarBar: NSView {
         NSColor.controlBackgroundColor.setFill()
         bounds.fill()
 
-        NSColor.separatorColor.setStroke()
+        // Top separator line — blended with accent color when pulsing (or during fade-out).
+        let now = CACurrentMediaTime()
+        let pulseAlpha: CGFloat = {
+            if isPulsing {
+                return 0.55 + 0.45 * pulseValue
+            }
+            if let fadeEnd = fadeOutUntil {
+                let remaining = fadeEnd - now
+                if remaining > 0 {
+                    let progress = CGFloat(1.0 - (remaining / fadeOutDuration))
+                    return fadeStartAlpha * (1.0 - progress)
+                }
+            }
+            return 0
+        }()
 
-        // Top separator line
+        if pulseAlpha > 0 {
+            // Paint the base separator first, then overlay the accent at current alpha.
+            NSColor.separatorColor.setStroke()
+            let basePath = NSBezierPath()
+            basePath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
+            basePath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
+            basePath.stroke()
+            NSColor.controlAccentColor.withAlphaComponent(pulseAlpha).setStroke()
+        } else {
+            NSColor.separatorColor.setStroke()
+        }
         let topPath = NSBezierPath()
         topPath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
         topPath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
         topPath.stroke()
 
+        // Drive fade-out redraws until the fade ends.
+        if let fadeEnd = fadeOutUntil {
+            if fadeEnd - now <= 0 {
+                fadeOutUntil = nil
+            } else {
+                DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
+            }
+        }
+
         // Bottom separator line
         if drawsBottomSeparator {
+            NSColor.separatorColor.setStroke()
             let bottomPath = NSBezierPath()
             bottomPath.move(to: NSPoint(x: bounds.minX, y: bounds.minY + 0.5))
             bottomPath.line(to: NSPoint(x: bounds.maxX, y: bounds.minY + 0.5))
