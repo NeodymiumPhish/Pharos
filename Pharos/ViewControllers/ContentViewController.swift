@@ -57,6 +57,10 @@ class ContentViewController: NSViewController {
     private var hasSetInitialSplit = false
     private static let splitRatioKey = "PharosEditorSplitRatio"
 
+    /// Query IDs that the user has cancelled. Checked in the error handler to
+    /// suppress the "Query failed" notification for user-initiated cancellations.
+    private var cancelledQueryIds: Set<String> = []
+
     // Editor/results expand state
     enum ContentExpandState { case normal, editorExpanded, resultsExpanded }
     private(set) var expandState: ContentExpandState = .normal
@@ -929,6 +933,7 @@ class ContentViewController: NSViewController {
 
         let queryId = UUID().uuidString
         let color = createResultTab ? ResultTab.nextColor() : .clear
+        let startTime = CACurrentMediaTime()
 
         stateManager.updateTab(id: tabId) { tab in
             tab.isExecuting = true
@@ -973,6 +978,13 @@ class ContentViewController: NSViewController {
                             self.resultsVC.showResult(result)
                         }
                         NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                        self.cancelledQueryIds.remove(queryId)
+                        self.fireCompletionNotification(
+                            tabId: tabId,
+                            connectionId: connectionId,
+                            outcome: .select(rowCount: result.rowCount),
+                            durationMs: result.executionTimeMs
+                        )
                     }
                 } else {
                     let result = try await PharosCore.executeStatement(
@@ -998,6 +1010,13 @@ class ContentViewController: NSViewController {
                             self.resultsVC.showExecuteResult(result)
                         }
                         NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                        self.cancelledQueryIds.remove(queryId)
+                        self.fireCompletionNotification(
+                            tabId: tabId,
+                            connectionId: connectionId,
+                            outcome: .statement(rowsAffected: Int(result.rowsAffected)),
+                            durationMs: result.executionTimeMs
+                        )
                     }
                 }
             } catch {
@@ -1013,9 +1032,40 @@ class ContentViewController: NSViewController {
                         self.resultsVC.showError(message)
                         self.markEditorError(message: message, sql: sql)
                     }
+
+                    // Suppress notification for user-initiated cancellations.
+                    let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
+                    if !wasCancelled {
+                        let elapsedMs = UInt64((CACurrentMediaTime() - startTime) * 1000)
+                        self.fireCompletionNotification(
+                            tabId: tabId,
+                            connectionId: connectionId,
+                            outcome: .error(message: message),
+                            durationMs: elapsedMs
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /// Assemble metadata and invoke QueryNotifier. Single entry point from the
+    /// three completion paths so the argument-assembly logic lives in one place.
+    private func fireCompletionNotification(
+        tabId: String,
+        connectionId: String,
+        outcome: QueryNotifier.Outcome,
+        durationMs: UInt64
+    ) {
+        let tabName = stateManager.tabs.first { $0.id == tabId }?.name ?? "Query"
+        let connectionName = stateManager.connections.first { $0.id == connectionId }?.name
+        QueryNotifier.shared.notifyQueryCompleted(
+            tabId: tabId,
+            tabName: tabName,
+            connectionName: connectionName,
+            outcome: outcome,
+            durationMs: durationMs
+        )
     }
 
     private static func isSelectLikeSQL(_ sql: String) -> Bool {
@@ -1243,6 +1293,10 @@ class ContentViewController: NSViewController {
               let connectionId = tab.connectionId,
               tab.isExecuting,
               let queryId = tab.queryId else { return }
+
+        // Mark this queryId as user-cancelled so the error path can suppress
+        // the completion notification.
+        cancelledQueryIds.insert(queryId)
 
         Task {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: queryId)
