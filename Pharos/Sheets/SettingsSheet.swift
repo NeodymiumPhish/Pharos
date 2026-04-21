@@ -396,8 +396,6 @@ class SettingsSheet: NSViewController {
 
     private func configureGrid(_ grid: NSGridView) {
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 0).width = 140
-        grid.column(at: 1).width = 380
         grid.rowSpacing = 8
         grid.columnSpacing = 8
     }
