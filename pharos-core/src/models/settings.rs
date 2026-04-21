@@ -170,7 +170,11 @@ pub struct AppSettings {
     pub null_display: NullDisplay,
     #[serde(default)]
     pub bool_display: BoolDisplay,
+    #[serde(default = "default_check_for_updates")]
+    pub check_for_updates: bool,
 }
+
+fn default_check_for_updates() -> bool { true }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -183,6 +187,7 @@ impl Default for AppSettings {
             empty_folders: Vec::new(),
             null_display: NullDisplay::default(),
             bool_display: BoolDisplay::default(),
+            check_for_updates: default_check_for_updates(),
         }
     }
 }
