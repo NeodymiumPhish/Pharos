@@ -73,6 +73,9 @@ class LineNumberGutter: NSView {
     /// Duration of the completion fade-out, in seconds.
     private let fadeOutDuration: CFTimeInterval = 0.25
 
+    /// Alpha value at the instant fade-out began, used to produce a linear taper.
+    private var fadeStartAlpha: CGFloat = 0
+
     private var gutterTrackingArea: NSTrackingArea?
 
     /// Cached character offsets of each line start for O(1) line-number lookups.
@@ -159,8 +162,11 @@ class LineNumberGutter: NSView {
             runningSegmentIndex = index
             needsDisplay = true
         } else {
-            // Stopping: begin fade-out. Keep subscription alive until fade ends
-            // (the fade-out redraw loop in draw(_:) clears it when the fade finishes).
+            // Stopping: snapshot current alpha for a clean linear taper, then cancel
+            // the PulseClock subscription immediately. The fade-out redraw loop in
+            // draw(_:) is the only redraw driver during the fade.
+            fadeStartAlpha = 0.55 + 0.45 * pulseValue
+            pulseSubscription = nil
             runningSegmentIndex = nil
             fadeOutUntil = CACurrentMediaTime() + fadeOutDuration
             needsDisplay = true
@@ -551,10 +557,9 @@ class LineNumberGutter: NSView {
             if let fadeEnd = fadeOutUntil {
                 let remaining = fadeEnd - now
                 if remaining > 0 {
-                    // Fading: taper from current pulse alpha toward 0.
+                    // Linear fade from the snapshotted start alpha to 0.
                     let progress = CGFloat(1.0 - (remaining / fadeOutDuration))  // [0,1]
-                    let tail = (0.55 + 0.45 * pulseValue) * (1.0 - progress)
-                    return (nil, tail)
+                    return (nil, fadeStartAlpha * (1.0 - progress))
                 } else {
                     return (nil, 0)
                 }
@@ -607,12 +612,11 @@ class LineNumberGutter: NSView {
             NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()
         }
 
-        // Drive fade-out redraws even when the pulse clock isn't ticking anymore.
+        // Drive fade-out redraws. Pulse subscription already cancelled at fade-start.
         if let fadeEnd = fadeOutUntil {
             let remaining = fadeEnd - now
             if remaining <= 0 {
                 fadeOutUntil = nil
-                pulseSubscription = nil
             } else {
                 DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
             }
