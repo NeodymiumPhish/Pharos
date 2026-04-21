@@ -111,7 +111,8 @@ final class QueryNotifier: NSObject {
     /// Post an update-available notification. Applies the same authorization gate
     /// as `notifyQueryCompleted` but no other gates (the caller is responsible for
     /// rate-limiting and per-version dedupe).
-    @MainActor
+    /// Not `@MainActor` — does not touch main-actor-isolated state, so callers
+    /// from URLSession completions or background tasks don't need to hop.
     func postUpdateAvailableNotification(newVersion: String, currentVersion: String, releasesUrl: String) {
         requestAuthorizationIfNeeded { [weak self] authorized in
             guard authorized else { return }
