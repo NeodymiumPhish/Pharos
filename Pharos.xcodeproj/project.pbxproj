@@ -78,6 +78,7 @@
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
+		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
 		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
 /* End PBXBuildFile section */
@@ -135,6 +136,7 @@
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
 		BE2842DA42F9D759036177BC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C061E832235866E86FB1BD81 /* MainMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainMenu.swift; sourceTree = "<group>"; };
+		C1B12A90407F4333607C559D /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
 		C9154BC81016709ADD201F2C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
@@ -300,6 +302,7 @@
 				0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */,
 				FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
+				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -375,7 +378,9 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = 411217F64ED31E33A1F0B733 /* Build configuration list for PBXProject "Pharos" */;
 			developmentRegion = en;
@@ -505,6 +510,7 @@
 				34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */,
 				DE41561080C5F343F5CE6BA4 /* SettingsSheet.swift in Sources */,
 				ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */,
+				F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */,
 				4544AA18681DE8297EE4419C /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -519,14 +525,15 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Pharos/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/pharos-core/target/release";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/pharos-core/target/release",
+				);
 				OTHER_LDFLAGS = (
 					"-lpharos_core",
 					"-framework",
@@ -552,7 +559,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -583,7 +589,6 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -600,7 +605,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.10;
@@ -611,7 +615,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -642,7 +645,6 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -666,7 +668,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.10;
@@ -680,14 +681,15 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Pharos/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/pharos-core/target/release";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/pharos-core/target/release",
+				);
 				OTHER_LDFLAGS = (
 					"-lpharos_core",
 					"-framework",
