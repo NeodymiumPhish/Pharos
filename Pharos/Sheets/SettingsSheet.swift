@@ -24,6 +24,9 @@ class SettingsSheet: NSViewController {
     private let timeoutField = NSTextField()
     private let autoCommitCheck = NSButton(checkboxWithTitle: "Auto-commit transactions", target: nil, action: nil)
     private let confirmDestructiveCheck = NSButton(checkboxWithTitle: "Confirm before DROP / DELETE / TRUNCATE", target: nil, action: nil)
+    private let notifyAppInactiveCheck = NSButton(checkboxWithTitle: "Notify when query completes and app is in background", target: nil, action: nil)
+    private let notifyBackgroundTabCheck = NSButton(checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
+    private let notifyMinDurationField = NSTextField()
 
     init() {
         self.settings = stateManager.settings
@@ -196,11 +199,22 @@ class SettingsSheet: NSViewController {
         timeoutRow.orientation = .horizontal
         timeoutRow.spacing = 6
 
+        let notifyMinDurationLabel = NSTextField.formLabel("Notification minimum")
+        notifyMinDurationField.formatter = numberFormatter(min: 0, max: 3600)
+        notifyMinDurationField.alignment = .right
+        notifyMinDurationField.widthAnchor.constraint(equalToConstant: 60).isActive = true
+        let notifyMinDurationRow = NSStackView(views: [notifyMinDurationField, NSTextField(labelWithString: "seconds")])
+        notifyMinDurationRow.orientation = .horizontal
+        notifyMinDurationRow.spacing = 6
+
         let grid = NSGridView(views: [
             [limitLabel, defaultLimitField],
             [timeoutLabel, timeoutRow],
             [NSGridCell.emptyContentView, autoCommitCheck],
             [NSGridCell.emptyContentView, confirmDestructiveCheck],
+            [NSGridCell.emptyContentView, notifyAppInactiveCheck],
+            [NSGridCell.emptyContentView, notifyBackgroundTabCheck],
+            [notifyMinDurationLabel, notifyMinDurationRow],
         ])
         configureGrid(grid)
 
@@ -254,6 +268,9 @@ class SettingsSheet: NSViewController {
         timeoutField.integerValue = Int(settings.query.timeoutSeconds)
         autoCommitCheck.state = settings.query.autoCommit ? .on : .off
         confirmDestructiveCheck.state = settings.query.confirmDestructive ? .on : .off
+        notifyAppInactiveCheck.state = settings.query.notifyWhenAppInactive ? .on : .off
+        notifyBackgroundTabCheck.state = settings.query.notifyWhenBackgroundTab ? .on : .off
+        notifyMinDurationField.integerValue = Int(settings.query.notifyMinDurationSeconds)
     }
 
     private func collectSettings() -> AppSettings {
@@ -292,6 +309,9 @@ class SettingsSheet: NSViewController {
         s.query.timeoutSeconds = UInt32(clamping: timeoutField.integerValue)
         s.query.autoCommit = autoCommitCheck.state == .on
         s.query.confirmDestructive = confirmDestructiveCheck.state == .on
+        s.query.notifyWhenAppInactive = notifyAppInactiveCheck.state == .on
+        s.query.notifyWhenBackgroundTab = notifyBackgroundTabCheck.state == .on
+        s.query.notifyMinDurationSeconds = UInt32(clamping: notifyMinDurationField.integerValue)
 
         return s
     }
