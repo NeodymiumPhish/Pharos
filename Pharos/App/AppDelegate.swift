@@ -43,6 +43,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        // Start the background update checker. It gates internally on the
+        // `checkForUpdates` setting, so no conditional is needed here.
+        UpdateChecker.shared.start()
+
         // Show the main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
