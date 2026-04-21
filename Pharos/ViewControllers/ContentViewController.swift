@@ -1036,6 +1036,7 @@ class ContentViewController: NSViewController {
                     // Suppress notification for user-initiated cancellations.
                     let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
                     if !wasCancelled {
+                        // Server-side duration unavailable on error; use Swift-side wall clock.
                         let elapsedMs = UInt64((CACurrentMediaTime() - startTime) * 1000)
                         self.fireCompletionNotification(
                             tabId: tabId,
