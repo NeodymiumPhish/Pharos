@@ -22,6 +22,10 @@ struct QueryTab: Identifiable {
     var isDirty: Bool = false
     var isExecuting: Bool = false
     var queryId: String?
+    /// Index of the SQL segment currently executing. `nil` = idle, `-1` = full-editor
+    /// (no segment parseable / direct execution fallback), `>= 0` = specific segment.
+    /// Set alongside `isExecuting` when a query starts; cleared on completion/failure/cancel.
+    var runningSegmentIndex: Int?
     var result: QueryResult?
     var executeResult: ExecuteResult?
     var error: String?
