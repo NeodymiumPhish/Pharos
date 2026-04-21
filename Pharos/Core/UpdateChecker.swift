@@ -29,6 +29,9 @@ final class UpdateChecker {
     private init() {}
 
     /// Start the periodic check. Safe to call multiple times (no-ops if already started).
+    /// `@MainActor` compile-time-enforces attaching the Timer to the main run loop;
+    /// attaching to a background thread's run loop would silently never fire.
+    @MainActor
     func start() {
         guard timer == nil else { return }
         Task { await checkNow() }
@@ -115,6 +118,10 @@ final class UpdateChecker {
 
     /// Parse a version string (with optional leading 'v' or 'V') into a 3-element `[major, minor, patch]`.
     /// Returns nil if parsing fails for any segment.
+    ///
+    /// Pre-release tags (e.g., `"1.2.3-beta.1"`) intentionally fail parsing because
+    /// the third segment is non-numeric; the design suppresses notifications for
+    /// non-stable releases. `/releases/latest` usually excludes these anyway.
     static func parseVersion(_ raw: String) -> [Int]? {
         var s = raw
         if let first = s.first, first == "v" || first == "V" {
