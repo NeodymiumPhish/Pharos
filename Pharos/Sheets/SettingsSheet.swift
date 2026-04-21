@@ -38,7 +38,7 @@ class SettingsSheet: NSViewController {
     }
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 440))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 440))
         self.view = container
 
         // Title
@@ -79,7 +79,7 @@ class SettingsSheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            tabView.widthAnchor.constraint(equalToConstant: 520),
+            tabView.widthAnchor.constraint(equalToConstant: 560),
             tabView.heightAnchor.constraint(equalToConstant: 320),
         ])
 
@@ -396,8 +396,8 @@ class SettingsSheet: NSViewController {
 
     private func configureGrid(_ grid: NSGridView) {
         grid.column(at: 0).xPlacement = .trailing
-        grid.column(at: 0).width = 100
-        grid.column(at: 1).width = 280
+        grid.column(at: 0).width = 140
+        grid.column(at: 1).width = 380
         grid.rowSpacing = 8
         grid.columnSpacing = 8
     }
