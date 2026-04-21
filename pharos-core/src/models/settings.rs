@@ -87,7 +87,17 @@ pub struct QuerySettings {
     pub timeout_seconds: u32,
     pub auto_commit: bool,
     pub confirm_destructive: bool,
+    #[serde(default = "default_notify_when_app_inactive")]
+    pub notify_when_app_inactive: bool,
+    #[serde(default = "default_notify_when_background_tab")]
+    pub notify_when_background_tab: bool,
+    #[serde(default = "default_notify_min_duration_seconds")]
+    pub notify_min_duration_seconds: u32,
 }
+
+fn default_notify_when_app_inactive() -> bool { true }
+fn default_notify_when_background_tab() -> bool { true }
+fn default_notify_min_duration_seconds() -> u32 { 5 }
 
 impl Default for QuerySettings {
     fn default() -> Self {
@@ -96,6 +106,9 @@ impl Default for QuerySettings {
             timeout_seconds: 30,
             auto_commit: true,
             confirm_destructive: true,
+            notify_when_app_inactive: default_notify_when_app_inactive(),
+            notify_when_background_tab: default_notify_when_background_tab(),
+            notify_min_duration_seconds: default_notify_min_duration_seconds(),
         }
     }
 }
