@@ -155,6 +155,7 @@ class PaneTabBar: NSView {
         layoutSubviews()
         applyEqualSegmentWidths()
         layoutCloseButtons()
+        refreshPulseOverlay()
     }
 
     private func layoutSubviews() {
@@ -311,7 +312,7 @@ class PaneTabBar: NSView {
 
     /// Build label with dirty/executing indicators.
     private func segmentLabel(for tab: QueryTab) -> String {
-        if tab.isDirty {
+        if tab.isDirty && !tab.isExecuting {
             return "· \(tab.name)"
         }
         return tab.name
