@@ -251,6 +251,22 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Drive the action-bar pulse from the focused pane's active tab's executing state.
+        Publishers.CombineLatest3(
+            stateManager.$tabs,
+            stateManager.$panes,
+            stateManager.$focusedPaneId
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] tabs, panes, focusedPaneId in
+            guard let self else { return }
+            let focusedPane = panes.first { $0.id == focusedPaneId }
+            let activeTabId = focusedPane?.activeTabId
+            let activeTab = tabs.first { $0.id == activeTabId }
+            self.actionBar.isPulsing = activeTab?.isExecuting == true
+        }
+        .store(in: &cancellables)
+
         // Observe "open saved query" from sidebar
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleOpenSavedQuery(_:)),
