@@ -36,6 +36,9 @@ class PaneTabBar: NSView {
     /// Close buttons overlaid on each segment of the segmented control.
     private var closeButtons: [NSButton] = []
 
+    /// Overlay that draws pulsing dots on segments whose tabs are executing.
+    private let pulseOverlay = PaneTabBarPulseOverlay()
+
     /// Tracking area for hover detection on the segmented control.
     private var segmentTrackingArea: NSTrackingArea?
     /// The segment index currently being hovered (-1 if none).
@@ -104,6 +107,9 @@ class PaneTabBar: NSView {
         segmentedControl.target = self
         segmentedControl.action = #selector(segmentChanged(_:))
         addSubview(segmentedControl)
+
+        pulseOverlay.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(pulseOverlay)
     }
 
     // MARK: - Public API
@@ -181,6 +187,9 @@ class PaneTabBar: NSView {
 
         // Position close buttons on each segment
         layoutCloseButtons()
+
+        // Overlay covers the same frame as the segmented control.
+        pulseOverlay.frame = segmentedControl.frame
     }
 
     private func layoutCloseButtons() {
@@ -235,6 +244,28 @@ class PaneTabBar: NSView {
         updateCloseButtonVisibility()
         updateTrackingAreas()
         needsDisplay = true
+        refreshPulseOverlay()
+    }
+
+    private func refreshPulseOverlay() {
+        // Compute executing indexes.
+        var executing: Set<Int> = []
+        for (i, tab) in tabs.enumerated() where tab.isExecuting {
+            executing.insert(i)
+        }
+
+        // Compute per-segment frames in overlay-local coordinates (overlay shares
+        // segmentedControl's frame, so origin is zero-relative to the overlay).
+        var frames: [NSRect] = []
+        var x: CGFloat = 0
+        let height = segmentedControl.bounds.height
+        for i in 0..<segmentedControl.segmentCount {
+            let w = segmentedControl.width(forSegment: i)
+            frames.append(NSRect(x: x, y: 0, width: w, height: height))
+            x += w
+        }
+
+        pulseOverlay.update(executingIndexes: executing, segmentFrames: frames)
     }
 
     /// Set explicit equal widths on every segment so that `width(forSegment:)`
@@ -280,9 +311,7 @@ class PaneTabBar: NSView {
 
     /// Build label with dirty/executing indicators.
     private func segmentLabel(for tab: QueryTab) -> String {
-        if tab.isExecuting {
-            return "⟳ \(tab.name)"
-        } else if tab.isDirty {
+        if tab.isDirty {
             return "· \(tab.name)"
         }
         return tab.name
@@ -499,6 +528,68 @@ class PaneTabBar: NSView {
         if isFocused {
             NSColor.controlAccentColor.setFill()
             NSRect(x: 0, y: 0, width: bounds.width, height: 1.5).fill()
+        }
+    }
+}
+
+/// Non-interactive overlay drawn on top of the segmented control. Renders a small
+/// pulsing accent-color dot on each segment whose tab is currently executing.
+/// Click-through is preserved via `hitTest(_:) -> nil`.
+final class PaneTabBarPulseOverlay: NSView {
+    private var executingSegmentIndexes: Set<Int> = []
+    private var segmentFrames: [NSRect] = []
+    private var pulseSubscription: AnyCancellable?
+    private var pulseValue: CGFloat = 1.0
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Update which segments have executing tabs, plus the per-segment frames.
+    func update(executingIndexes: Set<Int>, segmentFrames: [NSRect]) {
+        self.executingSegmentIndexes = executingIndexes
+        self.segmentFrames = segmentFrames
+
+        if !executingIndexes.isEmpty, pulseSubscription == nil {
+            let token = PulseClock.shared.observe()
+            let sub = PulseClock.shared.value.sink { [weak self] v in
+                self?.pulseValue = v
+                self?.needsDisplay = true
+            }
+            pulseSubscription = AnyCancellable {
+                sub.cancel()
+                token.cancel()
+            }
+        } else if executingIndexes.isEmpty {
+            // Cancel immediately so the PulseClock refcount drops right away.
+            pulseSubscription = nil
+        }
+
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !executingSegmentIndexes.isEmpty else { return }
+
+        let dotSize: CGFloat = 6
+        let leftPad: CGFloat = 8
+        let alpha: CGFloat = 0.55 + 0.45 * pulseValue
+        NSColor.controlAccentColor.withAlphaComponent(alpha).setFill()
+
+        for idx in executingSegmentIndexes {
+            guard idx >= 0, idx < segmentFrames.count else { continue }
+            let segFrame = segmentFrames[idx]
+            let dotRect = NSRect(
+                x: segFrame.minX + leftPad,
+                y: segFrame.midY - dotSize / 2,
+                width: dotSize,
+                height: dotSize
+            )
+            NSBezierPath(ovalIn: dotRect).fill()
         }
     }
 }
