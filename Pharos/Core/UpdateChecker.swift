@@ -31,21 +31,28 @@ final class UpdateChecker {
     /// Start the periodic check. Safe to call multiple times (no-ops if already started).
     /// `@MainActor` compile-time-enforces attaching the Timer to the main run loop;
     /// attaching to a background thread's run loop would silently never fire.
+    ///
+    /// Launch check bypasses the 24h rate-limit cache so users see newly-published
+    /// releases on every restart. Periodic (6h) ticks still respect the cache so
+    /// long-running sessions don't hammer GitHub.
     @MainActor
     func start() {
         guard timer == nil else { return }
-        Task { await checkNow() }
+        Task { await checkNow(force: true) }
         timer = Timer.scheduledTimer(withTimeInterval: Self.checkIntervalSeconds, repeats: true) { _ in
             Task { await UpdateChecker.shared.checkNow() }
         }
     }
 
-    /// Run one check now, respecting the settings toggle and 24h rate limit.
-    func checkNow() async {
+    /// Run one check now.
+    /// - Parameter force: if true, bypass the 24h rate-limit cache. The user's
+    ///   `checkForUpdates` preference gate is still respected.
+    func checkNow(force: Bool = false) async {
         let settings = await MainActor.run { AppStateManager.shared.settings }
         guard settings.checkForUpdates else { return }
 
-        if let lastCheckedAt = UserDefaults.standard.object(forKey: Self.lastCheckedAtKey) as? Date,
+        if !force,
+           let lastCheckedAt = UserDefaults.standard.object(forKey: Self.lastCheckedAtKey) as? Date,
            Date().timeIntervalSince(lastCheckedAt) < Self.httpCacheSeconds {
             NSLog("[UpdateChecker] Rate-limited (last check < 24h ago); skipping HTTP.")
             return
