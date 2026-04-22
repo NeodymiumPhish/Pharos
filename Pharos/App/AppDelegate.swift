@@ -52,8 +52,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindowController?.showWindow(nil)
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        pharos_shutdown()
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Watchdog: never hold termination longer than this even if the worker wedges.
+        let watchdog = DispatchWorkItem {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: watchdog)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            pharos_shutdown()
+            DispatchQueue.main.async {
+                watchdog.cancel()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

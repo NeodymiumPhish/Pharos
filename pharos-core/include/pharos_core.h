@@ -61,6 +61,12 @@ typedef void (*AsyncCallback)(void *context, const char *result_json, const char
 
 /**
  * Shut down the Rust runtime. Call on app termination.
+ *
+ * Bounded so the caller never blocks indefinitely: each pool gets
+ * `SHUTDOWN_PER_POOL_BUDGET` to close gracefully, and the whole call is
+ * capped at `SHUTDOWN_TOTAL_BUDGET`. A pool that exceeds its budget is
+ * dropped — `PgPool::drop` is non-blocking and the OS reaps sockets on
+ * process exit.
  */
  void pharos_shutdown(void);
 
