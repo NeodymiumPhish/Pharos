@@ -103,7 +103,7 @@ class PaneTabBar: NSView {
         segmentedControl.segmentStyle = .capsule
         segmentedControl.trackingMode = .selectOne
         segmentedControl.controlSize = .regular
-        segmentedControl.selectedSegmentBezelColor = .white
+        segmentedControl.selectedSegmentBezelColor = NSColor.controlColor
         segmentedControl.target = self
         segmentedControl.action = #selector(segmentChanged(_:))
         addSubview(segmentedControl)
