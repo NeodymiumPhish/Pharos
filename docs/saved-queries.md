@@ -38,23 +38,13 @@ Within each section, queries can be organized into folders. Folders are listed a
 
 Double-click a saved query to open it in a new editor tab. If the query is already open in an existing tab, Pharos switches to that tab instead of creating a duplicate.
 
-## Two-Line Display
+## Display
 
-Each saved query in the list shows two lines:
+Each saved query in the list shows a single-line title. Hovering over a query displays a tooltip with a preview of the SQL text.
 
-1. **Title** -- The query name
-2. **Snippet** -- A parsed table name display (e.g., "users (+1)" for multi-table queries) followed by a preview of the SQL text
+## Bottom Bar
 
-## Action Bar
-
-The action bar at the bottom of the Library section provides quick access to common operations:
-
-| Button | Action |
-|--------|--------|
-| New | Creates a new untitled query and opens it in a tab |
-| Save | Saves the active tab's SQL to its linked query (enabled when the tab has a saved query) |
-| Save As | Opens the save sheet to create a new saved query from the active tab |
-| Delete | Deletes the selected saved query (with confirmation) |
+The bottom bar of the saved queries panel has a **New Folder** button for creating new folders. Save and Save As functionality is available from the editor toolbar (not the saved queries panel itself).
 
 ## Context Menu
 
@@ -66,8 +56,7 @@ Right-click a saved query, folder, or section header for additional options:
 |--------|-------------|
 | Open in Tab | Opens the query in a new editor tab |
 | Copy SQL | Copies the query's SQL to the clipboard |
-| Move to Connection / Move to General | Moves the query between the connection and general sections |
-| Rename | Opens a rename dialog |
+| Rename... | Opens a rename dialog |
 | Delete | Deletes the query |
 
 ### Folder Context Menu

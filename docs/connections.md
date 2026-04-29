@@ -18,7 +18,7 @@ nav_order: 3
 
 ## Overview
 
-Pharos manages PostgreSQL connections through a server rail on the left edge of the main window. Each connection is displayed as an icon with a status indicator showing whether it is connected, disconnected, or in an error state.
+Pharos manages PostgreSQL connections through a dropdown menu in the action bar above each editor pane. The dropdown shows the currently active connection and provides options to switch between saved connections, connect, disconnect, edit, or create new connections.
 
 ## Adding a Connection
 
@@ -33,8 +33,9 @@ Press **Cmd+N** or choose **File > New Connection** from the menu bar to open th
 | Username | PostgreSQL role for authentication | postgres |
 | Password | Password for the role (optional) | -- |
 | SSL Mode | Prefer, Require, or Disable | Prefer |
+| Default Schema | Schema to focus on, or "None" for all schemas. Populated after a successful test connection. | None |
 
-Click **Add** to save the connection. It appears immediately in the server rail.
+Click **Add** to save the connection. It appears immediately in the connection dropdown.
 
 ## Testing a Connection
 
@@ -45,21 +46,21 @@ Before saving, click the **Test Connection** button in the connection sheet. Pha
 
 ## Connecting and Disconnecting
 
-Click a connection icon in the server rail to connect. The status indicator changes to show the active state, and the sidebar populates with the database schema.
+Select a connection from the dropdown in the action bar and choose **Connect**. The sidebar populates with the database schema once the connection is active.
 
-To disconnect, click the connected server icon again or close the connection from the server rail.
+To disconnect, open the same dropdown and choose **Disconnect**.
 
 ## Editing a Connection
 
-Right-click a connection in the server rail to access the context menu, then choose **Edit**. The connection sheet opens pre-filled with the existing configuration. Make your changes and click **Save**.
+Open the connection dropdown in the action bar and choose **Edit**. The connection sheet opens pre-filled with the existing configuration. Make your changes and click **Save**.
 
 ## Connection Storage
 
-Connection configurations are stored locally in a SQLite database within the Pharos application data directory. Passwords are stored in this local database.
+Connection metadata (name, host, port, database, username, SSL mode, default schema) is stored locally in a SQLite database within the Pharos application data directory. Passwords are stored securely in the macOS Keychain, not in the SQLite database.
 
 {: .warning }
-Connection passwords are stored locally on your machine. Do not share the Pharos data directory with untrusted parties.
+Connection passwords are stored in the macOS Keychain on your machine. Connection metadata is stored in the local Pharos data directory.
 
 ## Multiple Connections
 
-You can save as many connections as needed. The server rail displays all saved connections, and you can switch between them by clicking their icons. Only one connection is active at a time -- switching connections updates the schema browser and makes that connection the target for query execution.
+You can save as many connections as needed. The connection dropdown lists all saved connections, and you can switch between them by selecting from the menu. Only one connection is active per editor pane -- switching connections updates the schema browser and makes that connection the target for query execution.

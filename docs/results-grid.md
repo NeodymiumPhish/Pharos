@@ -37,9 +37,11 @@ Sorting is type-aware:
 
 A **Reset Sort** button appears when any sort is active, allowing you to clear the sort in one click.
 
+Double-click a column divider in the header to auto-fit that column's width to its content.
+
 ## Row Selection
 
-Click a row to select it. Hold **Cmd** and click to add individual rows to the selection, or hold **Shift** and click to select a range. Selected rows are used for copy and export operations -- if no rows are selected, copy and export operate on all displayed rows.
+Click a row's **number column** (the **#** column) to select it. Hold **Shift** and click another row number to select a range. Selected rows are used for copy and export operations -- if no rows are selected, copy and export operate on all displayed rows.
 
 ## Find in Results
 

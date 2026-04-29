@@ -25,9 +25,8 @@ The schema browser lives in the Navigator section at the bottom of the sidebar. 
 The schema tree organizes objects in the following hierarchy:
 
 - **Schemas** (e.g., `public`, `auth`)
-  - **Tables** -- with column details
+  - **Tables** -- with column details (includes foreign tables from foreign data wrappers)
   - **Views** -- including materialized views
-  - **Foreign Tables** -- tables from foreign data wrappers
     - **Columns** -- with data type information
 
 Click the disclosure triangle next to any node to expand or collapse it. Column nodes display both the column name and its PostgreSQL data type.

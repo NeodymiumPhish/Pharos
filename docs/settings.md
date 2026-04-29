@@ -46,6 +46,9 @@ Open Settings with **Cmd+,** or choose **Pharos > Settings** from the menu bar. 
 | Timeout | 1--3,600 seconds | 30 | Maximum time a query can run before automatic cancellation. |
 | Auto-commit transactions | On/Off | On | Whether queries run in auto-commit mode. |
 | Confirm before DROP / DELETE / TRUNCATE | On/Off | On | Whether a confirmation dialog appears before destructive operations. |
+| Notify when query completes and app is in background | On/Off | On | Sends a system notification when a query finishes and Pharos is not the active application. |
+| Notify when query completes in a background tab | On/Off | On | Sends a notification when a query finishes in a non-active editor tab. |
+| Notification minimum duration | 0--3,600 seconds | 5 | Minimum query execution time (in seconds) before a notification is triggered. Prevents notification spam for fast queries. |
 
 ## Saving Settings
 

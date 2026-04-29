@@ -46,10 +46,7 @@ Right-click a history entry for additional options:
 
 ## Deleting History
 
-You can delete history entries in two ways:
-
-- **Single entry** -- Right-click and choose Delete
-- **Batch delete** -- Select multiple entries (using Cmd+Click or Shift+Click), then click the Delete button in the action bar. A confirmation dialog appears showing how many entries will be deleted.
+Right-click a history entry and choose **Delete** to remove it. Entries are deleted one at a time.
 
 ## Filtering
 

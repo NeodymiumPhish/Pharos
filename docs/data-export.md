@@ -28,8 +28,9 @@ Click the **Copy** button in the results toolbar or right-click in the results g
 |--------|-------------|
 | TSV | Tab-separated values (default for Cmd+C) |
 | CSV | Comma-separated values with proper escaping |
-| Markdown | Markdown table with header and alignment row |
+| Markdown | Markdown table with header and separator row |
 | SQL INSERT | INSERT statements with type-aware value formatting |
+| SQL WITH | CTE (Common Table Expression) with VALUES clause and type casting on the first row |
 
 Each format includes column headers. SQL INSERT statements use `table_name` as a placeholder and properly handle NULL values, numeric values (unquoted), boolean values (unquoted), and string values (single-quoted with escaping).
 
@@ -63,4 +64,4 @@ Table export includes XLSX (Excel) format, which is not available when exporting
 
 ## Context Menu
 
-Right-click in the results grid to access a context menu with the same copy format options (TSV, CSV, Markdown, SQL INSERT). The menu labels adapt based on whether rows are selected -- showing "Copy selection as..." when rows are selected, or "Copy as..." when no selection is active.
+Right-click in the results grid to access a context menu with the same copy format options (TSV, CSV, Markdown, SQL INSERT, SQL WITH). The menu labels adapt based on whether rows are selected -- showing "Copy selection as..." when rows are selected, or "Copy as..." when no selection is active.

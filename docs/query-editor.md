@@ -90,6 +90,27 @@ When pasting multi-line text, the editor preserves the relative indentation of t
 
 The editor subtly highlights the line containing the cursor, making it easier to track your position in longer queries.
 
+## Code Folding
+
+The editor supports collapsing and expanding regions of SQL to help navigate long queries.
+
+**Supported fold regions** (must span at least 3 lines):
+
+| Region | Example |
+|--------|---------|
+| Parenthetical blocks | Multi-line `VALUES` lists, `IN (...)`, column definitions |
+| Subqueries | `( SELECT ... )` |
+| CTEs | `WITH name AS ( ... )` |
+| CASE blocks | `CASE ... END` |
+| BEGIN/END blocks | `BEGIN ... END` |
+| CREATE bodies | `CREATE FUNCTION ... AS $$ ... $$` |
+
+**Folding and unfolding**: Click the fold indicator in the line number gutter next to a foldable region. Clicking a collapsed region expands it back.
+
+**Visual feedback**: Collapsed regions are replaced inline with a placeholder pill showing the number of hidden lines (e.g., " ▸ 4 lines "). The underlying text is not modified -- folding is purely a display-layer operation.
+
+**Persistence across edits**: Fold state is maintained as you edit surrounding text. Folds that overlap an edit are automatically removed; folds after the edit are shifted to stay aligned.
+
 ## Format SQL
 
 Press **Ctrl+I** or choose **Query > Format SQL** from the menu bar to format the SQL in the active editor tab.
