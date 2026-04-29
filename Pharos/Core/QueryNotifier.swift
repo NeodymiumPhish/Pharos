@@ -24,7 +24,7 @@ final class QueryNotifier: NSObject {
     /// Identifier for the "Copy brew command" action on update notifications.
     static let copyBrewCommandActionIdentifier = "COPY_BREW_COMMAND"
     /// Command copied to the clipboard on the "Copy brew command" action.
-    static let brewUpgradeCommand = "brew upgrade pharos"
+    static let brewUpgradeCommand = "brew update && brew upgrade pharos"
 
     enum Outcome {
         case select(rowCount: Int)

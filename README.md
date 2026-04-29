@@ -10,6 +10,14 @@
 
 ## Install
 
+### Homebrew (recommended)
+
+```
+brew tap NeodymiumPhish/pharos && brew install --cask pharos
+```
+
+### Manual Download
+
 Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/releases/latest). The app is unsigned -- after extracting, run:
 
 ```

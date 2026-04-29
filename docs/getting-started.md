@@ -23,6 +23,12 @@ nav_order: 2
 
 ## Installation
 
+### Homebrew (recommended)
+
+```
+brew tap NeodymiumPhish/pharos && brew install --cask pharos
+```
+
 ### Download from GitHub Releases
 
 1. Go to the [Pharos Releases](https://github.com/NeodymiumPhish/Pharos/releases) page
