@@ -86,7 +86,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         }
 
         guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: false)
+        return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: includeHeaders)
     }
 
     /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
