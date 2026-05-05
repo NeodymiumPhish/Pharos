@@ -287,6 +287,13 @@ void pharos_export_table(const char *connection_id,
                          void *context);
 
 /**
+ * Get the live row count for an in-progress import.
+ * `key` is `"{connection_id}|{schema}|{table}"`.
+ * Returns the current row count, or `-1` if no import is active for that key.
+ */
+ int64_t pharos_get_import_progress(const char *key);
+
+/**
  * Import CSV. `json` is JSON-encoded ImportCsvOptions.
  */
 

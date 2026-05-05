@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
@@ -36,6 +36,10 @@ pub struct AppState {
     /// Keyed by connection_id -> schema_name -> set of table names.
     /// Cleared on disconnect so permissions are re-checked on reconnect.
     pub analyze_denied: Mutex<HashMap<String, HashMap<String, HashSet<String>>>>,
+
+    /// Live row counters for in-progress CSV imports.
+    /// Keyed by `"{connection_id}|{schema}|{table}"`.
+    pub import_progress: Mutex<HashMap<String, Arc<AtomicU64>>>,
 }
 
 impl AppState {
@@ -47,7 +51,28 @@ impl AppState {
             running_queries: Mutex::new(HashMap::new()),
             password_cache: Mutex::new(HashMap::new()),
             analyze_denied: Mutex::new(HashMap::new()),
+            import_progress: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Register a new in-progress import. Returns a shared counter to increment per row.
+    pub fn register_import_progress(&self, key: String) -> Arc<AtomicU64> {
+        let counter = Arc::new(AtomicU64::new(0));
+        let mut map = self.import_progress.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(key, counter.clone());
+        counter
+    }
+
+    /// Remove an import progress entry (call on completion or error).
+    pub fn unregister_import_progress(&self, key: &str) {
+        let mut map = self.import_progress.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(key);
+    }
+
+    /// Read the current row count for an in-progress import. None if not active.
+    pub fn get_import_progress(&self, key: &str) -> Option<u64> {
+        let map = self.import_progress.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(key).map(|c| c.load(Ordering::Relaxed))
     }
 
     /// Initialize the password cache from the keychain (call once at startup)

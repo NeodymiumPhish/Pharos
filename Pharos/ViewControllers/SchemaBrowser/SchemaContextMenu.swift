@@ -7,6 +7,8 @@ protocol SchemaContextMenuDelegate: AnyObject {
     func contextMenuDidRequestReload()
     func contextMenuPresentSheet(_ viewController: NSViewController)
     func contextMenuWindow() -> NSWindow?
+    func contextMenuDidStartImport(connectionId: String, schema: String, table: String)
+    func contextMenuDidEndImport(connectionId: String, schema: String, table: String)
 }
 
 // MARK: - SchemaContextMenu
@@ -156,21 +158,25 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let tableName = tableNameFromNode(node) else { return }
 
         let sheet = ImportDataSheet(schema: schemaName, table: tableName) { [weak self] filePath, hasHeaders in
-            Task {
+            Task { @MainActor in
+                self?.delegate?.contextMenuDidStartImport(
+                    connectionId: connectionId, schema: schemaName, table: tableName
+                )
+                defer {
+                    self?.delegate?.contextMenuDidEndImport(
+                        connectionId: connectionId, schema: schemaName, table: tableName
+                    )
+                }
                 do {
                     let options = ImportCsvOptions(
                         schemaName: schemaName, tableName: tableName,
                         filePath: filePath, hasHeaders: hasHeaders
                     )
                     let result = try await PharosCore.importCsv(connectionId: connectionId, options: options)
-                    await MainActor.run {
-                        self?.showInfoAlert(title: "Import Successful", message: "\(result.rowsImported) rows imported.")
-                        self?.delegate?.contextMenuDidRequestReload()
-                    }
+                    self?.showInfoAlert(title: "Import Successful", message: "\(result.rowsImported) rows imported.")
+                    self?.delegate?.contextMenuDidRequestReload()
                 } catch {
-                    await MainActor.run {
-                        self?.showErrorAlert(title: "Import Failed", message: error.localizedDescription)
-                    }
+                    self?.showErrorAlert(title: "Import Failed", message: error.localizedDescription)
                 }
             }
         }

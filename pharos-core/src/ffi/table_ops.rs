@@ -68,6 +68,22 @@ pub extern "C" fn pharos_export_table(
     });
 }
 
+/// Get the live row count for an in-progress import.
+/// `key` is `"{connection_id}|{schema}|{table}"`.
+/// Returns the current row count, or `-1` if no import is active for that key.
+#[no_mangle]
+pub extern "C" fn pharos_get_import_progress(key: *const c_char) -> i64 {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let state = app_state();
+        let key_str = unsafe { c_str_to_string(key) };
+        match state.get_import_progress(&key_str) {
+            Some(count) => count as i64,
+            None => -1,
+        }
+    }));
+    result.unwrap_or(-1)
+}
+
 /// Import CSV. `json` is JSON-encoded ImportCsvOptions.
 #[no_mangle]
 pub extern "C" fn pharos_import_csv(

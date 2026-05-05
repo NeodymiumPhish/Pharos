@@ -363,6 +363,21 @@ pub async fn import_csv(
     validate_identifier(&options.schema_name)?;
     validate_identifier(&options.table_name)?;
 
+    // Register live progress counter so the UI can poll row count.
+    let progress_key = format!("{}|{}|{}", connection_id, options.schema_name, options.table_name);
+    let progress = state.register_import_progress(progress_key.clone());
+    // RAII guard: ensure counter is removed on every exit path.
+    struct ProgressGuard<'a> {
+        state: &'a AppState,
+        key: String,
+    }
+    impl<'a> Drop for ProgressGuard<'a> {
+        fn drop(&mut self) {
+            self.state.unregister_import_progress(&self.key);
+        }
+    }
+    let _guard = ProgressGuard { state, key: progress_key };
+
     // Get table columns for ordering
     let columns = postgres::get_columns(&pool, &options.schema_name, &options.table_name)
         .await
@@ -433,6 +448,7 @@ pub async fn import_csv(
             })?;
 
         rows_imported += 1;
+        progress.store(rows_imported, std::sync::atomic::Ordering::Relaxed);
     }
 
     // Commit transaction

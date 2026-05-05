@@ -43,4 +43,11 @@ extension PharosCore {
             }
         }
     }
+
+    /// Read live row count for an in-progress import. Returns nil if no active import.
+    static func getImportProgress(connectionId: String, schema: String, table: String) -> Int64? {
+        let key = "\(connectionId)|\(schema)|\(table)"
+        let result = key.withCString { pharos_get_import_progress($0) }
+        return result < 0 ? nil : result
+    }
 }

@@ -25,6 +25,16 @@ class SchemaBrowserVC: NSViewController {
     private var connectionId: String?
     private var refreshedSchemas: Set<String> = []
 
+    /// Imports currently in progress: `(connectionId, schema, table)`.
+    private var activeImports: Set<ImportKey> = []
+    private var importPollTimer: Timer?
+
+    private struct ImportKey: Hashable {
+        let connectionId: String
+        let schema: String
+        let table: String
+    }
+
     /// Per-connection tree state cache for instant tab switching
     private struct CachedTreeState {
         var unfilteredRootNodes: [SchemaTreeNode]
@@ -281,6 +291,90 @@ class SchemaBrowserVC: NSViewController {
         }
     }
 
+    // MARK: - Import Progress API
+
+    /// Begin tracking an in-progress CSV import. Starts the polling timer if needed.
+    func beginImportTracking(connectionId: String, schema: String, table: String) {
+        let key = ImportKey(connectionId: connectionId, schema: schema, table: table)
+        activeImports.insert(key)
+        if let node = findTableNode(connectionId: connectionId, schema: schema, table: table) {
+            node.importingRowCount = 0
+            reloadDisplayNode(matching: node)
+        }
+        startImportPollTimer()
+    }
+
+    /// Stop tracking an import. Clears the row counter and stops the timer when none remain.
+    func endImportTracking(connectionId: String, schema: String, table: String) {
+        let key = ImportKey(connectionId: connectionId, schema: schema, table: table)
+        activeImports.remove(key)
+        if let node = findTableNode(connectionId: connectionId, schema: schema, table: table) {
+            node.importingRowCount = nil
+            reloadDisplayNode(matching: node)
+        }
+        if activeImports.isEmpty {
+            importPollTimer?.invalidate()
+            importPollTimer = nil
+        }
+    }
+
+    private func startImportPollTimer() {
+        guard importPollTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            self?.pollImportProgress()
+        }
+        // .common ensures the timer keeps firing during menu tracking, scrolling, etc.
+        RunLoop.main.add(timer, forMode: .common)
+        importPollTimer = timer
+    }
+
+    private func pollImportProgress() {
+        for key in activeImports {
+            let count = PharosCore.getImportProgress(
+                connectionId: key.connectionId, schema: key.schema, table: key.table
+            )
+            guard let node = findTableNode(connectionId: key.connectionId, schema: key.schema, table: key.table) else { continue }
+            // Only update display if the value changed.
+            let newValue: Int64 = count ?? 0
+            if node.importingRowCount != newValue {
+                node.importingRowCount = newValue
+                reloadDisplayNode(matching: node)
+            }
+        }
+    }
+
+    /// Locate the unfiltered table node for the given connection/schema/table.
+    /// Only returns a node when the requested connection is the active one (otherwise the
+    /// node belongs to a cached, off-screen tree).
+    private func findTableNode(connectionId: String, schema: String, table: String) -> SchemaTreeNode? {
+        guard self.connectionId == connectionId else { return nil }
+        guard let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schema }) else { return nil }
+        return schemaNode.children.first(where: { $0.tableName == table })
+    }
+
+    /// Reload the row that currently displays the same table as `unfilteredNode`.
+    /// The displayed `rootNodes` may be filtered copies, so match by schema + table name.
+    private func reloadDisplayNode(matching unfilteredNode: SchemaTreeNode) {
+        guard let schemaName = unfilteredNode.schemaName,
+              let tableName = unfilteredNode.tableName else { return }
+
+        // Walk the displayed tree to find the matching node.
+        let candidates: [SchemaTreeNode]
+        if activeSchemaFilter != nil {
+            // Tables are root-level when a schema is selected.
+            candidates = rootNodes
+        } else {
+            candidates = rootNodes.flatMap { $0.children }
+        }
+        guard let displayed = candidates.first(where: {
+            $0.schemaName == schemaName && $0.tableName == tableName
+        }) else { return }
+
+        // Mirror import state onto the displayed (possibly filtered) copy.
+        displayed.importingRowCount = unfilteredNode.importingRowCount
+        outlineView.reloadItem(displayed)
+    }
+
     // MARK: - Filter API (called by SidebarViewController)
 
     func applyFilter(_ text: String) {
@@ -464,5 +558,13 @@ extension SchemaBrowserVC: SchemaContextMenuDelegate {
 
     func contextMenuWindow() -> NSWindow? {
         view.window
+    }
+
+    func contextMenuDidStartImport(connectionId: String, schema: String, table: String) {
+        beginImportTracking(connectionId: connectionId, schema: schema, table: table)
+    }
+
+    func contextMenuDidEndImport(connectionId: String, schema: String, table: String) {
+        endImportTracking(connectionId: connectionId, schema: schema, table: table)
     }
 }

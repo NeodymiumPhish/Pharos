@@ -18,6 +18,8 @@ class SchemaTreeNode: NSObject {
     var children: [SchemaTreeNode] = []
     var isLoaded = false
     var hasRowCount = false
+    /// Live row count while a CSV import is running into this table. nil when not importing.
+    var importingRowCount: Int64?
     weak var parent: SchemaTreeNode?
 
     init(_ kind: Kind, parent: SchemaTreeNode? = nil) {
@@ -49,6 +51,17 @@ class SchemaTreeNode: NSObject {
     var subtitle: String? {
         switch kind {
         case .table, .view:
+            // While importing, always show a subtitle (so the import suffix has somewhere to attach).
+            if importingRowCount != nil {
+                switch kind {
+                case .table(let info), .view(let info):
+                    if let count = info.rowCountEstimate {
+                        return formatCount(count)
+                    }
+                    return "0 rows"
+                default: return ""
+                }
+            }
             guard hasRowCount else { return " " }
             switch kind {
             case .table(let info), .view(let info):
@@ -66,6 +79,16 @@ class SchemaTreeNode: NSObject {
         default:
             return nil
         }
+    }
+
+    /// Localized "Importing: 1,151,448" suffix shown next to the subtitle while a CSV import runs.
+    /// nil when no import is active.
+    var importingSubtitle: String? {
+        guard let count = importingRowCount else { return nil }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let formatted = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        return "Importing: \(formatted)"
     }
 
     var icon: NSImage? {
