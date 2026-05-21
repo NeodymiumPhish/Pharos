@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// Central state manager for the Pharos app. Observable via Combine.
 /// Manages connections, active connection, settings, and connection status.
@@ -535,5 +536,31 @@ final class AppStateManager: ObservableObject {
             object: self,
             userInfo: ["connectionId": connectionId]
         )
+    }
+
+    /// Open a file as a new editor tab. Ensures the main window exists
+    /// and is frontmost, then routes to its `ContentViewController`.
+    ///
+    /// This is the single entry point used by `File > Open…`,
+    /// `application(_:open:)`, and any future drag-to-dock handlers.
+    @MainActor
+    func openTextFile(at url: URL) {
+        let app = NSApp.delegate as? AppDelegate
+        if app?.mainWindowController == nil {
+            // App launched via file-open with no window yet — create one.
+            app?.mainWindowController = MainWindowController()
+        }
+        guard let controller = app?.mainWindowController else { return }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+
+        // Walk the split-view children to find the ContentViewController.
+        guard let split = controller.contentViewController as? PharosSplitViewController else { return }
+        for item in split.splitViewItems {
+            if let content = item.viewController as? ContentViewController {
+                content.openTextFile(at: url)
+                return
+            }
+        }
     }
 }
