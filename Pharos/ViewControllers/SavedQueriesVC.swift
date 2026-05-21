@@ -371,6 +371,113 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
+    @objc private func contextExportFolderAsSQL(_: Any?) {
+        guard let node = clickedNode(), case .folder(let folderName) = node.kind else { return }
+
+        // Enumerate queries that live in this folder.
+        let queries = allQueries.filter { $0.folder == folderName }
+        guard !queries.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Folder is empty"
+            alert.informativeText = "\u{201C}\(folderName)\u{201D} has no saved queries to export."
+            alert.runModal()
+            return
+        }
+
+        // Pick the target directory.
+        let chooser = NSOpenPanel()
+        chooser.canChooseFiles = false
+        chooser.canChooseDirectories = true
+        chooser.allowsMultipleSelection = false
+        chooser.canCreateDirectories = true
+        chooser.prompt = "Export"
+        chooser.message = "Choose a folder to export \(queries.count) queries into"
+        guard let window = view.window else { return }
+        chooser.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let dir = chooser.url else { return }
+            self?.runFolderExport(queries: queries, into: dir)
+        }
+    }
+
+    /// Pre-scan for collisions, prompt once, then write all files.
+    private func runFolderExport(queries: [SavedQuery], into dir: URL) {
+        let fm = FileManager.default
+
+        // Plan filenames (sanitized + collisions among queue itself).
+        struct Plan { let sql: String; let stem: String; let target: URL; let exists: Bool }
+        var planned: [Plan] = []
+        var seenStems = Set<String>()
+        for q in queries {
+            var stem = SavedQueryFilename.sanitize(q.name)
+            // Disambiguate duplicate sanitized names within this batch BEFORE
+            // collision-checking against the filesystem so the user-facing
+            // "exists" count is accurate.
+            var unique = stem
+            var n = 2
+            while seenStems.contains(unique) {
+                unique = "\(stem) (\(n))"
+                n += 1
+            }
+            stem = unique
+            seenStems.insert(stem)
+
+            let target = dir.appendingPathComponent("\(stem).sql")
+            planned.append(Plan(sql: q.sql, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
+        }
+
+        let collisions = planned.filter { $0.exists }.count
+        var mode: ExportCollisionMode = .replace  // only used if there are no collisions
+        if collisions > 0 {
+            let alert = NSAlert()
+            alert.messageText = "\(collisions) of \(planned.count) files already exist"
+            alert.informativeText = "Choose how to handle the existing files."
+            alert.addButton(withTitle: "Replace All")
+            alert.addButton(withTitle: "Keep Both")
+            alert.addButton(withTitle: "Cancel")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:  mode = .replace
+            case .alertSecondButtonReturn: mode = .keepBoth
+            default: return  // Cancel
+            }
+        }
+
+        // Write files; collect failures for a single end-of-run alert.
+        var failures: [(name: String, error: String)] = []
+        var takenInDir = Set<String>()
+        // Seed `takenInDir` with the existing names when `keepBoth` so suffixes
+        // don't collide with files already on disk.
+        if mode == .keepBoth {
+            takenInDir = Set((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])
+        }
+
+        for p in planned {
+            let url: URL
+            switch mode {
+            case .replace:
+                url = p.target
+            case .keepBoth:
+                url = SavedQueryFilename.uniquify(stem: p.stem, in: dir, taken: &takenInDir)
+            }
+            do {
+                try SQLFileWriter.write(p.sql, to: url)
+            } catch {
+                failures.append((name: url.lastPathComponent, error: error.localizedDescription))
+            }
+        }
+
+        if !failures.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Some files couldn't be written"
+            alert.informativeText = failures.map { "• \($0.name): \($0.error)" }.joined(separator: "\n")
+            alert.runModal()
+        }
+    }
+
+    private enum ExportCollisionMode {
+        case replace
+        case keepBoth
+    }
+
     @objc private func contextRename(_: Any?) {
         guard let node = clickedNode() else { return }
         let currentName: String
@@ -709,6 +816,7 @@ extension SavedQueriesVC: NSMenuDelegate {
 
         case .folder:
             menu.addItem(withTitle: "New Query", action: #selector(contextNewQuery), keyEquivalent: "")
+            menu.addItem(withTitle: "Export Folder as SQL Files…", action: #selector(contextExportFolderAsSQL), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
