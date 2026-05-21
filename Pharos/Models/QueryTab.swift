@@ -34,6 +34,9 @@ struct QueryTab: Identifiable {
     var historyTimestamp: String?
     var gridState: ResultsGridState?
     var paneId: String?
+    /// Filesystem URL this tab was opened from, if any. Set when the tab is
+    /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
+    var sourceURL: URL?
 
     init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "", paneId: String? = nil) {
         self.id = id
