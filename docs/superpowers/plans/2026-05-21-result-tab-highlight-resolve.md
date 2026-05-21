@@ -100,7 +100,7 @@ Walk through these cases against the function body:
 | `"SELECT 1"` | `1...1` | `[(0, "SELECT 1", 1, 1)]` | `(0, 1...1)` — single match |
 | `"SELECT 1"` | `1...1` | `[(0, "SELECT 2", 1, 1)]` | `nil` — no match |
 | `"SELECT 1"` | `1...1` | `[]` | `nil` — empty |
-| `"SELECT 1"` | `5...5` | `[(0, "SELECT 1", 1, 1), (1, "SELECT 1", 9, 9)]` | `(1, 9...9)` — mid 5 closer to 9 than 1 |
+| `"SELECT 1"` | `6...6` | `[(0, "SELECT 1", 1, 1), (1, "SELECT 1", 9, 9)]` | `(1, 9...9)` — mid 6 distance 3 to mid 9, distance 5 to mid 1 |
 | `"SELECT 1"` | `3...3` | `[(0, "SELECT 1", 1, 1), (1, "SELECT 1", 5, 5)]` | `(0, 1...1)` — both at distance 2; smaller `index` wins |
 | `" SELECT 1 "` | `1...1` | `[(0, "SELECT 1", 1, 1)]` | `(0, 1...1)` — trim normalizes both sides |
 | `""` | `1...1` | `[(0, "SELECT 1", 1, 1)]` | `nil` — empty needle guard |

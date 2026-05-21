@@ -168,7 +168,7 @@ The `if !tab.isStale` guard around `focusedPaneVC?.highlightLines(tab.lineRange)
 | `"SELECT 1;"` | `1...1` | `[(idx 0, "SELECT 1;", 1...1)]` | `(0, 1...1)` |
 | `"SELECT 1;"` | `1...1` | `[(0, "SELECT 2;", 1...1)]` | `nil` |
 | `"SELECT 1;"` | `1...1` | `[]` | `nil` |
-| `"SELECT 1;"` | `5...5` | `[(0, "SELECT 1;", 1...1), (1, "SELECT 1;", 9...9)]` | `(1, 9...9)` (mid-5 closer to mid-9 than mid-1) |
+| `"SELECT 1;"` | `6...6` | `[(0, "SELECT 1;", 1...1), (1, "SELECT 1;", 9...9)]` | `(1, 9...9)` (mid-6 distance 3 to mid-9, distance 5 to mid-1) |
 | `"SELECT 1;"` | `1...1` | `[(0, "SELECT 1;", 1...1), (1, "SELECT 1;", 1...1)]` | `(0, 1...1)` (tie → smaller `index`) |
 | `"SELECT 1;"` | `1...1` | `[(0, " SELECT 1; ", 1...1)]` | `(0, 1...1)` (normalization trims whitespace) |
 
