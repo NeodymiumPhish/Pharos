@@ -1455,6 +1455,26 @@ extension ContentViewController {
     @objc func menuSaveQuery(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
 
+        // File-backed tab: write back to the source URL.
+        if let url = tab.sourceURL {
+            let currentSQL = focusedPaneVC?.getSQL() ?? ""
+            do {
+                try SQLFileWriter.write(currentSQL, to: url)
+                stateManager.updateTab(id: tab.id) {
+                    $0.sql = currentSQL
+                    $0.isDirty = false
+                }
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't save \(url.lastPathComponent)"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+            return
+        }
+
+        // Saved-query-backed tab: update the saved query in place.
         if let savedId = tab.savedQueryId {
             let currentSQL = focusedPaneVC?.getSQL() ?? ""
             do {
@@ -1465,9 +1485,11 @@ extension ContentViewController {
             } catch {
                 NSLog("Failed to update saved query: \(error)")
             }
-        } else {
-            presentSaveQuerySheet(tab: tab)
+            return
         }
+
+        // New tab: prompt to save into the saved-queries store.
+        presentSaveQuerySheet(tab: tab)
     }
 
     @objc func menuSaveQueryAs(_: Any?) {
