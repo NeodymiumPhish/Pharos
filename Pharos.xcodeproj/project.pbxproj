@@ -53,6 +53,7 @@
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
 		A120CA2AA04F952185155B87 /* QueryDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */; };
+		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
 		AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2842DA42F9D759036177BC /* AppDelegate.swift */; };
@@ -99,6 +100,7 @@
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
+		42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFileWriter.swift; sourceTree = "<group>"; };
 		45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+QueryHistory.swift"; sourceTree = "<group>"; };
 		4B5ECAA757C7692770A532EA /* FoldState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldState.swift; sourceTree = "<group>"; };
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
@@ -213,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				ED326E9C544D4D71C63ACFFB /* SavedQueryFilename.swift */,
+				42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */,
 			);
 			path = Files;
 			sourceTree = "<group>";
@@ -504,6 +507,7 @@
 				B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */,
 				A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
+				A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */,
 				7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */,
 				FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */,
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,
