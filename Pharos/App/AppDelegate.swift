@@ -89,6 +89,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let textType = UTType.text
+        for url in urls {
+            let conforms: Bool
+            if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+                conforms = type.conforms(to: textType)
+            } else {
+                // Fallback: trust the extension if Launch Services hasn't
+                // populated a UTI yet (rare on first launch after install).
+                conforms = ["sql", "txt", "md"].contains(url.pathExtension.lowercased())
+            }
+            guard conforms else { continue }
+            AppStateManager.shared.openTextFile(at: url)
+        }
+    }
+
+    @MainActor
     @objc func menuOpenSQLFile(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
