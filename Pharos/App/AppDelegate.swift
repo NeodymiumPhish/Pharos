@@ -1,5 +1,6 @@
 import AppKit
 import CPharosCore
+import UniformTypeIdentifiers
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -85,6 +86,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         state.selectTab(id: tabId)
+    }
+
+    @MainActor
+    @objc func menuOpenSQLFile(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose a SQL or text file to open"
+        if let sqlType = UTType("public.sql") {
+            panel.allowedContentTypes = [sqlType, .text, .plainText]
+        } else {
+            panel.allowedContentTypes = [.text, .plainText]
+        }
+        panel.begin { response in
+            guard response == .OK else { return }
+            for url in panel.urls {
+                AppStateManager.shared.openTextFile(at: url)
+            }
+        }
     }
 
     // MARK: - Helpers

@@ -27,6 +27,10 @@ enum MainMenu {
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Connection...", action: #selector(MainWindowController.showAddConnectionSheet), keyEquivalent: "n")
+
+        let openItem = fileMenu.addItem(withTitle: "Open…", action: #selector(AppDelegate.menuOpenSQLFile(_:)), keyEquivalent: "o")
+        openItem.keyEquivalentModifierMask = [.command]
+
         fileMenu.addItem(.separator())
 
         let newTab = fileMenu.addItem(withTitle: "New Tab", action: #selector(ContentViewController.menuNewTab(_:)), keyEquivalent: "t")
