@@ -480,11 +480,8 @@ class ContentViewController: NSViewController {
             resultsVC.clear()
         }
 
-        // Restore segment colors in the gutter
-        focusedPaneVC?.clearSegmentColors()
-        for rt in resultTabs where !rt.isStale {
-            focusedPaneVC?.setSegmentColor(rt.color, forSegmentIndex: rt.segmentIndex)
-        }
+        // Re-resolve and restore segment colors in the gutter.
+        reResolveAllResultTabs(immediate: true)
 
         // Show/hide history context for this tab
         if let historyTimestamp = tab.historyTimestamp {
@@ -1138,6 +1135,8 @@ class ContentViewController: NSViewController {
     }
 
     private func selectResultTab(_ tabId: String) {
+        reResolveAllResultTabs(immediate: true)
+
         // Capture outgoing result tab's grid state
         if let outgoingId = activeResultTabId,
            let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
@@ -1209,13 +1208,55 @@ class ContentViewController: NSViewController {
         resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
     }
 
-    /// Mark all result tabs for the current editor tab as stale (text was edited).
-    private func markResultTabsStale() {
-        guard !resultTabs.isEmpty else { return }
-        for i in resultTabs.indices {
-            resultTabs[i].isStale = true
+    /// Pending debounced re-resolve work item, cancellable when a new edit
+    /// arrives or when a caller wants an immediate flush.
+    private var pendingReResolveWorkItem: DispatchWorkItem?
+
+    /// Re-resolve every result tab's source segment against the current
+    /// parsed editor segments. Updates each tab's `segmentIndex`, `lineRange`,
+    /// and `isStale`, then repaints gutter colors and the result-tab bar.
+    ///
+    /// - Parameter immediate: when `true`, runs synchronously and cancels any
+    ///   pending debounce; when `false`, schedules a 250 ms debounced run.
+    private func reResolveAllResultTabs(immediate: Bool = false) {
+        pendingReResolveWorkItem?.cancel()
+        pendingReResolveWorkItem = nil
+
+        let body: () -> Void = { [weak self] in
+            guard let self else { return }
+            let text = self.focusedPaneVC?.getSQL() ?? ""
+            let segments = SQLSegmentParser.parse(text)
+
+            for i in self.resultTabs.indices {
+                let tab = self.resultTabs[i]
+                if let outcome = ResultTabResolver.resolve(
+                    sql: tab.sql,
+                    previousLineRange: tab.lineRange,
+                    in: segments
+                ) {
+                    self.resultTabs[i].segmentIndex = outcome.segmentIndex
+                    self.resultTabs[i].lineRange = outcome.lineRange
+                    self.resultTabs[i].isStale = false
+                } else {
+                    self.resultTabs[i].isStale = true
+                }
+            }
+
+            self.focusedPaneVC?.clearSegmentColors()
+            for tab in self.resultTabs where !tab.isStale {
+                self.focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
+            }
+
+            self.resultTabBar.update(tabs: self.resultTabs, activeTabId: self.activeResultTabId)
         }
-        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+
+        if immediate {
+            body()
+        } else {
+            let item = DispatchWorkItem(block: body)
+            pendingReResolveWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
+        }
     }
 
     /// Load more rows for pagination.
@@ -1372,7 +1413,7 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPane(_ pane: EditorPaneVC, didEditText paneId: String) {
-        markResultTabsStale()
+        reResolveAllResultTabs()
     }
 }
 

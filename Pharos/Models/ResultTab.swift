@@ -4,9 +4,9 @@ import AppKit
 /// Distinct from QueryTab (which is an editor tab).
 struct ResultTab: Identifiable {
     let id: String
-    let segmentIndex: Int
+    var segmentIndex: Int
     let sql: String
-    let lineRange: ClosedRange<Int>  // 1-based, captured at execution time
+    var lineRange: ClosedRange<Int>  // 1-based, captured at execution time
     let color: NSColor
     let timestamp: Date
 
