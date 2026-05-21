@@ -453,9 +453,14 @@ class ContentViewController: NSViewController {
         activeResultTabId = activeResultTabIdByEditorTab[tabId]
         updateResultTabBarVisibility()
 
-        // Show result from the active result tab, or fall back to legacy behavior
-        if let activeRTId = activeResultTabId,
-           let activeRT = resultTabs.first(where: { $0.id == activeRTId }) {
+        // Pin override: while pinned, the grid stays on the pinned result no
+        // matter which editor tab is active. Result tab bar still reflects the
+        // destination tab — clicking a result tab in it explicitly unpins.
+        if let pinnedResult = stateManager.pinnedResult {
+            resultsVC.showResult(pinnedResult)
+            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
+        } else if let activeRTId = activeResultTabId,
+                  let activeRT = resultTabs.first(where: { $0.id == activeRTId }) {
             if let result = activeRT.queryResult {
                 resultsVC.showResult(result)
             } else if let execResult = activeRT.executeResult {
@@ -464,9 +469,6 @@ class ContentViewController: NSViewController {
             if let gridState = activeRT.gridState {
                 resultsVC.restoreGridState(gridState)
             }
-        } else if let pinnedResult = stateManager.pinnedResult {
-            resultsVC.showResult(pinnedResult)
-            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
         } else if let result = tab.result {
             resultsVC.showResult(result)
             if let gridState = tab.gridState {
@@ -483,8 +485,9 @@ class ContentViewController: NSViewController {
         // Re-resolve and restore segment colors in the gutter.
         reResolveAllResultTabs(immediate: true)
 
-        // Show/hide history context for this tab
-        if let historyTimestamp = tab.historyTimestamp {
+        // Show/hide history context for this tab. Suppress while pinned —
+        // the grid is showing the pinned tab's data, not this tab's history.
+        if stateManager.pinnedResult == nil, let historyTimestamp = tab.historyTimestamp {
             resultsVC.showHistoryContext(schema: tab.historySchema, timestamp: historyTimestamp)
         } else {
             resultsVC.hideHistoryContext()
@@ -1135,6 +1138,13 @@ class ContentViewController: NSViewController {
     }
 
     private func selectResultTab(_ tabId: String) {
+        // Clicking a result tab is an explicit request to view that result —
+        // unpin so the grid follows the selection.
+        if stateManager.pinnedResult != nil {
+            stateManager.unpinResults()
+            resultsVC.setPinState(pinned: false, tabName: nil)
+        }
+
         reResolveAllResultTabs(immediate: true)
 
         // Capture outgoing result tab's grid state
