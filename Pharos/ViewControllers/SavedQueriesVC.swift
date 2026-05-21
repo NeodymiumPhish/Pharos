@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Notification Names
 
@@ -344,6 +345,32 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         NSPasteboard.general.setString(q.sql, forType: .string)
     }
 
+    @objc private func contextExportQueryAsSQL(_: Any?) {
+        guard let node = clickedNode(), case .query(let q) = node.kind else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
+        panel.nameFieldStringValue = "\(SavedQueryFilename.sanitize(q.name)).sql"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard let window = view.window else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, var url = panel.url else { return }
+            if url.pathExtension.lowercased() != "sql" {
+                url = url.appendingPathExtension("sql")
+            }
+            do {
+                try SQLFileWriter.write(q.sql, to: url)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't save \(url.lastPathComponent)"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
+
     @objc private func contextRename(_: Any?) {
         guard let node = clickedNode() else { return }
         let currentName: String
@@ -674,6 +701,7 @@ extension SavedQueriesVC: NSMenuDelegate {
         case .query:
             menu.addItem(withTitle: "Open in Tab", action: #selector(contextOpenInTab), keyEquivalent: "")
             menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
+            menu.addItem(withTitle: "Export as SQL File…", action: #selector(contextExportQueryAsSQL), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())
