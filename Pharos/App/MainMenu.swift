@@ -47,6 +47,9 @@ enum MainMenu {
         let saveQuery = fileMenu.addItem(withTitle: "Save Query…", action: #selector(ContentViewController.menuSaveQuery(_:)), keyEquivalent: "s")
         saveQuery.keyEquivalentModifierMask = [.command]
 
+        let exportEditor = fileMenu.addItem(withTitle: "Export Query as SQL File…", action: #selector(ContentViewController.menuExportEditorAsSQL(_:)), keyEquivalent: "s")
+        exportEditor.keyEquivalentModifierMask = [.command, .option]
+
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu

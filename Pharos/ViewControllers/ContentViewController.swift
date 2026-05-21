@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 /// Main content area: editor panes + results grid.
 /// Manages multiple EditorPaneVCs and query execution.
@@ -1495,6 +1496,32 @@ extension ContentViewController {
     @objc func menuSaveQueryAs(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
         presentSaveQuerySheet(tab: tab)
+    }
+
+    @objc func menuExportEditorAsSQL(_: Any?) {
+        guard let tab = stateManager.activeTab else { return }
+        let text = focusedPaneVC?.getSQL() ?? ""
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
+        panel.nameFieldStringValue = "\(SavedQueryFilename.sanitize(tab.name)).sql"
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.beginSheetModal(for: view.window!) { response in
+            guard response == .OK, var url = panel.url else { return }
+            if url.pathExtension.lowercased() != "sql" {
+                url = url.appendingPathExtension("sql")
+            }
+            do {
+                try SQLFileWriter.write(text, to: url)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't save \(url.lastPathComponent)"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
     }
 
     private func presentSaveQuerySheet(tab: QueryTab) {
