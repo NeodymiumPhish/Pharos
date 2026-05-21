@@ -1586,3 +1586,59 @@ extension ContentViewController {
         }
     }
 }
+
+// MARK: - Open Text File
+
+extension ContentViewController {
+
+    /// Maximum file size we'll open without prompting (50 MB).
+    private static let openFileSizeLimit: Int64 = 50 * 1024 * 1024
+
+    /// Open a plain-text or `.sql` file as a new editor tab.
+    ///
+    /// Reads `url` synchronously (called from the main thread), shows a
+    /// confirmation if the file is unusually large, alerts on read or
+    /// decode failure, and on success creates a new tab in the focused
+    /// pane with the file's contents and the URL recorded as `sourceURL`.
+    @objc func openTextFile(at url: URL) {
+        let fm = FileManager.default
+
+        // Size guard.
+        if let attrs = try? fm.attributesOfItem(atPath: url.path),
+           let size = attrs[.size] as? NSNumber,
+           size.int64Value > Self.openFileSizeLimit {
+            let mb = Double(size.int64Value) / (1024 * 1024)
+            let alert = NSAlert()
+            alert.messageText = "Open large file?"
+            alert.informativeText = String(format: "%@ is %.1f MB and may slow the editor.", url.lastPathComponent, mb)
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Open Anyway")
+            // First button (Cancel) is the default.
+            if alert.runModal() != .alertSecondButtonReturn { return }
+        }
+
+        // Read and decode.
+        let text: String
+        do {
+            text = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't open \(url.lastPathComponent)"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        // Tab title: drop `.sql` for cleanliness; keep other extensions visible.
+        let name: String
+        if url.pathExtension.lowercased() == "sql" {
+            name = url.deletingPathExtension().lastPathComponent
+        } else {
+            name = url.lastPathComponent
+        }
+
+        let tab = stateManager.createTab(sql: text, name: name)
+        stateManager.updateTab(id: tab.id) { $0.sourceURL = url }
+    }
+}
