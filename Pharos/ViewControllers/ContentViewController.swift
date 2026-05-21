@@ -1362,6 +1362,10 @@ extension ContentViewController: EditorPaneDelegate {
         menuSaveQueryAs(nil)
     }
 
+    func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC) {
+        menuExportEditorAsSQL(nil)
+    }
+
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment) {
         stateManager.focusPane(id: pane.paneId)
         executeSegment(segment)

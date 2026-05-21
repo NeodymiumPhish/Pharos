@@ -13,6 +13,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
+    func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
     func editorPane(_ pane: EditorPaneVC, didEditText paneId: String)
 }
@@ -419,6 +420,13 @@ class EditorPaneVC: NSViewController {
         saveAsItem.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: nil)
         saveDropdown.menu?.addItem(saveAsItem)
 
+        saveDropdown.menu?.addItem(.separator())
+
+        let exportSQLItem = NSMenuItem(title: "Export as SQL File\u{2026}", action: #selector(exportAsSQLTapped), keyEquivalent: "")
+        exportSQLItem.target = self
+        exportSQLItem.image = NSImage(systemSymbolName: "doc.badge.arrow.up", accessibilityDescription: nil)
+        saveDropdown.menu?.addItem(exportSQLItem)
+
         // Connection popup (right side)
         connectionPopup.bezelStyle = .recessed
         connectionPopup.isBordered = false
@@ -499,6 +507,10 @@ class EditorPaneVC: NSViewController {
         delegate?.editorPaneDidRequestSaveAs(self)
     }
 
+    @objc private func exportAsSQLTapped() {
+        delegate?.editorPaneDidRequestExportAsSQL(self)
+    }
+
     private func updateEditorToolbarState() {
         guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
         let activeTab = stateManager.tabs.first { $0.id == pane.activeTabId }
@@ -518,10 +530,11 @@ class EditorPaneVC: NSViewController {
             }
         }
 
-        // Update save dropdown: "Save" item enabled only when tab has a saved query link
-        let hasSavedQuery = activeTab?.savedQueryId != nil
+        // Update save dropdown: "Save" item enabled when the tab has somewhere
+        // to save to — either a saved query link or an on-disk source URL.
+        let canSaveInPlace = activeTab?.savedQueryId != nil || activeTab?.sourceURL != nil
         if let saveItem = saveDropdown.menu?.item(at: 1) {
-            saveItem.isEnabled = hasSavedQuery
+            saveItem.isEnabled = canSaveInPlace
         }
     }
 
