@@ -10,7 +10,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
     func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
-    func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC)
+    func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
@@ -30,8 +30,8 @@ class EditorPaneVC: NSViewController {
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
     private let runStopButton = NSButton()
+    private let badgeLayer = CATextLayer()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
-    private var isExecuting = false
 
     // Connection / Schema selectors (in editor toolbar, right side)
     private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -396,6 +396,20 @@ class EditorPaneVC: NSViewController {
         runStopButton.action = #selector(runStopTapped)
         runStopButton.translatesAutoresizingMaskIntoConstraints = false
 
+        // Badge for ≥2 running queries. Hidden by default.
+        badgeLayer.frame = CGRect(x: 16, y: 16, width: 14, height: 14)
+        badgeLayer.cornerRadius = 7
+        badgeLayer.masksToBounds = true
+        badgeLayer.backgroundColor = NSColor.systemRed.cgColor
+        badgeLayer.foregroundColor = NSColor.white.cgColor
+        badgeLayer.alignmentMode = .center
+        badgeLayer.fontSize = 9
+        badgeLayer.font = NSFont.boldSystemFont(ofSize: 9)
+        badgeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        badgeLayer.isHidden = true
+        runStopButton.wantsLayer = true
+        runStopButton.layer?.addSublayer(badgeLayer)
+
         // Save dropdown (pull-down button)
         saveDropdown.bezelStyle = .recessed
         saveDropdown.isBordered = false
@@ -492,11 +506,20 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func runStopTapped() {
-        if isExecuting {
-            delegate?.editorPaneDidRequestCancelQuery(self)
-        } else {
+        let running = activeTab?.runningQueries ?? []
+        switch running.count {
+        case 0:
             delegate?.editorPaneDidRequestRunQuery(self)
+        case 1:
+            delegate?.editorPane(self, didRequestCancelQueryId: running[0].id)
+        default:
+            showRunningQueriesPopover(running)
         }
+    }
+
+    private func showRunningQueriesPopover(_ queries: [RunningQuery]) {
+        // Stub — Task 8 wires up the real popover.
+        NSLog("Pharos: would open running-queries popover for \(queries.count) queries")
     }
 
     @objc private func saveTapped() {
@@ -514,20 +537,26 @@ class EditorPaneVC: NSViewController {
     private func updateEditorToolbarState() {
         guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
         let activeTab = stateManager.tabs.first { $0.id == pane.activeTabId }
-        let executing = activeTab?.isExecuting ?? false
+        let count = activeTab?.runningQueries.count ?? 0
 
-        if executing != isExecuting {
-            isExecuting = executing
-            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-            if executing {
-                runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Query")?.withSymbolConfiguration(config)
-                runStopButton.toolTip = "Stop Query"
-                runStopButton.contentTintColor = .systemRed
-            } else {
-                runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
-                runStopButton.toolTip = "Run Query (Cmd+Return)"
-                runStopButton.contentTintColor = .controlAccentColor
-            }
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        switch count {
+        case 0:
+            runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
+            runStopButton.toolTip = "Run Query (Cmd+Return)"
+            runStopButton.contentTintColor = .controlAccentColor
+            badgeLayer.isHidden = true
+        case 1:
+            runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Query")?.withSymbolConfiguration(config)
+            runStopButton.toolTip = "Stop Query"
+            runStopButton.contentTintColor = .systemRed
+            badgeLayer.isHidden = true
+        default:
+            runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Queries")?.withSymbolConfiguration(config)
+            runStopButton.toolTip = "\(count) queries running — click to manage"
+            runStopButton.contentTintColor = .systemRed
+            badgeLayer.string = "\(count)"
+            badgeLayer.isHidden = false
         }
 
         // Update save dropdown: "Save" item enabled when the tab has somewhere

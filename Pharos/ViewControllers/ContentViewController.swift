@@ -1415,6 +1415,17 @@ class ContentViewController: NSViewController {
         }
     }
 
+    /// Cancel a specific in-flight query in the active tab by `id`.
+    func cancelQuery(id: String) {
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
+              tab.runningQueries.contains(where: { $0.id == id }) else { return }
+        cancelledQueryIds.insert(id)
+        Task {
+            _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: id)
+        }
+    }
+
     // MARK: - Error Position Parsing
 
     private func markEditorError(message: String, sql: String) {
@@ -1460,8 +1471,8 @@ extension ContentViewController: EditorPaneDelegate {
         executeQuery()
     }
 
-    func editorPaneDidRequestCancelQuery(_ pane: EditorPaneVC) {
-        cancelQuery()
+    func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String) {
+        cancelQuery(id: queryId)
     }
 
     func editorPaneDidRequestSave(_ pane: EditorPaneVC) {
