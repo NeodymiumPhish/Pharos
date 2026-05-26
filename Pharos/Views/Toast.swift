@@ -36,8 +36,10 @@ enum Toast {
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
 
-        // Stack offset: count existing ToastView siblings already in host.
-        let siblingCount = host.subviews.filter { $0 is ToastView && $0 !== toast }.count
+        // Stack offset: count existing ToastView siblings already in host, excluding any that are fading out.
+        let siblingCount = host.subviews.compactMap { $0 as? ToastView }
+            .filter { $0 !== toast && !$0.isFadingOut }
+            .count
         let bottomInset: CGFloat = 12 + CGFloat(siblingCount) * (toast.intrinsicContentSize.height + 6)
 
         NSLayoutConstraint.activate([
@@ -52,6 +54,7 @@ enum Toast {
         })
 
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            toast.isFadingOut = true
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.25
                 toast.animator().alphaValue = 0
@@ -65,6 +68,7 @@ enum Toast {
 /// Visual view used by `Toast.show`. Outside callers should use `Toast.show`.
 final class ToastView: NSVisualEffectView {
 
+    fileprivate var isFadingOut = false
     private let style: ToastStyle
 
     init(message: String, style: ToastStyle) {
