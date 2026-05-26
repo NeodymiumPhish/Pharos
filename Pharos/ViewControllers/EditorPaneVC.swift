@@ -11,6 +11,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
     func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
@@ -77,7 +78,7 @@ class EditorPaneVC: NSViewController {
         }
         paneTabBar.onCloseTab = { [weak self] tabId in
             guard let self else { return }
-            self.stateManager.closeTab(id: tabId)
+            self.delegate?.editorPane(self, didRequestCloseTab: tabId)
         }
         paneTabBar.onNewTab = { [weak self] in
             guard let self else { return }

@@ -302,6 +302,14 @@ class ContentViewController: NSViewController {
             name: .insertTextInEditor, object: nil
         )
 
+        // Observe connection status changes to clear in-flight queries on disconnect
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleConnectionStatusChanged(_:)),
+            name: AppStateManager.connectionStatusDidChange,
+            object: nil
+        )
+
         updateVisibility()
     }
 
@@ -1428,6 +1436,22 @@ class ContentViewController: NSViewController {
         }
     }
 
+    /// Centralized tab-close handler. Cancels in-flight queries for the tab
+    /// (suppressing their completion notifications via `cancelledQueryIds`),
+    /// then removes the tab via the state manager.
+    func closeTab(id: String) {
+        if let tab = stateManager.tabs.first(where: { $0.id == id }),
+           let connectionId = tab.connectionId {
+            for q in tab.runningQueries {
+                cancelledQueryIds.insert(q.id)
+                Task {
+                    _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: q.id)
+                }
+            }
+        }
+        stateManager.closeTab(id: id)
+    }
+
     // MARK: - Error Position Parsing
 
     private func markEditorError(message: String, sql: String) {
@@ -1475,6 +1499,10 @@ extension ContentViewController: EditorPaneDelegate {
 
     func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String) {
         cancelQuery(id: queryId)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String) {
+        closeTab(id: tabId)
     }
 
     func editorPaneDidRequestSave(_ pane: EditorPaneVC) {
@@ -1573,6 +1601,22 @@ extension ContentViewController {
         guard stateManager.activeTab != nil else { return }
         focusedPaneVC?.insertText(text)
         focusedPaneVC?.focus()
+    }
+
+    @objc private func handleConnectionStatusChanged(_ note: Notification) {
+        guard let connectionId = note.userInfo?["connectionId"] as? String else { return }
+        guard stateManager.status(for: connectionId) != .connected else { return }
+        // Connection dropped — clear runningQueries for every tab on this connection
+        // so the UI returns to idle without waiting for each in-flight error.
+        let affectedTabIds = stateManager.tabs.compactMap { $0.connectionId == connectionId ? $0.id : nil }
+        for tabId in affectedTabIds {
+            stateManager.updateTab(id: tabId) { tab in
+                for q in tab.runningQueries {
+                    self.cancelledQueryIds.insert(q.id)
+                }
+                tab.runningQueries.removeAll()
+            }
+        }
     }
 }
 
@@ -1687,7 +1731,7 @@ extension ContentViewController {
 
     @objc func menuCloseTab(_: Any?) {
         guard let tabId = stateManager.activeTabId else { return }
-        stateManager.closeTab(id: tabId)
+        closeTab(id: tabId)
     }
 
     @objc func menuReopenTab(_: Any?) {
