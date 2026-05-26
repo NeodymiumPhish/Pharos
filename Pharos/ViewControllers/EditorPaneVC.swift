@@ -209,6 +209,17 @@ class EditorPaneVC: NSViewController {
             self, selector: #selector(windowDidUpdate(_:)),
             name: NSWindow.didUpdateNotification, object: nil
         )
+
+        // Re-rasterize badge at correct scale when window moves between displays.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowDidChangeScreen(_:)),
+            name: NSWindow.didChangeScreenNotification, object: nil
+        )
+    }
+
+    @objc private func windowDidChangeScreen(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === view.window else { return }
+        badgeLayer.contentsScale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
     override func viewDidLayout() {
@@ -407,6 +418,12 @@ class EditorPaneVC: NSViewController {
         badgeLayer.font = NSFont.boldSystemFont(ofSize: 9)
         badgeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
         badgeLayer.isHidden = true
+        // Keep badge anchored to the top-right corner if the button is resized.
+        // In AppKit's unflipped layer coordinate space for a flipped NSButton,
+        // the badge sits at (16,16) which is the top-right corner; growing the
+        // button's width/height pushes the left/bottom edges outward, so we
+        // keep the right and bottom margins fixed.
+        badgeLayer.autoresizingMask = [.layerMinXMargin, .layerMinYMargin]
         runStopButton.wantsLayer = true
         runStopButton.layer?.addSublayer(badgeLayer)
 

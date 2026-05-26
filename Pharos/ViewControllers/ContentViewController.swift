@@ -1400,7 +1400,9 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// Cancel a running query in the active tab.
+    /// Menubar/keyboard Cancel: cancels the most recently started query in the
+    /// active tab. For targeted cancellation by id (used by the popover), use
+    /// `cancelQuery(id:)`.
     func cancelQuery() {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
