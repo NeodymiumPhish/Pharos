@@ -295,9 +295,9 @@ class QueryEditorVC: NSViewController {
         gutter?.clearSegmentColors()
     }
 
-    /// Forward the tab's running-segment index to the gutter. Pass nil to stop pulsing.
-    func setRunningSegmentIndex(_ index: Int?) {
-        gutter?.setRunningSegmentIndex(index)
+    /// Forward the tab's running-segment indices to the gutter. Pass empty set to stop pulsing.
+    func setRunningSegmentIndices(_ indices: Set<Int>) {
+        gutter?.setRunningSegmentIndices(indices)
     }
 
     /// Highlight a line range in the editor (scroll to visible + 3-second fade overlay).

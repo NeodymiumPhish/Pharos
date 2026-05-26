@@ -58,8 +58,16 @@ class LineNumberGutter: NSView {
 
     // MARK: - Pulse State
 
-    /// Index of the segment currently executing (nil = idle, -1 = full-editor phantom, >= 0 = segment).
-    private var runningSegmentIndex: Int?
+    /// Set of segment indices currently executing (-1 = full-editor phantom, >= 0 = specific segment).
+    private var runningSegmentIndices: Set<Int> = []   // includes -1 for phantom/direct-SQL
+
+    /// Per-index fade-out state, keyed by segment index (including -1 for phantom).
+    private var fadeOutStates: [Int: FadeState] = [:]
+
+    private struct FadeState {
+        let startAlpha: CGFloat
+        let endTime: CFTimeInterval
+    }
 
     /// Subscription to PulseClock while pulsing (including fade-out).
     private var pulseSubscription: AnyCancellable?
@@ -67,14 +75,8 @@ class LineNumberGutter: NSView {
     /// Current pulse value [0, 1] read from PulseClock.
     private var pulseValue: CGFloat = 1.0
 
-    /// Time at which fade-out should end; nil while actively pulsing.
-    private var fadeOutUntil: CFTimeInterval?
-
     /// Duration of the completion fade-out, in seconds.
     private let fadeOutDuration: CFTimeInterval = 0.25
-
-    /// Alpha value at the instant fade-out began, used to produce a linear taper.
-    private var fadeStartAlpha: CGFloat = 0
 
     private var gutterTrackingArea: NSTrackingArea?
 
@@ -140,37 +142,37 @@ class LineNumberGutter: NSView {
     func setSegments(_ newSegments: [SQLSegment], activeIndex: Int?) {
         segments = newSegments
         activeSegmentIndex = activeIndex
+        // Drop orphan fade-out entries that no longer correspond to a real segment.
+        let validIndices = Set(segments.indices).union([-1])
+        fadeOutStates = fadeOutStates.filter { validIndices.contains($0.key) }
         window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
-    /// Set the currently-executing segment index.
-    /// - `nil` = idle (stops pulsing with a fade-out)
-    /// - `-1` = full-editor phantom (pulses the entire gutter bar)
-    /// - `>= 0` = specific segment pulses
-    func setRunningSegmentIndex(_ index: Int?) {
-        guard runningSegmentIndex != index else { return }
-
-        if index != nil {
-            fadeOutUntil = nil
+    /// Set the currently-executing segment indices.
+    /// - Empty set = idle (stops pulsing with a fade-out per removed index)
+    /// - Contains -1 = full-editor phantom (pulses the entire gutter bar)
+    /// - Contains >= 0 = specific segments pulse in unison
+    func setRunningSegmentIndices(_ indices: Set<Int>) {
+        let removed = runningSegmentIndices.subtracting(indices)
+        for idx in removed {
+            fadeOutStates[idx] = FadeState(
+                startAlpha: 0.55 + 0.45 * pulseValue,
+                endTime: CACurrentMediaTime() + fadeOutDuration
+            )
+        }
+        runningSegmentIndices = indices
+        if !indices.isEmpty {
             if pulseSubscription == nil {
                 pulseSubscription = Self.composedPulseSubscription { [weak self] v in
                     self?.pulseValue = v
                     self?.needsDisplay = true
                 }
             }
-            runningSegmentIndex = index
-            needsDisplay = true
-        } else {
-            // Stopping: snapshot current alpha for a clean linear taper, then cancel
-            // the PulseClock subscription immediately. The fade-out redraw loop in
-            // draw(_:) is the only redraw driver during the fade.
-            fadeStartAlpha = 0.55 + 0.45 * pulseValue
+        } else if fadeOutStates.isEmpty {
             pulseSubscription = nil
-            runningSegmentIndex = nil
-            fadeOutUntil = CACurrentMediaTime() + fadeOutDuration
-            needsDisplay = true
         }
+        needsDisplay = true
     }
 
     /// Compose a `PulseClock` subscription that retains the `observe()` token
@@ -558,26 +560,7 @@ class LineNumberGutter: NSView {
             linePositionMap[entry.line] = (entry.y, entry.height)
         }
 
-        // Compute current pulse effect (including fade-out).
         let now = CACurrentMediaTime()
-        let (pulseActiveIndex, pulseEffectAlpha): (Int?, CGFloat) = {
-            if let idx = runningSegmentIndex {
-                // Actively pulsing. Map clock value [0,1] to visual alpha [0.55, 1.0].
-                let a = 0.55 + 0.45 * pulseValue
-                return (idx, a)
-            }
-            if let fadeEnd = fadeOutUntil {
-                let remaining = fadeEnd - now
-                if remaining > 0 {
-                    // Linear fade from the snapshotted start alpha to 0.
-                    let progress = CGFloat(1.0 - (remaining / fadeOutDuration))  // [0,1]
-                    return (nil, fadeStartAlpha * (1.0 - progress))
-                } else {
-                    return (nil, 0)
-                }
-            }
-            return (nil, 0)
-        }()
 
         for (segIdx, segment) in segments.enumerated() {
             // Skip segments that don't overlap the visible line range
@@ -593,16 +576,21 @@ class LineNumberGutter: NSView {
             let barBottom = endEntry.y + endEntry.height - 2
             let barHeight = max(barBottom - barY, 4)
 
-            // Determine bar color — pulse takes precedence for the running segment.
+            // Determine bar color — pulse takes precedence for running segments.
             let barColor: NSColor
-            if pulseActiveIndex == segIdx, segIdx >= 0 {
-                barColor = NSColor.controlAccentColor.withAlphaComponent(pulseEffectAlpha)
-            } else if let resultColor = segmentColors[segIdx] {
-                barColor = resultColor
-            } else if segIdx == activeSegmentIndex {
-                barColor = NSColor.controlAccentColor
+            if runningSegmentIndices.contains(segIdx) {
+                barColor = NSColor.controlAccentColor.withAlphaComponent(0.55 + 0.45 * pulseValue)
+            } else if let fade = fadeOutStates[segIdx] {
+                let remaining = fade.endTime - now
+                if remaining > 0 {
+                    let progress = CGFloat(1.0 - (remaining / fadeOutDuration))
+                    barColor = NSColor.controlAccentColor.withAlphaComponent(fade.startAlpha * (1.0 - progress))
+                } else {
+                    fadeOutStates.removeValue(forKey: segIdx)
+                    barColor = defaultBarColor(for: segIdx)
+                }
             } else {
-                barColor = NSColor.tertiaryLabelColor.withAlphaComponent(0.35)
+                barColor = defaultBarColor(for: segIdx)
             }
 
             let barRect = NSRect(x: barX, y: barY, width: segmentBarWidth, height: barHeight)
@@ -614,24 +602,44 @@ class LineNumberGutter: NSView {
             }
         }
 
-        // Phantom pulse for direct-SQL execution (no parseable segments or segmentIndex == -1).
-        if runningSegmentIndex == -1, lineYPositions.count >= 1 {
+        // Phantom pulse for direct-SQL execution (segmentIndex == -1).
+        if runningSegmentIndices.contains(-1), lineYPositions.count >= 1 {
             let top = lineYPositions.first!.y + 2
             let bottomEntry = lineYPositions.last!
             let bottom = bottomEntry.y + bottomEntry.height - 2
             let phantomRect = NSRect(x: barX, y: top, width: segmentBarWidth, height: max(bottom - top, 4))
             NSColor.controlAccentColor.withAlphaComponent(0.55 + 0.45 * pulseValue).setFill()
             NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()
+        } else if let fade = fadeOutStates[-1], lineYPositions.count >= 1 {
+            let remaining = fade.endTime - now
+            if remaining > 0 {
+                let top = lineYPositions.first!.y + 2
+                let bottomEntry = lineYPositions.last!
+                let bottom = bottomEntry.y + bottomEntry.height - 2
+                let phantomRect = NSRect(x: barX, y: top, width: segmentBarWidth, height: max(bottom - top, 4))
+                let progress = CGFloat(1.0 - (remaining / fadeOutDuration))
+                NSColor.controlAccentColor.withAlphaComponent(fade.startAlpha * (1.0 - progress)).setFill()
+                NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()
+            } else {
+                fadeOutStates.removeValue(forKey: -1)
+            }
         }
 
-        // Drive fade-out redraws. Pulse subscription already cancelled at fade-start.
-        if let fadeEnd = fadeOutUntil {
-            let remaining = fadeEnd - now
-            if remaining <= 0 {
-                fadeOutUntil = nil
-            } else {
-                DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
-            }
+        // Drive fade-out redraws. Pulse subscription stops in setRunningSegmentIndices
+        // when indices clear; fade-out redraws keep ticking until all fades expire.
+        if !fadeOutStates.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
+        }
+    }
+
+    /// Fallback bar color: result-tab color first, then active-segment highlight, then idle tertiary.
+    private func defaultBarColor(for segIdx: Int) -> NSColor {
+        if let resultColor = segmentColors[segIdx] {
+            return resultColor
+        } else if segIdx == activeSegmentIndex {
+            return NSColor.controlAccentColor
+        } else {
+            return NSColor.tertiaryLabelColor.withAlphaComponent(0.35)
         }
     }
 

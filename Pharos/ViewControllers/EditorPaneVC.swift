@@ -249,14 +249,14 @@ class EditorPaneVC: NSViewController {
     }
 
     /// Read the pane's active tab from the tabs array and push its running-segment
-    /// index to the gutter (or `nil` if the tab isn't executing).
+    /// indices to the gutter (or empty set if the tab isn't executing).
     private func updateGutterPulseForActiveTab(tabs: [QueryTab]) {
         guard let activeTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId,
               let tab = tabs.first(where: { $0.id == activeTabId }) else {
-            editorVC.setRunningSegmentIndex(nil)
+            editorVC.setRunningSegmentIndices([])
             return
         }
-        editorVC.setRunningSegmentIndex(tab.runningQueries.first?.segmentIndex)
+        editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
     }
 
     private func refreshTabBar() {
@@ -305,7 +305,7 @@ class EditorPaneVC: NSViewController {
         }
 
         // Sync gutter pulse to the newly-activated tab.
-        editorVC.setRunningSegmentIndex(tab.runningQueries.first?.segmentIndex)
+        editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
     }
 
     // MARK: - Focus Tracking
