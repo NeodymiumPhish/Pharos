@@ -67,6 +67,7 @@
 		BA36078FBC3A5D72C53F70A0 /* PharosCore+SavedQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */; };
 		BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */; };
 		BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */; };
+		BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */; };
 		C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */; };
 		D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */; };
 		D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */; };
@@ -88,6 +89,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningQueriesPopoverVC.swift; sourceTree = "<group>"; };
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
 		06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCellSelection.swift; sourceTree = "<group>"; };
@@ -244,6 +246,7 @@
 				DE109495071281357840CE57 /* QueryHistoryVC.swift */,
 				996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */,
 				6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */,
+				02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */,
 				F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */,
 				0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */,
 				C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */,
@@ -513,6 +516,7 @@
 				3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */,
 				B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */,
 				A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */,
+				BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
 				A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */,
 				7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */,

@@ -32,6 +32,7 @@ class EditorPaneVC: NSViewController {
     private let runStopButton = NSButton()
     private let badgeLayer = CATextLayer()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
+    private var runningQueriesPopover: NSPopover?
 
     // Connection / Schema selectors (in editor toolbar, right side)
     private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -535,8 +536,17 @@ class EditorPaneVC: NSViewController {
     }
 
     private func showRunningQueriesPopover(_ queries: [RunningQuery]) {
-        // Stub — Task 8 wires up the real popover.
-        NSLog("Pharos: would open running-queries popover for \(queries.count) queries")
+        runningQueriesPopover?.close()
+
+        guard let tabId = activeTab?.id else { return }
+        let vc = RunningQueriesPopoverVC(stateManager: stateManager, tabId: tabId)
+        vc.delegate = self
+
+        let popover = NSPopover()
+        popover.contentViewController = vc
+        popover.behavior = .transient
+        popover.show(relativeTo: runStopButton.bounds, of: runStopButton, preferredEdge: .minY)
+        runningQueriesPopover = popover
     }
 
     @objc private func saveTapped() {
@@ -891,5 +901,13 @@ class EditorPaneVC: NSViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+// MARK: - RunningQueriesPopoverDelegate
+
+extension EditorPaneVC: RunningQueriesPopoverDelegate {
+    func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String) {
+        delegate?.editorPane(self, didRequestCancelQueryId: id)
     }
 }
