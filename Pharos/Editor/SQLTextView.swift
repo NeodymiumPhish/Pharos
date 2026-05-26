@@ -64,6 +64,12 @@ class SQLTextView: NSTextView {
 
     private var isHighlighting = false
 
+    /// Pending debounced highlightSyntax task, replaced on each keystroke.
+    /// Full-document syntax passes are expensive on large docs (multi-KB
+    /// WITH clauses, query results pasted in, etc.), so the visible-color
+    /// refresh is deferred ~100 ms after typing stops to keep input snappy.
+    private var highlightDebounceTask: Task<Void, Never>?
+
     // Cached regex objects (compiled once, reused per highlight call)
     private static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
     private static let keywordRegex: NSRegularExpression = {
@@ -233,7 +239,7 @@ class SQLTextView: NSTextView {
         pendingEditRange = nil
         pendingReplacementLength = nil
 
-        highlightSyntax()
+        scheduleDebouncedHighlight()
         onTextChange?(string)
 
         // Completion triggers after text change
@@ -583,6 +589,18 @@ class SQLTextView: NSTextView {
     }
 
     // MARK: - Syntax Highlighting
+
+    /// Schedule a debounced full-document highlight pass. Cancels any
+    /// pending pass so rapid typing only triggers one repaint after the
+    /// user pauses.
+    private func scheduleDebouncedHighlight() {
+        highlightDebounceTask?.cancel()
+        highlightDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)  // 100 ms
+            guard !Task.isCancelled, let self else { return }
+            self.highlightSyntax()
+        }
+    }
 
     func highlightSyntax() {
         guard !isHighlighting, let layoutManager else { return }
