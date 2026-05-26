@@ -209,9 +209,14 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         let colList = data.columnNames.joined(separator: ", ")
         let valueRows = data.rows.enumerated().map { (rowIdx, row) in
             let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                if val.isEmpty || val == "NULL" { return "NULL" }
-                let category = colIdx < cats.count ? cats[colIdx] : .string
                 let pgType = colIdx < columns.count ? columns[colIdx].dataType : "text"
+                // NULLs in row 0 still need the type cast — otherwise PG has
+                // nothing to anchor type inference on for that column and
+                // mixed-type unification across rows can fail downstream.
+                if val.isEmpty || val == "NULL" {
+                    return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
+                }
+                let category = colIdx < cats.count ? cats[colIdx] : .string
                 let literal: String
                 switch category {
                 case .numeric, .boolean:
