@@ -41,7 +41,7 @@ final class RunningQueriesPopoverVC: NSViewController {
 
         stackView.orientation = .vertical
         stackView.spacing = 4
-        stackView.alignment = .leading
+        stackView.alignment = .width
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(headerLabel)
@@ -139,7 +139,7 @@ final class RunningQueriesPopoverVC: NSViewController {
     }
 
     private func dismissPopover() {
-        self.view.window?.close()
+        self.dismiss(nil)
     }
 }
 

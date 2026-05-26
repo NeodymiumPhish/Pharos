@@ -538,7 +538,7 @@ class EditorPaneVC: NSViewController {
     private func showRunningQueriesPopover(_ queries: [RunningQuery]) {
         runningQueriesPopover?.close()
 
-        guard let tabId = activeTab?.id else { return }
+        guard queries.count > 1, let tabId = activeTab?.id else { return }
         let vc = RunningQueriesPopoverVC(stateManager: stateManager, tabId: tabId)
         vc.delegate = self
 
@@ -547,6 +547,14 @@ class EditorPaneVC: NSViewController {
         popover.behavior = .transient
         popover.show(relativeTo: runStopButton.bounds, of: runStopButton, preferredEdge: .minY)
         runningQueriesPopover = popover
+
+        NotificationCenter.default.addObserver(
+            forName: NSPopover.didCloseNotification,
+            object: popover,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runningQueriesPopover = nil
+        }
     }
 
     @objc private func saveTapped() {
