@@ -932,13 +932,27 @@ class ContentViewController: NSViewController {
         let sql = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
 
+        let normalized = Self.normalizeSQL(sql)
+
+        // Dedup: re-running the same SQL while it's in flight is a no-op (with toast).
+        if let existing = activeTab.runningQueries.first(where: { $0.normalizedSQL == normalized }) {
+            let elapsed = Self.formatElapsed(CACurrentMediaTime() - existing.startTime)
+            Toast.show(
+                in: self.view,
+                message: "Already running — lines \(existing.lineRange.lowerBound)–\(existing.lineRange.upperBound) (\(elapsed))",
+                style: .info,
+                duration: 2.0
+            )
+            return
+        }
+
         let queryId = UUID().uuidString
         let color = createResultTab ? ResultTab.nextColor() : .clear
         let startTime = CACurrentMediaTime()
 
         let runningQuery = RunningQuery(
             id: queryId,
-            normalizedSQL: Self.normalizeSQL(sql),
+            normalizedSQL: normalized,
             segmentIndex: segmentIndex,
             lineRange: lineRange,
             startTime: startTime
