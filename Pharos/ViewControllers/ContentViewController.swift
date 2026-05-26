@@ -938,7 +938,7 @@ class ContentViewController: NSViewController {
 
         let runningQuery = RunningQuery(
             id: queryId,
-            normalizedSQL: sql.trimmingCharacters(in: .whitespacesAndNewlines),
+            normalizedSQL: Self.normalizeSQL(sql),
             segmentIndex: segmentIndex,
             lineRange: lineRange,
             startTime: startTime
@@ -1123,6 +1123,37 @@ class ContentViewController: NSViewController {
             break
         }
         return String(s)
+    }
+
+    /// Trim leading/trailing whitespace and collapse internal whitespace runs to
+    /// a single space. Comments and string-literal contents are NOT stripped —
+    /// they participate in the equality check so `SELECT 1 -- v2` does not match
+    /// `SELECT 1`.
+    static func normalizeSQL(_ sql: String) -> String {
+        let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = ""
+        result.reserveCapacity(trimmed.count)
+        var lastWasWhitespace = false
+        for ch in trimmed {
+            if ch.isWhitespace {
+                if !lastWasWhitespace {
+                    result.append(" ")
+                    lastWasWhitespace = true
+                }
+            } else {
+                result.append(ch)
+                lastWasWhitespace = false
+            }
+        }
+        return result
+    }
+
+    /// Format an elapsed-time interval as `M:SS` (e.g. "0:08", "1:23", "12:34").
+    static func formatElapsed(_ seconds: CFTimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        let mins = total / 60
+        let secs = total % 60
+        return String(format: "%d:%02d", mins, secs)
     }
 
     // MARK: - Result Tab Management
