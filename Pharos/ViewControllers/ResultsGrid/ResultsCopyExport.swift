@@ -190,7 +190,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
                 case .numeric:
                     return val
                 case .boolean:
-                    return val
+                    return Self.sqlBooleanLiteral(val)
                 default:
                     return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
                 }
@@ -219,13 +219,21 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
                 let category = colIdx < cats.count ? cats[colIdx] : .string
                 let literal: String
                 switch category {
-                case .numeric, .boolean:
+                case .numeric:
                     literal = val
+                case .boolean:
+                    literal = Self.sqlBooleanLiteral(val)
                 default:
                     literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
                 }
-                // Cast on first row so PG infers types for the rest
-                return rowIdx == 0 ? "\(literal)::\(pgType)" : literal
+                // Cast on first row so PG infers types for the rest. Boolean
+                // literals already type themselves via the TRUE/FALSE keyword
+                // (or the embedded ::boolean cast for unrecognized forms), so
+                // skip the extra cast there to avoid double-cast noise.
+                if rowIdx == 0 && category != .boolean {
+                    return "\(literal)::\(pgType)"
+                }
+                return literal
             }
             return "    (\(values.joined(separator: ", ")))"
         }
@@ -233,6 +241,22 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         let sql = "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sql, forType: .string)
+    }
+
+    /// Normalize a string from a boolean-typed column to a SQL boolean literal.
+    /// PostgreSQL surfaces booleans through its text protocol as "t"/"f", which
+    /// display nicely in the grid but are bare identifiers when emitted into
+    /// SQL — so `f` would be parsed as a column reference. Map the common
+    /// forms to the unquoted SQL keywords TRUE / FALSE, falling back to a
+    /// quoted-and-cast string so PG can apply its own lenient parsing.
+    private static func sqlBooleanLiteral(_ val: String) -> String {
+        switch val.lowercased() {
+        case "t", "true", "y", "yes", "on", "1": return "TRUE"
+        case "f", "false", "n", "no", "off", "0": return "FALSE"
+        default:
+            let escaped = val.replacingOccurrences(of: "'", with: "''")
+            return "'\(escaped)'::boolean"
+        }
     }
 
     static func csvEscape(_ s: String) -> String {
@@ -376,8 +400,10 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
                     if val.isEmpty || val == "NULL" { return "NULL" }
                     let category = colIdx < cats.count ? cats[colIdx] : .string
                     switch category {
-                    case .numeric, .boolean:
+                    case .numeric:
                         return val
+                    case .boolean:
+                        return Self.sqlBooleanLiteral(val)
                     default:
                         return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
                     }
