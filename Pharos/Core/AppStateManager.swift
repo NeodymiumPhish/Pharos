@@ -64,6 +64,10 @@ final class AppStateManager: ObservableObject {
     static let connectionsDidChange = Notification.Name("PharosConnectionsDidChange")
     /// Posted when a connection's status changes. UserInfo has "connectionId" key.
     static let connectionStatusDidChange = Notification.Name("PharosConnectionStatusDidChange")
+    /// Posted just before tabs are removed via close/closeOthers/closeToRight/closePane.
+    /// userInfo carries `queryIds: [String]` — the queryIds whose completion
+    /// notifications should be suppressed.
+    static let queriesWillBeCancelled = Notification.Name("PharosQueriesWillBeCancelled")
 
     // MARK: - Init
 
@@ -256,6 +260,10 @@ final class AppStateManager: ObservableObject {
         guard let paneIdx = panes.firstIndex(where: { $0.id == id }) else { return }
         let pane = panes[paneIdx]
 
+        // Cancel in-flight queries for all tabs in this pane
+        let closingTabs = tabs.filter { pane.tabIds.contains($0.id) }
+        cancelQueriesBeforeClose(for: closingTabs)
+
         // Archive tabs from this pane
         for tabId in pane.tabIds {
             if let tab = tabs.first(where: { $0.id == tabId }) {
@@ -379,6 +387,9 @@ final class AppStateManager: ObservableObject {
 
     /// Close a tab, removing it from its pane's tab list.
     func closeTab(id: String) {
+        if let tab = tabs.first(where: { $0.id == id }) {
+            cancelQueriesBeforeClose(for: [tab])
+        }
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let closedTab = tabs[idx]
         closedTabHistory.append(closedTab)
@@ -432,6 +443,8 @@ final class AppStateManager: ObservableObject {
         if let paneId, let paneIdx = panes.firstIndex(where: { $0.id == paneId }) {
             // Close other tabs within the same pane
             let otherIds = panes[paneIdx].tabIds.filter { $0 != id }
+            let closingTabs = tabs.filter { otherIds.contains($0.id) }
+            cancelQueriesBeforeClose(for: closingTabs)
             for otherId in otherIds {
                 if let t = tabs.first(where: { $0.id == otherId }) {
                     closedTabHistory.append(t)
@@ -463,6 +476,8 @@ final class AppStateManager: ObservableObject {
               let idxInPane = panes[paneIdx].tabIds.firstIndex(of: id) else { return }
 
         let toCloseIds = Array(panes[paneIdx].tabIds[(idxInPane + 1)...])
+        let closingTabs = tabs.filter { toCloseIds.contains($0.id) }
+        cancelQueriesBeforeClose(for: closingTabs)
         for closeId in toCloseIds {
             if let t = tabs.first(where: { $0.id == closeId }) {
                 closedTabHistory.append(t)
@@ -536,6 +551,29 @@ final class AppStateManager: ObservableObject {
             object: self,
             userInfo: ["connectionId": connectionId]
         )
+    }
+
+    /// Cancel in-flight queries for the given tabs (FFI cancel) and post a
+    /// notification so observers (e.g. ContentViewController) can suppress
+    /// completion notifications for these queryIds.
+    private func cancelQueriesBeforeClose(for closingTabs: [QueryTab]) {
+        var queryIds: [String] = []
+        for tab in closingTabs {
+            guard let connectionId = tab.connectionId else { continue }
+            for q in tab.runningQueries {
+                queryIds.append(q.id)
+                Task {
+                    _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: q.id)
+                }
+            }
+        }
+        if !queryIds.isEmpty {
+            NotificationCenter.default.post(
+                name: Self.queriesWillBeCancelled,
+                object: nil,
+                userInfo: ["queryIds": queryIds]
+            )
+        }
     }
 
     /// Open a file as a new editor tab. Ensures the main window exists

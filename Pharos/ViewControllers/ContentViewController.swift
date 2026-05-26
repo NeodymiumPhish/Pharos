@@ -310,6 +310,14 @@ class ContentViewController: NSViewController {
             object: nil
         )
 
+        // Observe bulk-close cancellations so completion notifications are suppressed
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleQueriesWillBeCancelled(_:)),
+            name: AppStateManager.queriesWillBeCancelled,
+            object: nil
+        )
+
         updateVisibility()
     }
 
@@ -1436,19 +1444,10 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// Centralized tab-close handler. Cancels in-flight queries for the tab
-    /// (suppressing their completion notifications via `cancelledQueryIds`),
-    /// then removes the tab via the state manager.
+    /// Centralized tab-close helper. Cancellation of in-flight queries is
+    /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
+    /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
-        if let tab = stateManager.tabs.first(where: { $0.id == id }),
-           let connectionId = tab.connectionId {
-            for q in tab.runningQueries {
-                cancelledQueryIds.insert(q.id)
-                Task {
-                    _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: q.id)
-                }
-            }
-        }
         stateManager.closeTab(id: id)
     }
 
@@ -1601,6 +1600,13 @@ extension ContentViewController {
         guard stateManager.activeTab != nil else { return }
         focusedPaneVC?.insertText(text)
         focusedPaneVC?.focus()
+    }
+
+    @objc private func handleQueriesWillBeCancelled(_ note: Notification) {
+        guard let queryIds = note.userInfo?["queryIds"] as? [String] else { return }
+        for id in queryIds {
+            cancelledQueryIds.insert(id)
+        }
     }
 
     @objc private func handleConnectionStatusChanged(_ note: Notification) {
