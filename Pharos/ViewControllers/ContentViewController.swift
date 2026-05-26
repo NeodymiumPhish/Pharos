@@ -946,8 +946,17 @@ class ContentViewController: NSViewController {
             return
         }
 
+        // Direct-SQL inline-result protection: if another direct-SQL run is already
+        // in flight, route this one to a result tab so the two completions don't
+        // race to overwrite tab.result.
+        var effectiveCreateResultTab = createResultTab
+        if segmentIndex == -1,
+           activeTab.runningQueries.contains(where: { $0.segmentIndex == -1 }) {
+            effectiveCreateResultTab = true
+        }
+
         let queryId = UUID().uuidString
-        let color = createResultTab ? ResultTab.nextColor() : .clear
+        let color = effectiveCreateResultTab ? ResultTab.nextColor() : .clear
         let startTime = CACurrentMediaTime()
 
         let runningQuery = RunningQuery(
@@ -960,13 +969,13 @@ class ContentViewController: NSViewController {
 
         stateManager.updateTab(id: tabId) { tab in
             tab.runningQueries.append(runningQuery)
-            if !createResultTab {
+            if !effectiveCreateResultTab {
                 tab.error = nil
                 tab.result = nil
                 tab.executeResult = nil
             }
         }
-        if !createResultTab { resultsVC.clear() }
+        if !effectiveCreateResultTab { resultsVC.clear() }
         focusedPaneVC?.clearErrorMarkers()
 
         let limit = Int32(stateManager.settings.query.defaultLimit)
@@ -982,11 +991,11 @@ class ContentViewController: NSViewController {
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
-                            if !createResultTab {
+                            if !effectiveCreateResultTab {
                                 tab.result = result
                             }
                         }
-                        if createResultTab {
+                        if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
                                 sql: sql, lineRange: lineRange, color: color, timestamp: Date()
@@ -1014,11 +1023,11 @@ class ContentViewController: NSViewController {
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
-                            if !createResultTab {
+                            if !effectiveCreateResultTab {
                                 tab.executeResult = result
                             }
                         }
-                        if createResultTab {
+                        if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
                                 sql: sql, lineRange: lineRange, color: color, timestamp: Date()
@@ -1045,7 +1054,7 @@ class ContentViewController: NSViewController {
                     let message = error.localizedDescription
                     self.stateManager.updateTab(id: tabId) { tab in
                         tab.runningQueries.removeAll { $0.id == queryId }
-                        if !createResultTab {
+                        if !effectiveCreateResultTab {
                             tab.error = message
                         }
                     }
