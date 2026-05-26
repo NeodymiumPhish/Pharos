@@ -596,7 +596,7 @@ class SQLTextView: NSTextView {
     private func scheduleDebouncedHighlight() {
         highlightDebounceTask?.cancel()
         highlightDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 100_000_000)  // 100 ms
+            try? await Task.sleep(nanoseconds: 750_000_000)  // 750 ms
             guard !Task.isCancelled, let self else { return }
             self.highlightSyntax()
         }
