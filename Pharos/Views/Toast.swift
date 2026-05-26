@@ -120,4 +120,8 @@ final class ToastView: NSVisualEffectView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: 32)
+    }
 }
