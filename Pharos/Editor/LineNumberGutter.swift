@@ -264,8 +264,10 @@ class LineNumberGutter: NSView {
     // MARK: - Width
 
     private func recalculateWidth() {
-        guard let textView else { return }
-        let lineCount = max(textView.string.utf16.reduce(1) { $1 == 0x0A ? $0 + 1 : $0 }, 1)
+        // `rebuildLineStarts` runs before this on every text change, so the
+        // cache size equals the current line count — no need for a second
+        // O(N) walk just to recount newlines.
+        let lineCount = max(lineStarts.count, 1)
         let digits = max(String(lineCount).count, 3)
         let digitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
         let newWidth = CGFloat(digits) * digitWidth + 20 + segmentBarWidth + segmentBarGap
@@ -465,14 +467,9 @@ class LineNumberGutter: NSView {
         let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleTextRect, in: textContainer)
         let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
 
-        // Count lines before the visible range to get starting line number
-        var lineNumber = 1
-        text.enumerateSubstrings(
-            in: NSRange(location: 0, length: visibleCharRange.location),
-            options: [.byLines, .substringNotRequired]
-        ) { _, _, _, _ in
-            lineNumber += 1
-        }
+        // Starting line number: O(log N) lookup into the cached lineStarts
+        // instead of an O(N) per-redraw walk via enumerateSubstrings.
+        var lineNumber = lineNumber(forCharacterIndex: visibleCharRange.location)
 
         // Build a map of line number → y position and line height for segment bar drawing
         var lineYPositions: [(line: Int, y: CGFloat, height: CGFloat)] = []
@@ -481,6 +478,21 @@ class LineNumberGutter: NSView {
         var charIndex = visibleCharRange.location
         while charIndex < NSMaxRange(visibleCharRange) {
             let lineRange = text.lineRange(for: NSRange(location: charIndex, length: 0))
+
+            // Skip lines hidden inside a collapsed fold. The fold's startLine
+            // remains visible (it shows the chevron + pill), but every line
+            // between startLine and endLine collapses to the anchor's y in
+            // the layout manager, which would stack their line numbers on
+            // top of each other if we drew them.
+            let isHiddenByFold = foldRegions.contains { region in
+                region.isCollapsed && lineNumber > region.startLine && lineNumber <= region.endLine
+            }
+            if isHiddenByFold {
+                lineNumber += 1
+                charIndex = NSMaxRange(lineRange)
+                continue
+            }
+
             let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
 
