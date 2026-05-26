@@ -936,12 +936,18 @@ class ContentViewController: NSViewController {
         let color = createResultTab ? ResultTab.nextColor() : .clear
         let startTime = CACurrentMediaTime()
 
+        let runningQuery = RunningQuery(
+            id: queryId,
+            normalizedSQL: sql.trimmingCharacters(in: .whitespacesAndNewlines),
+            segmentIndex: segmentIndex,
+            lineRange: lineRange,
+            startTime: startTime
+        )
+
         stateManager.updateTab(id: tabId) { tab in
-            tab.isExecuting = true
-            tab.queryId = queryId
-            tab.runningSegmentIndex = segmentIndex  // -1 for direct SQL, >= 0 for segment
-            tab.error = nil
+            tab.runningQueries.append(runningQuery)
             if !createResultTab {
+                tab.error = nil
                 tab.result = nil
                 tab.executeResult = nil
             }
@@ -961,10 +967,10 @@ class ContentViewController: NSViewController {
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
-                            tab.isExecuting = false
-                            tab.queryId = nil
-                            tab.runningSegmentIndex = nil
-                            tab.result = result
+                            tab.runningQueries.removeAll { $0.id == queryId }
+                            if !createResultTab {
+                                tab.result = result
+                            }
                         }
                         if createResultTab {
                             var rt = ResultTab(
@@ -993,10 +999,10 @@ class ContentViewController: NSViewController {
                     )
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
-                            tab.isExecuting = false
-                            tab.queryId = nil
-                            tab.runningSegmentIndex = nil
-                            tab.executeResult = result
+                            tab.runningQueries.removeAll { $0.id == queryId }
+                            if !createResultTab {
+                                tab.executeResult = result
+                            }
                         }
                         if createResultTab {
                             var rt = ResultTab(
@@ -1024,10 +1030,10 @@ class ContentViewController: NSViewController {
                 await MainActor.run {
                     let message = error.localizedDescription
                     self.stateManager.updateTab(id: tabId) { tab in
-                        tab.isExecuting = false
-                        tab.queryId = nil
-                        tab.runningSegmentIndex = nil
-                        tab.error = message
+                        tab.runningQueries.removeAll { $0.id == queryId }
+                        if !createResultTab {
+                            tab.error = message
+                        }
                     }
                     if self.stateManager.activeTabId == tabId {
                         self.resultsVC.showError(message)
@@ -1344,8 +1350,7 @@ class ContentViewController: NSViewController {
     func cancelQuery() {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
-              tab.isExecuting,
-              let queryId = tab.queryId else { return }
+              let queryId = tab.runningQueries.last?.id else { return }
 
         // Mark this queryId as user-cancelled so the error path can suppress
         // the completion notification.

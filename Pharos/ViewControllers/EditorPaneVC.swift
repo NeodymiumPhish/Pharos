@@ -256,7 +256,7 @@ class EditorPaneVC: NSViewController {
             editorVC.setRunningSegmentIndex(nil)
             return
         }
-        editorVC.setRunningSegmentIndex(tab.isExecuting ? tab.runningSegmentIndex : nil)
+        editorVC.setRunningSegmentIndex(tab.runningQueries.first?.segmentIndex)
     }
 
     private func refreshTabBar() {
@@ -305,7 +305,7 @@ class EditorPaneVC: NSViewController {
         }
 
         // Sync gutter pulse to the newly-activated tab.
-        editorVC.setRunningSegmentIndex(tab.isExecuting ? tab.runningSegmentIndex : nil)
+        editorVC.setRunningSegmentIndex(tab.runningQueries.first?.segmentIndex)
     }
 
     // MARK: - Focus Tracking

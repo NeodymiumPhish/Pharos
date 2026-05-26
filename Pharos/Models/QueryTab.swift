@@ -11,6 +11,17 @@ struct ResultsGridState {
     var selectedRows: IndexSet
 }
 
+/// A single query currently executing for a tab. Multiple may be in flight
+/// concurrently. `id` matches the `query_id` registered in pharos-core's
+/// `running_queries` registry, so cancellation/lookup is symmetric across FFI.
+struct RunningQuery: Identifiable, Equatable {
+    let id: String
+    let normalizedSQL: String       // trimmed + whitespace-collapsed, used for dedup
+    let segmentIndex: Int           // -1 = direct-SQL (no parseable segment), >= 0 = segment
+    let lineRange: ClosedRange<Int> // 1-based editor line range, for popover label
+    let startTime: CFTimeInterval   // CACurrentMediaTime() at launch
+}
+
 /// Represents a single query editor tab.
 struct QueryTab: Identifiable {
     let id: String
@@ -20,12 +31,10 @@ struct QueryTab: Identifiable {
     var sql: String
     var cursorPosition: Int = 0
     var isDirty: Bool = false
-    var isExecuting: Bool = false
-    var queryId: String?
-    /// Index of the SQL segment currently executing. `nil` = idle, `-1` = full-editor
-    /// (no segment parseable / direct execution fallback), `>= 0` = specific segment.
-    /// Set alongside `isExecuting` when a query starts; cleared on completion/failure/cancel.
-    var runningSegmentIndex: Int?
+    /// All in-flight queries launched from this tab, ordered by `startTime` ascending.
+    var runningQueries: [RunningQuery] = []
+    /// Computed: any in-flight query means this tab is executing.
+    var isExecuting: Bool { !runningQueries.isEmpty }
     var result: QueryResult?
     var executeResult: ExecuteResult?
     var error: String?
