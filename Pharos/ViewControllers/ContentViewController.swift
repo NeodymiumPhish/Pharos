@@ -1108,7 +1108,7 @@ class ContentViewController: NSViewController {
                             rt.customLabel = customLabel
                             rt.queryResult = result
                             rt.executionTimeMs = result.executionTimeMs
-                            self.addResultTab(rt)
+                            self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
                         }
@@ -1140,7 +1140,7 @@ class ContentViewController: NSViewController {
                             rt.customLabel = customLabel
                             rt.executeResult = result
                             rt.executionTimeMs = result.executionTimeMs
-                            self.addResultTab(rt)
+                            self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showExecuteResult(result)
                         }
@@ -1290,7 +1290,23 @@ class ContentViewController: NSViewController {
 
     // MARK: - Result Tab Management
 
-    private func addResultTab(_ tab: ResultTab) {
+    /// Add a result tab to the editor tab that launched the query. A query that
+    /// completes while a *different* editor tab is focused must deposit its
+    /// result into the originating tab's stored state — not the live (visible)
+    /// state, which belongs to whichever tab is focused now.
+    private func addResultTab(_ tab: ResultTab, forEditorTab editorTabId: String) {
+        guard editorTabId == stateManager.activeTabId else {
+            // Background tab: append to its persisted result tabs without
+            // touching the live display or the focused pane's gutter. The
+            // gutter color and grid are restored from this state when the user
+            // switches back (activeTabChanged → reResolveAllResultTabs).
+            var stored = resultTabsByEditorTab[editorTabId] ?? []
+            stored.append(tab)
+            resultTabsByEditorTab[editorTabId] = stored
+            activeResultTabIdByEditorTab[editorTabId] = tab.id
+            return
+        }
+
         resultTabs.append(tab)
         activeResultTabId = tab.id
         updateResultTabBarVisibility()
