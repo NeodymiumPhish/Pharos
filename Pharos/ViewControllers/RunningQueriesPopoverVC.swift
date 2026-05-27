@@ -104,14 +104,11 @@ final class RunningQueriesPopoverVC: NSViewController {
         }
         let queries = tab.runningQueries.sorted { $0.startTime < $1.startTime }
 
-        // Auto-dismiss when only one (or none) remains — the toolbar button
-        // takes over again for 0/1.
-        if queries.count <= 1 {
-            dismissPopover()
-            return
+        switch queries.count {
+        case 0:  headerLabel.stringValue = "No queries running"
+        case 1:  headerLabel.stringValue = "1 query running"
+        default: headerLabel.stringValue = "\(queries.count) queries running"
         }
-
-        headerLabel.stringValue = "\(queries.count) queries running"
 
         let now = CACurrentMediaTime()
         let presentIds = Set(queries.map { $0.id })
