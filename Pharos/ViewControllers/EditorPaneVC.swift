@@ -31,7 +31,8 @@ class EditorPaneVC: NSViewController {
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
     private let runStopButton = NSButton()
-    private let badgeLayer = CATextLayer()
+    private let badgeView = NSView()
+    private let badgeLabel = NSTextField(labelWithString: "")
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private var runningQueriesPopover: NSPopover?
 
@@ -212,16 +213,6 @@ class EditorPaneVC: NSViewController {
             name: NSWindow.didUpdateNotification, object: nil
         )
 
-        // Re-rasterize badge at correct scale when window moves between displays.
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(windowDidChangeScreen(_:)),
-            name: NSWindow.didChangeScreenNotification, object: nil
-        )
-    }
-
-    @objc private func windowDidChangeScreen(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === view.window else { return }
-        badgeLayer.contentsScale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
     }
 
     override func viewDidLayout() {
@@ -409,25 +400,6 @@ class EditorPaneVC: NSViewController {
         runStopButton.action = #selector(runStopTapped)
         runStopButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // Badge for ≥2 running queries. Hidden by default.
-        badgeLayer.frame = CGRect(x: 16, y: 16, width: 14, height: 14)
-        badgeLayer.cornerRadius = 7
-        badgeLayer.masksToBounds = true
-        badgeLayer.backgroundColor = NSColor.systemRed.cgColor
-        badgeLayer.foregroundColor = NSColor.white.cgColor
-        badgeLayer.alignmentMode = .center
-        badgeLayer.fontSize = 9
-        badgeLayer.font = NSFont.boldSystemFont(ofSize: 9)
-        badgeLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        badgeLayer.isHidden = true
-        // Keep badge anchored to the top-right corner if the button is resized.
-        // In AppKit's unflipped layer coordinate space for a flipped NSButton,
-        // the badge sits at (16,16) which is the top-right corner; growing the
-        // button's width/height pushes the left/bottom edges outward, so we
-        // keep the right and bottom margins fixed.
-        badgeLayer.autoresizingMask = [.layerMinXMargin, .layerMinYMargin]
-        runStopButton.wantsLayer = true
-        runStopButton.layer?.addSublayer(badgeLayer)
 
         // Save dropdown (pull-down button)
         saveDropdown.bezelStyle = .recessed
@@ -499,6 +471,28 @@ class EditorPaneVC: NSViewController {
 
         editorToolbar.addSubview(toolbarStack)
 
+        // Badge view: small red circle overlapping top-right of runStopButton.
+        // Added to editorToolbar (not toolbarStack) so the stack doesn't manage
+        // it as an arranged subview, while still being able to constrain to
+        // runStopButton's anchors since both share the same coordinate space.
+        badgeView.translatesAutoresizingMaskIntoConstraints = false
+        badgeView.wantsLayer = true
+        badgeView.layer?.backgroundColor = NSColor.systemRed.cgColor
+        badgeView.layer?.cornerRadius = 7
+        badgeView.layer?.masksToBounds = true
+        badgeView.isHidden = true
+
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.font = NSFont.boldSystemFont(ofSize: 9)
+        badgeLabel.textColor = .white
+        badgeLabel.alignment = .center
+        badgeLabel.backgroundColor = .clear
+        badgeLabel.isBezeled = false
+        badgeLabel.isEditable = false
+
+        badgeView.addSubview(badgeLabel)
+        editorToolbar.addSubview(badgeView)
+
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
             formatButton.heightAnchor.constraint(equalToConstant: 28),
@@ -517,6 +511,14 @@ class EditorPaneVC: NSViewController {
             separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: editorToolbar.bottomAnchor),
+
+            badgeView.widthAnchor.constraint(equalToConstant: 14),
+            badgeView.heightAnchor.constraint(equalToConstant: 14),
+            badgeView.centerXAnchor.constraint(equalTo: runStopButton.trailingAnchor, constant: -3),
+            badgeView.centerYAnchor.constraint(equalTo: runStopButton.topAnchor, constant: 3),
+
+            badgeLabel.centerXAnchor.constraint(equalTo: badgeView.centerXAnchor),
+            badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
         ])
     }
 
@@ -581,18 +583,18 @@ class EditorPaneVC: NSViewController {
             runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
             runStopButton.toolTip = "Run Query (Cmd+Return)"
             runStopButton.contentTintColor = .controlAccentColor
-            badgeLayer.isHidden = true
+            badgeView.isHidden = true
         case 1:
             runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Query")?.withSymbolConfiguration(config)
             runStopButton.toolTip = "Stop Query"
             runStopButton.contentTintColor = .systemRed
-            badgeLayer.isHidden = true
+            badgeView.isHidden = true
         default:
             runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Queries")?.withSymbolConfiguration(config)
             runStopButton.toolTip = "\(count) queries running — click to manage"
             runStopButton.contentTintColor = .systemRed
-            badgeLayer.string = "\(count)"
-            badgeLayer.isHidden = false
+            badgeLabel.stringValue = "\(count)"
+            badgeView.isHidden = false
         }
 
         // Update save dropdown: "Save" item enabled when the tab has somewhere
