@@ -9,6 +9,8 @@ enum FilterOperator: String, CaseIterable {
     case contains, notContains, startsWith, endsWith, equals, notEquals
     // Multi-value text
     case containsAnyOf, notContainsAnyOf
+    // Exact-match multi-value (produced only by the value checklist, not the operator dropdown)
+    case isAnyOf
     // Numeric / Temporal comparison
     case lessThan, lessOrEqual, greaterThan, greaterOrEqual, between
     // Boolean
@@ -26,6 +28,7 @@ enum FilterOperator: String, CaseIterable {
         case .notEquals: return "does not equal"
         case .containsAnyOf: return "contains any of"
         case .notContainsAnyOf: return "does not contain any of"
+        case .isAnyOf: return "is any of"
         case .lessThan: return "less than"
         case .lessOrEqual: return "less than or equal"
         case .greaterThan: return "greater than"
@@ -48,7 +51,7 @@ enum FilterOperator: String, CaseIterable {
     }
 
     var needsMultiValue: Bool {
-        self == .containsAnyOf || self == .notContainsAnyOf
+        self == .containsAnyOf || self == .notContainsAnyOf || self == .isAnyOf
     }
 
     static func operators(for category: PGTypeCategory) -> [FilterOperator] {
@@ -76,4 +79,9 @@ struct ColumnFilter {
     let value2: String?
     let values: [String]?
     let dataType: String
+
+    /// Sentinel placed in `values` (for an `.isAnyOf` filter) to mean "match
+    /// null / empty cells". NUL-prefixed so it cannot collide with a rendered
+    /// cell value. Also used as the model value of the checklist's "(Blanks)" row.
+    static let blanksSentinel = "\u{0}__pharos_blanks__"
 }
