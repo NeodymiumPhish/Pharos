@@ -129,12 +129,17 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
         let rawDataType = columns[idx].dataType
         let existing = columnFilterController.filter(forColumn: colId)
 
+        let distinct = columnFilterController.distinctValues(
+            forColumnIndex: idx, excludingColumnId: colId, category: category
+        )
         let popoverVC = ColumnFilterPopoverVC(
             columnName: colId,
             displayName: columns[idx].name,
             category: category,
             dataType: rawDataType,
-            existingFilter: existing
+            existingFilter: existing,
+            distinctValues: distinct.values,
+            hasBlanks: distinct.hasBlanks
         )
         popoverVC.filterDelegate = self
 

@@ -27,6 +27,13 @@ class ColumnFilterPopoverVC: NSViewController {
     private let dataType: String
     private let existingFilter: ColumnFilter?
 
+    // Value picker (checklist)
+    private let checklistValues: [String]     // distinct values + optional blanks sentinel
+    private let searchField = NSSearchField()
+    private let valueList = FilterValueListView()
+    // Advanced operator UI lives in this container (collapsed under a disclosure in a later task)
+    private let advancedContainer = NSStackView()
+
     weak var filterDelegate: ColumnFilterPopoverDelegate?
 
     private var operators: [FilterOperator] = []
@@ -69,12 +76,14 @@ class ColumnFilterPopoverVC: NSViewController {
     private let applyButton = NSButton(title: "Apply", target: nil, action: nil)
     private let clearButton = NSButton(title: "Clear", target: nil, action: nil)
 
-    init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String, existingFilter: ColumnFilter?) {
+    init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String,
+         existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool) {
         self.columnName = columnName
         self.displayName = displayName
         self.category = category
         self.dataType = dataType
         self.existingFilter = existingFilter
+        self.checklistValues = distinctValues + (hasBlanks ? [ColumnFilter.blanksSentinel] : [])
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -158,37 +167,107 @@ class ColumnFilterPopoverVC: NSViewController {
         buttonRow.orientation = .horizontal
         buttonRow.distribution = .fill
 
-        // Add fixed elements to stack
+        let innerWidth: CGFloat = 236  // 260 content - 24 padding
+
+        // Search field above the checklist
+        searchField.placeholderString = "Search"
+        searchField.font = .systemFont(ofSize: 12)
+        searchField.target = self
+        searchField.action = #selector(searchChanged)
+        searchField.sendsSearchStringImmediately = true
+        searchField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+
+        // Checklist
+        valueList.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+        valueList.onSelectionChanged = { [weak self] in self?.updateApplyEnabled() }
+
+        // Advanced operator container (operator popup first, then dynamic value views)
+        advancedContainer.orientation = .vertical
+        advancedContainer.alignment = .leading
+        advancedContainer.spacing = 8
+        operatorPopup.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+        advancedContainer.addArrangedSubview(operatorPopup)
+        advancedContainer.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+
+        buttonRow.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
+
+        // Assemble main stack: header, search, checklist, advanced, buttons
         stackView.addArrangedSubview(headerLabel)
-        stackView.addArrangedSubview(operatorPopup)
-        // Value area will be inserted here dynamically
+        stackView.addArrangedSubview(searchField)
+        stackView.addArrangedSubview(valueList)
+        stackView.addArrangedSubview(advancedContainer)
         stackView.addArrangedSubview(buttonRow)
 
-        // Width constraints
-        let contentWidth: CGFloat = 260
-        let innerWidth = contentWidth - 24 // 12pt padding on each side
-        for v: NSView in [operatorPopup, buttonRow] {
-            v.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-        }
-
-        // Restore existing filter state
-        if let existing = existingFilter,
-           let idx = operators.firstIndex(of: existing.op) {
+        // Determine initial mode + checklist state from the existing filter.
+        let allValues = Set(checklistValues)
+        if let existing = existingFilter, existing.op == .isAnyOf {
+            // Checklist mode: restore checked values.
+            valueList.setValues(checklistValues, checked: Set(existing.values ?? []))
+        } else if let existing = existingFilter, let idx = operators.firstIndex(of: existing.op) {
+            // Advanced operator was active: all checked in the list, restore advanced UI.
+            valueList.setValues(checklistValues, checked: allValues)
             operatorPopup.selectItem(at: idx)
             restoreExistingFilter(existing)
+        } else {
+            // No filter: everything checked.
+            valueList.setValues(checklistValues, checked: allValues)
         }
 
         updateValueArea()
+        updateApplyEnabled()
     }
 
     // MARK: - Actions
 
     @objc private func operatorChanged() {
         updateValueArea()
+        updateApplyEnabled()
+    }
+
+    @objc private func searchChanged() {
+        valueList.applySearch(searchField.stringValue)
+    }
+
+    /// Apply enabled unless the checklist has zero checked AND advanced isn't valid.
+    private func updateApplyEnabled() {
+        if buildAdvancedFilter() != nil {
+            applyButton.isEnabled = true
+        } else {
+            applyButton.isEnabled = !valueList.checkedValues.isEmpty
+        }
     }
 
     @objc private func applyFilter() {
-        guard let op = selectedOperator() else { return }
+        // Advanced text filter wins only when it forms a valid operator filter.
+        if let advanced = buildAdvancedFilter() {
+            filterDelegate?.columnFilterPopover(self, didApplyFilter: advanced)
+            dismiss(nil)
+            return
+        }
+
+        // Checklist mode.
+        let allValues = Set(checklistValues)
+        let checked = valueList.checkedValues
+        if checked.isEmpty { return }   // Apply is disabled in this state anyway
+        if checked == allValues {
+            // Everything checked → no effective filter.
+            filterDelegate?.columnFilterPopover(self, didClearFilterForColumn: columnName)
+        } else {
+            let filter = ColumnFilter(
+                columnName: columnName, op: .isAnyOf, value: "",
+                value2: nil, values: Array(checked), dataType: dataType
+            )
+            filterDelegate?.columnFilterPopover(self, didApplyFilter: filter)
+        }
+        dismiss(nil)
+    }
+
+    /// Builds a `ColumnFilter` from the advanced operator UI, or `nil` if that
+    /// UI is not validly populated (so Apply falls through to checklist mode).
+    /// In this task the advanced UI is always visible; a later task gates it behind
+    /// a disclosure so a collapsed/empty advanced section returns nil.
+    private func buildAdvancedFilter() -> ColumnFilter? {
+        guard advancedIsActive, let op = selectedOperator() else { return nil }
 
         var value = ""
         var value2: String? = nil
@@ -196,7 +275,8 @@ class ColumnFilterPopoverVC: NSViewController {
 
         if op.needsMultiValue {
             let tokens = (tokenField.objectValue as? [String]) ?? []
-            values = tokens.isEmpty ? nil : tokens
+            guard !tokens.isEmpty else { return nil }
+            values = tokens
         } else if op.needsValue {
             if temporalSubType == .interval {
                 value = intervalToFilterValue(intervalDays, intervalHours, intervalMinutes, intervalSeconds)
@@ -214,19 +294,20 @@ class ColumnFilterPopoverVC: NSViewController {
                     value2 = value2Field.stringValue
                 }
             }
+            guard !value.isEmpty else { return nil }
+            if op.needsSecondValue, (value2?.isEmpty ?? true) { return nil }
         }
 
-        let filter = ColumnFilter(
-            columnName: columnName,
-            op: op,
-            value: value,
-            value2: value2,
-            values: values,
-            dataType: dataType
+        return ColumnFilter(
+            columnName: columnName, op: op, value: value,
+            value2: value2, values: values, dataType: dataType
         )
-        filterDelegate?.columnFilterPopover(self, didApplyFilter: filter)
-        dismiss(nil)
     }
+
+    /// Whether the advanced operator UI should be considered for Apply.
+    /// In this task the section is always shown, so it's active iff an operator is
+    /// selected. A later task redefines this as "the disclosure is expanded".
+    private var advancedIsActive: Bool { true }
 
     @objc private func clearFilter() {
         filterDelegate?.columnFilterPopover(self, didClearFilterForColumn: columnName)
@@ -236,9 +317,9 @@ class ColumnFilterPopoverVC: NSViewController {
     // MARK: - Value Area Management
 
     private func updateValueArea() {
-        // Remove existing dynamic value views from stack
+        // Remove existing dynamic value views from advancedContainer
         for v in currentValueViews {
-            stackView.removeArrangedSubview(v)
+            advancedContainer.removeArrangedSubview(v)
             v.removeFromSuperview()
         }
         currentValueViews.removeAll()
@@ -248,21 +329,21 @@ class ColumnFilterPopoverVC: NSViewController {
             return
         }
 
-        // Button row is always the last arranged subview
-        let insertIndex = stackView.arrangedSubviews.count - 1
+        // Insert value views into the advanced container, after the operator popup.
+        let insertIndex = advancedContainer.arrangedSubviews.count
         let innerWidth: CGFloat = 236
 
         if op.needsMultiValue {
             // Token field for containsAnyOf
             tokenField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-            stackView.insertArrangedSubview(tokenField, at: insertIndex)
+            advancedContainer.insertArrangedSubview(tokenField, at: insertIndex)
             currentValueViews = [tokenField]
         } else if op.needsValue {
             if temporalSubType == .interval {
                 let row1 = makeIntervalRow(dField: intervalDays, hField: intervalHours,
                                             mField: intervalMinutes, sField: intervalSeconds)
                 row1.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-                stackView.insertArrangedSubview(row1, at: insertIndex)
+                advancedContainer.insertArrangedSubview(row1, at: insertIndex)
                 currentValueViews = [row1]
 
                 if op.needsSecondValue {
@@ -273,18 +354,18 @@ class ColumnFilterPopoverVC: NSViewController {
                                                 mField: interval2Minutes, sField: interval2Seconds)
                     row2.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                     let idx = insertIndex + 1
-                    stackView.insertArrangedSubview(andLabel, at: idx)
-                    stackView.insertArrangedSubview(row2, at: idx + 1)
+                    advancedContainer.insertArrangedSubview(andLabel, at: idx)
+                    advancedContainer.insertArrangedSubview(row2, at: idx + 1)
                     currentValueViews.append(contentsOf: [andLabel, row2])
                 }
             } else if temporalSubType != .none {
-                stackView.insertArrangedSubview(datePicker, at: insertIndex)
+                advancedContainer.insertArrangedSubview(datePicker, at: insertIndex)
                 currentValueViews = [datePicker]
 
                 // For timestamps, add a time text field below the calendar
                 if temporalSubType == .timestamp {
                     timePicker.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-                    stackView.insertArrangedSubview(timePicker, at: insertIndex + 1)
+                    advancedContainer.insertArrangedSubview(timePicker, at: insertIndex + 1)
                     currentValueViews.append(timePicker)
                 }
 
@@ -293,20 +374,20 @@ class ColumnFilterPopoverVC: NSViewController {
                     andLabel.font = .systemFont(ofSize: 11)
                     andLabel.textColor = .secondaryLabelColor
                     let idx = insertIndex + currentValueViews.count
-                    stackView.insertArrangedSubview(andLabel, at: idx)
-                    stackView.insertArrangedSubview(datePicker2, at: idx + 1)
+                    advancedContainer.insertArrangedSubview(andLabel, at: idx)
+                    advancedContainer.insertArrangedSubview(datePicker2, at: idx + 1)
                     currentValueViews.append(contentsOf: [andLabel, datePicker2])
 
                     if temporalSubType == .timestamp {
                         timePicker2.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-                        stackView.insertArrangedSubview(timePicker2, at: idx + 2)
+                        advancedContainer.insertArrangedSubview(timePicker2, at: idx + 2)
                         currentValueViews.append(timePicker2)
                     }
                 }
             } else {
                 // Plain text fields
                 valueField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-                stackView.insertArrangedSubview(valueField, at: insertIndex)
+                advancedContainer.insertArrangedSubview(valueField, at: insertIndex)
                 currentValueViews = [valueField]
 
                 if op.needsSecondValue {
@@ -315,8 +396,8 @@ class ColumnFilterPopoverVC: NSViewController {
                     andLabel.textColor = .secondaryLabelColor
                     value2Field.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                     let idx = insertIndex + 1
-                    stackView.insertArrangedSubview(andLabel, at: idx)
-                    stackView.insertArrangedSubview(value2Field, at: idx + 1)
+                    advancedContainer.insertArrangedSubview(andLabel, at: idx)
+                    advancedContainer.insertArrangedSubview(value2Field, at: idx + 1)
                     currentValueViews.append(contentsOf: [andLabel, value2Field])
                 }
             }
