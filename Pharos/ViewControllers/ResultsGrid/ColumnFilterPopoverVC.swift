@@ -344,7 +344,38 @@ class ColumnFilterPopoverVC: NSViewController {
 
     @objc private func clearFilter() {
         filterDelegate?.columnFilterPopover(self, didClearFilterForColumn: columnName)
-        dismiss(nil)
+        resetControls()
+    }
+
+    /// Resets every popover control to the no-filter default: checklist all
+    /// checked, search empty, Advanced collapsed with its operator/value inputs
+    /// cleared. Leaves the popover open so the cleared state is visible.
+    private func resetControls() {
+        // Checklist + search (reset the search query first so setValues doesn't
+        // re-apply a stale filter).
+        searchField.stringValue = ""
+        valueList.applySearch("")
+        valueList.setValues(checklistValues, checked: Set(checklistValues))
+
+        // Advanced: collapse and reset every input.
+        advancedDisclosure.state = .off
+        advancedContainer.isHidden = true
+        if !operators.isEmpty { operatorPopup.selectItem(at: 0) }
+        valueField.stringValue = ""
+        value2Field.stringValue = ""
+        tokenField.objectValue = []
+        timePicker.stringValue = ""
+        timePicker2.stringValue = ""
+        datePicker.dateValue = Date()
+        datePicker2.dateValue = Date()
+        for f in [intervalDays, intervalHours, intervalMinutes, intervalSeconds,
+                  interval2Days, interval2Hours, interval2Minutes, interval2Seconds] {
+            f.stringValue = ""
+        }
+
+        updateValueArea()       // rebuild the value area for the reset operator
+        updateApplyEnabled()
+        recalculateSize()
     }
 
     // MARK: - Value Area Management
