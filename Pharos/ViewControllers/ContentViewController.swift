@@ -62,6 +62,17 @@ class ContentViewController: NSViewController {
     /// suppress the "Query failed" notification for user-initiated cancellations.
     private var cancelledQueryIds: Set<String> = []
 
+    /// "Run All Queries" queue: segments still to be launched. Pop from the front
+    /// when a slot opens up. Cleared on abort (tab close / disconnect / completion).
+    private var runAllPending: [SQLSegment] = []
+    /// The tab the current Run-All batch belongs to. Different active tabs do NOT
+    /// inherit the batch.
+    private var runAllTabId: String?
+    /// Subscription that watches the tab's runningQueries count to refill slots.
+    private var runAllSubscription: AnyCancellable?
+    /// Max concurrent queries launched by the Run-All batch.
+    private let runAllMaxConcurrent = 3
+
     // Editor/results expand state
     enum ContentExpandState { case normal, editorExpanded, resultsExpanded }
     private(set) var expandState: ContentExpandState = .normal
@@ -925,6 +936,59 @@ class ContentViewController: NSViewController {
         )
     }
 
+    /// Fires every SQL segment in the focused editor with a max of 3 concurrent
+    /// queries. As each finishes, the next from the queue starts. Identical-SQL
+    /// segments are naturally deduplicated by the in-flight dedup check in
+    /// `performQuery`.
+    func runAllSegments() {
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let editor = focusedPaneVC?.editorVC else { return }
+
+        let segments = editor.segments
+        guard !segments.isEmpty else { return }
+
+        // Replace any in-progress batch (calling Run All twice = restart).
+        runAllPending = segments
+        runAllTabId = tab.id
+
+        runAllSubscription?.cancel()
+        runAllSubscription = stateManager.$tabs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refillRunAllSlots() }
+
+        refillRunAllSlots()
+    }
+
+    private func refillRunAllSlots() {
+        guard let tabId = runAllTabId,
+              let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+              let connectionId = tab.connectionId,
+              stateManager.status(for: connectionId) == .connected else {
+            // Tab gone or disconnected — abort the batch.
+            runAllPending.removeAll()
+            runAllSubscription?.cancel()
+            runAllSubscription = nil
+            runAllTabId = nil
+            return
+        }
+
+        let availableSlots = max(0, runAllMaxConcurrent - tab.runningQueries.count)
+        var launched = 0
+        while launched < availableSlots, !runAllPending.isEmpty {
+            let segment = runAllPending.removeFirst()
+            executeSegment(segment)
+            launched += 1
+        }
+
+        if runAllPending.isEmpty && tab.runningQueries.isEmpty {
+            runAllSubscription?.cancel()
+            runAllSubscription = nil
+            runAllTabId = nil
+        }
+    }
+
     /// Execute SQL directly without creating a result tab (fallback when no segments parsed).
     private func executeDirectSQL(_ querySQL: String) {
         performQuery(querySQL, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: false)
@@ -1519,6 +1583,11 @@ extension ContentViewController: EditorPaneDelegate {
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment) {
         stateManager.focusPane(id: pane.paneId)
         executeSegment(segment)
+    }
+
+    func editorPaneDidRequestRunAll(_ pane: EditorPaneVC) {
+        stateManager.focusPane(id: pane.paneId)
+        runAllSegments()
     }
 
     func editorPane(_ pane: EditorPaneVC, didEditText paneId: String) {

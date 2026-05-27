@@ -10,6 +10,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
     func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
+    func editorPaneDidRequestRunAll(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
@@ -512,7 +513,7 @@ class EditorPaneVC: NSViewController {
         let running = activeTab?.runningQueries ?? []
         switch running.count {
         case 0:
-            delegate?.editorPaneDidRequestRunQuery(self)
+            showRunOptionsMenu()
         case 1:
             delegate?.editorPane(self, didRequestCancelQueryId: running[0].id)
         default:
@@ -540,6 +541,38 @@ class EditorPaneVC: NSViewController {
         ) { [weak self] _ in
             self?.runningQueriesPopover = nil
         }
+    }
+
+    private func showRunOptionsMenu() {
+        let menu = NSMenu()
+
+        let focusedItem = NSMenuItem(
+            title: "Run Focused Query",
+            action: #selector(runFocusedFromMenu),
+            keyEquivalent: "\r"
+        )
+        focusedItem.keyEquivalentModifierMask = .command
+        focusedItem.target = self
+        menu.addItem(focusedItem)
+
+        let runAllItem = NSMenuItem(
+            title: "Run All Queries",
+            action: #selector(runAllFromMenu),
+            keyEquivalent: ""
+        )
+        runAllItem.target = self
+        menu.addItem(runAllItem)
+
+        let origin = NSPoint(x: 0, y: runStopButton.bounds.maxY + 4)
+        menu.popUp(positioning: nil, at: origin, in: runStopButton)
+    }
+
+    @objc private func runFocusedFromMenu() {
+        delegate?.editorPaneDidRequestRunQuery(self)
+    }
+
+    @objc private func runAllFromMenu() {
+        delegate?.editorPaneDidRequestRunAll(self)
     }
 
     @objc private func saveTapped() {
