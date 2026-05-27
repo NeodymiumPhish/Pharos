@@ -943,6 +943,7 @@ class EditorPaneVC: NSViewController {
 
 extension EditorPaneVC: RunningQueriesPopoverDelegate {
     func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String) {
+        NSLog("Pharos.popover: EditorPaneVC.runningQueriesPopover delegate fired for id=\(id); editorPaneDelegate=\(delegate == nil ? "nil" : "ok")")
         delegate?.editorPane(self, didRequestCancelQueryId: id)
     }
 }

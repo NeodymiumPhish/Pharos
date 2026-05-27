@@ -129,6 +129,7 @@ final class RunningQueriesPopoverVC: NSViewController {
         for q in queries where rowsById[q.id] == nil {
             let row = RunningQueryRow(query: q,
                                       elapsed: ContentViewController.formatElapsed(now - q.startTime)) { [weak self] id in
+                NSLog("Pharos.popover: onCancel closure fired for id=\(id); self=\(self == nil ? "nil" : "ok"); delegate=\(self?.delegate == nil ? "nil" : "ok")")
                 guard let self else { return }
                 self.delegate?.runningQueriesPopover(self, didRequestCancelQueryId: id)
             }
@@ -180,6 +181,8 @@ private final class RunningQueryRow: NSView {
         cancelButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Cancel")?
             .withSymbolConfiguration(config)
         cancelButton.contentTintColor = .systemRed
+        cancelButton.refusesFirstResponder = true
+        cancelButton.imageScaling = .scaleNone
         cancelButton.target = self
         cancelButton.action = #selector(cancelTapped)
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -210,6 +213,7 @@ private final class RunningQueryRow: NSView {
     }
 
     @objc private func cancelTapped() {
+        NSLog("Pharos.popover: cancelTapped fired for queryId=\(queryId)")
         onCancel(queryId)
     }
 }
