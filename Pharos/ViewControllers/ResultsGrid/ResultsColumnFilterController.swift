@@ -73,6 +73,11 @@ class ResultsColumnFilterController {
             return boolValue(value) == true
         case .isFalse:
             return boolValue(value) == false
+        case .isAnyOf:
+            let set = Set(filter.values ?? [])
+            let isBlank = (value?.isNull ?? true) || (value?.displayString.isEmpty ?? true)
+            if isBlank { return set.contains(ColumnFilter.blanksSentinel) }
+            return set.contains(value!.displayString)
         default:
             break
         }
