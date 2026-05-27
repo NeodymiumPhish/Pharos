@@ -31,8 +31,9 @@ class ColumnFilterPopoverVC: NSViewController {
     private let checklistValues: [String]     // distinct values + optional blanks sentinel
     private let searchField = NSSearchField()
     private let valueList = FilterValueListView()
-    // Advanced operator UI lives in this container (collapsed under a disclosure in a later task)
+    // Advanced operator UI lives in this container, collapsed under a disclosure button
     private let advancedContainer = NSStackView()
+    private let advancedDisclosure = NSButton()
 
     weak var filterDelegate: ColumnFilterPopoverDelegate?
 
@@ -191,12 +192,29 @@ class ColumnFilterPopoverVC: NSViewController {
 
         buttonRow.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
-        // Assemble main stack: header, search, checklist, advanced, buttons
+        // Disclosure header for advanced operator UI
+        advancedDisclosure.setButtonType(.pushOnPushOff)
+        advancedDisclosure.bezelStyle = .disclosure
+        advancedDisclosure.title = ""
+        advancedDisclosure.state = .off
+        advancedDisclosure.target = self
+        advancedDisclosure.action = #selector(toggleAdvanced)
+        let advancedLabel = NSTextField(labelWithString: "Advanced text filter")
+        advancedLabel.font = .systemFont(ofSize: 11)
+        advancedLabel.textColor = .secondaryLabelColor
+        let advancedHeader = NSStackView(views: [advancedDisclosure, advancedLabel])
+        advancedHeader.orientation = .horizontal
+        advancedHeader.spacing = 4
+
+        // Assemble main stack: header, search, checklist, disclosure header, advanced, buttons
         stackView.addArrangedSubview(headerLabel)
         stackView.addArrangedSubview(searchField)
         stackView.addArrangedSubview(valueList)
+        stackView.addArrangedSubview(advancedHeader)
         stackView.addArrangedSubview(advancedContainer)
         stackView.addArrangedSubview(buttonRow)
+
+        advancedContainer.isHidden = true   // collapsed by default
 
         // Determine initial mode + checklist state from the existing filter.
         let allValues = Set(checklistValues)
@@ -204,10 +222,12 @@ class ColumnFilterPopoverVC: NSViewController {
             // Checklist mode: restore checked values.
             valueList.setValues(checklistValues, checked: Set(existing.values ?? []))
         } else if let existing = existingFilter, let idx = operators.firstIndex(of: existing.op) {
-            // Advanced operator was active: all checked in the list, restore advanced UI.
+            // Advanced operator was active: all checked in the list, restore + expand advanced UI.
             valueList.setValues(checklistValues, checked: allValues)
             operatorPopup.selectItem(at: idx)
             restoreExistingFilter(existing)
+            advancedDisclosure.state = .on
+            advancedContainer.isHidden = false
         } else {
             // No filter: everything checked.
             valueList.setValues(checklistValues, checked: allValues)
@@ -218,6 +238,12 @@ class ColumnFilterPopoverVC: NSViewController {
     }
 
     // MARK: - Actions
+
+    @objc private func toggleAdvanced() {
+        advancedContainer.isHidden = (advancedDisclosure.state != .on)
+        updateApplyEnabled()
+        recalculateSize()
+    }
 
     @objc private func operatorChanged() {
         updateValueArea()
@@ -304,10 +330,8 @@ class ColumnFilterPopoverVC: NSViewController {
         )
     }
 
-    /// Whether the advanced operator UI should be considered for Apply.
-    /// In this task the section is always shown, so it's active iff an operator is
-    /// selected. A later task redefines this as "the disclosure is expanded".
-    private var advancedIsActive: Bool { true }
+    /// The advanced operator UI is considered for Apply only while expanded.
+    private var advancedIsActive: Bool { advancedDisclosure.state == .on }
 
     @objc private func clearFilter() {
         filterDelegate?.columnFilterPopover(self, didClearFilterForColumn: columnName)
