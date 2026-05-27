@@ -61,6 +61,62 @@ class ResultsColumnFilterController {
         }
     }
 
+    // MARK: - Distinct Values (for the value-picker checklist)
+
+    /// Distinct display-string values for a column, computed over rows that pass
+    /// every OTHER column's active filter (cascading). Sorted type-aware ascending.
+    /// `hasBlanks` is true if any null/empty cell was seen (caller adds a "(Blanks)" row).
+    func distinctValues(forColumnIndex idx: Int,
+                        excludingColumnId colId: String,
+                        category: PGTypeCategory) -> (values: [String], hasBlanks: Bool) {
+        guard let delegate = delegate else { return ([], false) }
+        let rows = delegate.filterableRows
+        let categories = delegate.filterableColumnCategories
+
+        // Every active filter except the column being edited (so all of this
+        // column's values stay selectable even when it already has a filter).
+        let otherFilters = activeFilters.filter { $0.key != colId }
+
+        var seen = Set<String>()
+        var hasBlanks = false
+
+        rowLoop: for row in rows {
+            for (fColId, filter) in otherFilters {
+                guard let fIdx = colIndex(from: fColId) else { continue }
+                let fCat = fIdx < categories.count ? categories[fIdx] : .string
+                let fVal: AnyCodable? = fIdx < row.count ? row[fIdx] : nil
+                if !evaluate(filter: filter, value: fVal, category: fCat) { continue rowLoop }
+            }
+            let cell: AnyCodable? = idx < row.count ? row[idx] : nil
+            if cell == nil || cell!.isNull || cell!.displayString.isEmpty {
+                hasBlanks = true
+            } else {
+                seen.insert(cell!.displayString)
+            }
+        }
+
+        return (sortValues(Array(seen), category: category), hasBlanks)
+    }
+
+    /// Type-aware ascending sort of distinct display strings.
+    private func sortValues(_ values: [String], category: PGTypeCategory) -> [String] {
+        switch category {
+        case .numeric:
+            return values.sorted { a, b in
+                switch (Double(a), Double(b)) {
+                case let (x?, y?): return x < y
+                case (nil, _?):    return false   // non-numeric strings sort after numeric
+                case (_?, nil):    return true
+                case (nil, nil):   return a.localizedStandardCompare(b) == .orderedAscending
+                }
+            }
+        default:
+            // Temporal display strings are ISO-ish, so natural compare is chronological;
+            // strings/json/boolean use the same natural, case-insensitive ordering.
+            return values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+    }
+
     // MARK: - Evaluation
 
     private func evaluate(filter: ColumnFilter, value: AnyCodable?, category: PGTypeCategory) -> Bool {
