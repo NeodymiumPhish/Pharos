@@ -7,6 +7,8 @@ import AppKit
 final class FilterValueListView: NSView {
 
     /// Fired whenever the checked set changes (row toggle or Select All).
+    /// Integrators should capture `[weak self]` to avoid a retain cycle if the
+    /// owner of this view also owns the closure.
     var onSelectionChanged: (() -> Void)?
 
     private let scrollView = NSScrollView()
@@ -99,11 +101,16 @@ final class FilterValueListView: NSView {
             } else {
                 checked.formUnion(visibleValues)
             }
+            tableView.reloadData()   // every visible row's checkbox changes
         } else {
+            guard row - 1 < visibleValues.count else { return }   // stale tag guard
             let value = visibleValues[row - 1]
             if sender.state == .on { checked.insert(value) } else { checked.remove(value) }
+            // The clicked checkbox already shows the right state; only the
+            // Select All row's tri-state needs refreshing. Avoids a full reload
+            // (which would steal focus from the checkbox mid-interaction).
+            tableView.reloadData(forRowIndexes: IndexSet(integer: 0), columnIndexes: IndexSet(integer: 0))
         }
-        tableView.reloadData()   // refresh Select All tri-state + row states
         onSelectionChanged?()
     }
 }
