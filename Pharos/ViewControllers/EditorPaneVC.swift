@@ -478,7 +478,7 @@ class EditorPaneVC: NSViewController {
         badgeView.translatesAutoresizingMaskIntoConstraints = false
         badgeView.wantsLayer = true
         badgeView.layer?.backgroundColor = NSColor.systemRed.cgColor
-        badgeView.layer?.cornerRadius = 7
+        badgeView.layer?.cornerRadius = 5.5
         badgeView.layer?.masksToBounds = true
         badgeView.isHidden = true
 
@@ -512,10 +512,10 @@ class EditorPaneVC: NSViewController {
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: editorToolbar.bottomAnchor),
 
-            badgeView.widthAnchor.constraint(equalToConstant: 14),
-            badgeView.heightAnchor.constraint(equalToConstant: 14),
-            badgeView.centerXAnchor.constraint(equalTo: runStopButton.trailingAnchor, constant: -3),
-            badgeView.centerYAnchor.constraint(equalTo: runStopButton.topAnchor, constant: 3),
+            badgeView.widthAnchor.constraint(equalToConstant: 11),
+            badgeView.heightAnchor.constraint(equalToConstant: 11),
+            badgeView.centerXAnchor.constraint(equalTo: runStopButton.trailingAnchor, constant: -3.5),
+            badgeView.centerYAnchor.constraint(equalTo: runStopButton.topAnchor, constant: 3.5),
 
             badgeLabel.centerXAnchor.constraint(equalTo: badgeView.centerXAnchor),
             badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
