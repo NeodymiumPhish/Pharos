@@ -31,8 +31,7 @@ class EditorPaneVC: NSViewController {
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
     private let runStopButton = NSButton()
-    private let badgeView = NSView()
-    private let badgeLabel = NSTextField(labelWithString: "")
+    private let queryIndicator = QueryProgressIndicator()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private var runningQueriesPopover: NSPopover?
 
@@ -471,27 +470,13 @@ class EditorPaneVC: NSViewController {
 
         editorToolbar.addSubview(toolbarStack)
 
-        // Badge view: small red circle overlapping top-right of runStopButton.
-        // Added to editorToolbar (not toolbarStack) so the stack doesn't manage
-        // it as an arranged subview, while still being able to constrain to
-        // runStopButton's anchors since both share the same coordinate space.
-        badgeView.translatesAutoresizingMaskIntoConstraints = false
-        badgeView.wantsLayer = true
-        badgeView.layer?.backgroundColor = NSColor.systemRed.cgColor
-        badgeView.layer?.cornerRadius = 5.5
-        badgeView.layer?.masksToBounds = true
-        badgeView.isHidden = true
-
-        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        badgeLabel.font = NSFont.boldSystemFont(ofSize: 9)
-        badgeLabel.textColor = .white
-        badgeLabel.alignment = .center
-        badgeLabel.backgroundColor = .clear
-        badgeLabel.isBezeled = false
-        badgeLabel.isEditable = false
-
-        badgeView.addSubview(badgeLabel)
-        editorToolbar.addSubview(badgeView)
+        // Query progress indicator: overlays runStopButton exactly, hidden when idle.
+        // Added to editorToolbar (not toolbarStack) so the stack doesn't manage it
+        // as an arranged subview, while still constraining to runStopButton's anchors
+        // since both share the same coordinate space.
+        queryIndicator.translatesAutoresizingMaskIntoConstraints = false
+        queryIndicator.isHidden = true
+        editorToolbar.addSubview(queryIndicator)
 
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
@@ -512,13 +497,10 @@ class EditorPaneVC: NSViewController {
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: editorToolbar.bottomAnchor),
 
-            badgeView.widthAnchor.constraint(equalToConstant: 11),
-            badgeView.heightAnchor.constraint(equalToConstant: 11),
-            badgeView.centerXAnchor.constraint(equalTo: runStopButton.trailingAnchor, constant: -3.5),
-            badgeView.centerYAnchor.constraint(equalTo: runStopButton.topAnchor, constant: 3.5),
-
-            badgeLabel.centerXAnchor.constraint(equalTo: badgeView.centerXAnchor),
-            badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
+            queryIndicator.leadingAnchor.constraint(equalTo: runStopButton.leadingAnchor),
+            queryIndicator.trailingAnchor.constraint(equalTo: runStopButton.trailingAnchor),
+            queryIndicator.topAnchor.constraint(equalTo: runStopButton.topAnchor),
+            queryIndicator.bottomAnchor.constraint(equalTo: runStopButton.bottomAnchor),
         ])
     }
 
@@ -578,23 +560,19 @@ class EditorPaneVC: NSViewController {
         let count = activeTab?.runningQueries.count ?? 0
 
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        switch count {
-        case 0:
+        if count == 0 {
             runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
             runStopButton.toolTip = "Run Query (Cmd+Return)"
             runStopButton.contentTintColor = .controlAccentColor
-            badgeView.isHidden = true
-        case 1:
-            runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Query")?.withSymbolConfiguration(config)
-            runStopButton.toolTip = "Stop Query"
-            runStopButton.contentTintColor = .systemRed
-            badgeView.isHidden = true
-        default:
-            runStopButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop Queries")?.withSymbolConfiguration(config)
-            runStopButton.toolTip = "\(count) queries running — click to manage"
-            runStopButton.contentTintColor = .systemRed
-            badgeLabel.stringValue = "\(count)"
-            badgeView.isHidden = false
+            queryIndicator.isHidden = true
+        } else {
+            // Hide the button's image so the indicator is the visible element.
+            runStopButton.image = nil
+            runStopButton.toolTip = count == 1
+                ? "Stop Query"
+                : "\(count) queries running — click to manage"
+            queryIndicator.count = count
+            queryIndicator.isHidden = false
         }
 
         // Update save dropdown: "Save" item enabled when the tab has somewhere
