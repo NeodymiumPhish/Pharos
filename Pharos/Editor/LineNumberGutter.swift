@@ -157,7 +157,7 @@ class LineNumberGutter: NSView {
         let removed = runningSegmentIndices.subtracting(indices)
         for idx in removed {
             fadeOutStates[idx] = FadeState(
-                startAlpha: 0.55 + 0.45 * pulseValue,
+                startAlpha: currentPulseAlpha(),
                 endTime: CACurrentMediaTime() + fadeOutDuration
             )
         }
@@ -579,7 +579,7 @@ class LineNumberGutter: NSView {
             // Determine bar color — pulse takes precedence for running segments.
             let barColor: NSColor
             if runningSegmentIndices.contains(segIdx) {
-                barColor = NSColor.controlAccentColor.withAlphaComponent(0.55 + 0.45 * pulseValue)
+                barColor = NSColor.controlAccentColor.withAlphaComponent(currentPulseAlpha())
             } else if let fade = fadeOutStates[segIdx] {
                 let remaining = fade.endTime - now
                 if remaining > 0 {
@@ -608,7 +608,7 @@ class LineNumberGutter: NSView {
             let bottomEntry = lineYPositions.last!
             let bottom = bottomEntry.y + bottomEntry.height - 2
             let phantomRect = NSRect(x: barX, y: top, width: segmentBarWidth, height: max(bottom - top, 4))
-            NSColor.controlAccentColor.withAlphaComponent(0.55 + 0.45 * pulseValue).setFill()
+            NSColor.controlAccentColor.withAlphaComponent(currentPulseAlpha()).setFill()
             NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()
         } else if let fade = fadeOutStates[-1], lineYPositions.count >= 1 {
             let remaining = fade.endTime - now
@@ -630,6 +630,13 @@ class LineNumberGutter: NSView {
         if !fadeOutStates.isEmpty {
             DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
         }
+    }
+
+    /// Current pulse alpha — the value all running bars share off the shared
+    /// pulse clock. Used both for live pulse rendering and as the snapshot value
+    /// when a bar enters its fade-out state.
+    private func currentPulseAlpha() -> CGFloat {
+        0.55 + 0.45 * pulseValue
     }
 
     /// Fallback bar color: result-tab color first, then active-segment highlight, then idle tertiary.

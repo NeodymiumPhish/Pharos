@@ -514,7 +514,12 @@ class EditorPaneVC: NSViewController {
         let running = activeTab?.runningQueries ?? []
         switch running.count {
         case 0:
-            showRunOptionsMenu()
+            let segmentCount = editorVC.segments.count
+            if segmentCount <= 1 {
+                delegate?.editorPaneDidRequestRunQuery(self)
+            } else {
+                showRunOptionsMenu()
+            }
         case 1:
             delegate?.editorPane(self, didRequestCancelQueryId: running[0].id)
         default:

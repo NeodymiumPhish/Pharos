@@ -1034,9 +1034,17 @@ class ContentViewController: NSViewController {
         // Dedup: re-running the same SQL while it's in flight is a no-op (with toast).
         if let existing = activeTab.runningQueries.first(where: { $0.normalizedSQL == normalized }) {
             let elapsed = Self.formatElapsed(CACurrentMediaTime() - existing.startTime)
+            let lineFragment: String
+            if existing.segmentIndex == -1 {
+                lineFragment = "direct SQL"
+            } else if existing.lineRange.lowerBound == existing.lineRange.upperBound {
+                lineFragment = "line \(existing.lineRange.lowerBound)"
+            } else {
+                lineFragment = "lines \(existing.lineRange.lowerBound)–\(existing.lineRange.upperBound)"
+            }
             Toast.show(
                 in: self.view,
-                message: "Already running — lines \(existing.lineRange.lowerBound)–\(existing.lineRange.upperBound) (\(elapsed))",
+                message: "Already running — \(lineFragment) (\(elapsed))",
                 style: .info,
                 duration: 2.0
             )
@@ -1268,11 +1276,15 @@ class ContentViewController: NSViewController {
         return result
     }
 
-    /// Format an elapsed-time interval as `M:SS` (e.g. "0:08", "1:23", "12:34").
+    /// Format an elapsed-time interval as `M:SS` or `H:MM:SS` for runs ≥ 1 hour.
     static func formatElapsed(_ seconds: CFTimeInterval) -> String {
         let total = max(0, Int(seconds))
-        let mins = total / 60
+        let hours = total / 3600
+        let mins = (total % 3600) / 60
         let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
         return String(format: "%d:%02d", mins, secs)
     }
 
