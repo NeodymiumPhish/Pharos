@@ -302,4 +302,33 @@ class ResultsTableView: NSTableView {
         }
         super.keyDown(with: event)
     }
+
+    // Below the last data row, draw a plain background instead of NSTableView's
+    // default alternating stripes — keeps the grid looking "finished" at the last
+    // row rather than filling the viewport with empty faux-rows.
+    override func drawBackground(inClipRect clipRect: NSRect) {
+        super.drawBackground(inClipRect: clipRect)
+
+        let contentMaxY = numberOfRows > 0 ? rect(ofRow: numberOfRows - 1).maxY : 0
+        guard clipRect.maxY > contentMaxY else { return }
+
+        let emptyTop = max(clipRect.minY, contentMaxY)
+        let emptyRect = NSRect(
+            x: clipRect.minX, y: emptyTop,
+            width: clipRect.width, height: clipRect.maxY - emptyTop
+        )
+        backgroundColor.setFill()
+        emptyRect.fill()
+    }
+
+    // Clip grid-line drawing to the data-row region so column separators don't
+    // extend into the empty area below the last row.
+    override func drawGrid(inClipRect clipRect: NSRect) {
+        let contentMaxY = numberOfRows > 0 ? rect(ofRow: numberOfRows - 1).maxY : 0
+        guard contentMaxY > 0 else { return }
+        let dataRegion = NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: contentMaxY)
+        let clipped = clipRect.intersection(dataRegion)
+        guard !clipped.isEmpty else { return }
+        super.drawGrid(inClipRect: clipped)
+    }
 }
