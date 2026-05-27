@@ -35,6 +35,7 @@ class EditorPaneVC: NSViewController {
     private let queryIndicator = QueryProgressIndicator()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private var runningQueriesPopover: NSPopover?
+    private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
 
     // Connection / Schema selectors (in editor toolbar, right side)
     private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -534,7 +535,11 @@ class EditorPaneVC: NSViewController {
         popover.show(relativeTo: runStopButton.bounds, of: runStopButton, preferredEdge: .minY)
         runningQueriesPopover = popover
 
-        NotificationCenter.default.addObserver(
+        if let existing = runningQueriesPopoverCloseObserver {
+            NotificationCenter.default.removeObserver(existing)
+            runningQueriesPopoverCloseObserver = nil
+        }
+        runningQueriesPopoverCloseObserver = NotificationCenter.default.addObserver(
             forName: NSPopover.didCloseNotification,
             object: popover,
             queue: .main
@@ -922,6 +927,9 @@ class EditorPaneVC: NSViewController {
     }
 
     deinit {
+        if let observer = runningQueriesPopoverCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 }

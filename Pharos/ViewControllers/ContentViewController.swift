@@ -954,9 +954,12 @@ class ContentViewController: NSViewController {
         runAllTabId = tab.id
 
         runAllSubscription?.cancel()
-        runAllSubscription = stateManager.$tabs
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.refillRunAllSlots() }
+        runAllSubscription = Publishers.Merge(
+            stateManager.$tabs.map { _ in () },
+            stateManager.$activeTabId.map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in self?.refillRunAllSlots() }
 
         refillRunAllSlots()
     }
@@ -971,6 +974,20 @@ class ContentViewController: NSViewController {
             runAllSubscription?.cancel()
             runAllSubscription = nil
             runAllTabId = nil
+            return
+        }
+
+        // Pause: only launch new segments while the Run-All tab is the active tab.
+        // The subscription stays alive; when the user switches back, the next emission
+        // will resume slot-filling.
+        guard stateManager.activeTabId == tabId else {
+            // If the queue is empty AND the original tab has drained, tear down even
+            // while paused — there's nothing left to do.
+            if runAllPending.isEmpty && tab.runningQueries.isEmpty {
+                runAllSubscription?.cancel()
+                runAllSubscription = nil
+                runAllTabId = nil
+            }
             return
         }
 

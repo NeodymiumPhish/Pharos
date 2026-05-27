@@ -17,6 +17,7 @@ final class QueryProgressIndicator: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        ringLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
 
         ringLayer.fillColor = NSColor.clear.cgColor
         ringLayer.strokeColor = NSColor.systemRed.cgColor
@@ -79,6 +80,13 @@ final class QueryProgressIndicator: NSView {
         anim.repeatCount = .infinity
         anim.isRemovedOnCompletion = false
         ringLayer.add(anim, forKey: "spin")
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor {
+            ringLayer.contentsScale = scale
+        }
     }
 
     /// Pass clicks through to the runStopButton beneath.
