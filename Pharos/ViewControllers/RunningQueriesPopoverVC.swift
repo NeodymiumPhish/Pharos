@@ -119,8 +119,13 @@ final class RunningQueriesPopoverVC: NSViewController {
         // Remove rows for queries no longer running.
         for id in orderedIds where !presentIds.contains(id) {
             if let row = rowsById.removeValue(forKey: id) {
-                stackView.removeArrangedSubview(row)
-                row.removeFromSuperview()
+                NSAnimationContext.runAnimationGroup({ ctx in
+                    ctx.duration = 0.2
+                    row.animator().alphaValue = 0
+                }, completionHandler: {
+                    self.stackView.removeArrangedSubview(row)
+                    row.removeFromSuperview()
+                })
             }
         }
         orderedIds.removeAll { !presentIds.contains($0) }
@@ -129,8 +134,8 @@ final class RunningQueriesPopoverVC: NSViewController {
         for q in queries where rowsById[q.id] == nil {
             let row = RunningQueryRow(query: q,
                                       elapsed: ContentViewController.formatElapsed(now - q.startTime)) { [weak self] id in
-                NSLog("Pharos.popover: onCancel closure fired for id=\(id); self=\(self == nil ? "nil" : "ok"); delegate=\(self?.delegate == nil ? "nil" : "ok")")
                 guard let self else { return }
+                self.rowsById[id]?.markCancelling()
                 self.delegate?.runningQueriesPopover(self, didRequestCancelQueryId: id)
             }
             rowsById[q.id] = row
@@ -151,6 +156,9 @@ private final class RunningQueryRow: NSView {
     private let onCancel: (String) -> Void
     private let elapsedLabel = NSTextField(labelWithString: "")
     private let linesLabel: NSTextField
+    private let cancelButton = NSButton()
+    private let iconConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+    private var isCancelling = false
 
     init(query: RunningQuery, elapsed: String, onCancel: @escaping (String) -> Void) {
         self.queryId = query.id
@@ -173,13 +181,11 @@ private final class RunningQueryRow: NSView {
         elapsedLabel.stringValue = elapsed
         elapsedLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let cancelButton = NSButton()
         cancelButton.bezelStyle = .recessed
         cancelButton.isBordered = false
         cancelButton.title = ""
-        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         cancelButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Cancel")?
-            .withSymbolConfiguration(config)
+            .withSymbolConfiguration(iconConfig)
         cancelButton.contentTintColor = .systemRed
         cancelButton.refusesFirstResponder = true
         cancelButton.imageScaling = .scaleNone
@@ -212,8 +218,18 @@ private final class RunningQueryRow: NSView {
         elapsedLabel.stringValue = text
     }
 
+    func markCancelling() {
+        guard !isCancelling else { return }
+        isCancelling = true
+        cancelButton.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Cancelled")?
+            .withSymbolConfiguration(iconConfig)
+        cancelButton.contentTintColor = .tertiaryLabelColor
+        cancelButton.isEnabled = false
+        linesLabel.textColor = .tertiaryLabelColor
+        elapsedLabel.textColor = .tertiaryLabelColor
+    }
+
     @objc private func cancelTapped() {
-        NSLog("Pharos.popover: cancelTapped fired for queryId=\(queryId)")
         onCancel(queryId)
     }
 }

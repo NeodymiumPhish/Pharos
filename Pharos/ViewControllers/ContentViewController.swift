@@ -1528,14 +1528,9 @@ class ContentViewController: NSViewController {
 
     /// Cancel a specific in-flight query in the active tab by `id`.
     func cancelQuery(id: String) {
-        NSLog("Pharos.popover: cancelQuery(id:) called for id=\(id)")
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
-              tab.runningQueries.contains(where: { $0.id == id }) else {
-            NSLog("Pharos.popover: cancelQuery(id:) guard failed — tab=\(stateManager.activeTab == nil ? "nil" : "ok"), connId=\(stateManager.activeTab?.connectionId ?? "nil"), idMatch=\(stateManager.activeTab?.runningQueries.contains(where: { $0.id == id }) ?? false)")
-            return
-        }
-        NSLog("Pharos.popover: cancelQuery(id:) dispatching FFI cancel for connId=\(connectionId), queryId=\(id)")
+              tab.runningQueries.contains(where: { $0.id == id }) else { return }
         cancelledQueryIds.insert(id)
         Task {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: id)
@@ -1595,7 +1590,6 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String) {
-        NSLog("Pharos.popover: ContentViewController.editorPane(didRequestCancelQueryId:) fired for id=\(queryId)")
         cancelQuery(id: queryId)
     }
 
