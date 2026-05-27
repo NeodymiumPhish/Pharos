@@ -1442,11 +1442,51 @@ class ContentViewController: NSViewController {
     private func loadMoreRows() {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
-              stateManager.status(for: connectionId) == .connected,
-              let existingResult = tab.result,
-              existingResult.hasMore else { return }
+              stateManager.status(for: connectionId) == .connected else { return }
 
-        let sql = tab.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Don't paginate a pinned cross-tab snapshot.
+        guard stateManager.pinnedResult == nil else { return }
+
+        // Resolve the currently displayed result, its SQL, where to write the
+        // merged result back, and whether it's still on-screen at completion time.
+        // Mirrors the display priority in updateContent: active ResultTab → inline tab.result.
+        let existingResult: QueryResult
+        let querySQL: String
+        let applyMerged: (QueryResult) -> Void
+        let isStillDisplaying: () -> Bool
+
+        if let activeRTId = activeResultTabId,
+           let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }),
+           let rtResult = resultTabs[rtIdx].queryResult {
+            existingResult = rtResult
+            querySQL = resultTabs[rtIdx].sql
+            applyMerged = { [weak self] merged in
+                guard let self,
+                      let idx = self.resultTabs.firstIndex(where: { $0.id == activeRTId }) else { return }
+                self.resultTabs[idx].queryResult = merged
+            }
+            isStillDisplaying = { [weak self] in
+                self?.stateManager.pinnedResult == nil && self?.activeResultTabId == activeRTId
+            }
+        } else if let inlineResult = tab.result {
+            existingResult = inlineResult
+            querySQL = tab.sql
+            let editorTabId = tab.id
+            applyMerged = { [weak self] merged in
+                self?.stateManager.updateTab(id: editorTabId) { $0.result = merged }
+            }
+            isStillDisplaying = { [weak self] in
+                self?.stateManager.pinnedResult == nil
+                    && self?.activeResultTabId == nil
+                    && self?.stateManager.activeTabId == editorTabId
+            }
+        } else {
+            return
+        }
+
+        guard existingResult.hasMore else { return }
+
+        let trimmedSQL = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         let offset = Int64(existingResult.rows.count)
         let limit = Int64(stateManager.settings.query.defaultLimit)
         let tabSchema = tab.schemaName
@@ -1457,7 +1497,7 @@ class ContentViewController: NSViewController {
             do {
                 let moreResult = try await PharosCore.fetchMoreRows(
                     connectionId: connectionId,
-                    sql: sql,
+                    sql: trimmedSQL,
                     limit: limit,
                     offset: offset,
                     schema: tabSchema
@@ -1471,8 +1511,13 @@ class ContentViewController: NSViewController {
                         hasMore: moreResult.hasMore,
                         historyEntryId: existingResult.historyEntryId
                     )
-                    self.stateManager.updateTab(id: tab.id) { $0.result = merged }
-                    self.resultsVC.appendRows(from: moreResult)
+                    applyMerged(merged)
+                    // Only mutate the visible grid if the paginated result is still shown.
+                    if isStillDisplaying() {
+                        self.resultsVC.appendRows(from: moreResult)
+                    } else {
+                        self.resultsVC.setLoadingMore(false)
+                    }
                 }
             } catch {
                 await MainActor.run {
