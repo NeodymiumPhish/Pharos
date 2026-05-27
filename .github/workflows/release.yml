@@ -79,7 +79,7 @@ jobs:
             "Pharos-${GITHUB_REF_NAME}.dmg"
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: dmg
           path: "*.dmg"
@@ -91,12 +91,12 @@ jobs:
       contents: write
     steps:
       - name: Download DMG artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: dmg
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: "*.dmg"
           generate_release_notes: true
