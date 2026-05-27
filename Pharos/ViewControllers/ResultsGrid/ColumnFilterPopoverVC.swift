@@ -202,6 +202,9 @@ class ColumnFilterPopoverVC: NSViewController {
         let advancedLabel = NSTextField(labelWithString: "Advanced text filter")
         advancedLabel.font = .systemFont(ofSize: 11)
         advancedLabel.textColor = .secondaryLabelColor
+        advancedLabel.addGestureRecognizer(
+            NSClickGestureRecognizer(target: self, action: #selector(advancedLabelClicked))
+        )
         let advancedHeader = NSStackView(views: [advancedDisclosure, advancedLabel])
         advancedHeader.orientation = .horizontal
         advancedHeader.spacing = 4
@@ -243,6 +246,13 @@ class ColumnFilterPopoverVC: NSViewController {
         advancedContainer.isHidden = (advancedDisclosure.state != .on)
         updateApplyEnabled()
         recalculateSize()
+    }
+
+    @objc private func advancedLabelClicked() {
+        // Clicking the label flips the disclosure (which doesn't auto-toggle for
+        // a gesture), then runs the same show/hide logic.
+        advancedDisclosure.state = (advancedDisclosure.state == .on) ? .off : .on
+        toggleAdvanced()
     }
 
     @objc private func operatorChanged() {
@@ -288,10 +298,9 @@ class ColumnFilterPopoverVC: NSViewController {
         dismiss(nil)
     }
 
-    /// Builds a `ColumnFilter` from the advanced operator UI, or `nil` if that
-    /// UI is not validly populated (so Apply falls through to checklist mode).
-    /// In this task the advanced UI is always visible; a later task gates it behind
-    /// a disclosure so a collapsed/empty advanced section returns nil.
+    /// Builds a `ColumnFilter` from the advanced operator UI, or `nil` if the
+    /// advanced section is collapsed (`advancedIsActive` false) or not validly
+    /// populated — so Apply falls through to checklist mode.
     private func buildAdvancedFilter() -> ColumnFilter? {
         guard advancedIsActive, let op = selectedOperator() else { return nil }
 
