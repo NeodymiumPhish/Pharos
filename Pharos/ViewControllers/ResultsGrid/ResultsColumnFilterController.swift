@@ -48,12 +48,19 @@ class ResultsColumnFilterController {
         let rows = delegate.filterableRows
         let categories = delegate.filterableColumnCategories
 
+        // Precompute value sets for .isAnyOf filters once (avoids re-hashing per row).
+        var anyOfSets: [String: Set<String>] = [:]
+        for (colId, filter) in activeFilters where filter.op == .isAnyOf {
+            anyOfSets[colId] = Set(filter.values ?? [])
+        }
+
         return inputDisplayRows.filter { rowIdx in
             for (colId, filter) in activeFilters {
                 guard let idx = colIndex(from: colId) else { continue }
                 let category = idx < categories.count ? categories[idx] : .string
                 let value: AnyCodable? = idx < rows[rowIdx].count ? rows[rowIdx][idx] : nil
-                if !evaluate(filter: filter, value: value, category: category) {
+                if !evaluate(filter: filter, value: value, category: category,
+                             preparedAnyOf: anyOfSets[colId]) {
                     return false
                 }
             }
@@ -119,7 +126,8 @@ class ResultsColumnFilterController {
 
     // MARK: - Evaluation
 
-    private func evaluate(filter: ColumnFilter, value: AnyCodable?, category: PGTypeCategory) -> Bool {
+    private func evaluate(filter: ColumnFilter, value: AnyCodable?, category: PGTypeCategory,
+                          preparedAnyOf: Set<String>? = nil) -> Bool {
         switch filter.op {
         case .isNull:
             return value?.isNull ?? true
@@ -130,7 +138,7 @@ class ResultsColumnFilterController {
         case .isFalse:
             return boolValue(value) == false
         case .isAnyOf:
-            let set = Set(filter.values ?? [])
+            let set = preparedAnyOf ?? Set(filter.values ?? [])
             let isBlank = (value?.isNull ?? true) || (value?.displayString.isEmpty ?? true)
             if isBlank { return set.contains(ColumnFilter.blanksSentinel) }
             return set.contains(value!.displayString)
