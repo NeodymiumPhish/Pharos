@@ -168,13 +168,20 @@ class SidebarViewController: NSViewController {
     // MARK: - Segment Switching
 
     @objc private func segmentChanged(_ sender: NSSegmentedControl) {
+        let __t0 = CFAbsoluteTimeGetCurrent()
         let index = sender.selectedSegment
         savedContainer.isHidden = (index != 0)
         historyContainer.isHidden = (index != 1)
         browserContainer.isHidden = (index != 2)
+        let __t1 = CFAbsoluteTimeGetCurrent()
 
         // Re-apply search filter to the newly visible child
         applyFilterToVisibleChild(searchField.stringValue)
+        let __t2 = CFAbsoluteTimeGetCurrent()
+        let total = (__t2 - __t0) * 1000
+        if total > 5 {
+            NSLog("[perf] segmentChanged idx=\(index) toggleHidden=\(String(format: "%.1f", (__t1-__t0)*1000))ms applyFilter=\(String(format: "%.1f", (__t2-__t1)*1000))ms total=\(String(format: "%.1f", total))ms")
+        }
     }
 
     // MARK: - Search

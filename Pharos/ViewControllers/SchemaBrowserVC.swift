@@ -407,6 +407,14 @@ class SchemaBrowserVC: NSViewController {
 
     /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
     private func rebuildDisplayTree() {
+        let __t0 = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - __t0) * 1000
+            if elapsed > 5 {
+                let totalTableCount = unfilteredRootNodes.reduce(0) { $0 + $1.children.count }
+                NSLog("[perf] SchemaBrowser.rebuildDisplayTree schemas=\(unfilteredRootNodes.count) tables=\(totalTableCount) elapsed=\(String(format: "%.1f", elapsed))ms")
+            }
+        }
         // Step 1: Apply schema filter (flatten when single schema selected)
         var nodes: [SchemaTreeNode]
         if let schemaName = activeSchemaFilter {
