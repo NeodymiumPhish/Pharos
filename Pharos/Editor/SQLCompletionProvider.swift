@@ -22,10 +22,40 @@ class SQLCompletionProvider: NSObject {
     private var currentWord: String = ""
     private var wordRange: NSRange = NSRange(location: 0, length: 0)
 
-    /// Schema metadata for context-aware completions.
-    var schemas: [SchemaInfo] = []
-    var tables: [String: [TableInfo]] = [:] // schemaName -> tables
-    var columnsByTable: [String: [ColumnInfo]] = [:] // schema.table -> columns
+    /// Schema metadata for context-aware completions. Setters rebuild the
+    /// flat-list caches below so the per-keystroke `buildCompletions` path
+    /// doesn't re-iterate every schema × every table on each character.
+    var schemas: [SchemaInfo] = [] {
+        didSet { rebuildSchemaCompletionCache() }
+    }
+    var tables: [String: [TableInfo]] = [:] {
+        didSet { rebuildTableCompletionCache() }
+    }
+    var columnsByTable: [String: [ColumnInfo]] = [:]
+
+    /// Pre-built `(label, detail, kind)` completions for every schema and
+    /// every (schema, table) pair across the connection. Built once per
+    /// metadata change; sliced into the per-context result on each keystroke.
+    private var cachedSchemaCompletions: [Completion] = []
+    private var cachedTableCompletions: [Completion] = []
+
+    private func rebuildSchemaCompletionCache() {
+        cachedSchemaCompletions = schemas.map {
+            Completion(label: $0.name, detail: "schema", insertText: $0.name, kind: .schema)
+        }
+    }
+
+    private func rebuildTableCompletionCache() {
+        var out: [Completion] = []
+        out.reserveCapacity(tables.values.reduce(0) { $0 + $1.count })
+        for (_, schemaTables) in tables {
+            for table in schemaTables {
+                let kind: Completion.Kind = table.tableType == .view ? .view : .table
+                out.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
+            }
+        }
+        cachedTableCompletions = out
+    }
 
     override init() {
         super.init()
@@ -187,16 +217,8 @@ class SQLCompletionProvider: NSObject {
             }
 
         case .afterFrom, .afterJoin:
-            // Suggest tables and schemas
-            for schema in schemas {
-                result.append(Completion(label: schema.name, detail: "schema", insertText: schema.name, kind: .schema))
-            }
-            for (_, schemaTables) in tables {
-                for table in schemaTables {
-                    let kind: Completion.Kind = table.tableType == .view ? .view : .table
-                    result.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
-                }
-            }
+            result.append(contentsOf: cachedSchemaCompletions)
+            result.append(contentsOf: cachedTableCompletions)
 
         case .afterWhere, .afterSelect:
             // Suggest columns from all known tables + keywords
@@ -205,42 +227,56 @@ class SQLCompletionProvider: NSObject {
                     result.append(Completion(label: col.name, detail: col.dataType, insertText: col.name, kind: .column))
                 }
             }
-            result.append(contentsOf: keywordCompletions)
-            result.append(contentsOf: functionCompletions)
+            result.append(contentsOf: Self.keywordCompletions)
+            result.append(contentsOf: Self.functionCompletions)
 
         case .general:
-            result.append(contentsOf: keywordCompletions)
-            result.append(contentsOf: functionCompletions)
-            // Add schema/table names
-            for schema in schemas {
-                result.append(Completion(label: schema.name, detail: "schema", insertText: schema.name, kind: .schema))
-            }
-            for (_, schemaTables) in tables {
-                for table in schemaTables {
-                    let kind: Completion.Kind = table.tableType == .view ? .view : .table
-                    result.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
-                }
-            }
+            result.append(contentsOf: Self.keywordCompletions)
+            result.append(contentsOf: Self.functionCompletions)
+            result.append(contentsOf: cachedSchemaCompletions)
+            result.append(contentsOf: cachedTableCompletions)
         }
 
         return result
     }
 
+    /// Hard cap on the result count. The popover only renders a handful of
+    /// rows at once; producing thousands of matches just to sort and dedupe
+    /// is wasted work on databases with very large schemas.
+    private static let maxFilteredMatches = 200
+
     private func filterCompletions() {
+        var seen = Set<String>()
+        var out: [Completion] = []
+        out.reserveCapacity(Self.maxFilteredMatches)
+
         if currentWord.isEmpty {
-            filteredCompletions = completions
+            for c in completions where seen.insert(c.label).inserted {
+                out.append(c)
+                if out.count >= Self.maxFilteredMatches { break }
+            }
         } else {
             let lower = currentWord.lowercased()
-            filteredCompletions = completions.filter { $0.label.lowercased().hasPrefix(lower) }
-            // Also include contains-matches, sorted after prefix matches
-            let containsMatches = completions.filter {
-                !$0.label.lowercased().hasPrefix(lower) && $0.label.lowercased().contains(lower)
+            // Pass 1: prefix matches (higher relevance).
+            for c in completions where c.label.lowercased().hasPrefix(lower) {
+                if seen.insert(c.label).inserted {
+                    out.append(c)
+                    if out.count >= Self.maxFilteredMatches { break }
+                }
             }
-            filteredCompletions.append(contentsOf: containsMatches)
+            // Pass 2: contains matches (fill remaining capacity).
+            if out.count < Self.maxFilteredMatches {
+                for c in completions {
+                    let lc = c.label.lowercased()
+                    guard !lc.hasPrefix(lower), lc.contains(lower) else { continue }
+                    if seen.insert(c.label).inserted {
+                        out.append(c)
+                        if out.count >= Self.maxFilteredMatches { break }
+                    }
+                }
+            }
         }
-        // Deduplicate by label
-        var seen = Set<String>()
-        filteredCompletions = filteredCompletions.filter { seen.insert($0.label).inserted }
+        filteredCompletions = out
     }
 
     // MARK: - Text Helpers
@@ -306,12 +342,16 @@ class SQLCompletionProvider: NSObject {
 
     // MARK: - Static Data
 
-    private var keywordCompletions: [Completion] {
-        Self.sqlKeywords.map { Completion(label: $0, detail: "keyword", insertText: $0, kind: .keyword) }
+    /// Static keyword/function completions — the keyword and function lists
+    /// never change, so build the `Completion` array once at class load and
+    /// reuse it. Previously this was a computed property that allocated a
+    /// fresh `.map` of ~150 Completions on every keystroke that showed the
+    /// popover.
+    private static let keywordCompletions: [Completion] = sqlKeywords.map {
+        Completion(label: $0, detail: "keyword", insertText: $0, kind: .keyword)
     }
-
-    private var functionCompletions: [Completion] {
-        Self.sqlFunctions.map { Completion(label: $0, detail: "function", insertText: "\($0)()", kind: .function) }
+    private static let functionCompletions: [Completion] = sqlFunctions.map {
+        Completion(label: $0, detail: "function", insertText: "\($0)()", kind: .function)
     }
 
     private static let sqlKeywords = [
