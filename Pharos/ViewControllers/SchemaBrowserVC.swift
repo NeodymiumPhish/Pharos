@@ -197,9 +197,14 @@ class SchemaBrowserVC: NSViewController {
                     schemaNode.addChild(viewNode)
                 }
 
-                // Only refresh display if this connection is still active
+                // Only refresh display if this connection is still active.
+                // During initial load this method fires once per schema; each
+                // call used to trigger a full reloadData + collapse-all
+                // + re-expand which made the schema browser flicker and
+                // collapse user-expanded items as parallel schemas reported
+                // in. We now refresh just the affected schema's subtree.
                 if self.connectionId == connectionId {
-                    self.refreshAfterLoad()
+                    self.refreshAfterLoad(schemaNode: schemaNode)
                 }
             }
         } catch {
@@ -492,8 +497,23 @@ class SchemaBrowserVC: NSViewController {
         }
     }
 
-    /// After loading children into the unfiltered tree, refresh display.
-    private func refreshAfterLoad() {
+    /// Called after a single schema's tables have been spliced into the
+    /// unfiltered tree. When no filter is active we reload only that schema's
+    /// subtree — outline expansion state for the rest of the browser is
+    /// preserved, and parallel schema loads no longer collapse each other's
+    /// recently-expanded tables. When a filter is active the cascade is more
+    /// complex (the schema might not even be in `rootNodes`), so we fall back
+    /// to the full rebuild path.
+    private func refreshAfterLoad(schemaNode: SchemaTreeNode) {
+        let hasFilter = (filterText?.isEmpty == false) || activeSchemaFilter != nil
+        if !hasFilter, rootNodes.contains(where: { $0 === schemaNode }) {
+            outlineView.reloadItem(schemaNode, reloadChildren: true)
+            // Keep the initial-load auto-expand of the public schema.
+            if schemaNode.schemaName == "public" {
+                outlineView.expandItem(schemaNode)
+            }
+            return
+        }
         rebuildDisplayTree()
     }
 
