@@ -65,6 +65,38 @@ class FilterableHeaderView: NSTableHeaderView {
     private let iconSize: CGFloat = 13
     private let iconPadding: CGFloat = 6
 
+    /// Pre-rendered tinted filter icons. The active/hover variants are the
+    /// only two tints we ever draw and they only need to change when the
+    /// system appearance flips. Rebuilding the tinted NSImage per-draw used
+    /// to dominate redraw cost during cell-drag selection (which re-fires
+    /// needsDisplay on this view) and header hover sweeps.
+    private var cachedActiveIcon: NSImage?
+    private var cachedHoverIcon: NSImage?
+    private var cachedIconAppearanceName: NSAppearance.Name?
+
+    private func filterIcon(active: Bool) -> NSImage? {
+        let currentName = effectiveAppearance.name
+        if cachedIconAppearanceName != currentName {
+            cachedActiveIcon = Self.makeFilterIcon(filled: true, tint: .controlAccentColor, size: iconSize)
+            cachedHoverIcon = Self.makeFilterIcon(filled: false, tint: .tertiaryLabelColor, size: iconSize)
+            cachedIconAppearanceName = currentName
+        }
+        return active ? cachedActiveIcon : cachedHoverIcon
+    }
+
+    private static func makeFilterIcon(filled: Bool, tint: NSColor, size: CGFloat) -> NSImage? {
+        let name = filled ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: "Filter")?
+            .withSymbolConfiguration(.init(pointSize: size, weight: .medium)) else { return nil }
+        return base.tinted(with: tint)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        cachedIconAppearanceName = nil  // force regeneration on next draw
+        needsDisplay = true
+    }
+
     // MARK: - Tracking Areas
 
     override func updateTrackingAreas() {
@@ -87,21 +119,27 @@ class FilterableHeaderView: NSTableHeaderView {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let newIndex = column(at: point)
-        if newIndex != hoveredColumnIndex {
-            hoveredColumnIndex = newIndex
-            needsDisplay = true
-        }
+        guard newIndex != hoveredColumnIndex else { return }
+        // Targeted invalidation: only the two affected header cells (the one
+        // we left and the one we entered) need to redraw, not the whole bar.
+        let oldIndex = hoveredColumnIndex
+        hoveredColumnIndex = newIndex
+        if oldIndex >= 0 { setNeedsDisplay(headerRect(ofColumn: oldIndex)) }
+        if newIndex >= 0 { setNeedsDisplay(headerRect(ofColumn: newIndex)) }
     }
 
     override func mouseEntered(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        hoveredColumnIndex = column(at: point)
-        needsDisplay = true
+        let newIndex = column(at: point)
+        guard newIndex != hoveredColumnIndex else { return }
+        hoveredColumnIndex = newIndex
+        if newIndex >= 0 { setNeedsDisplay(headerRect(ofColumn: newIndex)) }
     }
 
     override func mouseExited(with event: NSEvent) {
+        let oldIndex = hoveredColumnIndex
         hoveredColumnIndex = -1
-        needsDisplay = true
+        if oldIndex >= 0 { setNeedsDisplay(headerRect(ofColumn: oldIndex)) }
     }
 
     // MARK: - Click Handling
@@ -179,23 +217,15 @@ class FilterableHeaderView: NSTableHeaderView {
             guard isActive || isHovered else { continue }
 
             let iconRect = filterIconRect(inHeaderRect: headerRect)
-            let symbolName = isActive
-                ? "line.3.horizontal.decrease.circle.fill"
-                : "line.3.horizontal.decrease.circle"
-            let tintColor: NSColor = isActive ? .controlAccentColor : .tertiaryLabelColor
-
-            if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Filter")?
-                .withSymbolConfiguration(.init(pointSize: iconSize, weight: .medium)) {
-                let tinted = image.tinted(with: tintColor)
-                let imageSize = tinted.size
-                let drawRect = NSRect(
-                    x: iconRect.midX - imageSize.width / 2,
-                    y: iconRect.midY - imageSize.height / 2,
-                    width: imageSize.width,
-                    height: imageSize.height
-                )
-                tinted.draw(in: drawRect)
-            }
+            guard let tinted = filterIcon(active: isActive) else { continue }
+            let imageSize = tinted.size
+            let drawRect = NSRect(
+                x: iconRect.midX - imageSize.width / 2,
+                y: iconRect.midY - imageSize.height / 2,
+                width: imageSize.width,
+                height: imageSize.height
+            )
+            tinted.draw(in: drawRect)
         }
     }
 

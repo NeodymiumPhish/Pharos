@@ -196,9 +196,12 @@ class ContentViewController: NSViewController {
             self?.handlePinToggle(pinned)
         }
 
-        // Wire up selection changes for inspector
+        // Wire up selection changes for inspector. Drag-select fires this for
+        // every cell the cursor crosses; the inspector rebuild only matters
+        // for the settled selection, so debounce ~50ms to coalesce drag ticks
+        // into a single update at rest.
         resultsVC.onSelectionChanged = { [weak self] selectedIndices in
-            self?.updateInspector(selectedIndices: selectedIndices)
+            self?.scheduleInspectorUpdate(selectedIndices: selectedIndices)
         }
 
         // Wire up expand editor / results (handled by action bar buttons directly)
@@ -546,6 +549,19 @@ class ContentViewController: NSViewController {
     }
 
     // MARK: - Inspector
+
+    /// Pending debounced inspector update; cancelled on each new selection
+    /// tick so a fast cell-drag results in a single inspector rebuild at rest.
+    private var pendingInspectorWorkItem: DispatchWorkItem?
+
+    private func scheduleInspectorUpdate(selectedIndices: IndexSet) {
+        pendingInspectorWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.updateInspector(selectedIndices: selectedIndices)
+        }
+        pendingInspectorWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
 
     private func updateInspector(selectedIndices: IndexSet) {
         guard let splitVC = parent as? PharosSplitViewController else { return }
