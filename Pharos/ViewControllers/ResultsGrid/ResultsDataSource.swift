@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 // MARK: - Newline Flattening
 
@@ -71,10 +72,52 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private let tableView: NSTableView
 
     // Data state (pushed by VC)
-    var columns: [ColumnDef] = []
+    var columns: [ColumnDef] = [] {
+        didSet { rebuildColumnIndex() }
+    }
     var rows: [[AnyCodable]] = []
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
+
+    // MARK: - Hot-path Caches
+
+    /// Map of column identifier (raw) → tableColumn index. Rebuilt when
+    /// `columns` changes. Replaces a per-cell O(N) scan via
+    /// `tableView.column(withIdentifier:)` in viewFor.
+    private var columnIdToIndex: [String: Int] = [:]
+
+    /// Cached display strings + fonts so the per-cell render path doesn't
+    /// re-read `AppStateManager.shared.settings` and rebuild fonts on every
+    /// cell realization. Refreshed via a single Combine sink on the settings
+    /// publisher.
+    private var nullDisplayString: String = NullDisplay.uppercase.rawValue
+    private var boolTrueString: String = BoolDisplay.trueFalse.trueString
+    private var boolFalseString: String = BoolDisplay.trueFalse.falseString
+    private var regularFont: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)
+    private var italicFont: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
+    private var rownumFont: NSFont = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+
+    private var settingsCancellable: AnyCancellable?
+
+    private func rebuildColumnIndex() {
+        // Note: this is keyed by column NAME, but viewFor receives the
+        // tableColumn whose identifier is also the column name. The dict's
+        // values are the index into tableView.tableColumns — which always
+        // includes the leading __rownum__ column. We build by reading the
+        // live tableColumns rather than `columns` so the indexing matches
+        // what viewFor needs.
+        var map: [String: Int] = [:]
+        for (i, col) in tableView.tableColumns.enumerated() {
+            map[col.identifier.rawValue] = i
+        }
+        columnIdToIndex = map
+    }
+
+    private func applySettingsSnapshot(_ settings: AppSettings) {
+        nullDisplayString = settings.nullDisplay.rawValue
+        boolTrueString = settings.boolDisplay.trueString
+        boolFalseString = settings.boolDisplay.falseString
+    }
 
     // Find highlight state (pushed by VC after find operations)
     var isFindVisible = false
@@ -92,6 +135,29 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         super.init()
         tableView.dataSource = self
         tableView.delegate = self
+
+        // Prime the display-string caches from current settings and subscribe
+        // to future changes (deduped at the publisher so unrelated settings
+        // mutations don't refire). Single sink, single source of truth.
+        applySettingsSnapshot(AppStateManager.shared.settings)
+        settingsCancellable = AppStateManager.shared.$settings
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] settings in
+                self?.applySettingsSnapshot(settings)
+                self?.tableView.reloadData()
+            }
+
+        // User-driven column reorder doesn't go through pushDataToHelpers, so
+        // refresh the colId → index dict on the notification too.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(columnDidMove(_:)),
+            name: NSTableView.columnDidMoveNotification, object: tableView
+        )
+    }
+
+    @objc private func columnDidMove(_ notification: Notification) {
+        rebuildColumnIndex()
     }
 
     // MARK: - NSTableViewDataSource
@@ -104,8 +170,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let colId = tableColumn?.identifier, row < displayRows.count else { return nil }
+        let colIdRaw = colId.rawValue
 
-        let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colId.rawValue)")
+        let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colIdRaw)")
         let cell: ResultCellView
 
         if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? ResultCellView {
@@ -119,7 +186,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             textField.maximumNumberOfLines = 1
             textField.cell?.wraps = false
             textField.cell?.isScrollable = false
-            textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            textField.font = regularFont
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
             cell.textField = textField
@@ -132,35 +199,45 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
         let dataRowIdx = displayRows[row]
 
-        if colId.rawValue == "__rownum__" {
+        if colIdRaw == "__rownum__" {
             cell.textField?.stringValue = "\(row + 1)"
-            cell.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            cell.textField?.font = rownumFont
             cell.normalTextColor = .tertiaryLabelColor
         } else {
             let rowData = rows[dataRowIdx]
-            if let idx = colIndex(from: colId.rawValue), idx < rowData.count {
+            if let idx = colIndex(from: colIdRaw), idx < rowData.count {
                 let category = idx < columnCategories.count ? columnCategories[idx] : .string
                 let value = rowData[idx]
                 styleCell(cell, value: value, category: category)
             } else {
                 cell.textField?.stringValue = ""
-                cell.textField?.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+                cell.textField?.font = regularFont
                 cell.normalTextColor = .labelColor
             }
         }
 
-        // Find highlighting
-        if isFindVisible && !findMatchSet.isEmpty {
-            let addr = CellAddress(row: row, colId: colId.rawValue)
-            let isCurrentMatch = currentMatchRow == row && currentMatchColId == colId.rawValue
+        // Find + selection state. Compute once, share both branches — the old
+        // path recomputed isFindHighlighted (and the contains-checks behind it)
+        // in two places per cell render.
+        let cellColumnIndex = columnIdToIndex[colIdRaw] ?? -1
+        let isCurrentMatch = isFindVisible && currentMatchRow == row && currentMatchColId == colIdRaw
+        let isOtherMatch: Bool
+        if isFindVisible && !findMatchSet.isEmpty && !isCurrentMatch {
+            isOtherMatch = findMatchSet.contains(CellAddress(row: row, colId: colIdRaw))
+        } else {
+            isOtherMatch = false
+        }
+        let isFindHighlighted = isCurrentMatch || isOtherMatch
+        let isInSelection = cellSelection?.contains(CellPosition(row: row, column: cellColumnIndex)) ?? false
 
-            if isCurrentMatch {
-                cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
-            } else if findMatchSet.contains(addr) {
-                cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
-            } else {
-                cell.layer?.backgroundColor = nil
-            }
+        // Background precedence: current find match > other find match >
+        // selection > clear. Assigned exactly once.
+        if isCurrentMatch {
+            cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
+        } else if isOtherMatch {
+            cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
+        } else if isInSelection {
+            cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
         } else {
             cell.layer?.backgroundColor = nil
         }
@@ -169,19 +246,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         cell.layer?.borderWidth = 0
         cell.layer?.borderColor = nil
 
-        // Cell selection: find-match cells keep their yellow highlight and
-        // normal text; other selected cells get the blue fill + white text via
-        // the cell's own isSelected setter. Always assign isSelected so a
-        // recycled cell can't carry stale selected-state into a non-selected
-        // slot.
-        let colIndex = tableColumn.map { tableView.column(withIdentifier: $0.identifier) } ?? -1
-        let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
-            && (findMatchSet.contains(CellAddress(row: row, colId: colId.rawValue))
-                || (currentMatchRow == row && currentMatchColId == colId.rawValue))
-        let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIndex)) ?? false
-        if isInSelection && !isFindHighlighted {
-            cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
-        }
+        // Always assign so a recycled cell can't carry stale selected-state
+        // into a non-selected slot. Find-match cells suppress the white text
+        // override even when within the selection rectangle.
         cell.isSelected = isInSelection && !isFindHighlighted
 
         return cell
@@ -233,14 +300,21 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard let textField = cell.textField else { return }
 
         if value.isNull {
-            textField.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
-            textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
+            textField.stringValue = nullDisplayString
+            textField.font = italicFont
             cell.normalTextColor = .tertiaryLabelColor
             return
         }
 
-        textField.stringValue = value.displayString.flattenedForCell
-        textField.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textField.font = regularFont
+
+        // Newline flattening allocates and scans the string. Only strings,
+        // JSON, and arrays can plausibly contain newlines; numeric/boolean/
+        // temporal columns skip the scan entirely.
+        let raw = value.displayString
+        textField.stringValue = (category == .string || category == .json || category == .array)
+            ? raw.flattenedForCell
+            : raw
 
         let color: NSColor
         switch category {
@@ -248,12 +322,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             color = .systemBlue
         case .boolean:
             let str = textField.stringValue.lowercased()
-            let boolDisplay = AppStateManager.shared.settings.boolDisplay
             if str == "t" || str == "true" {
-                textField.stringValue = boolDisplay.trueString
+                textField.stringValue = boolTrueString
                 color = .systemGreen
             } else if str == "f" || str == "false" {
-                textField.stringValue = boolDisplay.falseString
+                textField.stringValue = boolFalseString
                 color = .systemRed
             } else {
                 color = .labelColor
