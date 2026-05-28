@@ -179,8 +179,19 @@ class SidebarViewController: NSViewController {
 
     // MARK: - Search
 
+    /// Pending debounced filter dispatch. Coalesces keystrokes so the filter
+    /// (which can rebuild large schema trees and hit the SQLite-backed query
+    /// history) runs at most once per ~150ms while the user is typing.
+    private var pendingFilterWorkItem: DispatchWorkItem?
+
     @objc private func searchChanged(_ sender: NSSearchField) {
-        applyFilterToVisibleChild(sender.stringValue)
+        let text = sender.stringValue
+        pendingFilterWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.applyFilterToVisibleChild(text)
+        }
+        pendingFilterWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     private func applyFilterToVisibleChild(_ text: String) {

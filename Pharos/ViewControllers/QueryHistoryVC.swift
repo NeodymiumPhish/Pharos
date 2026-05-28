@@ -150,14 +150,33 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     // MARK: - Query
 
+    /// Generation counter to discard out-of-order requery results. Each
+    /// requery captures the current generation; only the result whose
+    /// generation matches the latest at completion time is applied. Prevents
+    /// stale rows winning a race when the user types quickly.
+    private var requeryGeneration: UInt64 = 0
+
     private func requery() {
-        do {
-            let search = (filterText?.isEmpty ?? true) ? nil : filterText
-            let filter = QueryHistoryFilter(connectionId: connectionFilter, search: search, limit: 200)
-            entries = try PharosCore.loadQueryHistory(filter: filter)
-            tableView.reloadData()
-        } catch {
-            NSLog("Failed to load query history: \(error)")
+        requeryGeneration &+= 1
+        let generation = requeryGeneration
+        let search = (filterText?.isEmpty ?? true) ? nil : filterText
+        let filter = QueryHistoryFilter(connectionId: connectionFilter, search: search, limit: 200)
+        // Hop the FFI roundtrip (SQLite IO + JSON decode of up to 200 rows)
+        // off the main thread so typing in the sidebar filter — which can fire
+        // this several times a second — never stalls the UI.
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let loaded: [QueryHistoryEntry]
+            do {
+                loaded = try PharosCore.loadQueryHistory(filter: filter)
+            } catch {
+                NSLog("Failed to load query history: \(error)")
+                return
+            }
+            await MainActor.run {
+                guard let self, generation == self.requeryGeneration else { return }
+                self.entries = loaded
+                self.tableView.reloadData()
+            }
         }
     }
 
