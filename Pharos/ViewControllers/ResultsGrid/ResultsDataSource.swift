@@ -158,7 +158,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     || (currentMatchRow == row && currentMatchColId == colId.rawValue))
             if !isFindHighlighted {
                 cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
-                cell.normalTextColor = .white
+                // Override only the displayed textColor — leave normalTextColor at
+                // the type-appropriate color so the deselect fast path
+                // (updateVisibleCellSelectionAppearance) restores it correctly.
                 cell.textField?.textColor = .white
             }
         }
