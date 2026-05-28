@@ -62,7 +62,11 @@ class SQLTextView: NSTextView {
         (layoutManager as! FoldingLayoutManager).foldState
     }
 
-    private var isHighlighting = false
+    /// Monotonically increasing generation tag for highlight passes. The
+    /// off-main computation captures the current value; on completion the
+    /// apply step bails if a newer pass has been scheduled (i.e. the user
+    /// kept typing while a large document was being lexed off-main).
+    private var highlightGeneration: UInt64 = 0
 
     /// Pending debounced highlightSyntax task, replaced on each keystroke.
     /// Full-document syntax passes are expensive on large docs (multi-KB
@@ -602,79 +606,99 @@ class SQLTextView: NSTextView {
         }
     }
 
+    /// One attribute the highlighter wants applied. `color == nil` means
+    /// remove the foreground attribute over `range` (used to clear stale
+    /// highlighting on normal code or quoted identifiers).
+    private struct HighlightAttribute {
+        let range: NSRange
+        let color: NSColor?
+    }
+
     func highlightSyntax() {
-        guard !isHighlighting, let layoutManager else { return }
-        isHighlighting = true
-        defer { isHighlighting = false }
+        guard let layoutManager else { return }
 
         let text = string
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
         guard nsText.length > 0 else { return }
 
-        // Build state map for the full document (needed for correctness — a string
-        // on line 1 affects all subsequent highlighting). Single linear scan.
-        let chars = Array(text.utf16)
-        let length = chars.count
-        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
+        // Bump generation; any in-flight off-main pass will discard its result
+        // when it returns. Snapshot the theme so we don't read it off-main.
+        highlightGeneration &+= 1
+        let generation = highlightGeneration
+        let themeSnapshot = theme
 
-        // Instead of remove-all + re-apply (which causes layout thrashing on large
-        // documents), overwrite every character range with its correct color. Normal
-        // text gets the foreground attribute removed; comments/strings/keywords get
-        // their color set. This avoids a full-document invalidation pass.
-        //
-        // Phase 1: Walk the state map and set comment/string colors directly.
-        // For normal ranges, remove the foreground attribute (clears old highlighting).
-        var rangeStart = 0
-        var currentState: SQLLexState = stateMap[0]
+        Task.detached(priority: .userInitiated) { [weak self] in
+            // ---- Off-main computation ----
+            let chars = Array(text.utf16)
+            let length = chars.count
+            let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
 
-        for i in 1...length {
-            let nextState: SQLLexState = (i < length) ? stateMap[i] : .normal
-            if nextState != currentState || i == length {
-                let range = NSRange(location: rangeStart, length: i - rangeStart)
-                if currentState.isNormal || currentState == .doubleQuote {
-                    // Normal code or quoted identifiers — remove any stale highlighting
-                    layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
-                } else {
-                    let color: NSColor
-                    switch currentState {
-                    case .lineComment, .blockComment: color = theme.comment
-                    case .singleQuote, .dollarQuote: color = theme.string
-                    default: color = theme.comment
+            var attrs: [HighlightAttribute] = []
+            attrs.reserveCapacity(64)
+
+            // Phase 1: state-machine spans (comments, strings, normal/quoted clears).
+            var rangeStart = 0
+            var currentState: SQLLexState = stateMap[0]
+            for i in 1...length {
+                let nextState: SQLLexState = (i < length) ? stateMap[i] : .normal
+                if nextState != currentState || i == length {
+                    let range = NSRange(location: rangeStart, length: i - rangeStart)
+                    if currentState.isNormal || currentState == .doubleQuote {
+                        attrs.append(.init(range: range, color: nil))
+                    } else {
+                        let color: NSColor
+                        switch currentState {
+                        case .lineComment, .blockComment: color = themeSnapshot.comment
+                        case .singleQuote, .dollarQuote: color = themeSnapshot.string
+                        default: color = themeSnapshot.comment
+                        }
+                        attrs.append(.init(range: range, color: color))
                     }
-                    layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+                    rangeStart = i
+                    currentState = nextState
                 }
-                rangeStart = i
-                currentState = nextState
+            }
+
+            // Phase 2: regex passes (keyword/function/type/number) — only on
+            // ranges currently in `.normal` state.
+            let regexPasses: [(NSRegularExpression, NSColor)] = [
+                (Self.keywordRegex, themeSnapshot.keyword),
+                (Self.functionRegex, themeSnapshot.function),
+                (Self.typeRegex, themeSnapshot.type),
+                (Self.numberRegex, themeSnapshot.number),
+            ]
+            for (regex, color) in regexPasses {
+                regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+                    guard let range = match?.range else { return }
+                    if range.location < stateMap.count && stateMap[range.location].isNormal {
+                        attrs.append(.init(range: range, color: color))
+                    }
+                }
+            }
+
+            // ---- On-main application ----
+            await MainActor.run {
+                guard let self, generation == self.highlightGeneration else { return }
+                self.applyHighlightAttributes(attrs, layoutManager: layoutManager)
             }
         }
-
-        // Phase 2: Apply keyword/function/type/number highlighting on normal ranges.
-        applyRegexWithStateMap(Self.keywordRegex, color: theme.keyword, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
-        applyRegexWithStateMap(Self.functionRegex, color: theme.function, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
-        applyRegexWithStateMap(Self.typeRegex, color: theme.type, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
-        applyRegexWithStateMap(Self.numberRegex, color: theme.number, in: text, fullRange: fullRange, layoutManager: layoutManager, stateMap: stateMap)
     }
 
-    // MARK: - Highlighting Helpers
-
-    /// Apply a pre-compiled regex, skipping ranges that are inside comments or strings
-    /// according to the shared SQLLexer state map.
-    private func applyRegexWithStateMap(
-        _ regex: NSRegularExpression,
-        color: NSColor,
-        in text: String,
-        fullRange: NSRange,
-        layoutManager: NSLayoutManager,
-        stateMap: [SQLLexState]
-    ) {
-        regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-            guard let range = match?.range else { return }
-            // Only apply if the first character of the match is in normal state
-            if range.location < stateMap.count && stateMap[range.location].isNormal {
-                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
+    /// Apply a batch of pre-computed highlight attributes. Wrapped in a
+    /// CATransaction with implicit animations disabled so the layout manager
+    /// doesn't animate temporary-attribute changes during the bulk update.
+    private func applyHighlightAttributes(_ attrs: [HighlightAttribute], layoutManager: NSLayoutManager) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for attr in attrs {
+            if let color = attr.color {
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: attr.range)
+            } else {
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: attr.range)
             }
         }
+        CATransaction.commit()
     }
 
     // MARK: - Bracket Matching
