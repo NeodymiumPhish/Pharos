@@ -138,23 +138,28 @@ class CellSelectionController {
     func handleMouseDragged(with event: NSEvent) {
         guard state.isSelecting else { return }
 
+        // mouseDragged fires at the screen refresh rate, but the selection only
+        // changes when the cursor crosses into a new cell or row. Compare
+        // before/after and short-circuit no-op ticks to avoid running the
+        // visible-cell appearance pass, the inspector update, and a full header
+        // redraw 60+ times a second for no visual change.
         if state.isRowMode, let anchor = rowAnchor {
-            // Row drag: extend selection from anchor to current row
             guard let tv = tableView else { return }
             let point = tv.convert(event.locationInWindow, from: nil)
             let dragRow = tv.row(at: point)
             guard dragRow >= 0 else { return }
             let lo = min(anchor, dragRow)
             let hi = max(anchor, dragRow)
-            state.selectedRows = IndexSet(integersIn: lo...hi)
+            let newRows = IndexSet(integersIn: lo...hi)
+            guard newRows != state.selectedRows else { return }
+            state.selectedRows = newRows
             onChange?(state)
             return
         }
 
-        // Cell drag
-        if let pos = cellPosition(from: event) {
-            state.active = pos
-        }
+        // Cell drag — only fire when the active cell position actually changed.
+        guard let pos = cellPosition(from: event), pos != state.active else { return }
+        state.active = pos
         onChange?(state)
     }
 
