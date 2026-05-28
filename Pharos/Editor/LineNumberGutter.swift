@@ -84,6 +84,18 @@ class LineNumberGutter: NSView {
     /// Element i holds the character index where line (i+1) begins; lineStarts[0] is always 0.
     private var lineStarts: [Int] = [0]
 
+    /// Cached glyph width for a single digit using `lineAttributes`. The font
+    /// is fixed for the gutter's lifetime, so this is computed once at init
+    /// instead of constructing an NSAttributedString and calling .size() per
+    /// keystroke inside recalculateWidth.
+    private var cachedDigitWidth: CGFloat = 8
+
+    /// Last digit count for which we computed and reported `desiredWidth`.
+    /// `recalculateWidth` short-circuits when the count hasn't changed,
+    /// avoiding the `onWidthChange` notification (and the host VC's layout
+    /// pass) on every keystroke that doesn't cross a power-of-ten boundary.
+    private var lastDigitCount: Int = 0
+
     init(textView: NSTextView, scrollView: NSScrollView) {
         self.textView = textView
         self.scrollView = scrollView
@@ -93,6 +105,7 @@ class LineNumberGutter: NSView {
             .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
             .foregroundColor: NSColor.tertiaryLabelColor,
         ]
+        cachedDigitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(textDidChange(_:)),
@@ -268,11 +281,15 @@ class LineNumberGutter: NSView {
     private func recalculateWidth() {
         // `rebuildLineStarts` runs before this on every text change, so the
         // cache size equals the current line count — no need for a second
-        // O(N) walk just to recount newlines.
+        // O(N) walk just to recount newlines. Short-circuit when the digit
+        // count hasn't changed: that's the only thing that moves the gutter
+        // width, and crossing 99→100→1000 is a rare event compared to typing.
         let lineCount = max(lineStarts.count, 1)
         let digits = max(String(lineCount).count, 3)
-        let digitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
-        let newWidth = CGFloat(digits) * digitWidth + 20 + segmentBarWidth + segmentBarGap
+        guard digits != lastDigitCount else { return }
+        lastDigitCount = digits
+
+        let newWidth = CGFloat(digits) * cachedDigitWidth + 20 + segmentBarWidth + segmentBarGap
         if abs(desiredWidth - newWidth) > 1 {
             desiredWidth = newWidth
             onWidthChange?()
