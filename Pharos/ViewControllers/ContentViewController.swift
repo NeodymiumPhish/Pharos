@@ -470,6 +470,12 @@ class ContentViewController: NSViewController {
     private var lastActiveTabId: String?
 
     private func activeTabChanged(_ tabId: String?) {
+        // Temporary instrumentation: time each stage of the tab switch so we
+        // can identify what's actually slow. Remove once root cause found.
+        let __t0 = CFAbsoluteTimeGetCurrent()
+        var __outgoingRTs = 0
+        var __incomingRTs = 0
+
         // Save grid state and result tabs of the tab we're leaving
         if let previousTabId = lastActiveTabId {
             let gridState = resultsVC.captureGridState()
@@ -482,6 +488,7 @@ class ContentViewController: NSViewController {
                 resultTabs[rtIdx].gridState = gridState
             }
             // Persist result tabs for the previous editor tab
+            __outgoingRTs = resultTabs.count
             resultTabsByEditorTab[previousTabId] = resultTabs
             if let activeRTId = activeResultTabId {
                 activeResultTabIdByEditorTab[previousTabId] = activeRTId
@@ -489,6 +496,7 @@ class ContentViewController: NSViewController {
                 activeResultTabIdByEditorTab.removeValue(forKey: previousTabId)
             }
         }
+        let __t1 = CFAbsoluteTimeGetCurrent()
         lastActiveTabId = tabId
 
         guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
@@ -497,6 +505,7 @@ class ContentViewController: NSViewController {
             activeResultTabId = nil
             updateResultTabBarVisibility()
             updateSplitViewVisibility()
+            NSLog("[perf] activeTabChanged nil-dest outgoingRTs=\(__outgoingRTs) save=\(String(format: "%.1f", (__t1-__t0)*1000))ms total=\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent()-__t0)*1000))ms")
             return
         }
 
@@ -504,8 +513,10 @@ class ContentViewController: NSViewController {
 
         // Restore result tabs for the new editor tab
         resultTabs = resultTabsByEditorTab[tabId] ?? []
+        __incomingRTs = resultTabs.count
         activeResultTabId = activeResultTabIdByEditorTab[tabId]
         updateResultTabBarVisibility()
+        let __t2 = CFAbsoluteTimeGetCurrent()
 
         // Pin override: while pinned, the grid stays on the pinned result no
         // matter which editor tab is active. Result tab bar still reflects the
@@ -535,9 +546,12 @@ class ContentViewController: NSViewController {
         } else {
             resultsVC.clear()
         }
+        let __t3 = CFAbsoluteTimeGetCurrent()
 
         // Re-resolve and restore segment colors in the gutter.
         reResolveAllResultTabs(immediate: true)
+        let __t4 = CFAbsoluteTimeGetCurrent()
+        NSLog("[perf] activeTabChanged outRTs=\(__outgoingRTs) inRTs=\(__incomingRTs) save=\(String(format: "%.1f", (__t1-__t0)*1000))ms restore=\(String(format: "%.1f", (__t2-__t1)*1000))ms display=\(String(format: "%.1f", (__t3-__t2)*1000))ms resegment=\(String(format: "%.1f", (__t4-__t3)*1000))ms total=\(String(format: "%.1f", (__t4-__t0)*1000))ms")
 
         // Show/hide history context based on the active result tab — the
         // banner belongs to a specific result, not the editor tab. New

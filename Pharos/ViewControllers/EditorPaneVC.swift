@@ -280,23 +280,29 @@ class EditorPaneVC: NSViewController {
     // MARK: - Tab Switching
 
     private func tabChanged(from oldTabId: String?, to newTabId: String?) {
+        let __t0 = CFAbsoluteTimeGetCurrent()
         // Save cursor position of old tab
         if let oldTabId, editorVC.tabId == oldTabId {
             let cursorPos = editorVC.getCursorPosition()
             stateManager.updateTab(id: oldTabId) { $0.cursorPosition = cursorPos }
         }
+        let __t1 = CFAbsoluteTimeGetCurrent()
 
         guard let newTabId,
               let tab = stateManager.tabs.first(where: { $0.id == newTabId }) else {
             editorVC.tabId = nil
             editorVC.setSQL("")
+            NSLog("[perf] tabChanged(\(paneId)) → nil saveCursor=\(String(format: "%.1f", (__t1-__t0)*1000))ms total=\(String(format: "%.1f", (CFAbsoluteTimeGetCurrent()-__t0)*1000))ms")
             return
         }
 
         editorVC.tabId = newTabId
+        let __t2 = CFAbsoluteTimeGetCurrent()
         editorVC.setSQL(tab.sql)
+        let __t3 = CFAbsoluteTimeGetCurrent()
         editorVC.setCursorPosition(tab.cursorPosition)
         editorVC.clearErrorMarkers()
+        let __t4 = CFAbsoluteTimeGetCurrent()
 
         // Sync global state to this tab's connection/schema so sidebar updates.
         // Only set when the value actually changes to avoid redundant reloads.
@@ -308,9 +314,12 @@ class EditorPaneVC: NSViewController {
         if tab.schemaName != stateManager.activeSchema {
             stateManager.activeSchema = tab.schemaName
         }
+        let __t5 = CFAbsoluteTimeGetCurrent()
 
         // Sync gutter pulse to the newly-activated tab.
         editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
+        let __t6 = CFAbsoluteTimeGetCurrent()
+        NSLog("[perf] tabChanged(\(paneId)) sqlLen=\(tab.sql.count) saveCursor=\(String(format: "%.1f", (__t1-__t0)*1000))ms setSQL=\(String(format: "%.1f", (__t3-__t2)*1000))ms cursor+errs=\(String(format: "%.1f", (__t4-__t3)*1000))ms syncConnSchema=\(String(format: "%.1f", (__t5-__t4)*1000))ms gutterPulse=\(String(format: "%.1f", (__t6-__t5)*1000))ms total=\(String(format: "%.1f", (__t6-__t0)*1000))ms")
     }
 
     // MARK: - Focus Tracking
