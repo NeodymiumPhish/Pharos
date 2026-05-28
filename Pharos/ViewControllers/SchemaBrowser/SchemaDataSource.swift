@@ -55,10 +55,10 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
         return cell
     }
 
-    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        guard let node = item as? SchemaTreeNode else { return 24 }
-        return node.subtitle != nil ? 34 : 24
-    }
+    // Row height intentionally NOT implemented as a delegate method — the
+    // outline uses a fixed `rowHeight` set on NSOutlineView so reload is
+    // O(visible-rows) instead of O(total-rows). Implementing this method
+    // would put NSOutlineView back on the slow per-row layout path.
 
     func outlineViewItemWillExpand(_ notification: Notification) {
         guard let node = notification.userInfo?["NSObject"] as? SchemaTreeNode else { return }

@@ -186,7 +186,6 @@ class ResultsGridVC: NSViewController {
     // MARK: - Public API
 
     func showResult(_ result: QueryResult) {
-        let __t0 = CFAbsoluteTimeGetCurrent()
         self.columns = result.columns
         self.rows = result.rows
         self.hasMore = result.hasMore
@@ -203,20 +202,11 @@ class ResultsGridVC: NSViewController {
         sortController.clearSortState()
 
         cellSelectionController.clear()
-        let __t1 = CFAbsoluteTimeGetCurrent()
 
         rebuildColumns()
-        let __t2 = CFAbsoluteTimeGetCurrent()
         pushDataToHelpers()
-        let __t3 = CFAbsoluteTimeGetCurrent()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
-        let __t4 = CFAbsoluteTimeGetCurrent()
         tableView.reloadData()
-        let __t5 = CFAbsoluteTimeGetCurrent()
-        let total = (__t5 - __t0) * 1000
-        if total > 5 {
-            NSLog("[perf] showResult rows=\(rows.count) cols=\(columns.count) state=\(String(format: "%.1f", (__t1-__t0)*1000))ms rebuildCols=\(String(format: "%.1f", (__t2-__t1)*1000))ms pushData=\(String(format: "%.1f", (__t3-__t2)*1000))ms pushFind=\(String(format: "%.1f", (__t4-__t3)*1000))ms reload=\(String(format: "%.1f", (__t5-__t4)*1000))ms total=\(String(format: "%.1f", total))ms")
-        }
 
         // 0 rows with no column info — show clear empty state
         if rows.isEmpty && columns.isEmpty {

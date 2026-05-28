@@ -54,6 +54,15 @@ class SchemaBrowserVC: NSViewController {
         outlineView.rowSizeStyle = .default
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 16
+        // Fixed row height: switching from the variable-height delegate
+        // (heightOfRowByItem) to a fixed value moves NSOutlineView onto its
+        // fast path. With variable heights it queries the delegate (and runs
+        // layout bookkeeping) for every row on reload — on a connection with
+        // 18k+ tables that single query is a ~2-second main-thread block.
+        // 34px matches the existing tall row used for schema/table/column
+        // rows; only "Loading…" placeholder rows shrink from 24→34 (a 10px
+        // gain), an acceptable visual trade for the perf win.
+        outlineView.rowHeight = 34
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
         schemaDataSource.delegate = self
@@ -383,11 +392,14 @@ class SchemaBrowserVC: NSViewController {
     // MARK: - Filter API (called by SidebarViewController)
 
     func applyFilter(_ text: String) {
-        filterText = text.lowercased()
+        let lowered = text.lowercased()
+        guard filterText != lowered else { return }
+        filterText = lowered
         rebuildDisplayTree()
     }
 
     func clearFilter() {
+        guard filterText != nil else { return }
         filterText = nil
         rebuildDisplayTree()
     }
@@ -395,26 +407,20 @@ class SchemaBrowserVC: NSViewController {
     // MARK: - Schema Filter API (called by SidebarViewController)
 
     func showSchema(_ name: String) {
+        guard activeSchemaFilter != name else { return }
         activeSchemaFilter = name
         rebuildDisplayTree()
         refreshRowCounts(for: name)
     }
 
     func showAllSchemas() {
+        guard activeSchemaFilter != nil else { return }
         activeSchemaFilter = nil
         rebuildDisplayTree()
     }
 
     /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
     private func rebuildDisplayTree() {
-        let __t0 = CFAbsoluteTimeGetCurrent()
-        defer {
-            let elapsed = (CFAbsoluteTimeGetCurrent() - __t0) * 1000
-            if elapsed > 5 {
-                let totalTableCount = unfilteredRootNodes.reduce(0) { $0 + $1.children.count }
-                NSLog("[perf] SchemaBrowser.rebuildDisplayTree schemas=\(unfilteredRootNodes.count) tables=\(totalTableCount) elapsed=\(String(format: "%.1f", elapsed))ms")
-            }
-        }
         // Step 1: Apply schema filter (flatten when single schema selected)
         var nodes: [SchemaTreeNode]
         if let schemaName = activeSchemaFilter {
