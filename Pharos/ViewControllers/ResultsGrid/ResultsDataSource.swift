@@ -30,16 +30,37 @@ protocol ResultsDataSourceDelegate: AnyObject {
 // MARK: - ResultCellView
 
 private class ResultCellView: NSTableCellView {
-    var normalTextColor: NSColor = .labelColor
+    /// Type-appropriate unselected text color (purple for temporal, tertiary
+    /// for NULL, blue for numeric, etc.). Setter keeps `textField.textColor` in
+    /// sync when not selected — callers no longer assign textField directly.
+    var normalTextColor: NSColor = .labelColor {
+        didSet { updateTextColor() }
+    }
+
+    /// True when this cell is part of the active cell-mode selection. Setter
+    /// flips text color between white (selected) and `normalTextColor`. The
+    /// background fill is managed externally by the data source so it can
+    /// coordinate precedence with find-match highlighting.
+    var isSelected: Bool = false {
+        didSet {
+            guard oldValue != isSelected else { return }
+            updateTextColor()
+        }
+    }
+
+    private func updateTextColor() {
+        // Row-emphasis (.emphasized) wins when NSTableView sets it via
+        // selectRowIndexes (row-number-column selection). Cell-mode selection
+        // never sets .emphasized, so isSelected drives the color.
+        if backgroundStyle == .emphasized {
+            textField?.textColor = .alternateSelectedControlTextColor
+        } else {
+            textField?.textColor = isSelected ? .white : normalTextColor
+        }
+    }
 
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            // In row mode, NSTableView sets .emphasized → use white text on blue.
-            // In cell mode we never call selectRowIndexes, so .emphasized is never set.
-            textField?.textColor = backgroundStyle == .emphasized
-                ? .alternateSelectedControlTextColor
-                : normalTextColor
-        }
+        didSet { updateTextColor() }
     }
 }
 
@@ -115,7 +136,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.stringValue = "\(row + 1)"
             cell.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             cell.normalTextColor = .tertiaryLabelColor
-            cell.textField?.textColor = .tertiaryLabelColor
         } else {
             let rowData = rows[dataRowIdx]
             if let idx = colIndex(from: colId.rawValue), idx < rowData.count {
@@ -126,7 +146,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 cell.textField?.stringValue = ""
                 cell.textField?.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
                 cell.normalTextColor = .labelColor
-                cell.textField?.textColor = .labelColor
             }
         }
 
@@ -150,20 +169,20 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         cell.layer?.borderWidth = 0
         cell.layer?.borderColor = nil
 
-        // Cell selection: blue fill + white text (overlay handles intercell gaps + border)
+        // Cell selection: find-match cells keep their yellow highlight and
+        // normal text; other selected cells get the blue fill + white text via
+        // the cell's own isSelected setter. Always assign isSelected so a
+        // recycled cell can't carry stale selected-state into a non-selected
+        // slot.
         let colIndex = tableColumn.map { tableView.column(withIdentifier: $0.identifier) } ?? -1
-        if let selection = cellSelection, selection.contains(CellPosition(row: row, column: colIndex)) {
-            let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
-                && (findMatchSet.contains(CellAddress(row: row, colId: colId.rawValue))
-                    || (currentMatchRow == row && currentMatchColId == colId.rawValue))
-            if !isFindHighlighted {
-                cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
-                // Override only the displayed textColor — leave normalTextColor at
-                // the type-appropriate color so the deselect fast path
-                // (updateVisibleCellSelectionAppearance) restores it correctly.
-                cell.textField?.textColor = .white
-            }
+        let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
+            && (findMatchSet.contains(CellAddress(row: row, colId: colId.rawValue))
+                || (currentMatchRow == row && currentMatchColId == colId.rawValue))
+        let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIndex)) ?? false
+        if isInSelection && !isFindHighlighted {
+            cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
         }
+        cell.isSelected = isInSelection && !isFindHighlighted
 
         return cell
     }
@@ -187,17 +206,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     && (findMatchSet.contains(CellAddress(row: row, colId: colId))
                         || (currentMatchRow == row && currentMatchColId == colId))
 
-                if let selection = cellSelection, selection.contains(CellPosition(row: row, column: colIdx)) {
-                    if !isFindHighlighted {
-                        cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
-                        cell.textField?.textColor = .white
-                    }
-                } else {
-                    if !isFindHighlighted {
-                        cell.layer?.backgroundColor = nil
-                    }
-                    cell.textField?.textColor = cell.normalTextColor
+                let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIdx)) ?? false
+                if !isFindHighlighted {
+                    cell.layer?.backgroundColor = isInSelection
+                        ? NSColor.selectedContentBackgroundColor.cgColor
+                        : nil
                 }
+                cell.isSelected = isInSelection && !isFindHighlighted
             }
         }
 
@@ -221,7 +236,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             textField.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
             textField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
             cell.normalTextColor = .tertiaryLabelColor
-            textField.textColor = .tertiaryLabelColor
             return
         }
 
@@ -254,6 +268,5 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             color = .labelColor
         }
         cell.normalTextColor = color
-        textField.textColor = color
     }
 }
