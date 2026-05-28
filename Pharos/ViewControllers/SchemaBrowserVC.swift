@@ -136,7 +136,11 @@ class SchemaBrowserVC: NSViewController {
                     self.unfilteredRootNodes = schemaNodes
                     self.rootNodes = schemaNodes
                     self.outlineView.reloadData()
-                    if let pub = self.rootNodes.first(where: { $0.schemaName == "public" }) {
+                    // Same threshold as rebuildDisplayTree: do not auto-expand
+                    // schemas with thousands of tables — that single expandItem
+                    // call blocks the main thread for seconds.
+                    if let pub = self.rootNodes.first(where: { $0.schemaName == "public" }),
+                       pub.children.count <= Self.autoExpandTableThreshold {
                         self.outlineView.expandItem(pub)
                     }
                 }
@@ -441,22 +445,34 @@ class SchemaBrowserVC: NSViewController {
         rootNodes = nodes
         outlineView.reloadData()
 
-        // Collapse everything first — reloadData() preserves expansion state for same-object items
-        for node in rootNodes {
-            outlineView.collapseItem(node, collapseChildren: true)
-        }
+        // reloadData() preserves expansion state for same-object items. We
+        // used to collapse-all then re-expand `public` here — that destroyed
+        // the user's prior expansion AND paid the full expandItem cost on
+        // every rebuild, which is multi-second for schemas with thousands of
+        // tables. Preserving prior state makes tab switches feel instant on
+        // large databases.
 
-        // Step 3: Auto-expand based on context
+        // Step 3: Auto-expand based on context.
         if activeSchemaFilter != nil {
-            // Flattened: tables/views are already root-level, no expansion needed
+            // Flattened: tables/views are already root-level, no expansion needed.
         } else if let filter = filterText, !filter.isEmpty {
             expandFilteredItems(rootNodes)
-        } else {
-            if let pub = rootNodes.first(where: { $0.schemaName == "public" }) {
-                outlineView.expandItem(pub)
-            }
+        } else if let pub = rootNodes.first(where: { $0.schemaName == "public" }),
+                  !outlineView.isItemExpanded(pub),
+                  pub.children.count <= Self.autoExpandTableThreshold {
+            // Auto-expand `public` as a convenience for typical sized
+            // schemas — but skip it for huge ones where expandItem itself
+            // would block the main thread for seconds. The user can still
+            // expand explicitly by clicking the disclosure triangle.
+            outlineView.expandItem(pub)
         }
     }
+
+    /// Maximum direct children a schema may have for `rebuildDisplayTree` to
+    /// auto-expand it. Above this threshold, expanding a single NSOutlineView
+    /// item becomes a multi-second main-thread operation; users opt in by
+    /// clicking the disclosure triangle explicitly.
+    private static let autoExpandTableThreshold = 500
 
     /// Recursively filter tree. Returns a filtered copy of the node if it or any descendant matches.
     private func filterNode(_ node: SchemaTreeNode, text: String) -> SchemaTreeNode? {
