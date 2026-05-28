@@ -2,6 +2,14 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+/// Snapshot of the active connection's id + status used to drive the metadata
+/// cache. Combining the two into one Equatable value lets us deduplicate the
+/// downstream sink without paying for tuple-equality type-inference.
+private struct ActiveConnectionStatus: Equatable {
+    let id: String?
+    let status: ConnectionStatus?
+}
+
 /// Main content area: editor panes + results grid.
 /// Manages multiple EditorPaneVCs and query execution.
 class ContentViewController: NSViewController {
@@ -209,26 +217,37 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Dedup the whole dict first — many publishes don't actually change
+        // state. updateVisibility + the disconnect/error sweep only need to run
+        // when something in the dict actually flipped.
         stateManager.$connectionStatuses
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] statuses in
                 self?.updateVisibility()
-                // Trigger metadata load when active connection becomes connected
-                // (needed because .removeDuplicates on activeConnectionId may suppress
-                // the second publish after connection completes)
-                if let connId = self?.stateManager.activeConnectionId,
-                   self?.stateManager.status(for: connId) == .connected {
-                    self?.metadataCache.load(connectionId: connId)
-                } else if self?.stateManager.activeConnectionId == nil {
-                    self?.metadataCache.clear()
+                for (connId, status) in statuses where status == .disconnected || status == .error {
+                    self?.metadataCache.clearConnection(connId)
                 }
+            }
+            .store(in: &cancellables)
 
-                // Clear cache for connections that disconnected or errored,
-                // preserving other connections' caches
-                for (connId, status) in statuses {
-                    if status == .disconnected || status == .error {
-                        self?.metadataCache.clearConnection(connId)
-                    }
+        // Metadata load reacts to the *active* connection's status only.
+        // Combining activeConnectionId with the statuses dict and mapping down
+        // to the active's status avoids the original problem (a removeDuplicates
+        // on activeConnectionId alone would suppress the connected→ready
+        // transition) while still firing only on real status changes.
+        Publishers.CombineLatest(stateManager.$activeConnectionId, stateManager.$connectionStatuses)
+            .map { activeId, statuses in
+                ActiveConnectionStatus(id: activeId, status: activeId.flatMap { statuses[$0] })
+            }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                if let id = snapshot.id, snapshot.status == .connected {
+                    self.metadataCache.load(connectionId: id)
+                } else if snapshot.id == nil {
+                    self.metadataCache.clear()
                 }
             }
             .store(in: &cancellables)
@@ -267,19 +286,24 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Drive the action-bar pulse from the focused pane's active tab's executing state.
+        // Drive the action-bar pulse from the focused pane's active tab's
+        // executing state. We map down to the single Bool we actually care
+        // about and removeDuplicates so unrelated mutations (any keystroke
+        // republishes $tabs) don't reassign isPulsing every time.
         Publishers.CombineLatest3(
             stateManager.$tabs,
             stateManager.$panes,
             stateManager.$focusedPaneId
         )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] tabs, panes, focusedPaneId in
-            guard let self else { return }
+        .map { tabs, panes, focusedPaneId -> Bool in
             let focusedPane = panes.first { $0.id == focusedPaneId }
             let activeTabId = focusedPane?.activeTabId
-            let activeTab = tabs.first { $0.id == activeTabId }
-            self.actionBar.isPulsing = activeTab?.isExecuting == true
+            return tabs.first { $0.id == activeTabId }?.isExecuting == true
+        }
+        .removeDuplicates()
+        .receive(on: RunLoop.main)
+        .sink { [weak self] isExecuting in
+            self?.actionBar.isPulsing = isExecuting
         }
         .store(in: &cancellables)
 

@@ -57,7 +57,7 @@ enum BoolDisplay: String, Codable, CaseIterable {
     }
 }
 
-struct EditorSettings: Codable {
+struct EditorSettings: Codable, Equatable {
     var fontSize: UInt32 = 13
     var fontFamily: String = "JetBrains Mono, Monaco, Menlo, monospace"
     var tabSize: UInt32 = 2
@@ -67,7 +67,7 @@ struct EditorSettings: Codable {
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 }
 
-struct QuerySettings: Codable {
+struct QuerySettings: Codable, Equatable {
     var defaultLimit: UInt32 = 1000
     var timeoutSeconds: UInt32 = 30
     var autoCommit: Bool = true
@@ -77,14 +77,14 @@ struct QuerySettings: Codable {
     var notifyMinDurationSeconds: UInt32 = 5
 }
 
-struct UISettings: Codable {
+struct UISettings: Codable, Equatable {
     var navigatorWidth: UInt32 = 250
     var savedQueriesWidth: UInt32 = 250
     var resultsPanelHeight: UInt32 = 300
     var editorSplitPosition: UInt32 = 50
 }
 
-struct KeyboardShortcut: Codable {
+struct KeyboardShortcut: Codable, Equatable {
     var id: String
     var label: String
     var description: String
@@ -92,11 +92,11 @@ struct KeyboardShortcut: Codable {
     var modifiers: [String]
 }
 
-struct KeyboardSettings: Codable {
+struct KeyboardSettings: Codable, Equatable {
     var shortcuts: [KeyboardShortcut] = []
 }
 
-struct AppSettings: Codable {
+struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
     var query: QuerySettings = QuerySettings()

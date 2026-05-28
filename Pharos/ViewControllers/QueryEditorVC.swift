@@ -104,8 +104,11 @@ class QueryEditorVC: NSViewController {
 
         applySettings()
 
-        // Re-apply settings when they change
+        // Re-apply settings when they change. Dedup the publisher so unrelated
+        // republishes (the AppSettings struct is shared across UI surfaces) do
+        // not trigger a full editor rebuild + rehighlight pass.
         stateManager.$settings
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.applySettings() }
             .store(in: &cancellables)
@@ -236,8 +239,36 @@ class QueryEditorVC: NSViewController {
 
     // MARK: - Settings
 
+    /// Signature of the settings fields that actually affect the editor's
+    /// visible glyph layout. We only rehighlight when this changes — toggling
+    /// unrelated settings (nullDisplay, boolDisplay, etc.) leaves the
+    /// glyph-level layout untouched and shouldn't pay for a full document
+    /// repaint × tab count.
+    private struct EditorSignature: Equatable {
+        let fontFamily: String
+        let fontSize: UInt32
+        let tabSize: UInt32
+        let wordWrap: Bool
+        let lineNumbers: Bool
+    }
+
+    private var lastAppliedSignature: EditorSignature?
+
     private func applySettings() {
         let editor = stateManager.settings.editor
+        let signature = EditorSignature(
+            fontFamily: editor.fontFamily,
+            fontSize: editor.fontSize,
+            tabSize: editor.tabSize,
+            wordWrap: editor.wordWrap,
+            lineNumbers: editor.lineNumbers
+        )
+        guard signature != lastAppliedSignature else { return }
+        let needsRehighlight = signature.fontFamily != lastAppliedSignature?.fontFamily
+            || signature.fontSize != lastAppliedSignature?.fontSize
+            || signature.tabSize != lastAppliedSignature?.tabSize
+            || signature.wordWrap != lastAppliedSignature?.wordWrap
+        lastAppliedSignature = signature
 
         // Font
         let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
@@ -269,7 +300,9 @@ class QueryEditorVC: NSViewController {
             textView.isHorizontallyResizable = true
         }
 
-        textView.highlightSyntax()
+        if needsRehighlight {
+            textView.highlightSyntax()
+        }
     }
 
     // MARK: - Segment API
