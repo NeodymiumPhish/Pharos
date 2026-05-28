@@ -159,11 +159,21 @@ class EditorPaneVC: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] tabs in
                 guard let self else { return }
+                let __t0 = CFAbsoluteTimeGetCurrent()
                 self.refreshTabBar()
+                let __t1 = CFAbsoluteTimeGetCurrent()
                 self.updateEditorToolbarState()
+                let __t2 = CFAbsoluteTimeGetCurrent()
                 self.rebuildConnectionMenu()
+                let __t3 = CFAbsoluteTimeGetCurrent()
                 self.rebuildSchemaMenu()
+                let __t4 = CFAbsoluteTimeGetCurrent()
                 self.updateGutterPulseForActiveTab(tabs: tabs)
+                let __t5 = CFAbsoluteTimeGetCurrent()
+                let total = (__t5 - __t0) * 1000
+                if total > 5 {
+                    NSLog("[perf] EditorPaneVC.$tabs.sink(\(self.paneId)) tabBar=\(String(format: "%.1f", (__t1-__t0)*1000))ms toolbar=\(String(format: "%.1f", (__t2-__t1)*1000))ms connMenu=\(String(format: "%.1f", (__t3-__t2)*1000))ms schemaMenu=\(String(format: "%.1f", (__t4-__t3)*1000))ms gutter=\(String(format: "%.1f", (__t5-__t4)*1000))ms total=\(String(format: "%.1f", total))ms")
+                }
             }
             .store(in: &cancellables)
 
