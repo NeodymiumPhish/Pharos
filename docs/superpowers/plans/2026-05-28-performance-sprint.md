@@ -80,3 +80,54 @@ After each bundle's edits:
 - All 7 bundles committed cleanly on `main`.
 - Build is green at the final commit.
 - A short review note appended to this file summarising what shipped vs deferred.
+
+## Review (2026-05-28)
+
+All 7 bundles landed green on `main`; final build is clean. Commits:
+
+| Bundle | Findings | Commit |
+| --- | --- | --- |
+| 1 | #1, #2 | `9d8fcd7` |
+| 2 | #5, #6, #11 | `b741dd5` |
+| 3 | #3, #4 | `24619dc` |
+| 4 | #8 | `a8ef4e8` |
+| 5 | #7 | `2941a41` |
+| 6a | #10 | `cd78b0b` |
+| 6b | #9 | `71d345a` |
+| 7 | #12 | `7914a64` |
+
+12 / 12 audit findings closed.
+
+**Notable scope deviations / deferrals:**
+
+- **#10 (line gutter — incremental lineStarts):** Shipped the cached
+  digit-width + digit-count guard, which kills the per-keystroke
+  `NSAttributedString.size()` allocation and the spurious
+  `onWidthChange → layout pass` cascade. Deferred the splice-based
+  `lineStarts` update — UTF-16 integer comparison over realistic
+  document sizes is sub-millisecond, and an incremental splice via
+  `NSTextStorageDelegate` adds bug surface for marginal gain. If a
+  >100KB document ever surfaces as a complaint, revisit.
+
+- **#11 (theme.didSet → debounced):** Verified `SQLTextView.theme` is
+  never reassigned anywhere in the codebase today, so the
+  audit-flagged sync rehighlight is dead code. Skipped the defensive
+  rewrite. The real cost — every `$settings` publish triggering
+  `applySettings → highlightSyntax` — is fixed by Bundle 2's dedup +
+  signature gate.
+
+- **#5 (actionBar.isPulsing):** Implemented as a derived publisher
+  with `.map → .removeDuplicates`. Did not promote `isExecuting` to
+  its own published property on the tab — felt premature given the
+  publisher-level fix is sufficient and keeps the data model clean.
+
+- **Bundle 5 follow-up:** `viewFor` now reloads on settings change via
+  a sink in the data source's init. This means the data source
+  observes settings independently of the VC. If a future refactor
+  unifies settings flow, fold this into the VC's path.
+
+**Recent context the audit didn't see** (already shipped before the
+sprint): drag-tick deduplication in `ResultsCellSelection.
+handleMouseDragged` (`4dbe824`), `ResultCellView` selection-appearance
+ownership (`aac9ea7`), plain-bg drawing below the last data row
+(`72cbaec`).
