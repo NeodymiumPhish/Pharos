@@ -39,8 +39,6 @@ struct QueryTab: Identifiable {
     var executeResult: ExecuteResult?
     var error: String?
     var savedQueryId: String?
-    var historySchema: String?
-    var historyTimestamp: String?
     var gridState: ResultsGridState?
     var paneId: String?
     /// Filesystem URL this tab was opened from, if any. Set when the tab is

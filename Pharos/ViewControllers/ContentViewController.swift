@@ -539,13 +539,26 @@ class ContentViewController: NSViewController {
         // Re-resolve and restore segment colors in the gutter.
         reResolveAllResultTabs(immediate: true)
 
-        // Show/hide history context for this tab. Suppress while pinned —
-        // the grid is showing the pinned tab's data, not this tab's history.
-        if stateManager.pinnedResult == nil, let historyTimestamp = tab.historyTimestamp {
-            resultsVC.showHistoryContext(schema: tab.historySchema, timestamp: historyTimestamp)
-        } else {
+        // Show/hide history context based on the active result tab — the
+        // banner belongs to a specific result, not the editor tab. New
+        // queries run in the same editor produce new result tabs without
+        // history fields, and switching between them toggles the banner.
+        // Suppressed while pinned (the grid is showing the pinned tab's data).
+        let activeRT = activeResultTabId.flatMap { id in resultTabs.first { $0.id == id } }
+        applyHistoryBanner(from: activeRT)
+    }
+
+    /// Update the results grid's history banner from a result tab's history
+    /// fields. Single entry point so the activeTabChanged and selectResultTab
+    /// paths stay consistent.
+    private func applyHistoryBanner(from resultTab: ResultTab?) {
+        guard stateManager.pinnedResult == nil,
+              let resultTab,
+              let timestamp = resultTab.historyTimestamp else {
             resultsVC.hideHistoryContext()
+            return
         }
+        resultsVC.showHistoryContext(schema: resultTab.historySchema, timestamp: timestamp)
     }
 
     // MARK: - Inspector
@@ -1399,6 +1412,9 @@ class ContentViewController: NSViewController {
         if !tab.isStale {
             focusedPaneVC?.highlightLines(tab.lineRange)
         }
+
+        // History banner follows the selected result tab.
+        applyHistoryBanner(from: tab)
     }
 
     private func closeResultTab(_ tabId: String) {
@@ -1745,28 +1761,39 @@ extension ContentViewController {
         let tabName = entry.tableNames ?? "History"
         let tab = stateManager.createTab(sql: entry.sql, name: tabName)
 
-        stateManager.updateTab(id: tab.id) { t in
-            t.historySchema = entry.schema
-            t.historyTimestamp = entry.executedAt
-        }
-
         do {
-            if let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) {
-                let result = QueryResult(
-                    columns: resultData.columns,
-                    rows: resultData.rows,
-                    rowCount: resultData.rows.count,
-                    executionTimeMs: UInt64(entry.executionTimeMs),
-                    hasMore: false,
-                    historyEntryId: entry.id
-                )
-                stateManager.updateTab(id: tab.id) { t in
-                    t.result = result
-                }
-                if stateManager.activeTabId == tab.id {
-                    resultsVC.showResult(result)
-                    resultsVC.showHistoryContext(schema: entry.schema, timestamp: entry.executedAt)
-                }
+            guard let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) else { return }
+            let result = QueryResult(
+                columns: resultData.columns,
+                rows: resultData.rows,
+                rowCount: resultData.rows.count,
+                executionTimeMs: UInt64(entry.executionTimeMs),
+                hasMore: false,
+                historyEntryId: entry.id
+            )
+
+            // Store the history result in its own ResultTab carrying the
+            // history schema + timestamp. Subsequent queries the user runs in
+            // this editor tab produce sibling ResultTabs without those fields,
+            // so the banner is correctly tied to viewing this result — not to
+            // the editor tab as a whole.
+            var rt = ResultTab(
+                id: UUID().uuidString,
+                segmentIndex: -1,
+                sql: entry.sql,
+                lineRange: 0...0,
+                color: ResultTab.nextColor(),
+                timestamp: Date()
+            )
+            rt.customLabel = entry.tableNames ?? "History"
+            rt.queryResult = result
+            rt.executionTimeMs = UInt64(entry.executionTimeMs)
+            rt.historySchema = entry.schema
+            rt.historyTimestamp = entry.executedAt
+            addResultTab(rt, forEditorTab: tab.id)
+
+            if stateManager.activeTabId == tab.id {
+                applyHistoryBanner(from: rt)
             }
         } catch {
             NSLog("Failed to load history results: \(error)")

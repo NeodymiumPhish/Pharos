@@ -15,6 +15,12 @@ struct ResultTab: Identifiable {
     var executeResult: ExecuteResult?
     var executionTimeMs: UInt64 = 0
 
+    /// History-source metadata. Set only on the result tab that holds the
+    /// rows of a re-opened query history entry; the grid's history banner is
+    /// shown only when this specific result tab is the active one.
+    var historySchema: String?
+    var historyTimestamp: String?
+
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
