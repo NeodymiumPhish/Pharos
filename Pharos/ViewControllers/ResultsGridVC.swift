@@ -28,7 +28,7 @@ class ResultsGridVC: NSViewController {
     // Toolbar elements — owned by ContentViewController, accessed via contentVC
     var statusLabel: NSTextField { contentVC?.statusLabel ?? NSTextField(labelWithString: "") }
     var pinSourceLabel: NSTextField { contentVC?.pinSourceLabel ?? NSTextField(labelWithString: "") }
-    var historyContextLabel: NSTextField { contentVC?.historyContextLabel ?? NSTextField(labelWithString: "") }
+    var resultBannerLabel: NSTextField { contentVC?.resultBannerLabel ?? NSTextField(labelWithString: "") }
     var resetSortButton: NSButton { contentVC?.resetSortButton ?? NSButton() }
     var resetFiltersButton: NSButton { contentVC?.resetFiltersButton ?? NSButton() }
     var pinButton: NSButton { contentVC?.pinButton ?? NSButton() }
@@ -355,7 +355,12 @@ class ResultsGridVC: NSViewController {
         emptyLabel.textColor = .tertiaryLabelColor
         emptyLabel.isHidden = false
         scrollView.isHidden = true
-        hideHistoryContext()
+        // The status label lives in the shared action bar (owned by
+        // ContentViewController), so it isn't reset by emptying our own
+        // datasource — explicitly blank it here so previous-result text
+        // ("N rows in Ts") doesn't bleed into tabs that have no results.
+        statusLabel.stringValue = ""
+        hideResultBanner()
 
         updateLoadMoreVisibility()
 
@@ -364,30 +369,37 @@ class ResultsGridVC: NSViewController {
         }
     }
 
-    // MARK: - History Context
+    // MARK: - Result Banner
 
-    func showHistoryContext(schema: String?, timestamp: String) {
+    /// Show the "schema · executed-at" subtitle under the results grid. Shown
+    /// for every result (fresh queries use Date(); history replays use the
+    /// original execution time), so users can tell at a glance whether they're
+    /// looking at recent results or something opened from history.
+    func showResultBanner(schema: String?, date: Date) {
         let schemaText = schema ?? "default"
-        let timeText = formatAbsoluteDate(timestamp)
-        historyContextLabel.stringValue = "\(schemaText) \u{00B7} \(timeText)"
-        historyContextLabel.isHidden = false
+        let timeText = Self.resultBannerDateFormatter.string(from: date)
+        resultBannerLabel.stringValue = "\(schemaText) \u{00B7} \(timeText)"
+        resultBannerLabel.isHidden = false
     }
 
-    func hideHistoryContext() {
-        historyContextLabel.isHidden = true
+    func hideResultBanner() {
+        resultBannerLabel.isHidden = true
     }
 
-    private func formatAbsoluteDate(_ iso: String) -> String {
+    /// Parse an ISO8601 history timestamp into a Date, falling back to a
+    /// fractional-seconds parser. Returns nil for unparseable input.
+    static func parseHistoryTimestamp(_ iso: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else {
-            return iso
-        }
+        return formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+    }
+
+    private static let resultBannerDateFormatter: DateFormatter = {
         let df = DateFormatter()
         df.dateStyle = .medium
         df.timeStyle = .short
-        return df.string(from: date)
-    }
+        return df
+    }()
 
     func setLoadingMore(_ loading: Bool) {
         isLoadingMore = loading

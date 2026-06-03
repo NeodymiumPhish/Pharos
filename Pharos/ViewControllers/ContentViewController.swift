@@ -43,7 +43,7 @@ class ContentViewController: NSViewController {
     // Toolbar UI elements (owned here, configured in setupActionBar)
     let statusLabel = NSTextField(labelWithString: "")
     let pinSourceLabel = NSTextField(labelWithString: "")
-    let historyContextLabel = NSTextField(labelWithString: "")
+    let resultBannerLabel = NSTextField(labelWithString: "")
     let resetSortButton = NSButton()
     let resetFiltersButton = NSButton()
     let pinButton = NSButton()
@@ -539,26 +539,54 @@ class ContentViewController: NSViewController {
         // Re-resolve and restore segment colors in the gutter.
         reResolveAllResultTabs(immediate: true)
 
-        // Show/hide history context based on the active result tab — the
-        // banner belongs to a specific result, not the editor tab. New
-        // queries run in the same editor produce new result tabs without
-        // history fields, and switching between them toggles the banner.
-        // Suppressed while pinned (the grid is showing the pinned tab's data).
+        // Update the result banner ("schema · executed-at"). When a ResultTab
+        // is active, its own timestamp / history fields drive the banner.
+        // Otherwise the legacy inline-result path falls back to the editor
+        // tab's stored execution time and schema. Suppressed while pinned
+        // (the grid is showing the pinned tab's data, not the active tab's).
         let activeRT = activeResultTabId.flatMap { id in resultTabs.first { $0.id == id } }
-        applyHistoryBanner(from: activeRT)
+        if activeRT != nil {
+            applyResultBanner(from: activeRT)
+        } else if tab.result != nil || tab.executeResult != nil {
+            applyResultBanner(schema: tab.schemaName, date: tab.resultExecutedAt)
+        } else {
+            applyResultBanner(from: nil)
+        }
     }
 
-    /// Update the results grid's history banner from a result tab's history
-    /// fields. Single entry point so the activeTabChanged and selectResultTab
-    /// paths stay consistent.
-    private func applyHistoryBanner(from resultTab: ResultTab?) {
-        guard stateManager.pinnedResult == nil,
-              let resultTab,
-              let timestamp = resultTab.historyTimestamp else {
-            resultsVC.hideHistoryContext()
+    /// Update the results grid banner from the currently displayed result tab.
+    /// Shown for every result — fresh queries display when the query completed,
+    /// history replays display the original execution time — so the user can
+    /// always see at a glance how recent the visible result is.
+    private func applyResultBanner(from resultTab: ResultTab?) {
+        guard stateManager.pinnedResult == nil, let resultTab else {
+            resultsVC.hideResultBanner()
             return
         }
-        resultsVC.showHistoryContext(schema: resultTab.historySchema, timestamp: timestamp)
+        // History replays carry the original execution time as an ISO string;
+        // fresh queries use the ResultTab's own creation timestamp.
+        let date: Date?
+        if let historyIso = resultTab.historyTimestamp {
+            date = ResultsGridVC.parseHistoryTimestamp(historyIso)
+        } else {
+            date = resultTab.timestamp
+        }
+        guard let date else {
+            resultsVC.hideResultBanner()
+            return
+        }
+        let schema = resultTab.historySchema ?? stateManager.activeTab?.schemaName
+        resultsVC.showResultBanner(schema: schema, date: date)
+    }
+
+    /// Banner variant for the legacy inline-result path (no ResultTab, result
+    /// stored directly on the editor tab).
+    private func applyResultBanner(schema: String?, date: Date?) {
+        guard stateManager.pinnedResult == nil, let date else {
+            resultsVC.hideResultBanner()
+            return
+        }
+        resultsVC.showResultBanner(schema: schema, date: date)
     }
 
     // MARK: - Inspector
@@ -637,15 +665,18 @@ class ContentViewController: NSViewController {
         pinSourceLabel.isHidden = true
         pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        historyContextLabel.translatesAutoresizingMaskIntoConstraints = false
-        historyContextLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        historyContextLabel.textColor = .systemIndigo
-        historyContextLabel.isHidden = true
-        historyContextLabel.lineBreakMode = .byTruncatingTail
-        historyContextLabel.setContentHuggingPriority(.required, for: .horizontal)
-        historyContextLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        // The banner ("schema · executed-at") sits next to the status label
+        // for every result, so secondaryLabelColor keeps it as quiet metadata
+        // rather than the previous indigo "this is history" highlight.
+        resultBannerLabel.translatesAutoresizingMaskIntoConstraints = false
+        resultBannerLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        resultBannerLabel.textColor = .secondaryLabelColor
+        resultBannerLabel.isHidden = true
+        resultBannerLabel.lineBreakMode = .byTruncatingTail
+        resultBannerLabel.setContentHuggingPriority(.required, for: .horizontal)
+        resultBannerLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        let labelStack = NSStackView(views: [pinSourceLabel, historyContextLabel, statusLabel])
+        let labelStack = NSStackView(views: [pinSourceLabel, resultBannerLabel, statusLabel])
         labelStack.orientation = .horizontal
         labelStack.spacing = 8
         labelStack.setHuggingPriority(.required, for: .horizontal)
@@ -1131,6 +1162,7 @@ class ContentViewController: NSViewController {
                 tab.error = nil
                 tab.result = nil
                 tab.executeResult = nil
+                tab.resultExecutedAt = nil
             }
         }
         if !effectiveCreateResultTab { resultsVC.clear() }
@@ -1151,6 +1183,7 @@ class ContentViewController: NSViewController {
                             tab.runningQueries.removeAll { $0.id == queryId }
                             if !effectiveCreateResultTab {
                                 tab.result = result
+                                tab.resultExecutedAt = Date()
                             }
                         }
                         if effectiveCreateResultTab {
@@ -1183,6 +1216,7 @@ class ContentViewController: NSViewController {
                             tab.runningQueries.removeAll { $0.id == queryId }
                             if !effectiveCreateResultTab {
                                 tab.executeResult = result
+                                tab.resultExecutedAt = Date()
                             }
                         }
                         if effectiveCreateResultTab {
@@ -1373,6 +1407,12 @@ class ContentViewController: NSViewController {
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
         }
+
+        // Refresh the history banner for the newly-active result tab. Without
+        // this, running a fresh query in an editor that was viewing a history
+        // result would keep the old "schema · timestamp" banner visible until
+        // the user switched tabs.
+        applyResultBanner(from: tab)
     }
 
     private func selectResultTab(_ tabId: String) {
@@ -1414,7 +1454,7 @@ class ContentViewController: NSViewController {
         }
 
         // History banner follows the selected result tab.
-        applyHistoryBanner(from: tab)
+        applyResultBanner(from: tab)
     }
 
     private func closeResultTab(_ tabId: String) {
@@ -1790,11 +1830,21 @@ extension ContentViewController {
             rt.executionTimeMs = UInt64(entry.executionTimeMs)
             rt.historySchema = entry.schema
             rt.historyTimestamp = entry.executedAt
-            addResultTab(rt, forEditorTab: tab.id)
 
-            if stateManager.activeTabId == tab.id {
-                applyHistoryBanner(from: rt)
-            }
+            // We CAN'T call addResultTab here: createTab() updates activeTabId
+            // synchronously, but activeTabChanged (the Combine sink that swaps
+            // the live `resultTabs` array and grid contents) is dispatched on
+            // RunLoop.main and fires later. If we appended now, the result
+            // would land in the *outgoing* tab's live `resultTabs` array, and
+            // when activeTabChanged eventually ran, it would persist that
+            // polluted array under the previous tab and load empty results
+            // for the new one.
+            //
+            // Instead, seed the per-editor-tab dictionaries directly. When
+            // activeTabChanged fires for the new tab, it reads these,
+            // populates the live grid, and applies the history banner.
+            resultTabsByEditorTab[tab.id] = [rt]
+            activeResultTabIdByEditorTab[tab.id] = rt.id
         } catch {
             NSLog("Failed to load history results: \(error)")
         }

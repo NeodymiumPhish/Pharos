@@ -37,6 +37,11 @@ struct QueryTab: Identifiable {
     var isExecuting: Bool { !runningQueries.isEmpty }
     var result: QueryResult?
     var executeResult: ExecuteResult?
+    /// When the inline `result` / `executeResult` was produced. Powers the
+    /// "schema · timestamp" banner under the results grid for the legacy
+    /// (single-result-per-editor-tab) path. Not used when results live in
+    /// ResultTab instances — those carry their own `timestamp` field.
+    var resultExecutedAt: Date?
     var error: String?
     var savedQueryId: String?
     var gridState: ResultsGridState?
