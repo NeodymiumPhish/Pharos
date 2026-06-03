@@ -95,12 +95,12 @@ enum MainMenu {
         // View menu
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(PharosSplitViewController.pharosToggleSidebar(_:)), keyEquivalent: "s")
         viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
         let inspectorToggle = viewMenu.addItem(
             withTitle: "Toggle Inspector",
-            action: #selector(NSSplitViewController.toggleInspector(_:)),
+            action: #selector(PharosSplitViewController.pharosToggleInspector(_:)),
             keyEquivalent: "0"
         )
         inspectorToggle.keyEquivalentModifierMask = [.command, .option]

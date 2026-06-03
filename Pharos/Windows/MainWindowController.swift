@@ -88,7 +88,7 @@ class MainWindowController: NSWindowController {
         button.bezelStyle = .recessed
         button.isBordered = false
         button.target = nil
-        button.action = #selector(NSSplitViewController.toggleSidebar(_:))
+        button.action = #selector(PharosSplitViewController.pharosToggleSidebar(_:))
 
         container.addSubview(button)
         NSLayoutConstraint.activate([
@@ -122,16 +122,24 @@ class MainWindowController: NSWindowController {
 
 // MARK: - NSToolbarDelegate
 
+extension NSToolbarItem.Identifier {
+    /// Custom inspector toggle. The system `.toggleInspector` identifier
+    /// auto-wires to `NSSplitViewController.toggleInspector:`, which our
+    /// non-`.inspector`-behavior split items can't satisfy — using our own
+    /// identifier lets us bind the action to `pharosToggleInspector(_:)`.
+    static let pharosToggleInspector = NSToolbarItem.Identifier("PharosToggleInspector")
+}
+
 extension MainWindowController: NSToolbarDelegate {
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .toggleInspector:
-            let item = NSToolbarItem(itemIdentifier: .toggleInspector)
+        case .pharosToggleInspector:
+            let item = NSToolbarItem(itemIdentifier: .pharosToggleInspector)
             item.label = "Inspector"
             item.image = NSImage(systemSymbolName: "sidebar.trailing",
                                  accessibilityDescription: "Toggle Inspector")
-            item.action = #selector(NSSplitViewController.toggleInspector(_:))
+            item.action = #selector(PharosSplitViewController.pharosToggleInspector(_:))
             return item
 
         case .flexibleSpace:
@@ -145,14 +153,14 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
             .flexibleSpace,
-            .toggleInspector,
+            .pharosToggleInspector,
         ]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
             .flexibleSpace,
-            .toggleInspector,
+            .pharosToggleInspector,
         ]
     }
 }
