@@ -154,7 +154,11 @@ pub async fn analyze_schema(
     // pg_catalog may not exist on non-PG servers — return empty result on failure
     let unanalyzed: Vec<String> = match sqlx::raw_sql(&sql).fetch_all(pool).await {
         Ok(rows) => rows.into_iter().map(|row| row.get::<String, _>("table_name")).collect(),
-        Err(_) => return Ok(AnalyzeResult { had_unanalyzed: false, permission_denied_tables: vec![] }),
+        Err(_) => return Ok(AnalyzeResult {
+            had_unanalyzed: false,
+            permission_denied_tables: vec![],
+            tables: vec![],
+        }),
     };
 
     let had_unanalyzed = !unanalyzed.is_empty();
@@ -197,9 +201,15 @@ pub async fn analyze_schema(
         }
     }
 
+    // Re-fetch tables so callers get the post-ANALYZE row count estimates in
+    // the same FFI round-trip. Falls back to an empty vec on read failure —
+    // the caller still gets a valid AnalyzeResult.
+    let tables = get_tables(pool, schema_name).await.unwrap_or_default();
+
     Ok(AnalyzeResult {
         had_unanalyzed,
         permission_denied_tables,
+        tables,
     })
 }
 

@@ -6,10 +6,15 @@ import CPharosCore
 extension PharosCore {
 
     /// Format SQL with PostgreSQL conventions (uppercase keywords, 2-space indent).
-    static func formatSQL(_ sql: String) -> String {
-        guard let result = sql.withCString({ pharos_format_sql($0) }) else { return sql }
-        defer { pharos_free_string(result) }
-        return String(cString: result)
+    /// The FFI call itself is synchronous (sqlformat is CPU-only, no IO), but it can
+    /// chew tens of ms on large queries — wrap it so callers can keep the UI responsive.
+    static func formatSQL(_ sql: String) async -> String {
+        // Hop off the main actor for the FFI call.
+        await Task.detached(priority: .userInitiated) {
+            guard let result = sql.withCString({ pharos_format_sql($0) }) else { return sql }
+            defer { pharos_free_string(result) }
+            return String(cString: result)
+        }.value
     }
 
     /// Execute a SQL query.

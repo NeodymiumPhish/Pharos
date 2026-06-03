@@ -23,6 +23,9 @@ struct TableInfo: Codable {
 struct AnalyzeResult: Codable {
     let hadUnanalyzed: Bool
     let permissionDeniedTables: [String]
+    /// Refreshed table metadata bundled with the analyze result so callers
+    /// can skip a follow-up getTables FFI round-trip.
+    let tables: [TableInfo]
 }
 
 struct ColumnInfo: Codable {

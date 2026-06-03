@@ -113,7 +113,10 @@ class SidebarViewController: NSViewController {
             .sink { [weak self] _ in self?.activeConnectionChanged() }
             .store(in: &cancellables)
 
+        // Dedup before scheduling — unrelated connection-status churn (e.g. a
+        // background pool's idle ticks) shouldn't reload the schema browser.
         stateManager.$connectionStatuses
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.connectionStatusChanged() }
             .store(in: &cancellables)

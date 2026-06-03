@@ -153,9 +153,34 @@ class EditorPaneVC: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus
-        // Single subscription to $tabs to avoid duplicate work per mutation
+        // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus.
+        // Dedup on the fields this sink actually reads: id / name / isDirty /
+        // isExecuting / paneId / segmentIndex set. Without this, every
+        // keystroke (which updates `tab.sql` via updateTab) republishes $tabs
+        // and re-rebuilt all four UI surfaces on every pane in the window.
         stateManager.$tabs
+            .removeDuplicates { lhs, rhs in
+                guard lhs.count == rhs.count else { return false }
+                for i in 0..<lhs.count {
+                    let a = lhs[i], b = rhs[i]
+                    if a.id != b.id
+                        || a.name != b.name
+                        || a.isDirty != b.isDirty
+                        || a.paneId != b.paneId
+                        || a.isExecuting != b.isExecuting
+                        || a.connectionId != b.connectionId
+                        || a.schemaName != b.schemaName
+                    {
+                        return false
+                    }
+                    // Gutter pulse uses the segment indices of running queries
+                    // — same count + same indices = same pulse, no rebuild.
+                    let aSegs = a.runningQueries.map { $0.segmentIndex }
+                    let bSegs = b.runningQueries.map { $0.segmentIndex }
+                    if aSegs != bSegs { return false }
+                }
+                return true
+            }
             .receive(on: RunLoop.main)
             .sink { [weak self] tabs in
                 guard let self else { return }

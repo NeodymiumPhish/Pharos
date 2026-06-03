@@ -31,6 +31,10 @@ pub struct TableInfo {
 pub struct AnalyzeResult {
     pub had_unanalyzed: bool,
     pub permission_denied_tables: Vec<String>,
+    /// Refreshed table metadata for the analyzed schema. Bundled into this
+    /// response so callers don't need a second `getTables` round-trip after
+    /// every analyze — that was the cost of a "refresh row counts" tick.
+    pub tables: Vec<TableInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

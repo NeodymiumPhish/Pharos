@@ -40,11 +40,24 @@ func withAsyncCallback<T: Decodable>(
                 let error = String(cString: errorMsg)
                 continuation.resume(throwing: PharosCoreError.rustError(error))
             } else if let resultJson {
-                let json = String(cString: resultJson)
+                // Decode directly from the C buffer instead of String(cString:)
+                // + Data(json.utf8), which used to make two full-JSON copies
+                // per FFI call. The pointer is owned by Rust and freed on
+                // callback return, so the no-copy Data is only safe to use
+                // synchronously inside this closure — JSONDecoder reads it
+                // before we return.
+                let length = strlen(resultJson)
+                let bytes = UnsafeRawPointer(resultJson)
+                let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes),
+                                count: length,
+                                deallocator: .none)
                 do {
-                    let decoded = try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+                    let decoded = try JSONDecoder.pharos.decode(T.self, from: data)
                     continuation.resume(returning: decoded)
                 } catch {
+                    // Only materialize the full string on the error path; the
+                    // happy path skips the allocation entirely.
+                    let json = String(cString: resultJson)
                     continuation.resume(throwing: PharosCoreError.decodingError(json, error))
                 }
             } else {
@@ -104,8 +117,7 @@ extension PharosCore {
     static func callSync<T: Decodable>(_ ffi: () -> UnsafeMutablePointer<CChar>?) throws -> T {
         guard let ptr = ffi() else { throw PharosCoreError.nullResult }
         defer { pharos_free_string(ptr) }
-        let json = String(cString: ptr)
-        return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+        return try decodeNoCopy(ptr)
     }
 
     /// Call a sync FFI function with a JSON-encoded input, decode the result.
@@ -116,8 +128,23 @@ extension PharosCore {
         let jsonStr = String(decoding: try JSONEncoder.pharos.encode(input), as: UTF8.self)
         guard let ptr = jsonStr.withCString({ ffi($0) }) else { throw PharosCoreError.nullResult }
         defer { pharos_free_string(ptr) }
-        let json = String(cString: ptr)
-        return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+        return try decodeNoCopy(ptr)
+    }
+
+    /// Decode a JSON C-string without an extra full-string allocation.
+    /// `Data(bytesNoCopy:)` is safe here because the FFI pointer outlives the
+    /// synchronous decode and is freed by the caller's `defer`.
+    private static func decodeNoCopy<T: Decodable>(_ ptr: UnsafeMutablePointer<CChar>) throws -> T {
+        let length = strlen(ptr)
+        let data = Data(bytesNoCopy: UnsafeMutableRawPointer(ptr),
+                        count: length,
+                        deallocator: .none)
+        do {
+            return try JSONDecoder.pharos.decode(T.self, from: data)
+        } catch {
+            // Allocate the descriptive string only on the error path.
+            throw PharosCoreError.decodingError(String(cString: ptr), error)
+        }
     }
 
     /// Call a sync FFI function that returns NULL on success or error string on failure.

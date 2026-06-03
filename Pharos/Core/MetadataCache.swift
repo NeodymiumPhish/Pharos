@@ -160,6 +160,13 @@ final class MetadataCache: ObservableObject {
         var allTables = self.tables
         var allColumns = self.columnsByTable
 
+        // Publish on completion (and once after the priority schema, so the
+        // user's selected schema feeds autocomplete fast). Republishing on
+        // every schema fans out to all subscribers (EditorPaneVC,
+        // SQLCompletionProvider) and turned an N-schema connection load into N
+        // full propagations through Combine.
+        var priorityPublished = false
+
         for schema in ordered {
             guard !Task.isCancelled else { return }
             // Skip schemas we already loaded
@@ -191,15 +198,27 @@ final class MetadataCache: ObservableObject {
                     allColumns["\(schema.name).\(tableName)"] = cols
                 }
 
-                // Publish incrementally so autocomplete updates as each schema loads
-                self.tables = allTables
-                self.columnsByTable = allColumns
-                // Update cache incrementally
+                // Always keep the cache mirror in sync — this is plain
+                // dictionary assignment, no publisher fan-out.
                 self.connectionCaches[connectionId]?.tables = allTables
                 self.connectionCaches[connectionId]?.columnsByTable = allColumns
+
+                // Publish once after the priority schema lands so autocomplete
+                // for the user's active schema is responsive without paying for
+                // N full propagations.
+                if !priorityPublished, let priority, schema.name == priority {
+                    self.tables = allTables
+                    self.columnsByTable = allColumns
+                    priorityPublished = true
+                }
             } catch {
                 NSLog("MetadataCache: Failed to load tables/columns for \(schema.name): \(error)")
             }
         }
+
+        // Final publish — single propagation through Combine for the rest.
+        guard !Task.isCancelled else { return }
+        self.tables = allTables
+        self.columnsByTable = allColumns
     }
 }

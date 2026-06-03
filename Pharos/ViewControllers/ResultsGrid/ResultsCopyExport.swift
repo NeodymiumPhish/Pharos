@@ -142,105 +142,120 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         copyAsTSV(sender)
     }
 
-    @objc func copyAsTSV(_: Any?) {
+    /// Format a CopyData payload off the main thread, then set the pasteboard on main.
+    /// For large selections (10k+ rows) the join/escape/SQL build was the longest
+    /// main-thread block in the app; this keeps the UI responsive during copies.
+    private func copyOnBackground(_ format: @escaping (CopyData) -> String) {
         guard let data = gatherData() else { return }
-        var lines = data.rows.map { $0.joined(separator: "\t") }
-        if data.includeHeaders {
-            lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let text = format(data)
+            DispatchQueue.main.async {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    @objc func copyAsTSV(_: Any?) {
+        copyOnBackground { data in
+            var lines = data.rows.map { $0.joined(separator: "\t") }
+            if data.includeHeaders {
+                lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
+            }
+            return lines.joined(separator: "\n")
+        }
     }
 
     @objc func copyAsCSV(_: Any?) {
-        guard let data = gatherData() else { return }
-        var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
-        if data.includeHeaders {
-            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-            lines.insert(header, at: 0)
+        copyOnBackground { data in
+            var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+            if data.includeHeaders {
+                let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+                lines.insert(header, at: 0)
+            }
+            return lines.joined(separator: "\n")
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
     @objc func copyAsMarkdown(_: Any?) {
-        guard let data = gatherData() else { return }
-        let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
-        let result: String
-        if data.includeHeaders {
-            let header = "| " + data.columnNames.joined(separator: " | ") + " |"
-            let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
-            result = ([header, divider] + rows).joined(separator: "\n")
-        } else {
-            result = rows.joined(separator: "\n")
+        copyOnBackground { data in
+            let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
+            if data.includeHeaders {
+                let header = "| " + data.columnNames.joined(separator: " | ") + " |"
+                let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
+                return ([header, divider] + rows).joined(separator: "\n")
+            } else {
+                return rows.joined(separator: "\n")
+            }
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result, forType: .string)
     }
 
     @objc func copyAsSQLInsert(_: Any?) {
-        guard let data = gatherData() else { return }
         let cats = columnCategories
-        let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
-        let statements = data.rows.map { row in
-            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                if val.isEmpty || val == "NULL" { return "NULL" }
-                let category = colIdx < cats.count ? cats[colIdx] : .string
-                switch category {
-                case .numeric:
-                    return val
-                case .boolean:
-                    return Self.sqlBooleanLiteral(val)
-                default:
-                    return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+        copyOnBackground { data in
+            let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
+            let statements = data.rows.map { row in
+                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
+                    if val.isEmpty || val == "NULL" { return "NULL" }
+                    let category = colIdx < cats.count ? cats[colIdx] : .string
+                    switch category {
+                    case .numeric:
+                        return val
+                    case .boolean:
+                        return Self.sqlBooleanLiteral(val)
+                    default:
+                        return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                    }
                 }
+                return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
             }
-            return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
+            return statements.joined(separator: "\n")
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(statements.joined(separator: "\n"), forType: .string)
     }
 
     @objc func copyAsSQLWith(_: Any?) {
-        guard var data = gatherData() else { return }
-        data = CopyData(columnNames: data.columnNames, columnIndices: data.columnIndices, rows: data.rows, includeHeaders: false)
         let cats = columnCategories
+        let cols = columns
+        copyOnBackground { data in
+            // copyAsSQLWith historically suppressed headers regardless of the
+            // user toggle (the WITH/cte() carries column names already), so
+            // preserve that behavior here in the off-thread path.
+            let _ = data.includeHeaders
 
-        let colList = data.columnNames.joined(separator: ", ")
-        let valueRows = data.rows.enumerated().map { (rowIdx, row) in
-            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                let pgType = colIdx < columns.count ? columns[colIdx].dataType : "text"
-                // NULLs in row 0 still need the type cast — otherwise PG has
-                // nothing to anchor type inference on for that column and
-                // mixed-type unification across rows can fail downstream.
-                if val.isEmpty || val == "NULL" {
-                    return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
+            let colList = data.columnNames.joined(separator: ", ")
+            let valueRows = data.rows.enumerated().map { (rowIdx, row) in
+                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
+                    let pgType = colIdx < cols.count ? cols[colIdx].dataType : "text"
+                    // NULLs in row 0 still need the type cast — otherwise PG has
+                    // nothing to anchor type inference on for that column and
+                    // mixed-type unification across rows can fail downstream.
+                    if val.isEmpty || val == "NULL" {
+                        return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
+                    }
+                    let category = colIdx < cats.count ? cats[colIdx] : .string
+                    let literal: String
+                    switch category {
+                    case .numeric:
+                        literal = val
+                    case .boolean:
+                        literal = Self.sqlBooleanLiteral(val)
+                    default:
+                        literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                    }
+                    // Cast on first row so PG infers types for the rest. Boolean
+                    // literals already type themselves via the TRUE/FALSE keyword
+                    // (or the embedded ::boolean cast for unrecognized forms), so
+                    // skip the extra cast there to avoid double-cast noise.
+                    if rowIdx == 0 && category != .boolean {
+                        return "\(literal)::\(pgType)"
+                    }
+                    return literal
                 }
-                let category = colIdx < cats.count ? cats[colIdx] : .string
-                let literal: String
-                switch category {
-                case .numeric:
-                    literal = val
-                case .boolean:
-                    literal = Self.sqlBooleanLiteral(val)
-                default:
-                    literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                }
-                // Cast on first row so PG infers types for the rest. Boolean
-                // literals already type themselves via the TRUE/FALSE keyword
-                // (or the embedded ::boolean cast for unrecognized forms), so
-                // skip the extra cast there to avoid double-cast noise.
-                if rowIdx == 0 && category != .boolean {
-                    return "\(literal)::\(pgType)"
-                }
-                return literal
+                return "    (\(values.joined(separator: ", ")))"
             }
-            return "    (\(values.joined(separator: ", ")))"
-        }
 
-        let sql = "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(sql, forType: .string)
+            return "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
+        }
     }
 
     /// Normalize a string from a boolean-typed column to a SQL boolean literal.
@@ -338,12 +353,18 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            do {
-                let content = generator(data)
-                try content.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
+            // Format + write off main — multi-MB exports otherwise stall the UI
+            // until the file lands on disk.
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let content = generator(data)
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                } catch {
+                    DispatchQueue.main.async {
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
+                }
             }
         }
     }
@@ -378,15 +399,19 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            do {
-                let jsonArray = data.rows.map { row in
-                    Dictionary(zip(data.columnNames, row), uniquingKeysWith: { _, last in last })
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let jsonArray = data.rows.map { row in
+                        Dictionary(zip(data.columnNames, row), uniquingKeysWith: { _, last in last })
+                    }
+                    let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
+                    try jsonData.write(to: url)
+                } catch {
+                    DispatchQueue.main.async {
+                        let alert = NSAlert(error: error)
+                        alert.runModal()
+                    }
                 }
-                let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
-                try jsonData.write(to: url)
-            } catch {
-                let alert = NSAlert(error: error)
-                alert.runModal()
             }
         }
     }

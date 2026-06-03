@@ -151,12 +151,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Public API
 
+    /// Fingerprint of the rebuilt tree's visible structure. Stable across
+    /// renames (changes in query.name) — those are detected via the SavedQuery
+    /// hash inside `treeFingerprint()`. Used to skip reloadData when a filter
+    /// keystroke produces the same tree we already show.
+    private var lastTreeFingerprint: [String] = []
+
     func reload() {
         do {
             allQueries = try PharosCore.loadSavedQueries()
-            rebuildTree()
-            outlineView.reloadData()
-            expandAll()
+            applyTreeChange()
         } catch {
             NSLog("Failed to load saved queries: \(error)")
         }
@@ -166,16 +170,49 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     func applyFilter(_ text: String) {
         filterText = text.lowercased()
-        rebuildTree()
-        outlineView.reloadData()
-        expandAll()
+        applyTreeChange()
     }
 
     func clearFilter() {
         filterText = nil
+        applyTreeChange()
+    }
+
+    /// Rebuild + reload only if the tree's visible structure (folders, queries,
+    /// titles) actually changed. Skips the (expensive on large libraries)
+    /// outline view reload + expand-all when typing/clearing a filter
+    /// produces an identical tree.
+    private func applyTreeChange() {
         rebuildTree()
+        let fingerprint = treeFingerprint()
+        if fingerprint == lastTreeFingerprint {
+            return
+        }
+        lastTreeFingerprint = fingerprint
         outlineView.reloadData()
         expandAll()
+    }
+
+    /// Build a flat list of "folder/query name" identifiers reflecting the
+    /// current rootNodes. Two trees with the same fingerprint render identical
+    /// cells in identical order, so a reload would be no-op.
+    private func treeFingerprint() -> [String] {
+        var out: [String] = []
+        out.reserveCapacity(rootNodes.count)
+        for node in rootNodes {
+            switch node.kind {
+            case .folder(let name):
+                out.append("F:\(name)")
+                for child in node.children {
+                    if case .query(let q) = child.kind {
+                        out.append("  Q:\(q.id):\(q.name)")
+                    }
+                }
+            case .query(let q):
+                out.append("Q:\(q.id):\(q.name)")
+            }
+        }
+        return out
     }
 
     /// Highlight the saved query that's open in the active tab.
@@ -227,7 +264,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             do {
                 _ = try PharosCore.batchDeleteSavedQueries(ids: selectedIds)
                 self?.reload()
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to batch delete saved queries: \(error)")
             }
@@ -511,7 +548,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 let update = UpdateSavedQuery(id: q.id, name: newName, folder: q.folder, sql: q.sql)
                 _ = try PharosCore.updateSavedQuery(update)
                 reload()
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to rename query: \(error)")
             }
@@ -527,7 +564,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 }
             }
             reload()
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            NotificationCoalescer.post(.savedQueriesDidChange)
         }
     }
 
@@ -539,7 +576,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             do {
                 _ = try PharosCore.deleteSavedQuery(id: q.id)
                 reload()
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to delete saved query: \(error)")
             }
@@ -566,7 +603,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                     _ = try? PharosCore.batchDeleteSavedQueries(ids: ids)
                 }
                 self?.reload()
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             }
         }
     }
@@ -613,7 +650,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         do {
             _ = try PharosCore.createSavedQuery(query)
             reload()
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            NotificationCoalescer.post(.savedQueriesDidChange)
         } catch {
             NSLog("Failed to create folder: \(error)")
         }
@@ -624,7 +661,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         do {
             let saved = try PharosCore.createSavedQuery(query)
             reload()
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            NotificationCoalescer.post(.savedQueriesDidChange)
             openQueryInTab(saved)
         } catch {
             NSLog("Failed to create query: \(error)")
@@ -722,7 +759,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
 
         reload()
-        NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+        NotificationCoalescer.post(.savedQueriesDidChange)
         return true
     }
 
@@ -789,9 +826,18 @@ extension SavedQueriesVC: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        // Check if multiple queries are selected
+        // Only treat this as a batch operation when the user right-clicked a
+        // row that's actually part of the multi-row selection. NSOutlineView
+        // (unlike NSTableView) doesn't automatically replace the selection on
+        // right-click, so a click on an unselected row used to surface the
+        // batch-delete item targeting other rows.
+        let clickedRow = outlineView.clickedRow
+        let selectedRows = outlineView.selectedRowIndexes
         let selectedQueryCount = collectSelectedQueryIds().count
-        if selectedQueryCount > 1 {
+        if selectedQueryCount > 1
+            && clickedRow >= 0
+            && selectedRows.contains(clickedRow)
+        {
             // Multi-select context menu: only batch operations
             let deleteItem = NSMenuItem(
                 title: "Delete \(selectedQueryCount) Queries",
@@ -849,7 +895,7 @@ extension SavedQueriesVC: SavedQueryCellEditingDelegate {
             }
         }
         reload()
-        NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+        NotificationCoalescer.post(.savedQueriesDidChange)
     }
 }
 

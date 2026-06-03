@@ -99,6 +99,31 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     private var settingsCancellable: AnyCancellable?
 
+    // Highlight backgrounds — cached as CGColor to dodge the per-cell
+    // NSColor.withAlphaComponent + .cgColor allocations that were showing up
+    // in Instruments during scroll. `selectedContentBackgroundColor` is
+    // appearance-dependent (light vs. dark), so refresh the cgColor whenever
+    // effectiveAppearance flips. The yellow tints are static accent overlays
+    // and don't need to track appearance.
+    private static let findCurrentBg: CGColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
+    private static let findOtherBg: CGColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
+    private var cachedSelectionBg: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+    private var cachedAppearanceName: NSAppearance.Name?
+
+    /// Refresh the selection-bg cgColor when the effective appearance changes.
+    /// Called from viewFor and updateVisibleCellSelectionAppearance — both run
+    /// after AppKit has resolved effectiveAppearance on the table view.
+    private func refreshSelectionBgIfNeeded() {
+        let name = tableView.effectiveAppearance.name
+        guard name != cachedAppearanceName else { return }
+        cachedAppearanceName = name
+        var cg: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+        tableView.effectiveAppearance.performAsCurrentDrawingAppearance {
+            cg = NSColor.selectedContentBackgroundColor.cgColor
+        }
+        cachedSelectionBg = cg
+    }
+
     private func rebuildColumnIndex() {
         // Note: this is keyed by column NAME, but viewFor receives the
         // tableColumn whose identifier is also the column name. The dict's
@@ -113,10 +138,31 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         columnIdToIndex = map
     }
 
-    private func applySettingsSnapshot(_ settings: AppSettings) {
-        nullDisplayString = settings.nullDisplay.rawValue
-        boolTrueString = settings.boolDisplay.trueString
-        boolFalseString = settings.boolDisplay.falseString
+    /// Signature of the AppSettings fields that actually drive grid cell
+    /// rendering. Used to skip the full tableView.reloadData() when an
+    /// unrelated setting (editor font, history retention, etc.) republishes.
+    private struct DisplaySignature: Equatable {
+        let nullDisplay: String
+        let boolTrue: String
+        let boolFalse: String
+    }
+    private var lastDisplaySignature: DisplaySignature?
+
+    /// Apply the AppSettings snapshot to local caches. Returns true if any
+    /// field that affects already-rendered cells actually changed.
+    @discardableResult
+    private func applySettingsSnapshot(_ settings: AppSettings) -> Bool {
+        let next = DisplaySignature(
+            nullDisplay: settings.nullDisplay.rawValue,
+            boolTrue: settings.boolDisplay.trueString,
+            boolFalse: settings.boolDisplay.falseString
+        )
+        nullDisplayString = next.nullDisplay
+        boolTrueString = next.boolTrue
+        boolFalseString = next.boolFalse
+        let changed = next != lastDisplaySignature
+        lastDisplaySignature = next
+        return changed
     }
 
     // Find highlight state (pushed by VC after find operations)
@@ -144,8 +190,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] settings in
-                self?.applySettingsSnapshot(settings)
-                self?.tableView.reloadData()
+                guard let self else { return }
+                // Only reloadData when a field that affects grid rendering
+                // actually changed; editor-only settings (font, line numbers,
+                // word wrap) used to trigger full reloads of 10k-row grids.
+                let changed = self.applySettingsSnapshot(settings)
+                if changed {
+                    self.tableView.reloadData()
+                }
             }
 
         // User-driven column reorder doesn't go through pushDataToHelpers, so
@@ -170,6 +222,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let colId = tableColumn?.identifier, row < displayRows.count else { return nil }
+        refreshSelectionBgIfNeeded()
         let colIdRaw = colId.rawValue
 
         let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colIdRaw)")
@@ -231,13 +284,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let isInSelection = cellSelection?.contains(CellPosition(row: row, column: cellColumnIndex)) ?? false
 
         // Background precedence: current find match > other find match >
-        // selection > clear. Assigned exactly once.
+        // selection > clear. Assigned exactly once. CGColors are cached on the
+        // data source so scroll/realize doesn't re-allocate per cell.
         if isCurrentMatch {
-            cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
+            cell.layer?.backgroundColor = Self.findCurrentBg
         } else if isOtherMatch {
-            cell.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
+            cell.layer?.backgroundColor = Self.findOtherBg
         } else if isInSelection {
-            cell.layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
+            cell.layer?.backgroundColor = cachedSelectionBg
         } else {
             cell.layer?.backgroundColor = nil
         }
@@ -256,34 +310,83 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Cell Selection Fast Path
 
+    /// Cells inside this rectangle were assigned selection styling by the
+    /// previous `updateVisibleCellSelectionAppearance` call. Tracking it lets
+    /// each drag tick repaint only `prev ∪ current` instead of every visible
+    /// cell — the old code did ~visibleRows × allColumns lookups per frame
+    /// during drag, which choked on wide result sets.
+    private var lastAppliedSelectionRect: (rowLo: Int, rowHi: Int, colLo: Int, colHi: Int)?
+
     /// Iterates visible cells and updates fill + text color for cell selection
     /// without calling reloadData(). Used during drag for smooth updates.
     func updateVisibleCellSelectionAppearance() {
         let visibleRows = tableView.rows(in: tableView.visibleRect)
         guard visibleRows.length > 0 else { return }
+        refreshSelectionBgIfNeeded()
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        let visRowLo = visibleRows.location
+        let visRowHi = visibleRows.location + visibleRows.length - 1
+        let colCount = tableView.numberOfColumns
+        guard colCount > 0 else { return }
 
-        for row in visibleRows.location..<(visibleRows.location + visibleRows.length) {
-            for colIdx in 0..<tableView.numberOfColumns {
-                guard let cell = tableView.view(atColumn: colIdx, row: row, makeIfNecessary: false) as? ResultCellView else { continue }
-                let colId = tableView.tableColumns[colIdx].identifier.rawValue
-                let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
-                    && (findMatchSet.contains(CellAddress(row: row, colId: colId))
-                        || (currentMatchRow == row && currentMatchColId == colId))
-
-                let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIdx)) ?? false
-                if !isFindHighlighted {
-                    cell.layer?.backgroundColor = isInSelection
-                        ? NSColor.selectedContentBackgroundColor.cgColor
-                        : nil
-                }
-                cell.isSelected = isInSelection && !isFindHighlighted
-            }
+        // Current selection rect, clipped to the visible rows.
+        let newRect: (rowLo: Int, rowHi: Int, colLo: Int, colHi: Int)?
+        if let range = cellSelection?.selectedRange {
+            let rLo = max(range.topLeft.row, visRowLo)
+            let rHi = min(range.bottomRight.row, visRowHi)
+            let cLo = max(range.topLeft.column, 0)
+            let cHi = min(range.bottomRight.column, colCount - 1)
+            newRect = (rLo <= rHi && cLo <= cHi) ? (rLo, rHi, cLo, cHi) : nil
+        } else {
+            newRect = nil
         }
 
-        CATransaction.commit()
+        // Build the dirty rectangle = previous-applied ∪ current. Cells in the
+        // intersection are touched too — cheap relative to the original
+        // visible-rect sweep, and avoids any staleness if prev coords no
+        // longer point to the same data (column reorder, reloadData, etc.).
+        let prev = lastAppliedSelectionRect
+        let dirty: (rowLo: Int, rowHi: Int, colLo: Int, colHi: Int)?
+        switch (prev, newRect) {
+        case (nil, nil):
+            dirty = nil
+        case let (.some(p), nil):
+            dirty = (max(p.rowLo, visRowLo), min(p.rowHi, visRowHi), p.colLo, min(p.colHi, colCount - 1))
+        case let (nil, .some(n)):
+            dirty = n
+        case let (.some(p), .some(n)):
+            dirty = (
+                max(min(p.rowLo, n.rowLo), visRowLo),
+                min(max(p.rowHi, n.rowHi), visRowHi),
+                max(0, min(p.colLo, n.colLo)),
+                min(max(p.colHi, n.colHi), colCount - 1)
+            )
+        }
+
+        if let d = dirty, d.rowLo <= d.rowHi, d.colLo <= d.colHi {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+
+            for row in d.rowLo...d.rowHi {
+                for colIdx in d.colLo...d.colHi {
+                    guard let cell = tableView.view(atColumn: colIdx, row: row, makeIfNecessary: false) as? ResultCellView else { continue }
+                    let colId = tableView.tableColumns[colIdx].identifier.rawValue
+                    let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
+                        && (findMatchSet.contains(CellAddress(row: row, colId: colId))
+                            || (currentMatchRow == row && currentMatchColId == colId))
+
+                    let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIdx)) ?? false
+                    if !isFindHighlighted {
+                        cell.layer?.backgroundColor = isInSelection ? cachedSelectionBg : nil
+                    }
+                    cell.isSelected = isInSelection && !isFindHighlighted
+                }
+            }
+
+            CATransaction.commit()
+        }
+
+        lastAppliedSelectionRect = newRect
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {

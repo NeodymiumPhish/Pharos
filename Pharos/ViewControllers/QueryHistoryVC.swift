@@ -174,6 +174,17 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             }
             await MainActor.run {
                 guard let self, generation == self.requeryGeneration else { return }
+                // Skip reload if the result set is identical to what we already
+                // show. Comparing the id list is cheap (<=200 entries) and
+                // avoids redoing the cell tree work — preserves selection and
+                // scroll position on harmless requeries (e.g. queryHistoryDidChange
+                // posted but the new entry doesn't pass the current filter).
+                let oldIds = self.entries.map { $0.id }
+                let newIds = loaded.map { $0.id }
+                guard oldIds != newIds else {
+                    self.entries = loaded
+                    return
+                }
                 self.entries = loaded
                 self.tableView.reloadData()
             }
@@ -209,6 +220,13 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         } catch {
             NSLog("Failed to delete history entry: \(error)")
         }
+    }
+
+    /// Context-menu action used when more than one row is selected — routes
+    /// through the confirmed batch-delete flow already used by the
+    /// Backspace/Delete keypath.
+    @objc private func contextDeleteSelected(_: Any?) {
+        deleteSelectedEntries()
     }
 
     private func buildContextMenu() -> NSMenu {
@@ -311,6 +329,20 @@ extension QueryHistoryVC: NSMenuDelegate {
         menu.removeAllItems()
         let row = tableView.clickedRow
         guard row >= 0, row < entries.count else { return }
+
+        // Right-clicking a row that's already part of a multi-row selection
+        // should operate on the whole selection. AppKit replaces the selection
+        // when right-clicking outside it, so by the time this fires the
+        // selection already reflects what the click targets.
+        let selectedRows = tableView.selectedRowIndexes
+        if selectedRows.count > 1 && selectedRows.contains(row) {
+            menu.addItem(
+                withTitle: "Delete \(selectedRows.count) Items",
+                action: #selector(contextDeleteSelected),
+                keyEquivalent: ""
+            )
+            return
+        }
 
         menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
         menu.addItem(.separator())

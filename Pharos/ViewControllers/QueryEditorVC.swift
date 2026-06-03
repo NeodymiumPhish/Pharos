@@ -138,9 +138,15 @@ class QueryEditorVC: NSViewController {
         textView.unfoldAll()
         let current = getSQL()
         guard !current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let formatted = PharosCore.formatSQL(current)
-        setSQL(formatted)
-        textDidChange(formatted)
+        // Format off main — sqlformat can chew tens of ms on large queries.
+        // Bail if the editor text changed under us (user kept typing) so we
+        // don't clobber their work with a stale formatted copy.
+        Task { @MainActor [weak self] in
+            let formatted = await PharosCore.formatSQL(current)
+            guard let self, self.getSQL() == current else { return }
+            self.setSQL(formatted)
+            self.textDidChange(formatted)
+        }
     }
 
     /// Flag to suppress the onTextChange callback during programmatic text updates.

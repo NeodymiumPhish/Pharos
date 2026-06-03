@@ -1165,7 +1165,7 @@ class ContentViewController: NSViewController {
                         } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
                         }
-                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                        NotificationCoalescer.post(.queryHistoryDidChange)
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
                             tabId: tabId,
@@ -1197,7 +1197,7 @@ class ContentViewController: NSViewController {
                         } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showExecuteResult(result)
                         }
-                        NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+                        NotificationCoalescer.post(.queryHistoryDidChange)
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
                             tabId: tabId,
@@ -1442,7 +1442,7 @@ class ContentViewController: NSViewController {
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
             let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql) { _ in
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             }
             // Delay briefly so the detail sheet dismiss animation completes
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -1885,7 +1885,7 @@ extension ContentViewController {
                 let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL)
                 _ = try PharosCore.updateSavedQuery(update)
                 stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
-                NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+                NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to update saved query: \(error)")
             }
@@ -1939,7 +1939,7 @@ extension ContentViewController {
             case .replaced(let q): savedQuery = q
             }
             self.stateManager.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
-            NotificationCenter.default.post(name: .savedQueriesDidChange, object: nil)
+            NotificationCoalescer.post(.savedQueriesDidChange)
         }
         presentAsSheet(sheet)
     }

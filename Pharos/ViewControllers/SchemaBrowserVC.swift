@@ -235,16 +235,15 @@ class SchemaBrowserVC: NSViewController {
         let capturedConnectionId = connectionId
 
         Task {
-            // ANALYZE unanalyzed tables (fire-and-forget — don't block UI update)
-            _ = try? await PharosCore.analyzeSchema(connectionId: capturedConnectionId, schema: schemaName)
-
-            // Re-fetch tables to get fresh row counts (works even if ANALYZE was a no-op)
-            guard let updatedTables = try? await PharosCore.getTables(connectionId: capturedConnectionId, schema: schemaName) else {
+            // Single FFI call: analyze returns refreshed table info, avoiding
+            // a follow-up getTables round-trip (was ~200–500ms per refresh on
+            // large databases).
+            guard let analyzeResult = try? await PharosCore.analyzeSchema(connectionId: capturedConnectionId, schema: schemaName) else {
                 NSLog("Failed to refresh row counts for \(schemaName)")
                 return
             }
 
-            let countMap = Dictionary(uniqueKeysWithValues: updatedTables.map { ($0.name, $0) })
+            let countMap = Dictionary(uniqueKeysWithValues: analyzeResult.tables.map { ($0.name, $0) })
 
             await MainActor.run {
                 // Update the schema node in-place (reference type — updates cache too)
@@ -437,9 +436,13 @@ class SchemaBrowserVC: NSViewController {
             nodes = unfilteredRootNodes
         }
 
-        // Step 2: Apply text filter on top
+        // Step 2: Apply text filter on top. We collect the nodes that should
+        // be auto-expanded inline during the recursive walk so we don't have
+        // to re-traverse the filtered tree afterward (was a separate
+        // expandFilteredItems pass — doubled the visit count on large schemas).
+        var toExpand: [SchemaTreeNode] = []
         if let filter = filterText, !filter.isEmpty {
-            nodes = nodes.compactMap { filterNode($0, text: filter) }
+            nodes = nodes.compactMap { filterNode($0, text: filter, expandList: &toExpand) }
         }
 
         rootNodes = nodes
@@ -455,8 +458,10 @@ class SchemaBrowserVC: NSViewController {
         // Step 3: Auto-expand based on context.
         if activeSchemaFilter != nil {
             // Flattened: tables/views are already root-level, no expansion needed.
-        } else if let filter = filterText, !filter.isEmpty {
-            expandFilteredItems(rootNodes)
+        } else if filterText?.isEmpty == false {
+            for node in toExpand {
+                outlineView.expandItem(node)
+            }
         } else if let pub = rootNodes.first(where: { $0.schemaName == "public" }),
                   !outlineView.isItemExpanded(pub),
                   pub.children.count <= Self.autoExpandTableThreshold {
@@ -474,8 +479,12 @@ class SchemaBrowserVC: NSViewController {
     /// clicking the disclosure triangle explicitly.
     private static let autoExpandTableThreshold = 500
 
-    /// Recursively filter tree. Returns a filtered copy of the node if it or any descendant matches.
-    private func filterNode(_ node: SchemaTreeNode, text: String) -> SchemaTreeNode? {
+    /// Recursively filter tree. Returns a filtered copy of the node if it or
+    /// any descendant matches. Appends schemas/tables/views that have visible
+    /// children to `expandList` so the caller can expand them in a single
+    /// post-walk pass — saves a second recursion over the (potentially huge)
+    /// filtered tree.
+    private func filterNode(_ node: SchemaTreeNode, text: String, expandList: inout [SchemaTreeNode]) -> SchemaTreeNode? {
         let titleMatches = node.title.lowercased().contains(text)
 
         switch node.kind {
@@ -483,15 +492,18 @@ class SchemaBrowserVC: NSViewController {
             return nil
 
         case .schema:
-            let matchingChildren = node.children.compactMap { filterNode($0, text: text) }
+            let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
             if matchingChildren.isEmpty && !titleMatches { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
             for child in matchingChildren { filtered.addChild(child) }
+            if !filtered.children.isEmpty {
+                expandList.append(filtered)
+            }
             return filtered
 
         case .table, .view:
-            let matchingChildren = node.children.compactMap { filterNode($0, text: text) }
+            let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
             if !titleMatches && matchingChildren.isEmpty { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
@@ -500,30 +512,13 @@ class SchemaBrowserVC: NSViewController {
             } else {
                 for child in matchingChildren { filtered.addChild(child) }
             }
+            if !filtered.children.isEmpty {
+                expandList.append(filtered)
+            }
             return filtered
 
         case .column:
             return titleMatches ? node : nil
-        }
-    }
-
-    /// Expand schemas and tables so filtered results are visible.
-    private func expandFilteredItems(_ nodes: [SchemaTreeNode]) {
-        for node in nodes {
-            switch node.kind {
-            case .schema:
-                if !node.children.isEmpty {
-                    outlineView.expandItem(node)
-                    expandFilteredItems(node.children)
-                }
-            case .table, .view:
-                // Expand table/view if it has matching column children
-                if !node.children.isEmpty {
-                    outlineView.expandItem(node)
-                }
-            default:
-                break
-            }
         }
     }
 
