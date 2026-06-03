@@ -336,6 +336,14 @@ class EditorPaneVC: NSViewController {
 
         // Sync gutter pulse to the newly-activated tab.
         editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
+
+        // The connection/schema popup labels read from `activeTab?.connectionId`
+        // and `activeTab?.schemaName`. When the active tab in this pane changes,
+        // the QueryTab objects themselves are unchanged, so $tabs doesn't emit
+        // and the popups would stay stuck on the previous tab's values. Rebuild
+        // them explicitly here.
+        rebuildConnectionMenu()
+        rebuildSchemaMenu()
     }
 
     // MARK: - Focus Tracking
