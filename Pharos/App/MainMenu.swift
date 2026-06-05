@@ -26,7 +26,7 @@ enum MainMenu {
         // File menu (connections & queries)
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "New Connection...", action: #selector(MainWindowController.showAddConnectionSheet), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "Manage Connections…", action: #selector(MainWindowController.showConnectionsManager), keyEquivalent: "n")
 
         let openItem = fileMenu.addItem(withTitle: "Open…", action: #selector(AppDelegate.menuOpenSQLFile(_:)), keyEquivalent: "o")
         openItem.keyEquivalentModifierMask = [.command]

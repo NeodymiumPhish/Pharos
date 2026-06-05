@@ -20,6 +20,12 @@ extension PharosCore {
         try callSyncVoid(id: id) { pharos_delete_connection($0) }
     }
 
+    /// Persist a new ordering of connections. `ids` is the full ordered list
+    /// of connection IDs (top-to-bottom in the UI).
+    static func reorderConnections(ids: [String]) throws {
+        try callSyncVoid(input: ids) { pharos_reorder_connections($0) }
+    }
+
     /// Connect to a PostgreSQL database.
     static func connect(connectionId: String) async throws -> ConnectionInfo {
         return try await withAsyncCallback { callback, context in

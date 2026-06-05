@@ -112,11 +112,8 @@ class MainWindowController: NSWindowController {
 
     // MARK: - Connection Actions (called from menu bar)
 
-    @objc func showAddConnectionSheet() {
-        let sheet = ConnectionSheet.forNew { [weak self] config in
-            self?.stateManager.saveConnection(config)
-        }
-        window?.contentViewController?.presentAsSheet(sheet)
+    @objc func showConnectionsManager() {
+        ConnectionsManagerWindowController.show()
     }
 }
 

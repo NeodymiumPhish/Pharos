@@ -59,10 +59,10 @@ class SchemaBrowserVC: NSViewController {
         // fast path. With variable heights it queries the delegate (and runs
         // layout bookkeeping) for every row on reload — on a connection with
         // 18k+ tables that single query is a ~2-second main-thread block.
-        // 34px matches the existing tall row used for schema/table/column
-        // rows; only "Loading…" placeholder rows shrink from 24→34 (a 10px
-        // gain), an acceptable visual trade for the perf win.
-        outlineView.rowHeight = 34
+        // 38px gives the stacked title + row-count subtitle a small amount of
+        // vertical breathing room between rows; at 34 the subtitle of one row
+        // sat right against the title of the next.
+        outlineView.rowHeight = 38
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
         schemaDataSource.delegate = self

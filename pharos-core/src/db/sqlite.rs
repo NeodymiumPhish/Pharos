@@ -393,6 +393,21 @@ pub fn delete_connection(conn: &Connection, connection_id: &str) -> SqliteResult
     Ok(())
 }
 
+/// Persist a new ordering of connections. `ids` is the ordered list of
+/// connection IDs (top-to-bottom in the UI); each row's sort_order is
+/// rewritten to match its index in the slice. IDs not present in the slice
+/// are left untouched, so callers should pass the full current list.
+pub fn reorder_connections(conn: &mut Connection, ids: &[String]) -> SqliteResult<()> {
+    let tx = conn.transaction()?;
+    for (idx, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE connections SET sort_order = ?1 WHERE id = ?2",
+            (idx as i32, id),
+        )?;
+    }
+    tx.commit()
+}
+
 // ==================== Saved Queries ====================
 
 /// Create a new saved query

@@ -745,21 +745,12 @@ class EditorPaneVC: NSViewController {
             }
             connectionPopup.menu?.addItem(refreshItem)
 
-            connectionPopup.menu?.addItem(.separator())
-
-            let editItem = NSMenuItem(title: "Edit Connection...", action: #selector(editConnection), keyEquivalent: "")
-            editItem.target = self
-            connectionPopup.menu?.addItem(editItem)
-
-            let deleteItem = NSMenuItem(title: "Delete Connection", action: #selector(deleteConnection), keyEquivalent: "")
-            deleteItem.target = self
-            connectionPopup.menu?.addItem(deleteItem)
         }
 
         connectionPopup.menu?.addItem(.separator())
-        let newItem = NSMenuItem(title: "New Connection...", action: #selector(showAddConnectionSheet), keyEquivalent: "")
-        newItem.target = self
-        connectionPopup.menu?.addItem(newItem)
+        let manageItem = NSMenuItem(title: "Manage Connections…", action: #selector(showConnectionsManager), keyEquivalent: "")
+        manageItem.target = self
+        connectionPopup.menu?.addItem(manageItem)
     }
 
     private func rebuildSchemaMenu() {
@@ -912,39 +903,8 @@ class EditorPaneVC: NSViewController {
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
-    @objc private func showAddConnectionSheet() {
-        let sheet = ConnectionSheet.forNew { [weak self] config in
-            self?.stateManager.saveConnection(config)
-        }
-        view.window?.contentViewController?.presentAsSheet(sheet)
-    }
-
-    @objc private func editConnection() {
-        guard let id = tabConnectionId,
-              let config = stateManager.connections.first(where: { $0.id == id }) else { return }
-        let sheet = ConnectionSheet.forEdit(config) { [weak self] updated in
-            self?.stateManager.saveConnection(updated)
-        }
-        view.window?.contentViewController?.presentAsSheet(sheet)
-    }
-
-    @objc private func deleteConnection() {
-        guard let id = tabConnectionId,
-              let config = stateManager.connections.first(where: { $0.id == id }) else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Delete \"\(config.name)\"?"
-        alert.informativeText = "This will remove the connection and its saved password."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-
-        guard let window = view.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            if response == .alertFirstButtonReturn {
-                self?.stateManager.deleteConnection(id: id)
-            }
-        }
+    @objc private func showConnectionsManager() {
+        ConnectionsManagerWindowController.show()
     }
 
     @objc private func schemaItemClicked(_ sender: NSMenuItem) {

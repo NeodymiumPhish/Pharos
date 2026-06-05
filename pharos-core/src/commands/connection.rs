@@ -90,6 +90,16 @@ pub async fn delete_connection(
     Ok(())
 }
 
+/// Persist the user's connection ordering. `ids` is the full ordered list
+/// (top-to-bottom) of connection IDs. Each row's sort_order is rewritten.
+pub async fn reorder_connections(
+    ids: Vec<String>,
+    state: &AppState,
+) -> Result<(), String> {
+    let mut db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    sqlite::reorder_connections(&mut db, &ids).map_err(|e| e.to_string())
+}
+
 /// Load all saved connection configurations
 pub async fn load_connections(state: &AppState) -> Result<Vec<ConnectionConfig>, String> {
     let mut configs = {

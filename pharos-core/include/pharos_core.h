@@ -33,6 +33,12 @@ typedef void (*AsyncCallback)(void *context, const char *result_json, const char
  char *pharos_save_connection(const char *json);
 
 /**
+ * Reorder connections. `json` is a JSON-encoded array of connection IDs in
+ * the desired top-to-bottom order. Returns NULL on success or error string.
+ */
+ char *pharos_reorder_connections(const char *json);
+
+/**
  * Delete a connection. Returns NULL on success or error string.
  */
  char *pharos_delete_connection(const char *connection_id);

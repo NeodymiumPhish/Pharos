@@ -38,6 +38,25 @@ pub extern "C" fn pharos_save_connection(json: *const c_char) -> *mut c_char {
     })
 }
 
+/// Reorder connections. `json` is a JSON-encoded array of connection IDs in
+/// the desired top-to-bottom order. Returns NULL on success or error string.
+#[no_mangle]
+pub extern "C" fn pharos_reorder_connections(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let json_str = unsafe { c_str_to_string(json) };
+        let ids: Vec<String> = match serde_json::from_str(&json_str) {
+            Ok(v) => v,
+            Err(e) => return to_c_string(&e.to_string()),
+        };
+        match rt.block_on(crate::commands::reorder_connections(ids, state)) {
+            Ok(()) => std::ptr::null_mut(),
+            Err(e) => to_c_string(&e),
+        }
+    })
+}
+
 /// Delete a connection. Returns NULL on success or error string.
 #[no_mangle]
 pub extern "C" fn pharos_delete_connection(connection_id: *const c_char) -> *mut c_char {

@@ -114,6 +114,17 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Persist a new ordering for all connections. Pass the full ordered ID list.
+    func reorderConnections(ids: [String]) {
+        do {
+            try PharosCore.reorderConnections(ids: ids)
+            loadConnections()
+        } catch {
+            NSLog("Failed to reorder connections: \(error)")
+            lastError = "Failed to reorder connections: \(error.localizedDescription)"
+        }
+    }
+
     func connect(id: String) {
         connectionStatuses[id] = .connecting
         postStatusChange(id)
