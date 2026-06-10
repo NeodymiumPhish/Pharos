@@ -22,13 +22,10 @@ enum SQLListFormatter {
     /// offering to SQL-ize: 2+ non-empty lines, mostly single tokens, no
     /// strong SQL keywords, and not already a quoted comma-separated list.
     static func looksLikeBareList(_ text: String) -> Bool {
-        let rawLines = text.components(separatedBy: .newlines)
-        guard rawLines.count <= maxLines else { return false }
-
-        let lines = rawLines
+        let lines = text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        guard lines.count >= 2 else { return false }
+        guard lines.count >= 2, lines.count <= maxLines else { return false }
         guard lines.allSatisfy({ $0.count <= maxLineLength }) else { return false }
 
         for line in lines {
@@ -38,6 +35,10 @@ enum SQLListFormatter {
 
         let singleTokenCount = lines.filter { !$0.contains(" ") && !$0.contains("\t") }.count
         guard Double(singleTokenCount) >= 0.8 * Double(lines.count) else { return false }
+
+        // Lines containing quote-comma-quote are already SQL-formatted rows
+        // (e.g. 'a','b'); offering would garble them.
+        if lines.contains(where: { $0.contains("','") || $0.contains("\",\"") }) { return false }
 
         if isAlreadyFormattedList(lines) { return false }
 

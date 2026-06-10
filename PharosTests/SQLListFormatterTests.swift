@@ -57,6 +57,22 @@ func runTests() {
     expectEqual(SQLListFormatter.sqlize("abc"), "'abc'", "single value gets no comma")
     expectEqual(SQLListFormatter.sqlize("   \n  "), "   \n  ", "all-blank input returned unchanged")
 
+    // MARK: - Adversarial / regression
+
+    expectFalse(SQLListFormatter.looksLikeBareList("'a','b'\n'c','d'"), "inline quoted CSV rows never offer")
+    expectTrue(SQLListFormatter.looksLikeBareList("a\r\nb\r\nc"), "CRLF input still offers")
+    expectEqual(SQLListFormatter.sqlize("a\r\nb"), "'a',\n'b'", "CRLF input transforms cleanly")
+    expectEqual(SQLListFormatter.sqlize("'\nx"), "'''',\n'x'", "quote-only token safely escaped")
+    expectEqual(SQLListFormatter.sqlize("\"O'Brien\"\n\"x\""), "'O''Brien',\n'x'", "double-quoted token with apostrophe escaped once")
+    expectEqual(
+        SQLListFormatter.sqlize("a\n'); DROP TABLE users; --"),
+        "'a',\n'''); DROP TABLE users; --'",
+        "injection-style value stays one escaped literal"
+    )
+    expectTrue(SQLListFormatter.looksLikeBareList(Array(repeating: "x", count: 5_000).joined(separator: "\n")), "5000 lines accepted")
+    expectFalse(SQLListFormatter.looksLikeBareList(Array(repeating: "x", count: 5_001).joined(separator: "\n")), "5001 lines rejected")
+    expectTrue(SQLListFormatter.looksLikeBareList(Array(repeating: "x", count: 3_000).joined(separator: "\r\n")), "3000 CRLF lines accepted (cap counts values, not raw lines)")
+
     print(failures == 0 ? "ALL TESTS PASSED" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
