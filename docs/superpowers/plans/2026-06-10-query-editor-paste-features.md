@@ -21,7 +21,7 @@
 
 There is no UI test rig for `NSTextView` key handling; this task is verified by build + manual check (matrix in Task 5).
 
-- [ ] **Step 1: Add the follower-character guard**
+- [x] **Step 1: Add the follower-character guard**
 
 In `SQLTextView.swift`, directly below the `private static let closeChars` declaration (line ~298), add:
 
@@ -39,7 +39,7 @@ In `SQLTextView.swift`, directly below the `private static let closeChars` decla
     }
 ```
 
-- [ ] **Step 2: Apply the guard in the auto-close branch**
+- [x] **Step 2: Apply the guard in the auto-close branch**
 
 Replace the existing auto-close block in `insertText(_:replacementRange:)`:
 
@@ -90,12 +90,12 @@ with:
         }
 ```
 
-- [ ] **Step 3: Build**
+- [x] **Step 3: Build**
 
 Run: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build -quiet`
 Expected: succeeds with no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add Pharos/Editor/SQLTextView.swift
@@ -111,7 +111,7 @@ git commit -m "feat: only auto-close brackets/quotes before whitespace or closin
 - Create: `PharosTests/SQLListFormatterTests.swift` (repo root — outside the `Pharos/` sources path, so NOT compiled into the app)
 - Create: `scripts/test-sql-list-formatter.sh`
 
-- [ ] **Step 1: Create the test harness script**
+- [x] **Step 1: Create the test harness script**
 
 Create `scripts/test-sql-list-formatter.sh`:
 
@@ -128,7 +128,7 @@ swiftc -o /tmp/sql-list-formatter-tests \
 
 Then: `chmod +x scripts/test-sql-list-formatter.sh`
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `PharosTests/SQLListFormatterTests.swift`:
 
@@ -195,7 +195,7 @@ print(failures == 0 ? "ALL TESTS PASSED" : "\(failures) FAILURE(S)")
 exit(failures == 0 ? 0 : 1)
 ```
 
-- [ ] **Step 3: Create an empty-stub implementation and run tests to verify they fail**
+- [x] **Step 3: Create an empty-stub implementation and run tests to verify they fail**
 
 Create `Pharos/Editor/SQLListFormatter.swift`:
 
@@ -221,7 +221,7 @@ enum SQLListFormatter {
 Run: `scripts/test-sql-list-formatter.sh`
 Expected: FAIL — multiple `FAIL` lines (all detection-positive and transform cases), exit code 1.
 
-- [ ] **Step 4: Write the real implementation**
+- [x] **Step 4: Write the real implementation**
 
 Replace the body of `Pharos/Editor/SQLListFormatter.swift` with:
 
@@ -359,12 +359,12 @@ enum SQLListFormatter {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `scripts/test-sql-list-formatter.sh`
 Expected: every line `PASS …`, final line `ALL TESTS PASSED`, exit code 0.
 
-- [ ] **Step 6: Regenerate the Xcode project and build**
+- [x] **Step 6: Regenerate the Xcode project and build**
 
 ```bash
 xcodegen generate
@@ -373,7 +373,7 @@ xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build -
 
 Expected: both succeed. (`xcodegen generate` is required so the new `SQLListFormatter.swift` joins the app target.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Pharos/Editor/SQLListFormatter.swift PharosTests/SQLListFormatterTests.swift scripts/test-sql-list-formatter.sh
@@ -392,7 +392,7 @@ git commit -m "feat: add SQLListFormatter with bare-list detection and sqlize tr
 - The offer is invalidated by any text edit or any selection move away from the paste end. It is **deliberately NOT invalidated on focus loss**, deviating from one spec line: invalidating on `resignFirstResponder` would race with clicking the toolbar button under Full Keyboard Access (button takes focus before its action fires, killing the offer it's trying to apply). This is safe because any edit anywhere invalidates the offer, so the recorded range can never go stale. (Task 5 syncs the spec.)
 - Ordering matters in `paste()`: `pendingListPasteRange` is set AFTER `insertText`, so the paste's own `didChangeText`/selection updates don't immediately invalidate the new offer.
 
-- [ ] **Step 1: Add offer state, callbacks, apply, and invalidation members**
+- [x] **Step 1: Add offer state, callbacks, apply, and invalidation members**
 
 In `SQLTextView.swift`, after the `onPlaceholderClicked` declaration (line ~56), add:
 
@@ -466,7 +466,7 @@ Then add the following methods in the `// MARK: - Indent-Aware Paste` section, a
     }
 ```
 
-- [ ] **Step 2: Hook detection into paste()**
+- [x] **Step 2: Hook detection into paste()**
 
 In `paste(_:)`, replace the final line:
 
@@ -489,7 +489,7 @@ with:
         }
 ```
 
-- [ ] **Step 3: Invalidate on edits and selection moves**
+- [x] **Step 3: Invalidate on edits and selection moves**
 
 In `didChangeText()`, after the `onTextChange?(string)` call (line ~247), add:
 
@@ -516,7 +516,7 @@ Then add this override near `didChangeText()`:
     }
 ```
 
-- [ ] **Step 4: Tab applies, Esc dismisses**
+- [x] **Step 4: Tab applies, Esc dismisses**
 
 In `keyDown(with:)`:
 
@@ -572,7 +572,7 @@ with:
         }
 ```
 
-- [ ] **Step 5: Add the context-menu item**
+- [x] **Step 5: Add the context-menu item**
 
 Add this override in `SQLTextView` (near `menu`-related or key-handling code; anywhere in the class body is fine — put it after `keyDown`):
 
@@ -593,12 +593,12 @@ Add this override in `SQLTextView` (near `menu`-related or key-handling code; an
     }
 ```
 
-- [ ] **Step 6: Build**
+- [x] **Step 6: Build**
 
 Run: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build -quiet`
 Expected: succeeds with no errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Pharos/Editor/SQLTextView.swift
@@ -612,7 +612,7 @@ git commit -m "feat: list-paste offer state, Tab/Esc handling, and Format as SQL
 **Files:**
 - Modify: `Pharos/ViewControllers/EditorPaneVC.swift` (property block near line 33, `setupEditorToolbar()` near line 411, callback wiring near lines 114-120)
 
-- [ ] **Step 1: Declare the button**
+- [x] **Step 1: Declare the button**
 
 Next to the existing button properties (`formatButton`, `runStopButton`, line ~33), add:
 
@@ -621,7 +621,7 @@ Next to the existing button properties (`formatButton`, `runStopButton`, line ~3
     private let formatListButton = NSButton()
 ```
 
-- [ ] **Step 2: Configure the button and add it to the toolbar stack**
+- [x] **Step 2: Configure the button and add it to the toolbar stack**
 
 In `setupEditorToolbar()`, before the `// Bottom separator line` comment, add:
 
@@ -657,7 +657,7 @@ to:
         let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup, formatListButton])
 ```
 
-- [ ] **Step 3: Wire the callbacks and the action**
+- [x] **Step 3: Wire the callbacks and the action**
 
 Where the other `editorVC` closures are wired (after `editorVC.onTextEdited = ...`, line ~118-121), add:
 
@@ -680,12 +680,12 @@ Then add the action method near the other `@objc` toolbar actions (e.g. next to 
 
 (Applying invalidates the offer, which fires `onListPasteOfferInvalidated` and hides the button — no extra hide call needed. Tab/pane switches call `editorVC.setSQL`, which edits text and invalidates via `didChangeText`, so the button also hides on switches.)
 
-- [ ] **Step 4: Build**
+- [x] **Step 4: Build**
 
 Run: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build -quiet`
 Expected: succeeds with no errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add Pharos/ViewControllers/EditorPaneVC.swift
@@ -699,7 +699,7 @@ git commit -m "feat: Format as SQL list toolbar button shown on qualifying paste
 **Files:**
 - Modify: `docs/superpowers/specs/2026-06-10-query-editor-paste-features-design.md`
 
-- [ ] **Step 1: Sync the spec with the focus-loss decision**
+- [x] **Step 1: Sync the spec with the focus-loss decision**
 
 In the spec, change the `SQLTextView` bullet that reads:
 
@@ -713,12 +713,12 @@ to:
    - Track offer state; any subsequent text edit or selection move invokes `onListPasteOfferInvalidated: (() -> Void)?` and clears the state. (Focus loss deliberately does NOT invalidate: it would race with clicking the toolbar button under Full Keyboard Access, and the range cannot go stale because every edit invalidates.)
 ```
 
-- [ ] **Step 2: Run the formatter tests one more time**
+- [x] **Step 2: Run the formatter tests one more time**
 
 Run: `scripts/test-sql-list-formatter.sh`
 Expected: `ALL TESTS PASSED`.
 
-- [ ] **Step 3: Full build**
+- [x] **Step 3: Full build**
 
 Run: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build -quiet`
 Expected: succeeds.
@@ -751,7 +751,7 @@ Feature 2:
 - Paste a list whose last value ends in `.` (e.g. FQDNs with trailing dots) → completion popover may appear and captures Tab/Esc first; offer still applies after dismissing completion.
 - Paste with bare-\r line endings → no offer (expected; legacy line endings bypass multi-line paste handling).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-06-10-query-editor-paste-features-design.md

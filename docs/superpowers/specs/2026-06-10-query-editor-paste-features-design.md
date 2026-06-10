@@ -43,16 +43,16 @@ Pasting always inserts the clipboard content as-is (existing indent-aware paste 
    - `static func sqlize(_ text: String) -> String` — the transform.
 
 2. **`SQLTextView`** changes:
-   - `paste(_:)` (currently line 355): after inserting, record the pasted `NSRange`; if `looksLikeBareList` passes, invoke a new callback `onListPasteDetected: ((NSRange) -> Void)?`.
+   - `paste(_:)` (currently line 355): after inserting, record the pasted `NSRange`; if `looksLikeBareList` passes, invoke a new callback `onListPasteDetected: (() -> Void)?`. (The pane only needs a signal, not the range.)
    - Track offer state; any subsequent text edit or selection move invokes `onListPasteOfferInvalidated: (() -> Void)?` and clears the state. (Focus loss deliberately does NOT invalidate: it would race with clicking the toolbar button under Full Keyboard Access, and the range cannot go stale because every edit invalidates.)
    - `keyDown`: while an offer is active, **Tab** applies the transform (and is consumed); **Esc** dismisses the offer. Shift+Tab is excluded — it keeps its dedent meaning.
-   - `menu(for:)` override: append "Format as SQL list" item when the selection is non-empty; it applies `sqlize` to the selected text.
+   - `menu(for:)` override: insert at the top of the menu the "Format as SQL list" item when the selection is non-empty; it applies `sqlize` to the selected text.
    - `func applyPendingSQLize()` — applies the transform to the recorded pasted range via `insertText(_:replacementRange:)` so it lands on the undo stack as its own step (⌘Z restores the raw paste; ⌘Z again removes the paste).
 
 3. **`EditorPaneVC`** changes:
    - New `formatListButton` (`NSButton`, title "Format as SQL list") appended to `toolbarStack` after `schemaPopup`. Hidden by default. When shown, styled to stand out: accent tint, bordered/highlighted, tooltip "Format pasted values as a quoted, comma-separated SQL list (Tab)".
    - Wires the text view callbacks (via `QueryEditorVC`) to show/hide the button. Button click calls `applyPendingSQLize()`.
-   - Button hides after applying, on offer invalidation, and on tab/pane switches. State is per-pane (each `EditorPaneVC` owns its own toolbar and button).
+   - Button hides after applying, on offer invalidation, and on editor-tab switches (`setSQL` explicitly invalidates). A pending offer in one pane stays visible while working in another pane — it remains valid for its own text view. State is per-pane (each `EditorPaneVC` owns its own toolbar and button).
 
 ### Detection heuristic (`looksLikeBareList`)
 

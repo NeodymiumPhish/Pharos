@@ -153,6 +153,9 @@ class QueryEditorVC: NSViewController {
     private var suppressTextChange = false
 
     func setSQL(_ sql: String) {
+        // Programmatic replacement bypasses didChangeText — kill any pending
+        // list-paste offer explicitly so it can't survive into new content.
+        textView.invalidateListPasteOffer()
         // Suppress the onTextChange callback to avoid double-parsing:
         // setSQL already parses segments, and onTextChange would trigger
         // recalculateSegments which parses again.

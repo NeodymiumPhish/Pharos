@@ -512,7 +512,9 @@ class SQLTextView: NSTextView {
         invalidateListPasteOffer()
     }
 
-    private func invalidateListPasteOffer() {
+    /// Also called by the host when it replaces the text programmatically
+    /// (setSQL bypasses didChangeText).
+    func invalidateListPasteOffer() {
         guard pendingListPasteRange != nil else { return }
         pendingListPasteRange = nil
         onListPasteOfferInvalidated?()
