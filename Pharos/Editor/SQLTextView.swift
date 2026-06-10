@@ -383,6 +383,16 @@ class SQLTextView: NSTextView {
         let cursor = selectedRange().location
         let text = self.string as NSString
 
+        // Wrap selection: typing an opener with a non-empty selection wraps
+        // it instead of replacing it, with the caret placed after the closing
+        // character so typing can continue (e.g. a comma after 'value').
+        let sel = selectedRange()
+        if sel.length > 0, let closeChar = Self.autoClosePairs[str] {
+            let selected = text.substring(with: sel)
+            super.insertText(str + selected + closeChar, replacementRange: sel)
+            return
+        }
+
         // Skip-over: typing a closing char that's already the next character
         if Self.closeChars.contains(str), cursor < text.length {
             guard let nextScalar = UnicodeScalar(text.character(at: cursor)) else {
@@ -419,11 +429,9 @@ class SQLTextView: NSTextView {
                 }
             }
             // Don't auto-close when text sits immediately to the right of the
-            // insertion point. With a non-empty selection the typed character
-            // replaces it, so the relevant character is the one after the
-            // selection end.
-            let sel = selectedRange()
-            if !Self.allowsAutoClose(after: sel.location + sel.length, in: text) {
+            // insertion point. (Selection is always empty here — a non-empty
+            // selection took the wrap branch above.)
+            if !Self.allowsAutoClose(after: cursor, in: text) {
                 super.insertText(string, replacementRange: replacementRange)
                 return
             }

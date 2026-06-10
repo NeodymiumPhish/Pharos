@@ -24,7 +24,7 @@ Otherwise the typed character is inserted alone (no companion close character).
 
 ### Details
 
-- **Selection handling:** when the selection is non-empty, the character checked is the one *after the selection end*, since the selection is replaced by the typed character.
+- **Selection handling:** when the selection is non-empty, typing an opener *wraps* the selection (`(` around `text` yields `(text)`), with the caret placed after the closing character so typing can continue. The follower-character rule applies only to empty selections.
 - The existing apostrophe heuristic (no auto-close for `'` after an alphanumeric) is kept and runs first.
 - Skip-over behavior (typing `)` when `)` is next) and pair-deleting backspace are unchanged.
 

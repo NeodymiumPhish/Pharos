@@ -729,7 +729,7 @@ Feature 1:
 - Type `(` at end of line → `()` with cursor inside.
 - Place cursor before `foo` and type `(` → just `(foo`, no `)`.
 - Place cursor before `)` and type `(` → `()` auto-closes (closing delimiter follows).
-- Select a word, type `'` → selection replaced by `'` only (text follows selection end) — or `''` if the selection ends the line.
+- Select a word, type `'` → selection wrapped as `'word'` with the caret after the closing quote; same with `(` → `(word)`.
 - Typing `'` after a letter (apostrophe case, e.g. `don'`) still inserts a single `'`.
 
 Feature 2:
