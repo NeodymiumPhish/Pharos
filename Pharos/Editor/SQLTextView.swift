@@ -66,6 +66,9 @@ class SQLTextView: NSTextView {
     var onListPasteOfferInvalidated: (() -> Void)?
 
     /// Range of the last paste that qualified for the SQL-list offer.
+    /// Deliberately NOT cleared on focus loss: invalidating in
+    /// resignFirstResponder would race with clicking the toolbar apply
+    /// button. Safe because any edit invalidates, so the range can't go stale.
     private var pendingListPasteRange: NSRange?
 
     /// Suppresses offer invalidation for the text/selection changes that
@@ -330,7 +333,8 @@ class SQLTextView: NSTextView {
         }
 
         // Tab while a "Format as SQL list" offer is pending → apply it
-        if event.keyCode == 48, hasListPasteOffer {
+        // (Shift+Tab means dedent — let it fall through)
+        if event.keyCode == 48, !flags.contains(.shift), hasListPasteOffer {
             applyPendingSQLize()
             return
         }
