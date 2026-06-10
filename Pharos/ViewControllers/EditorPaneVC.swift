@@ -507,7 +507,7 @@ class EditorPaneVC: NSViewController {
         formatListButton.attributedTitle = NSAttributedString(
             string: "Format as SQL list",
             attributes: [
-                .foregroundColor: NSColor.white,
+                .foregroundColor: NSColor.alternateSelectedControlTextColor,
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium),
             ]
         )
@@ -523,7 +523,7 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // All controls in one row: Format, Save, Run/Stop, Connection, Schema
+        // All controls in one row: Format, Save, Run/Stop, Connection, Schema, Format-as-SQL-list
         let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
