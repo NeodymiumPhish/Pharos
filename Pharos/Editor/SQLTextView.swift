@@ -55,6 +55,25 @@ class SQLTextView: NSTextView {
     /// Called when user clicks a fold placeholder to request unfold. Parameter is the fold entry UUID.
     var onPlaceholderClicked: ((UUID) -> Void)?
 
+    // MARK: Format-as-SQL-list paste offer
+
+    /// Called after a paste whose content looks like a bare value list
+    /// (see SQLListFormatter.looksLikeBareList).
+    var onListPasteDetected: (() -> Void)?
+
+    /// Called when a pending list-paste offer is invalidated (any edit,
+    /// selection move away from the paste end, or Esc).
+    var onListPasteOfferInvalidated: (() -> Void)?
+
+    /// Range of the last paste that qualified for the SQL-list offer.
+    private var pendingListPasteRange: NSRange?
+
+    /// Suppresses offer invalidation for the text/selection changes that
+    /// applyPendingSQLize itself performs.
+    private var isApplyingSQLize = false
+
+    var hasListPasteOffer: Bool { pendingListPasteRange != nil }
+
     /// Fold state — tracks collapsed regions separately from text storage.
     /// Text storage always contains the full, unfolded SQL.
     /// Owned by the FoldingLayoutManager; accessed here for convenience.
@@ -246,6 +265,12 @@ class SQLTextView: NSTextView {
         scheduleDebouncedHighlight()
         onTextChange?(string)
 
+        // Any edit invalidates a pending list-paste offer (except the
+        // SQL-ize application itself).
+        if !isApplyingSQLize {
+            invalidateListPasteOffer()
+        }
+
         // Completion triggers after text change
         if completionDelegate?.isCompletionShown == true {
             completionDelegate?.updateCompletion()
@@ -261,6 +286,17 @@ class SQLTextView: NSTextView {
         }
     }
 
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        // Moving the caret away from the paste end abandons the offer.
+        if let pending = pendingListPasteRange, !isApplyingSQLize {
+            let expected = NSRange(location: pending.location + pending.length, length: 0)
+            if selectedRange() != expected {
+                invalidateListPasteOffer()
+            }
+        }
+    }
+
     // MARK: - Key Handling
 
     override func keyDown(with event: NSEvent) {
@@ -272,10 +308,14 @@ class SQLTextView: NSTextView {
             return
         }
 
-        // Escape → dismiss completion if shown
+        // Escape → dismiss completion if shown, else a pending list-paste offer
         if event.keyCode == 53 {
             if completionDelegate?.isCompletionShown == true {
                 completionDelegate?.dismissCompletion()
+                return
+            }
+            if hasListPasteOffer {
+                invalidateListPasteOffer()
                 return
             }
         }
@@ -289,7 +329,28 @@ class SQLTextView: NSTextView {
             if completionDelegate?.acceptCompletion() == true { return }
         }
 
+        // Tab while a "Format as SQL list" offer is pending → apply it
+        if event.keyCode == 48, hasListPasteOffer {
+            applyPendingSQLize()
+            return
+        }
+
         super.keyDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        if selectedRange().length > 0 {
+            let item = NSMenuItem(
+                title: "Format as SQL list",
+                action: #selector(formatSelectionAsSQLList(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu?.insertItem(.separator(), at: 0)
+            menu?.insertItem(item, at: 0)
+        }
+        return menu
     }
 
     // MARK: - Auto-Close Brackets
@@ -414,7 +475,61 @@ class SQLTextView: NSTextView {
             }
         }
 
+        let insertionStart = selectedRange().location
         insertText(result, replacementRange: selectedRange())
+
+        // Offer SQL-list formatting AFTER the verbatim paste lands. Setting
+        // the pending range after insertText keeps the paste's own
+        // didChangeText/selection updates from invalidating the fresh offer.
+        if SQLListFormatter.looksLikeBareList(result) {
+            pendingListPasteRange = NSRange(location: insertionStart, length: (result as NSString).length)
+            onListPasteDetected?()
+        }
+    }
+
+    // MARK: - Format as SQL List
+
+    /// Rewrite the most recent qualifying paste as a quoted, comma-separated
+    /// SQL list. One discrete edit: Cmd+Z restores the raw paste, a second
+    /// Cmd+Z removes the paste.
+    func applyPendingSQLize() {
+        guard let range = pendingListPasteRange else { return }
+        let text = self.string as NSString
+        guard NSMaxRange(range) <= text.length else {
+            invalidateListPasteOffer()
+            return
+        }
+        let formatted = SQLListFormatter.sqlize(text.substring(with: range))
+        isApplyingSQLize = true
+        if shouldChangeText(in: range, replacementString: formatted) {
+            insertText(formatted, replacementRange: range)
+        }
+        isApplyingSQLize = false
+        invalidateListPasteOffer()
+    }
+
+    private func invalidateListPasteOffer() {
+        guard pendingListPasteRange != nil else { return }
+        pendingListPasteRange = nil
+        onListPasteOfferInvalidated?()
+    }
+
+    /// Context-menu action: SQL-ize the selected lines. No detection gate —
+    /// explicit user intent. The selection is widened to whole lines first.
+    @objc func formatSelectionAsSQLList(_ sender: Any?) {
+        let text = self.string as NSString
+        var range = text.lineRange(for: selectedRange())
+        // lineRange includes the final line's trailing newline; keep it out
+        // of the transform so the line break after the list survives.
+        while range.length > 0 {
+            let last = text.character(at: range.location + range.length - 1)
+            if last == 0x0A || last == 0x0D { range.length -= 1 } else { break }
+        }
+        guard range.length > 0 else { return }
+        let formatted = SQLListFormatter.sqlize(text.substring(with: range))
+        if shouldChangeText(in: range, replacementString: formatted) {
+            insertText(formatted, replacementRange: range)
+        }
     }
 
     override func deleteBackward(_ sender: Any?) {
