@@ -297,6 +297,18 @@ class SQLTextView: NSTextView {
     private static let autoClosePairs: [String: String] = ["(": ")", "[": "]", "'": "'"]
     private static let closeChars: Set<String> = [")", "]", "'"]
 
+    /// Auto-close only fires when the character following the insertion point
+    /// is end-of-document, whitespace, or a closing delimiter. Typing `(`
+    /// directly before existing text inserts just the `(`.
+    private static let autoCloseFollowers = CharacterSet.whitespacesAndNewlines
+        .union(CharacterSet(charactersIn: ")],;"))
+
+    private static func allowsAutoClose(after position: Int, in text: NSString) -> Bool {
+        guard position < text.length else { return true }
+        guard let scalar = UnicodeScalar(text.character(at: position)) else { return false }
+        return autoCloseFollowers.contains(scalar)
+    }
+
     override func insertText(_ string: Any, replacementRange: NSRange) {
         guard let str = string as? String, str.count == 1 else {
             super.insertText(string, replacementRange: replacementRange)
@@ -340,6 +352,15 @@ class SQLTextView: NSTextView {
                     super.insertText(string, replacementRange: replacementRange)
                     return
                 }
+            }
+            // Don't auto-close when text sits immediately to the right of the
+            // insertion point. With a non-empty selection the typed character
+            // replaces it, so the relevant character is the one after the
+            // selection end.
+            let sel = selectedRange()
+            if !Self.allowsAutoClose(after: sel.location + sel.length, in: text) {
+                super.insertText(string, replacementRange: replacementRange)
+                return
             }
             super.insertText(str + closeChar, replacementRange: replacementRange)
             // Move cursor back between the pair
