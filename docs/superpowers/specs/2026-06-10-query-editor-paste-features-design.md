@@ -44,8 +44,8 @@ Pasting always inserts the clipboard content as-is (existing indent-aware paste 
 
 2. **`SQLTextView`** changes:
    - `paste(_:)` (currently line 355): after inserting, record the pasted `NSRange`; if `looksLikeBareList` passes, invoke a new callback `onListPasteDetected: ((NSRange) -> Void)?`.
-   - Track offer state; any subsequent text edit, selection move, or focus loss invokes `onListPasteOfferInvalidated: (() -> Void)?` and clears the state.
-   - `keyDown`: while an offer is active, **Tab** applies the transform (and is consumed); **Esc** dismisses the offer.
+   - Track offer state; any subsequent text edit or selection move invokes `onListPasteOfferInvalidated: (() -> Void)?` and clears the state. (Focus loss deliberately does NOT invalidate: it would race with clicking the toolbar button under Full Keyboard Access, and the range cannot go stale because every edit invalidates.)
+   - `keyDown`: while an offer is active, **Tab** applies the transform (and is consumed); **Esc** dismisses the offer. Shift+Tab is excluded — it keeps its dedent meaning.
    - `menu(for:)` override: append "Format as SQL list" item when the selection is non-empty; it applies `sqlize` to the selected text.
    - `func applyPendingSQLize()` — applies the transform to the recorded pasted range via `insertText(_:replacementRange:)` so it lands on the undo stack as its own step (⌘Z restores the raw paste; ⌘Z again removes the paste).
 

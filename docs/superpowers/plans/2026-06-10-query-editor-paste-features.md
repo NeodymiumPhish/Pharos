@@ -745,6 +745,11 @@ Feature 2:
 - Select hand-typed lines (e.g. `New York` / `Boston`), right-click → "Format as SQL list" → each line becomes one quoted value.
 - Two editor panes side by side: paste a list in pane 2 → only pane 2's button shows.
 - Paste a list, switch editor tabs → button hides.
+- Shift+Tab right after a qualifying paste → dedents as usual, does NOT apply the offer.
+- Inactive window, light mode: button title remains legible (semantic color, not hardcoded white).
+- Narrow two-pane layout: paste a list in the narrow pane — check whether the button is visible or clipped (toolbar has no trailing constraint; decide if hardening is needed).
+- Paste a list whose last value ends in `.` (e.g. FQDNs with trailing dots) → completion popover may appear and captures Tab/Esc first; offer still applies after dismissing completion.
+- Paste with bare-\r line endings → no offer (expected; legacy line endings bypass multi-line paste handling).
 
 - [ ] **Step 5: Commit**
 
