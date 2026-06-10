@@ -32,6 +32,8 @@ class EditorPaneVC: NSViewController {
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
     private let runStopButton = NSButton()
+    /// "Format as SQL list" — hidden until a paste qualifies for the offer.
+    private let formatListButton = NSButton()
     private let queryIndicator = QueryProgressIndicator()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private var runningQueriesPopover: NSPopover?
@@ -118,6 +120,12 @@ class EditorPaneVC: NSViewController {
         editorVC.onTextEdited = { [weak self] in
             guard let self else { return }
             self.delegate?.editorPane(self, didEditText: self.paneId)
+        }
+        editorVC.textView.onListPasteDetected = { [weak self] in
+            self?.formatListButton.isHidden = false
+        }
+        editorVC.textView.onListPasteOfferInvalidated = { [weak self] in
+            self?.formatListButton.isHidden = true
         }
         addChild(editorVC)
 
@@ -491,6 +499,24 @@ class EditorPaneVC: NSViewController {
             schemaSpinner.centerYAnchor.constraint(equalTo: schemaPopup.centerYAnchor),
         ])
 
+        // "Format as SQL list" button — appears only while a list-paste
+        // offer is pending; accent-colored so it stands out.
+        formatListButton.bezelStyle = .rounded
+        formatListButton.bezelColor = .controlAccentColor
+        formatListButton.controlSize = .small
+        formatListButton.attributedTitle = NSAttributedString(
+            string: "Format as SQL list",
+            attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium),
+            ]
+        )
+        formatListButton.toolTip = "Format pasted values as a quoted, comma-separated SQL list (Tab)"
+        formatListButton.isHidden = true
+        formatListButton.target = self
+        formatListButton.action = #selector(formatListTapped)
+        formatListButton.translatesAutoresizingMaskIntoConstraints = false
+
         // Bottom separator line
         let separator = NSBox()
         separator.boxType = .separator
@@ -498,7 +524,7 @@ class EditorPaneVC: NSViewController {
         editorToolbar.addSubview(separator)
 
         // All controls in one row: Format, Save, Run/Stop, Connection, Schema
-        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup])
+        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
@@ -541,6 +567,10 @@ class EditorPaneVC: NSViewController {
 
     @objc private func formatSQLTapped() {
         formatSQL()
+    }
+
+    @objc private func formatListTapped() {
+        editorVC.textView.applyPendingSQLize()
     }
 
     @objc private func runStopTapped() {
