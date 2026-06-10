@@ -392,6 +392,26 @@ final class AppStateManager: ObservableObject {
             return
         }
         activeTabId = pane.activeTabId
+        syncActiveConnectionAndSchema()
+    }
+
+    /// Sync the global active connection/schema to the active tab's values so
+    /// the sidebar/schema browser reflects whichever editor pane is focused.
+    /// Focusing a different pane changes `activeTabId` without changing any
+    /// pane's active tab, so the per-pane `$panes` observer in EditorPaneVC
+    /// never fires — this keeps the navigator in step with the focused pane.
+    /// Guarded sets + the `didSet` dedup on these properties make redundant
+    /// calls (e.g. when EditorPaneVC.tabChanged also runs) a no-op.
+    private func syncActiveConnectionAndSchema() {
+        guard let tab = activeTab else { return }
+        if let connId = tab.connectionId, connId != activeConnectionId {
+            activeConnectionId = connId
+        } else if tab.connectionId == nil && activeConnectionId != nil {
+            activeConnectionId = nil
+        }
+        if tab.schemaName != activeSchema {
+            activeSchema = tab.schemaName
+        }
     }
 
     // MARK: - Pane-Aware Tab Closing
