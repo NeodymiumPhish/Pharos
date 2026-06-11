@@ -27,7 +27,12 @@ class PharosSplitViewController: NSSplitViewController {
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
         sidebarItem.isCollapsed = false
-        sidebarItem.holdingPriority = .defaultHigh + 1
+        // Just one step above the content's holding priority — enough to make
+        // content (not the sidebar) absorb window resizing, but low enough that
+        // NSSplitView still honors interactive divider drags. A high priority
+        // here (e.g. .defaultHigh) overpowers the drag and the divider snaps
+        // back, leaving the pane stuck at its minimum width.
+        sidebarItem.holdingPriority = .defaultLow + 1
         sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
 
         // Content item — absorbs window resize.
@@ -41,7 +46,9 @@ class PharosSplitViewController: NSSplitViewController {
         inspectorItem.maximumThickness = 400
         inspectorItem.canCollapse = true
         inspectorItem.isCollapsed = true
-        inspectorItem.holdingPriority = .defaultHigh + 1
+        // See sidebar note above: keep this just above content's priority so the
+        // inspector divider stays draggable.
+        inspectorItem.holdingPriority = .defaultLow + 1
         inspectorItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
 
         addSplitViewItem(sidebarItem)
