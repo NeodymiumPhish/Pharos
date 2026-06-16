@@ -46,9 +46,14 @@ class PharosSplitViewController: NSSplitViewController {
         inspectorItem.maximumThickness = 400
         inspectorItem.canCollapse = true
         inspectorItem.isCollapsed = true
-        // See sidebar note above: keep this just above content's priority so the
-        // inspector divider stays draggable.
-        inspectorItem.holdingPriority = .defaultLow + 1
+        // The inspector needs a higher holding priority than the sidebar. When the
+        // inspector shows row detail, its content (a scrollable stack of labels)
+        // hugs horizontally at ~.defaultLow, which would otherwise out-rank a
+        // sidebar-level holding priority and snap the pane back to its minimum on
+        // every divider release. `.defaultLow + 50` clears that content hugging
+        // while staying well below the threshold (~.defaultHigh) at which the
+        // holding constraint becomes strong enough to block interactive dragging.
+        inspectorItem.holdingPriority = .defaultLow + 50
         inspectorItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
 
         addSplitViewItem(sidebarItem)

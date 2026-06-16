@@ -276,6 +276,11 @@ class InspectorViewController: NSViewController {
         ))
         label.attributedStringValue = attrStr
         label.lineBreakMode = .byTruncatingTail
+        // Let the key label truncate rather than demand its full text width, so a
+        // long column name can't inflate the inspector pane's fitting width. This
+        // keeps the pane's width driven by the split divider, not by its content.
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.init(rawValue: 1), for: .horizontal)
         return label
     }
 
