@@ -196,7 +196,7 @@ class EditorPaneVC: NSViewController {
                 self.refreshTabBar()
                 self.updateEditorToolbarState()
                 self.rebuildConnectionMenu()
-                self.rebuildSchemaMenu()
+                self.updateSchemaPopupTitle()
                 self.updateGutterPulseForActiveTab(tabs: tabs)
             }
             .store(in: &cancellables)
@@ -234,7 +234,7 @@ class EditorPaneVC: NSViewController {
 
         metadataCache.$schemas
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.rebuildSchemaMenu() }
+            .sink { [weak self] _ in self?.updateSchemaPopupTitle() }
             .store(in: &cancellables)
 
         metadataCache.$isLoading
@@ -352,7 +352,7 @@ class EditorPaneVC: NSViewController {
         // and the popups would stay stuck on the previous tab's values. Rebuild
         // them explicitly here.
         rebuildConnectionMenu()
-        rebuildSchemaMenu()
+        updateSchemaPopupTitle()
     }
 
     // MARK: - Focus Tracking
@@ -787,7 +787,7 @@ class EditorPaneVC: NSViewController {
         connectionPopup.menu?.addItem(manageItem)
     }
 
-    private func rebuildSchemaMenu() {
+    private func updateSchemaPopupTitle() {
         schemaPopup.removeAllItems()
 
         let schemas = metadataCache.schemas
@@ -823,7 +823,7 @@ class EditorPaneVC: NSViewController {
             schemaSpinner.startAnimation(nil)
         } else {
             schemaSpinner.stopAnimation(nil)
-            rebuildSchemaMenu()
+            updateSchemaPopupTitle()
         }
     }
 
@@ -949,7 +949,7 @@ class EditorPaneVC: NSViewController {
         stateManager.saveConnection(config)
 
         // Rebuild menu to update the badge
-        rebuildSchemaMenu()
+        updateSchemaPopupTitle()
     }
 
     deinit {

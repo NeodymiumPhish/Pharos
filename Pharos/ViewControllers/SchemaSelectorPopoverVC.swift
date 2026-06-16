@@ -23,6 +23,15 @@ final class SchemaSelectorPopoverVC: NSViewController {
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
 
+    /// Visible list height: one row per schema plus the pinned "All Schemas" row
+    /// (each row is rowHeight + intercell spacing = 24pt), capped so long lists
+    /// scroll instead of growing without bound. Fixed at load from the full schema
+    /// count so the popover doesn't resize while the user is typing in the filter.
+    private var listHeight: CGFloat {
+        let rows = allSchemas.count + 1
+        return min(CGFloat(rows) * 24 + 4, 220)
+    }
+
     init(schemas: [String], activeSchema: String?, defaultSchema: String?) {
         self.allSchemas = schemas
         self.activeSchema = activeSchema
@@ -87,7 +96,7 @@ final class SchemaSelectorPopoverVC: NSViewController {
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            scrollView.heightAnchor.constraint(equalToConstant: 220),
+            scrollView.heightAnchor.constraint(equalToConstant: listHeight),
 
             setDefaultButton.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 6),
             setDefaultButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
