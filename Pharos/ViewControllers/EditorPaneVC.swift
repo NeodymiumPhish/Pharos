@@ -41,8 +41,9 @@ class EditorPaneVC: NSViewController {
 
     // Connection / Schema selectors (in editor toolbar, right side)
     private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
-    private let schemaPopup = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let schemaPopup = SchemaPopUpButton(frame: .zero, pullsDown: true)
     private let schemaSpinner = NSProgressIndicator()
+    private var schemaPopover: NSPopover?
 
     weak var delegate: EditorPaneDelegate?
 
@@ -487,6 +488,9 @@ class EditorPaneVC: NSViewController {
         schemaPopup.controlSize = .small
         schemaPopup.translatesAutoresizingMaskIntoConstraints = false
         (schemaPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+        schemaPopup.onActivate = { [weak self] button in
+            self?.presentSchemaPopover(from: button)
+        }
 
         // Schema spinner overlay
         schemaSpinner.style = .spinning
@@ -804,44 +808,11 @@ class EditorPaneVC: NSViewController {
 
         schemaPopup.isEnabled = true
 
-        // Get default schema for the active connection
-        let defaultSchema: String? = {
-            guard let connId = tabConnectionId else { return nil }
-            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
-        }()
-
+        // The button shows a single title item; the full schema list and the
+        // "All Schemas" / "Set as Default" actions now live in the popover
+        // (see presentSchemaPopover), which scrolls naturally for long lists.
         let titleText = activeSchema ?? "All Schemas"
         schemaPopup.addItem(withTitle: titleText)
-
-        let allItem = NSMenuItem(title: "All Schemas", action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
-        allItem.target = self
-        allItem.representedObject = nil
-        if activeSchema == nil { allItem.state = .on }
-        schemaPopup.menu?.addItem(allItem)
-
-        schemaPopup.menu?.addItem(.separator())
-
-        for schema in schemas {
-            var title = schema.name
-            if schema.name == defaultSchema {
-                title += "  \u{2605} default"  // ★ default
-            }
-            let item = NSMenuItem(title: title, action: #selector(schemaItemClicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = schema.name
-            if activeSchema == schema.name { item.state = .on }
-            schemaPopup.menu?.addItem(item)
-        }
-
-        // Separator + "Set as Default Schema" action
-        schemaPopup.menu?.addItem(.separator())
-        let setDefaultItem = NSMenuItem(
-            title: "Set as Default Schema",
-            action: #selector(setDefaultSchemaClicked),
-            keyEquivalent: ""
-        )
-        setDefaultItem.target = self
-        schemaPopup.menu?.addItem(setDefaultItem)
     }
 
     private func updateSchemaLoading(_ loading: Bool) {
@@ -937,8 +908,35 @@ class EditorPaneVC: NSViewController {
         ConnectionsManagerWindowController.show()
     }
 
-    @objc private func schemaItemClicked(_ sender: NSMenuItem) {
-        setTabSchema(sender.representedObject as? String)
+    /// Build and present the searchable schema popover anchored to the schema
+    /// button. Selection and set-default flow back through the existing
+    /// setTabSchema / setDefaultSchemaClicked logic.
+    private func presentSchemaPopover(from button: NSView) {
+        let schemaNames = metadataCache.schemas.map { $0.name }
+        let defaultSchema: String? = {
+            guard let connId = tabConnectionId else { return nil }
+            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
+        }()
+
+        let vc = SchemaSelectorPopoverVC(
+            schemas: schemaNames,
+            activeSchema: tabSchemaName,
+            defaultSchema: defaultSchema
+        )
+        vc.onSelectSchema = { [weak self] schema in
+            self?.setTabSchema(schema)
+            self?.schemaPopover?.close()
+        }
+        vc.onSetDefault = { [weak self] in
+            self?.setDefaultSchemaClicked()
+            self?.schemaPopover?.close()
+        }
+
+        let popover = NSPopover()
+        popover.contentViewController = vc
+        popover.behavior = .transient
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+        schemaPopover = popover
     }
 
     @objc private func setDefaultSchemaClicked() {
