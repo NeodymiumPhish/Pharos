@@ -136,6 +136,66 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: includeHeaders)
     }
 
+    // MARK: - Selection Summary
+
+    /// Column/row counts that copy/export would produce for the current
+    /// selection. Mirrors `gatherData()` so the popover caption matches the
+    /// actual output. `isSelection` is false when nothing is selected — in
+    /// that case the whole displayed result set is the target.
+    func selectionSummary() -> (columns: Int, rows: Int, isSelection: Bool) {
+        // Cell range selection — same shape as gatherCellRangeData().
+        if let selection = cellSelection, let range = selection.selectedRange {
+            let tableCols = tableView.tableColumns
+            let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
+                guard idx >= 0, idx < tableCols.count else { return nil }
+                let id = tableCols[idx].identifier.rawValue
+                return id == "__rownum__" ? nil : id
+            }
+            let colCount = selectedColIds.filter { id in
+                guard let idx = colIndex(from: id) else { return false }
+                return idx < columns.count
+            }.count
+            let lo = max(0, range.topLeft.row)
+            let hi = min(displayRows.count - 1, range.bottomRight.row)
+            let rowCount = hi >= lo ? hi - lo + 1 : 0
+            if colCount > 0 && rowCount > 0 {
+                return (colCount, rowCount, true)
+            }
+        }
+
+        // All data columns, resolved exactly like gatherData().
+        let allColCount = tableView.tableColumns.filter { col in
+            let id = col.identifier.rawValue
+            guard id != "__rownum__", let idx = colIndex(from: id) else { return false }
+            return idx < columns.count
+        }.count
+
+        // Row selection.
+        let selectedRows = tableView.selectedRowIndexes
+        if !selectedRows.isEmpty {
+            let rowCount = selectedRows.filter { $0 < displayRows.count }.count
+            return (allColCount, rowCount, true)
+        }
+
+        // Whole result set.
+        return (allColCount, displayRows.count, false)
+    }
+
+    /// Human-readable caption for the copy/export popover, e.g.
+    /// "Selected: 3 columns × 25 rows" or "All 5 columns × 1,240 rows".
+    private func summaryCaption() -> String {
+        let s = selectionSummary()
+        let cols = Self.countLabel(s.columns, singular: "column", plural: "columns")
+        let rows = Self.countLabel(s.rows, singular: "row", plural: "rows")
+        let prefix = s.isSelection ? "Selected:" : "All"
+        return "\(prefix) \(cols) × \(rows)"
+    }
+
+    private static func countLabel(_ n: Int, singular: String, plural: String) -> String {
+        let formatted = NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal)
+        return "\(formatted) \(n == 1 ? singular : plural)"
+    }
+
     // MARK: - Copy Support
 
     @objc func copy(_ sender: Any?) {
@@ -323,6 +383,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 
     private func showPopover(from button: NSButton, items: [(String, Selector)]) {
         let vc = CopyExportPopoverVC(
+            summary: summaryCaption(),
             includeHeaders: includeHeaders,
             items: items,
             target: self,
@@ -512,6 +573,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
 /// and a list of format buttons, styled like Xcode's debug area popovers.
 class CopyExportPopoverVC: NSViewController {
 
+    private let summary: String
     private let initialIncludeHeaders: Bool
     private let items: [(String, Selector)]
     private weak var actionTarget: AnyObject?
@@ -520,8 +582,9 @@ class CopyExportPopoverVC: NSViewController {
 
     private var headerCheckbox: NSButton!
 
-    init(includeHeaders: Bool, items: [(String, Selector)], target: AnyObject,
+    init(summary: String, includeHeaders: Bool, items: [(String, Selector)], target: AnyObject,
          onToggleHeaders: @escaping (Bool) -> Void, onAction: @escaping () -> Void) {
+        self.summary = summary
         self.initialIncludeHeaders = includeHeaders
         self.items = items
         self.actionTarget = target
@@ -534,6 +597,13 @@ class CopyExportPopoverVC: NSViewController {
 
     override func loadView() {
         let container = NSView()
+
+        // Summary caption: how many columns × rows this action will produce.
+        let summaryLabel = NSTextField(labelWithString: summary)
+        summaryLabel.font = .systemFont(ofSize: 11)
+        summaryLabel.textColor = .secondaryLabelColor
+        summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
 
         // Header checkbox row
         headerCheckbox = NSButton(checkboxWithTitle: "Include Headers", target: self, action: #selector(headerToggled))
@@ -561,7 +631,7 @@ class CopyExportPopoverVC: NSViewController {
         }
 
         // Main vertical stack
-        let mainStack = NSStackView(views: [headerCheckbox, separator, buttonStack])
+        let mainStack = NSStackView(views: [summaryLabel, headerCheckbox, separator, buttonStack])
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
         mainStack.spacing = 8

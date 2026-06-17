@@ -31,6 +31,7 @@ class ResultsGridVC: NSViewController {
     var resultBannerLabel: NSTextField { contentVC?.resultBannerLabel ?? NSTextField(labelWithString: "") }
     var resetSortButton: NSButton { contentVC?.resetSortButton ?? NSButton() }
     var resetFiltersButton: NSButton { contentVC?.resetFiltersButton ?? NSButton() }
+    var clearSelectionButton: NSButton { contentVC?.clearSelectionButton ?? NSButton() }
     var pinButton: NSButton { contentVC?.pinButton ?? NSButton() }
     var copyButton: NSButton { contentVC?.copyButton ?? NSButton() }
     var exportButton: NSButton { contentVC?.exportButton ?? NSButton() }
@@ -617,6 +618,7 @@ class ResultsGridVC: NSViewController {
             tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
             filterableHeaderView.highlightedColumnIndices = IndexSet()
             filterableHeaderView.needsDisplay = true
+            clearSelectionButton.isHidden = false
         } else if state.selectedRange != nil {
             dataSource.cellSelection = state
             copyExport.cellSelection = state
@@ -625,6 +627,7 @@ class ResultsGridVC: NSViewController {
             onSelectionChanged?(state.selectedRowIndices())
             filterableHeaderView.highlightedColumnIndices = state.selectedColumnIndices
             filterableHeaderView.needsDisplay = true
+            clearSelectionButton.isHidden = false
         } else {
             dataSource.cellSelection = nil
             copyExport.cellSelection = nil
@@ -633,7 +636,15 @@ class ResultsGridVC: NSViewController {
             onSelectionChanged?(IndexSet())
             filterableHeaderView.highlightedColumnIndices = IndexSet()
             filterableHeaderView.needsDisplay = true
+            clearSelectionButton.isHidden = true
         }
+    }
+
+    /// Clears any active cell/row selection. Wired to the accent-tinted
+    /// "Clear Selection" toolbar button, which only appears while a selection
+    /// is active (toggled in `cellSelectionDidChange`).
+    @objc func clearCellSelection() {
+        cellSelectionController.clear()
     }
 
     // MARK: - Auto-Fit Column

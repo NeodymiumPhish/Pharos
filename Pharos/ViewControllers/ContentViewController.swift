@@ -46,6 +46,7 @@ class ContentViewController: NSViewController {
     let resultBannerLabel = NSTextField(labelWithString: "")
     let resetSortButton = NSButton()
     let resetFiltersButton = NSButton()
+    let clearSelectionButton = NSButton()
     let pinButton = NSButton()
     let findToolbarButton = NSButton()
     let copyButton = NSButton()
@@ -763,7 +764,13 @@ class ContentViewController: NSViewController {
         resetFiltersButton.target = resultsVC
         resetFiltersButton.action = #selector(ResultsGridVC.resetAllColumnFilters)
 
-        let actionStack = NSStackView(views: [pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton])
+        configureToolbarButtonAppearance(clearSelectionButton, symbol: "eraser", tooltip: "Clear Selection")
+        clearSelectionButton.contentTintColor = .controlAccentColor
+        clearSelectionButton.isHidden = true
+        clearSelectionButton.target = resultsVC
+        clearSelectionButton.action = #selector(ResultsGridVC.clearCellSelection)
+
+        let actionStack = NSStackView(views: [pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)
