@@ -984,6 +984,8 @@ class ContentViewController: NSViewController {
         alert.accessoryView = textField
 
         guard let window = view.window else { return }
+        // Focus the field and select its text so the user can type a new name immediately.
+        alert.window.initialFirstResponder = textField
         alert.beginSheetModal(for: window) { [weak self] response in
             if response == .alertFirstButtonReturn {
                 let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
