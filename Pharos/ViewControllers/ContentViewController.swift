@@ -1403,6 +1403,15 @@ class ContentViewController: NSViewController {
             return
         }
 
+        // Capture the outgoing result tab's grid state before switching away,
+        // so filters/sorts/column widths applied to it survive when the user
+        // returns (mirrors selectResultTab). Without this, running a new query
+        // silently discards the previously-active result's grid state.
+        if let outgoingId = activeResultTabId,
+           let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
+            resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+        }
+
         resultTabs.append(tab)
         activeResultTabId = tab.id
         updateResultTabBarVisibility()
