@@ -223,7 +223,7 @@ In `get_tables`, replace the `pg_catalog_sql` string (currently `postgres.rs:221
                 ELSE NULL \
             END as total_size_bytes, \
             (c.relkind = 'p') as is_partitioned, \
-            CASE WHEN c.relkind = 'p' THEN pt2.partstrat ELSE NULL END as part_strat, \
+            CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
             CASE WHEN c.relkind = 'p' THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
@@ -345,7 +345,7 @@ pub async fn get_partitions(
             END as total_size_bytes, \
             pg_get_expr(c.relpartbound, c.oid) as part_bound, \
             (c.relkind = 'p') as is_partitioned, \
-            CASE WHEN c.relkind = 'p' THEN pt2.partstrat ELSE NULL END as part_strat, \
+            CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
             CASE WHEN c.relkind = 'p' THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
