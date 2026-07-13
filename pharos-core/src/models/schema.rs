@@ -46,16 +46,22 @@ pub struct TableInfo {
     pub table_type: TableType,
     pub row_count_estimate: Option<i64>,
     pub total_size_bytes: Option<i64>,
+    /// True when this relation is a partitioned parent (relkind='p').
     #[serde(default)]
     pub is_partitioned: bool,
+    /// True when this relation is itself a partition of some parent.
     #[serde(default)]
     pub is_partition: bool,
+    /// Present when `is_partitioned`.
     #[serde(default)]
     pub partition_strategy: Option<PartitionStrategy>,
+    /// Raw `pg_get_partkeydef` output, e.g. "RANGE (created_at)". Present when `is_partitioned`.
     #[serde(default)]
     pub partition_key: Option<String>,
+    /// This partition's bound text from `pg_get_expr(relpartbound)`, or "DEFAULT". Present when `is_partition`.
     #[serde(default)]
     pub partition_bound: Option<String>,
+    /// Number of direct child partitions. Present when `is_partitioned`.
     #[serde(default)]
     pub partition_count: Option<i64>,
 }
