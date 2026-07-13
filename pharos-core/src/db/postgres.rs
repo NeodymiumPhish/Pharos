@@ -3,7 +3,7 @@ use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
 /// Replaces single quotes with doubled single quotes.
@@ -342,6 +342,112 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
         .collect();
 
     Ok(tables)
+}
+
+/// Get the direct child partitions of a partitioned parent table.
+pub async fn get_partitions(
+    pool: &PgPool,
+    schema_name: &str,
+    parent_table: &str,
+) -> Result<Vec<TableInfo>, sqlx::Error> {
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_parent = escape_sql_literal(parent_table);
+
+    let sql = format!(
+        "SELECT \
+            c.relname as table_name, \
+            c.relkind as relkind, \
+            CASE \
+                WHEN c.relkind = 'p' THEN ( \
+                    SELECT COALESCE(SUM(lc.reltuples), 0)::bigint \
+                    FROM pg_partition_tree(c.oid) pt \
+                    JOIN pg_class lc ON lc.oid = pt.relid WHERE pt.isleaf) \
+                WHEN c.reltuples >= 0 THEN c.reltuples::bigint \
+                ELSE NULL \
+            END as row_estimate, \
+            CASE \
+                WHEN c.relkind = 'p' THEN ( \
+                    SELECT COALESCE(SUM(pg_total_relation_size(pt.relid)), 0)::bigint \
+                    FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf) \
+                ELSE pg_total_relation_size(c.oid) \
+            END as total_size_bytes, \
+            pg_get_expr(c.relpartbound, c.oid) as part_bound, \
+            (c.relkind = 'p') as is_partitioned, \
+            CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
+            CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
+            CASE WHEN c.relkind = 'p' THEN ( \
+                SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
+                ELSE NULL END as part_count \
+         FROM pg_catalog.pg_inherits i \
+         JOIN pg_catalog.pg_class parent ON parent.oid = i.inhparent \
+         JOIN pg_catalog.pg_namespace pn ON pn.oid = parent.relnamespace \
+         JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+         LEFT JOIN pg_catalog.pg_partitioned_table pt2 ON pt2.partrelid = c.oid \
+         WHERE pn.nspname = '{}' AND parent.relname = '{}' \
+         ORDER BY c.relname",
+        escaped_schema, escaped_parent
+    );
+
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
+    let partitions = rows
+        .into_iter()
+        .map(|row| {
+            let relkind: String = row.get("relkind");
+            let is_partitioned: bool = row.try_get("is_partitioned").unwrap_or(false);
+            let part_strat: Option<String> = row.try_get("part_strat").ok().flatten();
+            let partition_strategy = part_strat
+                .as_deref()
+                .and_then(|s| s.chars().next())
+                .and_then(PartitionStrategy::from_pg_char);
+            let table_type = match relkind.as_str() {
+                "p" => TableType::PartitionedTable,
+                "f" => TableType::ForeignTable,
+                _ => TableType::Table,
+            };
+            TableInfo {
+                name: row.get("table_name"),
+                schema_name: schema_name.to_string(),
+                table_type,
+                row_count_estimate: row.try_get("row_estimate").ok().flatten(),
+                total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
+                is_partitioned,
+                is_partition: true,
+                partition_strategy,
+                partition_key: row.try_get("part_key").ok().flatten(),
+                partition_bound: row.try_get("part_bound").ok().flatten(),
+                partition_count: row.try_get("part_count").ok().flatten(),
+            }
+        })
+        .collect();
+
+    Ok(partitions)
+}
+
+/// Get a flat parent→child name map for all partitioned parents in a schema.
+/// Used to populate the sidebar filter index without loading full partition detail.
+pub async fn get_partition_map(
+    pool: &PgPool,
+    schema_name: &str,
+) -> Result<Vec<PartitionRef>, sqlx::Error> {
+    let escaped = escape_sql_literal(schema_name);
+    let sql = format!(
+        "SELECT parent.relname as parent_name, c.relname as name \
+         FROM pg_catalog.pg_inherits i \
+         JOIN pg_catalog.pg_class parent ON parent.oid = i.inhparent \
+         JOIN pg_catalog.pg_namespace pn ON pn.oid = parent.relnamespace \
+         JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+         WHERE pn.nspname = '{}' AND parent.relkind = 'p'",
+        escaped
+    );
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
+    let refs = rows
+        .into_iter()
+        .map(|row| PartitionRef {
+            parent_name: row.get("parent_name"),
+            name: row.get("name"),
+        })
+        .collect();
+    Ok(refs)
 }
 
 /// Get all columns for a table

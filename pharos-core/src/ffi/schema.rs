@@ -52,6 +52,56 @@ pub extern "C" fn pharos_get_tables(
     });
 }
 
+/// Get direct child partitions of a partitioned parent. Returns JSON array via callback.
+#[no_mangle]
+pub extern "C" fn pharos_get_partitions(
+    connection_id: *const c_char,
+    schema_name: *const c_char,
+    parent_table: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let schema = unsafe { c_str_to_string(schema_name) };
+    let parent = unsafe { c_str_to_string(parent_table) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::get_partitions(conn_id, schema, parent, state).await {
+            Ok(parts) => {
+                let json = serde_json::to_string(&parts).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// Get parent→child partition name map for a schema. Returns JSON array via callback.
+#[no_mangle]
+pub extern "C" fn pharos_get_partition_map(
+    connection_id: *const c_char,
+    schema_name: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let schema = unsafe { c_str_to_string(schema_name) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::get_partition_map(conn_id, schema, state).await {
+            Ok(refs) => {
+                let json = serde_json::to_string(&refs).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Get columns for a table. Returns JSON array via callback.
 #[no_mangle]
 pub extern "C" fn pharos_get_columns(

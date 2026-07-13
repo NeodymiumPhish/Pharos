@@ -208,6 +208,25 @@ void pharos_get_tables(const char *connection_id,
                        void *context);
 
 /**
+ * Get direct child partitions of a partitioned parent. Returns JSON array via callback.
+ */
+
+void pharos_get_partitions(const char *connection_id,
+                           const char *schema_name,
+                           const char *parent_table,
+                           AsyncCallback callback,
+                           void *context);
+
+/**
+ * Get parent→child partition name map for a schema. Returns JSON array via callback.
+ */
+
+void pharos_get_partition_map(const char *connection_id,
+                              const char *schema_name,
+                              AsyncCallback callback,
+                              void *context);
+
+/**
  * Get columns for a table. Returns JSON array via callback.
  */
 

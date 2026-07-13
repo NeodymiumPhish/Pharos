@@ -1,6 +1,6 @@
 
 use crate::db::postgres;
-use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, SchemaColumnInfo, SchemaInfo, TableInfo};
+use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, SchemaColumnInfo, SchemaInfo, TableInfo};
 use crate::state::AppState;
 
 /// Get all schemas for a connection
@@ -28,6 +28,35 @@ pub async fn get_tables(
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
     postgres::get_tables(&pool, &schema_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get direct child partitions of a partitioned parent.
+pub async fn get_partitions(
+    connection_id: String,
+    schema_name: String,
+    parent_table: String,
+    state: &AppState,
+) -> Result<Vec<TableInfo>, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    postgres::get_partitions(&pool, &schema_name, &parent_table)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get parent→child partition name map for a schema (filter index).
+pub async fn get_partition_map(
+    connection_id: String,
+    schema_name: String,
+    state: &AppState,
+) -> Result<Vec<PartitionRef>, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    postgres::get_partition_map(&pool, &schema_name)
         .await
         .map_err(|e| e.to_string())
 }
