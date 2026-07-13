@@ -3,7 +3,7 @@ use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
 /// Replaces single quotes with doubled single quotes.
@@ -226,22 +226,43 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 WHEN 'v' THEN 'VIEW' \
                 WHEN 'm' THEN 'VIEW' \
                 WHEN 'f' THEN 'FOREIGN TABLE' \
+                WHEN 'p' THEN 'PARTITIONED TABLE' \
                 ELSE 'BASE TABLE' \
             END as table_type, \
             CASE \
+                WHEN c.relkind = 'p' THEN ( \
+                    SELECT COALESCE(SUM(lc.reltuples), 0)::bigint \
+                    FROM pg_partition_tree(c.oid) pt \
+                    JOIN pg_class lc ON lc.oid = pt.relid \
+                    WHERE pt.isleaf) \
                 WHEN c.reltuples >= 0 THEN c.reltuples::bigint \
                 WHEN s.n_live_tup IS NOT NULL THEN s.n_live_tup \
                 ELSE NULL \
             END as row_estimate, \
-            CASE WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END as total_size_bytes \
+            CASE \
+                WHEN c.relkind = 'p' THEN ( \
+                    SELECT COALESCE(SUM(pg_total_relation_size(pt.relid)), 0)::bigint \
+                    FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf) \
+                WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) \
+                ELSE NULL \
+            END as total_size_bytes, \
+            (c.relkind = 'p') as is_partitioned, \
+            CASE WHEN c.relkind = 'p' THEN pt2.partstrat ELSE NULL END as part_strat, \
+            CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
+            CASE WHEN c.relkind = 'p' THEN ( \
+                SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
+                ELSE NULL END as part_count \
          FROM pg_catalog.pg_class c \
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
          LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid \
+         LEFT JOIN pg_catalog.pg_partitioned_table pt2 ON pt2.partrelid = c.oid \
          WHERE n.nspname = '{}' \
-           AND c.relkind IN ('r', 'v', 'm', 'f') \
+           AND c.relkind IN ('r', 'v', 'm', 'f', 'p') \
+           AND c.relispartition = false \
          ORDER BY \
             CASE c.relkind \
                 WHEN 'r' THEN 1 \
+                WHEN 'p' THEN 1 \
                 WHEN 'f' THEN 2 \
                 WHEN 'v' THEN 3 \
                 WHEN 'm' THEN 4 \
@@ -255,22 +276,29 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
             .into_iter()
             .map(|row| {
                 let table_type_str: String = row.get("table_type");
+                let is_partitioned: bool = row.try_get("is_partitioned").unwrap_or(false);
+                let part_strat: Option<String> = row.try_get("part_strat").ok().flatten();
+                let partition_strategy = part_strat
+                    .as_deref()
+                    .and_then(|s| s.chars().next())
+                    .and_then(PartitionStrategy::from_pg_char);
                 TableInfo {
                     name: row.get("table_name"),
                     schema_name: schema_name.to_string(),
                     table_type: match table_type_str.as_str() {
                         "VIEW" => TableType::View,
                         "FOREIGN TABLE" => TableType::ForeignTable,
+                        "PARTITIONED TABLE" => TableType::PartitionedTable,
                         _ => TableType::Table,
                     },
                     row_count_estimate: row.try_get("row_estimate").ok(),
                     total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
-                    is_partitioned: false,
+                    is_partitioned,
                     is_partition: false,
-                    partition_strategy: None,
-                    partition_key: None,
+                    partition_strategy,
+                    partition_key: row.try_get("part_key").ok().flatten(),
                     partition_bound: None,
-                    partition_count: None,
+                    partition_count: row.try_get("part_count").ok().flatten(),
                 }
             })
             .collect();
