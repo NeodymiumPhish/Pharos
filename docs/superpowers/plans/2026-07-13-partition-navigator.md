@@ -1506,21 +1506,16 @@ In `filterNode`, the `.table, .view` case (`:505-518`) currently includes childr
             } else {
                 for child in matchingChildren { filtered.addChild(child) }
             }
-            // Do NOT append partition groups to expandList — keep them collapsed even on a partition match.
-            if !filtered.children.isEmpty && !isPartitionOnlyMatch(filtered) {
+            // Auto-expand only when there are matching children to reveal. A
+            // partition-name-only match leaves children empty (the collapsed group's
+            // placeholder recurses to nil), so the parent stays visible but collapsed —
+            // no separate isPartitionOnlyMatch guard is needed, and adding one would
+            // wrongly suppress expansion when a real column match coincides with a
+            // partition-name match.
+            if !filtered.children.isEmpty {
                 expandList.append(filtered)
             }
             return filtered
-```
-
-Add a small helper:
-
-```swift
-    /// True when a node is visible only because a partition name matched (so we
-    /// keep it collapsed rather than auto-expanding into columns/groups).
-    private func isPartitionOnlyMatch(_ node: SchemaTreeNode) -> Bool {
-        node.partitionMatchCount > 0
-    }
 ```
 
 - [ ] **Step 2: Render the hit-count badge**
@@ -1557,6 +1552,10 @@ Run: `xcodebuild -project Pharos.xcodeproj -scheme Pharos build 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`.
 
 Manual (`/verify`): with a partitioned table `events`, type a full partition name (e.g. `events_2024_03`) into the sidebar filter. Confirm the `events` parent stays visible, the Partitions group stays **collapsed**, and the parent subtitle shows `… · 1 matching`. Typing the parent name `events` shows it normally. Clearing the filter restores the full tree.
+
+**Known limitations (accepted for v1, documented so later work doesn't assume otherwise):**
+- *Deep sub-partition name search:* the filter index (`knownPartitionNames`, from `getPartitionMap`'s direct parent→child edges) is attached only to top-level `.table` parents, and the `.partition` filter arm is a leaf title check (no recursion). A grandchild partition of a sub-partitioned table therefore isn't found by name via the filter. Rare given the "rarely work with partitions" premise; revisit only if deep partition search is requested.
+- *Collapsed-parent disclosure triangle under a partition-only match:* because `.table` is always `isExpandable`, a parent kept visible solely by a partition-name match still shows a disclosure triangle; expanding it while filtered loads columns onto the transient filtered copy (the group isn't in the filtered children), a self-healing dead-end that resets on filter clear. Cosmetic; a filter-aware `isExpandable` could close it later if desired.
 
 - [ ] **Step 5: Commit**
 
