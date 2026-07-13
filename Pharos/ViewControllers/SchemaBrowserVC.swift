@@ -647,6 +647,9 @@ class SchemaBrowserVC: NSViewController {
         let infos: [TableInfo] = group.children.compactMap {
             if case .partition(let info) = $0.kind { return info } else { return nil }
         }
+        // Still loading (only a .loading placeholder present) — the new mode is
+        // recorded above and applied when the in-flight loadPartitions completes.
+        guard !infos.isEmpty else { return }
         let sorted = PartitionOrdering.sorted(infos, by: mode)
         // Reorder existing child nodes to match, preserving their loaded subtrees.
         var byName: [String: SchemaTreeNode] = [:]
