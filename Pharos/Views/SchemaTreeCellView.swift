@@ -6,6 +6,7 @@ class SchemaTreeCellView: NSTableCellView {
 
     private let iconView = NSImageView()
     private let primaryLabel = NSTextField(labelWithString: "")
+    private let badgeLabel = NSTextField(labelWithString: "")
     private let secondaryLabel = NSTextField(labelWithString: "")
     private let labelStack = NSStackView()
 
@@ -35,6 +36,12 @@ class SchemaTreeCellView: NSTableCellView {
         primaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        badgeLabel.font = .systemFont(ofSize: 9, weight: .semibold)
+        badgeLabel.textColor = .controlAccentColor
+        badgeLabel.wantsLayer = true
+        badgeLabel.layer?.cornerRadius = 3
+        badgeLabel.isHidden = true
+
         secondaryLabel.lineBreakMode = .byTruncatingTail
         secondaryLabel.font = .systemFont(ofSize: 10)
         secondaryLabel.textColor = .secondaryLabelColor
@@ -45,7 +52,11 @@ class SchemaTreeCellView: NSTableCellView {
         labelStack.orientation = .vertical
         labelStack.spacing = 0
         labelStack.alignment = .leading
-        labelStack.addArrangedSubview(primaryLabel)
+        let primaryRow = NSStackView(views: [primaryLabel, badgeLabel])
+        primaryRow.orientation = .horizontal
+        primaryRow.spacing = 5
+        primaryRow.alignment = .firstBaseline
+        labelStack.addArrangedSubview(primaryRow)
         labelStack.addArrangedSubview(secondaryLabel)
         labelStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -72,6 +83,13 @@ class SchemaTreeCellView: NSTableCellView {
         iconView.contentTintColor = node.tintColor
         primaryLabel.stringValue = node.title
 
+        if let badge = node.partitionBadge {
+            badgeLabel.stringValue = " \(badge) "
+            badgeLabel.isHidden = false
+        } else {
+            badgeLabel.isHidden = true
+        }
+
         if let sub = node.subtitle {
             applySecondaryText(base: sub, importing: node.importingSubtitle)
             secondaryLabel.isHidden = false
@@ -85,6 +103,10 @@ class SchemaTreeCellView: NSTableCellView {
         if case .loading = node.kind {
             primaryLabel.textColor = .tertiaryLabelColor
             primaryLabel.font = .systemFont(ofSize: 12)
+        } else if case .partition(let info) = node.kind,
+                  PartitionDisplay.boundSummary(info.partitionBound) == "DEFAULT" {
+            primaryLabel.textColor = .secondaryLabelColor
+            primaryLabel.font = .systemFont(ofSize: 13)
         } else {
             primaryLabel.textColor = .labelColor
             primaryLabel.font = .systemFont(ofSize: 13)
@@ -224,6 +246,7 @@ class SchemaTreeCellView: NSTableCellView {
         currentBaseSubtitle = nil
         currentImportingSuffix = nil
         removeImportGlow()
+        badgeLabel.isHidden = true
         onPartitionSortChange = nil
         sortControl.isHidden = true
         labelStackTrailingToSortControlConstraint?.isActive = false
