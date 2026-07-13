@@ -180,7 +180,12 @@ class SchemaBrowserVC: NSViewController {
         guard let schemaName = schemaNode.schemaName else { return }
         do {
             let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
-            let partitionMap = (try? await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)) ?? []
+            var partitionMap: [PartitionRef] = []
+            do {
+                partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
+            } catch {
+                NSLog("Failed to load partition map for schema \(schemaName): \(error)")
+            }
             var namesByParent: [String: [String]] = [:]
             for ref in partitionMap { namesByParent[ref.parentName, default: []].append(ref.name) }
 
@@ -596,17 +601,19 @@ class SchemaBrowserVC: NSViewController {
         case .table(let info), .partition(let info): isPartitionedParent = info.isPartitioned
         default: isPartitionedParent = false
         }
+        // Capture the eagerly-added Partitions group (if any) up front so both the
+        // success and failure paths can preserve it across removeAllChildren().
+        let existingGroup: SchemaTreeNode? = isPartitionedParent
+            ? node.children.first(where: {
+                if case .partitionGroup = $0.kind { return true }
+                return false
+            })
+            : nil
 
         Task {
             do {
                 let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
                 await MainActor.run {
-                    let existingGroup: SchemaTreeNode? = isPartitionedParent
-                        ? node.children.first(where: {
-                            if case .partitionGroup = $0.kind { return true }
-                            return false
-                        })
-                        : nil
                     node.removeAllChildren()
                     if let group = existingGroup {
                         node.addChild(group)
@@ -619,6 +626,12 @@ class SchemaBrowserVC: NSViewController {
             } catch {
                 await MainActor.run {
                     node.removeAllChildren()
+                    // Preserve the Partitions subtree on failure and allow a retry:
+                    // re-add the group and reset isLoaded so a later expand refetches.
+                    if let group = existingGroup {
+                        node.addChild(group)
+                    }
+                    node.isLoaded = false
                     self.outlineView.reloadItem(node, reloadChildren: true)
                 }
                 NSLog("Failed to load columns for \(schemaName).\(tableName): \(error)")
@@ -658,6 +671,9 @@ class SchemaBrowserVC: NSViewController {
             } catch {
                 await MainActor.run {
                     group.removeAllChildren()
+                    // Allow a retry: reset isLoaded so re-expanding refetches
+                    // instead of stranding an empty group forever.
+                    group.isLoaded = false
                     self.outlineView.reloadItem(group, reloadChildren: true)
                 }
                 NSLog("Failed to load partitions for \(parent.schemaName).\(parent.name): \(error)")
