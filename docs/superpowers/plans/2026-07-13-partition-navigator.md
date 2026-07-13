@@ -1255,7 +1255,12 @@ In the `for t in tableItems` loop (`:195-203`), give partitioned parents a Parti
 Still inside `loadTablesForSchema`, after the tables are fetched (after `:182`), fetch the partition map and attach names to parent nodes. Add before `await MainActor.run {`:
 
 ```swift
-            let partitionMap = (try? await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)) ?? []
+            var partitionMap: [PartitionRef] = []
+            do {
+                partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
+            } catch {
+                NSLog("Failed to load partition map for schema \(schemaName): \(error)")
+            }
             var namesByParent: [String: [String]] = [:]
             for ref in partitionMap { namesByParent[ref.parentName, default: []].append(ref.name) }
 ```
