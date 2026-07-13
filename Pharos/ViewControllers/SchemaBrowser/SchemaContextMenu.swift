@@ -42,7 +42,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     private func tableNameFromNode(_ node: SchemaTreeNode) -> String? {
         switch node.kind {
-        case .table(let t), .view(let t): return t.name
+        case .table(let t), .view(let t), .partition(let t): return t.name
         default: return nil
         }
     }
@@ -300,7 +300,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         let tableName: String
         switch node.kind {
-        case .table(let t): tableName = t.name
+        case .table(let t), .partition(let t): tableName = t.name
         default: return
         }
         Task {
@@ -321,7 +321,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         let tableName: String
         switch node.kind {
-        case .table(let t), .view(let t): tableName = t.name
+        case .table(let t), .view(let t), .partition(let t): tableName = t.name
         default: return
         }
         Task {
@@ -463,6 +463,53 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
             // Inspection
             menu.addItem(.separator())
+
+            let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
+            constraints.target = self
+            menu.addItem(constraints)
+
+        case .partition:
+            // Partitions are real, queryable tables — offer the same read-only
+            // subset the `.table` case offers (query/export/copy/inspect), but
+            // WITHOUT destructive/DDL actions (Truncate, Drop) or bulk data ops
+            // (Clone, Import): per-partition DDL is an explicit non-goal. The
+            // partitioned *parent* remains a `.table` node and keeps the full menu.
+            let viewAll = NSMenuItem(title: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
+            viewAll.target = self
+            menu.addItem(viewAll)
+
+            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
+            let limitSubmenu = NSMenu()
+            for limit in [10, 100, 1_000, 10_000] {
+                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = limit
+                limitSubmenu.addItem(item)
+            }
+            limitItem.submenu = limitSubmenu
+            menu.addItem(limitItem)
+
+            let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
+            copyName.target = self
+            menu.addItem(copyName)
+
+            let pasteName = NSMenuItem(title: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
+            pasteName.target = self
+            menu.addItem(pasteName)
+
+            // Data operations
+            menu.addItem(.separator())
+
+            let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
+            exportItem.target = self
+            menu.addItem(exportItem)
+
+            // Inspection
+            menu.addItem(.separator())
+
+            let indexes = NSMenuItem(title: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
+            indexes.target = self
+            menu.addItem(indexes)
 
             let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
             constraints.target = self
