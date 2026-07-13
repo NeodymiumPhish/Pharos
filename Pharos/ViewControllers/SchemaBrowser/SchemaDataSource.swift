@@ -4,6 +4,7 @@ import AppKit
 
 protocol SchemaDataSourceDelegate: AnyObject {
     func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode)
+    func schemaDataSourceSetPartitionSort(_ mode: PartitionSortMode, for node: SchemaTreeNode)
 }
 
 // MARK: - SchemaDataSource
@@ -52,6 +53,13 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
             ?? SchemaTreeCellView(identifier: cellId)
 
         cell.configure(node: node)
+
+        if case .partitionGroup = node.kind {
+            cell.onPartitionSortChange = { [weak delegate] mode in
+                delegate?.schemaDataSourceSetPartitionSort(mode, for: node)
+            }
+        }
+
         return cell
     }
 

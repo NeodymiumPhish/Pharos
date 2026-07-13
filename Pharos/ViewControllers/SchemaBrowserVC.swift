@@ -639,6 +639,23 @@ class SchemaBrowserVC: NSViewController {
         }
     }
 
+    /// Change a partition group's ordering and re-sort its already-loaded children in place.
+    func setPartitionSort(_ mode: PartitionSortMode, for group: SchemaTreeNode) {
+        guard case .partitionGroup = group.kind, group.partitionSortMode != mode else { return }
+        group.partitionSortMode = mode
+        guard group.isLoaded else { return }   // not loaded yet → will sort on first load
+        let infos: [TableInfo] = group.children.compactMap {
+            if case .partition(let info) = $0.kind { return info } else { return nil }
+        }
+        let sorted = PartitionOrdering.sorted(infos, by: mode)
+        // Reorder existing child nodes to match, preserving their loaded subtrees.
+        var byName: [String: SchemaTreeNode] = [:]
+        for child in group.children { byName[child.title] = child }
+        group.removeAllChildren()
+        for info in sorted { if let node = byName[info.name] { group.addChild(node) } }
+        outlineView.reloadItem(group, reloadChildren: true)
+    }
+
     /// Load a partitioned parent's direct child partitions into its `.partitionGroup`
     /// node, sorted by the group's current `partitionSortMode`. Sub-partitioned
     /// partitions get their own nested (lazy) `.partitionGroup` child — the recursive
@@ -688,6 +705,10 @@ class SchemaBrowserVC: NSViewController {
 extension SchemaBrowserVC: SchemaDataSourceDelegate {
     func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode) {
         lazyLoadColumnsIfNeeded(for: node)
+    }
+
+    func schemaDataSourceSetPartitionSort(_ mode: PartitionSortMode, for node: SchemaTreeNode) {
+        setPartitionSort(mode, for: node)
     }
 }
 

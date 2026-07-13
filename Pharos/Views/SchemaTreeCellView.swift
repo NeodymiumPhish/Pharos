@@ -9,6 +9,13 @@ class SchemaTreeCellView: NSTableCellView {
     private let secondaryLabel = NSTextField(labelWithString: "")
     private let labelStack = NSStackView()
 
+    /// Invoked when the user picks a sort mode on a partition-group row.
+    var onPartitionSortChange: ((PartitionSortMode) -> Void)?
+    private let sortControl = NSSegmentedControl(labels: ["Bound", "Name", "Size"],
+                                                 trackingMode: .selectOne, target: nil, action: nil)
+    private var labelStackTrailingToCellConstraint: NSLayoutConstraint?
+    private var labelStackTrailingToSortControlConstraint: NSLayoutConstraint?
+
     private static let importGlowAnimationKey = "pharosImportGlowPulse"
 
     /// Cached so we can re-render the secondary label when `backgroundStyle` changes
@@ -45,6 +52,9 @@ class SchemaTreeCellView: NSTableCellView {
         addSubview(iconView)
         addSubview(labelStack)
 
+        let labelStackTrailingToCell = labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4)
+        labelStackTrailingToCellConstraint = labelStackTrailingToCell
+
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -52,7 +62,7 @@ class SchemaTreeCellView: NSTableCellView {
             iconView.heightAnchor.constraint(equalToConstant: 16),
 
             labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            labelStackTrailingToCell,
             labelStack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -79,6 +89,44 @@ class SchemaTreeCellView: NSTableCellView {
             primaryLabel.textColor = .labelColor
             primaryLabel.font = .systemFont(ofSize: 13)
         }
+
+        if case .partitionGroup = node.kind {
+            if sortControl.superview == nil {
+                sortControl.segmentStyle = .capsule
+                sortControl.controlSize = .mini
+                sortControl.translatesAutoresizingMaskIntoConstraints = false
+                sortControl.target = self
+                sortControl.action = #selector(sortChanged(_:))
+                addSubview(sortControl)
+                NSLayoutConstraint.activate([
+                    sortControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+                    sortControl.centerYAnchor.constraint(equalTo: centerYAnchor),
+                ])
+            }
+            sortControl.isHidden = false
+            switch node.partitionSortMode {
+            case .bound: sortControl.selectedSegment = 0
+            case .name:  sortControl.selectedSegment = 1
+            case .size:  sortControl.selectedSegment = 2
+            }
+            // Stop the labels short of the sort control instead of the cell's
+            // trailing edge, so the "Partitions (N)" text never runs under it.
+            labelStackTrailingToCellConstraint?.isActive = false
+            if labelStackTrailingToSortControlConstraint == nil {
+                labelStackTrailingToSortControlConstraint = labelStack.trailingAnchor.constraint(
+                    lessThanOrEqualTo: sortControl.leadingAnchor, constant: -4)
+            }
+            labelStackTrailingToSortControlConstraint?.isActive = true
+        } else {
+            sortControl.isHidden = true
+            labelStackTrailingToSortControlConstraint?.isActive = false
+            labelStackTrailingToCellConstraint?.isActive = true
+        }
+    }
+
+    @objc private func sortChanged(_ sender: NSSegmentedControl) {
+        let mode: PartitionSortMode = [.bound, .name, .size][sender.selectedSegment]
+        onPartitionSortChange?(mode)
     }
 
     /// Compose the secondary label's contents. When `importing` is non-nil, the
@@ -176,5 +224,9 @@ class SchemaTreeCellView: NSTableCellView {
         currentBaseSubtitle = nil
         currentImportingSuffix = nil
         removeImportGlow()
+        onPartitionSortChange = nil
+        sortControl.isHidden = true
+        labelStackTrailingToSortControlConstraint?.isActive = false
+        labelStackTrailingToCellConstraint?.isActive = true
     }
 }
