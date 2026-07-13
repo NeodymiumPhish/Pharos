@@ -502,7 +502,7 @@ class SchemaBrowserVC: NSViewController {
             }
             return filtered
 
-        case .table, .view:
+        case .table, .view, .partition:
             let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
             if !titleMatches && matchingChildren.isEmpty { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
@@ -512,6 +512,20 @@ class SchemaBrowserVC: NSViewController {
             } else {
                 for child in matchingChildren { filtered.addChild(child) }
             }
+            if !filtered.children.isEmpty {
+                expandList.append(filtered)
+            }
+            return filtered
+
+        case .partitionGroup:
+            // Container, like .schema: keep it (and expand it) whenever any
+            // child partition matches, even though its own title ("Partitions")
+            // rarely matches the filter text itself.
+            let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
+            if matchingChildren.isEmpty && !titleMatches { return nil }
+            let filtered = SchemaTreeNode(node.kind, parent: node.parent)
+            filtered.isLoaded = node.isLoaded
+            for child in matchingChildren { filtered.addChild(child) }
             if !filtered.children.isEmpty {
                 expandList.append(filtered)
             }

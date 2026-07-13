@@ -15,6 +15,7 @@
 		0D06D23BAD7B85E3D848032E /* CloneTableSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147EF7BD64F5D8D49F5A76C /* CloneTableSheet.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
+		171DB2DA90741CA6961CE0D7 /* PartitionOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81B37D867FA93870C9481FC /* PartitionOrdering.swift */; };
 		1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C254B3E566A636E1216FE4 /* CrashLogger.swift */; };
 		1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061E832235866E86FB1BD81 /* MainMenu.swift */; };
 		1896442191A1723DA4AC8F11 /* PharosCore+TableOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */; };
@@ -90,6 +91,7 @@
 		E95A1BECEE9799B577E51E26 /* FilterableHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */; };
 		ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */; };
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
+		EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */; };
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
 		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
@@ -120,6 +122,7 @@
 		4B5ECAA757C7692770A532EA /* FoldState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldState.swift; sourceTree = "<group>"; };
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
+		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
 		58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaPopUpButton.swift; sourceTree = "<group>"; };
 		5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPaneVC.swift; sourceTree = "<group>"; };
@@ -169,6 +172,7 @@
 		DE109495071281357840CE57 /* QueryHistoryVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistoryVC.swift; sourceTree = "<group>"; };
 		DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerWindowController.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
+		E81B37D867FA93870C9481FC /* PartitionOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionOrdering.swift; sourceTree = "<group>"; };
 		EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryResult.swift; sourceTree = "<group>"; };
 		EB348FEAF8FBBF5666D1D306 /* SchemaSelectorPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaSelectorPopoverVC.swift; sourceTree = "<group>"; };
 		EBB204A7203DFE7F75AE059A /* PharosCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosCore.swift; sourceTree = "<group>"; };
@@ -283,6 +287,8 @@
 			children = (
 				EBF3A05751881D6DB6B2AE26 /* Connection.swift */,
 				90A00A6C3C037EC51D40B003 /* EditorPane.swift */,
+				565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */,
+				E81B37D867FA93870C9481FC /* PartitionOrdering.swift */,
 				AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */,
 				EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */,
 				0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */,
@@ -517,6 +523,8 @@
 				98ABDB227EE8B96889F26C62 /* NotificationCoalescer.swift in Sources */,
 				8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */,
 				017F1D6AD3F86E95B43774EF /* PaneTabBar.swift in Sources */,
+				EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */,
+				171DB2DA90741CA6961CE0D7 /* PartitionOrdering.swift in Sources */,
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,
 				B0EB5E848C3BA0450A2EDF6E /* PharosCore+Query.swift in Sources */,
 				13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */,
