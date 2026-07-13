@@ -247,7 +247,7 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 ELSE NULL \
             END as total_size_bytes, \
             (c.relkind = 'p') as is_partitioned, \
-            CASE WHEN c.relkind = 'p' THEN pt2.partstrat ELSE NULL END as part_strat, \
+            CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
             CASE WHEN c.relkind = 'p' THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
