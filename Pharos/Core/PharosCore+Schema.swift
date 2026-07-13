@@ -25,6 +25,30 @@ extension PharosCore {
         }
     }
 
+    /// Get direct child partitions of a partitioned parent table.
+    static func getPartitions(connectionId: String, schema: String, parent: String) async throws -> [TableInfo] {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    parent.withCString { cParent in
+                        pharos_get_partitions(cConn, cSchema, cParent, callback, context)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the parent→child partition name map for a schema (filter index).
+    static func getPartitionMap(connectionId: String, schema: String) async throws -> [PartitionRef] {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    pharos_get_partition_map(cConn, cSchema, callback, context)
+                }
+            }
+        }
+    }
+
     /// Get columns for a table.
     static func getColumns(connectionId: String, schema: String, table: String) async throws -> [ColumnInfo] {
         return try await withAsyncCallback { callback, context in
