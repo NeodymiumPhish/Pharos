@@ -163,6 +163,8 @@ class SchemaTreeNode: NSObject {
     var schemaName: String? {
         switch kind {
         case .schema(let info): return info.name
+        case .partition(let info): return info.schemaName
+        case .partitionGroup(let parent): return parent.schemaName
         default: return parent?.schemaName
         }
     }
