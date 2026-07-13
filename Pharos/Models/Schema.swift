@@ -9,6 +9,16 @@ enum TableType: String, Codable {
     case table
     case view
     case foreignTable = "foreign-table"
+    case partitionedTable = "partitioned-table"
+}
+
+enum PartitionStrategy: String, Codable {
+    case range
+    case list
+    case hash
+
+    /// Short uppercase badge label: RANGE / LIST / HASH.
+    var badgeLabel: String { rawValue.uppercased() }
 }
 
 struct TableInfo: Codable {
@@ -17,7 +27,52 @@ struct TableInfo: Codable {
     let tableType: TableType
     let rowCountEstimate: Int64?
     let totalSizeBytes: Int64?
+    // Partition metadata (all optional; absent/false on non-PG servers).
+    var isPartitioned: Bool = false
+    var isPartition: Bool = false
+    var partitionStrategy: PartitionStrategy?
+    var partitionKey: String?       // raw pg_get_partkeydef, e.g. "RANGE (created_at)"
+    var partitionBound: String?     // pg_get_expr(relpartbound) or "DEFAULT"
+    var partitionCount: Int64?
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
+
+    enum CodingKeys: String, CodingKey {
+        case name, schemaName, tableType, rowCountEstimate, totalSizeBytes
+        case isPartitioned, isPartition, partitionStrategy, partitionKey, partitionBound, partitionCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        schemaName = try c.decode(String.self, forKey: .schemaName)
+        tableType = try c.decode(TableType.self, forKey: .tableType)
+        rowCountEstimate = try c.decodeIfPresent(Int64.self, forKey: .rowCountEstimate)
+        totalSizeBytes = try c.decodeIfPresent(Int64.self, forKey: .totalSizeBytes)
+        isPartitioned = try c.decodeIfPresent(Bool.self, forKey: .isPartitioned) ?? false
+        isPartition = try c.decodeIfPresent(Bool.self, forKey: .isPartition) ?? false
+        partitionStrategy = try c.decodeIfPresent(PartitionStrategy.self, forKey: .partitionStrategy)
+        partitionKey = try c.decodeIfPresent(String.self, forKey: .partitionKey)
+        partitionBound = try c.decodeIfPresent(String.self, forKey: .partitionBound)
+        partitionCount = try c.decodeIfPresent(Int64.self, forKey: .partitionCount)
+    }
+
+    /// Memberwise init for tests / in-code construction.
+    init(name: String, schemaName: String, tableType: TableType,
+         rowCountEstimate: Int64?, totalSizeBytes: Int64?,
+         isPartitioned: Bool = false, isPartition: Bool = false,
+         partitionStrategy: PartitionStrategy? = nil, partitionKey: String? = nil,
+         partitionBound: String? = nil, partitionCount: Int64? = nil) {
+        self.name = name; self.schemaName = schemaName; self.tableType = tableType
+        self.rowCountEstimate = rowCountEstimate; self.totalSizeBytes = totalSizeBytes
+        self.isPartitioned = isPartitioned; self.isPartition = isPartition
+        self.partitionStrategy = partitionStrategy; self.partitionKey = partitionKey
+        self.partitionBound = partitionBound; self.partitionCount = partitionCount
+    }
+}
+
+struct PartitionRef: Codable {
+    let parentName: String
+    let name: String
 }
 
 struct AnalyzeResult: Codable {
