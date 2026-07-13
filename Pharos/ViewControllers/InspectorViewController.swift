@@ -135,6 +135,37 @@ class InspectorViewController: NSViewController {
         }
     }
 
+    /// Shows detail for a partitioned parent table (`TableInfo.isPartitioned`).
+    /// Also used for a selected `.partitionGroup` node — it shares the same
+    /// parent `TableInfo`, so its detail is identical.
+    func showPartitionedTableDetail(_ info: TableInfo) {
+        beginDetailSection(title: "Partitioned Table", subtitle: info.name)
+
+        addDetailField("Strategy", info.partitionStrategy?.badgeLabel ?? "\u{2014}")
+        addDetailField("Partition key", PartitionDisplay.keyColumns(fromPartKeyDef: info.partitionKey) ?? "\u{2014}")
+        addDetailField("Partitions", info.partitionCount.map(String.init) ?? "\u{2014}")
+        addDetailField("Rows", formatRowCount(info.rowCountEstimate))
+        addDetailField("Size", formatByteSize(info.totalSizeBytes))
+    }
+
+    /// Shows detail for a selected partition (`TableInfo.isPartition`).
+    /// `parentName` is the enclosing partitioned table's name, when known.
+    func showPartitionDetail(_ info: TableInfo, parentName: String?) {
+        beginDetailSection(title: "Partition", subtitle: info.name)
+
+        addDetailField("Parent", parentName ?? "\u{2014}")
+        let bound = PartitionDisplay.boundSummary(info.partitionBound)
+        addDetailField("Bound", bound ?? "\u{2014}")
+        if bound == "DEFAULT" {
+            addDetailNote("DEFAULT partition")
+        }
+        addDetailField("Rows", formatRowCount(info.rowCountEstimate))
+        addDetailField("Size", formatByteSize(info.totalSizeBytes))
+        if info.isPartitioned {
+            addDetailNote("Sub-partitioned by \(info.partitionStrategy?.badgeLabel ?? "?")")
+        }
+    }
+
     func showAggregation(
         columns: [ColumnDef],
         rows: [[AnyCodable]],
@@ -254,6 +285,122 @@ class InspectorViewController: NSViewController {
             spacer.heightAnchor.constraint(equalToConstant: 8).isActive = true
             stackView.addArrangedSubview(spacer)
         }
+    }
+
+    // MARK: - Partition Detail Helpers
+
+    /// Clears the stack and installs a "Title" + right-aligned subtitle header
+    /// followed by a separator — the same header/separator shape used by
+    /// `showRowDetail`/`showAggregation` (title on the left, an identifying
+    /// value on the right).
+    private func beginDetailSection(title: String, subtitle: String) {
+        currentRowNumber = nil
+        noSelectionLabel.isHidden = true
+        scrollView.isHidden = false
+
+        stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
+
+        let subtitleLabel = NSTextField(labelWithString: subtitle)
+        subtitleLabel.font = .systemFont(ofSize: 11)
+        subtitleLabel.textColor = .tertiaryLabelColor
+        subtitleLabel.alignment = .right
+        subtitleLabel.lineBreakMode = .byTruncatingMiddle
+        subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let headerStack = NSStackView(views: [titleLabel, subtitleLabel])
+        headerStack.orientation = .horizontal
+        headerStack.distribution = .fill
+        stackView.addArrangedSubview(headerStack)
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        stackView.addArrangedSubview(separator)
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// Adds a label -> value row, mirroring the column key/value rows in
+    /// `showRowDetail` (secondary-label key above a monospaced value, with a
+    /// spacer between rows).
+    private func addDetailField(_ name: String, _ value: String, color: NSColor = .labelColor) {
+        let keyLabel = makeFieldLabel(name)
+        let valueLabel = makeFieldValueLabel(value, color: color)
+
+        stackView.addArrangedSubview(keyLabel)
+        stackView.addArrangedSubview(valueLabel)
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        valueLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        stackView.addArrangedSubview(spacer)
+    }
+
+    /// Adds a standalone callout line (e.g. "DEFAULT partition").
+    private func addDetailNote(_ text: String) {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .systemOrange
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        stackView.addArrangedSubview(label)
+
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        stackView.addArrangedSubview(spacer)
+    }
+
+    private func makeFieldLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.init(rawValue: 1), for: .horizontal)
+        return label
+    }
+
+    private func makeFieldValueLabel(_ text: String, color: NSColor) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        label.textColor = color
+        return label
+    }
+
+    /// Same thresholds as `SchemaTreeNode.formatCount` (≥1M → "%.1fM", ≥1K →
+    /// "%.1fK", else the raw integer), minus its baked-in " rows" suffix — the
+    /// inspector's own "Rows" label already supplies that context.
+    private func formatRowCount(_ count: Int64?) -> String {
+        guard let count else { return "\u{2014}" }
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000)
+        } else {
+            return "\(count)"
+        }
+    }
+
+    private static let byteCountFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
+    private func formatByteSize(_ bytes: Int64?) -> String {
+        guard let bytes else { return "\u{2014}" }
+        return Self.byteCountFormatter.string(fromByteCount: bytes)
     }
 
     // MARK: - Helpers

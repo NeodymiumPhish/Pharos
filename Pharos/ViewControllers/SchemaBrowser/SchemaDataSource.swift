@@ -5,6 +5,7 @@ import AppKit
 protocol SchemaDataSourceDelegate: AnyObject {
     func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode)
     func schemaDataSourceSetPartitionSort(_ mode: PartitionSortMode, for node: SchemaTreeNode)
+    func schemaDataSourceSelectionDidChange(_ node: SchemaTreeNode?)
 }
 
 // MARK: - SchemaDataSource
@@ -71,6 +72,12 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
     func outlineViewItemWillExpand(_ notification: Notification) {
         guard let node = notification.userInfo?["NSObject"] as? SchemaTreeNode else { return }
         delegate?.schemaDataSourceItemWillExpand(node)
+    }
+
+    func outlineViewSelectionDidChange(_ notification: Notification) {
+        let row = outlineView.selectedRow
+        let node = row >= 0 ? outlineView.item(atRow: row) as? SchemaTreeNode : nil
+        delegate?.schemaDataSourceSelectionDidChange(node)
     }
 
     // MARK: - Double Click
