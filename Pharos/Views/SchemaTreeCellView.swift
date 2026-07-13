@@ -37,7 +37,6 @@ class SchemaTreeCellView: NSTableCellView {
         primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         badgeLabel.font = .systemFont(ofSize: 9, weight: .semibold)
-        badgeLabel.textColor = .controlAccentColor
         badgeLabel.wantsLayer = true
         badgeLabel.layer?.cornerRadius = 3
         badgeLabel.isHidden = true
@@ -86,6 +85,7 @@ class SchemaTreeCellView: NSTableCellView {
         if let badge = node.partitionBadge {
             badgeLabel.stringValue = " \(badge) "
             badgeLabel.isHidden = false
+            renderBadge()
         } else {
             badgeLabel.isHidden = true
         }
@@ -149,6 +149,19 @@ class SchemaTreeCellView: NSTableCellView {
     @objc private func sortChanged(_ sender: NSSegmentedControl) {
         let mode: PartitionSortMode = [.bound, .name, .size][sender.selectedSegment]
         onPartitionSortChange?(mode)
+    }
+
+    /// Colour the badge as an accent-tinted pill, switching to a light-on-selection
+    /// treatment when the row is selected+focused (backgroundStyle == .emphasized).
+    private func renderBadge() {
+        guard !badgeLabel.isHidden else { return }
+        if backgroundStyle == .emphasized {
+            badgeLabel.textColor = .alternateSelectedControlTextColor
+            badgeLabel.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.25).cgColor
+        } else {
+            badgeLabel.textColor = .controlAccentColor
+            badgeLabel.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+        }
     }
 
     /// Compose the secondary label's contents. When `importing` is non-nil, the
@@ -238,6 +251,7 @@ class SchemaTreeCellView: NSTableCellView {
             // Re-render so colors track selection state. (didSet only fires on change,
             // and we cache the strings so we don't need the node here.)
             renderSecondaryText()
+            renderBadge()
         }
     }
 
@@ -247,6 +261,7 @@ class SchemaTreeCellView: NSTableCellView {
         currentImportingSuffix = nil
         removeImportGlow()
         badgeLabel.isHidden = true
+        badgeLabel.stringValue = ""
         onPartitionSortChange = nil
         sortControl.isHidden = true
         labelStackTrailingToSortControlConstraint?.isActive = false
