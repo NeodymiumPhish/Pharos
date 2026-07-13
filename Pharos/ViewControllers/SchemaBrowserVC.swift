@@ -517,17 +517,22 @@ class SchemaBrowserVC: NSViewController {
             }
             return filtered
 
-        case .table, .view, .partition:
+        case .table, .view:
             let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
-            if !titleMatches && matchingChildren.isEmpty { return nil }
+            // Partition-name matches from the lightweight index (group stays collapsed).
+            let partitionMatches = node.knownPartitionNames.filter { $0.lowercased().contains(text) }.count
+            if !titleMatches && matchingChildren.isEmpty && partitionMatches == 0 { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
+            filtered.knownPartitionNames = node.knownPartitionNames
+            filtered.partitionMatchCount = titleMatches ? 0 : partitionMatches
             if titleMatches {
                 for child in node.children { filtered.addChild(child) }
             } else {
                 for child in matchingChildren { filtered.addChild(child) }
             }
-            if !filtered.children.isEmpty {
+            // Do NOT append partition groups to expandList — keep them collapsed even on a partition match.
+            if !filtered.children.isEmpty && !isPartitionOnlyMatch(filtered) {
                 expandList.append(filtered)
             }
             return filtered
@@ -537,18 +542,25 @@ class SchemaBrowserVC: NSViewController {
             // child partition matches, even though its own title ("Partitions")
             // rarely matches the filter text itself.
             let matchingChildren = node.children.compactMap { filterNode($0, text: text, expandList: &expandList) }
-            if matchingChildren.isEmpty && !titleMatches { return nil }
+            if matchingChildren.isEmpty { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
+            filtered.partitionSortMode = node.partitionSortMode
             for child in matchingChildren { filtered.addChild(child) }
-            if !filtered.children.isEmpty {
-                expandList.append(filtered)
-            }
             return filtered
+
+        case .partition:
+            return titleMatches ? node : nil
 
         case .column:
             return titleMatches ? node : nil
         }
+    }
+
+    /// True when a node is visible only because a partition name matched (so we
+    /// keep it collapsed rather than auto-expanding into columns/groups).
+    private func isPartitionOnlyMatch(_ node: SchemaTreeNode) -> Bool {
+        node.partitionMatchCount > 0
     }
 
     /// Called after a single schema's tables have been spliced into the
