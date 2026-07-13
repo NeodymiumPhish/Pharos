@@ -272,6 +272,19 @@ class CellSelectionController {
         }
     }
 
+    // MARK: - Scroll
+
+    /// Scrolls the table so the active cell (row + column) is visible. Mirrors
+    /// NSTableView's built-in row-selection scrolling, which cell mode bypasses.
+    func scrollToActive() {
+        guard let tv = tableView, let pos = state.active else { return }
+        guard pos.row >= 0, pos.row < tv.numberOfRows else { return }
+        tv.scrollRowToVisible(pos.row)
+        if pos.column >= 0, pos.column < tv.numberOfColumns {
+            tv.scrollColumnToVisible(pos.column)
+        }
+    }
+
     // MARK: - Clear
 
     func clear() {
@@ -303,6 +316,7 @@ class ResultsTableView: NSTableView {
 
     override func keyDown(with event: NSEvent) {
         if cellSelectionController?.handleKeyDown(with: event) == true {
+            cellSelectionController?.scrollToActive()
             return
         }
         super.keyDown(with: event)
