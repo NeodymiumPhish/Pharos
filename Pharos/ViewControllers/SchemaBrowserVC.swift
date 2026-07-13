@@ -180,13 +180,16 @@ class SchemaBrowserVC: NSViewController {
         guard let schemaName = schemaNode.schemaName else { return }
         do {
             let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
+            let partitionMap = (try? await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)) ?? []
+            var namesByParent: [String: [String]] = [:]
+            for ref in partitionMap { namesByParent[ref.parentName, default: []].append(ref.name) }
 
             await MainActor.run {
                 schemaNode.removeAllChildren()
                 schemaNode.isLoaded = true
 
                 let tableItems = tables
-                    .filter { $0.tableType == .table || $0.tableType == .foreignTable }
+                    .filter { $0.tableType == .table || $0.tableType == .foreignTable || $0.tableType == .partitionedTable }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 let viewItems = tables
                     .filter { $0.tableType == .view }
@@ -194,6 +197,13 @@ class SchemaBrowserVC: NSViewController {
 
                 for t in tableItems {
                     let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
+                    tableNode.knownPartitionNames = namesByParent[t.name] ?? []
+                    if t.isPartitioned {
+                        // Partitions group first, then columns — both lazy.
+                        let group = SchemaTreeNode(.partitionGroup(t), parent: tableNode)
+                        group.addChild(SchemaTreeNode(.loading, parent: group))
+                        tableNode.addChild(group)
+                    }
                     tableNode.addChild(SchemaTreeNode(.loading, parent: tableNode))
                     // Show row count immediately if pg_class already has one
                     if t.rowCountEstimate != nil {
@@ -562,20 +572,45 @@ class SchemaBrowserVC: NSViewController {
         guard !node.isLoaded else { return }
 
         switch node.kind {
-        case .table, .view: break
-        default: return
+        case .table, .view, .partition:
+            loadColumns(for: node)
+        case .partitionGroup(let parent):
+            loadPartitions(for: node, parent: parent)
+        default:
+            return
         }
+    }
 
+    /// Load columns for a `.table` / `.view` / `.partition` node. A partitioned
+    /// `.table` or `.partition` node already has a `.partitionGroup` child (added
+    /// eagerly when its own parent was populated) — that child must survive this
+    /// reload, so we detect it before clearing children and re-add it first.
+    private func loadColumns(for node: SchemaTreeNode) {
         guard let connectionId, let schemaName = node.schemaName, let tableName = node.tableName else { return }
 
         // Mark as loaded to prevent duplicate fetches
         node.isLoaded = true
 
+        let isPartitionedParent: Bool
+        switch node.kind {
+        case .table(let info), .partition(let info): isPartitionedParent = info.isPartitioned
+        default: isPartitionedParent = false
+        }
+
         Task {
             do {
                 let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
                 await MainActor.run {
+                    let existingGroup: SchemaTreeNode? = isPartitionedParent
+                        ? node.children.first(where: {
+                            if case .partitionGroup = $0.kind { return true }
+                            return false
+                        })
+                        : nil
                     node.removeAllChildren()
+                    if let group = existingGroup {
+                        node.addChild(group)
+                    }
                     for col in columns {
                         node.addChild(SchemaTreeNode(.column(col), parent: node))
                     }
@@ -587,6 +622,45 @@ class SchemaBrowserVC: NSViewController {
                     self.outlineView.reloadItem(node, reloadChildren: true)
                 }
                 NSLog("Failed to load columns for \(schemaName).\(tableName): \(error)")
+            }
+        }
+    }
+
+    /// Load a partitioned parent's direct child partitions into its `.partitionGroup`
+    /// node, sorted by the group's current `partitionSortMode`. Sub-partitioned
+    /// partitions get their own nested (lazy) `.partitionGroup` child — the recursive
+    /// case — handled identically by `lazyLoadColumnsIfNeeded`/`loadColumns` when that
+    /// nested group or partition is itself expanded.
+    private func loadPartitions(for group: SchemaTreeNode, parent: TableInfo) {
+        guard let connectionId else { return }
+        group.isLoaded = true
+        Task {
+            do {
+                let partitions = try await PharosCore.getPartitions(
+                    connectionId: connectionId, schema: parent.schemaName, parent: parent.name)
+                await MainActor.run {
+                    let sorted = PartitionOrdering.sorted(partitions, by: group.partitionSortMode)
+                    group.removeAllChildren()
+                    for p in sorted {
+                        let node = SchemaTreeNode(.partition(p), parent: group)
+                        node.hasRowCount = p.rowCountEstimate != nil
+                        // Sub-partitioned partition → nested Partitions group (recursion).
+                        if p.isPartitioned {
+                            let sub = SchemaTreeNode(.partitionGroup(p), parent: node)
+                            sub.addChild(SchemaTreeNode(.loading, parent: sub))
+                            node.addChild(sub)
+                        }
+                        node.addChild(SchemaTreeNode(.loading, parent: node))
+                        group.addChild(node)
+                    }
+                    self.outlineView.reloadItem(group, reloadChildren: true)
+                }
+            } catch {
+                await MainActor.run {
+                    group.removeAllChildren()
+                    self.outlineView.reloadItem(group, reloadChildren: true)
+                }
+                NSLog("Failed to load partitions for \(parent.schemaName).\(parent.name): \(error)")
             }
         }
     }
