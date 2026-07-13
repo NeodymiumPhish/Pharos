@@ -1583,10 +1583,29 @@ In the initializer, style it and add it to the label row (place it inline after 
 
 ```swift
         badgeLabel.font = .systemFont(ofSize: 9, weight: .semibold)
-        badgeLabel.textColor = .controlAccentColor
         badgeLabel.wantsLayer = true
         badgeLabel.layer?.cornerRadius = 3
         badgeLabel.isHidden = true
+```
+
+The badge is a filled pill, and its colors must contrast against the accent-colored
+selection highlight (mirroring how `secondaryLabel` swaps colors on `.emphasized`).
+Add a `renderBadge()` helper and call it wherever the badge is shown or the selection
+state changes:
+
+```swift
+    /// Colour the badge as an accent-tinted pill, switching to a light-on-selection
+    /// treatment when the row is selected+focused (backgroundStyle == .emphasized).
+    private func renderBadge() {
+        guard !badgeLabel.isHidden else { return }
+        if backgroundStyle == .emphasized {
+            badgeLabel.textColor = .alternateSelectedControlTextColor
+            badgeLabel.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.25).cgColor
+        } else {
+            badgeLabel.textColor = .controlAccentColor
+            badgeLabel.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+        }
+    }
 ```
 
 Wrap the primary line: replace `labelStack.addArrangedSubview(primaryLabel)` with a horizontal sub-stack containing `primaryLabel` and `badgeLabel`:
@@ -1605,12 +1624,17 @@ In `configure(node:)`, after setting `primaryLabel.stringValue`:
         if let badge = node.partitionBadge {
             badgeLabel.stringValue = " \(badge) "
             badgeLabel.isHidden = false
+            renderBadge()
         } else {
             badgeLabel.isHidden = true
         }
 ```
 
-Reset in `prepareForReuse()`: `badgeLabel.isHidden = true`.
+The cell already overrides `backgroundStyle`'s `didSet` (to re-render the secondary
+label on selection). Add `renderBadge()` there too so the pill re-colours when the row
+is selected/deselected.
+
+Reset in `prepareForReuse()`: `badgeLabel.isHidden = true` and `badgeLabel.stringValue = ""`.
 
 - [ ] **Step 2: DEFAULT partition muted styling**
 
