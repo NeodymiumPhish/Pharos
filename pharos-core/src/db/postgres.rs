@@ -378,11 +378,13 @@ pub async fn get_partitions(
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
             CASE WHEN c.relkind = 'p' THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
-                ELSE NULL END as part_count \
+                ELSE NULL END as part_count, \
+            cn.nspname as child_schema \
          FROM pg_catalog.pg_inherits i \
          JOIN pg_catalog.pg_class parent ON parent.oid = i.inhparent \
          JOIN pg_catalog.pg_namespace pn ON pn.oid = parent.relnamespace \
          JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+         JOIN pg_catalog.pg_namespace cn ON cn.oid = c.relnamespace \
          LEFT JOIN pg_catalog.pg_partitioned_table pt2 ON pt2.partrelid = c.oid \
          WHERE pn.nspname = '{}' AND parent.relname = '{}' \
          ORDER BY c.relname",
@@ -407,7 +409,7 @@ pub async fn get_partitions(
             };
             TableInfo {
                 name: row.get("table_name"),
-                schema_name: schema_name.to_string(),
+                schema_name: row.get("child_schema"),
                 table_type,
                 row_count_estimate: row.try_get("row_estimate").ok().flatten(),
                 total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
