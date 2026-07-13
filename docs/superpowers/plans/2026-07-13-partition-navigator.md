@@ -341,7 +341,8 @@ pub async fn get_partitions(
                 WHEN c.relkind = 'p' THEN ( \
                     SELECT COALESCE(SUM(pg_total_relation_size(pt.relid)), 0)::bigint \
                     FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf) \
-                ELSE pg_total_relation_size(c.oid) \
+                WHEN c.relkind = 'r' THEN pg_total_relation_size(c.oid) \
+                ELSE NULL \
             END as total_size_bytes, \
             pg_get_expr(c.relpartbound, c.oid) as part_bound, \
             (c.relkind = 'p') as is_partitioned, \
