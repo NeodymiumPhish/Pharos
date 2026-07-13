@@ -531,8 +531,10 @@ class SchemaBrowserVC: NSViewController {
             } else {
                 for child in matchingChildren { filtered.addChild(child) }
             }
-            // Do NOT append partition groups to expandList — keep them collapsed even on a partition match.
-            if !filtered.children.isEmpty && !isPartitionOnlyMatch(filtered) {
+            // Auto-expand only when there are matching children to reveal. A
+            // partition-name-only match leaves children empty (collapsed group's
+            // placeholder recurses to nil), so the parent stays visible but collapsed.
+            if !filtered.children.isEmpty {
                 expandList.append(filtered)
             }
             return filtered
@@ -555,12 +557,6 @@ class SchemaBrowserVC: NSViewController {
         case .column:
             return titleMatches ? node : nil
         }
-    }
-
-    /// True when a node is visible only because a partition name matched (so we
-    /// keep it collapsed rather than auto-expanding into columns/groups).
-    private func isPartitionOnlyMatch(_ node: SchemaTreeNode) -> Bool {
-        node.partitionMatchCount > 0
     }
 
     /// Called after a single schema's tables have been spliced into the
