@@ -28,12 +28,12 @@ struct TableInfo: Codable {
     let rowCountEstimate: Int64?
     let totalSizeBytes: Int64?
     // Partition metadata (all optional; absent/false on non-PG servers).
-    var isPartitioned: Bool = false
-    var isPartition: Bool = false
-    var partitionStrategy: PartitionStrategy?
-    var partitionKey: String?       // raw pg_get_partkeydef, e.g. "RANGE (created_at)"
-    var partitionBound: String?     // pg_get_expr(relpartbound) or "DEFAULT"
-    var partitionCount: Int64?
+    let isPartitioned: Bool
+    let isPartition: Bool
+    let partitionStrategy: PartitionStrategy?
+    let partitionKey: String?       // raw pg_get_partkeydef, e.g. "RANGE (created_at)"
+    let partitionBound: String?     // pg_get_expr(relpartbound) or "DEFAULT"
+    let partitionCount: Int64?
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 
     enum CodingKeys: String, CodingKey {
@@ -50,7 +50,10 @@ struct TableInfo: Codable {
         totalSizeBytes = try c.decodeIfPresent(Int64.self, forKey: .totalSizeBytes)
         isPartitioned = try c.decodeIfPresent(Bool.self, forKey: .isPartitioned) ?? false
         isPartition = try c.decodeIfPresent(Bool.self, forKey: .isPartition) ?? false
-        partitionStrategy = try c.decodeIfPresent(PartitionStrategy.self, forKey: .partitionStrategy)
+        // Soft-decode: an unrecognized strategy string maps to nil rather than
+        // throwing and failing the whole table-list decode.
+        partitionStrategy = (try c.decodeIfPresent(String.self, forKey: .partitionStrategy))
+            .flatMap(PartitionStrategy.init(rawValue:))
         partitionKey = try c.decodeIfPresent(String.self, forKey: .partitionKey)
         partitionBound = try c.decodeIfPresent(String.self, forKey: .partitionBound)
         partitionCount = try c.decodeIfPresent(Int64.self, forKey: .partitionCount)
