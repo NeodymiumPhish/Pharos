@@ -14,6 +14,28 @@ pub enum TableType {
     View,
     #[serde(rename = "foreign-table")]
     ForeignTable,
+    #[serde(rename = "partitioned-table")]
+    PartitionedTable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PartitionStrategy {
+    Range,
+    List,
+    Hash,
+}
+
+impl PartitionStrategy {
+    /// Map `pg_partitioned_table.partstrat` ('r' | 'l' | 'h') to a strategy.
+    pub fn from_pg_char(c: char) -> Option<PartitionStrategy> {
+        match c {
+            'r' => Some(PartitionStrategy::Range),
+            'l' => Some(PartitionStrategy::List),
+            'h' => Some(PartitionStrategy::Hash),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +46,27 @@ pub struct TableInfo {
     pub table_type: TableType,
     pub row_count_estimate: Option<i64>,
     pub total_size_bytes: Option<i64>,
+    #[serde(default)]
+    pub is_partitioned: bool,
+    #[serde(default)]
+    pub is_partition: bool,
+    #[serde(default)]
+    pub partition_strategy: Option<PartitionStrategy>,
+    #[serde(default)]
+    pub partition_key: Option<String>,
+    #[serde(default)]
+    pub partition_bound: Option<String>,
+    #[serde(default)]
+    pub partition_count: Option<i64>,
+}
+
+/// Minimal parent→child pairing used to populate the sidebar filter index
+/// without eagerly fetching full partition detail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartitionRef {
+    pub parent_name: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,4 +134,17 @@ pub struct FunctionInfo {
     pub argument_types: String,
     pub function_type: String,
     pub language: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strategy_from_pg_char() {
+        assert_eq!(PartitionStrategy::from_pg_char('r'), Some(PartitionStrategy::Range));
+        assert_eq!(PartitionStrategy::from_pg_char('l'), Some(PartitionStrategy::List));
+        assert_eq!(PartitionStrategy::from_pg_char('h'), Some(PartitionStrategy::Hash));
+        assert_eq!(PartitionStrategy::from_pg_char('x'), None);
+    }
 }

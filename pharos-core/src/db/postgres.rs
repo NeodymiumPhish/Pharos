@@ -265,6 +265,12 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                     },
                     row_count_estimate: row.try_get("row_estimate").ok(),
                     total_size_bytes: row.try_get("total_size_bytes").ok().flatten(),
+                    is_partitioned: false,
+                    is_partition: false,
+                    partition_strategy: None,
+                    partition_key: None,
+                    partition_bound: None,
+                    partition_count: None,
                 }
             })
             .collect();
@@ -297,6 +303,12 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 },
                 row_count_estimate: None,
                 total_size_bytes: None,
+                is_partitioned: false,
+                is_partition: false,
+                partition_strategy: None,
+                partition_key: None,
+                partition_bound: None,
+                partition_count: None,
             })
         })
         .collect();
