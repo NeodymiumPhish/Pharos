@@ -22,18 +22,29 @@ enum PartitionOrdering {
         }
     }
 
-    /// Strict weak ordering by bound. DEFAULT sorts last; ties break by name.
+    /// Strict weak ordering by bound. Rank orders the special classes
+    /// (MINVALUE first, then normal keys, then MAXVALUE, then DEFAULT/unknown
+    /// last); ties within a class break by name.
     private static func boundLess(_ a: TableInfo, _ b: TableInfo) -> Bool {
-        let ka = boundKey(a.partitionBound)
-        let kb = boundKey(b.partitionBound)
-        switch (ka, kb) {
-        case (nil, nil): return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        case (nil, _):   return false   // a is DEFAULT → after b
-        case (_, nil):   return true    // b is DEFAULT → a before
-        case let (.some(x), .some(y)):
+        let (ra, ka) = boundRank(a.partitionBound)
+        let (rb, kb) = boundRank(b.partitionBound)
+        if ra != rb { return ra < rb }
+        if let x = ka, let y = kb {
             if let nx = Double(x), let ny = Double(y), nx != ny { return nx < ny }
             if x != y { return x.localizedStandardCompare(y) == .orderedAscending }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+        return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+    }
+
+    /// Classify a bound into a sort rank plus (for normal bounds) its comparable key.
+    /// 0 = FROM (MINVALUE) — lowest; 1 = a normal key; 2 = FROM (MAXVALUE) — highest;
+    /// 3 = DEFAULT or unparseable — last.
+    private static func boundRank(_ bound: String?) -> (Int, String?) {
+        guard let key = boundKey(bound) else { return (3, nil) }
+        switch key {
+        case "MINVALUE": return (0, nil)
+        case "MAXVALUE": return (2, nil)
+        default:         return (1, key)
         }
     }
 

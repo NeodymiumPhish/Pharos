@@ -65,5 +65,16 @@ func runTests() {
         ["h_0", "h_2"],
         "hash bound order falls back to remainder/name")
 
+    // Unbounded ranges: MINVALUE sorts first, MAXVALUE after real values, DEFAULT last.
+    let unbounded = [
+        part("p_mid",  bound: "FOR VALUES FROM ('2024-01-01') TO ('2024-06-01')"),
+        part("p_low",  bound: "FOR VALUES FROM (MINVALUE) TO ('2024-01-01')"),
+        part("p_high", bound: "FOR VALUES FROM ('2024-06-01') TO (MAXVALUE)"),
+        part("p_def",  bound: "DEFAULT"),
+    ]
+    expectEqualNames(PartitionOrdering.sorted(unbounded, by: .bound),
+        ["p_low", "p_mid", "p_high", "p_def"],
+        "MINVALUE first, MAXVALUE after reals, DEFAULT last")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
