@@ -106,4 +106,5 @@ struct AppSettings: Codable, Equatable {
     var nullDisplay: NullDisplay = .uppercase
     var boolDisplay: BoolDisplay = .trueFalse
     var checkForUpdates: Bool = true
+    var showLeafPartitions: Bool = false
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 extension Notification.Name {
     static let runQueryInNewTab = Notification.Name("PharosRunQueryInNewTab")
@@ -24,6 +25,8 @@ class SchemaBrowserVC: NSViewController {
     private var activeSchemaFilter: String?
     private var connectionId: String?
     private var refreshedSchemas: Set<String> = []
+    private let stateManager = AppStateManager.shared
+    private var settingsCancellable: AnyCancellable?
 
     /// Imports currently in progress: `(connectionId, schema, table)`.
     private var activeImports: Set<ImportKey> = []
@@ -84,6 +87,25 @@ class SchemaBrowserVC: NSViewController {
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // Refresh the tree when "Show Leaf Partitions" toggles so the
+        // Partitions group is added/removed immediately. `.map` +
+        // `.removeDuplicates()` ensures unrelated settings changes (theme,
+        // editor font, etc.) don't trigger a reload; `.dropFirst()` skips
+        // the initial value delivered on subscribe.
+        settingsCancellable = AppStateManager.shared.$settings
+            .map(\.showLeafPartitions)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, let cid = self.connectionId else { return }
+                self.loadSchemas(connectionId: cid, force: true)
+            }
     }
 
     // MARK: - Public API
@@ -178,13 +200,16 @@ class SchemaBrowserVC: NSViewController {
     /// Columns are lazy-loaded when a table is expanded.
     private func loadTablesForSchema(_ schemaNode: SchemaTreeNode, connectionId: String) async {
         guard let schemaName = schemaNode.schemaName else { return }
+        let showLeaf = await MainActor.run { self.stateManager.settings.showLeafPartitions }
         do {
             let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
             var partitionMap: [PartitionRef] = []
-            do {
-                partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
-            } catch {
-                NSLog("Failed to load partition map for schema \(schemaName): \(error)")
+            if showLeaf {
+                do {
+                    partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
+                } catch {
+                    NSLog("Failed to load partition map for schema \(schemaName): \(error)")
+                }
             }
             var namesByParent: [String: [String]] = [:]
             for ref in partitionMap { namesByParent[ref.parentName, default: []].append(ref.name) }
@@ -202,8 +227,10 @@ class SchemaBrowserVC: NSViewController {
 
                 for t in tableItems {
                     let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
-                    tableNode.knownPartitionNames = namesByParent[t.name] ?? []
-                    if t.isPartitioned {
+                    if showLeaf {
+                        tableNode.knownPartitionNames = namesByParent[t.name] ?? []
+                    }
+                    if t.isPartitioned && showLeaf {
                         // Partitions group first, then columns — both lazy.
                         let group = SchemaTreeNode(.partitionGroup(t), parent: tableNode)
                         group.addChild(SchemaTreeNode(.loading, parent: group))
@@ -659,13 +686,14 @@ class SchemaBrowserVC: NSViewController {
                 let partitions = try await PharosCore.getPartitions(
                     connectionId: connectionId, schema: parent.schemaName, parent: parent.name)
                 await MainActor.run {
+                    let showLeaf = self.stateManager.settings.showLeafPartitions
                     let sorted = PartitionOrdering.sorted(partitions, by: .name)
                     group.removeAllChildren()
                     for p in sorted {
                         let node = SchemaTreeNode(.partition(p), parent: group)
                         node.hasRowCount = p.rowCountEstimate != nil
                         // Sub-partitioned partition → nested Partitions group (recursion).
-                        if p.isPartitioned {
+                        if p.isPartitioned && showLeaf {
                             let sub = SchemaTreeNode(.partitionGroup(p), parent: node)
                             sub.addChild(SchemaTreeNode(.loading, parent: sub))
                             node.addChild(sub)

@@ -11,6 +11,7 @@ class SettingsSheet: NSViewController {
     private let nullDisplayPopup = NSPopUpButton()
     private let boolDisplayPopup = NSPopUpButton()
     private let checkForUpdatesCheck = NSButton(checkboxWithTitle: "Check for updates in the background", target: nil, action: nil)
+    private let showLeafPartitionsCheck = NSButton(checkboxWithTitle: "Show leaf partitions in the Database Navigator", target: nil, action: nil)
 
     // Editor
     private let fontPopup = NSPopUpButton()
@@ -116,6 +117,7 @@ class SettingsSheet: NSViewController {
             [nullLabel, nullDisplayPopup],
             [boolLabel, boolDisplayPopup],
             [NSGridCell.emptyContentView, checkForUpdatesCheck],
+            [NSGridCell.emptyContentView, showLeafPartitionsCheck],
         ])
         configureGrid(grid)
 
@@ -252,6 +254,7 @@ class SettingsSheet: NSViewController {
         }
 
         checkForUpdatesCheck.state = settings.checkForUpdates ? .on : .off
+        showLeafPartitionsCheck.state = settings.showLeafPartitions ? .on : .off
 
         // Editor
         selectFont(settings.editor.fontFamily)
@@ -296,6 +299,7 @@ class SettingsSheet: NSViewController {
         s.boolDisplay = boolIdx >= 0 && boolIdx < boolCases.count ? boolCases[boolIdx] : .trueFalse
 
         s.checkForUpdates = checkForUpdatesCheck.state == .on
+        s.showLeafPartitions = showLeafPartitionsCheck.state == .on
 
         // Editor
         if let selected = fontPopup.titleOfSelectedItem {
