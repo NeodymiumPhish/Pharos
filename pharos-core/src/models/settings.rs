@@ -172,6 +172,8 @@ pub struct AppSettings {
     pub bool_display: BoolDisplay,
     #[serde(default = "default_check_for_updates")]
     pub check_for_updates: bool,
+    #[serde(default)]
+    pub show_leaf_partitions: bool,
 }
 
 fn default_check_for_updates() -> bool { true }
@@ -188,6 +190,7 @@ impl Default for AppSettings {
             null_display: NullDisplay::default(),
             bool_display: BoolDisplay::default(),
             check_for_updates: default_check_for_updates(),
+            show_leaf_partitions: false,
         }
     }
 }
