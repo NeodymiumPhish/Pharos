@@ -47,6 +47,9 @@ class ColumnFilterPopoverVC: NSViewController {
     private var currentWidth: CGFloat = FilterPopoverSizing.minWidth
     /// The presenting popover — used only to disable animation during drag.
     weak var hostPopover: NSPopover?
+    /// Width constraints on the advanced-mode input fields; their constant tracks
+    /// the popover width so those fields fill it (left-aligned) as it resizes.
+    private var advancedFieldWidthConstraints: [NSLayoutConstraint] = []
 
     // Fixed controls (always in stack)
     private let headerLabel = NSTextField(labelWithString: "")
@@ -185,11 +188,21 @@ class ColumnFilterPopoverVC: NSViewController {
         // Checklist
         valueList.onSelectionChanged = { [weak self] in self?.updateApplyEnabled() }
 
-        // Advanced operator container (operator popup first, then dynamic value views)
+        // Advanced operator container (operator popup first, then dynamic value views).
+        // Left-aligned so the controls line up with the rest of the popover; the
+        // text-entry controls get an explicit width (below) that fills the popover.
         advancedContainer.orientation = .vertical
-        advancedContainer.alignment = .width
+        advancedContainer.alignment = .leading
         advancedContainer.spacing = 8
         advancedContainer.addArrangedSubview(operatorPopup)
+
+        // These advanced input fields fill the popover width (left-aligned) and grow
+        // with it when resized; the calendar/interval rows keep their intrinsic size.
+        for field in [operatorPopup, valueField, value2Field, tokenField, timePicker, timePicker2] as [NSView] {
+            let c = field.widthAnchor.constraint(equalToConstant: FilterPopoverSizing.minWidth - 24)
+            c.isActive = true
+            advancedFieldWidthConstraints.append(c)
+        }
 
         // Disclosure header for advanced operator UI
         advancedDisclosure.setButtonType(.pushOnPushOff)
@@ -506,10 +519,18 @@ class ColumnFilterPopoverVC: NSViewController {
     }
 
     private func recalculateSize() {
+        updateAdvancedFieldWidths()
         stackView.layoutSubtreeIfNeeded()
         let fitting = stackView.fittingSize
         // Width is driven by auto-size / drag (currentWidth); height stays content-driven.
         preferredContentSize = NSSize(width: currentWidth, height: fitting.height)
+    }
+
+    /// Keep the advanced input fields filling the popover width (minus the stack's
+    /// 12pt side insets) as `currentWidth` changes via auto-size or drag-resize.
+    private func updateAdvancedFieldWidths() {
+        let w = currentWidth - 24
+        for constraint in advancedFieldWidthConstraints { constraint.constant = w }
     }
 
     // MARK: - Restore Existing Filter
