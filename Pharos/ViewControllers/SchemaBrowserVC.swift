@@ -65,10 +65,10 @@ class SchemaBrowserVC: NSViewController {
         // fast path. With variable heights it queries the delegate (and runs
         // layout bookkeeping) for every row on reload — on a connection with
         // 18k+ tables that single query is a ~2-second main-thread block.
-        // 44px gives the stacked title + row-count/type subtitle comfortable
-        // vertical breathing room (title/subtitle gap + 11pt subtitle); tighter
-        // heights (e.g. the old 38) left the subtitle cramped against the title.
-        outlineView.rowHeight = 44
+        // 38px gives the stacked title + row-count/type subtitle enough vertical
+        // breathing room (3pt title/subtitle gap + 11pt subtitle) without the rows
+        // feeling oversized. Requires rowSizeStyle = .custom above to take effect.
+        outlineView.rowHeight = 38
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
         schemaDataSource.delegate = self
