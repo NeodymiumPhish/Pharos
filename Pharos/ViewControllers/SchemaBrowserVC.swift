@@ -65,7 +65,7 @@ class SchemaBrowserVC: NSViewController {
         // 38px gives the stacked title + row-count subtitle a small amount of
         // vertical breathing room between rows; at 34 the subtitle of one row
         // sat right against the title of the next.
-        outlineView.rowHeight = 38
+        outlineView.rowHeight = 44
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
         schemaDataSource.delegate = self

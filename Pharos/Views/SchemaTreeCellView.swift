@@ -10,6 +10,11 @@ class SchemaTreeCellView: NSTableCellView {
     private let secondaryLabel = NSTextField(labelWithString: "")
     private let labelStack = NSStackView()
 
+    /// Active when a partition badge is shown: label stack stops before the badge.
+    private var labelStackTrailingToBadge: NSLayoutConstraint!
+    /// Active when no badge: label stack extends to the cell's trailing edge.
+    private var labelStackTrailingToCell: NSLayoutConstraint!
+
     private static let importGlowAnimationKey = "pharosImportGlowPulse"
 
     /// Cached so we can re-render the secondary label when `backgroundStyle` changes
@@ -35,36 +40,43 @@ class SchemaTreeCellView: NSTableCellView {
         badgeLabel.isHidden = true
 
         secondaryLabel.lineBreakMode = .byTruncatingTail
-        secondaryLabel.font = .systemFont(ofSize: 10)
+        secondaryLabel.font = .systemFont(ofSize: 11)
         secondaryLabel.textColor = .secondaryLabelColor
         secondaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         secondaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         secondaryLabel.wantsLayer = true
 
         labelStack.orientation = .vertical
-        labelStack.spacing = 0
+        labelStack.spacing = 3
         labelStack.alignment = .leading
-        let primaryRow = NSStackView(views: [primaryLabel, badgeLabel])
-        primaryRow.orientation = .horizontal
-        primaryRow.spacing = 5
-        primaryRow.alignment = .firstBaseline
-        labelStack.addArrangedSubview(primaryRow)
+        labelStack.addArrangedSubview(primaryLabel)
         labelStack.addArrangedSubview(secondaryLabel)
         labelStack.translatesAutoresizingMaskIntoConstraints = false
 
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(iconView)
         addSubview(labelStack)
+        addSubview(badgeLabel)
+
+        labelStackTrailingToBadge = labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6)
+        labelStackTrailingToCell = labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
+            iconView.widthAnchor.constraint(equalToConstant: 18),
+            iconView.heightAnchor.constraint(equalToConstant: 18),
 
             labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
             labelStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // Badge pinned to the trailing edge, aligned to the TITLE line (not row center).
+            badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            badgeLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
         ])
+        // Default (no badge) trailing constraint; configure() swaps as needed.
+        labelStackTrailingToCell.isActive = true
     }
 
     func configure(node: SchemaTreeNode) {
@@ -75,9 +87,13 @@ class SchemaTreeCellView: NSTableCellView {
         if let badge = node.partitionBadge {
             badgeLabel.stringValue = " \(badge) "
             badgeLabel.isHidden = false
+            labelStackTrailingToCell.isActive = false
+            labelStackTrailingToBadge.isActive = true
             renderBadge()
         } else {
             badgeLabel.isHidden = true
+            labelStackTrailingToBadge.isActive = false
+            labelStackTrailingToCell.isActive = true
         }
 
         if let sub = node.subtitle {
@@ -153,7 +169,7 @@ class SchemaTreeCellView: NSTableCellView {
             string: base,
             attributes: [
                 .foregroundColor: baseColor,
-                .font: NSFont.systemFont(ofSize: 10),
+                .font: NSFont.systemFont(ofSize: 11),
             ]
         )
         let separator = base.isEmpty || base == " " ? "" : " \u{00B7} "
@@ -161,7 +177,7 @@ class SchemaTreeCellView: NSTableCellView {
             string: separator + importing,
             attributes: [
                 .foregroundColor: importColor,
-                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
             ]
         ))
         secondaryLabel.attributedStringValue = attributed
@@ -214,5 +230,7 @@ class SchemaTreeCellView: NSTableCellView {
         removeImportGlow()
         badgeLabel.isHidden = true
         badgeLabel.stringValue = ""
+        labelStackTrailingToBadge.isActive = false
+        labelStackTrailingToCell.isActive = true
     }
 }
