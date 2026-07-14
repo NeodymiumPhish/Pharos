@@ -132,6 +132,12 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
         let distinct = columnFilterController.distinctValues(
             forColumnIndex: idx, excludingColumnId: colId, category: category
         )
+        // Reference size for width/height caps = the results pane (the table's
+        // enclosing scroll view), falling back to the window, then a default.
+        let referenceSize = headerView.enclosingScrollView?.bounds.size
+            ?? headerView.window?.frame.size
+            ?? CGSize(width: 800, height: 600)
+
         let popoverVC = ColumnFilterPopoverVC(
             columnName: colId,
             displayName: columns[idx].name,
@@ -139,13 +145,15 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
             dataType: rawDataType,
             existingFilter: existing,
             distinctValues: distinct.values,
-            hasBlanks: distinct.hasBlanks
+            hasBlanks: distinct.hasBlanks,
+            referenceSize: referenceSize
         )
         popoverVC.filterDelegate = self
 
         let popover = NSPopover()
         popover.contentViewController = popoverVC
         popover.behavior = .transient
+        popoverVC.hostPopover = popover
         popover.show(relativeTo: rect, of: headerView, preferredEdge: .maxY)
     }
 }
