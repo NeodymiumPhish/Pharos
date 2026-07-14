@@ -26,6 +26,7 @@ class ColumnFilterPopoverVC: NSViewController {
     private let category: PGTypeCategory
     private let dataType: String
     private let existingFilter: ColumnFilter?
+    private let referenceSize: CGSize
 
     // Value picker (checklist)
     private let checklistValues: [String]     // distinct values + optional blanks sentinel
@@ -42,6 +43,10 @@ class ColumnFilterPopoverVC: NSViewController {
 
     // Main stack
     private let stackView = NSStackView()
+    /// Current popover content width. Set by auto-size on open and by drag-resize.
+    private var currentWidth: CGFloat = FilterPopoverSizing.minWidth
+    /// The presenting popover — used only to disable animation during drag.
+    weak var hostPopover: NSPopover?
 
     // Fixed controls (always in stack)
     private let headerLabel = NSTextField(labelWithString: "")
@@ -78,13 +83,15 @@ class ColumnFilterPopoverVC: NSViewController {
     private let clearButton = NSButton(title: "Clear", target: nil, action: nil)
 
     init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String,
-         existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool) {
+         existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool,
+         referenceSize: CGSize) {
         self.columnName = columnName
         self.displayName = displayName
         self.category = category
         self.dataType = dataType
         self.existingFilter = existingFilter
         self.checklistValues = distinctValues + (hasBlanks ? [ColumnFilter.blanksSentinel] : [])
+        self.referenceSize = referenceSize
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -100,7 +107,7 @@ class ColumnFilterPopoverVC: NSViewController {
 
         // Stack view setup
         stackView.orientation = .vertical
-        stackView.alignment = .leading
+        stackView.alignment = .width
         stackView.spacing = 8
         stackView.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -168,29 +175,21 @@ class ColumnFilterPopoverVC: NSViewController {
         buttonRow.orientation = .horizontal
         buttonRow.distribution = .fill
 
-        let innerWidth: CGFloat = 236  // 260 content - 24 padding
-
         // Search field above the checklist
         searchField.placeholderString = "Search"
         searchField.font = .systemFont(ofSize: 12)
         searchField.target = self
         searchField.action = #selector(searchChanged)
         searchField.sendsSearchStringImmediately = true
-        searchField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
         // Checklist
-        valueList.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
         valueList.onSelectionChanged = { [weak self] in self?.updateApplyEnabled() }
 
         // Advanced operator container (operator popup first, then dynamic value views)
         advancedContainer.orientation = .vertical
-        advancedContainer.alignment = .leading
+        advancedContainer.alignment = .width
         advancedContainer.spacing = 8
-        operatorPopup.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
         advancedContainer.addArrangedSubview(operatorPopup)
-        advancedContainer.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
-
-        buttonRow.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
 
         // Disclosure header for advanced operator UI
         advancedDisclosure.setButtonType(.pushOnPushOff)
@@ -236,8 +235,41 @@ class ColumnFilterPopoverVC: NSViewController {
             valueList.setValues(checklistValues, checked: allValues)
         }
 
+        autoSizeWidth()
         updateValueArea()
         updateApplyEnabled()
+
+        // Bottom-right resize grip: widen the popover and grow the value list.
+        let grip = ResizeGripView()
+        grip.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(grip)   // added last → sits above the stack
+        NSLayoutConstraint.activate([
+            grip.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
+            grip.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -2),
+            grip.widthAnchor.constraint(equalToConstant: 14),
+            grip.heightAnchor.constraint(equalToConstant: 14),
+        ])
+
+        var dragStartWidth: CGFloat = 0
+        var dragStartListHeight: CGFloat = 0
+        grip.onDragBegan = { [weak self] in
+            guard let self else { return }
+            dragStartWidth = self.currentWidth
+            dragStartListHeight = self.valueList.listHeight
+            self.hostPopover?.animates = false
+        }
+        grip.onDrag = { [weak self] dx, dy in
+            guard let self else { return }
+            self.currentWidth = FilterPopoverSizing.clampWidth(
+                dragStartWidth + dx, referenceWidth: self.referenceSize.width)
+            let h = FilterPopoverSizing.clampListHeight(
+                dragStartListHeight + dy, referenceHeight: self.referenceSize.height)
+            self.valueList.setListHeight(h)
+            self.recalculateSize()
+        }
+        grip.onDragEnded = { [weak self] in
+            self?.hostPopover?.animates = true
+        }
     }
 
     // MARK: - Actions
@@ -395,18 +427,15 @@ class ColumnFilterPopoverVC: NSViewController {
 
         // Insert value views into the advanced container, after the operator popup.
         let insertIndex = advancedContainer.arrangedSubviews.count
-        let innerWidth: CGFloat = 236
 
         if op.needsMultiValue {
             // Token field for containsAnyOf
-            tokenField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
             advancedContainer.insertArrangedSubview(tokenField, at: insertIndex)
             currentValueViews = [tokenField]
         } else if op.needsValue {
             if temporalSubType == .interval {
                 let row1 = makeIntervalRow(dField: intervalDays, hField: intervalHours,
                                             mField: intervalMinutes, sField: intervalSeconds)
-                row1.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                 advancedContainer.insertArrangedSubview(row1, at: insertIndex)
                 currentValueViews = [row1]
 
@@ -416,7 +445,6 @@ class ColumnFilterPopoverVC: NSViewController {
                     andLabel.textColor = .secondaryLabelColor
                     let row2 = makeIntervalRow(dField: interval2Days, hField: interval2Hours,
                                                 mField: interval2Minutes, sField: interval2Seconds)
-                    row2.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                     let idx = insertIndex + 1
                     advancedContainer.insertArrangedSubview(andLabel, at: idx)
                     advancedContainer.insertArrangedSubview(row2, at: idx + 1)
@@ -428,7 +456,6 @@ class ColumnFilterPopoverVC: NSViewController {
 
                 // For timestamps, add a time text field below the calendar
                 if temporalSubType == .timestamp {
-                    timePicker.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                     advancedContainer.insertArrangedSubview(timePicker, at: insertIndex + 1)
                     currentValueViews.append(timePicker)
                 }
@@ -443,14 +470,12 @@ class ColumnFilterPopoverVC: NSViewController {
                     currentValueViews.append(contentsOf: [andLabel, datePicker2])
 
                     if temporalSubType == .timestamp {
-                        timePicker2.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                         advancedContainer.insertArrangedSubview(timePicker2, at: idx + 2)
                         currentValueViews.append(timePicker2)
                     }
                 }
             } else {
                 // Plain text fields
-                valueField.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                 advancedContainer.insertArrangedSubview(valueField, at: insertIndex)
                 currentValueViews = [valueField]
 
@@ -458,7 +483,6 @@ class ColumnFilterPopoverVC: NSViewController {
                     let andLabel = NSTextField(labelWithString: "and")
                     andLabel.font = .systemFont(ofSize: 11)
                     andLabel.textColor = .secondaryLabelColor
-                    value2Field.widthAnchor.constraint(equalToConstant: innerWidth).isActive = true
                     let idx = insertIndex + 1
                     advancedContainer.insertArrangedSubview(andLabel, at: idx)
                     advancedContainer.insertArrangedSubview(value2Field, at: idx + 1)
@@ -470,12 +494,22 @@ class ColumnFilterPopoverVC: NSViewController {
         recalculateSize()
     }
 
+    /// Size the popover width to fit the widest value, clamped to
+    /// [minWidth, 0.6 × referenceWidth]. Runs once when the popover opens.
+    private func autoSizeWidth() {
+        let font = NSFont.systemFont(ofSize: 12)               // matches the checklist row font
+        let widest = valueList.maxValueWidth(font: font)
+        // Row chrome (checkbox glyph + gaps + trailing) + scroller + list bezel + stack insets.
+        let chrome: CGFloat = 78
+        currentWidth = FilterPopoverSizing.clampWidth(widest + chrome,
+                                                      referenceWidth: referenceSize.width)
+    }
+
     private func recalculateSize() {
         stackView.layoutSubtreeIfNeeded()
         let fitting = stackView.fittingSize
-        // Calendar pickers need more width than text fields
-        let width: CGFloat = max(260, fitting.width)
-        preferredContentSize = NSSize(width: width, height: fitting.height)
+        // Width is driven by auto-size / drag (currentWidth); height stays content-driven.
+        preferredContentSize = NSSize(width: currentWidth, height: fitting.height)
     }
 
     // MARK: - Restore Existing Filter
