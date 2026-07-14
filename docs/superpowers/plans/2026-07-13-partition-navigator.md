@@ -328,7 +328,7 @@ pub async fn get_partitions(
     let sql = format!(
         "SELECT \
             c.relname as table_name, \
-            c.relkind as relkind, \
+            c.relkind::text as relkind, \
             CASE \
                 WHEN c.relkind = 'p' THEN ( \
                     SELECT COALESCE(SUM(lc.reltuples), 0)::bigint \
