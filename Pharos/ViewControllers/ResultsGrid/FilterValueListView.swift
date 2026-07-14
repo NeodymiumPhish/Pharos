@@ -18,6 +18,7 @@ final class FilterValueListView: NSView {
     private var visibleValues: [String] = []    // currently shown (post search)
     private var checked: Set<String> = []
     private var searchQuery: String = ""
+    private var heightConstraint: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -47,13 +48,32 @@ final class FilterValueListView: NSView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
 
+        heightConstraint = heightAnchor.constraint(equalToConstant: FilterPopoverSizing.defaultListHeight)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 180),
+            heightConstraint,
         ])
+    }
+
+    /// Current fixed height of the list.
+    var listHeight: CGFloat { heightConstraint.constant }
+
+    /// Set the list's fixed height. Caller is responsible for clamping.
+    func setListHeight(_ h: CGFloat) { heightConstraint.constant = h }
+
+    /// Widest rendered width across the full (pre-search) value set, using the
+    /// given font. Accounts for the "(Blanks)" display label. Returns 0 if empty.
+    func maxValueWidth(font: NSFont) -> CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        var widest: CGFloat = 0
+        for value in allValues {
+            let w = (displayLabel(for: value) as NSString).size(withAttributes: attrs).width
+            if w > widest { widest = w }
+        }
+        return widest
     }
 
     /// Replace the list contents and the initial checked set.
