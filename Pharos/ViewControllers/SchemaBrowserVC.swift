@@ -547,7 +547,6 @@ class SchemaBrowserVC: NSViewController {
             if matchingChildren.isEmpty { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
-            filtered.partitionSortMode = node.partitionSortMode
             for child in matchingChildren { filtered.addChild(child) }
             return filtered
 
@@ -647,31 +646,11 @@ class SchemaBrowserVC: NSViewController {
         }
     }
 
-    /// Change a partition group's ordering and re-sort its already-loaded children in place.
-    func setPartitionSort(_ mode: PartitionSortMode, for group: SchemaTreeNode) {
-        guard case .partitionGroup = group.kind, group.partitionSortMode != mode else { return }
-        group.partitionSortMode = mode
-        guard group.isLoaded else { return }   // not loaded yet → will sort on first load
-        let infos: [TableInfo] = group.children.compactMap {
-            if case .partition(let info) = $0.kind { return info } else { return nil }
-        }
-        // Still loading (only a .loading placeholder present) — the new mode is
-        // recorded above and applied when the in-flight loadPartitions completes.
-        guard !infos.isEmpty else { return }
-        let sorted = PartitionOrdering.sorted(infos, by: mode)
-        // Reorder existing child nodes to match, preserving their loaded subtrees.
-        var byName: [String: SchemaTreeNode] = [:]
-        for child in group.children { byName[child.title] = child }
-        group.removeAllChildren()
-        for info in sorted { if let node = byName[info.name] { group.addChild(node) } }
-        outlineView.reloadItem(group, reloadChildren: true)
-    }
-
     /// Load a partitioned parent's direct child partitions into its `.partitionGroup`
-    /// node, sorted by the group's current `partitionSortMode`. Sub-partitioned
-    /// partitions get their own nested (lazy) `.partitionGroup` child — the recursive
-    /// case — handled identically by `lazyLoadColumnsIfNeeded`/`loadColumns` when that
-    /// nested group or partition is itself expanded.
+    /// node, ordered by name. Sub-partitioned partitions get their own nested (lazy)
+    /// `.partitionGroup` child — the recursive case — handled identically by
+    /// `lazyLoadColumnsIfNeeded`/`loadColumns` when that nested group or partition
+    /// is itself expanded.
     private func loadPartitions(for group: SchemaTreeNode, parent: TableInfo) {
         guard let connectionId else { return }
         group.isLoaded = true
@@ -680,7 +659,7 @@ class SchemaBrowserVC: NSViewController {
                 let partitions = try await PharosCore.getPartitions(
                     connectionId: connectionId, schema: parent.schemaName, parent: parent.name)
                 await MainActor.run {
-                    let sorted = PartitionOrdering.sorted(partitions, by: group.partitionSortMode)
+                    let sorted = PartitionOrdering.sorted(partitions, by: .name)
                     group.removeAllChildren()
                     for p in sorted {
                         let node = SchemaTreeNode(.partition(p), parent: group)
@@ -716,10 +695,6 @@ class SchemaBrowserVC: NSViewController {
 extension SchemaBrowserVC: SchemaDataSourceDelegate {
     func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode) {
         lazyLoadColumnsIfNeeded(for: node)
-    }
-
-    func schemaDataSourceSetPartitionSort(_ mode: PartitionSortMode, for node: SchemaTreeNode) {
-        setPartitionSort(mode, for: node)
     }
 
     /// Forward partition-relevant selections to the Inspector. Only the three

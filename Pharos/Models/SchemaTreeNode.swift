@@ -23,8 +23,6 @@ class SchemaTreeNode: NSObject {
     /// Live row count while a CSV import is running into this table. nil when not importing.
     var importingRowCount: Int64?
     weak var parent: SchemaTreeNode?
-    /// For a `.partitionGroup`, the current ordering mode of its children.
-    var partitionSortMode: PartitionSortMode = .bound
     /// Child partition names known from the filter index (set on `.table`/`.partition`
     /// parents at schema load). Used by the filter to match without loading detail.
     var knownPartitionNames: [String] = []
