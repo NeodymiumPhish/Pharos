@@ -13,7 +13,7 @@ final class ResizeGripView: NSView {
     /// Called on mouse-up (drag finished).
     var onDragEnded: (() -> Void)?
 
-    private var startInWindow: NSPoint = .zero
+    private var startOnScreen: NSPoint = .zero
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.secondaryLabelColor.setStroke()
@@ -29,16 +29,19 @@ final class ResizeGripView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        startInWindow = event.locationInWindow
+        startOnScreen = NSEvent.mouseLocation
         onDragBegan?()
     }
 
     override func mouseDragged(with event: NSEvent) {
-        let p = event.locationInWindow
-        let dx = p.x - startInWindow.x
-        // Window coords are non-flipped (y up), so dragging DOWN lowers y →
+        // Screen coordinates are invariant to the popover window moving/growing
+        // during the drag (NSPopover repositions itself as its content size changes),
+        // which window-relative coordinates are not.
+        let p = NSEvent.mouseLocation
+        let dx = p.x - startOnScreen.x
+        // Screen coords are y-up (origin bottom-left), so dragging DOWN lowers y →
         // startY - currentY is positive, which we treat as "grow height".
-        let dy = startInWindow.y - p.y
+        let dy = startOnScreen.y - p.y
         onDrag?(dx, dy)
     }
 
