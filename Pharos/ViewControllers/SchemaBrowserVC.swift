@@ -54,7 +54,10 @@ class SchemaBrowserVC: NSViewController {
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
-        outlineView.rowSizeStyle = .default
+        // .custom is REQUIRED for the explicit `rowHeight` below to take effect —
+        // any other rowSizeStyle makes AppKit compute a standard height and ignore
+        // rowHeight (which is why rows stayed cramped/overlapping regardless of it).
+        outlineView.rowSizeStyle = .custom
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 16
         // Fixed row height: switching from the variable-height delegate
