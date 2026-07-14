@@ -129,7 +129,7 @@ class SchemaTreeNode: NSObject {
         case .table(let info): name = info.isPartitioned ? "square.split.2x2" : "tablecells"
         case .view: name = "eye"
         case .column(let info):
-            name = info.isPrimaryKey ? "key.fill" : "textformat"
+            name = info.isPrimaryKey ? "key.fill" : ColumnTypeIcon.symbolName(forDataType: info.dataType)
         case .partitionGroup: name = "rectangle.split.3x1"
         case .partition(let info): name = info.isPartitioned ? "square.split.2x2" : "tablecells.badge.ellipsis"
         case .loading: return nil
