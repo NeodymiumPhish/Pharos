@@ -52,6 +52,7 @@
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
+		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
@@ -93,6 +94,7 @@
 		ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */; };
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
 		EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */; };
+		F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDED3E898043241B00FE18D7 /* ResizeGripView.swift */; };
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
 		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
@@ -159,12 +161,14 @@
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
+		BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPopoverSizing.swift; sourceTree = "<group>"; };
 		BE2842DA42F9D759036177BC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C061E832235866E86FB1BD81 /* MainMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainMenu.swift; sourceTree = "<group>"; };
 		C1B12A90407F4333607C559D /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
 		C9154BC81016709ADD201F2C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
+		CDED3E898043241B00FE18D7 /* ResizeGripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeGripView.swift; sourceTree = "<group>"; };
 		CEADE04C5F358D12DBAEFF53 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryEditorVC.swift; sourceTree = "<group>"; };
 		D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueListView.swift; sourceTree = "<group>"; };
@@ -202,7 +206,9 @@
 			children = (
 				6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */,
 				D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */,
+				BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */,
 				D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */,
+				CDED3E898043241B00FE18D7 /* ResizeGripView.swift */,
 				06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */,
 				745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */,
 				F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */,
@@ -513,6 +519,7 @@
 				685684742A13BC19F782590E /* EditorPane.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
 				C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */,
+				844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */,
 				E491BC10BA527CA04AD618BF /* FilterValueListView.swift in Sources */,
 				E95A1BECEE9799B577E51E26 /* FilterableHeaderView.swift in Sources */,
 				EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */,
@@ -548,6 +555,7 @@
 				69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */,
 				313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */,
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
+				F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */,
 				62B0D5879E818278B570C216 /* ResultTab.swift in Sources */,
 				D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */,
 				0754C2EB81577A660A258460 /* ResultTabResolver.swift in Sources */,
