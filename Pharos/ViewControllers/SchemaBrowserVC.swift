@@ -725,14 +725,13 @@ extension SchemaBrowserVC: SchemaDataSourceDelegate {
         lazyLoadColumnsIfNeeded(for: node)
     }
 
-    /// Forward partition-relevant selections to the Inspector. Only the three
-    /// partition-aware kinds are handled here — a partitioned `.table`, a
-    /// `.partitionGroup`, and a `.partition` leaf/sub-parent. Other schema
-    /// browser selections (plain tables, views, columns, schemas, or an empty
-    /// selection) are intentionally left alone: the inspector may currently be
-    /// showing results-grid row detail driven by `ContentViewController`, and
-    /// this path has no way to know whether that's still relevant, so it
-    /// avoids clobbering it.
+    /// Forward every schema browser selection to the Inspector, rendering
+    /// detail appropriate to the node's kind (partitioned table, plain
+    /// table/view, partition group/leaf, column) or clearing it for a
+    /// schema. A `nil` selection (nothing selected) is left alone: the
+    /// inspector may currently be showing results-grid row detail driven by
+    /// `ContentViewController`, and this path has no way to know whether
+    /// that's still relevant, so it avoids clobbering it.
     func schemaDataSourceSelectionDidChange(_ node: SchemaTreeNode?) {
         guard let splitVC = parent?.parent as? PharosSplitViewController else { return }
         guard let node else { return }
@@ -740,11 +739,17 @@ extension SchemaBrowserVC: SchemaDataSourceDelegate {
         switch node.kind {
         case .table(let info) where info.isPartitioned:
             splitVC.inspectorVC.showPartitionedTableDetail(info)
+        case .table(let info), .view(let info):
+            splitVC.inspectorVC.showTableDetail(info)
         case .partitionGroup(let parentInfo):
             splitVC.inspectorVC.showPartitionedTableDetail(parentInfo)
         case .partition(let info):
             splitVC.inspectorVC.showPartitionDetail(info, parentName: node.parent?.tableName)
-        default:
+        case .column(let info):
+            splitVC.inspectorVC.showColumnDetail(info, parentName: node.parent?.tableName)
+        case .schema:
+            splitVC.inspectorVC.showNoSelection()
+        case .loading:
             break
         }
     }

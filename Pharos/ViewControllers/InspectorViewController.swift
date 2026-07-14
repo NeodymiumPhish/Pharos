@@ -166,6 +166,40 @@ class InspectorViewController: NSViewController {
         }
     }
 
+    /// Shows detail for a regular (non-partitioned) table, view, or foreign table.
+    func showTableDetail(_ info: TableInfo) {
+        let category: String
+        switch info.tableType {
+        case .view: category = "View"
+        case .foreignTable: category = "Foreign Table"
+        case .partitionedTable: category = "Partitioned Table"
+        case .table: category = "Table"
+        }
+        beginDetailSection(title: category, subtitle: info.name)
+
+        addDetailField("Schema", info.schemaName)
+        addDetailField("Rows", formatRowCount(info.rowCountEstimate))
+        if info.totalSizeBytes != nil {
+            addDetailField("Size", formatByteSize(info.totalSizeBytes))
+        }
+    }
+
+    /// Shows detail for a selected column. `parentName` is the enclosing
+    /// table/partition name, when known.
+    func showColumnDetail(_ info: ColumnInfo, parentName: String?) {
+        beginDetailSection(title: "Column", subtitle: info.name)
+
+        if let parentName {
+            addDetailField("Table", parentName)
+        }
+        addDetailField("Type", info.dataType)
+        addDetailField("Nullable", info.isNullable ? "Yes" : "No")
+        addDetailField("Primary key", info.isPrimaryKey ? "Yes" : "No")
+        if let columnDefault = info.columnDefault, !columnDefault.isEmpty {
+            addDetailField("Default", columnDefault)
+        }
+    }
+
     func showAggregation(
         columns: [ColumnDef],
         rows: [[AnyCodable]],
