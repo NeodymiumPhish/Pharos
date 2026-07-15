@@ -1527,7 +1527,7 @@ class ContentViewController: NSViewController {
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
-            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql) { _ in
+            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql, variables: []) { _ in
                 NotificationCoalescer.post(.savedQueriesDidChange)
             }
             // Delay briefly so the detail sheet dismiss animation completes
@@ -1838,7 +1838,10 @@ extension ContentViewController {
             return
         }
         let tab = stateManager.createTab(sql: query.sql, name: query.name)
-        stateManager.updateTab(id: tab.id) { $0.savedQueryId = query.id }
+        stateManager.updateTab(id: tab.id) {
+            $0.savedQueryId = query.id
+            $0.variables = SavedQueryVariables.decode(query.variables)
+        }
     }
 
     @objc private func handleOpenHistoryEntry(_ notification: Notification) {
@@ -1978,7 +1981,7 @@ extension ContentViewController {
         if let savedId = tab.savedQueryId {
             let currentSQL = focusedPaneVC?.getSQL() ?? ""
             do {
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL)
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: tab.variables.toSavedJSON())
                 _ = try PharosCore.updateSavedQuery(update)
                 stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCoalescer.post(.savedQueriesDidChange)
@@ -2027,7 +2030,8 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: focusedPaneVC?.getSQL() ?? ""
+            sql: focusedPaneVC?.getSQL() ?? "",
+            variables: tab.variables
         ) { [weak self] action in
             guard let self else { return }
             let savedQuery: SavedQuery
