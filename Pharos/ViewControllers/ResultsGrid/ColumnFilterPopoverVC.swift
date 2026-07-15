@@ -51,6 +51,15 @@ class ColumnFilterPopoverVC: NSViewController {
     /// the popover width so those fields fill it (left-aligned) as it resizes.
     private var advancedFieldWidthConstraints: [NSLayoutConstraint] = []
 
+    private let counts: [String: FilterValueCount]
+    private let loadedRowCount: Int
+    private let hasMore: Bool
+
+    private let sortControl = NSSegmentedControl()
+    private let partialFooter = NSTextField(labelWithString: "")
+    private var sortField: FilterValueSortField = .value
+    private var sortAscending: Bool = true
+
     // Fixed controls (always in stack)
     private let headerLabel = NSTextField(labelWithString: "")
     private let operatorPopup = NSPopUpButton()
@@ -87,7 +96,8 @@ class ColumnFilterPopoverVC: NSViewController {
 
     init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String,
          existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool,
-         referenceSize: CGSize) {
+         referenceSize: CGSize,
+         counts: [String: FilterValueCount] = [:], loadedRowCount: Int = 0, hasMore: Bool = false) {
         self.columnName = columnName
         self.displayName = displayName
         self.category = category
@@ -95,6 +105,9 @@ class ColumnFilterPopoverVC: NSViewController {
         self.existingFilter = existingFilter
         self.checklistValues = distinctValues + (hasBlanks ? [ColumnFilter.blanksSentinel] : [])
         self.referenceSize = referenceSize
+        self.counts = counts
+        self.loadedRowCount = loadedRowCount
+        self.hasMore = hasMore
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -221,10 +234,40 @@ class ColumnFilterPopoverVC: NSViewController {
         advancedHeader.orientation = .horizontal
         advancedHeader.spacing = 4
 
-        // Assemble main stack: header, search, checklist, disclosure header, advanced, buttons
-        stackView.addArrangedSubview(headerLabel)
+        // Sort control (Value / Count), momentary so a re-click on the active
+        // field flips its direction. Lives in the header row, right-aligned.
+        sortControl.segmentCount = 2
+        sortControl.setLabel("Value ▲", forSegment: 0)
+        sortControl.setLabel("Count", forSegment: 1)
+        sortControl.trackingMode = .momentary
+        sortControl.controlSize = .small
+        sortControl.font = .systemFont(ofSize: 11)
+        sortControl.target = self
+        sortControl.action = #selector(sortSegmentClicked(_:))
+        sortControl.setContentHuggingPriority(.required, for: .horizontal)
+
+        let headerRow = NSStackView(views: [headerLabel, NSView(), sortControl])
+        headerRow.orientation = .horizontal
+        headerRow.distribution = .fill
+
+        // Partial-data footer (shown only when more rows are unfetched).
+        partialFooter.font = .systemFont(ofSize: 11)
+        partialFooter.textColor = .secondaryLabelColor
+        partialFooter.isHidden = true
+        if hasMore {
+            let fmt = NumberFormatter()
+            fmt.numberStyle = .decimal
+            let n = fmt.string(from: NSNumber(value: loadedRowCount)) ?? "\(loadedRowCount)"
+            partialFooter.stringValue = "counts over \(n) loaded rows"
+            partialFooter.isHidden = false
+        }
+
+        // Assemble main stack: header row (+sort), search, checklist, footer,
+        // disclosure header, advanced, buttons
+        stackView.addArrangedSubview(headerRow)
         stackView.addArrangedSubview(searchField)
         stackView.addArrangedSubview(valueList)
+        stackView.addArrangedSubview(partialFooter)
         stackView.addArrangedSubview(advancedHeader)
         stackView.addArrangedSubview(advancedContainer)
         stackView.addArrangedSubview(buttonRow)
@@ -235,17 +278,17 @@ class ColumnFilterPopoverVC: NSViewController {
         let allValues = Set(checklistValues)
         if let existing = existingFilter, existing.op == .isAnyOf {
             // Checklist mode: restore checked values.
-            valueList.setValues(checklistValues, checked: Set(existing.values ?? []))
+            valueList.setValues(checklistValues, checked: Set(existing.values ?? []), counts: counts)
         } else if let existing = existingFilter, let idx = operators.firstIndex(of: existing.op) {
             // Advanced operator was active: all checked in the list, restore + expand advanced UI.
-            valueList.setValues(checklistValues, checked: allValues)
+            valueList.setValues(checklistValues, checked: allValues, counts: counts)
             operatorPopup.selectItem(at: idx)
             restoreExistingFilter(existing)
             advancedDisclosure.state = .on
             advancedContainer.isHidden = false
         } else {
             // No filter: everything checked.
-            valueList.setValues(checklistValues, checked: allValues)
+            valueList.setValues(checklistValues, checked: allValues, counts: counts)
         }
 
         autoSizeWidth()
@@ -291,6 +334,24 @@ class ColumnFilterPopoverVC: NSViewController {
         advancedContainer.isHidden = (advancedDisclosure.state != .on)
         updateApplyEnabled()
         recalculateSize()
+    }
+
+    @objc private func sortSegmentClicked(_ sender: NSSegmentedControl) {
+        let clicked: FilterValueSortField = (sender.selectedSegment == 1) ? .count : .value
+        if clicked == sortField {
+            sortAscending.toggle()                 // re-click active field → reverse
+        } else {
+            sortField = clicked
+            sortAscending = (clicked == .value)    // value defaults asc, count defaults desc
+        }
+        updateSortControlLabels()
+        valueList.setSort(field: sortField, ascending: sortAscending)
+    }
+
+    private func updateSortControlLabels() {
+        let arrow = sortAscending ? "▲" : "▾"
+        sortControl.setLabel(sortField == .value ? "Value \(arrow)" : "Value", forSegment: 0)
+        sortControl.setLabel(sortField == .count ? "Count \(arrow)" : "Count", forSegment: 1)
     }
 
     @objc private func advancedLabelClicked() {
@@ -400,7 +461,7 @@ class ColumnFilterPopoverVC: NSViewController {
         // re-apply a stale filter).
         searchField.stringValue = ""
         valueList.applySearch("")
-        valueList.setValues(checklistValues, checked: Set(checklistValues))
+        valueList.setValues(checklistValues, checked: Set(checklistValues), counts: counts)
 
         // Advanced: collapse and reset every input.
         advancedDisclosure.state = .off
@@ -510,11 +571,14 @@ class ColumnFilterPopoverVC: NSViewController {
     /// Size the popover width to fit the widest value, clamped to
     /// [minWidth, 0.6 × referenceWidth]. Runs once when the popover opens.
     private func autoSizeWidth() {
-        let font = NSFont.systemFont(ofSize: 12)               // matches the checklist row font
-        let widest = valueList.maxValueWidth(font: font)
+        let valueFont = NSFont.systemFont(ofSize: 12)          // matches the checklist row font
+        let countFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        let valueW = valueList.maxValueWidth(font: valueFont)
+        let countW = valueList.maxCountWidth(font: countFont)
+        let gap: CGFloat = countW > 0 ? 6 : 0
         // Row chrome (checkbox glyph + gaps + trailing) + scroller + list bezel + stack insets.
         let chrome: CGFloat = 78
-        currentWidth = FilterPopoverSizing.clampWidth(widest + chrome,
+        currentWidth = FilterPopoverSizing.clampWidth(valueW + gap + countW + chrome,
                                                       referenceWidth: referenceSize.width)
     }
 
