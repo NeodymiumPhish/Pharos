@@ -45,6 +45,33 @@ class EditorPaneVC: NSViewController {
     private let schemaSpinner = NSProgressIndicator()
     private var schemaPopover: NSPopover?
 
+    // Query variables
+    private let variablesToggle = NSButton()
+    private let variablesPanelVC = QueryVariablesPanelVC()
+    private let variablesDivider = ResizeDividerView()
+    private let variablesDividerWidth: CGFloat = 5
+    private let variablesPanelMinWidth: CGFloat = 180
+    private let variablesPanelMaxWidth: CGFloat = 600
+    private let variablesPanelWidthKey = "QueryVariablesPanelWidth"
+
+    private var variablesPanelWidth: CGFloat {
+        get {
+            let stored = UserDefaults.standard.double(forKey: variablesPanelWidthKey)
+            let value = stored == 0 ? 260 : CGFloat(stored)
+            return min(max(value, variablesPanelMinWidth), variablesPanelMaxWidth)
+        }
+        set {
+            let clamped = min(max(newValue, variablesPanelMinWidth), variablesPanelMaxWidth)
+            UserDefaults.standard.set(Double(clamped), forKey: variablesPanelWidthKey)
+        }
+    }
+
+    private var isVariablesPanelVisible: Bool {
+        guard let tabId = lastActiveTabId,
+              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.variablesPanelVisible
+    }
+
     weak var delegate: EditorPaneDelegate?
 
     private let stateManager = AppStateManager.shared
@@ -130,9 +157,21 @@ class EditorPaneVC: NSViewController {
         }
         addChild(editorVC)
 
+        addChild(variablesPanelVC)
+        variablesPanelVC.onChange = { [weak self] vars in
+            self?.variablesDidChange(vars)
+        }
+        variablesDivider.onDrag = { [weak self] delta in
+            self?.resizeVariablesPanel(byDelta: delta)
+        }
+
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(editorVC.view)
+        container.addSubview(variablesPanelVC.view)
+        container.addSubview(variablesDivider)
+        variablesPanelVC.view.isHidden = true
+        variablesDivider.isHidden = true
 
         NSLayoutConstraint.activate([
             paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
@@ -253,12 +292,20 @@ class EditorPaneVC: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
-        // Editor fills from bottom up to the editor toolbar.
-        editorVC.view.frame = NSRect(
-            x: 0, y: 0,
-            width: view.bounds.width,
-            height: max(0, view.bounds.height - totalHeaderHeight)
-        )
+        let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
+        let showPanel = isVariablesPanelVisible
+        let panelW = showPanel ? variablesPanelWidth : 0
+        let dividerW = showPanel ? variablesDividerWidth : 0
+        let editorW = max(0, view.bounds.width - panelW - dividerW)
+
+        editorVC.view.frame = NSRect(x: 0, y: 0, width: editorW, height: editorHeight)
+
+        variablesDivider.isHidden = !showPanel
+        variablesPanelVC.view.isHidden = !showPanel
+        if showPanel {
+            variablesDivider.frame = NSRect(x: editorW, y: 0, width: dividerW, height: editorHeight)
+            variablesPanelVC.view.frame = NSRect(x: editorW + dividerW, y: 0, width: panelW, height: editorHeight)
+        }
     }
 
     // MARK: - State Observation
@@ -353,6 +400,7 @@ class EditorPaneVC: NSViewController {
         // them explicitly here.
         rebuildConnectionMenu()
         updateSchemaPopupTitle()
+        syncVariablesPanel()
     }
 
     // MARK: - Focus Tracking
@@ -543,6 +591,18 @@ class EditorPaneVC: NSViewController {
         queryIndicator.isHidden = true
         editorToolbar.addSubview(queryIndicator)
 
+        // Variables panel toggle (right-aligned, not part of the leading stack)
+        let varConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        variablesToggle.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: "Query Variables")?.withSymbolConfiguration(varConfig)
+        variablesToggle.bezelStyle = .recessed
+        variablesToggle.isBordered = false
+        variablesToggle.toolTip = "Query Variables"
+        variablesToggle.contentTintColor = .secondaryLabelColor
+        variablesToggle.target = self
+        variablesToggle.action = #selector(toggleVariablesPanel)
+        variablesToggle.translatesAutoresizingMaskIntoConstraints = false
+        editorToolbar.addSubview(variablesToggle)
+
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
             formatButton.heightAnchor.constraint(equalToConstant: 28),
@@ -566,7 +626,42 @@ class EditorPaneVC: NSViewController {
             queryIndicator.trailingAnchor.constraint(equalTo: runStopButton.trailingAnchor),
             queryIndicator.topAnchor.constraint(equalTo: runStopButton.topAnchor),
             queryIndicator.bottomAnchor.constraint(equalTo: runStopButton.bottomAnchor),
+
+            variablesToggle.widthAnchor.constraint(equalToConstant: 28),
+            variablesToggle.heightAnchor.constraint(equalToConstant: 28),
+            variablesToggle.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
+            variablesToggle.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
         ])
+    }
+
+    @objc private func toggleVariablesPanel() {
+        guard let tabId = lastActiveTabId else { return }
+        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible.toggle() }
+        syncVariablesPanel()
+    }
+
+    private func resizeVariablesPanel(byDelta delta: CGFloat) {
+        // Dragging the divider left (negative delta) widens the panel.
+        variablesPanelWidth = variablesPanelWidth - delta
+        view.needsLayout = true
+    }
+
+    private func variablesDidChange(_ vars: [QueryVariable]) {
+        guard let tabId = lastActiveTabId else { return }
+        stateManager.updateTab(id: tabId) { $0.variables = vars }
+        editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
+    }
+
+    /// Refresh the panel's data, visibility, toolbar tint, and editor highlighting
+    /// from the active tab. Call on toggle and on tab switch.
+    private func syncVariablesPanel() {
+        let tab = lastActiveTabId.flatMap { id in stateManager.tabs.first(where: { $0.id == id }) }
+        let vars = tab?.variables ?? []
+        variablesPanelVC.setVariables(vars)
+        editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
+        variablesToggle.contentTintColor = (tab?.variablesPanelVisible ?? false)
+            ? .controlAccentColor : .secondaryLabelColor
+        view.needsLayout = true
     }
 
     @objc private func formatSQLTapped() {
