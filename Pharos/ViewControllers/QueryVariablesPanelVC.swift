@@ -20,12 +20,12 @@ final class QueryVariablesPanelVC: NSViewController {
     }
 
     override func loadView() {
-        // Sidebar-material vibrancy so the panel reads as a sibling of the
-        // sidebar (see SidebarViewController.loadView) rather than a flat block.
-        let container = NSVisualEffectView()
-        container.material = .sidebar
-        container.blendingMode = .behindWindow
-        container.state = .followsWindowActiveState
+        // The panel is docked inside the white content area (beside the editor),
+        // so it uses the content background — matching the editor/inspector —
+        // rather than the sidebar's edge vibrancy. `updateLayer` re-resolves the
+        // semantic color on light/dark changes (a plain cgColor would go stale).
+        let container = PanelBackgroundView()
+        container.wantsLayer = true
         self.view = container
 
         // Leading hairline so the panel edge reads cleanly against the editor.
@@ -261,4 +261,14 @@ extension QueryVariablesPanelVC: NSTextFieldDelegate {
 /// Flipped clip view so the rows stack grows top-down inside the scroll view.
 private final class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
+}
+
+/// Solid content-background panel that tracks light/dark. Uses `updateLayer`
+/// (not a one-shot `layer.backgroundColor = ....cgColor`) so the semantic color
+/// is re-resolved whenever the effective appearance changes.
+private final class PanelBackgroundView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+    }
 }
