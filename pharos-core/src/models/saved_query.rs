@@ -8,6 +8,7 @@ pub struct SavedQuery {
     pub folder: Option<String>,
     pub sql: String,
     pub connection_id: Option<String>,
+    pub variables: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -19,6 +20,7 @@ pub struct CreateSavedQuery {
     pub folder: Option<String>,
     pub sql: String,
     pub connection_id: Option<String>,
+    pub variables: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,4 +30,5 @@ pub struct UpdateSavedQuery {
     pub name: Option<String>,
     pub folder: Option<String>,
     pub sql: Option<String>,
+    pub variables: Option<String>,
 }

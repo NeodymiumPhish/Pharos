@@ -218,6 +218,7 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             folder TEXT,
             sql TEXT NOT NULL,
             connection_id TEXT,
+            variables TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE SET NULL
@@ -310,6 +311,17 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             "INSERT INTO query_history_fts(rowid, sql, connection_name)
              SELECT rowid, sql, connection_name FROM query_history;"
         )?;
+    }
+
+    // Migration: Add variables column to saved_queries if it doesn't exist
+    let has_variables_column: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('saved_queries') WHERE name = 'variables'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_variables_column {
+        conn.execute("ALTER TABLE saved_queries ADD COLUMN variables TEXT", [])?;
     }
 
     Ok(conn)
@@ -416,8 +428,8 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
 
     conn.execute(
         r#"
-        INSERT INTO saved_queries (id, name, folder, sql, connection_id, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        INSERT INTO saved_queries (id, name, folder, sql, connection_id, variables, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         "#,
         (
             id,
@@ -425,6 +437,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
             &query.folder,
             &query.sql,
             &query.connection_id,
+            &query.variables,
             &now,
             &now,
         ),
@@ -436,6 +449,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
         folder: query.folder.clone(),
         sql: query.sql.clone(),
         connection_id: query.connection_id.clone(),
+        variables: query.variables.clone(),
         created_at: now.clone(),
         updated_at: now,
     })
@@ -444,7 +458,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
 /// Load all saved queries
 pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at FROM saved_queries ORDER BY name",
+        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables FROM saved_queries ORDER BY name",
     )?;
 
     let queries = stmt.query_map([], |row| {
@@ -456,6 +470,7 @@ pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
             connection_id: row.get(4)?,
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
+            variables: row.get(7)?,
         })
     })?;
 
@@ -465,7 +480,7 @@ pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
 /// Get a single saved query by ID
 pub fn get_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<Option<SavedQuery>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at FROM saved_queries WHERE id = ?1",
+        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables FROM saved_queries WHERE id = ?1",
     )?;
 
     let mut rows = stmt.query([query_id])?;
@@ -479,6 +494,7 @@ pub fn get_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<Option
             connection_id: row.get(4)?,
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
+            variables: row.get(7)?,
         }))
     } else {
         Ok(None)
@@ -501,6 +517,9 @@ pub fn update_saved_query(conn: &Connection, update: &UpdateSavedQuery) -> Sqlit
     if let Some(ref sql) = update.sql {
         params.push(Box::new(sql.clone()));
     }
+    if let Some(ref variables) = update.variables {
+        params.push(Box::new(variables.clone()));
+    }
 
     params.push(Box::new(update.id.clone()));
 
@@ -517,6 +536,10 @@ pub fn update_saved_query(conn: &Connection, update: &UpdateSavedQuery) -> Sqlit
     }
     if update.sql.is_some() {
         sql_parts.push(format!("sql = ?{}", idx));
+        idx += 1;
+    }
+    if update.variables.is_some() {
+        sql_parts.push(format!("variables = ?{}", idx));
         idx += 1;
     }
 
