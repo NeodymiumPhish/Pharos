@@ -70,13 +70,24 @@ class ResultsColumnFilterController {
 
     // MARK: - Distinct Values (for the value-picker checklist)
 
+    /// Distinct display-string values for a column plus per-value row counts, for the filter checklist.
+    struct DistinctValuesResult {
+        let values: [String]                       // shown values, type-aware ascending
+        let hasBlanks: Bool                         // any null/empty in rows passing other filters
+        let counts: [String: FilterValueCount]      // keyed by display string + blanksSentinel
+    }
+
     /// Distinct display-string values for a column, computed over rows that pass
-    /// every OTHER column's active filter (cascading). Sorted type-aware ascending.
-    /// `hasBlanks` is true if any null/empty cell was seen (caller adds a "(Blanks)" row).
+    /// every OTHER column's active filter (cascading). Also tallies, per value,
+    /// `filtered` (rows passing the other filters) and `total` (all rows). Values
+    /// are sorted type-aware ascending. `hasBlanks` is true if any null/empty cell
+    /// appeared among rows passing the other filters (caller adds a "(Blanks)" row).
     func distinctValues(forColumnIndex idx: Int,
                         excludingColumnId colId: String,
-                        category: PGTypeCategory) -> (values: [String], hasBlanks: Bool) {
-        guard let delegate = delegate else { return ([], false) }
+                        category: PGTypeCategory) -> DistinctValuesResult {
+        guard let delegate = delegate else {
+            return DistinctValuesResult(values: [], hasBlanks: false, counts: [:])
+        }
         let rows = delegate.filterableRows
         let categories = delegate.filterableColumnCategories
 
@@ -84,25 +95,43 @@ class ResultsColumnFilterController {
         // column's values stay selectable even when it already has a filter).
         let otherFilters = activeFilters.filter { $0.key != colId }
 
-        var seen = Set<String>()
-        var hasBlanks = false
+        var total: [String: Int] = [:]
+        var filtered: [String: Int] = [:]
 
-        rowLoop: for row in rows {
+        for row in rows {
+            // Does this row pass every OTHER column's filter?
+            var passes = true
             for (fColId, filter) in otherFilters {
                 guard let fIdx = colIndex(from: fColId) else { continue }
                 let fCat = fIdx < categories.count ? categories[fIdx] : .string
                 let fVal: AnyCodable? = fIdx < row.count ? row[fIdx] : nil
-                if !evaluate(filter: filter, value: fVal, category: fCat) { continue rowLoop }
+                if !evaluate(filter: filter, value: fVal, category: fCat) { passes = false; break }
             }
+
             let cell: AnyCodable? = idx < row.count ? row[idx] : nil
+            let key: String
             if cell == nil || cell!.isNull || cell!.displayString.isEmpty {
-                hasBlanks = true
+                key = ColumnFilter.blanksSentinel
             } else {
-                seen.insert(cell!.displayString)
+                key = cell!.displayString
             }
+            total[key, default: 0] += 1
+            if passes { filtered[key, default: 0] += 1 }
         }
 
-        return (sortValues(Array(seen), category: category), hasBlanks)
+        // Shown values = those appearing in >=1 row passing the other filters.
+        let blanks = ColumnFilter.blanksSentinel
+        let sorted = sortValues(filtered.keys.filter { $0 != blanks }, category: category)
+        let hasBlanks = (filtered[blanks] ?? 0) >= 1
+
+        var counts: [String: FilterValueCount] = [:]
+        for key in sorted {
+            counts[key] = FilterValueCount(filtered: filtered[key] ?? 0, total: total[key] ?? 0)
+        }
+        if hasBlanks {
+            counts[blanks] = FilterValueCount(filtered: filtered[blanks] ?? 0, total: total[blanks] ?? 0)
+        }
+        return DistinctValuesResult(values: sorted, hasBlanks: hasBlanks, counts: counts)
     }
 
     /// Type-aware ascending sort of distinct display strings.
