@@ -49,6 +49,10 @@ struct QueryTab: Identifiable {
     /// Filesystem URL this tab was opened from, if any. Set when the tab is
     /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
     var sourceURL: URL?
+    /// User-defined query variables for this tab (referenced as `{{name}}`).
+    var variables: [QueryVariable] = []
+    /// Whether the right-docked variables panel is shown for this tab.
+    var variablesPanelVisible: Bool = false
 
     init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "", paneId: String? = nil) {
         self.id = id

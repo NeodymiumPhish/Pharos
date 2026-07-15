@@ -182,6 +182,11 @@ class QueryEditorVC: NSViewController {
         textView.string
     }
 
+    /// Set the variable names used for `{{token}}` highlighting.
+    func setVariableNames(_ names: Set<String>) {
+        textView.variableNames = names
+    }
+
     func getCursorPosition() -> Int {
         textView.selectedRange().location
     }
@@ -547,6 +552,14 @@ class QueryEditorVC: NSViewController {
         guard let connectionId = stateManager.activeConnectionId,
               stateManager.status(for: connectionId) == .connected,
               !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            await MainActor.run { self.clearErrorMarkers() }
+            return
+        }
+
+        // Skip live validation while unsubstituted variable tokens are present:
+        // Postgres would flag `{{...}}` as a syntax error, and substituted-text
+        // error offsets wouldn't map back to the editor's token-form text.
+        guard !VariableSubstitutor.containsTokens(sql) else {
             await MainActor.run { self.clearErrorMarkers() }
             return
         }

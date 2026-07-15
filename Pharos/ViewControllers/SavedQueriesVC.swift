@@ -378,8 +378,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func contextCopySQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
+        let rendered = VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(q.sql, forType: .string)
+        NSPasteboard.general.setString(rendered, forType: .string)
     }
 
     @objc private func contextExportQueryAsSQL(_: Any?) {
@@ -397,7 +398,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 url = url.appendingPathExtension("sql")
             }
             do {
-                try SQLFileWriter.write(q.sql, to: url)
+                try SQLFileWriter.write(VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql, to: url)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't save \(url.lastPathComponent)"
@@ -459,7 +460,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             seenStems.insert(stem)
 
             let target = dir.appendingPathComponent("\(stem).sql")
-            planned.append(Plan(sql: q.sql, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
+            let renderedSQL = VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql
+            planned.append(Plan(sql: renderedSQL, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
         }
 
         let collisions = planned.filter { $0.exists }.count
@@ -545,7 +547,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         switch node.kind {
         case .query(let q):
             do {
-                let update = UpdateSavedQuery(id: q.id, name: newName, folder: q.folder, sql: q.sql)
+                let update = UpdateSavedQuery(id: q.id, name: newName, folder: q.folder, sql: q.sql, variables: q.variables)
                 _ = try PharosCore.updateSavedQuery(update)
                 reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
@@ -557,7 +559,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             let folderQueries = allQueries.filter { $0.folder == oldName }
             for q in folderQueries {
                 do {
-                    let update = UpdateSavedQuery(id: q.id, name: q.name, folder: newName, sql: q.sql)
+                    let update = UpdateSavedQuery(id: q.id, name: q.name, folder: newName, sql: q.sql, variables: q.variables)
                     _ = try PharosCore.updateSavedQuery(update)
                 } catch {
                     NSLog("Failed to rename folder query: \(error)")
@@ -646,7 +648,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     private func createEmptyFolder(name: String) {
         // Create a placeholder query in the folder so the folder persists
-        let query = CreateSavedQuery(name: "New Query", folder: name, sql: "", connectionId: nil)
+        let query = CreateSavedQuery(name: "New Query", folder: name, sql: "", connectionId: nil, variables: nil)
         do {
             _ = try PharosCore.createSavedQuery(query)
             reload()
@@ -657,7 +659,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     @objc private func contextNewQuery(_: Any?) {
-        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: nil)
+        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: nil, variables: nil)
         do {
             let saved = try PharosCore.createSavedQuery(query)
             reload()
@@ -754,7 +756,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         // Move each query to the target folder
         for qId in draggedIds {
             guard let query = allQueries.first(where: { $0.id == qId }) else { continue }
-            let update = UpdateSavedQuery(id: qId, name: query.name, folder: targetFolder, sql: query.sql)
+            let update = UpdateSavedQuery(id: qId, name: query.name, folder: targetFolder, sql: query.sql, variables: query.variables)
             _ = try? PharosCore.updateSavedQuery(update)
         }
 
@@ -888,7 +890,7 @@ extension SavedQueriesVC: SavedQueryCellEditingDelegate {
         let folderQueries = allQueries.filter { $0.folder == oldName }
         for q in folderQueries {
             do {
-                let update = UpdateSavedQuery(id: q.id, name: q.name, folder: text, sql: q.sql)
+                let update = UpdateSavedQuery(id: q.id, name: q.name, folder: text, sql: q.sql, variables: q.variables)
                 _ = try PharosCore.updateSavedQuery(update)
             } catch {
                 NSLog("Failed to rename folder query: \(error)")

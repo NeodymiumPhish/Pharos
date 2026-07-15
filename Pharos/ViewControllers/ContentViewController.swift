@@ -1119,7 +1119,12 @@ class ContentViewController: NSViewController {
         let tabId = activeTab.id
         let tabSchema = activeTab.schemaName
 
-        let sql = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rendered = VariableSubstitutor.render(querySQL, with: activeTab.variables)
+        if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
+            presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
+            return
+        }
+        let sql = rendered.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
 
         let normalized = Self.normalizeSQL(sql)
@@ -1279,6 +1284,29 @@ class ContentViewController: NSViewController {
                 }
             }
         }
+    }
+
+    /// Surface an unresolved/invalid-variable error before a query runs, and
+    /// reveal the variables panel so the user can correct it.
+    private func presentVariableError(
+        unresolved: [String],
+        invalid: [VariableSubstitutor.Invalid],
+        tabId: String
+    ) {
+        var parts: [String] = []
+        if !unresolved.isEmpty {
+            parts.append("Undefined: " + unresolved.map { "{{\($0)}}" }.joined(separator: ", "))
+        }
+        for item in invalid {
+            parts.append("\(item.name): \(item.reason)")
+        }
+        Toast.show(
+            in: self.view,
+            message: parts.joined(separator: " · "),
+            style: .error,
+            duration: 3.0
+        )
+        focusedPaneVC?.revealVariablesPanel()
     }
 
     /// Assemble metadata and invoke QueryNotifier. Single entry point from the
@@ -1499,7 +1527,7 @@ class ContentViewController: NSViewController {
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
-            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql) { _ in
+            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql, variables: []) { _ in
                 NotificationCoalescer.post(.savedQueriesDidChange)
             }
             // Delay briefly so the detail sheet dismiss animation completes
@@ -1810,7 +1838,10 @@ extension ContentViewController {
             return
         }
         let tab = stateManager.createTab(sql: query.sql, name: query.name)
-        stateManager.updateTab(id: tab.id) { $0.savedQueryId = query.id }
+        stateManager.updateTab(id: tab.id) {
+            $0.savedQueryId = query.id
+            $0.variables = SavedQueryVariables.decode(query.variables)
+        }
     }
 
     @objc private func handleOpenHistoryEntry(_ notification: Notification) {
@@ -1950,7 +1981,7 @@ extension ContentViewController {
         if let savedId = tab.savedQueryId {
             let currentSQL = focusedPaneVC?.getSQL() ?? ""
             do {
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL)
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: tab.variables.toSavedJSON())
                 _ = try PharosCore.updateSavedQuery(update)
                 stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCoalescer.post(.savedQueriesDidChange)
@@ -1971,7 +2002,8 @@ extension ContentViewController {
 
     @objc func menuExportEditorAsSQL(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
-        let text = focusedPaneVC?.getSQL() ?? ""
+        let raw = focusedPaneVC?.getSQL() ?? ""
+        let text = VariableSubstitutor.render(raw, with: tab.variables).sql
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
@@ -1998,7 +2030,8 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: focusedPaneVC?.getSQL() ?? ""
+            sql: focusedPaneVC?.getSQL() ?? "",
+            variables: tab.variables
         ) { [weak self] action in
             guard let self else { return }
             let savedQuery: SavedQuery

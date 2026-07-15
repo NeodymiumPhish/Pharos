@@ -12,6 +12,7 @@
 		069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */; };
 		0754C2EB81577A660A258460 /* ResultTabResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */; };
 		078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */; };
+		0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */; };
 		0D06D23BAD7B85E3D848032E /* CloneTableSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147EF7BD64F5D8D49F5A76C /* CloneTableSheet.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
@@ -41,6 +42,7 @@
 		46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */; };
 		48B0C0688B386D587464D779 /* PulseClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
+		4F7D024CB09110ABCE76F81F /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6527A1E903BD69BAB67D169 /* QueryVariablesPanelVC.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
 		587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */; };
 		62B0D5879E818278B570C216 /* ResultTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */; };
@@ -48,6 +50,7 @@
 		685684742A13BC19F782590E /* EditorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A00A6C3C037EC51D40B003 /* EditorPane.swift */; };
 		69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */; };
 		6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AC102665AFB681E295853B /* FilterCheckRowView.swift */; };
+		75F6AB8A66D389286E0A1C1D /* ResizeDividerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */; };
 		78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20973E948617F8AF21A804FE /* Toast.swift */; };
 		7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D48095594419F14207C82F /* SQLFoldingParser.swift */; };
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
@@ -81,6 +84,7 @@
 		BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */; };
 		C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */; };
 		CA2E0A77C92D92036F966213 /* FilterValueCount.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4F8A28C3069363F3EFDD21 /* FilterValueCount.swift */; };
+		CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */; };
 		D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */; };
 		D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */; };
 		D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */; };
@@ -119,6 +123,7 @@
 		20973E948617F8AF21A804FE /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDataSheet.swift; sourceTree = "<group>"; };
 		21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataCache.swift; sourceTree = "<group>"; };
+		233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariable.swift; sourceTree = "<group>"; };
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
@@ -159,6 +164,7 @@
 		996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridVC.swift; sourceTree = "<group>"; };
 		9993005117CA5F91ED0A2692 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9EC681B504DAF0E904245D22 /* Pharos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pharos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
@@ -166,6 +172,7 @@
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
+		B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableSubstitutor.swift; sourceTree = "<group>"; };
 		BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPopoverSizing.swift; sourceTree = "<group>"; };
 		BC4F8A28C3069363F3EFDD21 /* FilterValueCount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueCount.swift; sourceTree = "<group>"; };
 		BE2842DA42F9D759036177BC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -184,6 +191,7 @@
 		DE109495071281357840CE57 /* QueryHistoryVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistoryVC.swift; sourceTree = "<group>"; };
 		DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerWindowController.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
+		E6527A1E903BD69BAB67D169 /* QueryVariablesPanelVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariablesPanelVC.swift; sourceTree = "<group>"; };
 		E81B37D867FA93870C9481FC /* PartitionOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionOrdering.swift; sourceTree = "<group>"; };
 		EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryResult.swift; sourceTree = "<group>"; };
 		EB348FEAF8FBBF5666D1D306 /* SchemaSelectorPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaSelectorPopoverVC.swift; sourceTree = "<group>"; };
@@ -286,6 +294,7 @@
 				32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */,
 				D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */,
 				DE109495071281357840CE57 /* QueryHistoryVC.swift */,
+				E6527A1E903BD69BAB67D169 /* QueryVariablesPanelVC.swift */,
 				996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */,
 				6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */,
 				02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */,
@@ -310,6 +319,7 @@
 				AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */,
 				EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */,
 				0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */,
+				233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */,
 				73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */,
 				74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */,
 				F443CAC6284678541D0523EA /* Schema.swift */,
@@ -372,6 +382,7 @@
 				FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
+				B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -407,6 +418,7 @@
 				FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */,
 				EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */,
 				4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */,
+				A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */,
 				0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */,
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
@@ -567,6 +579,9 @@
 				69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */,
 				313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */,
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
+				0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */,
+				4F7D024CB09110ABCE76F81F /* QueryVariablesPanelVC.swift in Sources */,
+				75F6AB8A66D389286E0A1C1D /* ResizeDividerView.swift in Sources */,
 				F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */,
 				62B0D5879E818278B570C216 /* ResultTab.swift in Sources */,
 				D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */,
@@ -607,6 +622,7 @@
 				ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */,
 				78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */,
 				F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */,
+				CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */,
 				4544AA18681DE8297EE4419C /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
