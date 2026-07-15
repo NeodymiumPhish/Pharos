@@ -551,6 +551,14 @@ class QueryEditorVC: NSViewController {
             return
         }
 
+        // Skip live validation while unsubstituted variable tokens are present:
+        // Postgres would flag `{{...}}` as a syntax error, and substituted-text
+        // error offsets wouldn't map back to the editor's token-form text.
+        guard !VariableSubstitutor.containsTokens(sql) else {
+            await MainActor.run { self.clearErrorMarkers() }
+            return
+        }
+
         do {
             let result = try await PharosCore.validateSQL(connectionId: connectionId, sql: sql)
             await MainActor.run {
