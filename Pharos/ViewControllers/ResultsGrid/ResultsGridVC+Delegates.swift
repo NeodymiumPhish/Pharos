@@ -146,7 +146,10 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
             existingFilter: existing,
             distinctValues: distinct.values,
             hasBlanks: distinct.hasBlanks,
-            referenceSize: referenceSize
+            referenceSize: referenceSize,
+            counts: distinct.counts,
+            loadedRowCount: rows.count,
+            hasMore: hasMore
         )
         popoverVC.filterDelegate = self
 
