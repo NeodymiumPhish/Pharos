@@ -353,7 +353,7 @@ class ColumnFilterPopoverVC: NSViewController {
     }
 
     private func updateSortControlLabels() {
-        let arrow = sortAscending ? "▲" : "▾"
+        let arrow = sortAscending ? "▲" : "▼"   // both U+25B2/U+25BC full-size so asc/desc match
         sortControl.setLabel(sortField == .value ? "Value \(arrow)" : "Value", forSegment: 0)
         sortControl.setLabel(sortField == .count ? "Count \(arrow)" : "Count", forSegment: 1)
     }
