@@ -9,6 +9,8 @@ struct SQLTheme {
     let number: NSColor
     let comment: NSColor
     let type: NSColor
+    let variable: NSColor           // defined {{name}}
+    let variableUnresolved: NSColor // {{name}} with no definition
 
     static let `default` = SQLTheme(
         keyword: .systemBlue,
@@ -16,7 +18,9 @@ struct SQLTheme {
         string: .systemGreen,
         number: .systemOrange,
         comment: .systemGray,
-        type: .systemPurple
+        type: .systemPurple,
+        variable: .systemIndigo,
+        variableUnresolved: .systemRed
     )
 }
 
@@ -44,6 +48,15 @@ class SQLTextView: NSTextView {
 
     var theme = SQLTheme.default {
         didSet { highlightSyntax() }
+    }
+
+    /// Names (without braces) of variables defined for the active tab. Drives
+    /// defined-vs-undefined coloring of `{{name}}` tokens. Re-highlights on change.
+    var variableNames: Set<String> = [] {
+        didSet {
+            guard variableNames != oldValue else { return }
+            highlightSyntax()
+        }
     }
 
     /// Called whenever the text changes (after highlighting).
@@ -98,6 +111,9 @@ class SQLTextView: NSTextView {
 
     // Cached regex objects (compiled once, reused per highlight call)
     private static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
+    private static let variableTokenRegex = try! NSRegularExpression(
+        pattern: #"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
+    )
     private static let keywordRegex: NSRegularExpression = {
         let keywords = [
             "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
@@ -777,6 +793,7 @@ class SQLTextView: NSTextView {
         highlightGeneration &+= 1
         let generation = highlightGeneration
         let themeSnapshot = theme
+        let variableNamesSnapshot = variableNames
 
         Task.detached(priority: .userInitiated) { [weak self] in
             // ---- Off-main computation ----
@@ -825,6 +842,18 @@ class SQLTextView: NSTextView {
                         attrs.append(.init(range: range, color: color))
                     }
                 }
+            }
+
+            // Phase 3: variable tokens `{{name}}`. Appended last so they win over
+            // keyword/number coloring on overlap. Colored regardless of lex state
+            // (variables are commonly written inside quotes, e.g. '{{ip}}').
+            Self.variableTokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+                guard let match else { return }
+                let name = (text as NSString).substring(with: match.range(at: 1))
+                let color = variableNamesSnapshot.contains(name)
+                    ? themeSnapshot.variable
+                    : themeSnapshot.variableUnresolved
+                attrs.append(.init(range: match.range, color: color))
             }
 
             // ---- On-main application ----
