@@ -18,6 +18,9 @@ final class FilterValueListView: NSView {
     private var visibleValues: [String] = []    // currently shown (post search)
     private var checked: Set<String> = []
     private var searchQuery: String = ""
+    private var counts: [String: FilterValueCount] = [:]
+    private var sortField: FilterValueSortField = .value
+    private var sortAscending: Bool = true
     private var heightConstraint: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
@@ -76,10 +79,28 @@ final class FilterValueListView: NSView {
         return widest
     }
 
-    /// Replace the list contents and the initial checked set.
-    func setValues(_ values: [String], checked: Set<String>) {
+    /// Widest rendered count-label width across the value set, using the given
+    /// font. Returns 0 if no value has a count. Used to size the popover's count
+    /// column.
+    func maxCountWidth(font: NSFont) -> CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        var widest: CGFloat = 0
+        for value in allValues {
+            guard let text = counts[value]?.display, !text.isEmpty else { continue }
+            let w = (text as NSString).size(withAttributes: attrs).width
+            if w > widest { widest = w }
+        }
+        return widest
+    }
+
+    /// Replace the list contents, the initial checked set, and per-value counts.
+    /// `values` must be in canonical (type-aware ascending) order. `counts`
+    /// defaults empty (no count labels) so callers can omit it.
+    func setValues(_ values: [String], checked: Set<String>,
+                   counts: [String: FilterValueCount] = [:]) {
         self.allValues = values
         self.checked = checked
+        self.counts = counts
         applySearch(searchQuery)
     }
 
@@ -90,13 +111,22 @@ final class FilterValueListView: NSView {
     /// keep their checked state.
     func applySearch(_ query: String) {
         searchQuery = query
+        let base = FilterValueSort.ordered(allValues, counts: counts,
+                                           field: sortField, ascending: sortAscending)
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if q.isEmpty {
-            visibleValues = allValues
+            visibleValues = base
         } else {
-            visibleValues = allValues.filter { displayLabel(for: $0).lowercased().contains(q) }
+            visibleValues = base.filter { displayLabel(for: $0).lowercased().contains(q) }
         }
         tableView.reloadData()
+    }
+
+    /// Change the sort field/direction and re-render (checked state preserved).
+    func setSort(field: FilterValueSortField, ascending: Bool) {
+        sortField = field
+        sortAscending = ascending
+        applySearch(searchQuery)
     }
 
     private func displayLabel(for value: String) -> String {
@@ -142,30 +172,33 @@ extension FilterValueListView: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("checkRow")
-        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NSButton)
-            ?? NSButton(checkboxWithTitle: "", target: nil, action: nil)
+        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? FilterCheckRowView)
+            ?? FilterCheckRowView()
         cell.identifier = id
-        cell.lineBreakMode = .byTruncatingTail
-        cell.target = self
-        cell.action = #selector(toggleRow(_:))
-        cell.tag = row
+
+        let box = cell.checkbox
+        box.target = self
+        box.action = #selector(toggleRow(_:))
+        box.tag = row
 
         if row == 0 {
-            cell.title = "(Select All)"
-            cell.font = .systemFont(ofSize: 12, weight: .medium)
-            cell.allowsMixedState = true
-            cell.state = selectAllState
-            cell.isEnabled = !visibleValues.isEmpty
-            cell.toolTip = nil
+            box.title = "(Select All)"
+            box.font = .systemFont(ofSize: 12, weight: .medium)
+            box.allowsMixedState = true
+            box.state = selectAllState
+            box.isEnabled = !visibleValues.isEmpty
+            box.toolTip = nil
+            cell.countLabel.stringValue = ""
         } else {
             let value = visibleValues[row - 1]
             let label = displayLabel(for: value)
-            cell.title = label
-            cell.font = .systemFont(ofSize: 12)
-            cell.allowsMixedState = false
-            cell.state = checked.contains(value) ? .on : .off
-            cell.isEnabled = true
-            cell.toolTip = label
+            box.title = label
+            box.font = .systemFont(ofSize: 12)
+            box.allowsMixedState = false
+            box.state = checked.contains(value) ? .on : .off
+            box.isEnabled = true
+            box.toolTip = label
+            cell.countLabel.stringValue = counts[value]?.display ?? ""
         }
         return cell
     }
