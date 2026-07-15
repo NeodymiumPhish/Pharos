@@ -182,6 +182,11 @@ class QueryEditorVC: NSViewController {
         textView.string
     }
 
+    /// Set the variable names used for `{{token}}` highlighting.
+    func setVariableNames(_ names: Set<String>) {
+        textView.variableNames = names
+    }
+
     func getCursorPosition() -> Int {
         textView.selectedRange().location
     }
