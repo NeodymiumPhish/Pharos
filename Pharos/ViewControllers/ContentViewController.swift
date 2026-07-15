@@ -1306,7 +1306,7 @@ class ContentViewController: NSViewController {
             style: .error,
             duration: 3.0
         )
-        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible = true }
+        focusedPaneVC?.revealVariablesPanel()
     }
 
     /// Assemble metadata and invoke QueryNotifier. Single entry point from the

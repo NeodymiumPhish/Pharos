@@ -32,11 +32,11 @@ final class ResizeDividerView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        lastX = convert(event.locationInWindow, from: nil).x
+        lastX = event.locationInWindow.x
     }
 
     override func mouseDragged(with event: NSEvent) {
-        let x = convert(event.locationInWindow, from: nil).x
+        let x = event.locationInWindow.x
         let delta = x - lastX
         lastX = x
         onDrag?(delta)

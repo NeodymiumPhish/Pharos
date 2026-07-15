@@ -452,6 +452,14 @@ class EditorPaneVC: NSViewController {
         editorVC.setSegmentColor(color, forSegmentIndex: index)
     }
 
+    /// Ensure the variables panel is visible for the active tab (e.g. after a
+    /// variable error). Updates state and relayouts directly.
+    func revealVariablesPanel() {
+        guard let tabId = lastActiveTabId else { return }
+        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible = true }
+        syncVariablesPanel()
+    }
+
     func clearSegmentColors() {
         editorVC.clearSegmentColors()
     }

@@ -29,9 +29,11 @@ struct UpdateSavedQuery: Codable {
 }
 
 extension Array where Element == QueryVariable {
-    /// Serialize to a JSON string for saved-query storage; nil if empty.
+    /// Serialize to a JSON string for saved-query storage. Always returns a
+    /// string (empty array -> "[]") so clearing all variables is persisted,
+    /// rather than being skipped by the Rust update (which treats nil as
+    /// "leave column unchanged").
     func toSavedJSON() -> String? {
-        guard !isEmpty else { return nil }
         guard let data = try? JSONEncoder().encode(self) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
