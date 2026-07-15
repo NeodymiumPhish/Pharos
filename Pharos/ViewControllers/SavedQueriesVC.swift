@@ -378,8 +378,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func contextCopySQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
+        let rendered = VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(q.sql, forType: .string)
+        NSPasteboard.general.setString(rendered, forType: .string)
     }
 
     @objc private func contextExportQueryAsSQL(_: Any?) {
@@ -397,7 +398,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 url = url.appendingPathExtension("sql")
             }
             do {
-                try SQLFileWriter.write(q.sql, to: url)
+                try SQLFileWriter.write(VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql, to: url)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't save \(url.lastPathComponent)"
@@ -459,7 +460,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             seenStems.insert(stem)
 
             let target = dir.appendingPathComponent("\(stem).sql")
-            planned.append(Plan(sql: q.sql, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
+            let renderedSQL = VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql
+            planned.append(Plan(sql: renderedSQL, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
         }
 
         let collisions = planned.filter { $0.exists }.count
