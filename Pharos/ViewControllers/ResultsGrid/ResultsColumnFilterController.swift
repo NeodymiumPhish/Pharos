@@ -77,6 +77,8 @@ class ResultsColumnFilterController {
         let counts: [String: FilterValueCount]      // keyed by display string + blanksSentinel
     }
 
+    private struct Tally { var total = 0; var filtered = 0 }
+
     /// Distinct display-string values for a column, computed over rows that pass
     /// every OTHER column's active filter (cascading). Also tallies, per value,
     /// `filtered` (rows passing the other filters) and `total` (all rows). Values
@@ -95,8 +97,7 @@ class ResultsColumnFilterController {
         // column's values stay selectable even when it already has a filter).
         let otherFilters = activeFilters.filter { $0.key != colId }
 
-        var total: [String: Int] = [:]
-        var filtered: [String: Int] = [:]
+        var tallies: [String: Tally] = [:]
 
         for row in rows {
             // Does this row pass every OTHER column's filter?
@@ -115,22 +116,20 @@ class ResultsColumnFilterController {
             } else {
                 key = cell!.displayString
             }
-            total[key, default: 0] += 1
-            if passes { filtered[key, default: 0] += 1 }
+            tallies[key, default: Tally()].total += 1
+            if passes { tallies[key, default: Tally()].filtered += 1 }
         }
 
-        // Shown values = those appearing in >=1 row passing the other filters.
-        let blanks = ColumnFilter.blanksSentinel
-        let sorted = sortValues(filtered.keys.filter { $0 != blanks }, category: category)
-        let hasBlanks = (filtered[blanks] ?? 0) >= 1
-
+        // Only values appearing in >=1 row passing the other filters are shown; a
+        // value present only in filtered-out rows has total > 0 but filtered == 0
+        // and is intentionally excluded from `counts`/`values`.
         var counts: [String: FilterValueCount] = [:]
-        for key in sorted {
-            counts[key] = FilterValueCount(filtered: filtered[key] ?? 0, total: total[key] ?? 0)
+        for (key, t) in tallies where t.filtered >= 1 {
+            counts[key] = FilterValueCount(filtered: t.filtered, total: t.total)
         }
-        if hasBlanks {
-            counts[blanks] = FilterValueCount(filtered: filtered[blanks] ?? 0, total: total[blanks] ?? 0)
-        }
+        let blanks = ColumnFilter.blanksSentinel
+        let sorted = sortValues(counts.keys.filter { $0 != blanks }, category: category)
+        let hasBlanks = counts[blanks] != nil
         return DistinctValuesResult(values: sorted, hasBlanks: hasBlanks, counts: counts)
     }
 
