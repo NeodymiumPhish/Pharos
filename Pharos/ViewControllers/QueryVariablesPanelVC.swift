@@ -1,6 +1,9 @@
 import AppKit
 
-/// Right-docked panel listing a tab's query variables.
+/// Right-docked panel listing a tab's query variables. Styled to match the
+/// app's sidebar/inspector idiom: sidebar-material vibrancy, a small secondary
+/// section header, compact fields that stretch to the panel width, and semantic
+/// colors so it reads as a first-party docked panel in light and dark.
 final class QueryVariablesPanelVC: NSViewController {
 
     /// Called whenever the variable set changes (add / delete / edit).
@@ -17,14 +20,22 @@ final class QueryVariablesPanelVC: NSViewController {
     }
 
     override func loadView() {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.underPageBackgroundColor.cgColor
+        // Sidebar-material vibrancy so the panel reads as a sibling of the
+        // sidebar (see SidebarViewController.loadView) rather than a flat block.
+        let container = NSVisualEffectView()
+        container.material = .sidebar
+        container.blendingMode = .behindWindow
+        container.state = .followsWindowActiveState
         self.view = container
 
-        // Header: title + add button
+        // Leading hairline so the panel edge reads cleanly against the editor.
+        let edge = NSBox()
+        edge.boxType = .separator
+        edge.translatesAutoresizingMaskIntoConstraints = false
+
+        // Header: small secondary title + borderless add button (inspector idiom).
         let title = NSTextField(labelWithString: "Variables")
-        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        title.font = .systemFont(ofSize: 11, weight: .semibold)
         title.textColor = .secondaryLabelColor
         title.translatesAutoresizingMaskIntoConstraints = false
 
@@ -32,6 +43,8 @@ final class QueryVariablesPanelVC: NSViewController {
         addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add variable")
         addButton.bezelStyle = .recessed
         addButton.isBordered = false
+        addButton.controlSize = .small
+        addButton.contentTintColor = .secondaryLabelColor
         addButton.toolTip = "Add variable"
         addButton.target = self
         addButton.action = #selector(addTapped)
@@ -42,11 +55,17 @@ final class QueryVariablesPanelVC: NSViewController {
         header.addSubview(title)
         header.addSubview(addButton)
 
-        // Rows in a vertical stack inside a scroll view
+        let headerSeparator = NSBox()
+        headerSeparator.boxType = .separator
+        headerSeparator.translatesAutoresizingMaskIntoConstraints = false
+
+        // Rows: vertical stack whose children stretch to the panel width.
+        // (`.width` alignment stretches arranged subviews on a vertical stack —
+        // `.fill` is not valid on NSStackView.alignment.)
         rowsStack.orientation = .vertical
-        rowsStack.alignment = .leading
-        rowsStack.spacing = 6
-        rowsStack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        rowsStack.alignment = .width
+        rowsStack.spacing = 12
+        rowsStack.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 12, right: 12)
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 
         let flipped = FlippedClipView()
@@ -56,32 +75,32 @@ final class QueryVariablesPanelVC: NSViewController {
         scrollView.documentView = rowsStack
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Left-edge separator so the panel reads as docked
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
+        container.addSubview(edge)
         container.addSubview(header)
+        container.addSubview(headerSeparator)
         container.addSubview(scrollView)
-        container.addSubview(separator)
 
         NSLayoutConstraint.activate([
-            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            separator.topAnchor.constraint(equalTo: container.topAnchor),
-            separator.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            separator.widthAnchor.constraint(equalToConstant: 1),
+            edge.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            edge.topAnchor.constraint(equalTo: container.topAnchor),
+            edge.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            edge.widthAnchor.constraint(equalToConstant: 1),
 
-            header.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
-            header.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            header.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            header.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             header.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            header.heightAnchor.constraint(equalToConstant: 22),
+            header.heightAnchor.constraint(equalToConstant: 18),
 
             title.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             title.centerYAnchor.constraint(equalTo: header.centerYAnchor),
             addButton.trailingAnchor.constraint(equalTo: header.trailingAnchor),
             addButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+            headerSeparator.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 6),
+            headerSeparator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            headerSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+
+            scrollView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 1),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -102,74 +121,96 @@ final class QueryVariablesPanelVC: NSViewController {
             rowsStack.addArrangedSubview(makeRow(for: variable.id))
         }
         if variables.isEmpty {
-            let empty = NSTextField(labelWithString: "No variables.\nClick + to add one.")
+            let empty = NSTextField(labelWithString: "No variables — click + to add one.")
             empty.font = .systemFont(ofSize: 11)
             empty.textColor = .tertiaryLabelColor
+            empty.lineBreakMode = .byWordWrapping
             empty.maximumNumberOfLines = 2
             rowsStack.addArrangedSubview(empty)
         }
     }
 
     private func makeRow(for id: UUID) -> NSView {
-        let braceLead = NSTextField(labelWithString: "{{")
-        braceLead.textColor = .tertiaryLabelColor
+        let variable = variables.first(where: { $0.id == id })
+
+        // Name line: {{ name }}                          🗑
+        let braceLead = Self.braceLabel("{{")
+        let braceTrail = Self.braceLabel("}}")
+
         let nameField = NSTextField()
         nameField.placeholderString = "name"
-        nameField.stringValue = variables.first(where: { $0.id == id })?.name ?? ""
+        nameField.stringValue = variable?.name ?? ""
+        nameField.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        nameField.controlSize = .small
         nameField.identifier = NSUserInterfaceItemIdentifier("name:\(id.uuidString)")
         nameField.delegate = self
+        nameField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameField.translatesAutoresizingMaskIntoConstraints = false
-        let braceTrail = NSTextField(labelWithString: "}}")
-        braceTrail.textColor = .tertiaryLabelColor
 
+        let deleteButton = NSButton()
+        deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete variable")
+        deleteButton.bezelStyle = .recessed
+        deleteButton.isBordered = false
+        deleteButton.controlSize = .small
+        deleteButton.contentTintColor = .tertiaryLabelColor
+        deleteButton.toolTip = "Delete variable"
+        deleteButton.identifier = NSUserInterfaceItemIdentifier("delete:\(id.uuidString)")
+        deleteButton.target = self
+        deleteButton.action = #selector(deleteTapped(_:))
+        deleteButton.setContentHuggingPriority(.required, for: .horizontal)
+        deleteButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let nameLine = NSStackView(views: [braceLead, nameField, braceTrail, deleteButton])
+        nameLine.orientation = .horizontal
+        nameLine.spacing = 3
+        nameLine.distribution = .fill
+
+        // Value line: value                              [Type ▾]
         let valueField = NSTextField()
         valueField.placeholderString = "value"
-        valueField.stringValue = variables.first(where: { $0.id == id })?.value ?? ""
+        valueField.stringValue = variable?.value ?? ""
+        valueField.font = .systemFont(ofSize: 11)
+        valueField.controlSize = .small
         valueField.identifier = NSUserInterfaceItemIdentifier("value:\(id.uuidString)")
         valueField.delegate = self
+        valueField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        valueField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         valueField.translatesAutoresizingMaskIntoConstraints = false
 
         let typePopup = NSPopUpButton()
         for t in VariableType.allCases { typePopup.addItem(withTitle: t.displayName) }
-        if let current = variables.first(where: { $0.id == id })?.type,
-           let idx = VariableType.allCases.firstIndex(of: current) {
+        if let current = variable?.type, let idx = VariableType.allCases.firstIndex(of: current) {
             typePopup.selectItem(at: idx)
         }
+        typePopup.controlSize = .small
+        typePopup.font = .systemFont(ofSize: 11)
         typePopup.identifier = NSUserInterfaceItemIdentifier("type:\(id.uuidString)")
         typePopup.target = self
         typePopup.action = #selector(typeChanged(_:))
-        typePopup.controlSize = .small
+        typePopup.setContentHuggingPriority(.required, for: .horizontal)
         typePopup.translatesAutoresizingMaskIntoConstraints = false
 
-        let deleteButton = NSButton()
-        deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
-        deleteButton.bezelStyle = .recessed
-        deleteButton.isBordered = false
-        deleteButton.contentTintColor = .secondaryLabelColor
-        deleteButton.identifier = NSUserInterfaceItemIdentifier("delete:\(id.uuidString)")
-        deleteButton.target = self
-        deleteButton.action = #selector(deleteTapped(_:))
-        deleteButton.translatesAutoresizingMaskIntoConstraints = false
+        let valueLine = NSStackView(views: [valueField, typePopup])
+        valueLine.orientation = .horizontal
+        valueLine.spacing = 4
+        valueLine.distribution = .fill
 
-        let nameRow = NSStackView(views: [braceLead, nameField, braceTrail, deleteButton])
-        nameRow.orientation = .horizontal
-        nameRow.spacing = 2
-        let controlsRow = NSStackView(views: [valueField, typePopup])
-        controlsRow.orientation = .horizontal
-        controlsRow.spacing = 4
-
-        let row = NSStackView(views: [nameRow, controlsRow])
+        let row = NSStackView(views: [nameLine, valueLine])
         row.orientation = .vertical
-        row.alignment = .leading
-        row.spacing = 3
+        row.alignment = .width
+        row.spacing = 4
         row.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            nameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
-            valueField.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
-            typePopup.widthAnchor.constraint(equalToConstant: 84),
-        ])
         return row
+    }
+
+    private static func braceLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        label.textColor = .tertiaryLabelColor
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }
 
     private static func id(from identifier: NSUserInterfaceItemIdentifier?, prefix: String) -> UUID? {
