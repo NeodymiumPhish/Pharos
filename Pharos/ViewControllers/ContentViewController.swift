@@ -1119,7 +1119,12 @@ class ContentViewController: NSViewController {
         let tabId = activeTab.id
         let tabSchema = activeTab.schemaName
 
-        let sql = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rendered = VariableSubstitutor.render(querySQL, with: activeTab.variables)
+        if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
+            presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
+            return
+        }
+        let sql = rendered.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
 
         let normalized = Self.normalizeSQL(sql)
@@ -1279,6 +1284,29 @@ class ContentViewController: NSViewController {
                 }
             }
         }
+    }
+
+    /// Surface an unresolved/invalid-variable error before a query runs, and
+    /// reveal the variables panel so the user can correct it.
+    private func presentVariableError(
+        unresolved: [String],
+        invalid: [VariableSubstitutor.Invalid],
+        tabId: String
+    ) {
+        var parts: [String] = []
+        if !unresolved.isEmpty {
+            parts.append("Undefined: " + unresolved.map { "{{\($0)}}" }.joined(separator: ", "))
+        }
+        for item in invalid {
+            parts.append("\(item.name): \(item.reason)")
+        }
+        Toast.show(
+            in: self.view,
+            message: parts.joined(separator: " · "),
+            style: .error,
+            duration: 3.0
+        )
+        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible = true }
     }
 
     /// Assemble metadata and invoke QueryNotifier. Single entry point from the
