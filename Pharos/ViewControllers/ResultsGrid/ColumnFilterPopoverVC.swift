@@ -237,14 +237,13 @@ class ColumnFilterPopoverVC: NSViewController {
         // Sort control (Value / Count), momentary so a re-click on the active
         // field flips its direction. Lives in the header row, right-aligned.
         sortControl.segmentCount = 2
-        sortControl.setLabel("Value ▲", forSegment: 0)
-        sortControl.setLabel("Count", forSegment: 1)
         sortControl.trackingMode = .momentary
         sortControl.controlSize = .small
         sortControl.font = .systemFont(ofSize: 11)
         sortControl.target = self
         sortControl.action = #selector(sortSegmentClicked(_:))
         sortControl.setContentHuggingPriority(.required, for: .horizontal)
+        updateSortControlLabels()   // stamps "Value ▲" / "Count" from the default state
 
         let headerRow = NSStackView(views: [headerLabel, NSView(), sortControl])
         headerRow.orientation = .horizontal
@@ -337,7 +336,12 @@ class ColumnFilterPopoverVC: NSViewController {
     }
 
     @objc private func sortSegmentClicked(_ sender: NSSegmentedControl) {
-        let clicked: FilterValueSortField = (sender.selectedSegment == 1) ? .count : .value
+        let clicked: FilterValueSortField
+        switch sender.selectedSegment {
+        case 0: clicked = .value
+        case 1: clicked = .count
+        default: return   // momentary control can report -1 outside a click; ignore
+        }
         if clicked == sortField {
             sortAscending.toggle()                 // re-click active field → reverse
         } else {
