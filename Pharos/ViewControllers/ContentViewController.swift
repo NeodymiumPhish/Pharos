@@ -1999,7 +1999,8 @@ extension ContentViewController {
 
     @objc func menuExportEditorAsSQL(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
-        let text = focusedPaneVC?.getSQL() ?? ""
+        let raw = focusedPaneVC?.getSQL() ?? ""
+        let text = VariableSubstitutor.render(raw, with: tab.variables).sql
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
