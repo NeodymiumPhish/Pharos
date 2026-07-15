@@ -97,7 +97,7 @@ class ColumnFilterPopoverVC: NSViewController {
     init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String,
          existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool,
          referenceSize: CGSize,
-         counts: [String: FilterValueCount] = [:], loadedRowCount: Int = 0, hasMore: Bool = false) {
+         counts: [String: FilterValueCount], loadedRowCount: Int, hasMore: Bool) {
         self.columnName = columnName
         self.displayName = displayName
         self.category = category
