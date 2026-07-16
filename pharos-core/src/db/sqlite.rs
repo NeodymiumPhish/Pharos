@@ -266,6 +266,23 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             INSERT INTO query_history_fts(query_history_fts, rowid, sql, connection_name)
             VALUES ('delete', old.rowid, old.sql, old.connection_name);
         END;
+
+        -- Workspaces: one per editor-tab working session
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            name_is_custom INTEGER NOT NULL DEFAULT 0,
+            connection_id TEXT NOT NULL,
+            connection_name TEXT NOT NULL,
+            editor_text TEXT NOT NULL DEFAULT '',
+            variables_json TEXT NOT NULL DEFAULT '[]',
+            cursor_position INTEGER,
+            created_at TEXT NOT NULL,
+            last_activity_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workspaces_last_activity
+            ON workspaces(last_activity_at DESC);
         "#,
     )?;
 
@@ -295,6 +312,44 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
             "ALTER TABLE query_history ADD COLUMN schema TEXT;
              ALTER TABLE query_history ADD COLUMN column_count INTEGER;
              ALTER TABLE query_history ADD COLUMN table_names TEXT;"
+        )?;
+    }
+
+    // Migration: Add workspace association columns to query_history
+    let has_workspace_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'workspace_id'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_workspace_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN workspace_id TEXT;
+             ALTER TABLE query_history ADD COLUMN result_order INTEGER;
+             ALTER TABLE query_history ADD COLUMN color_index INTEGER;
+             ALTER TABLE query_history ADD COLUMN custom_label TEXT;
+             CREATE INDEX IF NOT EXISTS idx_query_history_workspace
+                 ON query_history(workspace_id, result_order);"
+        )?;
+
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS workspaces_fts USING fts5(
+                 name, editor_text, content='workspaces', content_rowid='rowid'
+             );
+             CREATE TRIGGER IF NOT EXISTS workspaces_ai AFTER INSERT ON workspaces BEGIN
+                 INSERT INTO workspaces_fts(rowid, name, editor_text)
+                 VALUES (new.rowid, COALESCE(new.name,''), new.editor_text);
+             END;
+             CREATE TRIGGER IF NOT EXISTS workspaces_ad AFTER DELETE ON workspaces BEGIN
+                 INSERT INTO workspaces_fts(workspaces_fts, rowid, name, editor_text)
+                 VALUES ('delete', old.rowid, COALESCE(old.name,''), old.editor_text);
+             END;
+             CREATE TRIGGER IF NOT EXISTS workspaces_au AFTER UPDATE ON workspaces BEGIN
+                 INSERT INTO workspaces_fts(workspaces_fts, rowid, name, editor_text)
+                 VALUES ('delete', old.rowid, COALESCE(old.name,''), old.editor_text);
+                 INSERT INTO workspaces_fts(rowid, name, editor_text)
+                 VALUES (new.rowid, COALESCE(new.name,''), new.editor_text);
+             END;"
         )?;
     }
 
