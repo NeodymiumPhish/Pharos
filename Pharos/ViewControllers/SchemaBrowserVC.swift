@@ -310,7 +310,13 @@ class SchemaBrowserVC: NSViewController {
 
                 // Only refresh display if this connection is still active
                 if self.connectionId == capturedConnectionId {
-                    self.outlineView.reloadData()
+                    // Preserve the user's selection: this background row-count refresh
+                    // fires once per schema during the first seconds after connecting,
+                    // and a bare reloadData() cleared any table the user had just
+                    // clicked (selection only "stuck" once loading settled).
+                    self.reloadPreservingSelection {
+                        self.outlineView.reloadData()
+                    }
                 }
 
                 // Update cache for the specific connection
@@ -606,6 +612,21 @@ class SchemaBrowserVC: NSViewController {
             return
         }
         rebuildDisplayTree()
+    }
+
+    /// Run a reload that would otherwise clear the outline's selection, then
+    /// restore the previously selected node by object identity. Only re-selects
+    /// when the reload actually dropped the selection, so selection-preserving
+    /// reloads (e.g. `reloadItem`) don't fire a redundant change notification.
+    private func reloadPreservingSelection(_ reload: () -> Void) {
+        let selectedRow = outlineView.selectedRow
+        let selectedItem = selectedRow >= 0 ? outlineView.item(atRow: selectedRow) : nil
+        reload()
+        guard let item = selectedItem, outlineView.selectedRow < 0 else { return }
+        let row = outlineView.row(forItem: item)
+        if row >= 0 {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
     }
 
     // MARK: - Lazy Column Loading
