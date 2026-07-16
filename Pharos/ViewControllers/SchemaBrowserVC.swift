@@ -595,15 +595,29 @@ class SchemaBrowserVC: NSViewController {
     }
 
     /// Called after a single schema's tables have been spliced into the
-    /// unfiltered tree. When no filter is active we reload only that schema's
-    /// subtree — outline expansion state for the rest of the browser is
-    /// preserved, and parallel schema loads no longer collapse each other's
-    /// recently-expanded tables. When a filter is active the cascade is more
-    /// complex (the schema might not even be in `rootNodes`), so we fall back
-    /// to the full rebuild path.
+    /// unfiltered tree. With no filter we reload only that schema's subtree, so
+    /// expansion state elsewhere is preserved and parallel schema loads don't
+    /// collapse each other's recently-expanded tables. With a schema filter
+    /// pinned we only rebuild for the pinned schema (other schemas aren't shown);
+    /// with a text filter we rebuild so newly-loaded matches surface. Rebuilds
+    /// preserve the current selection.
     private func refreshAfterLoad(schemaNode: SchemaTreeNode) {
-        let hasFilter = (filterText?.isEmpty == false) || activeSchemaFilter != nil
-        if !hasFilter, rootNodes.contains(where: { $0 === schemaNode }) {
+        // When a single schema is pinned (schema filter active), only that schema's
+        // tables are on screen. Background table-loads for OTHER schemas change
+        // nothing visible, so a full rebuildDisplayTree() for each is both wasted
+        // work and actively harmful: its reloadData() wiped the user's selection
+        // every time another schema streamed in. On databases with many schemas
+        // (per-tenant UUID schemas plus pg_temp_*), that kept a just-clicked table
+        // from ever staying selected for several seconds. Only rebuild for the
+        // schema actually being displayed, and preserve selection when we do.
+        if let active = activeSchemaFilter {
+            if schemaNode.schemaName == active {
+                reloadPreservingSelection { rebuildDisplayTree() }
+            }
+            return
+        }
+        let hasTextFilter = filterText?.isEmpty == false
+        if !hasTextFilter, rootNodes.contains(where: { $0 === schemaNode }) {
             outlineView.reloadItem(schemaNode, reloadChildren: true)
             // Keep the initial-load auto-expand of the public schema.
             if schemaNode.schemaName == "public" {
@@ -611,7 +625,9 @@ class SchemaBrowserVC: NSViewController {
             }
             return
         }
-        rebuildDisplayTree()
+        // Text filter active: a newly-loaded schema may contain matching tables,
+        // so a rebuild is needed to surface them — but keep the selection.
+        reloadPreservingSelection { rebuildDisplayTree() }
     }
 
     /// Run a reload that would otherwise clear the outline's selection, then
