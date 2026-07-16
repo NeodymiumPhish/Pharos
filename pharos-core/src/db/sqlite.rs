@@ -956,6 +956,105 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
     }))
 }
 
+/// Rename a workspace (sets it custom so auto-naming stops overriding it).
+pub fn rename_workspace(conn: &Connection, id: &str, name: &str) -> SqliteResult<bool> {
+    let n = conn.execute(
+        "UPDATE workspaces SET name = ?1, name_is_custom = 1 WHERE id = ?2",
+        (name, id),
+    )?;
+    Ok(n > 0)
+}
+
+/// Delete a workspace and cascade-delete its child results.
+pub fn delete_workspace(conn: &Connection, id: &str) -> SqliteResult<bool> {
+    conn.execute("DELETE FROM query_history WHERE workspace_id = ?1", [id])?;
+    let n = conn.execute("DELETE FROM workspaces WHERE id = ?1", [id])?;
+    Ok(n > 0)
+}
+
+/// Delete a single child result from a workspace.
+pub fn delete_workspace_result(conn: &Connection, result_id: &str) -> SqliteResult<bool> {
+    let n = conn.execute(
+        "DELETE FROM query_history WHERE id = ?1 AND workspace_id IS NOT NULL",
+        [result_id],
+    )?;
+    Ok(n > 0)
+}
+
+/// Update a child result's display metadata (custom label and/or color index).
+pub fn update_result_meta(
+    conn: &Connection,
+    result_id: &str,
+    custom_label: Option<&str>,
+    color_index: Option<i64>,
+) -> SqliteResult<bool> {
+    let n = conn.execute(
+        "UPDATE query_history
+         SET custom_label = COALESCE(?2, custom_label),
+             color_index  = COALESCE(?3, color_index)
+         WHERE id = ?1",
+        (result_id, custom_label, color_index),
+    )?;
+    Ok(n > 0)
+}
+
+/// Duplicate a workspace (new id) including its children and cached blobs.
+/// Returns the new workspace id.
+pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<String>> {
+    let exists: bool = conn
+        .query_row("SELECT COUNT(*) FROM workspaces WHERE id = ?1", [id], |r| r.get::<_, i64>(0))
+        .map(|c| c > 0)
+        .unwrap_or(false);
+    if !exists {
+        return Ok(None);
+    }
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO workspaces
+            (id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, created_at, last_activity_at)
+         SELECT ?1,
+                CASE WHEN name IS NULL THEN NULL ELSE name || ' (copy)' END,
+                name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, ?2, ?2
+         FROM workspaces WHERE id = ?3",
+        (&new_id, &now, id),
+    )?;
+    // Copy children with fresh ids, preserving order/blobs/metadata.
+    let mut stmt = conn.prepare(
+        "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
+                result_columns, result_rows, schema, column_count, table_names,
+                result_order, color_index, custom_label
+         FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
+    )?;
+    let rows: Vec<_> = stmt
+        .query_map([id], |r| {
+            Ok((
+                r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+                r.get::<_, Option<i64>>(3)?, r.get::<_, i64>(4)?, r.get::<_, String>(5)?,
+                r.get::<_, Option<Vec<u8>>>(6)?, r.get::<_, Option<Vec<u8>>>(7)?,
+                r.get::<_, Option<String>>(8)?, r.get::<_, Option<i64>>(9)?, r.get::<_, Option<String>>(10)?,
+                r.get::<_, Option<i64>>(11)?, r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?,
+            ))
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    for row in rows {
+        let child_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO query_history
+                (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
+                 result_columns, result_rows, schema, column_count, table_names,
+                 workspace_id, result_order, color_index, custom_label)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+            (
+                &child_id, &row.0, &row.1, &row.2, &row.3, &row.4, &row.5,
+                &row.6, &row.7, &row.8, &row.9, &row.10,
+                &new_id, &row.11, &row.12, &row.13,
+            ),
+        )?;
+    }
+    Ok(Some(new_id))
+}
+
 /// Load query history entries with optional filters
 pub fn load_query_history(
     conn: &Connection,
