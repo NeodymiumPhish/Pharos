@@ -6,6 +6,7 @@ pub mod query_history;
 pub mod saved_query;
 pub mod settings;
 pub mod table;
+pub mod workspace;
 
 pub use connection::*;
 pub use ddl::*;
@@ -15,3 +16,4 @@ pub use query_history::*;
 pub use saved_query::*;
 pub use settings::*;
 pub use table::*;
+pub use workspace::*;
