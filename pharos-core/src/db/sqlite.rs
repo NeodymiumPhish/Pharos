@@ -833,6 +833,61 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
     Ok(())
 }
 
+/// Load workspace summaries, newest activity first. When `search` is set, a
+/// workspace matches if its name/editor_text match OR any child query SQL matches.
+pub fn load_workspaces(
+    conn: &Connection,
+    search: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> SqliteResult<Vec<crate::models::WorkspaceSummary>> {
+    let mut sql = String::from(
+        "SELECT w.id, w.name, w.name_is_custom, w.connection_name, w.last_activity_at,
+                (SELECT COUNT(*) FROM query_history qh WHERE qh.workspace_id = w.id) AS query_count,
+                (SELECT COUNT(DISTINCT qh.connection_id) FROM query_history qh WHERE qh.workspace_id = w.id) AS distinct_db_count
+         FROM workspaces w WHERE 1=1",
+    );
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    if let Some(q) = search {
+        if !q.is_empty() {
+            let escaped = escape_fts5_query(q);
+            sql.push_str(&format!(
+                " AND (w.rowid IN (SELECT rowid FROM workspaces_fts WHERE workspaces_fts MATCH ?{i})
+                       OR w.id IN (SELECT qh.workspace_id FROM query_history qh
+                                   WHERE qh.workspace_id IS NOT NULL
+                                     AND qh.rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{i})))",
+                i = idx
+            ));
+            params.push(Box::new(escaped));
+            idx += 1;
+        }
+    }
+
+    sql.push_str(&format!(" ORDER BY w.last_activity_at DESC LIMIT ?{} OFFSET ?{}", idx, idx + 1));
+    params.push(Box::new(limit));
+    params.push(Box::new(offset));
+
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_refs.as_slice(), |row| {
+        let name: Option<String> = row.get(1)?;
+        let name_is_custom: i64 = row.get(2)?;
+        let connection_name: String = row.get(3)?;
+        let distinct_db_count: i64 = row.get(6)?;
+        Ok(crate::models::WorkspaceSummary {
+            id: row.get(0)?,
+            name: resolve_workspace_name(name.as_deref(), name_is_custom != 0, &connection_name, distinct_db_count),
+            connection_name,
+            distinct_db_count,
+            query_count: row.get(5)?,
+            last_activity_at: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Load query history entries with optional filters
 pub fn load_query_history(
     conn: &Connection,
