@@ -203,6 +203,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         previewTable.allowsMultipleSelection = false
         previewTable.doubleAction = #selector(previewDoubleClicked(_:))
         previewTable.target = self
+        previewTable.menu = buildPreviewContextMenu()
 
         previewScroll.documentView = previewTable
         previewScroll.hasVerticalScroller = true
@@ -439,7 +440,96 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         deleteSelectedEntries()
     }
 
+    // MARK: - Workspace Context-Menu Actions
+
+    private func rowAt(_ index: Int) -> HistoryRow? {
+        guard index >= 0, index < rows.count else { return nil }
+        return rows[index]
+    }
+
+    @objc private func contextRenameWorkspace(_: Any?) {
+        guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename Workspace"
+        let field = NSTextField(string: w.name)
+        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        guard let win = view.window else { return }
+        alert.beginSheetModal(for: win) { [weak self] resp in
+            guard resp == .alertFirstButtonReturn else { return }
+            _ = try? PharosCore.renameWorkspace(id: w.id, name: field.stringValue)
+            self?.requery()
+        }
+    }
+
+    @objc private func contextDuplicateWorkspace(_: Any?) {
+        guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
+        _ = try? PharosCore.duplicateWorkspace(id: w.id)
+        requery()
+    }
+
+    @objc private func contextDeleteWorkspace(_: Any?) {
+        guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
+        _ = try? PharosCore.deleteWorkspace(id: w.id)
+        if selectedWorkspaceId == w.id { clearPreview() }
+        requery()
+    }
+
+    /// Context-menu action for a multi-row selection that's entirely
+    /// workspace rows — mirrors `deleteSelectedEntries()`'s confirmation flow.
+    @objc private func contextDeleteSelectedWorkspaces(_: Any?) {
+        let ids: [String] = tableView.selectedRowIndexes.compactMap { idx -> String? in
+            guard case .workspace(let w)? = rowAt(idx) else { return nil }
+            return w.id
+        }
+        guard !ids.isEmpty else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete \(ids.count) workspace\(ids.count == 1 ? "" : "s")?"
+        alert.informativeText = "This action cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            for id in ids {
+                _ = try? PharosCore.deleteWorkspace(id: id)
+            }
+            if let selectedWorkspaceId = self?.selectedWorkspaceId, ids.contains(selectedWorkspaceId) {
+                self?.clearPreview()
+            }
+            self?.requery()
+        }
+    }
+
+    // MARK: - Preview-Table Context-Menu Actions
+
+    @objc private func contextDeletePreviewResult(_: Any?) {
+        let row = previewTable.clickedRow
+        guard row >= 0, row < previewResults.count else { return }
+        _ = try? PharosCore.deleteWorkspaceResult(id: previewResults[row].id)
+        requery()
+        if let wsId = selectedWorkspaceId { showPreview(for: wsId) }
+    }
+
+    @objc private func contextCopyPreviewSQL(_: Any?) {
+        let row = previewTable.clickedRow
+        guard row >= 0, row < previewResults.count else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(previewResults[row].sql, forType: .string)
+    }
+
     private func buildContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        return menu
+    }
+
+    private func buildPreviewContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.delegate = self
         return menu
@@ -674,11 +764,16 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 extension QueryHistoryVC: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if menu === previewTable.menu {
+            updatePreviewMenu(menu)
+        } else {
+            updateMainMenu(menu)
+        }
+    }
+
+    private func updateMainMenu(_ menu: NSMenu) {
         let row = tableView.clickedRow
         guard row >= 0, row < rows.count else { return }
-
-        // Workspace-row actions (rename/duplicate/delete) land in Phase 6.
-        guard case .legacy = rows[row] else { return }
 
         // Right-clicking a row that's already part of a multi-row selection
         // should operate on the whole selection. AppKit replaces the selection
@@ -697,15 +792,50 @@ extension QueryHistoryVC: NSMenuDelegate {
                 )
                 return
             }
+            let allWorkspace = selectedRows.allSatisfy { idx in
+                idx < rows.count && isWorkspaceRow(idx)
+            }
+            if allWorkspace {
+                menu.addItem(
+                    withTitle: "Delete \(selectedRows.count) Workspaces",
+                    action: #selector(contextDeleteSelectedWorkspaces),
+                    keyEquivalent: ""
+                )
+                return
+            }
+            // Mixed selection: no menu.
+            return
         }
 
-        menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
+        switch rows[row] {
+        case .workspace:
+            menu.addItem(withTitle: "Rename…", action: #selector(contextRenameWorkspace), keyEquivalent: "")
+            menu.addItem(withTitle: "Duplicate", action: #selector(contextDuplicateWorkspace), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Delete", action: #selector(contextDeleteWorkspace), keyEquivalent: "")
+        case .legacy:
+            menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
+        case .earlierHeader:
+            break // No menu on the disclosure row.
+        }
+    }
+
+    private func updatePreviewMenu(_ menu: NSMenu) {
+        let row = previewTable.clickedRow
+        guard row >= 0, row < previewResults.count else { return }
+        menu.addItem(withTitle: "Delete this result", action: #selector(contextDeletePreviewResult), keyEquivalent: "")
+        menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopyPreviewSQL), keyEquivalent: "")
     }
 
     private func isLegacyRow(_ index: Int) -> Bool {
         if case .legacy = rows[index] { return true }
+        return false
+    }
+
+    private func isWorkspaceRow(_ index: Int) -> Bool {
+        if case .workspace = rows[index] { return true }
         return false
     }
 }
