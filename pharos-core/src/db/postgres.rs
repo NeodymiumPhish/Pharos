@@ -781,7 +781,7 @@ pub async fn get_table_ddl_parts(
         "SELECT \
             a.attname AS name, \
             pg_catalog.format_type(a.atttypid, a.atttypmod) AS type, \
-            a.attnotnull::text AS not_null, \
+            a.attnotnull AS not_null, \
             pg_get_expr(ad.adbin, ad.adrelid) AS default_expr, \
             a.attidentity::text AS identity, \
             a.attgenerated::text AS generated \
@@ -810,6 +810,7 @@ pub async fn get_table_ddl_parts(
         .collect();
 
     // Constraints — full definitions via pg_get_constraintdef, ordered PK, UNIQUE, CHECK, FK.
+    // EXCLUDE ('x') constraints are out of scope for reconstructed DDL.
     let con_sql = format!(
         "SELECT con.conname AS name, pg_get_constraintdef(con.oid) AS def \
          FROM pg_constraint con \
