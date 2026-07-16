@@ -746,11 +746,21 @@ pub fn save_query_history(
     use std::sync::atomic::{AtomicU32, Ordering};
     static PRUNE_COUNTER: AtomicU32 = AtomicU32::new(0);
     if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 == 0 {
+        let cutoff = format!("-{} days", HISTORY_RETENTION_DAYS);
+        // Drop stale workspaces (by last activity) and their children.
         conn.execute(
-            r#"
-            DELETE FROM query_history WHERE datetime(executed_at) < datetime('now', ?1)
-            "#,
-            [format!("-{} days", HISTORY_RETENTION_DAYS)],
+            "DELETE FROM query_history WHERE workspace_id IN
+                (SELECT id FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1))",
+            [&cutoff],
+        )?;
+        conn.execute(
+            "DELETE FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1)",
+            [&cutoff],
+        )?;
+        // Drop stale legacy (workspace_id IS NULL) rows by their own executed_at.
+        conn.execute(
+            "DELETE FROM query_history WHERE workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1)",
+            [&cutoff],
         )?;
     }
 
