@@ -757,6 +757,40 @@ pub fn save_query_history(
     Ok(())
 }
 
+/// Create or update a workspace. Connection identity + created_at are set only
+/// on first insert. Editor snapshot fields are always refreshed. A non-custom
+/// upsert never overwrites an existing custom name.
+pub fn upsert_workspace(conn: &Connection, w: &crate::models::WorkspaceUpsert) -> SqliteResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        r#"
+        INSERT INTO workspaces
+            (id, name, name_is_custom, connection_id, connection_name,
+             editor_text, variables_json, cursor_position, created_at, last_activity_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+        ON CONFLICT(id) DO UPDATE SET
+            editor_text = excluded.editor_text,
+            variables_json = excluded.variables_json,
+            cursor_position = excluded.cursor_position,
+            last_activity_at = excluded.last_activity_at,
+            name = CASE WHEN excluded.name_is_custom = 1 THEN excluded.name ELSE workspaces.name END,
+            name_is_custom = CASE WHEN excluded.name_is_custom = 1 THEN 1 ELSE workspaces.name_is_custom END
+        "#,
+        (
+            &w.id,
+            &w.name,
+            &(w.name_is_custom as i64),
+            &w.connection_id,
+            &w.connection_name,
+            &w.editor_text,
+            &w.variables_json,
+            &w.cursor_position,
+            &now,
+        ),
+    )?;
+    Ok(())
+}
+
 /// Load query history entries with optional filters
 pub fn load_query_history(
     conn: &Connection,
