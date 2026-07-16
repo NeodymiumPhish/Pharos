@@ -888,6 +888,74 @@ pub fn load_workspaces(
     rows.collect()
 }
 
+/// Load a workspace with its ordered child results (metadata only; blobs are
+/// fetched per-result via get_query_history_result).
+pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate::models::WorkspaceDetail>> {
+    let head = conn.query_row(
+        "SELECT id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position
+         FROM workspaces WHERE id = ?1",
+        [id],
+        |row| {
+            let name: Option<String> = row.get(1)?;
+            let name_is_custom: i64 = row.get(2)?;
+            let connection_name: String = row.get(4)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                resolve_workspace_name(name.as_deref(), name_is_custom != 0, &connection_name, 1),
+                row.get::<_, String>(3)?,
+                connection_name,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+            ))
+        },
+    );
+
+    let (wid, resolved_name, connection_id, connection_name, editor_text, variables_json, cursor_position) =
+        match head {
+            Ok(v) => v,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+
+    let mut stmt = conn.prepare(
+        "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
+                schema, table_names, (result_columns IS NOT NULL) AS has_results,
+                execution_time_ms, executed_at
+         FROM query_history WHERE workspace_id = ?1
+         ORDER BY result_order ASC, executed_at ASC",
+    )?;
+    let results = stmt
+        .query_map([id], |row| {
+            Ok(crate::models::WorkspaceResultMeta {
+                id: row.get(0)?,
+                sql: row.get(1)?,
+                result_order: row.get(2)?,
+                color_index: row.get(3)?,
+                custom_label: row.get(4)?,
+                row_count: row.get(5)?,
+                column_count: row.get(6)?,
+                schema: row.get(7)?,
+                table_names: row.get(8)?,
+                has_results: row.get(9)?,
+                execution_time_ms: row.get(10)?,
+                executed_at: row.get(11)?,
+            })
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+
+    Ok(Some(crate::models::WorkspaceDetail {
+        id: wid,
+        name: resolved_name,
+        connection_id,
+        connection_name,
+        editor_text,
+        variables_json,
+        cursor_position,
+        results,
+    }))
+}
+
 /// Load query history entries with optional filters
 pub fn load_query_history(
     conn: &Connection,
