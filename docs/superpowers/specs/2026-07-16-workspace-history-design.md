@@ -90,7 +90,6 @@ executed query remains one row, preserving today's result-blob caching, timing,
 | `name_is_custom` | INTEGER (bool) | manual rename latch |
 | `connection_id` | TEXT | first queried connection |
 | `connection_name` | TEXT | first queried db name (auto-name source) |
-| `queried_connection_count` | INTEGER | distinct connections queried (for `+N`) |
 | `editor_text` | TEXT | latest editor buffer snapshot |
 | `variables_json` | TEXT | serialized `[QueryVariable]` |
 | `cursor_position` | INTEGER NULL | restore caret |
