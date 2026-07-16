@@ -1225,3 +1225,176 @@ mod budget_tests {
         assert_eq!(results_to_demote(&sizes, 100), Vec::<String>::new());
     }
 }
+
+/// Real SQLite round-trip tests for the workspace storage layer: init_database
+/// creates a real on-disk DB, and every assertion here reads back through the
+/// actual rusqlite row -> struct decode path (not hand-built structs), per the
+/// project lesson that pure composer tests miss decode bugs.
+#[cfg(test)]
+mod workspace_roundtrip_tests {
+    use super::*;
+    use crate::models::WorkspaceUpsert;
+    use std::path::PathBuf;
+
+    /// Unique temp dir per test so parallel `cargo test` runs never collide.
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    /// Real "now" (offset by a few seconds for ordering) so entries never trip
+    /// the 90-day retention prune that save_query_history runs periodically.
+    fn now_offset(seconds: i64) -> String {
+        (chrono::Utc::now() + chrono::Duration::seconds(seconds)).to_rfc3339()
+    }
+
+    fn history_entry(id: &str, connection_id: &str, connection_name: &str, executed_at: &str) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: connection_id.to_string(),
+            connection_name: connection_name.to_string(),
+            sql: format!("SELECT * FROM t_{}", id),
+            row_count: Some(3),
+            execution_time_ms: 12,
+            executed_at: executed_at.to_string(),
+            has_results: false, // not written by save_query_history; derived on read
+            schema: Some("public".to_string()),
+            column_count: Some(2),
+            table_names: Some("t".to_string()),
+        }
+    }
+
+    #[test]
+    fn workspace_full_lifecycle_roundtrip() {
+        let dir = temp_db_dir("workspace_full");
+        let conn = init_database(&dir).expect("init_database");
+
+        // 1 + 2. Upsert workspace, connection "prod-db".
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: r#"[{"id":"v1","name":"x","value":"1","type":"literal"}]"#.to_string(),
+            cursor_position: Some(5),
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        // 3. Two history rows on distinct connections; only h1 gets a cached blob.
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        let h2 = history_entry("h2", "c2", "other-db", &now_offset(1));
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        save_query_history(&conn, &h2, None, None).expect("save h2");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0).expect("associate h1");
+        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1).expect("associate h2");
+
+        // 4. load_workspaces: resolved name ("prod-db +1" for 2 distinct dbs),
+        // query_count, distinct_db_count all come back through the real decode.
+        let summaries = load_workspaces(&conn, None, 50, 0).expect("load_workspaces");
+        let summary = summaries.iter().find(|s| s.id == "ws1").expect("ws1 present in summaries");
+        assert_eq!(summary.name, "prod-db +1");
+        assert_eq!(summary.query_count, 2);
+        assert_eq!(summary.distinct_db_count, 2);
+
+        // 5. load_workspace: editor snapshot verbatim + ordered, correctly-decoded children.
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        assert_eq!(detail.id, "ws1");
+        assert_eq!(detail.connection_id, "c1");
+        assert_eq!(detail.connection_name, "prod-db");
+        assert_eq!(detail.editor_text, "SELECT 1");
+        assert_eq!(detail.variables_json, ws.variables_json);
+        assert_eq!(detail.cursor_position, Some(5));
+        assert_eq!(detail.results.len(), 2);
+
+        let r0 = &detail.results[0];
+        assert_eq!(r0.id, "h1");
+        assert_eq!(r0.sql, h1.sql);
+        assert_eq!(r0.result_order, Some(0));
+        assert_eq!(r0.color_index, Some(0));
+        assert!(r0.has_results, "h1 was saved with a cached blob");
+        assert_eq!(r0.row_count, Some(3));
+        assert_eq!(r0.column_count, Some(2));
+        assert_eq!(r0.schema.as_deref(), Some("public"));
+        assert_eq!(r0.table_names.as_deref(), Some("t"));
+        assert_eq!(r0.execution_time_ms, 12);
+        assert_eq!(r0.executed_at, h1.executed_at);
+
+        let r1 = &detail.results[1];
+        assert_eq!(r1.id, "h2");
+        assert_eq!(r1.result_order, Some(1));
+        assert!(!r1.has_results, "h2 was saved without a cached blob");
+
+        // 6. rename_workspace: custom name wins over auto-resolved name.
+        assert!(rename_workspace(&conn, "ws1", "My WS").expect("rename_workspace"));
+        let summaries2 = load_workspaces(&conn, None, 50, 0).expect("load_workspaces after rename");
+        let summary2 = summaries2.iter().find(|s| s.id == "ws1").expect("ws1 present after rename");
+        assert_eq!(summary2.name, "My WS");
+
+        // 7. delete_workspace: cascades to child query_history rows.
+        assert!(delete_workspace(&conn, "ws1").expect("delete_workspace"));
+        assert!(load_workspace(&conn, "ws1").expect("load_workspace after delete").is_none());
+        let remaining_children: i64 = conn
+            .query_row("SELECT COUNT(*) FROM query_history WHERE workspace_id = 'ws1'", [], |r| r.get(0))
+            .expect("count remaining children");
+        assert_eq!(remaining_children, 0);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn enforce_workspace_budget_demotes_oldest_over_budget() {
+        let dir = temp_db_dir("workspace_budget");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws2".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: String::new(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        for (i, id) in ["h3", "h4", "h5"].iter().enumerate() {
+            let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
+            save_query_history(&conn, &entry, Some("[]"), Some("[]")).expect("save history row");
+            associate_result_to_workspace(&conn, id, "ws2", i as i64, 0).expect("associate");
+        }
+
+        // Overwrite with large blobs (bypassing gzip so sizes are exact) to exercise
+        // the real byte-budget SQL: 50MB/40MB/30MB, sum 120MB > 100MB budget, so the
+        // oldest (result_order 0) should be demoted, leaving 70MB which fits.
+        let blob = |mb: usize| vec![b'a'; mb * 1024 * 1024];
+        for (id, mb) in [("h3", 50usize), ("h4", 40), ("h5", 30)] {
+            conn.execute(
+                "UPDATE query_history SET result_columns = ?1, result_rows = ?2 WHERE id = ?3",
+                (blob(mb), Vec::<u8>::new(), id),
+            )
+            .expect("seed oversized blob");
+        }
+
+        enforce_workspace_budget(&conn, "ws2").expect("enforce_workspace_budget");
+
+        let mut stmt = conn
+            .prepare("SELECT id, result_columns IS NOT NULL FROM query_history WHERE workspace_id = 'ws2' ORDER BY result_order ASC")
+            .expect("prepare");
+        let rows: Vec<(String, bool)> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))
+            .expect("query_map")
+            .collect::<SqliteResult<Vec<_>>>()
+            .expect("collect");
+
+        assert_eq!(rows[0], ("h3".to_string(), false), "oldest over-budget result should be demoted");
+        assert_eq!(rows[1], ("h4".to_string(), true));
+        assert_eq!(rows[2], ("h5".to_string(), true));
+
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
