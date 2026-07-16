@@ -854,10 +854,22 @@ pub async fn get_table_ddl_parts(
         .filter_map(|row| raw_str(&row, "def"))
         .collect();
 
+    // Partition clause (NULL for non-partitioned tables).
+    let part_sql = format!(
+        "SELECT pg_get_partkeydef(t.oid) AS def \
+         FROM pg_class t \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE n.nspname = '{}' AND t.relname = '{}'",
+        escaped_schema, escaped_table
+    );
+    let part_rows = sqlx::raw_sql(&part_sql).fetch_all(pool).await?;
+    let partition_by: Option<String> = part_rows.into_iter().next().and_then(|row| raw_str(&row, "def"));
+
     Ok(TableDdlParts {
         columns,
         constraints,
         index_defs,
+        partition_by,
     })
 }
 

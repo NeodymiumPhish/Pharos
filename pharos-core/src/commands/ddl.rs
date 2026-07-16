@@ -31,6 +31,9 @@ pub struct TableDdlParts {
     /// Full `CREATE INDEX ...` statements (no trailing semicolon) from pg_get_indexdef,
     /// excluding indexes that back a constraint.
     pub index_defs: Vec<String>,
+    /// The partition clause from pg_get_partkeydef (e.g. "RANGE (created_at)"),
+    /// or None for a non-partitioned table.
+    pub partition_by: Option<String>,
 }
 
 /// The three ready-to-display DDL variants sent to Swift.
@@ -73,10 +76,26 @@ fn render_constraint(con: &DdlConstraint) -> String {
 }
 
 /// Render a CREATE TABLE statement from column lines and optional constraint lines.
-fn render_create_table(schema: &str, table: &str, col_lines: &[String], constraint_lines: &[String]) -> String {
+fn render_create_table(
+    schema: &str,
+    table: &str,
+    col_lines: &[String],
+    constraint_lines: &[String],
+    partition_by: Option<&str>,
+) -> String {
     let mut body: Vec<String> = col_lines.to_vec();
     body.extend_from_slice(constraint_lines);
-    format!("CREATE TABLE \"{}\".\"{}\" (\n{}\n);", escape_identifier(schema), escape_identifier(table), body.join(",\n"))
+    let partition = match partition_by {
+        Some(p) => format!(" PARTITION BY {}", p),
+        None => String::new(),
+    };
+    format!(
+        "CREATE TABLE \"{}\".\"{}\" (\n{}\n){};",
+        escape_identifier(schema),
+        escape_identifier(table),
+        body.join(",\n"),
+        partition
+    )
 }
 
 /// Compose the three DDL variants from raw parts. Pure — no I/O.
@@ -84,8 +103,9 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
     let col_lines: Vec<String> = parts.columns.iter().map(render_column).collect();
     let constraint_lines: Vec<String> = parts.constraints.iter().map(render_constraint).collect();
 
-    let columns_only = render_create_table(schema, table, &col_lines, &[]);
-    let with_constraints = render_create_table(schema, table, &col_lines, &constraint_lines);
+    let columns_only = render_create_table(schema, table, &col_lines, &[], parts.partition_by.as_deref());
+    let with_constraints =
+        render_create_table(schema, table, &col_lines, &constraint_lines, parts.partition_by.as_deref());
 
     let mut full = with_constraints.clone();
     if !parts.index_defs.is_empty() {
@@ -172,6 +192,7 @@ mod tests {
             index_defs: vec![
                 "CREATE INDEX orders_cust_idx ON public.orders USING btree (cust_id)".into(),
             ],
+            partition_by: None,
         }
     }
 
@@ -226,5 +247,15 @@ mod tests {
         parts.index_defs.clear();
         let ddl = compose_table_ddl("public", "orders", &parts);
         assert_eq!(ddl.full, ddl.with_constraints);
+    }
+
+    #[test]
+    fn partitioned_table_renders_partition_by_clause() {
+        let mut parts = sample_parts();
+        parts.partition_by = Some("RANGE (created_at)".into());
+        let ddl = compose_table_ddl("public", "orders", &parts);
+        assert!(ddl.columns_only.contains(") PARTITION BY RANGE (created_at);"));
+        assert!(ddl.with_constraints.contains(") PARTITION BY RANGE (created_at);"));
+        assert!(ddl.full.contains(") PARTITION BY RANGE (created_at);"));
     }
 }
