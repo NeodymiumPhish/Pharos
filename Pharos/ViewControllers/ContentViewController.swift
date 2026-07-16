@@ -2062,8 +2062,10 @@ extension ContentViewController {
                 self.resultTabsByEditorTab[tab.id] = restored
                 let focus = focusResultId.flatMap { fid in restored.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restored.last
                 self.activeResultTabIdByEditorTab[tab.id] = focus?.id
-                // Subsequently-executed queries in this tab append after the restored results.
-                self.resultOrderByEditorTab[tab.id] = detail.results.count
+                // Subsequently-executed queries in this tab append AFTER the restored
+                // results. Seed from MAX(result_order)+1 (not count) so a workspace whose
+                // middle results were deleted can't collide a new result's order.
+                self.resultOrderByEditorTab[tab.id] = (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1
             }
         }
     }

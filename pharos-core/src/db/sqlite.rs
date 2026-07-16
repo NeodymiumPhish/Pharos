@@ -966,11 +966,14 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
     }))
 }
 
-/// Rename a workspace (sets it custom so auto-naming stops overriding it).
+/// Rename a workspace (sets it custom so auto-naming stops overriding it). Also
+/// bumps last_activity_at so a workspace the user deliberately renamed to keep
+/// isn't pruned out from under them at the retention horizon.
 pub fn rename_workspace(conn: &Connection, id: &str, name: &str) -> SqliteResult<bool> {
+    let now = chrono::Utc::now().to_rfc3339();
     let n = conn.execute(
-        "UPDATE workspaces SET name = ?1, name_is_custom = 1 WHERE id = ?2",
-        (name, id),
+        "UPDATE workspaces SET name = ?1, name_is_custom = 1, last_activity_at = ?3 WHERE id = ?2",
+        (name, id, &now),
     )?;
     Ok(n > 0)
 }
