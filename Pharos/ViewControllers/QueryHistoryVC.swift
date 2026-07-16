@@ -179,6 +179,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         tableView.rowHeight = 40
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
+        tableView.action = #selector(singleClickedRow(_:))
         tableView.doubleAction = #selector(doubleClickedRow(_:))
         tableView.target = self
         tableView.menu = buildContextMenu()
@@ -328,7 +329,28 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 self.legacyEntries = legacy
                 self.rebuildRows()
                 self.tableView.reloadData()
+                self.resyncSelectionToPreviewedWorkspace()
             }
+        }
+    }
+
+    /// reloadData() doesn't remap selectedRowIndexes to the same row identity
+    /// — the workspace list can reorder (last_activity_at DESC) on every
+    /// requery. Re-find the previewed workspace's new row and re-select it so
+    /// the highlighted row and the preview pane stay in sync; if it's gone
+    /// (filtered out or deleted), clear the preview instead of leaving it
+    /// pointing at whatever row now occupies the old index.
+    private func resyncSelectionToPreviewedWorkspace() {
+        guard let workspaceId = selectedWorkspaceId else { return }
+        if let idx = rows.firstIndex(where: {
+            if case .workspace(let w) = $0 { return w.id == workspaceId }
+            return false
+        }) {
+            if tableView.selectedRowIndexes != IndexSet(integer: idx) {
+                tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+            }
+        } else {
+            clearPreview()
         }
     }
 
@@ -347,6 +369,19 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     }
 
     // MARK: - Actions
+
+    /// Single-click handler: toggles the "Earlier history" disclosure row.
+    /// Row selection itself (workspace preview, arrow-key nav) is handled by
+    /// `tableViewSelectionDidChange` / `tableView(_:shouldSelectRow:)` — the
+    /// header row is never selectable, so this is the only path that expands
+    /// or collapses it.
+    @objc private func singleClickedRow(_: Any?) {
+        let row = tableView.clickedRow
+        guard row >= 0, row < rows.count, case .earlierHeader = rows[row] else { return }
+        earlierExpanded.toggle()
+        rebuildRows()
+        tableView.reloadData()
+    }
 
     @objc private func doubleClickedRow(_: Any?) {
         let row = tableView.clickedRow
@@ -426,6 +461,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         case .legacy(let entry):
             return legacyCell(for: entry)
         }
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard tableView === self.tableView, row < rows.count else { return true }
+        // The disclosure row toggles via click/action, not selection — keeps
+        // arrow-key navigation from spuriously expanding/collapsing it.
+        if case .earlierHeader = rows[row] { return false }
+        return true
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
@@ -567,9 +610,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         switch rows[row] {
         case .earlierHeader:
-            earlierExpanded.toggle()
-            rebuildRows()
-            tableView.reloadData()
+            // Unreachable: shouldSelectRow(_:) refuses selection on this row.
+            break
         case .workspace(let w):
             selectedWorkspaceId = w.id
             showPreview(for: w.id)
