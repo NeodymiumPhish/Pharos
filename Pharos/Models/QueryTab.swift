@@ -53,6 +53,10 @@ struct QueryTab: Identifiable {
     var variables: [QueryVariable] = []
     /// Whether the right-docked variables panel is shown for this tab.
     var variablesPanelVisible: Bool = false
+    /// The persisted workspace history record this tab is bound to. nil until
+    /// the first query executes (or until reopened from history). When set,
+    /// executed results associate to this workspace and appear as one history item.
+    var workspaceId: String?
 
     init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "", paneId: String? = nil) {
         self.id = id

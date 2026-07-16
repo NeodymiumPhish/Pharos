@@ -35,6 +35,7 @@
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
 		3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */; };
+		3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */; };
 		452A085D482CF6012AA5CAF9 /* PharosCore+Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */; };
 		4544AA18681DE8297EE4419C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9154BC81016709ADD201F2C /* main.swift */; };
 		467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */; };
@@ -43,6 +44,7 @@
 		48B0C0688B386D587464D779 /* PulseClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
 		4F7D024CB09110ABCE76F81F /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6527A1E903BD69BAB67D169 /* QueryVariablesPanelVC.swift */; };
+		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
 		587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */; };
 		62B0D5879E818278B570C216 /* ResultTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */; };
@@ -155,6 +157,7 @@
 		74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuery.swift; sourceTree = "<group>"; };
 		79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
+		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
 		83C254B3E566A636E1216FE4 /* CrashLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLogger.swift; sourceTree = "<group>"; };
 		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
@@ -171,6 +174,7 @@
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
+		B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Workspaces.swift"; sourceTree = "<group>"; };
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
 		B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableSubstitutor.swift; sourceTree = "<group>"; };
 		BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterPopoverSizing.swift; sourceTree = "<group>"; };
@@ -328,6 +332,7 @@
 				B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */,
 				4EE224A37E3FEC0F67F65D19 /* Settings.swift */,
 				DB718C65F3D74705409121A4 /* TableDDL.swift */,
+				7E1A79C0687366CE6000F5A3 /* Workspace.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -382,6 +387,7 @@
 				FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */,
 				984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */,
 				0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */,
+				B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */,
 				FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
@@ -570,6 +576,7 @@
 				46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */,
 				83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */,
 				1896442191A1723DA4AC8F11 /* PharosCore+TableOps.swift in Sources */,
+				3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */,
 				2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */,
 				9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */,
 				48B0C0688B386D587464D779 /* PulseClock.swift in Sources */,
@@ -627,6 +634,7 @@
 				78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */,
 				F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */,
 				CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */,
+				534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */,
 				4544AA18681DE8297EE4419C /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
