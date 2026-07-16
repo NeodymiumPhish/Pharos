@@ -30,4 +30,17 @@ extension PharosCore {
             }
         }
     }
+
+    /// Generate reconstructed CREATE TABLE DDL (three detail variants) for a table.
+    static func generateTableDDL(connectionId: String, schema: String, table: String) async throws -> TableDDL {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    table.withCString { cTable in
+                        pharos_generate_table_ddl(cConn, cSchema, cTable, callback, context)
+                    }
+                }
+            }
+        }
+    }
 }
