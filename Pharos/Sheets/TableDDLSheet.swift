@@ -11,7 +11,7 @@ class TableDDLSheet: NSViewController {
     private var onClone: ((String, Bool) -> Void)?
 
     private let levels = DDLDetailLevel.allCases
-    private var selectedLevel: DDLDetailLevel = .full
+    private var selectedLevel: DDLDetailLevel = .columns
 
     private let sidebar = NSTableView()
     private let textView = NSTextView()
