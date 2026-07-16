@@ -213,6 +213,28 @@ pub async fn clone_table(
     })
 }
 
+/// Generate the reconstructed CREATE TABLE DDL (three detail variants) for a table.
+pub async fn generate_table_ddl(
+    connection_id: String,
+    schema_name: String,
+    table_name: String,
+    state: &AppState,
+) -> Result<crate::commands::ddl::TableDdl, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let parts = crate::db::postgres::get_table_ddl_parts(&pool, &schema_name, &table_name)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(crate::commands::ddl::compose_table_ddl(
+        &schema_name,
+        &table_name,
+        &parts,
+    ))
+}
+
 // ============================================================================
 // CSV Validation
 // ============================================================================
