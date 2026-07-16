@@ -68,6 +68,21 @@ pub fn resolve_workspace_name(
     }
 }
 
+/// Given a workspace's cached results as (id, blob_bytes) ordered OLDEST-FIRST,
+/// return the ids whose blobs must be dropped so the total is <= budget_bytes.
+pub fn results_to_demote(sizes_oldest_first: &[(String, i64)], budget_bytes: i64) -> Vec<String> {
+    let mut total: i64 = sizes_oldest_first.iter().map(|(_, sz)| *sz).sum();
+    let mut demote = Vec::new();
+    for (id, sz) in sizes_oldest_first {
+        if total <= budget_bytes {
+            break;
+        }
+        demote.push(id.clone());
+        total -= *sz;
+    }
+    demote
+}
+
 /// Initialize the SQLite database and create tables if they don't exist
 pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -866,5 +881,33 @@ mod workspace_name_tests {
     #[test]
     fn custom_but_empty_falls_back() {
         assert_eq!(resolve_workspace_name(Some(""), true, "prod-db", 1), "prod-db");
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::results_to_demote;
+
+    fn ids(v: &[&str]) -> Vec<String> { v.iter().map(|s| s.to_string()).collect() }
+
+    #[test]
+    fn under_budget_demotes_nothing() {
+        let sizes = vec![("a".into(), 10i64), ("b".into(), 20)];
+        assert_eq!(results_to_demote(&sizes, 100), Vec::<String>::new());
+    }
+    #[test]
+    fn demotes_oldest_first_until_under_budget() {
+        let sizes = vec![("a".into(), 50i64), ("b".into(), 40), ("c".into(), 30)];
+        assert_eq!(results_to_demote(&sizes, 100), ids(&["a"]));
+    }
+    #[test]
+    fn demotes_multiple_when_needed() {
+        let sizes = vec![("a".into(), 60i64), ("b".into(), 60), ("c".into(), 60)];
+        assert_eq!(results_to_demote(&sizes, 100), ids(&["a", "b"]));
+    }
+    #[test]
+    fn exactly_at_budget_demotes_nothing() {
+        let sizes = vec![("a".into(), 100i64)];
+        assert_eq!(results_to_demote(&sizes, 100), Vec::<String>::new());
     }
 }
