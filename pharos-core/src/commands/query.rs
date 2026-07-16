@@ -229,7 +229,8 @@ pub async fn execute_query(
         let result_data = if !json_rows.is_empty() {
             let columns_json = serde_json::to_string(&columns).unwrap_or_default();
             let rows_json = serde_json::to_string(&json_rows).unwrap_or_default();
-            if columns_json.len() + rows_json.len() < 5_000_000 {
+            // per-result cache cap: 10 MB uncompressed serialized JSON
+            if columns_json.len() + rows_json.len() < 10_000_000 {
                 Some((columns_json, rows_json))
             } else {
                 None
@@ -413,6 +414,7 @@ pub async fn execute_statement(
     let rows_affected = result.rows_affected();
 
     // Auto-save to query history (fire-and-forget, no results for statements)
+    let statement_history_id = uuid::Uuid::new_v4().to_string();
     {
         let connection_name = state
             .get_config(&connection_id)
@@ -420,7 +422,7 @@ pub async fn execute_statement(
             .unwrap_or_else(|| connection_id.clone());
         let table_names = extract_table_names_for_history(&sql);
         let entry = QueryHistoryEntry {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: statement_history_id.clone(),
             connection_id: connection_id.clone(),
             connection_name,
             sql: sql.clone(),
@@ -442,6 +444,7 @@ pub async fn execute_statement(
     Ok(ExecuteResult {
         rows_affected,
         execution_time_ms,
+        history_entry_id: Some(statement_history_id),
     })
 }
 
@@ -449,6 +452,10 @@ pub async fn execute_statement(
 pub struct ExecuteResult {
     pub rows_affected: u64,
     pub execution_time_ms: u64,
+    // NOTE: this struct intentionally has NO `rename_all` — the Swift side maps
+    // these via explicit snake_case CodingKeys, so fields must stay snake_case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_entry_id: Option<String>,
 }
 
 /// Cancel a running query
