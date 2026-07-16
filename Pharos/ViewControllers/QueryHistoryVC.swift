@@ -457,9 +457,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
         guard let win = view.window else { return }
+        alert.window.initialFirstResponder = field
         alert.beginSheetModal(for: win) { [weak self] resp in
             guard resp == .alertFirstButtonReturn else { return }
-            _ = try? PharosCore.renameWorkspace(id: w.id, name: field.stringValue)
+            let newName = field.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !newName.isEmpty, newName != w.name else { return }
+            _ = try? PharosCore.renameWorkspace(id: w.id, name: newName)
             self?.requery()
         }
     }
@@ -472,9 +475,21 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     @objc private func contextDeleteWorkspace(_: Any?) {
         guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
-        _ = try? PharosCore.deleteWorkspace(id: w.id)
-        if selectedWorkspaceId == w.id { clearPreview() }
-        requery()
+
+        let alert = NSAlert()
+        alert.messageText = "Delete workspace \"\(w.name)\"?"
+        alert.informativeText = "This permanently deletes the workspace and all its saved results."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            if self?.selectedWorkspaceId == w.id { self?.clearPreview() }
+            _ = try? PharosCore.deleteWorkspace(id: w.id)
+            self?.requery()
+        }
     }
 
     /// Context-menu action for a multi-row selection that's entirely
