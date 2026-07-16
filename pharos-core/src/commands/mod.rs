@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod ddl;
 pub mod metadata;
 pub mod query;
 pub mod query_history;
@@ -7,6 +8,7 @@ pub mod settings;
 pub mod table;
 
 pub use connection::*;
+pub use ddl::*;
 pub use metadata::*;
 pub use query::*;
 pub use query_history::*;
