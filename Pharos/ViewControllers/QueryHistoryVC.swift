@@ -157,6 +157,13 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private var previewResults: [WorkspaceResultMeta] = []
     private var selectedWorkspaceId: String?
 
+    /// One-shot guard for the first-layout divider heal (see viewDidLayout).
+    private var didFixSplitPosition = false
+    /// Whether a real user divider position was persisted before this launch —
+    /// captured in loadView before the split view writes its own autosave.
+    private var hadSavedSplitLayout = false
+    private static let previewSplitAutosave = "PharosHistoryPreviewSplit"
+
     private var connectionFilter: String?
     private var filterText: String?
 
@@ -216,8 +223,15 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         splitView.addArrangedSubview(scrollView)
         splitView.addArrangedSubview(previewScroll)
         splitView.setHoldingPriority(.defaultLow - 1, forSubviewAt: 1)
+        // Capture whether a real prior divider position exists BEFORE the split
+        // view restores/writes its autosave, so the first-run default below can
+        // tell a genuine first launch from a returning user's saved preference.
+        hadSavedSplitLayout = UserDefaults.standard.object(
+            forKey: "NSSplitView Subview Frames \(Self.previewSplitAutosave)"
+        ) != nil
         // Remembers the divider position (preview pane height) across launches.
-        splitView.autosaveName = "PharosHistoryPreviewSplit"
+        splitView.autosaveName = Self.previewSplitAutosave
+        splitView.delegate = self
 
         container.addSubview(splitView)
 
@@ -238,6 +252,24 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             self, selector: #selector(historyDidChange),
             name: .workspaceHistoryDidChange, object: nil
         )
+    }
+
+    /// Two `NSScrollView`s as split-view arranged subviews have no intrinsic
+    /// height, so the initial layout (and a previously-persisted autosave) can
+    /// collapse the top list pane to 0 — leaving only the empty preview pane's
+    /// filler rows visible. On the first real layout, if the list pane is
+    /// collapsed, give it the bulk of the height with a modest bottom preview.
+    /// Runs once so the user's later divider drags (and good autosaves) win.
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard !didFixSplitPosition, splitView.bounds.height > 200 else { return }
+        didFixSplitPosition = true
+        // First run (no saved layout) → give the list the bulk with a modest
+        // ~200pt preview. Returning user → only rescue a collapsed list pane;
+        // otherwise honor their saved divider position.
+        if !hadSavedSplitLayout || scrollView.frame.height < 120 {
+            splitView.setPosition(splitView.bounds.height - 200, ofDividerAt: 0)
+        }
     }
 
     @objc private func historyDidChange() {
@@ -852,5 +884,19 @@ extension QueryHistoryVC: NSMenuDelegate {
     private func isWorkspaceRow(_ index: Int) -> Bool {
         if case .workspace = rows[index] { return true }
         return false
+    }
+}
+
+// MARK: - NSSplitViewDelegate
+
+extension QueryHistoryVC: NSSplitViewDelegate {
+    /// Keep the top (workspace list) pane from being dragged/collapsed below a
+    /// usable height. dividerIndex 0 is the only divider (list | preview).
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        return 120 // minimum list-pane height
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        return max(120, splitView.bounds.height - 60) // keep at least a 60pt preview strip
     }
 }
