@@ -327,6 +327,12 @@ class ContentViewController: NSViewController {
             name: .openHistoryEntry, object: nil
         )
 
+        // Observe "open workspace" (reopen into a live editor tab) from sidebar
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleOpenWorkspace(_:)),
+            name: .openWorkspace, object: nil
+        )
+
         // Observe "run query in new tab" from schema browser context menu
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRunQueryInNewTab(_:)),
@@ -1957,6 +1963,89 @@ extension ContentViewController {
         } catch {
             NSLog("Failed to load history results: \(error)")
         }
+    }
+
+    @objc private func handleOpenWorkspace(_ notification: Notification) {
+        guard let wsId = notification.userInfo?["workspaceId"] as? String else { return }
+        let focusResultId = notification.userInfo?["focusResultId"] as? String
+
+        // Already open in a live tab? Just focus it (and the requested result, if any).
+        if let existing = stateManager.tabs.first(where: { $0.workspaceId == wsId }) {
+            let alreadyActive = stateManager.activeTabId == existing.id
+            stateManager.selectTab(id: existing.id)
+            if let fid = focusResultId {
+                if alreadyActive {
+                    focusResultTab(historyId: fid)
+                } else {
+                    // activeTabChanged is dispatched via RunLoop.main and hasn't
+                    // swapped `resultTabs` over to this tab yet — defer so we
+                    // search the right array (mirrors handleRunQueryInNewTab).
+                    DispatchQueue.main.async { [weak self] in
+                        self?.focusResultTab(historyId: fid)
+                    }
+                }
+            }
+            return
+        }
+
+        // `try?` on an already-Optional-returning throwing function flattens to
+        // a single Optional (Swift 5+), so one `guard let` unwraps both the
+        // error case and the "workspace no longer exists" case.
+        guard let detail = try? PharosCore.loadWorkspace(id: wsId) else { return }
+
+        let vars = (try? JSONDecoder.pharos.decode([QueryVariable].self, from: Data(detail.variablesJson.utf8))) ?? []
+        let tab = stateManager.createTab(sql: detail.editorText, name: detail.name)
+        stateManager.updateTab(id: tab.id) {
+            $0.workspaceId = detail.id
+            $0.connectionId = detail.connectionId
+            $0.variables = vars
+            $0.cursorPosition = detail.cursorPosition ?? 0
+        }
+
+        // Rebuild result tabs from metadata; fetch cached blobs eagerly for
+        // results that have them, leave "SQL only" ones as re-runnable stubs.
+        var restored: [ResultTab] = []
+        for meta in detail.results {
+            let color = ResultTab.palette[(meta.colorIndex ?? 0) % ResultTab.palette.count]
+            var rt = ResultTab(
+                id: UUID().uuidString,
+                segmentIndex: -1,
+                sql: meta.sql,
+                lineRange: 0...0,
+                color: color,
+                timestamp: Date()
+            )
+            rt.customLabel = meta.customLabel ?? meta.tableNames
+            rt.executionTimeMs = UInt64(meta.executionTimeMs)
+            rt.historySchema = meta.schema
+            rt.historyTimestamp = meta.executedAt
+            rt.isStale = true
+            if meta.hasResults, let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
+                rt.queryResult = QueryResult(
+                    columns: data.columns, rows: data.rows,
+                    rowCount: data.rows.count, executionTimeMs: UInt64(meta.executionTimeMs),
+                    hasMore: false, historyEntryId: meta.id
+                )
+            }
+            restored.append(rt)
+        }
+
+        // Seed the per-editor-tab dictionaries directly (same reasoning as the
+        // legacy handleOpenHistoryEntry path above — activeTabChanged fires
+        // later on RunLoop.main and will read these).
+        resultTabsByEditorTab[tab.id] = restored
+        let focus = focusResultId.flatMap { fid in restored.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restored.last
+        activeResultTabIdByEditorTab[tab.id] = focus?.id
+        // Subsequently-executed queries in this tab append after the restored results.
+        resultOrderByEditorTab[tab.id] = detail.results.count
+    }
+
+    /// Select the live result tab whose cached result came from the given
+    /// query-history id. No-op if it isn't in the currently-displayed
+    /// `resultTabs` (e.g. the editor tab isn't focused yet).
+    private func focusResultTab(historyId: String) {
+        guard let tab = resultTabs.first(where: { $0.queryResult?.historyEntryId == historyId }) else { return }
+        selectResultTab(tab.id)
     }
 }
 

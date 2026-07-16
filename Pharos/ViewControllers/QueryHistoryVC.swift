@@ -393,16 +393,25 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 object: nil,
                 userInfo: ["entry": entry]
             )
-        case .workspace:
-            // Reopen-into-editor-tab is wired in Phase 6.
-            break
+        case .workspace(let w):
+            NotificationCenter.default.post(
+                name: .openWorkspace,
+                object: nil,
+                userInfo: ["workspaceId": w.id]
+            )
         case .earlierHeader:
             break
         }
     }
 
     @objc private func previewDoubleClicked(_: Any?) {
-        // Opening a specific result tab from the preview is wired in Phase 6.
+        let row = previewTable.clickedRow
+        guard row >= 0, row < previewResults.count, let workspaceId = selectedWorkspaceId else { return }
+        NotificationCenter.default.post(
+            name: .openWorkspace,
+            object: nil,
+            userInfo: ["workspaceId": workspaceId, "focusResultId": previewResults[row].id]
+        )
     }
 
     @objc private func contextCopySQL(_: Any?) {
