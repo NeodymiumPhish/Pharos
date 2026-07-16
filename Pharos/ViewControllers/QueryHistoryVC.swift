@@ -3,6 +3,10 @@ import AppKit
 extension Notification.Name {
     static let openHistoryEntry = Notification.Name("PharosOpenHistoryEntry")
     static let queryHistoryDidChange = Notification.Name("PharosQueryHistoryDidChange")
+    /// Posted after a result is associated with a workspace (workspace list needs refresh).
+    static let workspaceHistoryDidChange = Notification.Name("PharosWorkspaceHistoryDidChange")
+    /// Posted to request reopening a full workspace into a live editor tab.
+    static let openWorkspace = Notification.Name("PharosOpenWorkspace")
 }
 
 // MARK: - Two-Line Cell View

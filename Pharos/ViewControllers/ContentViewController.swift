@@ -38,6 +38,10 @@ class ContentViewController: NSViewController {
     private var activeResultTabId: String?
     private var resultTabsByEditorTab: [String: [ResultTab]] = [:]
     private var activeResultTabIdByEditorTab: [String: String] = [:]
+    /// Monotonic result-ordering counter per editor tab, used as `result_order`
+    /// when associating executed results with a workspace. Seeded to the restored
+    /// count when a workspace is reopened (see handleOpenWorkspace).
+    private var resultOrderByEditorTab: [String: Int] = [:]
     private static let resultTabBarHeight: CGFloat = 26
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
@@ -1182,6 +1186,11 @@ class ContentViewController: NSViewController {
         if !effectiveCreateResultTab { resultsVC.clear() }
         focusedPaneVC?.clearErrorMarkers()
 
+        // Ensure this tab has a workspace history record (created lazily on first
+        // execute) and snapshot its editor text/variables now. The produced result
+        // is associated to it on completion.
+        let workspaceId = ensureWorkspace(forEditorTabId: tabId)
+
         let limit = Int32(stateManager.settings.query.defaultLimit)
         let isSelectLike = Self.isSelectLikeSQL(sql)
 
@@ -1213,6 +1222,9 @@ class ContentViewController: NSViewController {
                             self.resultsVC.showResult(result)
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
+                        if let wsId = workspaceId, let hid = result.historyEntryId {
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color)
+                        }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
                             tabId: tabId,
@@ -1246,6 +1258,9 @@ class ContentViewController: NSViewController {
                             self.resultsVC.showExecuteResult(result)
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
+                        if let wsId = workspaceId, let hid = result.historyEntryId {
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color)
+                        }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
                             tabId: tabId,
@@ -1740,10 +1755,55 @@ class ContentViewController: NSViewController {
         }
     }
 
+    // MARK: - Workspace History Capture
+
+    /// Ensure the given editor tab has a persisted workspace, refreshing its
+    /// editor/variables snapshot, and return the workspace id. Assigns a new
+    /// workspace id to the tab on first call. Returns nil if the tab has no
+    /// connection (nothing to record yet).
+    @discardableResult
+    private func ensureWorkspace(forEditorTabId tabId: String) -> String? {
+        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }), tab.connectionId != nil else { return nil }
+        let wsId = tab.workspaceId ?? UUID().uuidString
+        guard let payload = stateManager.workspaceUpsertPayload(for: tab, workspaceId: wsId) else { return tab.workspaceId }
+        do {
+            try PharosCore.upsertWorkspace(payload)
+            if tab.workspaceId == nil {
+                stateManager.updateTab(id: tabId) { $0.workspaceId = wsId }
+            }
+            return wsId
+        } catch {
+            NSLog("upsertWorkspace failed: \(error)")
+            return tab.workspaceId
+        }
+    }
+
+    /// Associate a produced result (by its history id) with the editor tab's
+    /// workspace, at the next order slot. `color` supplies the persisted palette
+    /// index (falls back to an order-cycled color for inline results).
+    private func captureExecutedResult(historyId: String, editorTabId: String, workspaceId: String, color: NSColor) {
+        let order = resultOrderByEditorTab[editorTabId, default: 0]
+        resultOrderByEditorTab[editorTabId] = order + 1
+        let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
+        do {
+            try PharosCore.associateResult(.init(
+                historyId: historyId, workspaceId: workspaceId,
+                resultOrder: order, colorIndex: colorIndex
+            ))
+            NotificationCoalescer.post(.workspaceHistoryDidChange)
+        } catch {
+            NSLog("associateResult failed: \(error)")
+        }
+    }
+
     /// Centralized tab-close helper. Cancellation of in-flight queries is
     /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
     /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
+        // Flush a final editor snapshot for the closing tab's workspace.
+        if let tab = stateManager.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
+            _ = ensureWorkspace(forEditorTabId: id)
+        }
         stateManager.closeTab(id: id)
     }
 

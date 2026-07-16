@@ -30,10 +30,13 @@ struct QueryResult: Codable {
 struct ExecuteResult: Codable {
     let rowsAffected: UInt64
     let executionTimeMs: UInt64
+    /// History entry id for this statement, so it can be associated with a workspace.
+    let historyEntryId: String?
 
     enum CodingKeys: String, CodingKey {
         case rowsAffected = "rows_affected"
         case executionTimeMs = "execution_time_ms"
+        case historyEntryId = "history_entry_id"
     }
 }
 

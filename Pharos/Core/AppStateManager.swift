@@ -215,6 +215,35 @@ final class AppStateManager: ObservableObject {
         updater(&tabs[idx])
     }
 
+    // MARK: - Workspace History Snapshots
+
+    /// Build the upsert payload capturing a tab's current editor snapshot for the
+    /// given workspace id. Returns nil if the tab has no connection.
+    func workspaceUpsertPayload(for tab: QueryTab, workspaceId: String) -> WorkspaceUpsert? {
+        guard let connId = tab.connectionId else { return nil }
+        let connName = connections.first { $0.id == connId }?.name ?? connId
+        let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
+        return WorkspaceUpsert(
+            id: workspaceId,
+            name: nil,
+            nameIsCustom: false,
+            connectionId: connId,
+            connectionName: connName,
+            editorText: tab.sql,
+            variablesJson: varsJson,
+            cursorPosition: tab.cursorPosition
+        )
+    }
+
+    /// Flush a final editor snapshot for every tab already bound to a workspace.
+    /// Called on tab close and app termination so the last edits are persisted.
+    func snapshotWorkspaces() {
+        for tab in tabs where tab.workspaceId != nil {
+            guard let payload = workspaceUpsertPayload(for: tab, workspaceId: tab.workspaceId!) else { continue }
+            try? PharosCore.upsertWorkspace(payload)
+        }
+    }
+
     /// Ensure at least one tab exists. Call after connections load.
     func ensureTab() {
         ensurePaneAndTab()

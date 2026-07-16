@@ -54,6 +54,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Flush final editor snapshots for open workspaces before shutting down core.
+        AppStateManager.shared.snapshotWorkspaces()
+
         // Watchdog: never hold termination longer than this even if the worker wedges.
         let watchdog = DispatchWorkItem {
             NSApp.reply(toApplicationShouldTerminate: true)
