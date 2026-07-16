@@ -362,17 +362,18 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         .unwrap_or(false);
 
     if !has_workspace_col {
+        // Single execute_batch => one implicit transaction, so the column adds,
+        // index, FTS table, and triggers all commit or fail as a unit. (If these
+        // were split, a crash between them could leave the guard column present
+        // but workspaces_fts missing, with no self-heal path.)
         conn.execute_batch(
             "ALTER TABLE query_history ADD COLUMN workspace_id TEXT;
              ALTER TABLE query_history ADD COLUMN result_order INTEGER;
              ALTER TABLE query_history ADD COLUMN color_index INTEGER;
              ALTER TABLE query_history ADD COLUMN custom_label TEXT;
              CREATE INDEX IF NOT EXISTS idx_query_history_workspace
-                 ON query_history(workspace_id, result_order);"
-        )?;
-
-        conn.execute_batch(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS workspaces_fts USING fts5(
+                 ON query_history(workspace_id, result_order);
+             CREATE VIRTUAL TABLE IF NOT EXISTS workspaces_fts USING fts5(
                  name, editor_text, content='workspaces', content_rowid='rowid'
              );
              CREATE TRIGGER IF NOT EXISTS workspaces_ai AFTER INSERT ON workspaces BEGIN
