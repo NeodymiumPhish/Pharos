@@ -224,9 +224,11 @@ pub async fn generate_table_ddl(
         .get_pool(&connection_id)
         .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
 
-    validate_identifier(&schema_name)?;
-    validate_identifier(&table_name)?;
-
+    // No identifier validation here: this is a read-only path, like the sibling
+    // metadata reads (get_columns / get_table_constraints), which also skip it.
+    // The catalog queries escape names as SQL string literals and the composer
+    // quotes them for output, so any legal quoted identifier — e.g. a UUID- or
+    // digit-named table/schema — must be accepted, not rejected.
     let parts = crate::db::postgres::get_table_ddl_parts(&pool, &schema_name, &table_name)
         .await
         .map_err(|e| e.to_string())?;

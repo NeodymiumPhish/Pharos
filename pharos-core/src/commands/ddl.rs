@@ -258,4 +258,16 @@ mod tests {
         assert!(ddl.with_constraints.contains(") PARTITION BY RANGE (created_at);"));
         assert!(ddl.full.contains(") PARTITION BY RANGE (created_at);"));
     }
+
+    #[test]
+    fn uuid_named_table_is_quoted_not_rejected() {
+        // A UUID-named table/schema is a legal quoted PostgreSQL identifier
+        // (common in multi-tenant / event-sourced DBs). The composer must quote
+        // it, and the read path must NOT reject digit-started identifiers.
+        let uuid = "9d56a337-0e17-4c6e-8ebc-ea490bef2923";
+        let ddl = compose_table_ddl(uuid, uuid, &sample_parts());
+        assert!(ddl
+            .columns_only
+            .starts_with("CREATE TABLE \"9d56a337-0e17-4c6e-8ebc-ea490bef2923\".\"9d56a337-0e17-4c6e-8ebc-ea490bef2923\" ("));
+    }
 }
