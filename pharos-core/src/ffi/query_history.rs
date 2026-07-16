@@ -22,6 +22,7 @@ pub extern "C" fn pharos_load_query_history(json: *const c_char) -> *mut c_char 
             search: Option<String>,
             limit: Option<i64>,
             offset: Option<i64>,
+            only_legacy: Option<bool>,
         }
 
         let filter: HistoryFilter = serde_json::from_str(&json_str).unwrap_or(HistoryFilter {
@@ -29,6 +30,7 @@ pub extern "C" fn pharos_load_query_history(json: *const c_char) -> *mut c_char 
             search: None,
             limit: Some(100),
             offset: Some(0),
+            only_legacy: None,
         });
 
         match rt.block_on(crate::commands::load_query_history(
@@ -36,6 +38,7 @@ pub extern "C" fn pharos_load_query_history(json: *const c_char) -> *mut c_char 
             filter.search,
             filter.limit,
             filter.offset,
+            filter.only_legacy.unwrap_or(false),
             state,
         )) {
             Ok(entries) => to_json_c_string(&entries),

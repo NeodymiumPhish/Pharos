@@ -34,6 +34,7 @@ struct QueryHistoryFilter: Codable {
     var search: String?
     var limit: Int?
     var offset: Int?
+    var onlyLegacy: Bool = false
 }
 
 struct QueryHistoryResultData: Codable {

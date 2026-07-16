@@ -1072,12 +1072,17 @@ pub fn load_query_history(
     search: Option<&str>,
     limit: i64,
     offset: i64,
+    only_legacy: bool,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
         "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
+
+    if only_legacy {
+        sql.push_str(" AND workspace_id IS NULL");
+    }
 
     if let Some(cid) = connection_id {
         sql.push_str(&format!(" AND connection_id = ?{}", param_idx));
