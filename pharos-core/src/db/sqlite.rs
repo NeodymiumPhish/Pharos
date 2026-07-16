@@ -791,6 +791,48 @@ pub fn upsert_workspace(conn: &Connection, w: &crate::models::WorkspaceUpsert) -
     Ok(())
 }
 
+const WORKSPACE_BUDGET_BYTES: i64 = 100 * 1024 * 1024; // 100 MB compressed
+
+/// Stamp a query_history row with its workspace association + result-tab display
+/// metadata, then enforce the per-workspace blob budget by demoting oldest cached
+/// results to "SQL only".
+pub fn associate_result_to_workspace(
+    conn: &Connection,
+    history_id: &str,
+    workspace_id: &str,
+    result_order: i64,
+    color_index: i64,
+) -> SqliteResult<()> {
+    conn.execute(
+        "UPDATE query_history SET workspace_id = ?1, result_order = ?2, color_index = ?3 WHERE id = ?4",
+        (workspace_id, result_order, color_index, history_id),
+    )?;
+    enforce_workspace_budget(conn, workspace_id)?;
+    Ok(())
+}
+
+/// Drop cached blobs from the oldest results in a workspace until the total
+/// compressed blob size is within WORKSPACE_BUDGET_BYTES. Rows are kept (SQL only).
+pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> SqliteResult<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id, COALESCE(LENGTH(result_columns),0) + COALESCE(LENGTH(result_rows),0) AS sz
+         FROM query_history
+         WHERE workspace_id = ?1 AND result_columns IS NOT NULL
+         ORDER BY result_order ASC, executed_at ASC",
+    )?;
+    let sizes: Vec<(String, i64)> = stmt
+        .query_map([workspace_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+        .collect::<SqliteResult<Vec<_>>>()?;
+
+    for id in results_to_demote(&sizes, WORKSPACE_BUDGET_BYTES) {
+        conn.execute(
+            "UPDATE query_history SET result_columns = NULL, result_rows = NULL WHERE id = ?1",
+            [&id],
+        )?;
+    }
+    Ok(())
+}
+
 /// Load query history entries with optional filters
 pub fn load_query_history(
     conn: &Connection,
