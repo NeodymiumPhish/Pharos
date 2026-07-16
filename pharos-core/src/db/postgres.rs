@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
+use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
 /// Replaces single quotes with doubled single quotes.
@@ -762,6 +763,101 @@ pub async fn get_table_constraints(
         .collect();
 
     Ok(constraints)
+}
+
+/// Read the raw parts (columns, constraints, non-constraint indexes) needed to
+/// reconstruct a table's CREATE TABLE DDL.
+pub async fn get_table_ddl_parts(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<TableDdlParts, sqlx::Error> {
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_table = escape_sql_literal(table_name);
+
+    // Columns — precise types via format_type, defaults via pg_get_expr,
+    // identity/generated via attidentity/attgenerated (cast ::text).
+    let col_sql = format!(
+        "SELECT \
+            a.attname AS name, \
+            pg_catalog.format_type(a.atttypid, a.atttypmod) AS type, \
+            a.attnotnull::text AS not_null, \
+            pg_get_expr(ad.adbin, ad.adrelid) AS default_expr, \
+            a.attidentity::text AS identity, \
+            a.attgenerated::text AS generated \
+         FROM pg_attribute a \
+         JOIN pg_class t ON t.oid = a.attrelid \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum \
+         WHERE n.nspname = '{}' AND t.relname = '{}' \
+           AND a.attnum > 0 AND NOT a.attisdropped \
+         ORDER BY a.attnum",
+        escaped_schema, escaped_table
+    );
+    let col_rows = sqlx::raw_sql(&col_sql).fetch_all(pool).await?;
+    let columns: Vec<DdlColumn> = col_rows
+        .into_iter()
+        .filter_map(|row| {
+            Some(DdlColumn {
+                name: raw_str(&row, "name")?,
+                type_str: raw_str(&row, "type").unwrap_or_default(),
+                not_null: raw_str(&row, "not_null").as_deref() == Some("t"),
+                default_expr: raw_str(&row, "default_expr"),
+                identity: raw_str(&row, "identity").unwrap_or_default(),
+                generated: raw_str(&row, "generated").unwrap_or_default(),
+            })
+        })
+        .collect();
+
+    // Constraints — full definitions via pg_get_constraintdef, ordered PK, UNIQUE, CHECK, FK.
+    let con_sql = format!(
+        "SELECT con.conname AS name, pg_get_constraintdef(con.oid) AS def \
+         FROM pg_constraint con \
+         JOIN pg_class t ON t.oid = con.conrelid \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE n.nspname = '{}' AND t.relname = '{}' \
+           AND con.contype IN ('p', 'u', 'c', 'f') \
+         ORDER BY CASE con.contype \
+             WHEN 'p' THEN 1 WHEN 'u' THEN 2 WHEN 'c' THEN 3 WHEN 'f' THEN 4 ELSE 5 END, \
+           con.conname",
+        escaped_schema, escaped_table
+    );
+    let con_rows = sqlx::raw_sql(&con_sql).fetch_all(pool).await?;
+    let constraints: Vec<DdlConstraint> = con_rows
+        .into_iter()
+        .filter_map(|row| {
+            Some(DdlConstraint {
+                name: raw_str(&row, "name")?,
+                definition: raw_str(&row, "def").unwrap_or_default(),
+            })
+        })
+        .collect();
+
+    // Non-constraint indexes only — exclude the PK index and any index backing a
+    // constraint (those are already emitted as constraints).
+    let idx_sql = format!(
+        "SELECT pg_get_indexdef(ix.indexrelid) AS def \
+         FROM pg_index ix \
+         JOIN pg_class i ON i.oid = ix.indexrelid \
+         JOIN pg_class t ON t.oid = ix.indrelid \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE n.nspname = '{}' AND t.relname = '{}' \
+           AND NOT ix.indisprimary \
+           AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = ix.indexrelid) \
+         ORDER BY i.relname",
+        escaped_schema, escaped_table
+    );
+    let idx_rows = sqlx::raw_sql(&idx_sql).fetch_all(pool).await?;
+    let index_defs: Vec<String> = idx_rows
+        .into_iter()
+        .filter_map(|row| raw_str(&row, "def"))
+        .collect();
+
+    Ok(TableDdlParts {
+        columns,
+        constraints,
+        index_defs,
+    })
 }
 
 /// Get functions and procedures in a schema
