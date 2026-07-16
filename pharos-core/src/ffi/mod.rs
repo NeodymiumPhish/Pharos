@@ -51,6 +51,7 @@ mod schema;
 mod settings;
 mod table_metadata;
 mod table_ops;
+mod workspace;
 
 // ---------------------------------------------------------------------------
 // Global singletons

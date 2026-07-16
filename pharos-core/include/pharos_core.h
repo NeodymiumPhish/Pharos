@@ -337,4 +337,49 @@ void pharos_import_csv(const char *connection_id,
                        AsyncCallback callback,
                        void *context);
 
+/**
+ * Upsert a workspace. `json` = WorkspaceUpsert. Returns "true" or error JSON.
+ */
+ char *pharos_upsert_workspace(const char *json);
+
+/**
+ * Associate a result. `json` = {historyId, workspaceId, resultOrder, colorIndex}.
+ */
+ char *pharos_associate_result(const char *json);
+
+/**
+ * Load workspace summaries. `json` = {search?, limit?, offset?}. Returns JSON array.
+ */
+ char *pharos_load_workspaces(const char *json);
+
+/**
+ * Load a full workspace by id. Returns JSON object, or NULL if not found.
+ */
+ char *pharos_load_workspace(const char *id);
+
+/**
+ * Rename a workspace. `json` = {id, name}. Returns "true"/"false".
+ */
+ char *pharos_rename_workspace(const char *json);
+
+/**
+ * Duplicate a workspace. Arg = id string. Returns the new id string, or NULL if not found.
+ */
+ char *pharos_duplicate_workspace(const char *id);
+
+/**
+ * Delete a workspace (cascades). Arg = id string. Returns "true"/"false".
+ */
+ char *pharos_delete_workspace(const char *id);
+
+/**
+ * Delete one child result. Arg = result id string. Returns "true"/"false".
+ */
+ char *pharos_delete_workspace_result(const char *id);
+
+/**
+ * Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?}.
+ */
+ char *pharos_update_result_meta(const char *json);
+
 #endif  /* PHAROS_CORE_H */
