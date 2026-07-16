@@ -44,6 +44,30 @@ fn escape_fts5_query(input: &str) -> String {
         .join(" ")
 }
 
+/// Resolve a workspace's display name. Custom names win; otherwise use the
+/// first-queried connection name, suffixed with " +N" when N additional
+/// distinct databases were queried in the same workspace.
+pub fn resolve_workspace_name(
+    name: Option<&str>,
+    name_is_custom: bool,
+    connection_name: &str,
+    distinct_db_count: i64,
+) -> String {
+    if name_is_custom {
+        if let Some(n) = name {
+            if !n.is_empty() {
+                return n.to_string();
+            }
+        }
+    }
+    let base = if connection_name.is_empty() { "Untitled" } else { connection_name };
+    if distinct_db_count > 1 {
+        format!("{} +{}", base, distinct_db_count - 1)
+    } else {
+        base.to_string()
+    }
+}
+
 /// Initialize the SQLite database and create tables if they don't exist
 pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
     std::fs::create_dir_all(app_data_dir).ok();
@@ -812,5 +836,35 @@ pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResu
         Ok(Some((columns, rows_str)))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod workspace_name_tests {
+    use super::resolve_workspace_name;
+
+    #[test]
+    fn custom_name_wins() {
+        assert_eq!(resolve_workspace_name(Some("My Analysis"), true, "prod-db", 3), "My Analysis");
+    }
+    #[test]
+    fn single_db_uses_connection_name() {
+        assert_eq!(resolve_workspace_name(None, false, "prod-db", 1), "prod-db");
+    }
+    #[test]
+    fn multi_db_appends_plus_n() {
+        assert_eq!(resolve_workspace_name(None, false, "prod-db", 3), "prod-db +2");
+    }
+    #[test]
+    fn zero_dbs_falls_back_to_connection_name() {
+        assert_eq!(resolve_workspace_name(None, false, "prod-db", 0), "prod-db");
+    }
+    #[test]
+    fn empty_connection_name_is_untitled() {
+        assert_eq!(resolve_workspace_name(None, false, "", 1), "Untitled");
+    }
+    #[test]
+    fn custom_but_empty_falls_back() {
+        assert_eq!(resolve_workspace_name(Some(""), true, "prod-db", 1), "prod-db");
     }
 }
