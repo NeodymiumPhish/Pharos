@@ -966,7 +966,7 @@ fn validate_identifier(name: &str) -> Result<(), String> {
 }
 
 /// Escape a PostgreSQL identifier by doubling any double-quotes
-fn escape_identifier(name: &str) -> String {
+pub(crate) fn escape_identifier(name: &str) -> String {
     name.replace('"', "\"\"")
 }
 
