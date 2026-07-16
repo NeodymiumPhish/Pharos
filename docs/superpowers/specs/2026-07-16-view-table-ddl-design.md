@@ -34,7 +34,10 @@ adds that (the common "show me the schema" need) while keeping clone one click a
   deliberately avoids the constraint/index name-collision problem that running
   reconstructed DDL verbatim into the same schema would cause.
 - No ownership, grants/privileges, table/column comments, storage parameters,
-  tablespace, partitioning DDL, or triggers in the reconstructed output (v1 scope).
+  tablespace, triggers, or per-column non-default `COLLATE` in the reconstructed
+  output (v1 scope). (The `PARTITION BY` clause for partitioned parents IS rendered,
+  via `pg_get_partkeydef`, since omitting it would misrepresent a structurally
+  different object; individual partition boundaries are not.)
 - No schema retargeting on clone (unchanged from today — clone stays in the source
   schema; only the table name is user-configurable).
 - No new menu item for partitions beyond what they get today; existing partition

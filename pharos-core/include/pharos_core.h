@@ -294,6 +294,16 @@ void pharos_get_table_constraints(const char *connection_id,
                                   void *context);
 
 /**
+ * Generate table DDL (three detail variants). Returns JSON via callback.
+ */
+
+void pharos_generate_table_ddl(const char *connection_id,
+                               const char *schema_name,
+                               const char *table_name,
+                               AsyncCallback callback,
+                               void *context);
+
+/**
  * Clone a table. `json` is JSON-encoded CloneTableOptions.
  */
 

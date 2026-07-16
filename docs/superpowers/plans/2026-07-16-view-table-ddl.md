@@ -314,7 +314,7 @@ use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
 - [ ] **Step 2: Add `get_table_ddl_parts`**
 
-Append this function to `pharos-core/src/db/postgres.rs` (after `get_table_constraints`, which ends at line 765). It mirrors the existing raw-SQL + `raw_str` pattern used throughout this file. **Note the `::text` casts** on `attnotnull`, `attidentity`, and `attgenerated` — the internal `"char"` / bool columns must be cast to text or they panic/decode-to-None under the simple query protocol (a known pg/sqlx gotcha in this codebase).
+Append this function to `pharos-core/src/db/postgres.rs` (after `get_table_constraints`, which ends at line 765). It mirrors the existing raw-SQL + `raw_str` pattern used throughout this file. **Note the `::text` casts** on `attidentity` and `attgenerated` ONLY — those are pg-internal `"char"`-typed columns that panic/decode-to-None under the simple query protocol without the cast (a known pg/sqlx gotcha in this codebase). `attnotnull` is a real `boolean` and must NOT be cast: casting a boolean to text yields `"true"`/`"false"` instead of the raw wire text `"t"`/`"f"`, which would silently drop every `NOT NULL`. Compare it against `"t"`.
 
 ```rust
 /// Read the raw parts (columns, constraints, non-constraint indexes) needed to
@@ -333,7 +333,7 @@ pub async fn get_table_ddl_parts(
         "SELECT \
             a.attname AS name, \
             pg_catalog.format_type(a.atttypid, a.atttypmod) AS type, \
-            a.attnotnull::text AS not_null, \
+            a.attnotnull AS not_null, \
             pg_get_expr(ad.adbin, ad.adrelid) AS default_expr, \
             a.attidentity::text AS identity, \
             a.attgenerated::text AS generated \

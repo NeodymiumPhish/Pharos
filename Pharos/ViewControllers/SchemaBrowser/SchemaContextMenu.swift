@@ -123,33 +123,47 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     // MARK: - Clone / Import / Export
 
-    @objc private func contextCloneTable(_: Any?) {
+    @objc private func contextViewTableDDL(_: Any?) {
         guard let node = clickedNode(),
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
 
-        let sheet = CloneTableSheet(schema: schemaName, table: tableName) { [weak self] targetName, includeData in
-            Task {
-                do {
-                    let options = CloneTableOptions(
-                        sourceSchema: schemaName, sourceTable: tableName,
-                        targetSchema: schemaName, targetTable: targetName,
-                        includeData: includeData
-                    )
-                    let result = try await PharosCore.cloneTable(connectionId: connectionId, options: options)
-                    await MainActor.run {
-                        let msg = result.rowsCopied.map { "Table cloned with \($0) rows." } ?? "Table structure cloned."
-                        self?.showInfoAlert(title: "Clone Successful", message: msg)
-                        self?.delegate?.contextMenuDidRequestReload()
+        Task { [weak self] in
+            do {
+                let ddl = try await PharosCore.generateTableDDL(
+                    connectionId: connectionId, schema: schemaName, table: tableName
+                )
+                await MainActor.run {
+                    guard let self else { return }
+                    let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl) { [weak self] targetName, includeData in
+                        Task {
+                            do {
+                                let options = CloneTableOptions(
+                                    sourceSchema: schemaName, sourceTable: tableName,
+                                    targetSchema: schemaName, targetTable: targetName,
+                                    includeData: includeData
+                                )
+                                let result = try await PharosCore.cloneTable(connectionId: connectionId, options: options)
+                                await MainActor.run {
+                                    let msg = result.rowsCopied.map { "Table cloned with \($0) rows." } ?? "Table structure cloned."
+                                    self?.showInfoAlert(title: "Clone Successful", message: msg)
+                                    self?.delegate?.contextMenuDidRequestReload()
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    self?.showErrorAlert(title: "Clone Failed", message: error.localizedDescription)
+                                }
+                            }
+                        }
                     }
-                } catch {
-                    await MainActor.run {
-                        self?.showErrorAlert(title: "Clone Failed", message: error.localizedDescription)
-                    }
+                    self.delegate?.contextMenuPresentSheet(sheet)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.showErrorAlert(title: "Could Not Load DDL", message: error.localizedDescription)
                 }
             }
         }
-        delegate?.contextMenuPresentSheet(sheet)
     }
 
     @objc private func contextImportData(_: Any?) {
@@ -388,9 +402,9 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             // Data operations
             menu.addItem(.separator())
 
-            let clone = NSMenuItem(title: "Clone Table DDL\u{2026}", action: #selector(contextCloneTable), keyEquivalent: "")
-            clone.target = self
-            menu.addItem(clone)
+            let viewDDL = NSMenuItem(title: "View Table DDL\u{2026}", action: #selector(contextViewTableDDL), keyEquivalent: "")
+            viewDDL.target = self
+            menu.addItem(viewDDL)
 
             let importItem = NSMenuItem(title: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
             importItem.target = self

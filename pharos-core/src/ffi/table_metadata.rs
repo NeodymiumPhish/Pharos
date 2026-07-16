@@ -57,3 +57,29 @@ pub extern "C" fn pharos_get_table_constraints(
         }
     });
 }
+
+/// Generate table DDL (three detail variants). Returns JSON via callback.
+#[no_mangle]
+pub extern "C" fn pharos_generate_table_ddl(
+    connection_id: *const c_char,
+    schema_name: *const c_char,
+    table_name: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let schema = unsafe { c_str_to_string(schema_name) };
+    let table = unsafe { c_str_to_string(table_name) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::generate_table_ddl(conn_id, schema, table, state).await {
+            Ok(ddl) => {
+                let json = serde_json::to_string(&ddl).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
