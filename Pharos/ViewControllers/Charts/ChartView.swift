@@ -53,15 +53,32 @@ struct ChartCanvas: View {
         }
     }
 
+    // Gantt row-height bounds. Swift Charts divides the plot height across the
+    // categories, so with few rows each band (and its bar) balloons. We flex the
+    // per-row height to fill the space but clamp it: few rows sit at maxRowHeight
+    // (compact, top-aligned) and many rows sit at minRowHeight and scroll.
+    private static let minGanttRowHeight: CGFloat = 18   // ~60% of the comfortable height
+    private static let maxGanttRowHeight: CGFloat = 30   // comfortable, matches a well-populated chart
+    private static let ganttAxisAllowance: CGFloat = 28  // vertical room for the time axis + labels
+
     @ViewBuilder private var ganttChart: some View {
-        Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
-            BarMark(
-                xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
-                y: .value("Task", bar.label)
-            )
+        let rowCount = max(data.ganttBars.count, 1)
+        GeometryReader { geo in
+            let available = max(geo.size.height - Self.ganttAxisAllowance, 0)
+            let rowH = min(Self.maxGanttRowHeight,
+                           max(Self.minGanttRowHeight, available / CGFloat(rowCount)))
+            let contentH = CGFloat(rowCount) * rowH + Self.ganttAxisAllowance
+            ScrollView(.vertical) {
+                Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
+                    BarMark(
+                        xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                        xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
+                        y: .value("Task", bar.label)
+                    )
+                }
+                .frame(height: contentH)
+            }
         }
-        .chartScrollableAxes(.vertical)
     }
 
     @ViewBuilder private func emptyState(_ reason: EmptyReason) -> some View {
