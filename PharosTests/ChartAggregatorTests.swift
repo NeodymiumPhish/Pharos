@@ -65,6 +65,19 @@ func runTests() {
     expect(bigOut.wasTruncated, "topN: truncation flagged")
     expect(bigOut.series[0].points.contains { $0.xLabel == "Other" }, "topN: Other bucket present")
 
+    // --- top-N under COUNT: Other must sum the dropped categories' counts ---
+    var manyCount: [[String?]] = []
+    for i in 0..<10 { manyCount.append(["k\(i)", "1"]) }   // 10 distinct cats, 1 row each
+    let bigC = makeResult([("k", "text"), ("v", "numeric")], manyCount)
+    var cCfg = ChartConfig(chartType: .bar, temporalBin: .none)
+    cCfg.mappings[.category] = ColumnRef(index: 0, name: "k")
+    cCfg.mappings[.value] = ColumnRef(index: 1, name: "v")
+    cCfg.aggregation = .count
+    cCfg.display.topNCategories = 3
+    let cOut = ChartAggregator.aggregate(bigC, cCfg)
+    let otherPt = cOut.series[0].points.first { $0.xLabel == "Other" }
+    expect(otherPt?.y == 7, "count+topN: Other = 7 dropped rows")   // 10 total - 3 kept
+
     // --- gantt: label + start + end, no aggregation ---
     let tasks = makeResult([("task", "text"), ("s", "date"), ("e", "date")],
                            [["A", "2024-01-01", "2024-01-05"],

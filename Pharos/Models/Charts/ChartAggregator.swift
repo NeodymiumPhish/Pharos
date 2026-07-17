@@ -88,12 +88,19 @@ enum ChartAggregator {
             truncated = otherCount > 0
             categories = kept
             if truncated { categories.append("Other") }
-            // Fold dropped categories into Other per series.
-            let seriesNames = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
-            for s in seriesNames {
-                var otherVal = 0.0
-                for c in ranked where !keptSet.contains(c) { otherVal += value(Key(series: s, cat: c)) }
-                if otherVal != 0 { sums[Key(series: s, cat: "Other")] = otherVal }
+            // Fold dropped categories into the Other bucket per series, across
+            // ALL accumulators so every aggregation fn is correct for "Other":
+            // sum→Σsums, count→Σcounts, avg→Σsums/Σcounts, min→min, max→max.
+            let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
+            for s in foldSeries {
+                let otherKey = Key(series: s, cat: "Other")
+                for c in ranked where !keptSet.contains(c) {
+                    let src = Key(series: s, cat: c)
+                    if let v = sums[src] { sums[otherKey, default: 0] += v }
+                    if let n = counts[src] { counts[otherKey, default: 0] += n }
+                    if let mn = mins[src] { mins[otherKey] = mins[otherKey].map { Swift.min($0, mn) } ?? mn }
+                    if let mx = maxs[src] { maxs[otherKey] = maxs[otherKey].map { Swift.max($0, mx) } ?? mx }
+                }
             }
         }
 
