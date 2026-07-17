@@ -237,7 +237,7 @@ struct ChartConfig: Codable, Equatable {
     }
 }
 ```
-Keep the existing `infer` and `validate` methods. Note: `[ChartColumnRole: ColumnRef]` decodes as a JSON object via `CodingKeyRepresentable` (String-raw enum key) — unchanged from phase 1.
+Keep the existing `infer` and `validate` methods. Note: `ChartColumnRole` does **not** conform to `CodingKeyRepresentable`, so `[ChartColumnRole: ColumnRef]` encodes/decodes as a flat alternating **array** (`["category",{index,name},…]`), not a JSON object — this is the real phase-1 on-disk shape and round-trips correctly. (Correcting an inaccurate phase-1 note; the legacy-blob test literal must use `"mappings":[]`, not `{}`.)
 
 - [ ] **Step 5: Run `scripts/test-chart-config.sh` — expect PASS** (incl. legacy-decode + numericBin + heatmap).
 
