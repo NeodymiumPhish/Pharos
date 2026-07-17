@@ -1504,7 +1504,12 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
-    func recompute() { data = ChartAggregator.aggregate(result, config) }
+    func recompute() {
+        // A restored result whose cached rows were demoted arrives with no
+        // columns; surface the "re-run to chart" state rather than "pick columns".
+        if columns.isEmpty { data = .empty(.noData); return }
+        data = ChartAggregator.aggregate(result, config)
+    }
 
     func update(_ mutate: (inout ChartConfig) -> Void) {
         mutate(&config)
@@ -1915,20 +1920,24 @@ git commit -m "feat(charts): loaded-rows banner + in-memory load-all"
 
 - [ ] **Step 1: Implement debounced persist**
 
-Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Add a debounce timer property `private var chartPersistWorkItem: DispatchWorkItem?`:
+Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Key the debounce by
+result-tab **id**, not positional index — indices shift when tabs are added/closed/reordered
+within the debounce window, which would misattribute a write to the wrong tab, and a single
+shared work item would drop a pending write for tab A when tab B is edited within 0.6s. Add
+`private var chartPersistWorkItems: [String: DispatchWorkItem] = [:]`:
 
 ```swift
-    private func scheduleChartStatePersist(for idx: Int) {
-        chartPersistWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.persistChartState(for: idx) }
-        chartPersistWorkItem = item
+    private func scheduleChartStatePersist(forTabId id: String) {
+        chartPersistWorkItems[id]?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.persistChartState(forTabId: id) }
+        chartPersistWorkItems[id] = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
     }
 
-    private func persistChartState(for idx: Int) {
-        guard idx < resultTabs.count else { return }
-        let tab = resultTabs[idx]
-        // Only persist for results that belong to a workspace (have a history id).
+    private func persistChartState(forTabId id: String) {
+        chartPersistWorkItems[id] = nil
+        // Resolve the tab by identity (not index) and only persist workspace-backed results.
+        guard let tab = resultTabs.first(where: { $0.id == id }) else { return }
         guard let resultId = tab.queryResult?.historyEntryId else { return }
         let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)
         guard let data = try? JSONEncoder.pharos.encode(state) else { return }
@@ -1939,7 +1948,7 @@ Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Add a debounc
     }
 ```
 
-If `ResultTab` has no direct history id accessor, use `queryResult?.historyEntryId`. Confirm the property name during implementation (grep `historyEntryId` usage in ContentViewController).
+Update all call sites to pass the tab's `id` (e.g. `chartHost.onConfigChanged` and the mode-toggle path). Persist is guarded on `queryResult?.historyEntryId`, so results not backed by a workspace history row are silently skipped.
 
 - [ ] **Step 2: Restore on workspace reopen**
 
