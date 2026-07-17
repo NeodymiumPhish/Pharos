@@ -471,6 +471,15 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Column Filter Pipeline
 
+    /// Syncs the header highlight + reset-button state to the current active
+    /// filters, then recomputes the filtered rows. Shared by the header-filter
+    /// popover path and the chart-drill path so both stay in step.
+    func refreshColumnFilters() {
+        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
+        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
+        recomputeColumnFilteredRows()
+    }
+
     /// Recomputes columnFilteredDisplayRows from unfilteredDisplayRows, then cascades to find.
     func recomputeColumnFilteredRows() {
         columnFilteredDisplayRows = columnFilterController.applyFilters(inputDisplayRows: unfilteredDisplayRows)

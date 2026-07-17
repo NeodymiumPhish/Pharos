@@ -27,6 +27,7 @@
 		20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */; };
 		2217148AF13F5D02FA2C5ECA /* ChartRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */; };
 		24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */; };
+		291249D847122D96FABFE799 /* DrillKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA16914752C36D98C5FB61F6 /* DrillKey.swift */; };
 		2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */; };
 		2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB204A7203DFE7F75AE059A /* PharosCore.swift */; };
 		313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */; };
@@ -117,6 +118,7 @@
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F2C880B8BDC0D89AB3380A47 /* FilterValueSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EE0E6CA75016ED53876601 /* FilterValueSort.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
+		F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */; };
 		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
 		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
@@ -141,6 +143,7 @@
 		264FF44EDD39F675DE642D7B /* ChartTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartTypes.swift; sourceTree = "<group>"; };
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRootView.swift; sourceTree = "<group>"; };
+		30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillTranslator.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
@@ -186,6 +189,7 @@
 		9EC681B504DAF0E904245D22 /* Pharos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pharos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
+		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
 		B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSyntaxHighlighter.swift; sourceTree = "<group>"; };
@@ -389,6 +393,8 @@
 				16679621777BEB58D425E66E /* ChartData.swift */,
 				264FF44EDD39F675DE642D7B /* ChartTypes.swift */,
 				EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */,
+				AA16914752C36D98C5FB61F6 /* DrillKey.swift */,
+				30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */,
 				EC541A0819881910AFFC872F /* ValueCoercion.swift */,
 			);
 			path = Charts;
@@ -599,6 +605,8 @@
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
+				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,
+				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
 				685684742A13BC19F782590E /* EditorPane.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
 				C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */,

@@ -9,6 +9,8 @@ final class ChartViewModel: ObservableObject {
     private let result: QueryResult
     /// Called (debounced by the host) whenever config changes, for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
+    /// Called when a chart gesture (tap/brush/pie selection) requests a drill.
+    var onDrill: (([DrillKey]) -> Void)?
 
     init(result: QueryResult, columns: [ColumnDef], initialConfig: ChartConfig?) {
         self.result = result
@@ -36,8 +38,9 @@ final class ChartViewModel: ObservableObject {
     }
 
     /// Columns eligible for a role, by kind.
-    func eligible(for role: ChartColumnRole) -> [ColumnRef] {
+    func eligible(for role: ChartColumnRole, chartType: ChartType) -> [ColumnRef] {
         let refs = columns.enumerated().map { ColumnRef(index: $0.offset, name: $0.element.name) }
+        if chartType == .heatmap, role == .x || role == .y { return refs }   // any kind
         switch role {
         case .value, .y, .x, .size, .start, .end:
             return refs.filter { r in
@@ -60,8 +63,8 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
-                ChartCanvas(data: model.data, chartType: model.config.chartType,
-                            temporalBin: model.config.temporalBin)
+                ChartCanvas(data: model.data, config: model.config,
+                            onDrill: { keys in model.onDrill?(keys) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)
@@ -110,6 +113,13 @@ struct ChartRootView: View {
                         ForEach(TemporalBin.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
                     }.labelsHidden()
                 }
+                if showNumericBins {
+                    railLabel("Bins")
+                    Picker("", selection: Binding(get: { model.config.numericBin },
+                                                  set: { b in model.update { $0.numericBin = b } })) {
+                        ForEach(NumericBin.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }.labelsHidden()
+                }
                 Spacer()
             }.padding(10)
         }
@@ -121,6 +131,7 @@ struct ChartRootView: View {
         case .bar, .line, .area, .pie: return [.category, .value, .series]
         case .scatter: return [.x, .y, .size, .color]
         case .gantt: return [.label, .start, .end, .color]
+        case .heatmap: return [.x, .y, .value]
         }
     }
     private var usesAggregation: Bool {
@@ -134,7 +145,20 @@ struct ChartRootView: View {
         }
         return model.kind(model.config.mappings[.category]) == .temporal
     }
+    // Show the numeric Bins control when the axis is numeric: the mapped
+    // category for categorical charts, or the X column for heatmap.
+    // Mutually exclusive with showTimeBucket (gated on .temporal).
+    private var showNumericBins: Bool {
+        let ref = model.config.chartType == .heatmap ? model.config.mappings[.x] : model.config.mappings[.category]
+        return model.kind(ref) == .numeric
+    }
     private func roleLabel(_ r: ChartColumnRole) -> String {
+        if model.config.chartType == .heatmap {
+            switch r {
+            case .x: return "X (columns)"; case .y: return "Y (rows)"; case .value: return "Value (color, optional)"
+            default: break
+            }
+        }
         switch r {
         case .category: return "Category (X)"; case .value: return "Value (Y)"; case .series: return "Series (optional)"
         case .x: return "X"; case .y: return "Y"; case .size: return "Size (optional)"; case .color: return "Color (optional)"
@@ -142,7 +166,7 @@ struct ChartRootView: View {
         }
     }
     private func rolePicker(_ role: ChartColumnRole) -> some View {
-        let options = model.eligible(for: role)
+        let options = model.eligible(for: role, chartType: model.config.chartType)
         return Picker("", selection: Binding(
             get: { model.config.mappings[role]?.index ?? -1 },
             set: { idx in model.update { cfg in

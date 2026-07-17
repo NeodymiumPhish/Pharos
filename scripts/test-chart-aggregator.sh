@@ -7,6 +7,7 @@ swiftc -o /tmp/chart-aggregator-tests \
   Pharos/Models/Charts/ChartConfig.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
+  Pharos/Models/Charts/DrillKey.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/ChartAggregator.swift \
   PharosTests/ChartAggregatorTests.swift \

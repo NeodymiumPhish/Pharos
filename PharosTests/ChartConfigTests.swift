@@ -45,5 +45,23 @@ func runTests() {
     expect(stale.mappings[.value] == nil, "validate clears role whose column vanished")
     expect(stale.mappings[.category]?.index == 0, "validate keeps still-valid role")
 
+    // numericBin round-trips.
+    var nb = ChartConfig(chartType: .bar)
+    nb.numericBin = .b20
+    let nbData = try! JSONEncoder().encode(nb)
+    expect(try! JSONDecoder().decode(ChartConfig.self, from: nbData).numericBin == .b20, "numericBin round-trips")
+
+    // Backward compat: a phase-1 blob WITHOUT numericBin decodes with .auto default.
+    // Note: [ChartColumnRole: ColumnRef] is not CodingKeyRepresentable, so Swift
+    // encodes/decodes it as a flat alternating array, not a JSON object — hence
+    // "mappings":[] here (matches actual phase-1 persisted shape), not "{}".
+    let legacy = #"{"chartType":"bar","mappings":[],"aggregation":"sum","temporalBin":"auto","display":{"title":"","showLegend":true,"stacked":false,"topNCategories":25}}"#
+    let old = try! JSONDecoder().decode(ChartConfig.self, from: Data(legacy.utf8))
+    expect(old.numericBin == .auto, "legacy config defaults numericBin to .auto")
+    expect(old.chartType == .bar, "legacy config still decodes chartType")
+
+    // heatmap is a valid chart type.
+    expect(ChartType(rawValue: "heatmap") == .heatmap, "heatmap chart type decodes")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -100,5 +100,86 @@ func runTests() {
     let mout = ChartAggregator.aggregate(sales, noValue)
     expect(mout.emptyReason == .noColumns, "degenerate: noColumns when role unmapped")
 
+    // --- week-label boundary fix: 2026-12-29 is ISO week 1 of 2027 ---
+    let wk = makeResult([("ts","timestamptz"),("v","numeric")],
+                        [["2026-12-29 00:00:00+00","1"]])
+    var wkc = ChartConfig(chartType: .line, temporalBin: .week)
+    wkc.mappings[.category] = ColumnRef(index: 0, name: "ts")
+    wkc.mappings[.value] = ColumnRef(index: 1, name: "v")
+    let wkOut = ChartAggregator.aggregate(wk, wkc)
+    expect(wkOut.series[0].points.first?.xLabel == "2027-W01", "week label uses yearForWeekOfYear")
+
+    // --- count histogram needs only a category (no value mapping) ---
+    let ages = makeResult([("age","int4")], [["21"],["24"],["37"],["39"],["55"]])
+    var hc = ChartConfig(chartType: .bar, numericBin: .b10)
+    hc.mappings[.category] = ColumnRef(index: 0, name: "age")
+    hc.aggregation = .count
+    let hout = ChartAggregator.aggregate(ages, hc)
+    expect(hout.emptyReason == nil, "count histogram works with no value mapping")
+    expect(hout.series[0].points.allSatisfy { $0.drill != nil }, "each bin carries a drill key")
+    if case .range(_, _, _, .numeric)? = hout.series[0].points.first?.drill {} else { expect(false, "numeric bin drill is a numeric range") }
+
+    // --- numeric bins render ASCENDING by bin, regardless of row order ---
+    let shuf = makeResult([("n","int4")], [["95"],["5"],["55"],["15"]])
+    var shc = ChartConfig(chartType: .bar, numericBin: .b10); shc.aggregation = .count
+    shc.mappings[.category] = ColumnRef(index: 0, name: "n")
+    let shOut = ChartAggregator.aggregate(shuf, shc)
+    let los = shOut.series[0].points.map { Double($0.xLabel.split(separator: "–").first.map(String.init) ?? "") ?? 0 }
+    expect(los == los.sorted(), "numeric bins ascending by bin start")
+
+    // --- low-cardinality numeric stays discrete under .auto ---
+    let rating = makeResult([("r","int4"),("v","numeric")],
+                            [["1","5"],["2","3"],["1","2"],["3","9"]])
+    var rc = ChartConfig(chartType: .bar, numericBin: .auto)
+    rc.mappings[.category] = ColumnRef(index: 0, name: "r")
+    rc.mappings[.value] = ColumnRef(index: 1, name: "v")
+    rc.aggregation = .sum
+    let rout = ChartAggregator.aggregate(rating, rc)
+    expect(rout.series[0].points.contains { $0.xLabel == "1" }, "low-cardinality numeric stays discrete (label '1', not a range)")
+
+    // --- discrete category drill uses anyOf; null uses blank ---
+    let cats = makeResult([("s","text"),("v","numeric")], [["done","1"],["open","2"],[nil,"3"]])
+    var cc = ChartConfig(chartType: .bar); cc.aggregation = .count
+    cc.mappings[.category] = ColumnRef(index: 0, name: "s")
+    let cout = ChartAggregator.aggregate(cats, cc)
+    let donePt = cout.series[0].points.first { $0.xLabel == "done" }
+    if case .anyOf(_, let vals)? = donePt?.drill { expect(vals == ["done"], "discrete drill anyOf carries raw label") }
+    else { expect(false, "discrete drill is anyOf") }
+    let nullPt = cout.series[0].points.first { $0.xLabel.isEmpty || $0.xLabel == "(null)" }
+    if case .blank? = nullPt?.drill {} else { expect(false, "null category drill is .blank") }
+
+    // --- Other bar drills the dropped labels ---
+    var manyDrop: [[String?]] = []
+    for i in 0..<30 { manyDrop.append(["c\(i)","\(30-i)"]) }
+    let bigDrop = makeResult([("c","text"),("v","numeric")], manyDrop)
+    var bc = ChartConfig(chartType: .bar); bc.aggregation = .sum
+    bc.mappings[.category] = ColumnRef(index: 0, name: "c"); bc.mappings[.value] = ColumnRef(index: 1, name: "v")
+    bc.display.topNCategories = 5
+    let bout = ChartAggregator.aggregate(bigDrop, bc)
+    let otherDrillPt = bout.series[0].points.first { $0.xLabel == "Other" }
+    if case .anyOf(_, let dropped)? = otherDrillPt?.drill { expect(dropped.count == 25, "Other drill lists the 25 dropped labels") }
+    else { expect(false, "Other drill is anyOf of dropped labels") }
+
+    // --- heatmap: count cross-tab (no value) ---
+    let hm = makeResult([("region","text"),("tier","text")],
+                        [["us","a"],["us","a"],["us","b"],["eu","a"]])
+    var hmc = ChartConfig(chartType: .heatmap); hmc.aggregation = .count
+    hmc.mappings[.x] = ColumnRef(index: 0, name: "region")
+    hmc.mappings[.y] = ColumnRef(index: 1, name: "tier")
+    let hmo = ChartAggregator.aggregate(hm, hmc)
+    let usa = hmo.heatmapCells.first { $0.x == "us" && $0.y == "a" }
+    expect(usa?.value == 2, "heatmap us/a count = 2")
+    if case .compound(let keys)? = usa?.drill { expect(keys.count == 2, "heatmap cell drill is compound (x and y)") }
+    else { expect(false, "heatmap cell drill is compound") }
+
+    // --- heatmap: aggregate a value ---
+    let hm2 = makeResult([("region","text"),("tier","text"),("amt","numeric")],
+                         [["us","a","10"],["us","a","5"]])
+    var hm2c = ChartConfig(chartType: .heatmap); hm2c.aggregation = .sum
+    hm2c.mappings[.x] = ColumnRef(index: 0, name: "region")
+    hm2c.mappings[.y] = ColumnRef(index: 1, name: "tier")
+    hm2c.mappings[.value] = ColumnRef(index: 2, name: "amt")
+    expect(ChartAggregator.aggregate(hm2, hm2c).heatmapCells.first?.value == 15, "heatmap sum = 15")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

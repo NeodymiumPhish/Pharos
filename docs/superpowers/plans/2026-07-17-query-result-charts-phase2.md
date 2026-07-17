@@ -237,7 +237,7 @@ struct ChartConfig: Codable, Equatable {
     }
 }
 ```
-Keep the existing `infer` and `validate` methods. Note: `[ChartColumnRole: ColumnRef]` decodes as a JSON object via `CodingKeyRepresentable` (String-raw enum key) — unchanged from phase 1.
+Keep the existing `infer` and `validate` methods. Note: `ChartColumnRole` does **not** conform to `CodingKeyRepresentable`, so `[ChartColumnRole: ColumnRef]` encodes/decodes as a flat alternating **array** (`["category",{index,name},…]`), not a JSON object — this is the real phase-1 on-disk shape and round-trips correctly. (Correcting an inaccurate phase-1 note; the legacy-blob test literal must use `"mappings":[]`, not `{}`.)
 
 - [ ] **Step 5: Run `scripts/test-chart-config.sh` — expect PASS** (incl. legacy-decode + numericBin + heatmap).
 
@@ -317,6 +317,14 @@ Append inside `runTests()` (helpers `makeResult`, `expect` already exist):
     expect(hout.emptyReason == nil, "count histogram works with no value mapping")
     expect(hout.series[0].points.allSatisfy { $0.drill != nil }, "each bin carries a drill key")
     if case .range(_, _, _, .numeric)? = hout.series[0].points.first?.drill {} else { expect(false, "numeric bin drill is a numeric range") }
+
+    // --- numeric bins render ASCENDING by bin, regardless of row order ---
+    let shuf = makeResult([("n","int4")], [["95"],["5"],["55"],["15"]])
+    var shc = ChartConfig(chartType: .bar, numericBin: .b10); shc.aggregation = .count
+    shc.mappings[.category] = ColumnRef(index: 0, name: "n")
+    let shOut = ChartAggregator.aggregate(shuf, shc)
+    let los = shOut.series[0].points.map { Double($0.xLabel.split(separator: "–").first.map(String.init) ?? "") ?? 0 }
+    expect(los == los.sorted(), "numeric bins ascending by bin start")
 
     // --- low-cardinality numeric stays discrete under .auto ---
     let rating = makeResult([("r","int4"),("v","numeric")],
@@ -492,6 +500,12 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
 
         // Top-N — skip for binned numeric/temporal axes (bounded/ordered).
         var categories = order; var truncated = false; var otherCount = 0
+        // Numeric bins must render ascending by bin (bar/line/area set no
+        // chartXScale domain, so emit order IS the axis order). order[] is
+        // first-appearance, which is arbitrary for an unsorted numeric column.
+        if numericBinOf != nil {
+            categories = numericBins.map { binRangeLabel($0.lo, $0.hi) }.filter { seen.contains($0) }
+        }
         let axisIsBinned = (numericBinOf != nil) || (catKind == .temporal && config.temporalBin != .none)
         if !axisIsBinned && categories.count > config.display.topNCategories {
             let keys = sums.keys.isEmpty ? Array(counts.keys) : Array(sums.keys)
@@ -504,8 +518,14 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
             categories = kept
             if truncated {
                 categories.append("Other")
-                // Other drill = anyOf of dropped RAW labels (skip null/binned labels which can't appear here).
-                drillOf["Other"] = .anyOf(catRef, dropped.compactMap { rawOf[$0] })
+                // Other drill = the dropped RAW labels; if the null bucket was
+                // among the dropped, include it via .blank so clicking "Other"
+                // also selects the null rows folded into the bar.
+                let droppedRaw = dropped.compactMap { rawOf[$0] }
+                let droppedNull = dropped.contains { labelIsNull[$0] == true }
+                drillOf["Other"] = droppedNull
+                    ? .compound([.anyOf(catRef, droppedRaw), .blank(catRef)])
+                    : .anyOf(catRef, droppedRaw)
             }
             let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
             for s in foldSeries {
@@ -547,9 +567,10 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
 - [ ] **Step 6: Add `temporalBinBounds` helper** (epoch bounds for a temporal bin; used by drill range keys)
 
 ```swift
-    /// [startEpoch, lastInstantEpoch] for the temporal bin containing `date`.
-    /// lastInstant = next bin start minus one microsecond, so an inclusive
-    /// between over display strings includes the whole bucket.
+    /// [startEpoch, lastInstantEpoch] (epoch seconds) for the temporal bin
+    /// containing `date`. lastInstant = next bin start minus one microsecond;
+    /// the drill translator formats these so an inclusive between over the grid's
+    /// display strings includes the whole bucket.
     private static func temporalBinBounds(_ date: Date, bin: TemporalBin) -> (Double, Double)? {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
         let comp: Calendar.Component
@@ -1064,6 +1085,16 @@ Find the method that recomputes `columnFilteredDisplayRows = columnFilterControl
 - [ ] **Step 4: Drill chip UI**
 
 Add a small chip view to the action bar (near the Grid/Chart toggle), hidden unless `!drillColumns.isEmpty`, showing e.g. "Filtered by chart ✕" with the ✕ calling `clearDrill`. `updateDrillChip()` toggles its visibility/label. Keep it minimal (an `NSButton` with an SF Symbol + title is fine).
+
+- [ ] **Step 4b: Tear down the drill BEFORE capturing outgoing grid state**
+
+A drill is a **transient overlay** on the shared `columnFilterController`. On any result-tab transition, `captureGridState()` snapshots `activeFilters` into the outgoing tab's `gridState` — so if a drill is still applied, the drill filter leaks into the saved state AND the displaced manual filter is lost (the snapshot in `displacedFilters` is cleared without being restored). Fix the invariant: **restore displaced manual filters (undo the drill) before `captureGridState` runs.**
+
+Add `tearDownDrill(restoreManual: Bool)`: for each `colId` in `drillColumns`, if `restoreManual` and `displacedFilters[colId]` exists → `fc.setFilter(restore, forColumn: colId)` else `fc.clearFilter(forColumn: colId)`; then clear `drillColumns` + `displacedFilters` and `updateDrillChip()`. Call `tearDownDrill(restoreManual: true)` at the START of every outgoing-tab path (`selectResultTab`/`addResultTab`/`closeResultTab`) **before** their `captureGridState()` call, so the captured `gridState` reflects the user's real manual filters, not the drill. (`clearDrill()` — the explicit chip ✕ — is just `tearDownDrill(restoreManual: true)` + `refreshColumnFilters()` in-tab.) Verify: manual filter M on col X → drill X → switch tab → switch back ⇒ M is restored, no phantom drill filter, no orphaned chip.
+
+- [ ] **Step 4c: Guard the filter-controller access**
+
+Use `guard let fc = resultsVC.columnFilterController else { return }` in `applyDrill`/`clearDrill` rather than force-unwrapping.
 
 - [ ] **Step 5: Build** → BUILD SUCCEEDED.
 
