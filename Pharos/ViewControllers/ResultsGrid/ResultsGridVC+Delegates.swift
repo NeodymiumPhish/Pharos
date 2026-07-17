@@ -102,16 +102,12 @@ extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
 extension ResultsGridVC: ColumnFilterPopoverDelegate {
     func columnFilterPopover(_ popover: ColumnFilterPopoverVC, didApplyFilter filter: ColumnFilter) {
         columnFilterController.setFilter(filter, forColumn: filter.columnName)
-        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
-        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
-        recomputeColumnFilteredRows()
+        refreshColumnFilters()
     }
 
     func columnFilterPopover(_ popover: ColumnFilterPopoverVC, didClearFilterForColumn column: String) {
         columnFilterController.clearFilter(forColumn: column)
-        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
-        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
-        recomputeColumnFilteredRows()
+        refreshColumnFilters()
     }
 }
 

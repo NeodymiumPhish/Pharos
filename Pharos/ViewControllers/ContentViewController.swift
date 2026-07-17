@@ -67,6 +67,14 @@ class ContentViewController: NSViewController {
     let exportButton = NSButton()
     let expandEditorButton = NSButton()
     let expandResultsButton = NSButton()
+    /// Clearable "Filtered by chart" chip shown while a chart drill is applied.
+    let drillChip = NSButton()
+
+    // Chart drill-down state (active result tab). `drillColumns` are the col_N
+    // ids the drill currently owns; `displacedFilters` snapshots any manual
+    // filter a drill overwrote, so clearing the drill restores it.
+    private var drillColumns: [String] = []
+    private var displacedFilters: [String: ColumnFilter] = [:]
 
     private var editorPanes: [EditorPaneVC] = []
 
@@ -823,7 +831,24 @@ class ContentViewController: NSViewController {
         chartToggle.setContentHuggingPriority(.required, for: .horizontal)
         chartToggle.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let actionStack = NSStackView(views: [chartToggle, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
+        // -- Drill chip (next to the Grid/Chart toggle) --
+
+        let drillConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        drillChip.image = NSImage(systemSymbolName: "line.3.horizontal.decrease.circle.fill", accessibilityDescription: "Filtered by chart")?
+            .withSymbolConfiguration(drillConfig)
+        drillChip.imagePosition = .imageLeading
+        drillChip.title = "Filtered by chart"
+        drillChip.font = .systemFont(ofSize: 11)
+        drillChip.bezelStyle = .recessed
+        drillChip.contentTintColor = .controlAccentColor
+        drillChip.toolTip = "Clear the filter applied by clicking the chart"
+        drillChip.target = self
+        drillChip.action = #selector(clearDrill)
+        drillChip.isHidden = true
+        drillChip.setContentHuggingPriority(.required, for: .horizontal)
+        drillChip.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let actionStack = NSStackView(views: [chartToggle, drillChip, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)
@@ -2195,6 +2220,9 @@ extension ContentViewController {
     /// Sync the toggle + chart/grid visibility to the newly-active result tab
     /// (no persistence). Called after a tab switch or when the active tab clears.
     func syncChartToggleToActiveTab() {
+        // A fresh query / tab switch rebuilds the grid, so any drill applied to
+        // the previous result no longer applies — drop its bookkeeping + chip.
+        resetDrillState()
         guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else {
             chartToggle.selectedSegment = 0
             applyResultAreaVisibility()
@@ -2218,6 +2246,7 @@ extension ContentViewController {
             // empty state; config is preserved for when it's re-executed.
             chartHost.onConfigChanged = nil
             chartHost.onLoadAll = nil
+            chartHost.onDrill = nil
             chartHost.present(
                 result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
                 initialConfig: resultTabs[idx].chartConfig,
@@ -2239,9 +2268,69 @@ extension ContentViewController {
             self.scheduleChartStatePersist(forTabId: tabId)
         }
         chartHost.onLoadAll = { [weak self] in self?.loadAllRowsForChart() }
+        chartHost.onDrill = { [weak self] keys in self?.applyDrill(keys) }
         chartHost.present(result: result, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
         // Capture the config the host actually used (inference may have filled it).
         resultTabs[idx].chartConfig = chartHost.currentConfig
+    }
+
+    // MARK: Chart Drill-down
+
+    /// Translate a chart mark's drill keys into grid column filters, apply them
+    /// (snapshotting any manual filter a drill column displaces), switch to the
+    /// grid, and surface the clearable chip.
+    private func applyDrill(_ keys: [DrillKey]) {
+        guard let id = activeResultTabId,
+              let result = resultTabs.first(where: { $0.id == id })?.queryResult else { return }
+        let applied = DrillTranslator.filters(for: keys, columns: result.columns)
+        guard !applied.isEmpty else { return }
+        let fc = resultsVC.columnFilterController!
+        for a in applied {
+            // Snapshot a pre-existing manual filter once, the first time a drill
+            // takes over this column.
+            if !drillColumns.contains(a.columnId), let existing = fc.filter(forColumn: a.columnId) {
+                displacedFilters[a.columnId] = existing
+            }
+            fc.setFilter(a.filter, forColumn: a.columnId)
+            if !drillColumns.contains(a.columnId) { drillColumns.append(a.columnId) }
+        }
+        resultsVC.refreshColumnFilters()
+        setResultViewMode(.grid)
+        updateDrillChip()
+    }
+
+    /// Clear the chart drill: restore any manual filter each drill column
+    /// displaced, otherwise drop the filter entirely; then refresh + hide chip.
+    @objc private func clearDrill() {
+        guard !drillColumns.isEmpty else { return }
+        let fc = resultsVC.columnFilterController!
+        for colId in drillColumns {
+            if let restore = displacedFilters[colId] { fc.setFilter(restore, forColumn: colId) }
+            else { fc.clearFilter(forColumn: colId) }
+        }
+        drillColumns.removeAll()
+        displacedFilters.removeAll()
+        resultsVC.refreshColumnFilters()
+        updateDrillChip()
+    }
+
+    /// Forget drill bookkeeping without touching the grid filters. Used on result
+    /// tab switches / fresh queries, where the grid (and its filters) is rebuilt
+    /// by the caller — so a stale chip must not linger for the new result.
+    private func resetDrillState() {
+        drillColumns.removeAll()
+        displacedFilters.removeAll()
+        updateDrillChip()
+    }
+
+    /// Show the chip iff a drill is active; keep its count in the label.
+    private func updateDrillChip() {
+        let active = !drillColumns.isEmpty
+        drillChip.isHidden = !active
+        if active {
+            let n = drillColumns.count
+            drillChip.title = n > 1 ? "Filtered by chart (\(n))" : "Filtered by chart"
+        }
     }
 
     // MARK: Banner
