@@ -9,6 +9,8 @@ final class ChartViewModel: ObservableObject {
     private let result: QueryResult
     /// Called (debounced by the host) whenever config changes, for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
+    /// Called when a chart gesture (tap/brush/pie selection) requests a drill.
+    var onDrill: (([DrillKey]) -> Void)?
 
     init(result: QueryResult, columns: [ColumnDef], initialConfig: ChartConfig?) {
         self.result = result
@@ -61,8 +63,8 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
-                ChartCanvas(data: model.data, chartType: model.config.chartType,
-                            temporalBin: model.config.temporalBin)
+                ChartCanvas(data: model.data, config: model.config,
+                            onDrill: { keys in model.onDrill?(keys) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)

@@ -11,6 +11,8 @@ final class ChartHostingController: NSViewController {
     var onConfigChanged: ((ChartConfig) -> Void)?
     /// Requests loading all remaining rows for the current result.
     var onLoadAll: (() -> Void)?
+    /// Reports a drill request from a chart gesture (tap/brush/pie selection).
+    var onDrill: (([DrillKey]) -> Void)?
 
     override func loadView() { view = NSView() }
 
@@ -18,6 +20,7 @@ final class ChartHostingController: NSViewController {
     func present(result: QueryResult, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
         let vm = ChartViewModel(result: result, columns: result.columns, initialConfig: initialConfig)
         vm.onConfigChanged = { [weak self] cfg in self?.onConfigChanged?(cfg) }
+        vm.onDrill = { [weak self] keys in self?.onDrill?(keys) }
         self.model = vm
 
         let root = ChartRootView(model: vm, bannerInfo: banner, onLoadAll: { [weak self] in self?.onLoadAll?() })
