@@ -198,6 +198,25 @@ func runTests() {
     contains(num?.sql, "LEAST(", "width_bucket clamped with LEAST")
     contains(num?.sql, "_r.lo = _r.hi", "single-bucket lo=hi guard")
 
+    // series: _series column present, layout.hasSeries true
+    let ser = SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1, .series: 2], .sum), userSQL: src, columns: cols)
+    contains(ser?.sql, "AS _series", "series emits _series column")
+    expect(ser?.layout.hasSeries == true, "series layout.hasSeries true")
+
+    // numeric-bin + series: series dropped, no _series, layout.hasSeries false
+    let ns = SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1, .series: 0], .sum, nb: .b20), userSQL: src, columns: cols)
+    expect(ns?.sql.contains("_series") == false, "numeric-bin drops series (no _series in SQL)")
+    expect(ns?.layout.hasSeries == false, "numeric-bin layout.hasSeries false (matches SQL)")
+    contains(ns?.sql, "ORDER BY _bucket", "numeric bins ordered by bucket, not _val")
+
+    // non-count aggregation with no value mapping → unavailable (nil), not count(*)
+    expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0], .sum), userSQL: src, columns: cols) == nil, "sum without value → nil")
+
+    // time-of-day temporal column is NOT date_trunc'd (would error); treated discrete
+    let tcols = cols + [ColumnDef(name: "tod", dataType: "time")]
+    let tod = SqlPushdownGenerator.generate(cfg(.bar, [.category: 4, .value: 1], .sum, tb: .hour), userSQL: "SELECT 1", columns: tcols)
+    expect(tod?.sql.contains("date_trunc") == false, "time column not date_trunc'd")
+
     // heatmap groups by x,y
     let hm = SqlPushdownGenerator.generate(cfg(.heatmap, [.x: 0, .y: 2], .count), userSQL: src, columns: cols)
     contains(hm?.sql, "GROUP BY", "heatmap groups")
@@ -294,7 +313,10 @@ enum SqlPushdownGenerator {
     }
 
     private static func aggExpr(_ config: ChartConfig, columns: [ColumnDef]) -> String? {
-        if config.aggregation == .count || config.mappings[.value] == nil { return "count(*)" }
+        if config.aggregation == .count { return "count(*)" }
+        // Non-count requires a value column — mirror the client aggregator; if
+        // absent, push-down is unavailable (generate() returns nil) rather than
+        // silently degrading a "sum" chart to a count.
         guard let v = resolve(config, .value, columns) else { return nil }
         let c = quoteIdent(v.name)
         switch config.aggregation {
@@ -307,9 +329,13 @@ enum SqlPushdownGenerator {
     private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef) -> (expr: String, numericBins: Int?) {
         let kind = ColumnClassifier.kind(forDataType: col.dataType)
         let id = quoteIdent(col.name)
-        if kind == .temporal, config.temporalBin != .none {
+        let dt = col.dataType.lowercased()
+        // date_trunc accepts date/timestamp[tz] but NOT time/timetz — treat a
+        // time-of-day temporal column as discrete to avoid a runtime SQL error.
+        let isDateTruncable = dt.hasPrefix("date") || dt.hasPrefix("timestamp")
+        if kind == .temporal, config.temporalBin != .none, isDateTruncable {
             let unit = truncUnit(config.temporalBin)
-            let tz = col.dataType.lowercased().hasPrefix("timestamptz") || col.dataType.lowercased().contains("with time zone")
+            let tz = dt.hasPrefix("timestamptz") || dt.contains("with time zone")
             let colExpr = tz ? "\(id) AT TIME ZONE 'UTC'" : id
             return ("date_trunc('\(unit)', \(colExpr))", nil)
         }
@@ -330,7 +356,10 @@ enum SqlPushdownGenerator {
         guard let catCol = resolve(config, .category, columns) else { return nil }
         let series = resolve(config, .series, columns)
         let (catExpr, nbins) = axisExpr(config, catCol)
-        let layout = PushdownLayout(kind: .categorical, hasSeries: series != nil, numericBins: nbins)
+        // Series is dropped when the category axis is width-bucketed (numeric-bin
+        // + series is a deferred combination); the numeric CTE below emits no
+        // _series column, so hasSeries must be false there to match the SQL.
+        let layout = PushdownLayout(kind: .categorical, hasSeries: nbins == nil && series != nil, numericBins: nbins)
 
         if let n = nbins {   // numeric width_bucket needs the range CTE
             let id = quoteIdent(catCol.name)
