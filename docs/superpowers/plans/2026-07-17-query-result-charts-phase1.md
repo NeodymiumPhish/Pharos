@@ -764,6 +764,19 @@ func runTests() {
     expect(bigOut.wasTruncated, "topN: truncation flagged")
     expect(bigOut.series[0].points.contains { $0.xLabel == "Other" }, "topN: Other bucket present")
 
+    // --- top-N under COUNT: Other must sum the dropped categories' counts ---
+    var manyCount: [[String?]] = []
+    for i in 0..<10 { manyCount.append(["k\(i)", "1"]) }   // 10 distinct cats, 1 row each
+    let bigC = makeResult([("k", "text"), ("v", "numeric")], manyCount)
+    var cCfg = ChartConfig(chartType: .bar, temporalBin: .none)
+    cCfg.mappings[.category] = ColumnRef(index: 0, name: "k")
+    cCfg.mappings[.value] = ColumnRef(index: 1, name: "v")
+    cCfg.aggregation = .count
+    cCfg.display.topNCategories = 3
+    let cOut = ChartAggregator.aggregate(bigC, cCfg)
+    let otherPt = cOut.series[0].points.first { $0.xLabel == "Other" }
+    expect(otherPt?.y == 7, "count+topN: Other = 7 dropped rows")   // 10 total - 3 kept
+
     // --- gantt: label + start + end, no aggregation ---
     let tasks = makeResult([("task", "text"), ("s", "date"), ("e", "date")],
                            [["A", "2024-01-01", "2024-01-05"],
@@ -910,12 +923,19 @@ enum ChartAggregator {
             truncated = otherCount > 0
             categories = kept
             if truncated { categories.append("Other") }
-            // Fold dropped categories into Other per series.
-            let seriesNames = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
-            for s in seriesNames {
-                var otherVal = 0.0
-                for c in ranked where !keptSet.contains(c) { otherVal += value(Key(series: s, cat: c)) }
-                if otherVal != 0 { sums[Key(series: s, cat: "Other")] = otherVal }
+            // Fold dropped categories into the Other bucket per series, across
+            // ALL accumulators so every aggregation fn is correct for "Other":
+            // sum→Σsums, count→Σcounts, avg→Σsums/Σcounts, min→min, max→max.
+            let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
+            for s in foldSeries {
+                let otherKey = Key(series: s, cat: "Other")
+                for c in ranked where !keptSet.contains(c) {
+                    let src = Key(series: s, cat: c)
+                    if let v = sums[src] { sums[otherKey, default: 0] += v }
+                    if let n = counts[src] { counts[otherKey, default: 0] += n }
+                    if let mn = mins[src] { mins[otherKey] = mins[otherKey].map { Swift.min($0, mn) } ?? mn }
+                    if let mx = maxs[src] { maxs[otherKey] = maxs[otherKey].map { Swift.max($0, mx) } ?? mx }
+                }
             }
         }
 
