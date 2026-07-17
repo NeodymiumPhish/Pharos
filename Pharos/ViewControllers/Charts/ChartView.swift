@@ -63,6 +63,7 @@ struct ChartCanvas: View {
     private static let ganttBarHeight: CGFloat = 16
     private static let ganttRowSpacing: CGFloat = 12
     private static let ganttAxisHeight: CGFloat = 24
+    private static let ganttTickLabelWidth: CGFloat = 72   // est. width of one date label
 
     private func ganttDomain(_ bars: [GanttBar]) -> ClosedRange<Date> {
         let lo = bars.map(\.start).min() ?? 0
@@ -70,33 +71,62 @@ struct ChartCanvas: View {
         return Date(timeIntervalSince1970: lo)...Date(timeIntervalSince1970: max(hi, lo + 1))
     }
 
-    // Tick granularity for the gantt time axis, driven by the Time Bucket control.
-    private var ganttAxisValues: AxisMarkValues {
-        switch temporalBin {
-        case .hour:  return .stride(by: .hour)
-        case .day:   return .stride(by: .day)
-        case .week:  return .stride(by: .weekOfYear)
-        case .month: return .stride(by: .month)
-        case .year:  return .stride(by: .year)
-        case .auto, .none: return .automatic
+    private func binComponent(_ bin: TemporalBin) -> Calendar.Component? {
+        switch bin {
+        case .hour: return .hour
+        case .day: return .day
+        case .week: return .weekOfYear
+        case .month: return .month
+        case .year: return .year
+        case .auto, .none: return nil
         }
+    }
+
+    /// Snap a raw stride up to a natural multiple so the tick cadence reads cleanly.
+    private func niceStep(_ raw: Int, for bin: TemporalBin) -> Int {
+        let ladder: [Int]
+        switch bin {
+        case .hour:  ladder = [1, 2, 3, 6, 12, 24]
+        case .day:   ladder = [1, 2, 5, 10, 15, 30]
+        case .week:  ladder = [1, 2, 4, 8, 13, 26]
+        case .month: ladder = [1, 2, 3, 6, 12, 24, 60]
+        case .year:  ladder = [1, 2, 5, 10, 25, 50, 100]
+        case .auto, .none: return max(raw, 1)
+        }
+        return ladder.first(where: { $0 >= raw }) ?? ladder.last ?? max(raw, 1)
+    }
+
+    // Tick values for the gantt time axis. Keeps the Time Bucket's unit but widens
+    // the stride so the label count fits `maxLabels`, preventing the "…" collapse
+    // when a fine bucket spans a long range (e.g. Month over 10 years → yearly).
+    private func ganttAxisValues(domain: ClosedRange<Date>, maxLabels: Int) -> AxisMarkValues {
+        guard let unit = binComponent(temporalBin) else { return .automatic }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let total = max(cal.dateComponents([unit], from: domain.lowerBound, to: domain.upperBound).value(for: unit) ?? 1, 1)
+        let rawStep = max(Int((Double(total) / Double(max(maxLabels, 1))).rounded(.up)), 1)
+        return .stride(by: unit, count: niceStep(rawStep, for: temporalBin))
     }
 
     @ViewBuilder private var ganttChart: some View {
         let bars = data.ganttBars
         let domain = ganttDomain(bars)
         VStack(spacing: 0) {
-            // Pinned time-axis header (full width, same domain as the bars).
-            Chart {
-                RectangleMark(
-                    xStart: .value("Start", domain.lowerBound),
-                    xEnd: .value("End", domain.upperBound)
-                )
-                .foregroundStyle(.clear)
+            // Pinned time-axis header. A height-constrained GeometryReader supplies
+            // the pane width so tick density adapts to the space available.
+            GeometryReader { geo in
+                let maxLabels = max(Int(geo.size.width / Self.ganttTickLabelWidth), 2)
+                Chart {
+                    RectangleMark(
+                        xStart: .value("Start", domain.lowerBound),
+                        xEnd: .value("End", domain.upperBound)
+                    )
+                    .foregroundStyle(.clear)
+                }
+                .chartXScale(domain: domain)
+                .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues(domain: domain, maxLabels: maxLabels)) }
+                .chartYAxis(.hidden)
             }
-            .chartXScale(domain: domain)
-            .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues) }
-            .chartYAxis(.hidden)
             .frame(height: Self.ganttAxisHeight)
 
             // Scrolling rows: label on top, bar beneath.
