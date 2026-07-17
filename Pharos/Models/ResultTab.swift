@@ -30,6 +30,11 @@ struct ResultTab: Identifiable {
     /// Whether this result tab currently shows the grid or a chart.
     var resultViewMode: ResultViewMode = .grid
 
+    /// Total row count reported by the source (live `QueryResult.rowCount` on
+    /// execute, `WorkspaceResultMeta.rowCount` on reopen). Used by the chart
+    /// banner to show "N of M loaded rows" when only a subset is in memory.
+    var totalRowCountHint: Int?
+
     /// Whether the editor text has been modified since this result was produced.
     var isStale: Bool = false
 

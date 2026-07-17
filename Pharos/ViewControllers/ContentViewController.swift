@@ -24,6 +24,14 @@ class ContentViewController: NSViewController {
     // Result tab bar — between action bar and results grid
     private let resultTabBar = ResultTabBar()
 
+    // Grid/Chart toggle (front of the action bar) + the SwiftUI chart host that
+    // overlays the same region as the results grid, shown only in chart mode.
+    private let chartToggle = NSSegmentedControl(labels: ["Grid", "Chart"], trackingMode: .selectOne, target: nil, action: nil)
+    private let chartHost = ChartHostingController()
+
+    /// Debounce timer coalescing rapid chart-config edits into one FFI persist.
+    private var chartPersistWorkItem: DispatchWorkItem?
+
     // Container that holds paneSplitView + actionBar + resultTabBar + resultsVC.view with constraints
     private let contentStack = NSView()
 
@@ -119,6 +127,13 @@ class ContentViewController: NSViewController {
         contentStack.addSubview(resultTabBar)
         contentStack.addSubview(resultsVC.view)
 
+        // Chart host: sibling of the results grid, pinned to the same region,
+        // hidden until the user switches a result tab to Chart mode.
+        addChild(chartHost)
+        chartHost.view.translatesAutoresizingMaskIntoConstraints = false
+        chartHost.view.isHidden = true
+        contentStack.addSubview(chartHost.view)
+
         // Result tab bar setup
         resultTabBar.translatesAutoresizingMaskIntoConstraints = false
         resultTabBar.isHidden = true  // Hidden until first result
@@ -184,6 +199,12 @@ class ContentViewController: NSViewController {
             resultsVC.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             resultsVC.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             resultsBottomToContainer,
+
+            // Chart host occupies the same region as the results grid.
+            chartHost.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor),
+            chartHost.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            chartHost.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            chartHost.view.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor),
 
             emptyState.topAnchor.constraint(equalTo: safeTop),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -493,10 +514,11 @@ class ContentViewController: NSViewController {
             stateManager.updateTab(id: previousTabId) { tab in
                 tab.gridState = gridState
             }
-            // Also save grid state to the active result tab
+            // Also save grid state (and any live chart config) to the active result tab
             if let activeRTId = activeResultTabId,
                let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
                 resultTabs[rtIdx].gridState = gridState
+                captureChartConfig(intoTabAt: rtIdx)
             }
             // Persist result tabs for the previous editor tab
             resultTabsByEditorTab[previousTabId] = resultTabs
@@ -513,6 +535,7 @@ class ContentViewController: NSViewController {
             resultTabs = []
             activeResultTabId = nil
             updateResultTabBarVisibility()
+            syncChartToggleToActiveTab()
             updateSplitViewVisibility()
             return
         }
@@ -569,6 +592,9 @@ class ContentViewController: NSViewController {
         } else {
             applyResultBanner(from: nil)
         }
+
+        // Restore grid vs. chart view mode for the newly-active result tab.
+        syncChartToggleToActiveTab()
     }
 
     /// Update the results grid banner from the currently displayed result tab.
@@ -786,7 +812,16 @@ class ContentViewController: NSViewController {
         clearSelectionButton.target = resultsVC
         clearSelectionButton.action = #selector(ResultsGridVC.clearCellSelection)
 
-        let actionStack = NSStackView(views: [pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
+        // -- Grid/Chart toggle (front of the action bar) --
+
+        chartToggle.selectedSegment = 0
+        chartToggle.segmentStyle = .texturedRounded
+        chartToggle.target = self
+        chartToggle.action = #selector(chartToggleChanged)
+        chartToggle.setContentHuggingPriority(.required, for: .horizontal)
+        chartToggle.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let actionStack = NSStackView(views: [chartToggle, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)
@@ -952,22 +987,21 @@ class ContentViewController: NSViewController {
         switch expandState {
         case .normal:
             paneSplitView.isHidden = false
-            resultsVC.view.isHidden = false
             let editorHeight = totalHeight * savedSplitRatio
             editorHeightConstraint.constant = max(100, editorHeight)
 
         case .editorExpanded:
-            // Hide results grid, editor fills all available space
+            // Hide results area (grid + chart), editor fills all available space
             paneSplitView.isHidden = false
-            resultsVC.view.isHidden = true
             editorHeightConstraint.constant = totalHeight
 
         case .resultsExpanded:
-            // Hide editor panes, results fill all available space
+            // Hide editor panes, results area fills all available space
             paneSplitView.isHidden = true
-            resultsVC.view.isHidden = false
             editorHeightConstraint.constant = 0
         }
+        // Show grid vs. chart per the active result tab's mode + expand state.
+        applyResultAreaVisibility()
 
         updateExpandButtonUI()
         persistSplitRatio()
@@ -1229,6 +1263,7 @@ class ContentViewController: NSViewController {
                             rt.customLabel = customLabel
                             rt.queryResult = result
                             rt.executionTimeMs = result.executionTimeMs
+                            rt.totalRowCountHint = result.rowCount
                             self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
                             self.resultsVC.showResult(result)
@@ -1465,6 +1500,7 @@ class ContentViewController: NSViewController {
         if let outgoingId = activeResultTabId,
            let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
             resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+            captureChartConfig(intoTabAt: outgoingIdx)
         }
 
         resultTabs.append(tab)
@@ -1480,6 +1516,9 @@ class ContentViewController: NSViewController {
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
         }
+
+        // A fresh result defaults to grid; sync the toggle + chart host visibility.
+        syncChartToggleToActiveTab()
 
         // Refresh the history banner for the newly-active result tab. Without
         // this, running a fresh query in an editor that was viewing a history
@@ -1498,10 +1537,11 @@ class ContentViewController: NSViewController {
 
         reResolveAllResultTabs(immediate: true)
 
-        // Capture outgoing result tab's grid state
+        // Capture outgoing result tab's grid state (and any live chart config)
         if let outgoingId = activeResultTabId,
            let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
             resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+            captureChartConfig(intoTabAt: outgoingIdx)
         }
 
         activeResultTabId = tabId
@@ -1520,6 +1560,9 @@ class ContentViewController: NSViewController {
         if let gridState = tab.gridState {
             resultsVC.restoreGridState(gridState)
         }
+
+        // Restore grid vs. chart view mode for the newly-selected result tab.
+        syncChartToggleToActiveTab()
 
         // Highlight source lines in the editor (skip if stale — line numbers may have shifted)
         if !tab.isStale {
@@ -1541,6 +1584,7 @@ class ContentViewController: NSViewController {
             activeResultTabId = nil
             updateResultTabBarVisibility()
             resultsVC.clear()
+            syncChartToggleToActiveTab()
         } else if activeResultTabId == tabId {
             let newIdx = min(idx, resultTabs.count - 1)
             selectResultTab(resultTabs[newIdx].id)
@@ -1949,6 +1993,7 @@ extension ContentViewController {
             rt.customLabel = entry.tableNames ?? "History"
             rt.queryResult = result
             rt.executionTimeMs = UInt64(entry.executionTimeMs)
+            rt.totalRowCountHint = result.rowCount
             rt.historySchema = entry.schema
             rt.historyTimestamp = entry.executedAt
 
@@ -2030,6 +2075,14 @@ extension ContentViewController {
                 rt.historySchema = meta.schema
                 rt.historyTimestamp = meta.executedAt
                 rt.isStale = true
+                rt.totalRowCountHint = meta.rowCount
+                // Restore persisted chart config + view mode for this result.
+                if let json = meta.chartViewStateJson,
+                   let data = json.data(using: .utf8),
+                   let state = try? JSONDecoder.pharos.decode(PersistedResultViewState.self, from: data) {
+                    rt.chartConfig = state.chartConfig
+                    rt.resultViewMode = state.viewMode
+                }
                 if meta.hasResults, let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
                     rt.queryResult = QueryResult(
                         columns: data.columns, rows: data.rows,
@@ -2089,6 +2142,198 @@ extension ContentViewController {
     private func focusResultTab(historyId: String) {
         guard let tab = resultTabs.first(where: { $0.queryResult?.historyEntryId == historyId }) else { return }
         selectResultTab(tab.id)
+    }
+}
+
+// MARK: - Chart Mode
+
+extension ContentViewController {
+
+    /// The active result tab's current view mode, defaulting to grid when no
+    /// result tab is active.
+    private var activeResultViewMode: ResultViewMode {
+        guard let id = activeResultTabId, let tab = resultTabs.first(where: { $0.id == id }) else { return .grid }
+        return tab.resultViewMode
+    }
+
+    /// Show/hide the results grid vs. the chart host based on the active result
+    /// tab's view mode and the current editor/results expand state. Single source
+    /// of truth so `applyExpandState`, mode toggles, and tab switches agree.
+    func applyResultAreaVisibility() {
+        let resultsAreaVisible = (expandState != .editorExpanded)
+        let showChart = resultsAreaVisible && activeResultViewMode == .chart
+        chartHost.view.isHidden = !showChart
+        resultsVC.view.isHidden = !(resultsAreaVisible && !showChart)
+    }
+
+    /// Apply a view mode to the UI for the given result tab (present the chart if
+    /// needed, sync the toggle, flip visibility) WITHOUT persisting. Used on
+    /// restore and tab switches where nothing changed.
+    private func applyResultViewMode(_ mode: ResultViewMode, for idx: Int) {
+        guard idx < resultTabs.count else { return }
+        resultTabs[idx].resultViewMode = mode
+        chartToggle.selectedSegment = (mode == .chart) ? 1 : 0
+        if mode == .chart { presentChart(for: idx) }
+        applyResultAreaVisibility()
+    }
+
+    /// Set (and persist) the view mode for the active result tab. Used by the
+    /// explicit user toggle and the reopen-into-chart restore.
+    func setResultViewMode(_ mode: ResultViewMode) {
+        guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else { return }
+        applyResultViewMode(mode, for: idx)
+        persistChartState(for: idx)
+    }
+
+    @objc func chartToggleChanged() {
+        let mode: ResultViewMode = chartToggle.selectedSegment == 1 ? .chart : .grid
+        setResultViewMode(mode)
+    }
+
+    /// Sync the toggle + chart/grid visibility to the newly-active result tab
+    /// (no persistence). Called after a tab switch or when the active tab clears.
+    func syncChartToggleToActiveTab() {
+        guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else {
+            chartToggle.selectedSegment = 0
+            applyResultAreaVisibility()
+            return
+        }
+        applyResultViewMode(resultTabs[idx].resultViewMode, for: idx)
+    }
+
+    /// Capture the config the user just edited in the chart rail back onto the
+    /// (about-to-be-outgoing) result tab, mirroring the gridState capture.
+    private func captureChartConfig(intoTabAt idx: Int) {
+        guard idx < resultTabs.count, resultTabs[idx].resultViewMode == .chart else { return }
+        if let cfg = chartHost.currentConfig { resultTabs[idx].chartConfig = cfg }
+    }
+
+    /// Build the chart for the result tab at `idx` and hand it to the host.
+    private func presentChart(for idx: Int) {
+        guard idx < resultTabs.count else { return }
+        guard let result = resultTabs[idx].queryResult else {
+            // Restored result whose rows were demoted: chart shows a re-run
+            // empty state; config is preserved for when it's re-executed.
+            chartHost.onConfigChanged = nil
+            chartHost.onLoadAll = nil
+            chartHost.present(
+                result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
+                initialConfig: resultTabs[idx].chartConfig,
+                banner: ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "")
+            )
+            return
+        }
+        // Drop any stored role whose column no longer exists at the same index.
+        var cfg = resultTabs[idx].chartConfig
+        cfg?.validate(against: result.columns)
+
+        chartHost.onConfigChanged = { [weak self] newCfg in
+            guard let self, let i = self.resultTabs.firstIndex(where: { $0.id == self.activeResultTabId }) else { return }
+            self.resultTabs[i].chartConfig = newCfg
+            self.scheduleChartStatePersist(for: i)
+        }
+        chartHost.onLoadAll = { [weak self] in self?.loadAllRowsForChart() }
+        chartHost.present(result: result, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
+        // Capture the config the host actually used (inference may have filled it).
+        resultTabs[idx].chartConfig = chartHost.currentConfig
+    }
+
+    // MARK: Banner
+
+    private func bannerInfo(for idx: Int, result: QueryResult) -> ChartBannerInfo {
+        let loaded = result.rows.count
+        let canLoadMore = result.hasMore
+        // Total from the source (live/history); fall back to loaded when unknown.
+        let total = resultTabs[idx].totalRowCountHint ?? loaded
+        let subset = canLoadMore || total > loaded
+        guard subset else { return ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "") }
+        let ofTotal = total > loaded ? " of \(total)" : ""
+        let text = "Charting \(loaded)\(ofTotal) loaded rows, aggregated client-side."
+        return ChartBannerInfo(shouldShow: true, canLoadAll: canLoadMore, text: text)
+    }
+
+    // MARK: Load all (in-memory)
+
+    private func loadAllRowsForChart() {
+        guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult, result.hasMore else { return }
+        let cap = 200_000
+        fetchAllRemaining(upTo: cap) { [weak self] in
+            guard let self, let i = self.resultTabs.firstIndex(where: { $0.id == self.activeResultTabId }) else { return }
+            if self.resultTabs[i].resultViewMode == .chart { self.presentChart(for: i) }
+        }
+    }
+
+    /// Loop the existing fetch-more FFI path (mirrors `loadMoreRows`), appending
+    /// rows into the active result tab's in-memory `queryResult` until `hasMore`
+    /// is false or the cap is reached. Does NOT write back to the workspace/history
+    /// blob — this is an in-memory expansion for charting only.
+    private func fetchAllRemaining(upTo cap: Int, completion: @escaping () -> Void) {
+        guard let editorTab = stateManager.activeTab,
+              let connectionId = editorTab.connectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let current = resultTabs[idx].queryResult, current.hasMore else {
+            completion(); return
+        }
+        let sql = resultTabs[idx].sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let schema = editorTab.schemaName
+        let limit = Int64(stateManager.settings.query.defaultLimit)
+        let rtId = id
+
+        Task {
+            var accumulated = current
+            do {
+                while accumulated.hasMore && accumulated.rows.count < cap {
+                    let offset = Int64(accumulated.rows.count)
+                    let more = try await PharosCore.fetchMoreRows(
+                        connectionId: connectionId, sql: sql, limit: limit, offset: offset, schema: schema
+                    )
+                    // Mirror loadMoreRows' merge, keeping columns/exec time/history id.
+                    accumulated = QueryResult(
+                        columns: accumulated.columns,
+                        rows: accumulated.rows + more.rows,
+                        rowCount: accumulated.rows.count + more.rows.count,
+                        executionTimeMs: accumulated.executionTimeMs,
+                        hasMore: more.hasMore,
+                        historyEntryId: accumulated.historyEntryId
+                    )
+                    if more.rows.isEmpty { break }   // guard against a no-progress loop
+                }
+            } catch {
+                NSLog("Chart load-all failed: \(error)")
+            }
+            let finalResult = accumulated
+            await MainActor.run {
+                if let i = self.resultTabs.firstIndex(where: { $0.id == rtId }) {
+                    self.resultTabs[i].queryResult = finalResult
+                }
+                completion()
+            }
+        }
+    }
+
+    // MARK: Persistence
+
+    private func scheduleChartStatePersist(for idx: Int) {
+        chartPersistWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.persistChartState(for: idx) }
+        chartPersistWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
+    }
+
+    private func persistChartState(for idx: Int) {
+        guard idx < resultTabs.count else { return }
+        let tab = resultTabs[idx]
+        // Only persist for results that belong to a workspace (have a history id).
+        guard let resultId = tab.queryResult?.historyEntryId else { return }
+        let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)
+        guard let data = try? JSONEncoder.pharos.encode(state) else { return }
+        let json = String(decoding: data, as: UTF8.self)
+        DispatchQueue.global(qos: .utility).async {
+            _ = try? PharosCore.updateResultChartState(resultId: resultId, json: json)
+        }
     }
 }
 
@@ -2305,7 +2550,7 @@ extension ContentViewController {
             if expandState != .normal {
                 expandState = .normal
                 paneSplitView.isHidden = false
-                resultsVC.view.isHidden = false
+                applyResultAreaVisibility()
                 updateExpandButtonUI()
             }
             isDragging = true
