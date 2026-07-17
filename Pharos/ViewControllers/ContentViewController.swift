@@ -29,8 +29,10 @@ class ContentViewController: NSViewController {
     private let chartToggle = NSSegmentedControl(labels: ["Grid", "Chart"], trackingMode: .selectOne, target: nil, action: nil)
     private let chartHost = ChartHostingController()
 
-    /// Debounce timer coalescing rapid chart-config edits into one FFI persist.
-    private var chartPersistWorkItem: DispatchWorkItem?
+    /// Debounce timers coalescing rapid chart-config edits into one FFI persist
+    /// each, keyed by result-tab id so concurrent edits to different tabs don't
+    /// cancel each other's pending write.
+    private var chartPersistWorkItems: [String: DispatchWorkItem] = [:]
 
     // Container that holds paneSplitView + actionBar + resultTabBar + resultsVC.view with constraints
     private let contentStack = NSView()
@@ -2182,7 +2184,7 @@ extension ContentViewController {
     func setResultViewMode(_ mode: ResultViewMode) {
         guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else { return }
         applyResultViewMode(mode, for: idx)
-        persistChartState(for: idx)
+        persistChartState(forTabId: id)
     }
 
     @objc func chartToggleChanged() {
@@ -2227,10 +2229,14 @@ extension ContentViewController {
         var cfg = resultTabs[idx].chartConfig
         cfg?.validate(against: result.columns)
 
+        // Capture the tab's stable id (not its index) so a reorder/close of other
+        // tabs while this chart is on screen can't misattribute the edit or the
+        // debounced persist to the wrong result tab.
+        let tabId = resultTabs[idx].id
         chartHost.onConfigChanged = { [weak self] newCfg in
-            guard let self, let i = self.resultTabs.firstIndex(where: { $0.id == self.activeResultTabId }) else { return }
+            guard let self, let i = self.resultTabs.firstIndex(where: { $0.id == tabId }) else { return }
             self.resultTabs[i].chartConfig = newCfg
-            self.scheduleChartStatePersist(for: i)
+            self.scheduleChartStatePersist(forTabId: tabId)
         }
         chartHost.onLoadAll = { [weak self] in self?.loadAllRowsForChart() }
         chartHost.present(result: result, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
@@ -2316,16 +2322,16 @@ extension ContentViewController {
 
     // MARK: Persistence
 
-    private func scheduleChartStatePersist(for idx: Int) {
-        chartPersistWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.persistChartState(for: idx) }
-        chartPersistWorkItem = item
+    private func scheduleChartStatePersist(forTabId id: String) {
+        chartPersistWorkItems[id]?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.persistChartState(forTabId: id) }
+        chartPersistWorkItems[id] = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
     }
 
-    private func persistChartState(for idx: Int) {
-        guard idx < resultTabs.count else { return }
-        let tab = resultTabs[idx]
+    private func persistChartState(forTabId id: String) {
+        chartPersistWorkItems[id] = nil
+        guard let tab = resultTabs.first(where: { $0.id == id }) else { return }
         // Only persist for results that belong to a workspace (have a history id).
         guard let resultId = tab.queryResult?.historyEntryId else { return }
         let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)

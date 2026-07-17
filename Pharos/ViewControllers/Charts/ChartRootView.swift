@@ -17,7 +17,12 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
-    func recompute() { data = ChartAggregator.aggregate(result, config) }
+    func recompute() {
+        // A restored result whose cached rows were demoted arrives with no
+        // columns; surface the "re-run to chart" state rather than "pick columns".
+        if columns.isEmpty { data = .empty(.noData); return }
+        data = ChartAggregator.aggregate(result, config)
+    }
 
     func update(_ mutate: (inout ChartConfig) -> Void) {
         mutate(&config)
