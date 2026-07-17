@@ -520,6 +520,11 @@ class ContentViewController: NSViewController {
     private func activeTabChanged(_ tabId: String?) {
         // Save grid state and result tabs of the tab we're leaving
         if let previousTabId = lastActiveTabId {
+            // Tear down any active drill BEFORE capturing grid state (see
+            // addResultTab / selectResultTab): switching editor tabs is another
+            // outgoing path where the transient drill filter would otherwise leak
+            // into the saved gridState and lose the manual filter it displaced.
+            tearDownDrill(restoreManual: true)
             let gridState = resultsVC.captureGridState()
             stateManager.updateTab(id: previousTabId) { tab in
                 tab.gridState = gridState
