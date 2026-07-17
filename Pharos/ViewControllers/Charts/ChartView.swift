@@ -53,14 +53,14 @@ struct ChartCanvas: View {
         }
     }
 
-    // Gantt: fixed-height rows, drawn top-down, with the time (x) axis PINNED to
-    // the top of the pane while the rows scroll underneath. To keep the pinned
-    // ruler aligned with the bars, the layout is split into a fixed label gutter +
-    // a shared time scale: a header row (gutter spacer + x-axis-only chart) stays
-    // put, and a scrolling body (labels column + bars chart, x-axis hidden) shares
-    // the same left offset and x-domain so ticks line up with bars.
-    private static let ganttRowHeight: CGFloat = 50
-    private static let ganttLabelWidth: CGFloat = 210
+    // Gantt: each row shows its label on one line with the bar just beneath it,
+    // so long labels stay fully readable. The time (x) axis is PINNED to the top
+    // of the pane; rows scroll underneath. Bars are full-width, and the pinned
+    // header shares the same x-domain, so ticks line up with the bars without any
+    // gutter to align. Each row is its own single-bar chart (a few dozen light
+    // charts) — fine for typical result sizes.
+    private static let ganttBarHeight: CGFloat = 16
+    private static let ganttRowSpacing: CGFloat = 12
     private static let ganttAxisHeight: CGFloat = 24
 
     private func ganttDomain(_ bars: [GanttBar]) -> ClosedRange<Date> {
@@ -71,50 +71,41 @@ struct ChartCanvas: View {
 
     @ViewBuilder private var ganttChart: some View {
         let bars = data.ganttBars
-        let rowCount = max(bars.count, 1)
         let domain = ganttDomain(bars)
         VStack(spacing: 0) {
-            // Pinned time-axis header, offset by the label gutter so its ticks
-            // sit above the bars (not the labels).
-            HStack(spacing: 0) {
-                Color.clear.frame(width: Self.ganttLabelWidth)
-                Chart {
-                    RectangleMark(
-                        xStart: .value("Start", domain.lowerBound),
-                        xEnd: .value("End", domain.upperBound)
-                    )
-                    .foregroundStyle(.clear)
-                }
-                .chartXScale(domain: domain)
-                .chartXAxis { AxisMarks(position: .top) }
-                .chartYAxis(.hidden)
-                .frame(height: Self.ganttAxisHeight)
+            // Pinned time-axis header (full width, same domain as the bars).
+            Chart {
+                RectangleMark(
+                    xStart: .value("Start", domain.lowerBound),
+                    xEnd: .value("End", domain.upperBound)
+                )
+                .foregroundStyle(.clear)
             }
-            // Scrolling body: label gutter + bars, both fixed-height rows.
+            .chartXScale(domain: domain)
+            .chartXAxis { AxisMarks(position: .top) }
+            .chartYAxis(.hidden)
+            .frame(height: Self.ganttAxisHeight)
+
+            // Scrolling rows: label on top, bar beneath.
             ScrollView(.vertical) {
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
-                            Text(bar.label)
-                                .font(.callout)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(width: Self.ganttLabelWidth,
-                                       height: Self.ganttRowHeight, alignment: .leading)
+                VStack(alignment: .leading, spacing: Self.ganttRowSpacing) {
+                    ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(bar.label).font(.callout).lineLimit(1)
+                            Chart {
+                                BarMark(
+                                    xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                                    xEnd: .value("End", Date(timeIntervalSince1970: bar.end))
+                                )
+                            }
+                            .chartXScale(domain: domain)
+                            .chartXAxis(.hidden)
+                            .chartYAxis(.hidden)
+                            .frame(height: Self.ganttBarHeight)
                         }
                     }
-                    Chart(Array(bars.enumerated()), id: \.offset) { _, bar in
-                        BarMark(
-                            xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                            xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
-                            y: .value("Task", bar.label)
-                        )
-                    }
-                    .chartXScale(domain: domain)
-                    .chartXAxis(.hidden)
-                    .chartYAxis(.hidden)
-                    .frame(height: CGFloat(rowCount) * Self.ganttRowHeight)
                 }
+                .padding(.top, 6)
             }
         }
     }
