@@ -1520,6 +1520,13 @@ class ContentViewController: NSViewController {
             return
         }
 
+        // Tear down any active drill BEFORE capturing grid state: a drill is a
+        // transient overlay on the shared filter controller. If left in place,
+        // captureGridState() would snapshot the drill filter into the outgoing
+        // tab and silently drop the manual filter it displaced. Restoring here
+        // makes the captured state reflect the user's real manual filters.
+        tearDownDrill(restoreManual: true)
+
         // Capture the outgoing result tab's grid state before switching away,
         // so filters/sorts/column widths applied to it survive when the user
         // returns (mirrors selectResultTab). Without this, running a new query
@@ -1563,6 +1570,11 @@ class ContentViewController: NSViewController {
         }
 
         reResolveAllResultTabs(immediate: true)
+
+        // Tear down any active drill BEFORE capturing grid state (see addResultTab):
+        // otherwise the transient drill filter leaks into the outgoing tab's saved
+        // gridState and the manual filter it displaced is lost.
+        tearDownDrill(restoreManual: true)
 
         // Capture outgoing result tab's grid state (and any live chart config)
         if let outgoingId = activeResultTabId,
@@ -2222,7 +2234,12 @@ extension ContentViewController {
     func syncChartToggleToActiveTab() {
         // A fresh query / tab switch rebuilds the grid, so any drill applied to
         // the previous result no longer applies — drop its bookkeeping + chip.
-        resetDrillState()
+        // NOTE: this runs AFTER the outgoing path's captureGridState(), so it is
+        // NOT the place that protects the outgoing tab's saved filters — the
+        // outgoing paths call tearDownDrill(restoreManual: true) themselves,
+        // before capture. This call is the belt-and-braces cleanup for the empty
+        // (no active tab) case.
+        tearDownDrill(restoreManual: true)
         guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else {
             chartToggle.selectedSegment = 0
             applyResultAreaVisibility()
@@ -2284,7 +2301,7 @@ extension ContentViewController {
               let result = resultTabs.first(where: { $0.id == id })?.queryResult else { return }
         let applied = DrillTranslator.filters(for: keys, columns: result.columns)
         guard !applied.isEmpty else { return }
-        let fc = resultsVC.columnFilterController!
+        guard let fc = resultsVC.columnFilterController else { return }
         for a in applied {
             // Snapshot a pre-existing manual filter once, the first time a drill
             // takes over this column.
@@ -2302,24 +2319,29 @@ extension ContentViewController {
     /// Clear the chart drill: restore any manual filter each drill column
     /// displaced, otherwise drop the filter entirely; then refresh + hide chip.
     @objc private func clearDrill() {
-        guard !drillColumns.isEmpty else { return }
-        let fc = resultsVC.columnFilterController!
-        for colId in drillColumns {
-            if let restore = displacedFilters[colId] { fc.setFilter(restore, forColumn: colId) }
-            else { fc.clearFilter(forColumn: colId) }
-        }
-        drillColumns.removeAll()
-        displacedFilters.removeAll()
+        guard !drillColumns.isEmpty, resultsVC.columnFilterController != nil else { return }
+        tearDownDrill(restoreManual: true)
         resultsVC.refreshColumnFilters()
-        updateDrillChip()
     }
 
-    /// Forget drill bookkeeping without touching the grid filters. Used on result
-    /// tab switches / fresh queries, where the grid (and its filters) is rebuilt
-    /// by the caller — so a stale chip must not linger for the new result.
-    private func resetDrillState() {
-        drillColumns.removeAll()
-        displacedFilters.removeAll()
+    /// Tear down the active drill, undoing its effect on the SHARED column filter
+    /// controller. A drill is a transient overlay: it may have displaced a manual
+    /// filter on a column. Restoring (`restoreManual: true`) puts each displaced
+    /// manual filter back and drops any drill-only filter; otherwise every drill
+    /// column is cleared. Callers that need the visible grid to reflect the change
+    /// must follow with `resultsVC.refreshColumnFilters()`; on an outgoing-tab
+    /// transition no reload is needed because the incoming tab rebuilds the grid.
+    /// Crucially this must run BEFORE `captureGridState()` on any outgoing path so
+    /// the captured state reflects the user's real manual filters, not the drill.
+    private func tearDownDrill(restoreManual: Bool) {
+        guard let fc = resultsVC.columnFilterController, !drillColumns.isEmpty else {
+            drillColumns.removeAll(); displacedFilters.removeAll(); updateDrillChip(); return
+        }
+        for colId in drillColumns {
+            if restoreManual, let restore = displacedFilters[colId] { fc.setFilter(restore, forColumn: colId) }
+            else { fc.clearFilter(forColumn: colId) }
+        }
+        drillColumns.removeAll(); displacedFilters.removeAll()
         updateDrillChip()
     }
 
