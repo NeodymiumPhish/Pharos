@@ -26,6 +26,11 @@ Rust/SQLite surface.
 
 - Per-axis independent bin granularity on heatmaps (both binnable axes share one
   bin setting).
+- **Numeric binning of heatmap axes** (deferred): heatmap X/Y support temporal
+  (Time Bucket) binning, but a numeric heatmap axis is treated as discrete
+  values with per-axis top-N capping rather than range bins. Uncommon case;
+  top-N keeps cell counts bounded. (Categorical/temporal heatmaps are fully
+  supported.)
 - Brushing on pie / heatmap / gantt (click only for those in v2).
 - Spawning follow-up SQL queries from a drill (we filter the loaded rows, not the
   database).
