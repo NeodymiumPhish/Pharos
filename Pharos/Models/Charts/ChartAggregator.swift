@@ -7,6 +7,7 @@ enum ChartAggregator {
         switch config.chartType {
         case .gantt:   return aggregateGantt(result, config)
         case .scatter: return aggregateScatter(result, config)
+        case .heatmap: return aggregateHeatmap(result, config)
         default:       return aggregateCategorical(result, config)
         }
     }
@@ -227,6 +228,89 @@ enum ChartAggregator {
         out.ganttBars = bars
         out.plottedRowCount = bars.count
         out.totalLoadedRowCount = result.rows.count
+        return out
+    }
+
+    // MARK: - Heatmap
+
+    private static func aggregateHeatmap(_ result: QueryResult, _ config: ChartConfig) -> ChartData {
+        guard let xRef = config.mappings[.x], let yRef = config.mappings[.y],
+              xRef.index < result.columns.count, yRef.index < result.columns.count else {
+            return .empty(.noColumns)
+        }
+        let valRef = config.mappings[.value]
+        let isCount = config.aggregation == .count || valRef == nil
+        struct Key: Hashable { let x: String; let y: String }
+        var sums: [Key: Double] = [:]; var counts: [Key: Int] = [:]
+        var mins: [Key: Double] = [:]; var maxs: [Key: Double] = [:]
+        var xOrder: [String] = []; var xSeen = Set<String>()
+        var yOrder: [String] = []; var ySeen = Set<String>()
+        var drillOf: [Key: DrillKey] = [:]
+        var saw = false
+
+        // Axis label + per-axis drill sub-key (reuse categorical binning rules).
+        func axis(_ v: AnyCodable, _ ref: ColumnRef, _ kind: ColumnKind) -> (String, DrillKey) {
+            if kind == .temporal, config.temporalBin != .none, case let s as String = v.value, let d = ValueCoercion.date(from: s) {
+                let label = binLabel(d, bin: config.temporalBin)
+                if let (lo, hi) = temporalBinBounds(d, bin: config.temporalBin) { return (label, .range(ref, lo, hi, .temporal)) }
+                return (label, .anyOf(ref, [label]))
+            }
+            if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
+            return (v.displayString, .anyOf(ref, [v.displayString]))
+        }
+        let xKind = ColumnClassifier.kind(forDataType: result.columns[xRef.index].dataType)
+        let yKind = ColumnClassifier.kind(forDataType: result.columns[yRef.index].dataType)
+
+        for row in result.rows {
+            guard xRef.index < row.count, yRef.index < row.count else { continue }
+            let (xl, xk) = axis(row[xRef.index], xRef, xKind)
+            let (yl, yk) = axis(row[yRef.index], yRef, yKind)
+            let key = Key(x: xl, y: yl)
+            if !xSeen.contains(xl) { xSeen.insert(xl); xOrder.append(xl) }
+            if !ySeen.contains(yl) { ySeen.insert(yl); yOrder.append(yl) }
+            drillOf[key] = .compound([xk, yk])
+            if isCount { counts[key, default: 0] += 1; saw = true; continue }
+            guard let vr = valRef, vr.index < row.count, let val = ValueCoercion.double(from: row[vr.index]) else { continue }
+            saw = true
+            sums[key, default: 0] += val; counts[key, default: 0] += 1
+            mins[key] = mins[key].map { Swift.min($0, val) } ?? val
+            maxs[key] = maxs[key].map { Swift.max($0, val) } ?? val
+        }
+        if !saw { return .empty(.allNull) }
+
+        func value(_ k: Key) -> Double {
+            switch config.aggregation {
+            case .sum: return sums[k] ?? 0
+            case .count: return Double(counts[k] ?? 0)
+            case .avg: return (counts[k] ?? 0) > 0 ? (sums[k] ?? 0) / Double(counts[k]!) : 0
+            case .min: return mins[k] ?? 0
+            case .max: return maxs[k] ?? 0
+            }
+        }
+
+        // Top-N per axis by marginal total.
+        func topN(_ labels: [String], axisIsX: Bool) -> [String] {
+            let cap = config.display.topNCategories
+            guard labels.count > cap else { return labels }
+            func total(_ l: String) -> Double {
+                labels.isEmpty ? 0 : (axisIsX ? yOrder : xOrder).reduce(0) { acc, other in
+                    acc + value(axisIsX ? Key(x: l, y: other) : Key(x: other, y: l))
+                }
+            }
+            return Array(labels.sorted { total($0) > total($1) }.prefix(cap))
+        }
+        let xs = topN(xOrder, axisIsX: true); let ys = topN(yOrder, axisIsX: false)
+        let truncated = xs.count < xOrder.count || ys.count < yOrder.count
+
+        var out = ChartData()
+        for x in xs { for y in ys {
+            let key = Key(x: x, y: y)
+            guard sums[key] != nil || counts[key] != nil else { continue }   // blank cells not drawn
+            out.heatmapCells.append(HeatmapCell(x: x, y: y, value: value(key), drill: drillOf[key]))
+        } }
+        out.plottedRowCount = out.heatmapCells.count
+        out.totalLoadedRowCount = result.rows.count
+        out.wasTruncated = truncated
         return out
     }
 

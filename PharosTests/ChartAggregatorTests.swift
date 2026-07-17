@@ -160,5 +160,26 @@ func runTests() {
     if case .anyOf(_, let dropped)? = otherDrillPt?.drill { expect(dropped.count == 25, "Other drill lists the 25 dropped labels") }
     else { expect(false, "Other drill is anyOf of dropped labels") }
 
+    // --- heatmap: count cross-tab (no value) ---
+    let hm = makeResult([("region","text"),("tier","text")],
+                        [["us","a"],["us","a"],["us","b"],["eu","a"]])
+    var hmc = ChartConfig(chartType: .heatmap); hmc.aggregation = .count
+    hmc.mappings[.x] = ColumnRef(index: 0, name: "region")
+    hmc.mappings[.y] = ColumnRef(index: 1, name: "tier")
+    let hmo = ChartAggregator.aggregate(hm, hmc)
+    let usa = hmo.heatmapCells.first { $0.x == "us" && $0.y == "a" }
+    expect(usa?.value == 2, "heatmap us/a count = 2")
+    if case .compound(let keys)? = usa?.drill { expect(keys.count == 2, "heatmap cell drill is compound (x and y)") }
+    else { expect(false, "heatmap cell drill is compound") }
+
+    // --- heatmap: aggregate a value ---
+    let hm2 = makeResult([("region","text"),("tier","text"),("amt","numeric")],
+                         [["us","a","10"],["us","a","5"]])
+    var hm2c = ChartConfig(chartType: .heatmap); hm2c.aggregation = .sum
+    hm2c.mappings[.x] = ColumnRef(index: 0, name: "region")
+    hm2c.mappings[.y] = ColumnRef(index: 1, name: "tier")
+    hm2c.mappings[.value] = ColumnRef(index: 2, name: "amt")
+    expect(ChartAggregator.aggregate(hm2, hm2c).heatmapCells.first?.value == 15, "heatmap sum = 15")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
