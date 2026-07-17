@@ -318,6 +318,14 @@ Append inside `runTests()` (helpers `makeResult`, `expect` already exist):
     expect(hout.series[0].points.allSatisfy { $0.drill != nil }, "each bin carries a drill key")
     if case .range(_, _, _, .numeric)? = hout.series[0].points.first?.drill {} else { expect(false, "numeric bin drill is a numeric range") }
 
+    // --- numeric bins render ASCENDING by bin, regardless of row order ---
+    let shuf = makeResult([("n","int4")], [["95"],["5"],["55"],["15"]])
+    var shc = ChartConfig(chartType: .bar, numericBin: .b10); shc.aggregation = .count
+    shc.mappings[.category] = ColumnRef(index: 0, name: "n")
+    let shOut = ChartAggregator.aggregate(shuf, shc)
+    let los = shOut.series[0].points.map { Double($0.xLabel.split(separator: "–").first.map(String.init) ?? "") ?? 0 }
+    expect(los == los.sorted(), "numeric bins ascending by bin start")
+
     // --- low-cardinality numeric stays discrete under .auto ---
     let rating = makeResult([("r","int4"),("v","numeric")],
                             [["1","5"],["2","3"],["1","2"],["3","9"]])
@@ -492,6 +500,12 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
 
         // Top-N — skip for binned numeric/temporal axes (bounded/ordered).
         var categories = order; var truncated = false; var otherCount = 0
+        // Numeric bins must render ascending by bin (bar/line/area set no
+        // chartXScale domain, so emit order IS the axis order). order[] is
+        // first-appearance, which is arbitrary for an unsorted numeric column.
+        if numericBinOf != nil {
+            categories = numericBins.map { binRangeLabel($0.lo, $0.hi) }.filter { seen.contains($0) }
+        }
         let axisIsBinned = (numericBinOf != nil) || (catKind == .temporal && config.temporalBin != .none)
         if !axisIsBinned && categories.count > config.display.topNCategories {
             let keys = sums.keys.isEmpty ? Array(counts.keys) : Array(sums.keys)
@@ -504,8 +518,14 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
             categories = kept
             if truncated {
                 categories.append("Other")
-                // Other drill = anyOf of dropped RAW labels (skip null/binned labels which can't appear here).
-                drillOf["Other"] = .anyOf(catRef, dropped.compactMap { rawOf[$0] })
+                // Other drill = the dropped RAW labels; if the null bucket was
+                // among the dropped, include it via .blank so clicking "Other"
+                // also selects the null rows folded into the bar.
+                let droppedRaw = dropped.compactMap { rawOf[$0] }
+                let droppedNull = dropped.contains { labelIsNull[$0] == true }
+                drillOf["Other"] = droppedNull
+                    ? .compound([.anyOf(catRef, droppedRaw), .blank(catRef)])
+                    : .anyOf(catRef, droppedRaw)
             }
             let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
             for s in foldSeries {
@@ -547,9 +567,10 @@ Replace `aggregateCategorical` with the version below. Key changes: value requir
 - [ ] **Step 6: Add `temporalBinBounds` helper** (epoch bounds for a temporal bin; used by drill range keys)
 
 ```swift
-    /// [startEpoch, lastInstantEpoch] for the temporal bin containing `date`.
-    /// lastInstant = next bin start minus one microsecond, so an inclusive
-    /// between over display strings includes the whole bucket.
+    /// [startEpoch, lastInstantEpoch] (epoch seconds) for the temporal bin
+    /// containing `date`. lastInstant = next bin start minus one microsecond;
+    /// the drill translator formats these so an inclusive between over the grid's
+    /// display strings includes the whole bucket.
     private static func temporalBinBounds(_ date: Date, bin: TemporalBin) -> (Double, Double)? {
         var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
         let comp: Calendar.Component
