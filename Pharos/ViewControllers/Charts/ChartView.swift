@@ -53,23 +53,26 @@ struct ChartCanvas: View {
         }
     }
 
-    // Gantt row height. Swift Charts divides the plot height across the
-    // categories, so with few rows each band (and its bar) balloons to fill the
-    // pane. Capping the plot area at rowCount × maxRowHeight keeps few-row charts
-    // compact; with many rows the cap exceeds the pane so it fills normally.
-    private static let maxGanttRowHeight: CGFloat = 30
+    // Gantt renders each row at a fixed height, top-down, and scrolls vertically
+    // when the rows exceed the visible area (rather than compressing to fit the
+    // pane). A plain ScrollView with a fixed-height Chart is used — NOT a
+    // GeometryReader (an earlier GeometryReader-wrapped version failed to lay out
+    // the plot area in the host). Note: the time axis sits at the bottom of the
+    // scrolled content.
+    private static let ganttRowHeight: CGFloat = 60
 
     @ViewBuilder private var ganttChart: some View {
         let rowCount = max(data.ganttBars.count, 1)
-        Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
-            BarMark(
-                xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
-                y: .value("Task", bar.label)
-            )
-        }
-        .chartPlotStyle { plotArea in
-            plotArea.frame(maxHeight: CGFloat(rowCount) * Self.maxGanttRowHeight)
+        ScrollView(.vertical) {
+            Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
+                BarMark(
+                    xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                    xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
+                    y: .value("Task", bar.label)
+                )
+            }
+            .frame(height: CGFloat(rowCount) * Self.ganttRowHeight)
+            .frame(maxWidth: .infinity)
         }
     }
 
