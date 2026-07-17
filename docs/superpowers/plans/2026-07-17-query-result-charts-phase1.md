@@ -510,6 +510,10 @@ func runTests() {
     expect(ValueCoercion.date(from: "2024-01-15") != nil, "date only")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00+00") != nil, "timestamptz")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00") != nil, "timestamp no tz")
+    // PostgreSQL emits fractional seconds by default (now(), created_at, …).
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.123456+00") != nil, "timestamptz fractional")
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.5") != nil, "timestamp fractional short")
+    expect(ValueCoercion.date(from: "2024-01-15T12:30:00.123Z") != nil, "iso fractional Z")
     expect(ValueCoercion.date(from: "garbage") == nil, "bad date → nil")
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
@@ -591,15 +595,21 @@ enum ValueCoercion {
     }
 
     static func date(from s: String) -> Date? {
-        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        var trimmed = s.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return nil }
+        // Strip fractional seconds — PostgreSQL emits them by default for
+        // timestamp/timestamptz (e.g. ":00.123456"). Sub-second precision is
+        // irrelevant for binning/gantt, and stripping handles any digit count
+        // (DateFormatter's fixed .SSSSSS would be brittle across 1–6 digits).
+        if let r = trimmed.range(of: #"(?<=:\d{2})\.\d+"#, options: .regularExpression) {
+            trimmed.removeSubrange(r)
+        }
         for f in dateFormatters {
             if let d = f.date(from: trimmed) { return d }
         }
         // PG uses "+00" (2-digit) offsets; normalize to "+0000" and retry.
-        if let range = trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) {
+        if trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) != nil {
             let normalized = trimmed + "00"
-            _ = range
             for f in dateFormatters {
                 if let d = f.date(from: normalized) { return d }
             }
