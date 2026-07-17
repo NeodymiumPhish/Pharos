@@ -45,15 +45,21 @@ enum ValueCoercion {
     }
 
     static func date(from s: String) -> Date? {
-        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        var trimmed = s.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return nil }
+        // Strip fractional seconds — PostgreSQL emits them by default for
+        // timestamp/timestamptz (e.g. ":00.123456"). Sub-second precision is
+        // irrelevant for binning/gantt, and stripping handles any digit count
+        // (DateFormatter's fixed .SSSSSS would be brittle across 1–6 digits).
+        if let r = trimmed.range(of: #"(?<=:\d{2})\.\d+"#, options: .regularExpression) {
+            trimmed.removeSubrange(r)
+        }
         for f in dateFormatters {
             if let d = f.date(from: trimmed) { return d }
         }
         // PG uses "+00" (2-digit) offsets; normalize to "+0000" and retry.
-        if let range = trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) {
+        if trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) != nil {
             let normalized = trimmed + "00"
-            _ = range
             for f in dateFormatters {
                 if let d = f.date(from: normalized) { return d }
             }

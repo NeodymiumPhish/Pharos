@@ -29,6 +29,10 @@ func runTests() {
     expect(ValueCoercion.date(from: "2024-01-15") != nil, "date only")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00+00") != nil, "timestamptz")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00") != nil, "timestamp no tz")
+    // PostgreSQL emits fractional seconds by default (now(), created_at, …).
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.123456+00") != nil, "timestamptz fractional")
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.5") != nil, "timestamp fractional short")
+    expect(ValueCoercion.date(from: "2024-01-15T12:30:00.123Z") != nil, "iso fractional Z")
     expect(ValueCoercion.date(from: "garbage") == nil, "bad date → nil")
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
