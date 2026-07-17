@@ -34,7 +34,9 @@ enum SqlPushdownGenerator {
     }
 
     private static func aggExpr(_ config: ChartConfig, columns: [ColumnDef]) -> String? {
-        if config.aggregation == .count || config.mappings[.value] == nil { return "count(*)" }
+        if config.aggregation == .count { return "count(*)" }
+        // Non-count requires a value column (mirror the client aggregator); if
+        // absent, push-down is unavailable (generate() returns nil).
         guard let v = resolve(config, .value, columns) else { return nil }
         let c = quoteIdent(v.name)
         switch config.aggregation {
@@ -47,9 +49,11 @@ enum SqlPushdownGenerator {
     private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef) -> (expr: String, numericBins: Int?) {
         let kind = ColumnClassifier.kind(forDataType: col.dataType)
         let id = quoteIdent(col.name)
-        if kind == .temporal, config.temporalBin != .none {
+        let dt = col.dataType.lowercased()
+        let isDateTruncable = dt.hasPrefix("date") || dt.hasPrefix("timestamp")
+        if kind == .temporal, config.temporalBin != .none, isDateTruncable {
             let unit = truncUnit(config.temporalBin)
-            let tz = col.dataType.lowercased().hasPrefix("timestamptz") || col.dataType.lowercased().contains("with time zone")
+            let tz = dt.hasPrefix("timestamptz") || dt.contains("with time zone")
             let colExpr = tz ? "\(id) AT TIME ZONE 'UTC'" : id
             return ("date_trunc('\(unit)', \(colExpr))", nil)
         }
@@ -70,7 +74,7 @@ enum SqlPushdownGenerator {
         guard let catCol = resolve(config, .category, columns) else { return nil }
         let series = resolve(config, .series, columns)
         let (catExpr, nbins) = axisExpr(config, catCol)
-        let layout = PushdownLayout(kind: .categorical, hasSeries: series != nil, numericBins: nbins)
+        let layout = PushdownLayout(kind: .categorical, hasSeries: nbins == nil && series != nil, numericBins: nbins)
 
         if let n = nbins {   // numeric width_bucket needs the range CTE
             let id = quoteIdent(catCol.name)

@@ -38,6 +38,28 @@ func runTests() {
     contains(num?.sql, "LEAST(", "width_bucket clamped with LEAST")
     contains(num?.sql, "_r.lo = _r.hi", "single-bucket lo=hi guard")
 
+    // series: _series column present, layout.hasSeries true
+    let ser = SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1, .series: 2], .sum), userSQL: src, columns: cols)
+    contains(ser?.sql, "AS _series", "series emits _series column")
+    expect(ser?.layout.hasSeries == true, "series layout.hasSeries true")
+
+    // numeric-bin + series: series dropped, no _series, layout.hasSeries false
+    let ns = SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1, .series: 0], .sum, nb: .b20), userSQL: src, columns: cols)
+    expect(ns?.sql.contains("_series") == false, "numeric-bin drops series (no _series in SQL)")
+    expect(ns?.layout.hasSeries == false, "numeric-bin layout.hasSeries false (matches SQL)")
+    contains(ns?.sql, "ORDER BY _bucket", "numeric bins ordered by bucket, not _val")
+
+    // non-count aggregation with no value mapping → unavailable (nil), not count(*)
+    expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0], .sum), userSQL: src, columns: cols) == nil, "sum without value → nil")
+
+    // time-of-day temporal column is NOT date_trunc'd (would error); treated discrete
+    let tcols = cols + [ColumnDef(name: "tod", dataType: "time")]
+    var todCfg = ChartConfig(chartType: .bar, aggregation: .sum, temporalBin: .hour)
+    todCfg.mappings[.category] = ColumnRef(index: 4, name: "tod")
+    todCfg.mappings[.value] = ColumnRef(index: 1, name: "amt")
+    let tod = SqlPushdownGenerator.generate(todCfg, userSQL: "SELECT 1", columns: tcols)
+    expect(tod?.sql.contains("date_trunc") == false, "time column not date_trunc'd")
+
     // heatmap groups by x,y
     let hm = SqlPushdownGenerator.generate(cfg(.heatmap, [.x: 0, .y: 2], .count), userSQL: src, columns: cols)
     contains(hm?.sql, "GROUP BY", "heatmap groups")
