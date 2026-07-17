@@ -1384,6 +1384,7 @@ import Charts
 struct ChartCanvas: View {
     let data: ChartData
     let chartType: ChartType
+    var temporalBin: TemporalBin = .auto
 
     var body: some View {
         if let reason = data.emptyReason {
@@ -1449,6 +1450,18 @@ struct ChartCanvas: View {
         return Date(timeIntervalSince1970: lo)...Date(timeIntervalSince1970: max(hi, lo + 1))
     }
 
+    // Tick granularity for the gantt time axis, driven by the Time Bucket control.
+    private var ganttAxisValues: AxisMarkValues {
+        switch temporalBin {
+        case .hour:  return .stride(by: .hour)
+        case .day:   return .stride(by: .day)
+        case .week:  return .stride(by: .weekOfYear)
+        case .month: return .stride(by: .month)
+        case .year:  return .stride(by: .year)
+        case .auto, .none: return .automatic
+        }
+    }
+
     @ViewBuilder private var ganttChart: some View {
         let bars = data.ganttBars
         let domain = ganttDomain(bars)
@@ -1462,7 +1475,7 @@ struct ChartCanvas: View {
                 .foregroundStyle(.clear)
             }
             .chartXScale(domain: domain)
-            .chartXAxis { AxisMarks(position: .top) }
+            .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues) }
             .chartYAxis(.hidden)
             .frame(height: Self.ganttAxisHeight)
 
@@ -1593,7 +1606,8 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
-                ChartCanvas(data: model.data, chartType: model.config.chartType)
+                ChartCanvas(data: model.data, chartType: model.config.chartType,
+                            temporalBin: model.config.temporalBin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)
@@ -1635,7 +1649,7 @@ struct ChartRootView: View {
                     }.labelsHidden()
                 }
 
-                if categoryIsTemporal {
+                if showTimeBucket {
                     railLabel("Time bucket")
                     Picker("", selection: Binding(get: { model.config.temporalBin },
                                                   set: { b in model.update { $0.temporalBin = b } })) {
@@ -1658,8 +1672,13 @@ struct ChartRootView: View {
     private var usesAggregation: Bool {
         switch model.config.chartType { case .scatter, .gantt: return false; default: return true }
     }
-    private var categoryIsTemporal: Bool {
-        model.kind(model.config.mappings[.category]) == .temporal
+    // Show the Time Bucket control when the axis is date-based: the mapped
+    // category for categorical charts, or the Start column for gantt.
+    private var showTimeBucket: Bool {
+        if model.config.chartType == .gantt {
+            return model.kind(model.config.mappings[.start]) == .temporal
+        }
+        return model.kind(model.config.mappings[.category]) == .temporal
     }
     private func roleLabel(_ r: ChartColumnRole) -> String {
         switch r {

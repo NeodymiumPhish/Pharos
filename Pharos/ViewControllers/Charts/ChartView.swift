@@ -4,6 +4,7 @@ import Charts
 struct ChartCanvas: View {
     let data: ChartData
     let chartType: ChartType
+    var temporalBin: TemporalBin = .auto
 
     var body: some View {
         if let reason = data.emptyReason {
@@ -69,6 +70,18 @@ struct ChartCanvas: View {
         return Date(timeIntervalSince1970: lo)...Date(timeIntervalSince1970: max(hi, lo + 1))
     }
 
+    // Tick granularity for the gantt time axis, driven by the Time Bucket control.
+    private var ganttAxisValues: AxisMarkValues {
+        switch temporalBin {
+        case .hour:  return .stride(by: .hour)
+        case .day:   return .stride(by: .day)
+        case .week:  return .stride(by: .weekOfYear)
+        case .month: return .stride(by: .month)
+        case .year:  return .stride(by: .year)
+        case .auto, .none: return .automatic
+        }
+    }
+
     @ViewBuilder private var ganttChart: some View {
         let bars = data.ganttBars
         let domain = ganttDomain(bars)
@@ -82,7 +95,7 @@ struct ChartCanvas: View {
                 .foregroundStyle(.clear)
             }
             .chartXScale(domain: domain)
-            .chartXAxis { AxisMarks(position: .top) }
+            .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues) }
             .chartYAxis(.hidden)
             .frame(height: Self.ganttAxisHeight)
 
