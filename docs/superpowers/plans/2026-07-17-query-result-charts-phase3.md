@@ -212,9 +212,13 @@ func runTests() {
     // non-count aggregation with no value mapping → unavailable (nil), not count(*)
     expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0], .sum), userSQL: src, columns: cols) == nil, "sum without value → nil")
 
-    // time-of-day temporal column is NOT date_trunc'd (would error); treated discrete
+    // time-of-day temporal column is NOT date_trunc'd (would error); treated discrete.
+    // (Build the config directly — `cfg` closes over the 4-element `cols`, so index 4 would be out of range.)
     let tcols = cols + [ColumnDef(name: "tod", dataType: "time")]
-    let tod = SqlPushdownGenerator.generate(cfg(.bar, [.category: 4, .value: 1], .sum, tb: .hour), userSQL: "SELECT 1", columns: tcols)
+    var todCfg = ChartConfig(chartType: .bar, aggregation: .sum, temporalBin: .hour)
+    todCfg.mappings[.category] = ColumnRef(index: 4, name: "tod")
+    todCfg.mappings[.value] = ColumnRef(index: 1, name: "amt")
+    let tod = SqlPushdownGenerator.generate(todCfg, userSQL: "SELECT 1", columns: tcols)
     expect(tod?.sql.contains("date_trunc") == false, "time column not date_trunc'd")
 
     // heatmap groups by x,y
