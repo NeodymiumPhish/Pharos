@@ -119,6 +119,14 @@ func runTests() {
     expect(hout.series[0].points.allSatisfy { $0.drill != nil }, "each bin carries a drill key")
     if case .range(_, _, _, .numeric)? = hout.series[0].points.first?.drill {} else { expect(false, "numeric bin drill is a numeric range") }
 
+    // --- numeric bins render ASCENDING by bin, regardless of row order ---
+    let shuf = makeResult([("n","int4")], [["95"],["5"],["55"],["15"]])
+    var shc = ChartConfig(chartType: .bar, numericBin: .b10); shc.aggregation = .count
+    shc.mappings[.category] = ColumnRef(index: 0, name: "n")
+    let shOut = ChartAggregator.aggregate(shuf, shc)
+    let los = shOut.series[0].points.map { Double($0.xLabel.split(separator: "–").first.map(String.init) ?? "") ?? 0 }
+    expect(los == los.sorted(), "numeric bins ascending by bin start")
+
     // --- low-cardinality numeric stays discrete under .auto ---
     let rating = makeResult([("r","int4"),("v","numeric")],
                             [["1","5"],["2","3"],["1","2"],["3","9"]])

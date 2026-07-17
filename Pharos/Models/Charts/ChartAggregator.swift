@@ -105,6 +105,12 @@ enum ChartAggregator {
 
         // Top-N — skip for binned numeric/temporal axes (bounded/ordered).
         var categories = order; var truncated = false; var otherCount = 0
+        // Numeric bins must render ascending by bin (bar/line/area set no
+        // chartXScale domain, so emit order IS the axis order). order[] is
+        // first-appearance, which is arbitrary for an unsorted numeric column.
+        if numericBinOf != nil {
+            categories = numericBins.map { binRangeLabel($0.lo, $0.hi) }.filter { seen.contains($0) }
+        }
         let axisIsBinned = (numericBinOf != nil) || (catKind == .temporal && config.temporalBin != .none)
         if !axisIsBinned && categories.count > config.display.topNCategories {
             let keys = sums.keys.isEmpty ? Array(counts.keys) : Array(sums.keys)
@@ -117,8 +123,14 @@ enum ChartAggregator {
             categories = kept
             if truncated {
                 categories.append("Other")
-                // Other drill = anyOf of dropped RAW labels (skip null/binned labels which can't appear here).
-                drillOf["Other"] = .anyOf(catRef, dropped.compactMap { rawOf[$0] })
+                // Other drill = the dropped RAW labels; if the null bucket was
+                // among the dropped, include it via .blank so clicking "Other"
+                // also selects the null rows folded into the bar.
+                let droppedRaw = dropped.compactMap { rawOf[$0] }
+                let droppedNull = dropped.contains { labelIsNull[$0] == true }
+                drillOf["Other"] = droppedNull
+                    ? .compound([.anyOf(catRef, droppedRaw), .blank(catRef)])
+                    : .anyOf(catRef, droppedRaw)
             }
             let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
             for s in foldSeries {
@@ -260,14 +272,6 @@ enum ChartAggregator {
         guard let start = cal.dateInterval(of: comp, for: date)?.start,
               let next = cal.date(byAdding: comp, value: 1, to: start) else { return nil }
         return (start.timeIntervalSince1970, next.timeIntervalSince1970 - 0.000001)
-    }
-
-    /// A category's display label, applying temporal binning when applicable.
-    private static func categoryLabel(_ v: AnyCodable, kind: ColumnKind, bin: TemporalBin) -> String {
-        if kind == .temporal, bin != .none, case let s as String = v.value, let date = ValueCoercion.date(from: s) {
-            return binLabel(date, bin: bin)
-        }
-        return v.displayString
     }
 
     private static func binLabel(_ date: Date, bin: TemporalBin) -> String {
