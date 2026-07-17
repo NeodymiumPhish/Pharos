@@ -333,6 +333,12 @@ class ContentViewController: NSViewController {
             name: .openWorkspace, object: nil
         )
 
+        // Observe "show SQL in inspector" from a workspace-history preview row
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleShowSQLInInspector(_:)),
+            name: .showSQLInInspector, object: nil
+        )
+
         // Observe "run query in new tab" from schema browser context menu
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRunQueryInNewTab(_:)),
@@ -1963,6 +1969,13 @@ extension ContentViewController {
         } catch {
             NSLog("Failed to load history results: \(error)")
         }
+    }
+
+    @objc private func handleShowSQLInInspector(_ notification: Notification) {
+        guard let sql = notification.userInfo?["sql"] as? String else { return }
+        guard let splitVC = parent as? PharosSplitViewController else { return }
+        splitVC.showInspector()
+        splitVC.inspectorVC.showSQL(sql)
     }
 
     @objc private func handleOpenWorkspace(_ notification: Notification) {

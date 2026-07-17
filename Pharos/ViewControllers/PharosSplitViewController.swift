@@ -81,4 +81,14 @@ class PharosSplitViewController: NSSplitViewController {
         guard let item = splitViewItems.last else { return }
         item.animator().isCollapsed.toggle()
     }
+
+    /// Reveals the inspector if it's currently collapsed. Unlike
+    /// `pharosToggleInspector`, this never collapses an already-visible
+    /// inspector — used when content is about to be pushed into it
+    /// programmatically (e.g. showing a preview row's SQL).
+    func showInspector() {
+        if let item = splitViewItems.last, item.isCollapsed {
+            item.animator().isCollapsed = false
+        }
+    }
 }

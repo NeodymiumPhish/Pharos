@@ -200,6 +200,19 @@ class InspectorViewController: NSViewController {
         }
     }
 
+    /// Shows a query's raw SQL text as wrapped, monospaced, selectable body
+    /// text — used when a workspace-history preview row is selected.
+    func showSQL(_ sql: String, title: String = "Query") {
+        beginDetailSection(title: title, subtitle: "")
+
+        let label = makeFieldValueLabel(sql, color: .labelColor)
+        label.isSelectable = true
+        stackView.addArrangedSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
     func showAggregation(
         columns: [ColumnDef],
         rows: [[AnyCodable]],
