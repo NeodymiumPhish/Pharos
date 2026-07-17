@@ -64,6 +64,7 @@ pub async fn execute_query(
     query_id: Option<String>,
     limit: Option<u32>,
     schema: Option<String>,
+    source: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
     let pool = state
@@ -223,6 +224,7 @@ pub async fn execute_query(
             schema: schema.clone(),
             column_count: Some(columns.len() as i64),
             table_names,
+            source: source.clone(),
         };
 
         // Serialize results for caching (skip if too large)
@@ -433,6 +435,7 @@ pub async fn execute_statement(
             schema: schema.clone(),
             column_count: None,
             table_names,
+            source: None,
         };
         if let Ok(db) = state.metadata_db.lock() {
             if let Err(e) = sqlite::save_query_history(&db, &entry, None, None) {

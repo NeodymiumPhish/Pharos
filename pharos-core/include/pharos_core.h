@@ -96,6 +96,7 @@ void pharos_execute_query(const char *connection_id,
                           const char *query_id,
                           int32_t limit,
                           const char *schema,
+                          const char *source,
                           AsyncCallback callback,
                           void *context);
 

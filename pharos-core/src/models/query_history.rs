@@ -17,4 +17,8 @@ pub struct QueryHistoryEntry {
     pub column_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub table_names: Option<String>,
+    /// Tags the origin of a run (e.g. "chart-aggregation" for a push-down
+    /// server-aggregation query). `None` for normal, untagged runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }

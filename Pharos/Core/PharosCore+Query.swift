@@ -23,14 +23,17 @@ extension PharosCore {
         sql: String,
         queryId: String? = nil,
         limit: Int32 = 1000,
-        schema: String? = nil
+        schema: String? = nil,
+        source: String? = nil
     ) async throws -> QueryResult {
         return try await withAsyncCallback { callback, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
                     withOptionalCString(queryId) { cQid in
                         withOptionalCString(schema) { cSchema in
-                            pharos_execute_query(cConn, cSql, cQid, limit, cSchema, callback, context)
+                            withOptionalCString(source) { cSource in
+                                pharos_execute_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, context)
+                            }
                         }
                     }
                 }
