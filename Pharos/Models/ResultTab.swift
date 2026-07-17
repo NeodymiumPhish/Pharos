@@ -24,6 +24,12 @@ struct ResultTab: Identifiable {
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
+    /// Chart configuration for this result (nil until the user opens Chart mode).
+    var chartConfig: ChartConfig?
+
+    /// Whether this result tab currently shows the grid or a chart.
+    var resultViewMode: ResultViewMode = .grid
+
     /// Whether the editor text has been modified since this result was produced.
     var isStale: Bool = false
 
