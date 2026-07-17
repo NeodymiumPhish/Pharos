@@ -7,6 +7,8 @@ extension Notification.Name {
     static let workspaceHistoryDidChange = Notification.Name("PharosWorkspaceHistoryDidChange")
     /// Posted to request reopening a full workspace into a live editor tab.
     static let openWorkspace = Notification.Name("PharosOpenWorkspace")
+    /// Posted when a preview row's SQL should be shown in the Inspector.
+    static let showSQLInInspector = Notification.Name("PharosShowSQLInInspector")
 }
 
 // MARK: - Two-Line Cell View
@@ -726,24 +728,39 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         if let label = meta.customLabel, !label.isEmpty {
             cell.primaryLabel.stringValue = label
+        } else if let tableNames = meta.tableNames, !tableNames.isEmpty {
+            cell.primaryLabel.stringValue = tableNames
         } else {
             let firstLine = meta.sql.components(separatedBy: .newlines).first ?? meta.sql
             cell.primaryLabel.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
         }
 
-        if meta.hasResults, let count = meta.rowCount {
-            cell.secondaryLabel.textColor = .secondaryLabelColor
-            cell.secondaryLabel.stringValue = "\(formatRowCount(Int64(count))) row\(count == 1 ? "" : "s")"
-        } else {
-            cell.secondaryLabel.textColor = .tertiaryLabelColor
-            cell.secondaryLabel.stringValue = "SQL only"
+        var parts: [String] = []
+        if let columnCount = meta.columnCount {
+            parts.append("\(columnCount) col\(columnCount == 1 ? "" : "s")")
         }
+        if let rowCount = meta.rowCount {
+            parts.append("\(formatRowCount(Int64(rowCount))) row\(rowCount == 1 ? "" : "s")")
+        }
+        cell.secondaryLabel.stringValue = parts.joined(separator: " · ")
+        cell.secondaryLabel.textColor = meta.hasResults ? .secondaryLabelColor : .tertiaryLabelColor
 
         return cell
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard let changed = notification.object as? NSTableView, changed === tableView else {
+            if let changed = notification.object as? NSTableView, changed === previewTable {
+                let selected = previewTable.selectedRowIndexes
+                guard selected.count == 1, let row = selected.first, row < previewResults.count else {
+                    return
+                }
+                NotificationCenter.default.post(
+                    name: .showSQLInInspector,
+                    object: nil,
+                    userInfo: ["sql": previewResults[row].sql]
+                )
+            }
             return // Preview-table selection doesn't drive the sidebar or the preview itself.
         }
         onSelectionChanged?(tableView.selectedRowIndexes.count)
