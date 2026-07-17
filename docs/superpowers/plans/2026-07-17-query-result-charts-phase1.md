@@ -1433,26 +1433,66 @@ struct ChartCanvas: View {
         }
     }
 
-    // Gantt renders each row at a fixed height, top-down, and scrolls vertically
-    // when the rows exceed the visible area (rather than compressing to fit the
-    // pane). A plain ScrollView with a fixed-height Chart is used — NOT a
-    // GeometryReader (an earlier GeometryReader-wrapped version failed to lay out
-    // the plot area in the host). Note: the time axis sits at the bottom of the
-    // scrolled content.
-    private static let ganttRowHeight: CGFloat = 60
+    // Gantt: fixed-height rows, drawn top-down, with the time (x) axis PINNED to
+    // the top of the pane while the rows scroll underneath. To keep the pinned
+    // ruler aligned with the bars, the layout is split into a fixed label gutter +
+    // a shared time scale: a header row (gutter spacer + x-axis-only chart) stays
+    // put, and a scrolling body (labels column + bars chart, x-axis hidden) shares
+    // the same left offset and x-domain so ticks line up with bars.
+    private static let ganttRowHeight: CGFloat = 50
+    private static let ganttLabelWidth: CGFloat = 210
+    private static let ganttAxisHeight: CGFloat = 24
+
+    private func ganttDomain(_ bars: [GanttBar]) -> ClosedRange<Date> {
+        let lo = bars.map(\.start).min() ?? 0
+        let hi = bars.map(\.end).max() ?? 1
+        return Date(timeIntervalSince1970: lo)...Date(timeIntervalSince1970: max(hi, lo + 1))
+    }
 
     @ViewBuilder private var ganttChart: some View {
-        let rowCount = max(data.ganttBars.count, 1)
-        ScrollView(.vertical) {
-            Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
-                BarMark(
-                    xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                    xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
-                    y: .value("Task", bar.label)
-                )
+        let bars = data.ganttBars
+        let rowCount = max(bars.count, 1)
+        let domain = ganttDomain(bars)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Color.clear.frame(width: Self.ganttLabelWidth)
+                Chart {
+                    RectangleMark(
+                        xStart: .value("Start", domain.lowerBound),
+                        xEnd: .value("End", domain.upperBound)
+                    )
+                    .foregroundStyle(.clear)
+                }
+                .chartXScale(domain: domain)
+                .chartXAxis { AxisMarks(position: .top) }
+                .chartYAxis(.hidden)
+                .frame(height: Self.ganttAxisHeight)
             }
-            .frame(height: CGFloat(rowCount) * Self.ganttRowHeight)
-            .frame(maxWidth: .infinity)
+            ScrollView(.vertical) {
+                HStack(alignment: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
+                            Text(bar.label)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(width: Self.ganttLabelWidth,
+                                       height: Self.ganttRowHeight, alignment: .leading)
+                        }
+                    }
+                    Chart(Array(bars.enumerated()), id: \.offset) { _, bar in
+                        BarMark(
+                            xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                            xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
+                            y: .value("Task", bar.label)
+                        )
+                    }
+                    .chartXScale(domain: domain)
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .frame(height: CGFloat(rowCount) * Self.ganttRowHeight)
+                }
+            }
         }
     }
 
