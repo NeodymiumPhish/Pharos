@@ -382,4 +382,9 @@ void pharos_import_csv(const char *connection_id,
  */
  char *pharos_update_result_meta(const char *json);
 
+/**
+ * Update a result's persisted chart view state. `json` = {resultId, json}.
+ */
+ char *pharos_update_result_chart_state(const char *json);
+
 #endif  /* PHAROS_CORE_H */

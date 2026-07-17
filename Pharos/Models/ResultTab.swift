@@ -24,6 +24,17 @@ struct ResultTab: Identifiable {
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
+    /// Chart configuration for this result (nil until the user opens Chart mode).
+    var chartConfig: ChartConfig?
+
+    /// Whether this result tab currently shows the grid or a chart.
+    var resultViewMode: ResultViewMode = .grid
+
+    /// Total row count reported by the source (live `QueryResult.rowCount` on
+    /// execute, `WorkspaceResultMeta.rowCount` on reopen). Used by the chart
+    /// banner to show "N of M loaded rows" when only a subset is in memory.
+    var totalRowCountHint: Int?
+
     /// Whether the editor text has been modified since this result was produced.
     var isStale: Bool = false
 

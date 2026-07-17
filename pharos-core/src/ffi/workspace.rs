@@ -153,3 +153,21 @@ pub extern "C" fn pharos_update_result_meta(json: *const c_char) -> *mut c_char 
         }
     })
 }
+
+/// Update a result's persisted chart view state. `json` = {resultId, json}.
+#[no_mangle]
+pub extern "C" fn pharos_update_result_chart_state(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let s = unsafe { c_str_to_string(json) };
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct U { result_id: String, json: String }
+        let u: U = match serde_json::from_str(&s) { Ok(u) => u, Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()) };
+        match rt.block_on(crate::commands::update_result_chart_state(u.result_id, u.json, state)) {
+            Ok(ok) => to_c_string(if ok { "true" } else { "false" }),
+            Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
+        }
+    })
+}

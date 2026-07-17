@@ -6,7 +6,7 @@
 
 **Architecture:** A pure, UI-free core (`ColumnClassifier`, `ValueCoercion`, `ChartAggregator`) transforms a `QueryResult` + `ChartConfig` into renderer-agnostic `ChartData`. A thin SwiftUI layer (`ChartRootView`) renders `ChartData` and is hosted in the existing AppKit result area via `NSHostingController`, toggled by a segmented control in the action bar. Config + view mode persist as one JSON blob on the `query_history` row backing each workspace result.
 
-**Tech Stack:** Swift 5.10 / AppKit + SwiftUI (Swift Charts), macOS 14.0 target; Rust (`pharos-core`) + rusqlite over C FFI (cbindgen). Pure-logic tests via standalone `swiftc` harnesses in `PharosTests/`; Rust tests via in-file `#[cfg(test)]` modules.
+**Tech Stack:** Swift 5.10 / AppKit + SwiftUI (Swift Charts), macOS 15.0 target; Rust (`pharos-core`) + rusqlite over C FFI (cbindgen). Pure-logic tests via standalone `swiftc` harnesses in `PharosTests/`; Rust tests via in-file `#[cfg(test)]` modules.
 
 **Reference spec:** `docs/superpowers/specs/2026-07-17-query-result-charts-design.md`
 
@@ -58,12 +58,35 @@
 
 ---
 
-## Task 1: AnyCodable convenience initializer
+## Task 1: Bump deployment target to macOS 15 + AnyCodable initializer
+
+The app transitions to a pure macOS 15+ minimum (no known macOS 14 users). This
+unlocks the vectorized Swift Charts `PointPlot` API for dense scatter plots with
+no availability gating and no sampling fallback.
 
 **Files:**
+- Modify: `project.yml`
 - Modify: `Pharos/Models/QueryResult.swift`
 
-- [ ] **Step 1: Add a memberwise initializer to `AnyCodable`**
+- [ ] **Step 1: Raise the deployment target in `project.yml`**
+
+In `project.yml`, change both deployment-target declarations from `14.0` to `15.0`:
+
+```yaml
+options:
+  deploymentTarget:
+    macOS: "15.0"
+```
+
+and
+
+```yaml
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+```
+
+- [ ] **Step 2: Add a memberwise initializer to `AnyCodable`**
 
 In `Pharos/Models/QueryResult.swift`, inside `struct AnyCodable`, immediately above `init(from decoder:)`, add:
 
@@ -74,16 +97,17 @@ init(_ value: Any?) {
 }
 ```
 
-- [ ] **Step 2: Verify the app still builds**
+- [ ] **Step 3: Regenerate the project and verify it builds**
 
 Run: `cd pharos-core && cargo build --release && cd .. && xcodegen generate`
-Expected: Rust builds; project regenerates with no error. (No new file, but confirms baseline.)
+Then build in Xcode (Cmd+B) or: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build 2>&1 | tail -20`
+Expected: Rust builds; project regenerates; app builds against the macOS 15 SDK floor with no error.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add Pharos/Models/QueryResult.swift
-git commit -m "feat(charts): add AnyCodable value initializer"
+git add project.yml Pharos/Models/QueryResult.swift
+git commit -m "feat(charts): target macOS 15; add AnyCodable value initializer"
 ```
 
 ---
@@ -486,6 +510,10 @@ func runTests() {
     expect(ValueCoercion.date(from: "2024-01-15") != nil, "date only")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00+00") != nil, "timestamptz")
     expect(ValueCoercion.date(from: "2024-01-15 12:30:00") != nil, "timestamp no tz")
+    // PostgreSQL emits fractional seconds by default (now(), created_at, …).
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.123456+00") != nil, "timestamptz fractional")
+    expect(ValueCoercion.date(from: "2024-01-15 12:30:00.5") != nil, "timestamp fractional short")
+    expect(ValueCoercion.date(from: "2024-01-15T12:30:00.123Z") != nil, "iso fractional Z")
     expect(ValueCoercion.date(from: "garbage") == nil, "bad date → nil")
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
@@ -567,15 +595,21 @@ enum ValueCoercion {
     }
 
     static func date(from s: String) -> Date? {
-        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        var trimmed = s.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return nil }
+        // Strip fractional seconds — PostgreSQL emits them by default for
+        // timestamp/timestamptz (e.g. ":00.123456"). Sub-second precision is
+        // irrelevant for binning/gantt, and stripping handles any digit count
+        // (DateFormatter's fixed .SSSSSS would be brittle across 1–6 digits).
+        if let r = trimmed.range(of: #"(?<=:\d{2})\.\d+"#, options: .regularExpression) {
+            trimmed.removeSubrange(r)
+        }
         for f in dateFormatters {
             if let d = f.date(from: trimmed) { return d }
         }
         // PG uses "+00" (2-digit) offsets; normalize to "+0000" and retry.
-        if let range = trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) {
+        if trimmed.range(of: #"[+-]\d{2}$"#, options: .regularExpression) != nil {
             let normalized = trimmed + "00"
-            _ = range
             for f in dateFormatters {
                 if let d = f.date(from: normalized) { return d }
             }
@@ -730,6 +764,19 @@ func runTests() {
     expect(bigOut.wasTruncated, "topN: truncation flagged")
     expect(bigOut.series[0].points.contains { $0.xLabel == "Other" }, "topN: Other bucket present")
 
+    // --- top-N under COUNT: Other must sum the dropped categories' counts ---
+    var manyCount: [[String?]] = []
+    for i in 0..<10 { manyCount.append(["k\(i)", "1"]) }   // 10 distinct cats, 1 row each
+    let bigC = makeResult([("k", "text"), ("v", "numeric")], manyCount)
+    var cCfg = ChartConfig(chartType: .bar, temporalBin: .none)
+    cCfg.mappings[.category] = ColumnRef(index: 0, name: "k")
+    cCfg.mappings[.value] = ColumnRef(index: 1, name: "v")
+    cCfg.aggregation = .count
+    cCfg.display.topNCategories = 3
+    let cOut = ChartAggregator.aggregate(bigC, cCfg)
+    let otherPt = cOut.series[0].points.first { $0.xLabel == "Other" }
+    expect(otherPt?.y == 7, "count+topN: Other = 7 dropped rows")   // 10 total - 3 kept
+
     // --- gantt: label + start + end, no aggregation ---
     let tasks = makeResult([("task", "text"), ("s", "date"), ("e", "date")],
                            [["A", "2024-01-01", "2024-01-05"],
@@ -876,12 +923,19 @@ enum ChartAggregator {
             truncated = otherCount > 0
             categories = kept
             if truncated { categories.append("Other") }
-            // Fold dropped categories into Other per series.
-            let seriesNames = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
-            for s in seriesNames {
-                var otherVal = 0.0
-                for c in ranked where !keptSet.contains(c) { otherVal += value(Key(series: s, cat: c)) }
-                if otherVal != 0 { sums[Key(series: s, cat: "Other")] = otherVal }
+            // Fold dropped categories into the Other bucket per series, across
+            // ALL accumulators so every aggregation fn is correct for "Other":
+            // sum→Σsums, count→Σcounts, avg→Σsums/Σcounts, min→min, max→max.
+            let foldSeries = Set(sums.keys.map { $0.series }).union(counts.keys.map { $0.series })
+            for s in foldSeries {
+                let otherKey = Key(series: s, cat: "Other")
+                for c in ranked where !keptSet.contains(c) {
+                    let src = Key(series: s, cat: c)
+                    if let v = sums[src] { sums[otherKey, default: 0] += v }
+                    if let n = counts[src] { counts[otherKey, default: 0] += n }
+                    if let mn = mins[src] { mins[otherKey] = mins[otherKey].map { Swift.min($0, mn) } ?? mn }
+                    if let mx = maxs[src] { maxs[otherKey] = maxs[otherKey].map { Swift.max($0, mx) } ?? mx }
+                }
             }
         }
 
@@ -928,9 +982,13 @@ enum ChartAggregator {
         if pts.isEmpty { return .empty(.allNull) }
 
         var out = ChartData()
-        let cap = 3000
-        if pts.count > cap {
-            let stride = Double(pts.count) / Double(cap)
+        // macOS 15+ renders scatter via the vectorized PointPlot API (Task 11),
+        // which handles 100k+ points, so no sampling is needed in normal use.
+        // Keep only a high safety cap to bound worst-case memory; it flags
+        // wasSampled so the UI can note it in the rare case it trips.
+        let safetyCap = 100_000
+        if pts.count > safetyCap {
+            let stride = Double(pts.count) / Double(safetyCap)
             var sampled: [ChartPoint] = []
             var i = 0.0
             while Int(i) < pts.count { sampled.append(pts[Int(i)]); i += stride }
@@ -1317,7 +1375,7 @@ git commit -m "feat(charts): chartConfig + resultViewMode on ResultTab"
 
 - [ ] **Step 1: Implement the Swift Charts view**
 
-Create `Pharos/ViewControllers/Charts/ChartView.swift`. This renders `ChartData` per `ChartType`. Availability-gate vectorized scatter (`PointPlot`, macOS 15+) with a `PointMark` fallback (macOS 14):
+Create `Pharos/ViewControllers/Charts/ChartView.swift`. This renders `ChartData` per `ChartType`. Scatter uses the vectorized `PointPlot` API (macOS 15+, the app's floor) so dense scatters render exactly and smoothly with no sampling or availability gating:
 
 ```swift
 import SwiftUI
@@ -1326,6 +1384,7 @@ import Charts
 struct ChartCanvas: View {
     let data: ChartData
     let chartType: ChartType
+    var temporalBin: TemporalBin = .auto
 
     var body: some View {
         if let reason = data.emptyReason {
@@ -1358,34 +1417,120 @@ struct ChartCanvas: View {
     }
 
     @ViewBuilder private var pieChart: some View {
-        if #available(macOS 14.0, *) {
-            Chart(data.series.first?.points ?? [], id: \.xLabel) { pt in
-                SectorMark(angle: .value("Value", pt.y), innerRadius: .ratio(0.5))
-                    .foregroundStyle(by: .value("Category", pt.xLabel))
-            }
-        } else {
-            Text("Pie requires macOS 14").foregroundStyle(.secondary)
+        Chart(data.series.first?.points ?? [], id: \.xLabel) { pt in
+            SectorMark(angle: .value("Value", pt.y), innerRadius: .ratio(0.5))
+                .foregroundStyle(by: .value("Category", pt.xLabel))
         }
     }
 
+    // Vectorized scatter (macOS 15+). PointPlot takes the whole collection and
+    // renders 100k+ points efficiently, so no per-point ForEach or sampling.
+    private struct XYPoint: Identifiable { let id = UUID(); let x: Double; let y: Double }
+
     @ViewBuilder private var scatterChart: some View {
-        let pts = data.series.first?.points ?? []
+        let pts = (data.series.first?.points ?? []).map { XYPoint(x: $0.xValue ?? 0, y: $0.y) }
         Chart {
-            ForEach(Array(pts.enumerated()), id: \.offset) { _, pt in
-                PointMark(x: .value("X", pt.xValue ?? 0), y: .value("Y", pt.y))
-            }
+            PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y))
         }
+    }
+
+    // Gantt: each row shows its label on one line with the bar just beneath it,
+    // so long labels stay fully readable. The time (x) axis is PINNED to the top
+    // of the pane; rows scroll underneath. Bars are full-width, and the pinned
+    // header shares the same x-domain, so ticks line up with the bars without any
+    // gutter to align. Each row is its own single-bar chart (a few dozen light
+    // charts) — fine for typical result sizes.
+    private static let ganttBarHeight: CGFloat = 16
+    private static let ganttRowSpacing: CGFloat = 12
+    private static let ganttAxisHeight: CGFloat = 24
+    private static let ganttTickLabelWidth: CGFloat = 72   // est. width of one date label
+
+    private func ganttDomain(_ bars: [GanttBar]) -> ClosedRange<Date> {
+        let lo = bars.map(\.start).min() ?? 0
+        let hi = bars.map(\.end).max() ?? 1
+        return Date(timeIntervalSince1970: lo)...Date(timeIntervalSince1970: max(hi, lo + 1))
+    }
+
+    private func binComponent(_ bin: TemporalBin) -> Calendar.Component? {
+        switch bin {
+        case .hour: return .hour
+        case .day: return .day
+        case .week: return .weekOfYear
+        case .month: return .month
+        case .year: return .year
+        case .auto, .none: return nil
+        }
+    }
+
+    /// Snap a raw stride up to a natural multiple so the tick cadence reads cleanly.
+    private func niceStep(_ raw: Int, for bin: TemporalBin) -> Int {
+        let ladder: [Int]
+        switch bin {
+        case .hour:  ladder = [1, 2, 3, 6, 12, 24]
+        case .day:   ladder = [1, 2, 5, 10, 15, 30]
+        case .week:  ladder = [1, 2, 4, 8, 13, 26]
+        case .month: ladder = [1, 2, 3, 6, 12, 24, 60]
+        case .year:  ladder = [1, 2, 5, 10, 25, 50, 100]
+        case .auto, .none: return max(raw, 1)
+        }
+        return ladder.first(where: { $0 >= raw }) ?? ladder.last ?? max(raw, 1)
+    }
+
+    // Tick values for the gantt time axis. Keeps the Time Bucket's unit but widens
+    // the stride so the label count fits `maxLabels`, preventing the "…" collapse
+    // when a fine bucket spans a long range (e.g. Month over 10 years → yearly).
+    private func ganttAxisValues(domain: ClosedRange<Date>, maxLabels: Int) -> AxisMarkValues {
+        guard let unit = binComponent(temporalBin) else { return .automatic }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let total = max(cal.dateComponents([unit], from: domain.lowerBound, to: domain.upperBound).value(for: unit) ?? 1, 1)
+        let rawStep = max(Int((Double(total) / Double(max(maxLabels, 1))).rounded(.up)), 1)
+        return .stride(by: unit, count: niceStep(rawStep, for: temporalBin))
     }
 
     @ViewBuilder private var ganttChart: some View {
-        Chart(Array(data.ganttBars.enumerated()), id: \.offset) { _, bar in
-            BarMark(
-                xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                xEnd: .value("End", Date(timeIntervalSince1970: bar.end)),
-                y: .value("Task", bar.label)
-            )
+        let bars = data.ganttBars
+        let domain = ganttDomain(bars)
+        VStack(spacing: 0) {
+            // Pinned time-axis header. A height-constrained GeometryReader supplies
+            // the pane width so tick density adapts to the space available.
+            GeometryReader { geo in
+                let maxLabels = max(Int(geo.size.width / Self.ganttTickLabelWidth), 2)
+                Chart {
+                    RectangleMark(
+                        xStart: .value("Start", domain.lowerBound),
+                        xEnd: .value("End", domain.upperBound)
+                    )
+                    .foregroundStyle(.clear)
+                }
+                .chartXScale(domain: domain)
+                .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues(domain: domain, maxLabels: maxLabels)) }
+                .chartYAxis(.hidden)
+            }
+            .frame(height: Self.ganttAxisHeight)
+
+            // Scrolling rows: label on top, bar beneath.
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: Self.ganttRowSpacing) {
+                    ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(bar.label).font(.callout).lineLimit(1)
+                            Chart {
+                                BarMark(
+                                    xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                                    xEnd: .value("End", Date(timeIntervalSince1970: bar.end))
+                                )
+                            }
+                            .chartXScale(domain: domain)
+                            .chartXAxis(.hidden)
+                            .chartYAxis(.hidden)
+                            .frame(height: Self.ganttBarHeight)
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            }
         }
-        .chartScrollableAxes(.vertical)
     }
 
     @ViewBuilder private func emptyState(_ reason: EmptyReason) -> some View {
@@ -1408,7 +1553,7 @@ struct ChartCanvas: View {
 - [ ] **Step 2: Build**
 
 Run: `xcodegen generate` then build (Cmd+B).
-Expected: builds. (No unit test — SwiftUI view; verified visually in Task 15.) If `PointPlot` is later adopted for macOS 15, wrap in `if #available(macOS 15.0, *)`.
+Expected: builds against the macOS 15 SDK. (No unit test — SwiftUI view; verified visually in Task 15.) `PointPlot` and `SectorMark` resolve unconditionally now that the floor is macOS 15.
 
 - [ ] **Step 3: Commit**
 
@@ -1448,7 +1593,12 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
-    func recompute() { data = ChartAggregator.aggregate(result, config) }
+    func recompute() {
+        // A restored result whose cached rows were demoted arrives with no
+        // columns; surface the "re-run to chart" state rather than "pick columns".
+        if columns.isEmpty { data = .empty(.noData); return }
+        data = ChartAggregator.aggregate(result, config)
+    }
 
     func update(_ mutate: (inout ChartConfig) -> Void) {
         mutate(&config)
@@ -1486,7 +1636,8 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
-                ChartCanvas(data: model.data, chartType: model.config.chartType)
+                ChartCanvas(data: model.data, chartType: model.config.chartType,
+                            temporalBin: model.config.temporalBin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)
@@ -1528,7 +1679,7 @@ struct ChartRootView: View {
                     }.labelsHidden()
                 }
 
-                if categoryIsTemporal {
+                if showTimeBucket {
                     railLabel("Time bucket")
                     Picker("", selection: Binding(get: { model.config.temporalBin },
                                                   set: { b in model.update { $0.temporalBin = b } })) {
@@ -1551,8 +1702,13 @@ struct ChartRootView: View {
     private var usesAggregation: Bool {
         switch model.config.chartType { case .scatter, .gantt: return false; default: return true }
     }
-    private var categoryIsTemporal: Bool {
-        model.kind(model.config.mappings[.category]) == .temporal
+    // Show the Time Bucket control when the axis is date-based: the mapped
+    // category for categorical charts, or the Start column for gantt.
+    private var showTimeBucket: Bool {
+        if model.config.chartType == .gantt {
+            return model.kind(model.config.mappings[.start]) == .temporal
+        }
+        return model.kind(model.config.mappings[.category]) == .temporal
     }
     private func roleLabel(_ r: ChartColumnRole) -> String {
         switch r {
@@ -1859,20 +2015,24 @@ git commit -m "feat(charts): loaded-rows banner + in-memory load-all"
 
 - [ ] **Step 1: Implement debounced persist**
 
-Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Add a debounce timer property `private var chartPersistWorkItem: DispatchWorkItem?`:
+Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Key the debounce by
+result-tab **id**, not positional index — indices shift when tabs are added/closed/reordered
+within the debounce window, which would misattribute a write to the wrong tab, and a single
+shared work item would drop a pending write for tab A when tab B is edited within 0.6s. Add
+`private var chartPersistWorkItems: [String: DispatchWorkItem] = [:]`:
 
 ```swift
-    private func scheduleChartStatePersist(for idx: Int) {
-        chartPersistWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.persistChartState(for: idx) }
-        chartPersistWorkItem = item
+    private func scheduleChartStatePersist(forTabId id: String) {
+        chartPersistWorkItems[id]?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.persistChartState(forTabId: id) }
+        chartPersistWorkItems[id] = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
     }
 
-    private func persistChartState(for idx: Int) {
-        guard idx < resultTabs.count else { return }
-        let tab = resultTabs[idx]
-        // Only persist for results that belong to a workspace (have a history id).
+    private func persistChartState(forTabId id: String) {
+        chartPersistWorkItems[id] = nil
+        // Resolve the tab by identity (not index) and only persist workspace-backed results.
+        guard let tab = resultTabs.first(where: { $0.id == id }) else { return }
         guard let resultId = tab.queryResult?.historyEntryId else { return }
         let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)
         guard let data = try? JSONEncoder.pharos.encode(state) else { return }
@@ -1883,7 +2043,7 @@ Replace the `persistChartState`/`scheduleChartStatePersist` stubs. Add a debounc
     }
 ```
 
-If `ResultTab` has no direct history id accessor, use `queryResult?.historyEntryId`. Confirm the property name during implementation (grep `historyEntryId` usage in ContentViewController).
+Update all call sites to pass the tab's `id` (e.g. `chartHost.onConfigChanged` and the mode-toggle path). Persist is guarded on `queryResult?.historyEntryId`, so results not backed by a workspace history row are silently skipped.
 
 - [ ] **Step 2: Restore on workspace reopen**
 

@@ -77,6 +77,15 @@ extension PharosCore {
             pharos_update_result_meta($0)
         }
     }
+
+    struct UpdateResultChartStatePayload: Codable { let resultId: String; let json: String }
+
+    @discardableResult
+    static func updateResultChartState(resultId: String, json: String) throws -> Bool {
+        try callBoolResult(input: UpdateResultChartStatePayload(resultId: resultId, json: json)) {
+            pharos_update_result_chart_state($0)
+        }
+    }
 }
 
 // MARK: - Bool/error FFI helpers

@@ -51,6 +51,7 @@ pub struct WorkspaceResultMeta {
     pub has_results: bool,
     pub execution_time_ms: i64,
     pub executed_at: String,
+    pub chart_view_state_json: Option<String>,
 }
 
 /// Full workspace payload returned on reopen.
