@@ -59,3 +59,11 @@ pub async fn update_result_meta(
     sqlite::update_result_meta(&db, &result_id, custom_label.as_deref(), color_index)
         .map_err(|e| format!("Failed to update result meta: {}", e))
 }
+
+pub async fn update_result_chart_state(
+    result_id: String, json: String, state: &AppState,
+) -> Result<bool, String> {
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    sqlite::update_result_chart_state(&db, &result_id, &json)
+        .map_err(|e| format!("Failed to update chart state: {}", e))
+}

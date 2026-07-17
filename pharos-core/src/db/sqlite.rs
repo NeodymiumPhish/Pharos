@@ -393,6 +393,19 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         )?;
     }
 
+    // Migration: Add chart view-state blob to query_history
+    let has_chart_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'chart_view_state_json'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_chart_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN chart_view_state_json TEXT;"
+        )?;
+    }
+
     // Migration: Backfill FTS5 index if it's empty but history has data
     let fts_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM query_history_fts", [], |row| row.get(0))
@@ -931,7 +944,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
     let mut stmt = conn.prepare(
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
-                execution_time_ms, executed_at
+                execution_time_ms, executed_at, chart_view_state_json
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -950,6 +963,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 has_results: row.get(9)?,
                 execution_time_ms: row.get(10)?,
                 executed_at: row.get(11)?,
+                chart_view_state_json: row.get(12)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -1007,6 +1021,19 @@ pub fn update_result_meta(
              color_index  = COALESCE(?3, color_index)
          WHERE id = ?1",
         (result_id, custom_label, color_index),
+    )?;
+    Ok(n > 0)
+}
+
+/// Persist a chart view-state JSON blob (view mode + chart config) for a result.
+pub fn update_result_chart_state(
+    conn: &Connection,
+    result_id: &str,
+    json: &str,
+) -> SqliteResult<bool> {
+    let n = conn.execute(
+        "UPDATE query_history SET chart_view_state_json = ?2 WHERE id = ?1",
+        (result_id, json),
     )?;
     Ok(n > 0)
 }
@@ -1397,6 +1424,39 @@ mod workspace_roundtrip_tests {
         assert_eq!(rows[2], ("h5".to_string(), true));
 
         drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn chart_view_state_round_trips() {
+        let dir = temp_db_dir("chart_view_state");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0).expect("associate h1");
+
+        let json = r#"{"viewMode":"chart","chartConfig":{"chartType":"bar"}}"#;
+        let ok = update_result_chart_state(&conn, "h1", json).expect("update_result_chart_state");
+        assert!(ok, "update returns true");
+
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
+        assert_eq!(r.chart_view_state_json.as_deref(), Some(json));
+
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
