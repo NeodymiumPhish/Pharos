@@ -68,3 +68,11 @@ struct ChartDisplayOptions: Codable, Equatable {
     var stacked: Bool = false          // grouped vs stacked for series
     var topNCategories: Int = 25       // cardinality cap
 }
+
+/// Provenance of the last server-side (push-down) aggregation run for a chart.
+struct LastServerRun: Codable, Equatable {
+    var sql: String
+    var executedAt: String
+    var rowCount: Int
+    var truncated: Bool
+}
