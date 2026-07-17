@@ -22,7 +22,19 @@ struct ChartCanvas: View {
         case .pie:     pieChart
         case .scatter: scatterChart
         case .gantt:   ganttChart
+        case .heatmap: heatmapChart
         }
+    }
+
+    @ViewBuilder private var heatmapChart: some View {
+        Chart(data.heatmapCells) { cell in     // HeatmapCell is Identifiable (Task 3)
+            RectangleMark(
+                x: .value("X", cell.x),
+                y: .value("Y", cell.y)
+            )
+            .foregroundStyle(by: .value("Value", cell.value))
+        }
+        .chartForegroundStyleScale(range: Gradient(colors: [Color.blue.opacity(0.15), Color.blue]))
     }
 
     // Bar/line/area, one MarkContent per point, colored by series.
