@@ -1,29 +1,5 @@
 import AppKit
 
-// MARK: - SQL Syntax Highlighting Colors
-
-struct SQLTheme {
-    let keyword: NSColor
-    let function: NSColor
-    let string: NSColor
-    let number: NSColor
-    let comment: NSColor
-    let type: NSColor
-    let variable: NSColor           // defined {{name}}
-    let variableUnresolved: NSColor // {{name}} with no definition
-
-    static let `default` = SQLTheme(
-        keyword: .systemBlue,
-        function: .systemTeal,
-        string: .systemGreen,
-        number: .systemOrange,
-        comment: .systemGray,
-        type: .systemPurple,
-        variable: .systemIndigo,
-        variableUnresolved: .systemRed
-    )
-}
-
 // MARK: - Completion Delegate
 
 protocol SQLTextViewCompletionDelegate: AnyObject {
@@ -108,68 +84,6 @@ class SQLTextView: NSTextView {
     /// WITH clauses, query results pasted in, etc.), so the visible-color
     /// refresh is deferred ~100 ms after typing stops to keep input snappy.
     private var highlightDebounceTask: Task<Void, Never>?
-
-    // Cached regex objects (compiled once, reused per highlight call)
-    private static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
-    private static let variableTokenRegex = try! NSRegularExpression(
-        pattern: #"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
-    )
-    private static let keywordRegex: NSRegularExpression = {
-        let keywords = [
-            "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
-            "BETWEEN", "IS", "NULL", "TRUE", "FALSE",
-            "ORDER", "BY", "ASC", "DESC", "NULLS", "FIRST", "LAST",
-            "GROUP", "HAVING", "LIMIT", "OFFSET",
-            "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
-            "UNION", "ALL", "INTERSECT", "EXCEPT",
-            "INSERT", "INTO", "VALUES", "DEFAULT",
-            "UPDATE", "SET",
-            "DELETE",
-            "CREATE", "TABLE", "INDEX", "VIEW", "SCHEMA", "DATABASE",
-            "ALTER", "ADD", "DROP", "COLUMN", "CONSTRAINT",
-            "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK",
-            "CASCADE", "RESTRICT",
-            "AS", "DISTINCT", "CASE", "WHEN", "THEN", "ELSE", "END",
-            "COALESCE", "NULLIF", "CAST",
-            "EXISTS", "ANY", "SOME",
-            "WITH", "RECURSIVE",
-            "RETURNING", "IF", "REPLACE", "TEMP", "TEMPORARY",
-            "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION",
-            "EXPLAIN", "ANALYZE", "VERBOSE", "COSTS", "BUFFERS", "FORMAT",
-            "GRANT", "REVOKE", "TRUNCATE",
-            "OVER", "PARTITION", "WINDOW", "ROWS", "RANGE",
-            "LATERAL", "FETCH", "NEXT", "ONLY", "FOR",
-        ]
-        return try! NSRegularExpression(pattern: "\\b(" + keywords.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
-    }()
-    private static let functionRegex: NSRegularExpression = {
-        let builtins = [
-            "count", "sum", "avg", "min", "max", "array_agg", "string_agg", "bool_and", "bool_or",
-            "length", "lower", "upper", "trim", "ltrim", "rtrim", "substring", "concat", "replace",
-            "split_part", "regexp_replace", "regexp_matches", "position", "strpos",
-            "now", "current_date", "current_time", "current_timestamp", "date_trunc", "extract",
-            "age", "date_part", "to_char", "to_date", "to_timestamp",
-            "abs", "ceil", "floor", "round", "trunc", "mod", "power", "sqrt", "random",
-            "json_build_object", "json_agg", "jsonb_build_object", "jsonb_agg",
-            "json_extract_path", "jsonb_extract_path", "json_array_elements", "jsonb_array_elements",
-            "array_length", "unnest", "array_append", "array_prepend", "array_cat",
-            "greatest", "least", "generate_series",
-            "row_number", "rank", "dense_rank", "ntile", "lag", "lead", "first_value", "last_value",
-        ]
-        return try! NSRegularExpression(pattern: "\\b(" + builtins.joined(separator: "|") + ")\\s*(?=\\()", options: [.caseInsensitive])
-    }()
-    private static let typeRegex: NSRegularExpression = {
-        let types = [
-            "INTEGER", "INT", "BIGINT", "SMALLINT", "SERIAL", "BIGSERIAL",
-            "TEXT", "VARCHAR", "CHAR", "CHARACTER", "VARYING",
-            "BOOLEAN", "BOOL",
-            "TIMESTAMP", "TIMESTAMPTZ", "DATE", "TIME", "TIMETZ", "INTERVAL",
-            "NUMERIC", "DECIMAL", "REAL", "DOUBLE", "PRECISION", "FLOAT",
-            "UUID", "JSON", "JSONB", "BYTEA", "INET", "CIDR", "MACADDR",
-            "ARRAY", "RECORD", "VOID", "OID", "REGCLASS",
-        ]
-        return try! NSRegularExpression(pattern: "\\b(" + types.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
-    }()
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -772,21 +686,11 @@ class SQLTextView: NSTextView {
         }
     }
 
-    /// One attribute the highlighter wants applied. `color == nil` means
-    /// remove the foreground attribute over `range` (used to clear stale
-    /// highlighting on normal code or quoted identifiers).
-    private struct HighlightAttribute {
-        let range: NSRange
-        let color: NSColor?
-    }
-
     func highlightSyntax() {
         guard let layoutManager else { return }
 
         let text = string
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        guard nsText.length > 0 else { return }
+        guard !text.isEmpty else { return }
 
         // Bump generation; any in-flight off-main pass will discard its result
         // when it returns. Snapshot the theme so we don't read it off-main.
@@ -797,64 +701,11 @@ class SQLTextView: NSTextView {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             // ---- Off-main computation ----
-            let chars = Array(text.utf16)
-            let length = chars.count
-            let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
-
-            var attrs: [HighlightAttribute] = []
-            attrs.reserveCapacity(64)
-
-            // Phase 1: state-machine spans (comments, strings, normal/quoted clears).
-            var rangeStart = 0
-            var currentState: SQLLexState = stateMap[0]
-            for i in 1...length {
-                let nextState: SQLLexState = (i < length) ? stateMap[i] : .normal
-                if nextState != currentState || i == length {
-                    let range = NSRange(location: rangeStart, length: i - rangeStart)
-                    if currentState.isNormal || currentState == .doubleQuote {
-                        attrs.append(.init(range: range, color: nil))
-                    } else {
-                        let color: NSColor
-                        switch currentState {
-                        case .lineComment, .blockComment: color = themeSnapshot.comment
-                        case .singleQuote, .dollarQuote: color = themeSnapshot.string
-                        default: color = themeSnapshot.comment
-                        }
-                        attrs.append(.init(range: range, color: color))
-                    }
-                    rangeStart = i
-                    currentState = nextState
-                }
-            }
-
-            // Phase 2: regex passes (keyword/function/type/number) — only on
-            // ranges currently in `.normal` state.
-            let regexPasses: [(NSRegularExpression, NSColor)] = [
-                (Self.keywordRegex, themeSnapshot.keyword),
-                (Self.functionRegex, themeSnapshot.function),
-                (Self.typeRegex, themeSnapshot.type),
-                (Self.numberRegex, themeSnapshot.number),
-            ]
-            for (regex, color) in regexPasses {
-                regex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-                    guard let range = match?.range else { return }
-                    if range.location < stateMap.count && stateMap[range.location].isNormal {
-                        attrs.append(.init(range: range, color: color))
-                    }
-                }
-            }
-
-            // Phase 3: variable tokens `{{name}}`. Appended last so they win over
-            // keyword/number coloring on overlap. Colored regardless of lex state
-            // (variables are commonly written inside quotes, e.g. '{{ip}}').
-            Self.variableTokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-                guard let match else { return }
-                let name = (text as NSString).substring(with: match.range(at: 1))
-                let color = variableNamesSnapshot.contains(name)
-                    ? themeSnapshot.variable
-                    : themeSnapshot.variableUnresolved
-                attrs.append(.init(range: match.range, color: color))
-            }
+            let attrs = SQLSyntaxHighlighter.spans(
+                for: text,
+                theme: themeSnapshot,
+                variableNames: variableNamesSnapshot
+            )
 
             // ---- On-main application ----
             await MainActor.run {
@@ -867,7 +718,7 @@ class SQLTextView: NSTextView {
     /// Apply a batch of pre-computed highlight attributes. Wrapped in a
     /// CATransaction with implicit animations disabled so the layout manager
     /// doesn't animate temporary-attribute changes during the bulk update.
-    private func applyHighlightAttributes(_ attrs: [HighlightAttribute], layoutManager: NSLayoutManager) {
+    private func applyHighlightAttributes(_ attrs: [SQLSyntaxHighlighter.Span], layoutManager: NSLayoutManager) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for attr in attrs {

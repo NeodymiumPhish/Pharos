@@ -201,11 +201,20 @@ class InspectorViewController: NSViewController {
     }
 
     /// Shows a query's raw SQL text as wrapped, monospaced, selectable body
-    /// text — used when a workspace-history preview row is selected.
+    /// text with the same syntax coloring as the query editor — used when a
+    /// workspace-history preview row is selected.
     func showSQL(_ sql: String, title: String = "Query") {
         beginDetailSection(title: title, subtitle: "")
 
         let label = makeFieldValueLabel(sql, color: .labelColor)
+        label.attributedStringValue = SQLSyntaxHighlighter.attributedString(
+            for: sql,
+            font: label.font ?? .monospacedSystemFont(ofSize: 12, weight: .regular),
+            baseColor: .labelColor
+        )
+        // attributedStringValue resets wrapping/line count, so re-apply after.
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
         label.isSelectable = true
         stackView.addArrangedSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false

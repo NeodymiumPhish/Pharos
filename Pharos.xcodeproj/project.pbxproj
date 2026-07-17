@@ -24,6 +24,7 @@
 		1CB48D2E1B11DC3055666BE8 /* SchemaTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */; };
 		1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = F443CAC6284678541D0523EA /* Schema.swift */; };
 		20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */; };
+		24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */; };
 		2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */; };
 		2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB204A7203DFE7F75AE059A /* PharosCore.swift */; };
 		313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */; };
@@ -172,6 +173,7 @@
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
+		B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSyntaxHighlighter.swift; sourceTree = "<group>"; };
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
 		B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Workspaces.swift"; sourceTree = "<group>"; };
@@ -408,6 +410,7 @@
 				3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */,
 				EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */,
 				B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */,
+				B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */,
 				5CA969614B127DE629649F33 /* SQLTextView.swift */,
 			);
 			path = Editor;
@@ -611,6 +614,7 @@
 				FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */,
 				2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */,
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,
+				24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */,
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
 				E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */,
 				E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */,
