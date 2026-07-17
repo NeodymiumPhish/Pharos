@@ -1086,6 +1086,16 @@ Find the method that recomputes `columnFilteredDisplayRows = columnFilterControl
 
 Add a small chip view to the action bar (near the Grid/Chart toggle), hidden unless `!drillColumns.isEmpty`, showing e.g. "Filtered by chart ✕" with the ✕ calling `clearDrill`. `updateDrillChip()` toggles its visibility/label. Keep it minimal (an `NSButton` with an SF Symbol + title is fine).
 
+- [ ] **Step 4b: Tear down the drill BEFORE capturing outgoing grid state**
+
+A drill is a **transient overlay** on the shared `columnFilterController`. On any result-tab transition, `captureGridState()` snapshots `activeFilters` into the outgoing tab's `gridState` — so if a drill is still applied, the drill filter leaks into the saved state AND the displaced manual filter is lost (the snapshot in `displacedFilters` is cleared without being restored). Fix the invariant: **restore displaced manual filters (undo the drill) before `captureGridState` runs.**
+
+Add `tearDownDrill(restoreManual: Bool)`: for each `colId` in `drillColumns`, if `restoreManual` and `displacedFilters[colId]` exists → `fc.setFilter(restore, forColumn: colId)` else `fc.clearFilter(forColumn: colId)`; then clear `drillColumns` + `displacedFilters` and `updateDrillChip()`. Call `tearDownDrill(restoreManual: true)` at the START of every outgoing-tab path (`selectResultTab`/`addResultTab`/`closeResultTab`) **before** their `captureGridState()` call, so the captured `gridState` reflects the user's real manual filters, not the drill. (`clearDrill()` — the explicit chip ✕ — is just `tearDownDrill(restoreManual: true)` + `refreshColumnFilters()` in-tab.) Verify: manual filter M on col X → drill X → switch tab → switch back ⇒ M is restored, no phantom drill filter, no orphaned chip.
+
+- [ ] **Step 4c: Guard the filter-controller access**
+
+Use `guard let fc = resultsVC.columnFilterController else { return }` in `applyDrill`/`clearDrill` rather than force-unwrapping.
+
 - [ ] **Step 5: Build** → BUILD SUCCEEDED.
 
 - [ ] **Step 6: Commit:**
