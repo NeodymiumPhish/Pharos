@@ -6,7 +6,7 @@
 
 **Architecture:** A pure, UI-free core (`ColumnClassifier`, `ValueCoercion`, `ChartAggregator`) transforms a `QueryResult` + `ChartConfig` into renderer-agnostic `ChartData`. A thin SwiftUI layer (`ChartRootView`) renders `ChartData` and is hosted in the existing AppKit result area via `NSHostingController`, toggled by a segmented control in the action bar. Config + view mode persist as one JSON blob on the `query_history` row backing each workspace result.
 
-**Tech Stack:** Swift 5.10 / AppKit + SwiftUI (Swift Charts), macOS 14.0 target; Rust (`pharos-core`) + rusqlite over C FFI (cbindgen). Pure-logic tests via standalone `swiftc` harnesses in `PharosTests/`; Rust tests via in-file `#[cfg(test)]` modules.
+**Tech Stack:** Swift 5.10 / AppKit + SwiftUI (Swift Charts), macOS 15.0 target; Rust (`pharos-core`) + rusqlite over C FFI (cbindgen). Pure-logic tests via standalone `swiftc` harnesses in `PharosTests/`; Rust tests via in-file `#[cfg(test)]` modules.
 
 **Reference spec:** `docs/superpowers/specs/2026-07-17-query-result-charts-design.md`
 
@@ -58,12 +58,35 @@
 
 ---
 
-## Task 1: AnyCodable convenience initializer
+## Task 1: Bump deployment target to macOS 15 + AnyCodable initializer
+
+The app transitions to a pure macOS 15+ minimum (no known macOS 14 users). This
+unlocks the vectorized Swift Charts `PointPlot` API for dense scatter plots with
+no availability gating and no sampling fallback.
 
 **Files:**
+- Modify: `project.yml`
 - Modify: `Pharos/Models/QueryResult.swift`
 
-- [ ] **Step 1: Add a memberwise initializer to `AnyCodable`**
+- [ ] **Step 1: Raise the deployment target in `project.yml`**
+
+In `project.yml`, change both deployment-target declarations from `14.0` to `15.0`:
+
+```yaml
+options:
+  deploymentTarget:
+    macOS: "15.0"
+```
+
+and
+
+```yaml
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+```
+
+- [ ] **Step 2: Add a memberwise initializer to `AnyCodable`**
 
 In `Pharos/Models/QueryResult.swift`, inside `struct AnyCodable`, immediately above `init(from decoder:)`, add:
 
@@ -74,16 +97,17 @@ init(_ value: Any?) {
 }
 ```
 
-- [ ] **Step 2: Verify the app still builds**
+- [ ] **Step 3: Regenerate the project and verify it builds**
 
 Run: `cd pharos-core && cargo build --release && cd .. && xcodegen generate`
-Expected: Rust builds; project regenerates with no error. (No new file, but confirms baseline.)
+Then build in Xcode (Cmd+B) or: `xcodebuild -project Pharos.xcodeproj -scheme Pharos -configuration Debug build 2>&1 | tail -20`
+Expected: Rust builds; project regenerates; app builds against the macOS 15 SDK floor with no error.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add Pharos/Models/QueryResult.swift
-git commit -m "feat(charts): add AnyCodable value initializer"
+git add project.yml Pharos/Models/QueryResult.swift
+git commit -m "feat(charts): target macOS 15; add AnyCodable value initializer"
 ```
 
 ---
@@ -928,9 +952,13 @@ enum ChartAggregator {
         if pts.isEmpty { return .empty(.allNull) }
 
         var out = ChartData()
-        let cap = 3000
-        if pts.count > cap {
-            let stride = Double(pts.count) / Double(cap)
+        // macOS 15+ renders scatter via the vectorized PointPlot API (Task 11),
+        // which handles 100k+ points, so no sampling is needed in normal use.
+        // Keep only a high safety cap to bound worst-case memory; it flags
+        // wasSampled so the UI can note it in the rare case it trips.
+        let safetyCap = 100_000
+        if pts.count > safetyCap {
+            let stride = Double(pts.count) / Double(safetyCap)
             var sampled: [ChartPoint] = []
             var i = 0.0
             while Int(i) < pts.count { sampled.append(pts[Int(i)]); i += stride }
@@ -1317,7 +1345,7 @@ git commit -m "feat(charts): chartConfig + resultViewMode on ResultTab"
 
 - [ ] **Step 1: Implement the Swift Charts view**
 
-Create `Pharos/ViewControllers/Charts/ChartView.swift`. This renders `ChartData` per `ChartType`. Availability-gate vectorized scatter (`PointPlot`, macOS 15+) with a `PointMark` fallback (macOS 14):
+Create `Pharos/ViewControllers/Charts/ChartView.swift`. This renders `ChartData` per `ChartType`. Scatter uses the vectorized `PointPlot` API (macOS 15+, the app's floor) so dense scatters render exactly and smoothly with no sampling or availability gating:
 
 ```swift
 import SwiftUI
@@ -1358,22 +1386,20 @@ struct ChartCanvas: View {
     }
 
     @ViewBuilder private var pieChart: some View {
-        if #available(macOS 14.0, *) {
-            Chart(data.series.first?.points ?? [], id: \.xLabel) { pt in
-                SectorMark(angle: .value("Value", pt.y), innerRadius: .ratio(0.5))
-                    .foregroundStyle(by: .value("Category", pt.xLabel))
-            }
-        } else {
-            Text("Pie requires macOS 14").foregroundStyle(.secondary)
+        Chart(data.series.first?.points ?? [], id: \.xLabel) { pt in
+            SectorMark(angle: .value("Value", pt.y), innerRadius: .ratio(0.5))
+                .foregroundStyle(by: .value("Category", pt.xLabel))
         }
     }
 
+    // Vectorized scatter (macOS 15+). PointPlot takes the whole collection and
+    // renders 100k+ points efficiently, so no per-point ForEach or sampling.
+    private struct XYPoint: Identifiable { let id = UUID(); let x: Double; let y: Double }
+
     @ViewBuilder private var scatterChart: some View {
-        let pts = data.series.first?.points ?? []
+        let pts = (data.series.first?.points ?? []).map { XYPoint(x: $0.xValue ?? 0, y: $0.y) }
         Chart {
-            ForEach(Array(pts.enumerated()), id: \.offset) { _, pt in
-                PointMark(x: .value("X", pt.xValue ?? 0), y: .value("Y", pt.y))
-            }
+            PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y))
         }
     }
 
@@ -1408,7 +1434,7 @@ struct ChartCanvas: View {
 - [ ] **Step 2: Build**
 
 Run: `xcodegen generate` then build (Cmd+B).
-Expected: builds. (No unit test — SwiftUI view; verified visually in Task 15.) If `PointPlot` is later adopted for macOS 15, wrap in `if #available(macOS 15.0, *)`.
+Expected: builds against the macOS 15 SDK. (No unit test — SwiftUI view; verified visually in Task 15.) `PointPlot` and `SectorMark` resolve unconditionally now that the floor is macOS 15.
 
 - [ ] **Step 3: Commit**
 

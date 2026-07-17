@@ -4,7 +4,7 @@
 **Status:** Approved for planning
 **Scope:** Phase 1 (this spec) with phases 2–3 outlined for context.
 **Revision:** v2 — incorporates codebase-validated review (persistence target,
-string coercion, temporal binning, index-based mapping, macOS 14 gating).
+string coercion, temporal binning, index-based mapping, macOS 15 floor).
 
 ## Summary
 
@@ -47,7 +47,7 @@ binning, chart-driven drill-down, and image/SQL export.
 | Phase-1 chart types | bar, line, area, scatter, pie, **gantt** | Workhorse set plus a named target (gantt). Heatmap deferred. |
 | Time series | **Temporal binning in phase 1** | Raw-timestamp grouping is unusable for the most common chart shape. |
 | Persistence | **Persist with workspace** from day one | Config durable across reopen/restart. |
-| Deployment target | **macOS 14.0** (`project.yml`) | Gates API use: `SectorMark` ok on 14; `PointPlot`/`LinePlot` need 15. |
+| Deployment target | **macOS 15.0** (`project.yml`, raised from 14.0) | No known macOS 14 users; a pure 15+ floor lets scatter use the vectorized `PointPlot` API directly (no gating, no sampling fallback). |
 
 ## Architecture
 
@@ -179,9 +179,10 @@ Pure transform `(QueryResult, ChartConfig) → ChartData`:
 5. **Cap cardinality** — keep top-N categories by aggregated value (default
    N = 25, configurable), roll the remainder into an `"Other"` bucket. Not
    applied to temporal-binned axes (buckets are already bounded and ordered).
-6. **Scatter sampling** — scatter does not aggregate, so cap plotted points:
-   `PointPlot` on macOS 15+ (handles 100k+), else uniform-sample to ~3k points
-   on macOS 14 (`PointMark` degrades past ~2–3k). Flagged on `ChartData`.
+6. **Scatter rendering** — scatter does not aggregate. It renders via the
+   vectorized `PointPlot` API (macOS 15+, the app's floor), which handles 100k+
+   points, so no per-point sampling is needed. A high safety cap (~100k) bounds
+   worst-case memory and, if it ever trips, sets `wasSampled` on `ChartData`.
 
 ### ChartData
 
@@ -286,8 +287,8 @@ decision; unifying grid-state persistence is out of scope here.
 ## Phasing
 
 - **Phase 1 (this spec):** toggle + config rail + `ColumnClassifier` +
-  `ValueCoercion` + `ChartAggregator` (incl. temporal binning + scatter
-  sampling) + Swift Charts rendering for bar/line/area/scatter/pie/gantt on
+  `ValueCoercion` + `ChartAggregator` (incl. temporal binning) + Swift Charts
+  rendering (vectorized `PointPlot` scatter) for bar/line/area/scatter/pie/gantt on
   loaded rows with client aggregation; loaded/restored-partial banner + *Load
   all*; workspace persistence of config + view mode. Charts are read-only.
 - **Phase 2:** heatmap; numeric/histogram binning; drill-down — click a
@@ -311,7 +312,7 @@ test-harness lesson):
   ambiguous/`"char"` types.
 - **`ChartAggregator`:** each aggregation fn; temporal binning (auto span
   selection + each explicit bin); null bucketing; top-N + "Other" capping;
-  scatter passthrough + sampling flag; gantt start/end parsing; `ColumnRef`
+  scatter passthrough + safety-cap flag; gantt start/end parsing; `ColumnRef`
   index resolution incl. duplicate names; empty/all-null/no-data degenerate
   cases produce the correct `ChartData` metadata + `EmptyReason`.
 - **`ChartConfig.infer(from:)`:** sensible defaults across column-kind mixes;
@@ -326,7 +327,8 @@ test-harness lesson):
 ## Risks / Open Questions
 
 - **Swift Charts performance** — mitigated by client aggregation, top-N cap, and
-  scatter sampling/`PointPlot` gating. Confirm thresholds during implementation.
+  the vectorized `PointPlot` API for scatter. Confirm the safety cap during
+  implementation.
 - **`ImageRenderer` fidelity** for phase-3 export of interactive charts —
   validate when phase 3 is scoped.
 - **SwiftUI ↔ AppKit theming** — ensure the hosted chart honors the app's native
