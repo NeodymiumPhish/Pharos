@@ -93,6 +93,8 @@ Add to `ChartExporter`:
 In the export-menu owner (`ResultsCopyExport.showExportMenu` or a chart-aware wrapper in `ContentViewController`), when the active result is in **Chart mode**, present: "Export Chart as PNG…", "Export Chart as PDF…", "Copy Chart as Image", and (push-down only, added in Task 10) "View / Copy Generated SQL". Each renders `chartHost`'s current chart view (force **light** appearance via `.environment(\.colorScheme, .light)`; opaque background; include the caption footer) through `ChartExporter`, then `NSSavePanel` (default name from the result-tab label) or `NSPasteboard`. In Grid mode the menu is unchanged.
 The chart host must expose the SwiftUI view (or a snapshot builder) + current size to the exporter.
 
+**Gantt export caveat (fix):** the gantt's rows live in a `ScrollView`, and `ImageRenderer` does NOT lay out `ScrollView` content off-screen — so a naive export captures only the pinned time axis + caption, no bars. `ChartCanvas` takes a `ganttScrollable: Bool = true`; the export view passes `false` to render all rows in a plain (non-scrolling) stack, and `buildExportSnapshot` sizes gantt exports to the full content height (`ChartCanvas.ganttContentHeight(rowCount:)` + caption/padding) instead of the on-screen viewport. Other chart types are single `Chart` views and export fine at the on-screen size.
+
 - [ ] **Step 4: Build + manual verify**
 
 `xcodegen generate && xcodebuild … build` → BUILD SUCCEEDED. Manually: export PNG/PDF/copy from a chart; confirm content, light background, retina, caption footer, and embedded metadata (open PNG `tEXt` / PDF properties).

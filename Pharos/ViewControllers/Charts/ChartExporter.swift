@@ -13,7 +13,7 @@ struct ChartExportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ChartCanvas(data: data, config: config)
+            ChartCanvas(data: data, config: config, ganttScrollable: false)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             Text(caption)

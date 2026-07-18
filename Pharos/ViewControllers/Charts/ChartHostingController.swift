@@ -114,7 +114,14 @@ final class ChartHostingController: NSViewController {
         // offset — good enough for an export whose exact pixel dimensions
         // aren't load-bearing); fall back to a sensible default before layout.
         let onScreen = view.bounds.size
-        let size = (onScreen.width > 200 && onScreen.height > 200) ? onScreen : CGSize(width: 900, height: 560)
+        var size = (onScreen.width > 200 && onScreen.height > 200) ? onScreen : CGSize(width: 900, height: 560)
+        // Gantt exports render every row (non-scrolling), so size to the full
+        // content height + caption/padding rather than the on-screen viewport
+        // (which would clip all but the visible rows).
+        if cfg.chartType == .gantt {
+            let width = max(onScreen.width, 900)
+            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(rowCount: data.ganttBars.count) + 64)
+        }
         return ExportSnapshot(
             view: AnyView(exportView),
             size: size,

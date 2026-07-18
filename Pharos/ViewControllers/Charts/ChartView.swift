@@ -8,6 +8,10 @@ struct ChartCanvas: View {
     let config: ChartConfig
     /// Reports a drill request (tap/brush/pie selection) up to the view model.
     var onDrill: ([DrillKey]) -> Void = { _ in }
+    /// When false, the gantt renders all rows in a plain (non-scrolling) stack so
+    /// ImageRenderer captures every bar on export (a ScrollView renders empty
+    /// off-screen). On-screen use keeps the default (scrolling).
+    var ganttScrollable: Bool = true
 
     private var chartType: ChartType { config.chartType }
     private var temporalBin: TemporalBin { config.temporalBin }
@@ -308,31 +312,44 @@ struct ChartCanvas: View {
             }
             .frame(height: Self.ganttAxisHeight)
 
-            // Scrolling rows: label on top, bar beneath. Tapping a row drills to
-            // that row's label (via the mapped Label column).
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: Self.ganttRowSpacing) {
-                    ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(bar.label).font(.callout).lineLimit(1)
-                            Chart {
-                                BarMark(
-                                    xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
-                                    xEnd: .value("End", Date(timeIntervalSince1970: bar.end))
-                                )
-                            }
-                            .chartXScale(domain: domain)
-                            .chartXAxis(.hidden)
-                            .chartYAxis(.hidden)
-                            .frame(height: Self.ganttBarHeight)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { ganttTap(bar) }
-                    }
-                }
-                .padding(.top, 6)
+            // Rows: label on top, bar beneath. Tapping a row drills to that row's
+            // label. Scrolls on-screen; renders full-height (no ScrollView) for
+            // export so ImageRenderer captures every bar.
+            if ganttScrollable {
+                ScrollView(.vertical) { ganttRows(domain: domain, bars: bars) }
+            } else {
+                ganttRows(domain: domain, bars: bars)
             }
         }
+    }
+
+    @ViewBuilder private func ganttRows(domain: ClosedRange<Date>, bars: [GanttBar]) -> some View {
+        VStack(alignment: .leading, spacing: Self.ganttRowSpacing) {
+            ForEach(Array(bars.enumerated()), id: \.offset) { _, bar in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(bar.label).font(.callout).lineLimit(1)
+                    Chart {
+                        BarMark(
+                            xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
+                            xEnd: .value("End", Date(timeIntervalSince1970: bar.end))
+                        )
+                    }
+                    .chartXScale(domain: domain)
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .frame(height: Self.ganttBarHeight)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { ganttTap(bar) }
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    /// Full rendered height of a non-scrolling gantt (for export sizing).
+    static func ganttContentHeight(rowCount: Int) -> CGFloat {
+        let rowPitch = 18 + 2 + ganttBarHeight + ganttRowSpacing   // label + gap + bar + spacing
+        return ganttAxisHeight + 6 + CGFloat(max(rowCount, 1)) * rowPitch
     }
 
     private func ganttTap(_ bar: GanttBar) {
