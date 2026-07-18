@@ -38,6 +38,10 @@ class ContentViewController: NSViewController {
     /// superseded run can be cancelled server-side (`pg_cancel_backend`) and its
     /// result ignored (last-write-wins).
     private var chartServerQueryId: String?
+    /// The connection the in-flight push-down run was LAUNCHED against. Captured
+    /// at launch so a cancel targets the right pool even after the active tab has
+    /// switched/closed (`activeTab` would resolve the wrong connection by then).
+    private var chartServerConnectionId: String?
     /// Debounce coalescing rapid rail edits into one push-down execution.
     private var chartServerAggWorkItem: DispatchWorkItem?
 
@@ -2268,6 +2272,9 @@ extension ContentViewController {
         // (no active tab) case.
         tearDownDrill(restoreManual: true)
         guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else {
+            // No active result tab (last result tab closed, or switched to a tab
+            // with no results): kill any in-flight push-down so it isn't orphaned.
+            cancelServerAggregation()
             chartToggle.selectedSegment = 0
             applyResultAreaVisibility()
             return
@@ -2373,8 +2380,11 @@ extension ContentViewController {
 
     /// Run (or schedule) a push-down aggregation for the active chart.
     private func runServerAggregation(debounced: Bool) {
-        chartServerAggWorkItem?.cancel()
-        chartServerAggWorkItem = nil
+        // Cancel any superseded run NOW (server-side + pending debounce) rather
+        // than letting it burn through the ~0.4s debounce window. This also clears
+        // the debounce work item and spinner; we re-show the spinner below for the
+        // new run, which then proceeds normally.
+        cancelServerAggregation()
         // Show the spinner immediately so a rail tweak feels responsive even
         // while the actual execution is still debouncing.
         chartHost.setServerLoading(true)
@@ -2409,6 +2419,9 @@ extension ContentViewController {
         cancelServerAggregation()
         let queryId = UUID().uuidString
         chartServerQueryId = queryId
+        // Remember the pool this run launches against so a later cancel targets it
+        // even if the active tab has changed by then (tab switch/close mid-run).
+        chartServerConnectionId = connectionId
         chartHost.setServerLoading(true)
 
         let schema = editorTab.schemaName
@@ -2429,6 +2442,7 @@ extension ContentViewController {
                     // Last-write-wins: ignore a result whose run was superseded.
                     guard self.chartServerQueryId == queryId else { return }
                     self.chartServerQueryId = nil
+                    self.chartServerConnectionId = nil
                     let data = ServerChartDataBuilder.build(qr, layout: layout, config: cfg)
                     let lastRun = LastServerRun(
                         sql: sql,
@@ -2447,6 +2461,7 @@ extension ContentViewController {
                 await MainActor.run {
                     guard self.chartServerQueryId == queryId else { return }
                     self.chartServerQueryId = nil
+                    self.chartServerConnectionId = nil
                     self.chartHost.setServerError(error.localizedDescription)
                 }
             }
@@ -2459,9 +2474,15 @@ extension ContentViewController {
     private func cancelServerAggregation() {
         chartServerAggWorkItem?.cancel()
         chartServerAggWorkItem = nil
+        // Clear the spinner so an abandoned/superseded run can't strand it on.
+        chartHost.setServerLoading(false)
         guard let qid = chartServerQueryId else { return }
+        // Cancel against the pool the run was LAUNCHED on — not activeTab, which
+        // may already point at a different connection after a tab switch/close.
+        let connectionId = chartServerConnectionId
         chartServerQueryId = nil
-        guard let connectionId = stateManager.activeTab?.connectionId else { return }
+        chartServerConnectionId = nil
+        guard let connectionId else { return }
         Task { _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: qid) }
     }
 

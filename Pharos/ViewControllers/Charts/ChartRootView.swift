@@ -33,13 +33,26 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
+    /// Whether the current chart type aggregates (bar/line/area/pie/heatmap) vs.
+    /// plots raw rows (scatter/gantt). Server aggregation only makes sense for the
+    /// former; for the latter we fall back to the client render even if the
+    /// persisted `serverAggregation` flag is on, so the flag can't strand the UI.
+    var chartTypeAggregates: Bool {
+        switch config.chartType {
+        case .scatter, .gantt: return false
+        default: return true
+        }
+    }
+
     func recompute() {
         // A restored result whose cached rows were demoted arrives with no
         // columns; surface the "re-run to chart" state rather than "pick columns".
         if columns.isEmpty { data = .empty(.noData); return }
         // In server-aggregation mode the VC supplies `data` via setServerData;
         // don't clobber it with a client-side aggregation of the loaded rows.
-        if config.serverAggregation { return }
+        // Only skip for chart types that actually aggregate — scatter/gantt fall
+        // back to the client render even if the flag is on (it can't push down).
+        if config.serverAggregation && chartTypeAggregates { return }
         data = ChartAggregator.aggregate(result, config)
     }
 
@@ -93,7 +106,9 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             // Server-aggregation banner takes precedence over the client subset
             // banner when the toggle is on (they describe different data paths).
-            if model.config.serverAggregation { serverBanner }
+            // Gate on chartTypeAggregates too: a non-aggregating type (scatter/
+            // gantt) renders client-side even with the flag on, so no server banner.
+            if model.config.serverAggregation && model.chartTypeAggregates { serverBanner }
             else if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
                 ChartCanvas(data: model.data, config: model.config,
