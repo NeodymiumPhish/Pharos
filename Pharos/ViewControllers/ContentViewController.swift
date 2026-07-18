@@ -34,6 +34,13 @@ class ContentViewController: NSViewController {
     /// cancel each other's pending write.
     private var chartPersistWorkItems: [String: DispatchWorkItem] = [:]
 
+    /// The in-flight server-aggregation (push-down) query id — tracked so a
+    /// superseded run can be cancelled server-side (`pg_cancel_backend`) and its
+    /// result ignored (last-write-wins).
+    private var chartServerQueryId: String?
+    /// Debounce coalescing rapid rail edits into one push-down execution.
+    private var chartServerAggWorkItem: DispatchWorkItem?
+
     // Container that holds paneSplitView + actionBar + resultTabBar + resultsVC.view with constraints
     private let contentStack = NSView()
 
@@ -2232,6 +2239,7 @@ extension ContentViewController {
         resultTabs[idx].resultViewMode = mode
         chartToggle.selectedSegment = (mode == .chart) ? 1 : 0
         if mode == .chart { presentChart(for: idx) }
+        else { cancelServerAggregation() }   // leaving chart mode kills any run
         applyResultAreaVisibility()
     }
 
@@ -2277,12 +2285,18 @@ extension ContentViewController {
     /// Build the chart for the result tab at `idx` and hand it to the host.
     private func presentChart(for idx: Int) {
         guard idx < resultTabs.count else { return }
+        // (Re)presenting supersedes any prior tab's server-aggregation run:
+        // cancel it so a superseded full-table GROUP BY stops burning server time.
+        cancelServerAggregation()
         guard let result = resultTabs[idx].queryResult else {
             // Restored result whose rows were demoted: chart shows a re-run
             // empty state; config is preserved for when it's re-executed.
             chartHost.onConfigChanged = nil
             chartHost.onLoadAll = nil
             chartHost.onDrill = nil
+            chartHost.onServerConfigChanged = nil
+            chartHost.onCopySQL = nil
+            chartHost.onRunServerAggregation = nil
             chartHost.present(
                 result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
                 initialConfig: resultTabs[idx].chartConfig,
@@ -2302,12 +2316,167 @@ extension ContentViewController {
             guard let self, let i = self.resultTabs.firstIndex(where: { $0.id == tabId }) else { return }
             self.resultTabs[i].chartConfig = newCfg
             self.scheduleChartStatePersist(forTabId: tabId)
+            self.refreshPushdownAvailability()
+            // Toggling server aggregation off restores the client-side path
+            // (the view model recomputes client data itself); cancel any run.
+            if !newCfg.serverAggregation { self.cancelServerAggregation() }
         }
         chartHost.onLoadAll = { [weak self] in self?.loadAllRowsForChart() }
         chartHost.onDrill = { [weak self] keys in self?.applyDrill(keys) }
+        // A rail edit while server mode is on (re)runs the debounced query.
+        chartHost.onServerConfigChanged = { [weak self] in self?.runServerAggregation(debounced: true) }
+        chartHost.onCopySQL = { [weak self] in self?.copyGeneratedChartSQL() }
+        // The reopen "Run…" affordance runs immediately (no debounce).
+        chartHost.onRunServerAggregation = { [weak self] in self?.runServerAggregation(debounced: false) }
         chartHost.present(result: result, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
         // Capture the config the host actually used (inference may have filled it).
         resultTabs[idx].chartConfig = chartHost.currentConfig
+        // Reopen is explicit: even with serverAggregation on we do NOT auto-run
+        // here — the banner shows the "Run…" state. Just publish availability.
+        refreshPushdownAvailability()
+    }
+
+    // MARK: Push-down (server aggregation)
+
+    /// Compute push-down availability for the active chart and push it (plus a
+    /// disabled-reason) into the view model so the rail can show/hide the toggle.
+    private func refreshPushdownAvailability() {
+        guard let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult,
+              let cfg = resultTabs[idx].chartConfig else {
+            chartHost.setPushdownAvailability(false, reason: nil)
+            return
+        }
+        let userSQL = resultTabs[idx].sql
+        if SqlPushdownGenerator.generate(cfg, userSQL: userSQL, columns: result.columns) != nil {
+            chartHost.setPushdownAvailability(true, reason: nil)
+        } else {
+            chartHost.setPushdownAvailability(false, reason: pushdownUnavailableReason(cfg, userSQL: userSQL))
+        }
+    }
+
+    /// A human explanation for why push-down is unavailable (display only; the
+    /// generator remains the authority on availability).
+    private func pushdownUnavailableReason(_ cfg: ChartConfig, userSQL: String) -> String {
+        switch cfg.chartType {
+        case .scatter, .gantt: return "Not available for this chart type."
+        default: break
+        }
+        let segs = SQLSegmentParser.parse(userSQL)
+            .filter { !$0.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if segs.count != 1 { return "Needs a single SELECT/WITH query." }
+        let t = segs[0].sql.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !(t.hasPrefix("select") || t.hasPrefix("with")) { return "Needs a SELECT/WITH query." }
+        return "Map a category and value to enable."
+    }
+
+    /// Run (or schedule) a push-down aggregation for the active chart.
+    private func runServerAggregation(debounced: Bool) {
+        chartServerAggWorkItem?.cancel()
+        chartServerAggWorkItem = nil
+        // Show the spinner immediately so a rail tweak feels responsive even
+        // while the actual execution is still debouncing.
+        chartHost.setServerLoading(true)
+        if debounced {
+            let item = DispatchWorkItem { [weak self] in self?.performServerAggregation() }
+            chartServerAggWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: item)
+        } else {
+            performServerAggregation()
+        }
+    }
+
+    /// Generate + execute the push-down query for the active chart, build the
+    /// ChartData, and push it into the host (last-write-wins on completion).
+    private func performServerAggregation() {
+        chartServerAggWorkItem = nil
+        guard let editorTab = stateManager.activeTab,
+              let connectionId = editorTab.connectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult,
+              let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation else {
+            chartHost.setServerLoading(false)
+            return
+        }
+        guard let pushdown = SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) else {
+            chartHost.setServerError("Server aggregation isn't available for this configuration.")
+            return
+        }
+        // Supersede any prior in-flight run before starting a new one.
+        cancelServerAggregation()
+        let queryId = UUID().uuidString
+        chartServerQueryId = queryId
+        chartHost.setServerLoading(true)
+
+        let schema = editorTab.schemaName
+        // Pass limit ≥ the generator's group cap so groups aren't silently paged
+        // off by executeQuery's own page limit; hasMore then means truncation.
+        let limit = max(Int32(stateManager.settings.query.defaultLimit), Int32(SqlPushdownGenerator.groupCap))
+        let rtId = id
+        let layout = pushdown.layout
+        let sql = pushdown.sql
+
+        Task {
+            do {
+                let qr = try await PharosCore.executeQuery(
+                    connectionId: connectionId, sql: sql, queryId: queryId,
+                    limit: limit, schema: schema, source: "chart-aggregation"
+                )
+                await MainActor.run {
+                    // Last-write-wins: ignore a result whose run was superseded.
+                    guard self.chartServerQueryId == queryId else { return }
+                    self.chartServerQueryId = nil
+                    let data = ServerChartDataBuilder.build(qr, layout: layout, config: cfg)
+                    let lastRun = LastServerRun(
+                        sql: sql,
+                        executedAt: ISO8601DateFormatter().string(from: Date()),
+                        rowCount: qr.rowCount,
+                        truncated: qr.hasMore
+                    )
+                    self.chartHost.applyServerRun(data, lastRun: lastRun)
+                    // Persist the provenance so it survives history pruning + reopen.
+                    if let i = self.resultTabs.firstIndex(where: { $0.id == rtId }) {
+                        self.resultTabs[i].chartConfig?.lastServerRun = lastRun
+                        self.scheduleChartStatePersist(forTabId: rtId)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard self.chartServerQueryId == queryId else { return }
+                    self.chartServerQueryId = nil
+                    self.chartHost.setServerError(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Cancel the in-flight push-down query server-side and drop its pending
+    /// debounce, so a superseded/abandoned run stops consuming DB resources. The
+    /// nil'd `chartServerQueryId` also makes any late result a last-write-wins no-op.
+    private func cancelServerAggregation() {
+        chartServerAggWorkItem?.cancel()
+        chartServerAggWorkItem = nil
+        guard let qid = chartServerQueryId else { return }
+        chartServerQueryId = nil
+        guard let connectionId = stateManager.activeTab?.connectionId else { return }
+        Task { _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: qid) }
+    }
+
+    /// Copy the current chart's generated push-down SQL to the pasteboard — the
+    /// forensic primitive (an auditor re-runs it verbatim to validate the chart).
+    private func copyGeneratedChartSQL() {
+        guard let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult,
+              let cfg = resultTabs[idx].chartConfig,
+              let pushdown = SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) else {
+            NSSound.beep(); return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pushdown.sql, forType: .string)
     }
 
     // MARK: Chart Drill-down
