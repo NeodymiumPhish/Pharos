@@ -2488,7 +2488,9 @@ extension ContentViewController {
 
     /// Copy the current chart's generated push-down SQL to the pasteboard — the
     /// forensic primitive (an auditor re-runs it verbatim to validate the chart).
-    private func copyGeneratedChartSQL() {
+    /// `@objc` so it doubles as the export menu's "View / Copy Generated SQL"
+    /// action (Task 10), alongside the rail button's direct closure call.
+    @objc private func copyGeneratedChartSQL() {
         guard let id = activeResultTabId,
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               let result = resultTabs[idx].queryResult,
@@ -2498,6 +2500,20 @@ extension ContentViewController {
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pushdown.sql, forType: .string)
+    }
+
+    /// Whether a push-down query can currently be generated for the active
+    /// chart — gates the export menu's "View / Copy Generated SQL" item the
+    /// same way the rail's copy-SQL button is gated (Task 7): server
+    /// aggregation on, and generation actually succeeds (so a stale flag on a
+    /// non-aggregating chart type, or an unmappable config, hides the item
+    /// rather than offering a dead action).
+    private func activePushdownQueryAvailable() -> Bool {
+        guard let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult,
+              let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation else { return false }
+        return SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) != nil
     }
 
     // MARK: Chart Drill-down
@@ -2713,6 +2729,16 @@ extension ContentViewController {
             ("Copy Chart as Image", #selector(copyChartAsImage)),
         ] {
             let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+        }
+        // Push-down only (Task 10) — omitted entirely in client mode.
+        if activePushdownQueryAvailable() {
+            menu.addItem(.separator())
+            let item = menu.addItem(
+                withTitle: "View / Copy Generated SQL",
+                action: #selector(copyGeneratedChartSQL),
+                keyEquivalent: ""
+            )
             item.target = self
         }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: exportButton.bounds.maxY + 4), in: exportButton)
