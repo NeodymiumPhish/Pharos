@@ -13,17 +13,36 @@ final class ChartHostingController: NSViewController {
     var onLoadAll: (() -> Void)?
     /// Reports a drill request from a chart gesture (tap/brush/pie selection).
     var onDrill: (([DrillKey]) -> Void)?
+    /// Fired when a config change lands while server aggregation is on (a
+    /// mapping/agg/bin tweak or the toggle flipping on) — the VC (re-)runs the
+    /// debounced push-down query. Distinct from `onConfigChanged` (persistence),
+    /// which fires for every change regardless of mode.
+    var onServerConfigChanged: (() -> Void)?
+    /// Put the current generated push-down SQL on the pasteboard (VC-owned).
+    var onCopySQL: (() -> Void)?
+    /// Explicitly run a server aggregation (the reopen "Run…" affordance).
+    var onRunServerAggregation: (() -> Void)?
 
     override func loadView() { view = NSView() }
 
     /// Configure (or reconfigure) for a result.
     func present(result: QueryResult, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
         let vm = ChartViewModel(result: result, columns: result.columns, initialConfig: initialConfig)
-        vm.onConfigChanged = { [weak self] cfg in self?.onConfigChanged?(cfg) }
+        vm.onConfigChanged = { [weak self] cfg in
+            self?.onConfigChanged?(cfg)
+            // A change while server mode is on triggers a (debounced) re-run.
+            if cfg.serverAggregation { self?.onServerConfigChanged?() }
+        }
         vm.onDrill = { [weak self] keys in self?.onDrill?(keys) }
         self.model = vm
 
-        let root = ChartRootView(model: vm, bannerInfo: banner, onLoadAll: { [weak self] in self?.onLoadAll?() })
+        let root = ChartRootView(
+            model: vm,
+            bannerInfo: banner,
+            onLoadAll: { [weak self] in self?.onLoadAll?() },
+            onCopySQL: { [weak self] in self?.onCopySQL?() },
+            onRunServerAggregation: { [weak self] in self?.onRunServerAggregation?() }
+        )
         let host = NSHostingController(rootView: AnyView(root))
         embed(host)
         self.hosting = host
@@ -31,6 +50,32 @@ final class ChartHostingController: NSViewController {
 
     /// The current config (for persistence on teardown/tab-switch).
     var currentConfig: ChartConfig? { model?.config }
+
+    // MARK: Server-aggregation view-model forwarding (VC-driven)
+
+    /// Toggle the in-flight spinner state in the banner.
+    func setServerLoading(_ loading: Bool) { model?.serverLoading = loading }
+
+    /// Show a DB error in the banner (also clears loading).
+    func setServerError(_ message: String?) {
+        model?.serverError = message
+        model?.serverLoading = false
+    }
+
+    /// Push push-down availability + the disabled-reason into the view model so
+    /// the rail can show/hide the toggle.
+    func setPushdownAvailability(_ available: Bool, reason: String?) {
+        model?.pushdownUnavailableReason = reason
+        model?.pushdownAvailable = available
+    }
+
+    /// Inject a completed server-aggregation run: the built data plus its
+    /// provenance (`lastServerRun`), updating the config so the banner reflects
+    /// the as-of time without re-triggering a run.
+    func applyServerRun(_ data: ChartData, lastRun: LastServerRun) {
+        model?.config.lastServerRun = lastRun
+        model?.setServerData(data)
+    }
 
     /// Everything `ChartExporter` needs to render + tag one export: a
     /// caption-annotated snapshot view (chart + provenance footer, sized to
