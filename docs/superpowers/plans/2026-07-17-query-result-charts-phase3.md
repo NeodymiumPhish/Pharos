@@ -563,6 +563,13 @@ git commit -m "feat(charts): query_history.source tag + executeQuery source para
 
 - [ ] **Step 5: Build + manual verify.** Commit (`feat(charts): push-down execution with cancellation, source tag, lastServerRun, explicit reopen`).
 
+- [ ] **Step 6: Cancellation/state correctness (review fixes — required)**
+  1. **Capture `connectionId` at launch.** `cancelQuery` must target the pool the query ran on; resolving `activeTab.connectionId` at *cancel* time is wrong after a tab switch. Store the launch `connectionId` alongside the in-flight `queryId` and cancel with the stored value.
+  2. **Effective server mode = `serverAggregation && chartTypeAggregates`.** Gate BOTH the view model's `recompute()` server-skip AND the `serverBanner` on an "aggregating type" check (scatter/gantt never aggregate). This makes switching to a non-aggregating type fall back to the client render (and hide the banner) **without** mutating the persisted flag — switching back re-activates it. Prevents the "stuck on, no way to turn off" trap.
+  3. **Cancel in the empty/guard-fail paths.** `syncChartToggleToActiveTab`'s early `guard` (no active result tab — hit by closing the last result tab or switching to a tab with none) must call `cancelServerAggregation()` before returning, so an in-flight query isn't orphaned.
+  4. **Reset `serverLoading = false` in `cancelServerAggregation`** (avoid a stuck spinner).
+  5. **Cancel the prior in-flight run at schedule time** in `runServerAggregation(debounced:)` (call `cancelServerAggregation()` at the start), so a superseded full-table `GROUP BY` doesn't keep running through the debounce window.
+
 ## Task 9: VC push-down drill → spawn detail query
 
 **Files:** `ContentViewController.swift`.
