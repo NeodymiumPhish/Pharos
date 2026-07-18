@@ -2502,12 +2502,20 @@ extension ContentViewController {
 
     // MARK: Chart Drill-down
 
-    /// Translate a chart mark's drill keys into grid column filters, apply them
-    /// (snapshotting any manual filter a drill column displaces), switch to the
-    /// grid, and surface the clearable chip.
+    /// Translate a chart mark's drill keys into a detail query. In client mode
+    /// (push-down off, or the chart type doesn't aggregate) this is grid column
+    /// filters applied in place; in push-down mode it spawns a filtered detail
+    /// query as a new result tab instead.
     private func applyDrill(_ keys: [DrillKey]) {
         guard let id = activeResultTabId,
-              let result = resultTabs.first(where: { $0.id == id })?.queryResult else { return }
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let result = resultTabs[idx].queryResult else { return }
+
+        if let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation, chartTypeAggregates(cfg.chartType) {
+            applyServerDrill(keys, resultTab: resultTabs[idx], columns: result.columns)
+            return
+        }
+
         let applied = DrillTranslator.filters(for: keys, columns: result.columns)
         guard !applied.isEmpty else { return }
         guard let fc = resultsVC.columnFilterController else { return }
@@ -2523,6 +2531,34 @@ extension ContentViewController {
         resultsVC.refreshColumnFilters()
         setResultViewMode(.grid)
         updateDrillChip()
+    }
+
+    /// Push-down mode drill: translate the drill keys into a SQL predicate
+    /// (`DrillSqlTranslator`), wrap the result tab's (already variable-substituted)
+    /// SQL in a filtered subquery, and run it through the normal query-run path as
+    /// a **new result tab** — this records the run in `query_history`, giving a
+    /// self-contained, re-runnable drill trail. Does NOT touch the grid filter /
+    /// chip; that overlay is client-mode-only.
+    private func applyServerDrill(_ keys: [DrillKey], resultTab: ResultTab, columns: [ColumnDef]) {
+        guard !keys.isEmpty else { return }
+        let predicate = keys
+            .map { DrillSqlTranslator.predicate(for: $0, columns: columns) }
+            .joined(separator: " AND ")
+        guard !predicate.isEmpty else { return }
+        let sql = "SELECT * FROM ( \(resultTab.sql) ) AS _pharos_src WHERE \(predicate)"
+        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: true)
+    }
+
+    /// Whether the chart type aggregates (bar/line/area/pie/heatmap) vs. plots raw
+    /// rows (scatter/gantt) — mirrors `ChartViewModel.chartTypeAggregates`.
+    /// Push-down drill only applies to the former; a non-aggregating type falls
+    /// back to the client drill path even if a stale `serverAggregation` flag is
+    /// still set (it never had push-down data to begin with).
+    private func chartTypeAggregates(_ type: ChartType) -> Bool {
+        switch type {
+        case .scatter, .gantt: return false
+        default: return true
+        }
     }
 
     /// Clear the chart drill: restore any manual filter each drill column
