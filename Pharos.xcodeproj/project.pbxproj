@@ -53,9 +53,11 @@
 		4D90F8707E017504E6C2E8AB /* ChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B56879294F48E8251CB80 /* ChartView.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
 		4F7D024CB09110ABCE76F81F /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6527A1E903BD69BAB67D169 /* QueryVariablesPanelVC.swift */; };
+		4FFCA17EB6DD14998BDE799A /* ChartExportCaption.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C01E8B2BFBB4F7D1CFCA697 /* ChartExportCaption.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C25DF8F9813C90CA3567012 /* ChartConfig.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
+		586DA9FCB49C8ACCD9C59F0D /* ChartExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */; };
 		587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */; };
 		62B0D5879E818278B570C216 /* ResultTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */; };
 		65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028712E3F9210287025ADAE8 /* AppStateManager.swift */; };
@@ -171,6 +173,7 @@
 		5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Delegates.swift"; sourceTree = "<group>"; };
 		6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Query.swift"; sourceTree = "<group>"; };
+		6C01E8B2BFBB4F7D1CFCA697 /* ChartExportCaption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartExportCaption.swift; sourceTree = "<group>"; };
 		6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnFilterPopoverVC.swift; sourceTree = "<group>"; };
 		6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsSortController.swift; sourceTree = "<group>"; };
 		6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabResolver.swift; sourceTree = "<group>"; };
@@ -216,6 +219,7 @@
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
 		CDED3E898043241B00FE18D7 /* ResizeGripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeGripView.swift; sourceTree = "<group>"; };
 		CEADE04C5F358D12DBAEFF53 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartExporter.swift; sourceTree = "<group>"; };
 		D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryEditorVC.swift; sourceTree = "<group>"; };
 		D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueListView.swift; sourceTree = "<group>"; };
 		D662512D7219078869005EED /* ResultsDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsDataSource.swift; sourceTree = "<group>"; };
@@ -325,6 +329,7 @@
 		4968CE785DA3FEDDF46BD516 /* Charts */ = {
 			isa = PBXGroup;
 			children = (
+				CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */,
 				F891B6EAB834D607054C3750 /* ChartHostingController.swift */,
 				2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */,
 				5A6B56879294F48E8251CB80 /* ChartView.swift */,
@@ -399,6 +404,7 @@
 				7DEC3690225F794408E62D29 /* ChartAggregator.swift */,
 				4C25DF8F9813C90CA3567012 /* ChartConfig.swift */,
 				16679621777BEB58D425E66E /* ChartData.swift */,
+				6C01E8B2BFBB4F7D1CFCA697 /* ChartExportCaption.swift */,
 				264FF44EDD39F675DE642D7B /* ChartTypes.swift */,
 				EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */,
 				AA16914752C36D98C5FB61F6 /* DrillKey.swift */,
@@ -603,6 +609,8 @@
 				4A357200F99BA35BECB62716 /* ChartAggregator.swift in Sources */,
 				536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */,
 				49FB38D5C5582642FC4B7EDE /* ChartData.swift in Sources */,
+				4FFCA17EB6DD14998BDE799A /* ChartExportCaption.swift in Sources */,
+				586DA9FCB49C8ACCD9C59F0D /* ChartExporter.swift in Sources */,
 				3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */,
 				2217148AF13F5D02FA2C5ECA /* ChartRootView.swift in Sources */,
 				37C04B0603F88D3D77CAD964 /* ChartTypes.swift in Sources */,

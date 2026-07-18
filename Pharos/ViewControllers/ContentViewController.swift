@@ -2208,6 +2208,20 @@ extension ContentViewController {
         let showChart = resultsAreaVisible && activeResultViewMode == .chart
         chartHost.view.isHidden = !showChart
         resultsVC.view.isHidden = !(resultsAreaVisible && !showChart)
+        updateExportButtonTarget()
+    }
+
+    /// Retarget the shared export button between the grid's copy/export menu
+    /// and the chart export menu, based on the active result tab's view mode.
+    /// Grid mode is unchanged from before charts existed.
+    private func updateExportButtonTarget() {
+        if activeResultViewMode == .chart {
+            exportButton.target = self
+            exportButton.action = #selector(showChartExportMenu)
+        } else {
+            exportButton.target = resultsVC.copyExport
+            exportButton.action = #selector(ResultsCopyExport.showExportMenu)
+        }
     }
 
     /// Apply a view mode to the UI for the given result tab (present the chart if
@@ -2456,6 +2470,90 @@ extension ContentViewController {
         DispatchQueue.global(qos: .utility).async {
             _ = try? PharosCore.updateResultChartState(resultId: resultId, json: json)
         }
+    }
+
+    // MARK: Chart Export
+
+    private enum ChartExportKind { case png, pdf, copy }
+
+    /// Chart-mode export menu (parallels `ResultsCopyExport.showExportMenu` for
+    /// grid mode — `updateExportButtonTarget()` swaps the shared export button
+    /// between the two based on the active result tab's view mode).
+    @objc func showChartExportMenu() {
+        let menu = NSMenu()
+        for (title, action) in [
+            ("Export Chart as PNG\u{2026}", #selector(exportChartAsPNG)),
+            ("Export Chart as PDF\u{2026}", #selector(exportChartAsPDF)),
+            ("Copy Chart as Image", #selector(copyChartAsImage)),
+        ] {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: exportButton.bounds.maxY + 4), in: exportButton)
+    }
+
+    @objc private func exportChartAsPNG() { performChartExport(.png) }
+    @objc private func exportChartAsPDF() { performChartExport(.pdf) }
+    @objc private func copyChartAsImage() { performChartExport(.copy) }
+
+    private func performChartExport(_ kind: ChartExportKind) {
+        guard let snapshot = chartHost.buildExportSnapshot(connectionName: activeConnectionDisplayName()) else {
+            NSSound.beep()
+            return
+        }
+        switch kind {
+        case .png:
+            guard let data = ChartExporter.png(
+                of: snapshot.view, size: snapshot.size,
+                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
+            ) else { return }
+            saveChartExport(data: data, filename: "\(defaultChartExportBaseName()).png", type: .png)
+        case .pdf:
+            guard let data = ChartExporter.pdf(
+                of: snapshot.view, size: snapshot.size,
+                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
+            ) else { return }
+            saveChartExport(data: data, filename: "\(defaultChartExportBaseName()).pdf", type: .pdf)
+        case .copy:
+            guard let data = ChartExporter.png(
+                of: snapshot.view, size: snapshot.size,
+                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
+            ) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(data, forType: .png)
+        }
+    }
+
+    private func saveChartExport(data: Data, filename: String, type: UTType) {
+        guard let window = view.window else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = filename
+        panel.allowedContentTypes = [type]
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try data.write(to: url)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
+    }
+
+    /// Sanitized result-tab label for use as a save-panel default filename.
+    private func defaultChartExportBaseName() -> String {
+        guard let id = activeResultTabId, let tab = resultTabs.first(where: { $0.id == id }) else { return "chart" }
+        let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+        let cleaned = tab.label.components(separatedBy: invalid).joined(separator: "-")
+            .trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? "chart" : cleaned
+    }
+
+    /// Display name of the connection backing the focused editor tab, for the
+    /// export caption's provenance.
+    private func activeConnectionDisplayName() -> String {
+        guard let connId = stateManager.activeTab?.connectionId else { return "\u{2014}" }
+        return stateManager.connections.first { $0.id == connId }?.name ?? connId
     }
 }
 
