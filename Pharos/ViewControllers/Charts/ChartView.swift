@@ -86,11 +86,42 @@ struct ChartCanvas: View {
         else { stageSingle(hitIDs) }
     }
 
+    // MARK: - Lit/dimmed preview (merged coverage)
+
+    /// Keys driving dimming: the live staged selection if present, else the
+    /// committed filter (so a committed filter stays visible on return to chart).
+    private var effectiveKeys: [DrillKey] { hasStagedSelection ? stagedKeys : committedKeys }
+
+    private func isLit(_ drill: DrillKey?) -> Bool {
+        if effectiveKeys.isEmpty { return true }   // nothing selected → all lit
+        guard let d = drill else { return false }
+        return DrillCoverage.covers(effectiveKeys, d)
+    }
+
+    private func ganttRowLit(_ bar: GanttBar) -> Bool {
+        if let r = rangeSel { return bar.start <= r.xHi && bar.end >= r.xLo }   // time-axis overlap window
+        if effectiveKeys.isEmpty { return true }
+        guard let ref = config.mappings[.label] else { return true }
+        return DrillCoverage.covers(effectiveKeys, .anyOf(ref, [bar.label]))
+    }
+
+    @ViewBuilder private func marqueeOverlay(origin: CGPoint) -> some View {
+        if let m = marquee {
+            Rectangle().fill(Color.accentColor.opacity(0.12))
+                .overlay(Rectangle().stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4])).foregroundStyle(Color.accentColor))
+                .frame(width: max(m.width, 1), height: max(m.height, 1))
+                .position(x: origin.x + m.midX, y: origin.y + m.midY)
+                .allowsHitTesting(false)
+        }
+    }
+
     var body: some View {
         if let reason = data.emptyReason {
             emptyState(reason)
         } else {
             chart.padding(8)
+                .onChange(of: clearToken) { _, _ in clearSelection() }
+                .onChange(of: configFingerprint) { _, _ in clearSelection() }
         }
     }
 
@@ -119,6 +150,7 @@ struct ChartCanvas: View {
                 y: .value("Y", cell.y)
             )
             .foregroundStyle(by: .value("Value", cell.value))
+            .opacity(isLit(cell.drill) ? 1 : 0.2)
         }
         .chartForegroundStyleScale(range: Gradient(colors: [Color.blue.opacity(0.15), Color.blue]))
         .chartOverlay { proxy in heatmapOverlay(proxy) }
@@ -130,6 +162,7 @@ struct ChartCanvas: View {
             ForEach(Array(data.series.enumerated()), id: \.offset) { _, series in
                 ForEach(Array(series.points.enumerated()), id: \.offset) { _, pt in
                     mark(pt).foregroundStyle(by: .value("Series", series.name.isEmpty ? "value" : series.name))
+                        .opacity(isLit(pt.drill) ? 1 : 0.2)
                 }
             }
         }
@@ -139,6 +172,7 @@ struct ChartCanvas: View {
         Chart(data.series.first?.points ?? [], id: \.xLabel) { pt in
             SectorMark(angle: .value("Value", pt.y), innerRadius: .ratio(0.5))
                 .foregroundStyle(by: .value("Category", pt.xLabel))
+                .opacity(isLit(pt.drill) ? 1 : 0.2)
         }
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
@@ -163,7 +197,14 @@ struct ChartCanvas: View {
     @ViewBuilder private var scatterChart: some View {
         let pts = scatterPoints
         Chart {
-            PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y))
+            if let r = rangeSel {
+                let inR: (XYPoint) -> Bool = { r.xLo <= $0.x && $0.x <= r.xHi && (r.yLo == nil || (r.yLo! <= $0.y && $0.y <= r.yHi!)) }
+                let inside = pts.filter(inR); let outside = pts.filter { !inR($0) }
+                PointPlot(outside, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(.gray.opacity(0.2))
+                PointPlot(inside, x: .value("X", \.x), y: .value("Y", \.y))
+            } else {
+                PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y))
+            }
         }
         .chartOverlay { proxy in
             GeometryReader { geo in
@@ -172,6 +213,11 @@ struct ChartCanvas: View {
                     Rectangle().fill(Color.clear).contentShape(Rectangle())
                         .gesture(
                             DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    let sx = value.startLocation.x - origin.x, ex = value.location.x - origin.x
+                                    let sy = value.startLocation.y - origin.y, ey = value.location.y - origin.y
+                                    marquee = CGRect(x: min(sx, ex), y: min(sy, ey), width: abs(ex - sx), height: abs(ey - sy))
+                                }
                                 .onEnded { value in
                                     let sx = value.startLocation.x - origin.x
                                     let ex = value.location.x - origin.x
@@ -182,8 +228,10 @@ struct ChartCanvas: View {
                                     } else {
                                         scatterBrush(sx, ex, sy, ey, proxy: proxy)
                                     }
+                                    marquee = nil
                                 }
                         )
+                    marqueeOverlay(origin: origin)
                     if let sel = scatterSelection,
                        let cx = proxy.position(forX: sel.x),
                        let cy = proxy.position(forY: sel.y) {
@@ -203,21 +251,32 @@ struct ChartCanvas: View {
     @ViewBuilder private func categoryOverlay(_ proxy: ChartProxy) -> some View {
         GeometryReader { geo in
             let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
-            Rectangle().fill(Color.clear).contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onEnded { value in
-                            let sx = value.startLocation.x - origin.x
-                            let ex = value.location.x - origin.x
-                            if abs(value.translation.width) < 6 {
-                                if let label = proxy.value(atX: ex, as: String.self) {
-                                    categoryTap(label, atY: value.location.y - origin.y, proxy: proxy)
-                                }
-                            } else {
-                                categoryBrush(min(sx, ex), max(sx, ex), proxy)
+            let plotHeight = proxy.plotFrame.map { geo[$0].height } ?? geo.size.height
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Color.clear).contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let sx = value.startLocation.x - origin.x, ex = value.location.x - origin.x
+                                marquee = CGRect(x: min(sx, ex), y: 0, width: abs(ex - sx), height: plotHeight)
                             }
-                        }
-                )
+                            .onEnded { value in
+                                let sx = value.startLocation.x - origin.x
+                                let ex = value.location.x - origin.x
+                                if abs(value.translation.width) < 6 {
+                                    if let label = proxy.value(atX: ex, as: String.self) {
+                                        categoryTap(label, atY: value.location.y - origin.y, proxy: proxy)
+                                    } else {
+                                        clearSelection()
+                                    }
+                                } else {
+                                    categoryBrush(min(sx, ex), max(sx, ex), proxy)
+                                }
+                                marquee = nil
+                            }
+                    )
+                marqueeOverlay(origin: origin)
+            }
         }
     }
 
@@ -278,16 +337,26 @@ struct ChartCanvas: View {
     @ViewBuilder private func heatmapOverlay(_ proxy: ChartProxy) -> some View {
         GeometryReader { geo in
             let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
-            Rectangle().fill(Color.clear).contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onEnded { v in
-                    let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
-                    let sy = v.startLocation.y - origin.y, ey = v.location.y - origin.y
-                    if abs(v.translation.width) < 6 && abs(v.translation.height) < 6 {
-                        heatmapTap(ex, ey, proxy)
-                    } else {
-                        heatmapBrush(min(sx, ex), max(sx, ex), min(sy, ey), max(sy, ey), proxy)
-                    }
-                })
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Color.clear).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
+                            let sy = v.startLocation.y - origin.y, ey = v.location.y - origin.y
+                            marquee = CGRect(x: min(sx, ex), y: min(sy, ey), width: abs(ex - sx), height: abs(ey - sy))
+                        }
+                        .onEnded { v in
+                            let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
+                            let sy = v.startLocation.y - origin.y, ey = v.location.y - origin.y
+                            if abs(v.translation.width) < 6 && abs(v.translation.height) < 6 {
+                                heatmapTap(ex, ey, proxy)
+                            } else {
+                                heatmapBrush(min(sx, ex), max(sx, ex), min(sy, ey), max(sy, ey), proxy)
+                            }
+                            marquee = nil
+                        })
+                marqueeOverlay(origin: origin)
+            }
         }
     }
 
@@ -296,7 +365,7 @@ struct ChartCanvas: View {
 
     private func heatmapTap(_ px: CGFloat, _ py: CGFloat, _ proxy: ChartProxy) {
         guard let xl = proxy.value(atX: px, as: String.self), let yl = proxy.value(atY: py, as: String.self),
-              let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }) else { return }
+              let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }) else { clearSelection(); return }
         applyModifier(hitIDs: [cell.id]) {
             guard let a = anchorID, let ac = data.heatmapCells.first(where: { $0.id == a }) else { return [cell.id] }
             let xs = orderedHeatX, ys = orderedHeatY
@@ -437,11 +506,21 @@ struct ChartCanvas: View {
                 .chartYAxis(.hidden)
                 .chartOverlay { proxy in
                     GeometryReader { g in
-                        let ox = proxy.plotFrame.map { g[$0].origin.x } ?? 0
-                        Rectangle().fill(Color.clear).contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 6).onEnded { v in
-                                ganttBrush(v.startLocation.x - ox, v.location.x - ox, proxy: proxy, bars: bars)
-                            })
+                        let origin = proxy.plotFrame.map { g[$0].origin } ?? .zero
+                        let plotHeight = proxy.plotFrame.map { g[$0].height } ?? g.size.height
+                        ZStack(alignment: .topLeading) {
+                            Rectangle().fill(Color.clear).contentShape(Rectangle())
+                                .gesture(DragGesture(minimumDistance: 6)
+                                    .onChanged { v in
+                                        let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
+                                        marquee = CGRect(x: min(sx, ex), y: 0, width: abs(ex - sx), height: plotHeight)
+                                    }
+                                    .onEnded { v in
+                                        ganttBrush(v.startLocation.x - origin.x, v.location.x - origin.x, proxy: proxy, bars: bars)
+                                        marquee = nil
+                                    })
+                            marqueeOverlay(origin: origin)
+                        }
                     }
                 }
             }
@@ -474,6 +553,7 @@ struct ChartCanvas: View {
                     .chartYAxis(.hidden)
                     .frame(height: Self.ganttBarHeight)
                 }
+                .opacity(ganttRowLit(bar) ? 1 : 0.2)
                 .contentShape(Rectangle())
                 .onTapGesture { ganttTap(bar) }
             }
