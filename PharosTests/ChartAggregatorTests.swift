@@ -201,5 +201,22 @@ func runTests() {
         } else { expect(false, "heatmap numeric X cell drill is a .range") }
     }
 
+    // Multi-series bar points carry compound(category + series) drill keys.
+    do {
+        let cols = [ColumnDef(name: "cat", dataType: "text"), ColumnDef(name: "val", dataType: "numeric"), ColumnDef(name: "ser", dataType: "text")]
+        let rows: [[AnyCodable]] = [[AnyCodable("a"), AnyCodable("1"), AnyCodable("s1")],
+                                    [AnyCodable("a"), AnyCodable("2"), AnyCodable("s2")]]
+        let res = QueryResult(columns: cols, rows: rows, rowCount: 2, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+        var cfg = ChartConfig(chartType: .bar, aggregation: .sum)
+        cfg.mappings[.category] = ColumnRef(index: 0, name: "cat")
+        cfg.mappings[.value] = ColumnRef(index: 1, name: "val")
+        cfg.mappings[.series] = ColumnRef(index: 2, name: "ser")
+        let d = ChartAggregator.aggregate(res, cfg)
+        let s1pt = d.series.first(where: { $0.name == "s1" })?.points.first
+        if case .compound(let ks)? = s1pt?.drill, ks.count == 2, case .anyOf(let sref, let sv) = ks[1] {
+            expect(sref.name == "ser" && sv == ["s1"], "series point drills category AND its series")
+        } else { expect(false, "series point carries compound(cat, series)") }
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

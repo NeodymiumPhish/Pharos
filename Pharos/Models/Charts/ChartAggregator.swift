@@ -158,7 +158,14 @@ enum ChartAggregator {
             for c in categories {
                 let k = Key(series: s, cat: c)
                 let hasData = sums[k] != nil || counts[k] != nil || c == "Other"
-                if hasData { pts.append(ChartPoint(xLabel: c, xValue: nil, y: value(k), drill: drillOf[c])) }
+                guard hasData else { continue }
+                var drill = drillOf[c]
+                if seriesRef != nil, let base = drill {
+                    // Null/empty series name → .blank on the series column.
+                    let seriesKey: DrillKey = s.isEmpty ? .blank(seriesRef!) : .anyOf(seriesRef!, [s])
+                    drill = .compound([base, seriesKey])
+                }
+                pts.append(ChartPoint(xLabel: c, xValue: nil, y: value(k), drill: drill))
             }
             out.series.append(ChartSeries(name: s, points: pts))
         }
