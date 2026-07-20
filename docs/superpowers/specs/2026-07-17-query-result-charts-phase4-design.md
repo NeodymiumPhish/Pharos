@@ -38,15 +38,16 @@ new persisted state is `axisBins`, and there are no new Rust/SQLite changes.
 | Decision | Choice |
 |---|---|
 | Scope | All three deferral clusters (push-down parity, heatmap axes, interaction). |
-| Scatter push-down | Non-aggregating sampled query: `… ORDER BY random() LIMIT <sampleCap>` (not `TABLESAMPLE`). |
+| Scatter push-down | Non-aggregating sampled query, **deterministic** order (`ORDER BY hashtext((_x,_y)::text) LIMIT <sampleCap>`) so a re-run reproduces the chart (not `TABLESAMPLE`, not `random()`); banner + `lastServerRun` mark it "sampled". |
 | Heatmap top-N (push-down) | Per-axis `dense_rank()` windows (matches client 25×25), replacing the flat `LIMIT`. |
 | `.auto` bucket count (push-down) | Scalar subquery `LEAST(50, GREATEST(1, CEIL(SQRT(COUNT(*)))::int))` folded into the range CTE. |
 | Per-axis bin model | `axisBins: [ChartColumnRole: AxisBin]` with fallback to the global `temporalBin`/`numericBin` (recommended (a)). |
 | Heatmap numeric binning | `width_bucket` (push-down, per numeric axis) + mirrored client binning in `aggregateHeatmap`. |
-| Series-precise drill | Stacked bars via y-band resolution; grouped/ambiguous → category-only (documented). |
-| Gantt time-brush | **Overlap** (`start ≤ t1 AND end ≥ t0`) via a new `DrillKey.overlap`. |
-| Heatmap brush | Rectangular bounding-box → `.compound([.anyOf(xRef, xs), .anyOf(yRef, ys)])`. |
-| Pie multi-select | ⌘/⇧-click accumulates slices → combined `.anyOf` (no drag-brush). |
+| Series-precise drill | Stacked bars via y-band resolution; line/area via nearest-series; grouped/ambiguous → category-only (documented). |
+| Gantt time-brush | **Overlap** via a new `DrillKey.overlap(startRef, endRef, lo, hi, RangeKind)` (temporal *or* numeric gantt axes). |
+| Heatmap brush | Rectangular selection → **merge the covered cells' pre-computed per-axis drill sub-keys** (union `.anyOf`, coalesce `.range`, carry `.blank`), then compound the two axes — never rebuilt from labels. |
+| Pie multi-select | ⌘/⇧-click accumulates slices' drill sub-keys → merged per column (may include the null slice). No drag-brush. |
+| SQL `.anyOf` null | `DrillSqlTranslator.anyOf` splits the blanks sentinel out → `"col" IN (…) OR "col" IS NULL` (parity with the grid). |
 | Persistence | Only `axisBins` is new (additive, tolerant decoder). No backend changes. |
 
 ## A — Push-down parity
@@ -60,16 +61,25 @@ scatter + `serverAggregation` produces a **non-aggregating sampled** query:
 SELECT <xExpr> AS _x, <yExpr> AS _y
 FROM ( <userSQL> ) AS _pharos_src
 WHERE <xExpr> IS NOT NULL AND <yExpr> IS NOT NULL
-ORDER BY random()
+ORDER BY hashtext((_pharos_src.*)::text)   -- deterministic pseudo-random; re-run reproduces
 LIMIT <sampleCap>
 ```
 
-- `TABLESAMPLE` is rejected in the design — it's a base-table clause and can't
-  wrap our subquery. `ORDER BY random()` is a full scan+sort, but push-down is
-  opt-in and `sampleCap` bounds output.
+- `TABLESAMPLE` is rejected — it's a base-table clause and can't wrap our
+  subquery.
+- **Deterministic order (audit):** `ORDER BY random()` would mean a re-run of the
+  recorded SQL never reproduces the chart — the one regression against phase-3
+  provenance. Instead order by a stable hash of the row
+  (`hashtext((_pharos_src.*)::text)`, similar cost) so identical data yields the
+  same sample. The banner and `lastServerRun` still mark the chart **"sampled"**
+  (it's not the full set). (If the exact `.*::text` cast is awkward in practice,
+  hash the projected `_x||_y` values — a plan detail; the requirement is
+  *deterministic + labelled*.)
 - `PushdownQuery.layout` gains a `.scatter` kind (a `ScatterLayout` reading
   `_x/_y` as raw points). `ServerChartDataBuilder` maps those to `ChartPoint`s
   (xValue/y), sets `wasSampled = result.hasMore || rows == sampleCap`.
+- **Row-limit lesson (phase 3):** the VC must request `executeQuery(limit:) ≥
+  sampleCap`, or the sample silently truncates with `hasMore`.
 - Scatter push-down drill = brush → x/y-range detail query (see C).
 - Availability: scatter is now available under push-down when the SQL is
   wrappable and x/y resolve.
@@ -152,36 +162,60 @@ Non-heatmap charts are unchanged (global bin controls).
   multi-series point (today they carry only the category drill).
 - **Stacked** bars: the gesture resolves the hit series by mapping the tap's y
   (via the chart proxy) to the cumulative series band at that category → filter
-  category **and** that series. **Grouped/ambiguous** taps fall back to
-  category-only (documented). Both backends already handle `.compound` (grid: two
-  column filters; SQL: `AND`).
+  category **and** that series. **Line/area:** resolve the **nearest series** to
+  the tap (by proximity to each series' value at that x). **Grouped/ambiguous**
+  taps fall back to category-only (documented). Both backends already handle
+  `.compound` (grid: two column filters; SQL: `AND`).
 
 ### Gantt overlap time-brush (#4)
 
 - Drag horizontally across the time axis → `[t0, t1]`; select rows whose bar was
   **active during** the window.
-- New `DrillKey.overlap(startRef, endRef, lo, hi)` (epoch bounds). Expressible in
-  both backends:
+- New `DrillKey.overlap(startRef, endRef, lo, hi, RangeKind)` (epoch/numeric
+  bounds). **The `RangeKind` is required** — gantt start/end may be **numeric**,
+  not just temporal (`ChartAggregator.epoch` handles a "numeric gantt axis"); the
+  translators must branch on it exactly like `.range` does, or a numeric gantt
+  brush emits temporal literals that match nothing/error. Expressible in both
+  backends:
   - **Grid** (`DrillTranslator`): two column filters — `startRef ≤ hi`
-    (`lessOrEqual`) **and** `endRef ≥ lo` (`greaterOrEqual`) — ANDed by the
-    existing per-column engine.
-  - **SQL** (`DrillSqlTranslator`): `"start" <= <hi> AND "end" >= <lo>` (UTC ISO
-    bounds, escaped).
+    (`lessOrEqual`) **and** `endRef ≥ lo` (`greaterOrEqual`), bounds formatted per
+    `RangeKind` — ANDed by the existing per-column engine.
+  - **SQL** (`DrillSqlTranslator`): `"start" <= <hi> AND "end" >= <lo>`, bounds
+    formatted per `RangeKind` (numeric literal or UTC ISO), escaped.
 - `DrillKey.overlap.columnRefs` returns both refs (for chip/label + the two-column
   grid application). Push-down gantt isn't a thing (gantt never aggregates), so
   gantt overlap-brush drills the loaded grid (client) — consistent with phase 2.
 
 ### Heatmap rectangular brush (#4)
 
-Drag a box over cells → the covered X-set and Y-set →
-`.compound([.anyOf(xRef, xs), .anyOf(yRef, ys)])` (bounding-box semantics).
-Reuses existing translators.
+Drag a box over cells → collect the **covered cells** and **merge their
+pre-computed per-axis drill sub-keys** (each cell already carries
+`.compound([xSubKey, ySubKey])` from aggregation, where a sub-key is `.range`
+for a binned axis, `.anyOf`/`.blank` for a discrete one). Merge **per axis**:
+union `.anyOf` value-lists, coalesce adjacent `.range`s, carry any `.blank`; then
+compound the two merged axis keys. **Do NOT rebuild keys from cell labels** — on a
+binned axis (Part B) the labels are range strings like `"0–10"` that match
+nothing, and a null-bucket label isn't a valid literal. A shared pure
+`mergeDrillKeys([DrillKey]) -> [DrillKey]` helper (group by column ref; union
+anyOf/coalesce range/keep blank) serves both this and pie multi-select.
 
 ### Pie ⌘-click multi-select (#4)
 
-⌘/⇧-click accumulates slices into a selection set; the combined selection drills
-as one `.anyOf(catRef, [labels])` (the translators already coalesce). A plain
-click still single-selects. No drag-brush for pie.
+⌘/⇧-click accumulates the clicked slices' **drill sub-keys** (`.anyOf` for real
+slices, `.blank` for the null slice) into a selection; the combined selection is
+merged via `mergeDrillKeys` and drilled as one per-column key. A plain click
+single-selects. No drag-brush for pie.
+
+### SQL `.anyOf` null parity (fix)
+
+`DrillSqlTranslator.anyOf` currently emits a bare `"col" IN (…)` with no
+null handling, while the grid's `DrillTranslator` already folds `blanksSentinel`
+into an `.isAnyOf` that the evaluator treats as null-matching. Merged selections
+(heatmap brush / pie ⌘-click) can put the blanks sentinel into an `.anyOf`
+value-list alongside real values, so `DrillSqlTranslator.anyOf` must split it out:
+non-sentinel values → `"col" IN (…)`, and if the sentinel is present →
+`OR "col" IS NULL` — i.e. `"col" IN ('a','b') OR "col" IS NULL`. Restores
+grid↔SQL parity for null-inclusive selections.
 
 ## Persistence
 
@@ -193,26 +227,33 @@ click still single-selects. No drag-brush for pie.
 ## Testing
 
 Per the repo's standalone-`swiftc` harnesses:
-- **`SqlPushdownGenerator`:** scatter sampled query (`ORDER BY random() LIMIT`,
-  non-agg, `_x/_y`, null filter, `.scatter` layout); heatmap per-axis
-  `dense_rank()` top-N; `.auto` count scalar-subquery; heatmap numeric
-  `width_bucket` per axis (two range CTEs when both numeric); `resolvedBin`
-  precedence (`axisBins` over globals).
+- **`SqlPushdownGenerator`:** scatter sampled query (**deterministic**
+  `ORDER BY hashtext(…) LIMIT`, non-agg, `_x/_y`, null filter, `.scatter` layout);
+  heatmap per-axis `dense_rank()` top-N; `.auto` count scalar-subquery; heatmap
+  numeric `width_bucket` per axis (two range CTEs when both numeric);
+  `resolvedBin` precedence (`axisBins` over globals).
 - **`ServerChartDataBuilder`:** scatter `ScatterLayout` → raw points +
   `wasSampled`; per-axis numeric bucket labels/bounds.
 - **`ChartAggregator`:** heatmap per-axis numeric binning (low-card escape,
   labels, `.range` drill); multi-series points carry `.compound(category+series)`.
-- **`DrillTranslator`:** `.overlap` → `startRef ≤ hi` + `endRef ≥ lo` two-column
-  filters; heatmap rect-brush compound; ⌘-click `.anyOf` coalescing.
-- **`DrillSqlTranslator`:** `.overlap` → `"start" <= … AND "end" >= …` (escaped,
-  UTC); other cases unchanged.
-- **`DrillKey`:** `.overlap.columnRefs` returns both refs.
+- **`mergeDrillKeys`:** union same-column `.anyOf`; coalesce adjacent `.range`;
+  keep `.blank`; group by column ref (covers heatmap brush + pie multi-select).
+- **`DrillTranslator`:** `.overlap` (temporal **and** numeric `RangeKind`) →
+  `startRef ≤ hi` + `endRef ≥ lo` two-column filters; heatmap rect-brush compound
+  from merged sub-keys; ⌘-click `.anyOf`/`.blank` coalescing.
+- **`DrillSqlTranslator`:** `.overlap` → `"start" <= … AND "end" >= …` formatted
+  per `RangeKind` (numeric literal vs UTC ISO), escaped; **`.anyOf` with the
+  blanks sentinel → `IN (…) OR "col" IS NULL`** (the parity fix).
+- **`DrillKey`:** `.overlap.columnRefs` returns both refs; `RangeKind` carried.
 - **`ChartConfig` Codable:** `axisBins` round-trip + legacy-blob decode (empty).
-- **Manual (GUI + Postgres):** scatter under push-down (sampled, capped); heatmap
-  numeric bins with independent X/Y controls; heatmap rectangular brush; gantt
-  overlap brush (confirm it catches bars that started *before* the window);
-  stacked series-precise drill; pie ⌘-click multi-select; push-down heatmap
-  per-axis top-N and `.auto` count.
+- **Manual (GUI + Postgres):** scatter under push-down (sampled, capped,
+  **re-run reproduces the same points**); heatmap numeric bins with independent
+  X/Y controls; heatmap rectangular brush over a **binned** axis (filters the
+  right ranges, not literal labels) and over a null bucket; gantt overlap brush on
+  a **numeric** start/end axis and a temporal one (catches bars that started
+  *before* the window); stacked-bar + line/area series-precise drill; pie ⌘-click
+  multi-select including the null slice; push-down heatmap per-axis top-N and
+  `.auto` count.
 
 ## Phasing (within phase 4)
 
@@ -222,16 +263,24 @@ Per the repo's standalone-`swiftc` harnesses:
 - **B — Heatmap axes:** `AxisBin` + `axisBins` + `resolvedBin` on `ChartConfig`
   (tolerant decode); client `aggregateHeatmap` numeric binning; push-down heatmap
   per-axis numeric; rail per-axis bin controls. Pure (TDD) + UI.
-- **C — Interaction:** `DrillKey.overlap` + both translators; gantt overlap
-  time-brush; heatmap rectangular brush; stacked series-precise drill; pie
-  ⌘-click multi-select. Pure (translators/DrillKey, TDD) + gesture/VC (build-gated
-  + manual).
+- **C — Interaction:** `DrillKey.overlap(…, RangeKind)` + both translators (+ the
+  `DrillSqlTranslator.anyOf` sentinel→`IS NULL` parity fix); a pure
+  `mergeDrillKeys`; gantt overlap time-brush (temporal + numeric axes); heatmap
+  rectangular brush (merged cell sub-keys); stacked + line/area series-precise
+  drill; pie ⌘-click multi-select. Pure (translators/DrillKey/merge, TDD) +
+  gesture/VC (build-gated + manual).
 
 ## Risks / Open Questions
 
-- **`ORDER BY random()` cost** on very large scatter sources — acceptable
-  (opt-in, capped), but note it in the banner; a cheaper approximate sample
-  (`WHERE random() < ratio`) is a future option if it bites.
+- **Deterministic sample cost/shape** — `ORDER BY hashtext((_pharos_src.*)::text)`
+  is a full scan+sort (like `random()`) but reproducible; verify the `.*::text`
+  cast works over the subquery alias (fall back to hashing projected `_x||_y` if
+  not). A cheaper approximate sample (`WHERE hashtext(...) % k = 0`) is a future
+  option if the sort bites; keep the "sampled" label either way.
+- **Null-inclusive selections** — merged heatmap/pie selections that include the
+  null bucket must round-trip: grid via `blanksSentinel` in `.isAnyOf` (existing),
+  SQL via the new `.anyOf` sentinel→`IS NULL` split. Cover both in the translator
+  tests.
 - **Stacked series y-band resolution** — the fiddliest gesture; grouped-bar
   fallback to category-only is the safety valve. Expect iteration (like prior
   gesture work).
