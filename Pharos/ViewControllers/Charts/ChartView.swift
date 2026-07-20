@@ -307,7 +307,10 @@ struct ChartCanvas: View {
             return data.series.count == 1 ? data.series[0].name : ""
         }
         switch chartType {
-        case .bar where config.display.stacked:
+        case .bar:
+            // Multi-series bars render stacked (Swift Charts stacks same-x marks by
+            // series), so a click resolves to the band containing the tapped y —
+            // regardless of the `display.stacked` flag — giving band-precise selection.
             var acc = 0.0
             for s in data.series { if let pt = s.points.first(where: { $0.xLabel == label }) { acc += pt.y; if tv <= acc { return s.name } } }
             return ""
