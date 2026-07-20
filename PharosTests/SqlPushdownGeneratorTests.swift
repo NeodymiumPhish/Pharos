@@ -101,5 +101,12 @@ func runTests() {
     expect(fixed?.sql.contains("SQRT") == false, "fixed bin count is literal")
     contains(fixed?.sql, "AS _n", "fixed range CTE also projects _n")
 
+    // Heatmap top-N is now per-axis dense_rank windows, not a flat LIMIT.
+    let hm2 = SqlPushdownGenerator.generate(cfg(.heatmap, [.x: 0, .y: 2], .count), userSQL: src, columns: cols)
+    contains(hm2?.sql, "dense_rank()", "heatmap ranks per axis")
+    contains(hm2?.sql, "_xr", "heatmap x-rank CTE")
+    contains(hm2?.sql, "_yr", "heatmap y-rank CTE")
+    contains(hm2?.sql, "rk <=", "heatmap keeps top-N per axis")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

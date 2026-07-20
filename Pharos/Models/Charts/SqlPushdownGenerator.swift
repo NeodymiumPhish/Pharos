@@ -144,11 +144,24 @@ enum SqlPushdownGenerator {
         guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
         let (xExpr, _) = axisExpr(config, xCol, bin: config.resolvedBin(for: .x))
         let (yExpr, _) = axisExpr(config, yCol, bin: config.resolvedBin(for: .y))
+        let n = config.display.topNCategories
+        // Per-axis dense_rank top-N (matches the client's 25×25 marginal ranking):
+        // rank X values by their total, Y values by theirs, keep top-N of each,
+        // select only cells in (topX)×(topY). Ties may slightly overshoot N.
         let sql = """
-        SELECT \(xExpr) AS _x, \(yExpr) AS _y, \(agg) AS _val
-        FROM ( \(userSQL) ) AS _pharos_src
-        GROUP BY \(xExpr), \(yExpr)
-        ORDER BY _val DESC LIMIT \(groupCap)
+        WITH _agg AS (
+          SELECT \(xExpr) AS _x, \(yExpr) AS _y, \(agg) AS _val
+          FROM ( \(userSQL) ) AS _pharos_src
+          GROUP BY 1, 2
+        ),
+        _xr AS ( SELECT _x, dense_rank() OVER (ORDER BY sum(_val) DESC) AS rk FROM _agg GROUP BY _x ),
+        _yr AS ( SELECT _y, dense_rank() OVER (ORDER BY sum(_val) DESC) AS rk FROM _agg GROUP BY _y )
+        SELECT a._x, a._y, a._val
+        FROM _agg a
+          JOIN _xr ON _xr._x IS NOT DISTINCT FROM a._x AND _xr.rk <= \(n)
+          JOIN _yr ON _yr._y IS NOT DISTINCT FROM a._y AND _yr.rk <= \(n)
+        ORDER BY a._val DESC
+        LIMIT \(groupCap)
         """
         return PushdownQuery(sql: sql, layout: PushdownLayout(kind: .heatmap, hasSeries: false, numericBins: nil))
     }
