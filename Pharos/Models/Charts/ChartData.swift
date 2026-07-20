@@ -46,6 +46,7 @@ struct ChartData {
     var totalLoadedRowCount: Int = 0
     var wasTruncated: Bool = false     // top-N cap applied
     var wasSampled: Bool = false       // scatter sampling applied
+    var ganttAxisKind: RangeKind = .temporal   // gantt start/end axis: temporal (epoch) or numeric
     var otherBucketCount: Int = 0
     var emptyReason: EmptyReason? = nil
 

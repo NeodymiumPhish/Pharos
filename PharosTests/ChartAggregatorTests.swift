@@ -218,5 +218,21 @@ func runTests() {
         } else { expect(false, "series point carries compound(cat, series)") }
     }
 
+    // Gantt axis kind: temporal start column → .temporal; numeric → .numeric.
+    do {
+        func gantt(_ startType: String) -> ChartData {
+            let cols = [ColumnDef(name: "lbl", dataType: "text"), ColumnDef(name: "s", dataType: startType), ColumnDef(name: "e", dataType: startType)]
+            let rows: [[AnyCodable]] = [[AnyCodable("job"), AnyCodable("1"), AnyCodable("2")]]
+            let res = QueryResult(columns: cols, rows: rows, rowCount: 1, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+            var cfg = ChartConfig(chartType: .gantt)
+            cfg.mappings[.label] = ColumnRef(index: 0, name: "lbl")
+            cfg.mappings[.start] = ColumnRef(index: 1, name: "s")
+            cfg.mappings[.end] = ColumnRef(index: 2, name: "e")
+            return ChartAggregator.aggregate(res, cfg)
+        }
+        expect(gantt("int8").ganttAxisKind == .numeric, "numeric gantt start → .numeric axis kind")
+        expect(gantt("timestamptz").ganttAxisKind == .temporal, "temporal gantt start → .temporal axis kind")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

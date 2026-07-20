@@ -235,6 +235,8 @@ enum ChartAggregator {
         out.ganttBars = bars
         out.plottedRowCount = bars.count
         out.totalLoadedRowCount = result.rows.count
+        let startKind = ColumnClassifier.kind(forDataType: result.columns[startRef.index].dataType)
+        out.ganttAxisKind = startKind == .temporal ? .temporal : .numeric
         return out
     }
 

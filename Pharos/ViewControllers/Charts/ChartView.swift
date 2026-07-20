@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import AppKit
 
 struct ChartCanvas: View {
     let data: ChartData
@@ -18,6 +19,7 @@ struct ChartCanvas: View {
 
     // Pie selection (native angle selection maps to the category label).
     @State private var pieSelection: String?
+    @State private var pieSelected: [String] = []
     // Scatter click callout (chart-local; not a drill — brushing filters instead).
     @State private var scatterSelection: XYPoint?
 
@@ -77,10 +79,16 @@ struct ChartCanvas: View {
         }
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
-            guard let label = newValue,
-                  let pt = (data.series.first?.points ?? []).first(where: { $0.xLabel == label }),
-                  let drill = pt.drill else { return }
-            onDrill([drill])
+            guard let label = newValue else { return }
+            let mods = NSEvent.modifierFlags
+            if mods.contains(.command) || mods.contains(.shift) {
+                if !pieSelected.contains(label) { pieSelected.append(label) }
+            } else {
+                pieSelected = [label]
+            }
+            let subKeys = pieSelected.compactMap { l in (data.series.first?.points ?? []).first(where: { $0.xLabel == l })?.drill }
+            let merged = DrillMerge.merge(subKeys)
+            if !merged.isEmpty { onDrill(merged) }
         }
     }
 
@@ -143,7 +151,7 @@ struct ChartCanvas: View {
                             let ex = value.location.x - origin.x
                             if abs(value.translation.width) < 6 {
                                 if let label = proxy.value(atX: ex, as: String.self) {
-                                    categoryTap(label)
+                                    categoryTap(label, atY: value.location.y - origin.y, proxy: proxy)
                                 }
                             } else {
                                 categoryBrush(min(sx, ex), max(sx, ex), proxy)
@@ -153,12 +161,47 @@ struct ChartCanvas: View {
         }
     }
 
-    private func categoryTap(_ label: String) {
-        for series in data.series {
-            if let pt = series.points.first(where: { $0.xLabel == label }), let drill = pt.drill {
-                onDrill([drill]); return
+    // Resolve which series (if any) the tap hit, then drill that series' point
+    // (category AND series). Stacked bars: map the tapped y-value to the
+    // cumulative series band. Line/area: nearest series by value. Single-series
+    // or grouped/ambiguous: category-only.
+    private func categoryTap(_ label: String, atY py: CGFloat, proxy: ChartProxy) {
+        let seriesWithLabel = data.series.filter { $0.points.contains { $0.xLabel == label } }
+        guard let first = seriesWithLabel.first?.points.first(where: { $0.xLabel == label }), let firstDrill = first.drill else { return }
+
+        if data.series.count <= 1 { onDrill([firstDrill]); return }
+
+        let tappedValue = proxy.value(atY: py, as: Double.self)
+
+        let resolved: ChartPoint? = {
+            guard let tv = tappedValue else { return nil }
+            switch chartType {
+            case .bar where config.display.stacked:
+                var acc = 0.0
+                for s in data.series {
+                    if let pt = s.points.first(where: { $0.xLabel == label }) {
+                        acc += pt.y
+                        if tv <= acc { return pt }
+                    }
+                }
+                return nil
+            case .line, .area:
+                return data.series.compactMap { $0.points.first(where: { $0.xLabel == label }) }
+                    .min(by: { abs($0.y - tv) < abs($1.y - tv) })
+            default:
+                return nil
             }
-        }
+        }()
+
+        if let pt = resolved, let d = pt.drill { onDrill([d]) }
+        else { onDrill([firstChild(firstDrill)]) }
+    }
+
+    /// The category sub-key of a series point's compound drill (or the key itself
+    /// for single-series points).
+    private func firstChild(_ key: DrillKey) -> DrillKey {
+        if case .compound(let ks) = key, let first = ks.first { return first }
+        return key
     }
 
     // Collect the distinct categories whose mark falls inside the dragged x-span
@@ -169,7 +212,7 @@ struct ChartCanvas: View {
         for series in data.series {
             for pt in series.points where !seen.contains(pt.xLabel) {
                 if let px = proxy.position(forX: pt.xLabel), px >= lo, px <= hi, let drill = pt.drill {
-                    seen.insert(pt.xLabel); keys.append(drill)
+                    seen.insert(pt.xLabel); keys.append(firstChild(drill))
                 }
             }
         }
@@ -182,16 +225,35 @@ struct ChartCanvas: View {
         GeometryReader { geo in
             let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
             Rectangle().fill(Color.clear).contentShape(Rectangle())
-                .onTapGesture { location in
-                    let px = location.x - origin.x
-                    let py = location.y - origin.y
-                    guard let xl = proxy.value(atX: px, as: String.self),
-                          let yl = proxy.value(atY: py, as: String.self),
-                          let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }),
-                          let drill = cell.drill else { return }
-                    onDrill([drill])
-                }
+                .gesture(DragGesture(minimumDistance: 0).onEnded { v in
+                    let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
+                    let sy = v.startLocation.y - origin.y, ey = v.location.y - origin.y
+                    if abs(v.translation.width) < 6 && abs(v.translation.height) < 6 {
+                        heatmapTap(ex, ey, proxy)
+                    } else {
+                        heatmapBrush(min(sx, ex), max(sx, ex), min(sy, ey), max(sy, ey), proxy)
+                    }
+                })
         }
+    }
+
+    private func heatmapTap(_ px: CGFloat, _ py: CGFloat, _ proxy: ChartProxy) {
+        guard let xl = proxy.value(atX: px, as: String.self), let yl = proxy.value(atY: py, as: String.self),
+              let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }), let drill = cell.drill else { return }
+        onDrill([drill])
+    }
+
+    // Collect covered cells, flatten their pre-computed compound sub-keys, and
+    // merge per axis (union anyOf / coalesce range / fold blank) — never rebuilt
+    // from labels (binned-axis labels are range strings that match nothing).
+    private func heatmapBrush(_ xlo: CGFloat, _ xhi: CGFloat, _ ylo: CGFloat, _ yhi: CGFloat, _ proxy: ChartProxy) {
+        var subKeys: [DrillKey] = []
+        for cell in data.heatmapCells {
+            guard let cx = proxy.position(forX: cell.x), let cy = proxy.position(forY: cell.y), let drill = cell.drill else { continue }
+            if cx >= xlo, cx <= xhi, cy >= ylo, cy <= yhi { subKeys.append(drill) }
+        }
+        let merged = DrillMerge.merge(subKeys)
+        if !merged.isEmpty { onDrill(merged) }
     }
 
     // MARK: - Scatter gestures + callout
@@ -309,6 +371,15 @@ struct ChartCanvas: View {
                 .chartXScale(domain: domain)
                 .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues(domain: domain, maxLabels: maxLabels)) }
                 .chartYAxis(.hidden)
+                .chartOverlay { proxy in
+                    GeometryReader { g in
+                        let ox = proxy.plotFrame.map { g[$0].origin.x } ?? 0
+                        Rectangle().fill(Color.clear).contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 6).onEnded { v in
+                                ganttBrush(v.startLocation.x - ox, v.location.x - ox, proxy: proxy, bars: bars)
+                            })
+                    }
+                }
             }
             .frame(height: Self.ganttAxisHeight)
 
@@ -355,6 +426,15 @@ struct ChartCanvas: View {
     private func ganttTap(_ bar: GanttBar) {
         guard let labelRef = config.mappings[.label] else { return }
         onDrill([.anyOf(labelRef, [bar.label])])
+    }
+
+    private func ganttBrush(_ ax: CGFloat, _ bx: CGFloat, proxy: ChartProxy, bars: [GanttBar]) {
+        guard let startRef = config.mappings[.start], let endRef = config.mappings[.end],
+              let d0 = proxy.value(atX: min(ax, bx), as: Date.self),
+              let d1 = proxy.value(atX: max(ax, bx), as: Date.self) else { return }
+        // Domain is epoch-seconds-as-Date for both temporal and numeric axes;
+        // .timeIntervalSince1970 recovers the epoch/raw value. Kind picks formatting.
+        onDrill([.overlap(startRef, endRef, d0.timeIntervalSince1970, d1.timeIntervalSince1970, data.ganttAxisKind)])
     }
 
     @ViewBuilder private func emptyState(_ reason: EmptyReason) -> some View {
