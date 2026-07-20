@@ -102,6 +102,14 @@ class CellSelectionController {
             // Row selection mode
             state.anchor = nil
             state.active = nil
+            if event.modifierFlags.contains(.command) {
+                if state.selectedRows.contains(rowIdx) { state.selectedRows.remove(rowIdx) }
+                else { state.selectedRows.insert(rowIdx) }
+                rowAnchor = rowIdx
+                state.isSelecting = false          // do NOT drag-range: handleMouseDragged would clobber the set
+                onChange?(state)
+                return
+            }
             if event.modifierFlags.contains(.shift), let anchor = rowAnchor {
                 // Extend from anchor to clicked row
                 let lo = min(anchor, rowIdx)
