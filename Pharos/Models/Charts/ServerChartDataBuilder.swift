@@ -79,7 +79,10 @@ enum ServerChartDataBuilder {
 
         // lo/hi are constant across rows (same _r CTE row repeated per group).
         let lo = parsed[0].lo, hi = parsed[0].hi
-        let width = (hi - lo) / Double(binCount)
+        // Server-chosen bucket count rides `_n`; fall back to the layout nominal.
+        let nFromCol = colIndex(result, "_n").flatMap { i in result.rows.first.flatMap { cell($0, i) }.flatMap { intValue($0) } }
+        let effectiveBins = (nFromCol ?? 0) > 0 ? nFromCol! : binCount
+        let width = (hi - lo) / Double(effectiveBins)
 
         var pts: [ChartPoint] = []
         for r in parsed {

@@ -92,5 +92,14 @@ func runTests() {
     // non-SELECT scatter still nil.
     expect(SqlPushdownGenerator.generate(cfg(.scatter, [.x: 1, .y: 3]), userSQL: "UPDATE t SET x=1", columns: cols) == nil, "scatter non-SELECT → nil")
 
+    // .auto numeric bucket count → scalar subquery folded into the range CTE.
+    let auto = SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1], .sum, nb: .auto), userSQL: src, columns: cols)
+    contains(auto?.sql, "CEIL(SQRT(", "auto derives ~sqrt(n) buckets")
+    contains(auto?.sql, "AS _n", "range CTE projects the resolved bucket count as _n")
+    // fixed counts stay literal (no sqrt).
+    let fixed = SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1], .sum, nb: .b20), userSQL: src, columns: cols)
+    expect(fixed?.sql.contains("SQRT") == false, "fixed bin count is literal")
+    contains(fixed?.sql, "AS _n", "fixed range CTE also projects _n")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

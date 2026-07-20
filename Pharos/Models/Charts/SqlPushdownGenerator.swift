@@ -49,46 +49,66 @@ enum SqlPushdownGenerator {
         }
     }
 
-    /// Binning expression for an axis column + the numeric bin count if applied.
-    private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef) -> (expr: String, numericBins: Int?) {
+    /// Binning expression for an axis column: the truncation/identity expr, plus
+    /// whether numeric width_bucket binning applies (handled at query assembly).
+    private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef, bin: AxisBin) -> (expr: String, numericBinned: Bool) {
         let kind = ColumnClassifier.kind(forDataType: col.dataType)
         let id = quoteIdent(col.name)
         let dt = col.dataType.lowercased()
         let isDateTruncable = dt.hasPrefix("date") || dt.hasPrefix("timestamp")
-        if kind == .temporal, config.temporalBin != .none, isDateTruncable {
-            let unit = truncUnit(config.temporalBin)
+        if kind == .temporal, bin.temporal != .none, isDateTruncable {
+            let unit = truncUnit(bin.temporal)
             let tz = dt.hasPrefix("timestamptz") || dt.contains("with time zone")
             let colExpr = tz ? "\(id) AT TIME ZONE 'UTC'" : id
-            return ("date_trunc('\(unit)', \(colExpr))", nil)
+            return ("date_trunc('\(unit)', \(colExpr))", false)
         }
-        if kind == .numeric, let n = binCount(config.numericBin) {
-            return (id, n)   // width_bucket handled at query assembly (needs the range CTE)
+        if kind == .numeric, binCountExpr(bin.numeric) != nil {
+            return (id, true)   // width_bucket handled at query assembly
         }
-        return (id, nil)
+        return (id, false)
     }
     private static func truncUnit(_ b: TemporalBin) -> String {
         switch b { case .hour: return "hour"; case .day, .auto: return "day"; case .week: return "week"
                    case .month: return "month"; case .year: return "year"; case .none: return "day" }
     }
-    private static func binCount(_ b: NumericBin) -> Int? {
-        switch b { case .off: return nil; case .b10: return 10; case .b20: return 20; case .b50: return 50; case .auto: return 20 }
+    /// The SQL expression for a numeric axis's bucket count: a literal for fixed
+    /// bins, or a scalar over the source for `.auto` (~√n, clamped 1…50 — mirrors
+    /// the client's `numericBinCount`). Returns nil when binning is off.
+    private static func binCountExpr(_ b: NumericBin) -> String? {
+        switch b {
+        case .off: return nil
+        case .b10: return "10"
+        case .b20: return "20"
+        case .b50: return "50"
+        case .auto: return "LEAST(50, GREATEST(1, CEIL(SQRT(COUNT(*)))::int))"
+        }
+    }
+    /// Nominal count for the layout (the builder prefers the returned `_n`); nil
+    /// means "not numeric-binned". `.auto` reports 0 as a placeholder.
+    private static func binCountNominal(_ b: NumericBin) -> Int? {
+        switch b { case .off: return nil; case .b10: return 10; case .b20: return 20; case .b50: return 50; case .auto: return 0 }
     }
 
     private static func categorical(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {
         guard let catCol = resolve(config, .category, columns) else { return nil }
-        let series = resolve(config, .series, columns)
-        let (catExpr, nbins) = axisExpr(config, catCol)
-        let layout = PushdownLayout(kind: .categorical, hasSeries: nbins == nil && series != nil, numericBins: nbins)
+        let bin = config.resolvedBin(for: .category)
+        let (catExpr, numericBinned) = axisExpr(config, catCol, bin: bin)
+        let series = numericBinned ? nil : resolve(config, .series, columns)
+        let layout = PushdownLayout(kind: .categorical,
+                                    hasSeries: !numericBinned && series != nil,
+                                    numericBins: numericBinned ? binCountNominal(bin.numeric) : nil)
 
-        if let n = nbins {   // numeric width_bucket needs the range CTE
+        if numericBinned, let countExpr = binCountExpr(bin.numeric) {   // numeric width_bucket needs the range CTE
             let id = quoteIdent(catCol.name)
             let sql = """
             WITH _pharos_src AS ( \(userSQL) ),
-                 _r AS (SELECT min(\(id)) lo, max(\(id)) hi FROM _pharos_src)
+                 _r AS (SELECT min(\(id)) AS lo, max(\(id)) AS hi, \(countExpr) AS n FROM _pharos_src)
             SELECT CASE WHEN _r.lo = _r.hi THEN 1
-                        ELSE LEAST(width_bucket(\(id), _r.lo, _r.hi, \(n)), \(n)) END AS _bucket,
-                   _r.lo AS _lo, _r.hi AS _hi, \(agg) AS _val
-            FROM _pharos_src, _r GROUP BY _bucket, _r.lo, _r.hi ORDER BY _bucket LIMIT \(groupCap)
+                        ELSE LEAST(width_bucket(\(id), _r.lo, _r.hi, _r.n), _r.n) END AS _bucket,
+                   _r.lo AS _lo, _r.hi AS _hi, _r.n AS _n, \(agg) AS _val
+            FROM _pharos_src, _r
+            GROUP BY _bucket, _r.lo, _r.hi, _r.n
+            ORDER BY _bucket LIMIT \(groupCap)
             """
             return PushdownQuery(sql: sql, layout: layout)
         }
@@ -122,8 +142,8 @@ enum SqlPushdownGenerator {
 
     private static func heatmap(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {
         guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
-        let (xExpr, _) = axisExpr(config, xCol)     // heatmap numeric-axis binning deferred (phase-2 parity)
-        let (yExpr, _) = axisExpr(config, yCol)
+        let (xExpr, _) = axisExpr(config, xCol, bin: config.resolvedBin(for: .x))
+        let (yExpr, _) = axisExpr(config, yCol, bin: config.resolvedBin(for: .y))
         let sql = """
         SELECT \(xExpr) AS _x, \(yExpr) AS _y, \(agg) AS _val
         FROM ( \(userSQL) ) AS _pharos_src

@@ -142,5 +142,22 @@ func runTests() {
     expect(scData.series.first?.points.first?.y == 10, "scatter reads _y as y")
     expect(scData.wasSampled == true, "row count == sampleCap → wasSampled")
 
+    // Numeric builder reads the server-chosen bucket count from `_n`, not layout.
+    var numCfg = ChartConfig(chartType: .bar)
+    numCfg.mappings[.category] = ColumnRef(index: 0, name: "age")
+    let numRes = QueryResult(
+        columns: [ColumnDef(name: "_bucket", dataType: "int4"), ColumnDef(name: "_lo", dataType: "numeric"),
+                  ColumnDef(name: "_hi", dataType: "numeric"), ColumnDef(name: "_n", dataType: "int4"),
+                  ColumnDef(name: "_val", dataType: "numeric")],
+        rows: [[AnyCodable("1"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("5")],
+               [AnyCodable("2"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("7")]],
+        rowCount: 2, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+    let numData = ServerChartDataBuilder.build(numRes, layout: PushdownLayout(kind: .categorical, hasSeries: false, numericBins: 0), config: numCfg)
+    let numPts = numData.series.first?.points ?? []
+    expect(numPts.count == 2, "two numeric buckets")
+    expect(numPts.first?.xLabel == "0–5", "bucket width from _n (10/2=5) → first bucket 0–5")
+    if case .range(_, let lo, let hi, _)? = numPts.first?.drill { expect(lo == 0 && hi == 5, "range drill uses _n width") }
+    else { expect(false, "numeric point carries a range drill") }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
