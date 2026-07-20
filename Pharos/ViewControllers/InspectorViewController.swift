@@ -282,33 +282,26 @@ class InspectorViewController: NSViewController {
             let colHeader = makeKeyLabel(name: agg.columnName, dataType: agg.dataType)
             stackView.addArrangedSubview(colHeader)
 
-            // Count / Distinct / NULL line. When the selection has exactly one
-            // distinct value, show the value itself (on its own line) instead of
-            // the redundant "Distinct: 1".
+            // Count / Distinct / NULL — each on its own line. When the selection
+            // has exactly one distinct value, the Distinct line shows the value
+            // itself instead of the redundant "Distinct: 1".
             let nullCount = agg.totalCount - agg.nonNullCount
+            var statLines = ["Count: \(agg.nonNullCount)"]
             if agg.distinctCount == 1, let only = agg.distinctValues.first {
-                var countPart = "Count: \(agg.nonNullCount)"
-                if nullCount > 0 { countPart += "  NULL: \(nullCount)" }
-                let countLine = NSTextField(labelWithString: countPart)
-                countLine.font = .systemFont(ofSize: 11)
-                countLine.textColor = .labelColor
-                stackView.addArrangedSubview(countLine)
-
-                let distinctLine = NSTextField(labelWithString: "Distinct: \(only)")
-                distinctLine.font = .systemFont(ofSize: 11)
-                distinctLine.textColor = .labelColor
-                distinctLine.lineBreakMode = .byTruncatingTail
-                distinctLine.toolTip = only
-                stackView.addArrangedSubview(distinctLine)
-                distinctLine.translatesAutoresizingMaskIntoConstraints = false
-                distinctLine.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+                statLines.append("Distinct: \(only)")
             } else {
-                var countParts = "Count: \(agg.nonNullCount)  Distinct: \(agg.distinctCount)"
-                if nullCount > 0 { countParts += "  NULL: \(nullCount)" }
-                let countLine = NSTextField(labelWithString: countParts)
-                countLine.font = .systemFont(ofSize: 11)
-                countLine.textColor = .labelColor
-                stackView.addArrangedSubview(countLine)
+                statLines.append("Distinct: \(agg.distinctCount)")
+            }
+            if nullCount > 0 { statLines.append("NULL: \(nullCount)") }
+            for line in statLines {
+                let statLabel = NSTextField(labelWithString: line)
+                statLabel.font = .systemFont(ofSize: 11)
+                statLabel.textColor = .labelColor
+                statLabel.lineBreakMode = .byTruncatingTail
+                statLabel.toolTip = line
+                stackView.addArrangedSubview(statLabel)
+                statLabel.translatesAutoresizingMaskIntoConstraints = false
+                statLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
             }
 
             // Type-specific stats
