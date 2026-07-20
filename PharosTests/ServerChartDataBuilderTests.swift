@@ -112,7 +112,7 @@ func runTests() {
         expect(c0.x == "a" && c0.y == "p" && c0.value == 1, "heatmap: cell 0 fields")
         expect(c0.drill == .compound([.anyOf(xRef, ["a"]), .anyOf(yRef, ["p"])]), "heatmap: cell 0 compound drill")
         let c1 = data.heatmapCells[1]
-        expect(c1.x == "" && c1.y == "q" && c1.value == 2, "heatmap: cell 1 fields")
+        expect(c1.x == "(null)" && c1.y == "q" && c1.value == 2, "heatmap: cell 1 fields")
         expect(c1.drill == .compound([.blank(xRef), .anyOf(yRef, ["q"])]), "heatmap: cell 1 blank-x compound drill")
         expect(data.plottedRowCount == 2, "heatmap: plottedRowCount")
     }
@@ -158,6 +158,23 @@ func runTests() {
     expect(numPts.first?.xLabel == "0–5", "bucket width from _n (10/2=5) → first bucket 0–5")
     if case .range(_, let lo, let hi, _)? = numPts.first?.drill { expect(lo == 0 && hi == 5, "range drill uses _n width") }
     else { expect(false, "numeric point carries a range drill") }
+
+    // Heatmap numeric X axis: builder turns bucket ints + _xlo/_xhi/_xn into range
+    // labels and a numeric .range X sub-key, discrete Y stays .anyOf.
+    var hmCfg = ChartConfig(chartType: .heatmap, aggregation: .count)
+    hmCfg.mappings[.x] = ColumnRef(index: 0, name: "age")
+    hmCfg.mappings[.y] = ColumnRef(index: 1, name: "status")
+    let hmRes = QueryResult(
+        columns: [ColumnDef(name: "_x", dataType: "int4"), ColumnDef(name: "_y", dataType: "text"),
+                  ColumnDef(name: "_xlo", dataType: "numeric"), ColumnDef(name: "_xhi", dataType: "numeric"),
+                  ColumnDef(name: "_xn", dataType: "int4"), ColumnDef(name: "_val", dataType: "numeric")],
+        rows: [[AnyCodable("1"), AnyCodable("open"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("4")]],
+        rowCount: 1, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+    let hmData = ServerChartDataBuilder.build(hmRes, layout: PushdownLayout(kind: .heatmap, hasSeries: false, numericBins: nil, xNumericBinned: true, yNumericBinned: false), config: hmCfg)
+    expect(hmData.heatmapCells.first?.x == "0–5", "heatmap numeric X labelled from _xlo/_xhi/_xn")
+    if case .compound(let ks)? = hmData.heatmapCells.first?.drill, case .range(_, let lo, let hi, .numeric) = ks[0] {
+        expect(lo == 0 && hi == 5, "heatmap X range drill from bucket bounds")
+    } else { expect(false, "heatmap X drill is a numeric range") }
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

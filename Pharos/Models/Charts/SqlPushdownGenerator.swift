@@ -142,27 +142,53 @@ enum SqlPushdownGenerator {
 
     private static func heatmap(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {
         guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
-        let (xExpr, _) = axisExpr(config, xCol, bin: config.resolvedBin(for: .x))
-        let (yExpr, _) = axisExpr(config, yCol, bin: config.resolvedBin(for: .y))
+        let xBin = config.resolvedBin(for: .x), yBin = config.resolvedBin(for: .y)
+        let (_, xNumeric) = axisExpr(config, xCol, bin: xBin)
+        let (_, yNumeric) = axisExpr(config, yCol, bin: yBin)
         let n = config.display.topNCategories
+
+        // Per-axis fragments: (selectExpr for _x/_y, extra select cols, range CTE, group-by extras).
+        struct Axis { let sel: String; let extraSel: String; let cte: String; let groupExtra: String }
+        func axisFragments(_ col: ColumnDef, _ bin: AxisBin, numeric: Bool, tag: String) -> Axis {
+            let id = quoteIdent(col.name)
+            if numeric, let countExpr = binCountExpr(bin.numeric) {
+                let r = "_r\(tag)"
+                let sel = "CASE WHEN \(r).lo = \(r).hi THEN 1 ELSE LEAST(width_bucket(\(id), \(r).lo, \(r).hi, \(r).n), \(r).n) END"
+                let extraSel = ", \(r).lo AS _\(tag)lo, \(r).hi AS _\(tag)hi, \(r).n AS _\(tag)n"
+                let cte = "\(r) AS (SELECT min(\(id)) AS lo, max(\(id)) AS hi, \(countExpr) AS n FROM _pharos_src)"
+                let groupExtra = ", \(r).lo, \(r).hi, \(r).n"
+                return Axis(sel: sel, extraSel: extraSel, cte: cte, groupExtra: groupExtra)
+            }
+            let (expr, _) = axisExpr(config, col, bin: bin)
+            return Axis(sel: expr, extraSel: "", cte: "", groupExtra: "")
+        }
+        let ax = axisFragments(xCol, xBin, numeric: xNumeric, tag: "x")
+        let ay = axisFragments(yCol, yBin, numeric: yNumeric, tag: "y")
+        let extraCTEs = [ax.cte, ay.cte].filter { !$0.isEmpty }.joined(separator: ",\n     ")
+        let cteBlock = extraCTEs.isEmpty ? "" : ",\n     \(extraCTEs)"
+        let fromExtra = [xNumeric ? ", _rx" : "", yNumeric ? ", _ry" : ""].joined()
         // Per-axis dense_rank top-N (matches the client's 25×25 marginal ranking):
         // rank X values by their total, Y values by theirs, keep top-N of each,
         // select only cells in (topX)×(topY). Ties may slightly overshoot N.
+        // A numeric axis is width_bucketed via a per-axis range CTE (_rx/_ry),
+        // carrying lo/hi/n back as _xlo/_xhi/_xn so the builder can label ranges.
         let sql = """
-        WITH _agg AS (
-          SELECT \(xExpr) AS _x, \(yExpr) AS _y, \(agg) AS _val
-          FROM ( \(userSQL) ) AS _pharos_src
-          GROUP BY 1, 2
+        WITH _pharos_src AS ( \(userSQL) )\(cteBlock),
+        _agg AS (
+          SELECT \(ax.sel) AS _x, \(ay.sel) AS _y\(ax.extraSel)\(ay.extraSel), \(agg) AS _val
+          FROM _pharos_src\(fromExtra)
+          GROUP BY _x, _y\(ax.groupExtra)\(ay.groupExtra)
         ),
         _xr AS ( SELECT _x, dense_rank() OVER (ORDER BY sum(_val) DESC) AS rk FROM _agg GROUP BY _x ),
         _yr AS ( SELECT _y, dense_rank() OVER (ORDER BY sum(_val) DESC) AS rk FROM _agg GROUP BY _y )
-        SELECT a._x, a._y, a._val
+        SELECT a.*
         FROM _agg a
           JOIN _xr ON _xr._x IS NOT DISTINCT FROM a._x AND _xr.rk <= \(n)
           JOIN _yr ON _yr._y IS NOT DISTINCT FROM a._y AND _yr.rk <= \(n)
         ORDER BY a._val DESC
         LIMIT \(groupCap)
         """
-        return PushdownQuery(sql: sql, layout: PushdownLayout(kind: .heatmap, hasSeries: false, numericBins: nil))
+        return PushdownQuery(sql: sql, layout: PushdownLayout(kind: .heatmap, hasSeries: false, numericBins: nil,
+                                                              xNumericBinned: xNumeric, yNumericBinned: yNumeric))
     }
 }

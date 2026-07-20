@@ -12,7 +12,7 @@ enum ServerChartDataBuilder {
         case .scatter:
             return buildScatter(result, layout: layout)
         case .heatmap:
-            return buildHeatmap(result, config: config)
+            return buildHeatmap(result, layout: layout, config: config)
         case .categorical:
             if let n = layout.numericBins {
                 return buildNumeric(result, binCount: n, config: config)
@@ -110,24 +110,40 @@ enum ServerChartDataBuilder {
 
     // MARK: - Heatmap (`_x, _y, _val`)
 
-    private static func buildHeatmap(_ result: QueryResult, config: ChartConfig) -> ChartData {
+    private static func buildHeatmap(_ result: QueryResult, layout: PushdownLayout, config: ChartConfig) -> ChartData {
         guard let xRef = config.mappings[.x], let yRef = config.mappings[.y],
               let xIdx = colIndex(result, "_x"), let yIdx = colIndex(result, "_y"),
-              let valIdx = colIndex(result, "_val") else {
-            return .empty(.noColumns)
+              let valIdx = colIndex(result, "_val") else { return .empty(.noColumns) }
+
+        // Optional per-axis numeric bound columns.
+        func bounds(_ tag: String) -> (lo: Int?, hi: Int?, n: Int?) {
+            (colIndex(result, "_\(tag)lo"), colIndex(result, "_\(tag)hi"), colIndex(result, "_\(tag)n"))
+        }
+        let xb = bounds("x"), yb = bounds("y")
+
+        func axisLabelDrill(_ raw: AnyCodable, _ row: [AnyCodable], numeric: Bool,
+                            _ bnd: (lo: Int?, hi: Int?, n: Int?), _ ref: ColumnRef) -> (String, DrillKey) {
+            if numeric, let bucket = intValue(raw),
+               let loC = bnd.lo.flatMap({ cell(row, $0) }).flatMap({ ValueCoercion.double(from: $0) }),
+               let hiC = bnd.hi.flatMap({ cell(row, $0) }).flatMap({ ValueCoercion.double(from: $0) }),
+               let nC = bnd.n.flatMap({ cell(row, $0) }).flatMap({ intValue($0) }), nC > 0 {
+                let width = (hiC - loC) / Double(nC)
+                let blo = loC + Double(bucket - 1) * width, bhi = loC + Double(bucket) * width
+                return (rangeLabel(blo, bhi), .range(ref, blo, bhi, .numeric))
+            }
+            if raw.isNull || raw.displayString.isEmpty { return ("(null)", .blank(ref)) }
+            return (raw.displayString, .anyOf(ref, [raw.displayString]))
         }
 
         var cells: [HeatmapCell] = []
         for row in result.rows {
             guard let xCell = cell(row, xIdx), let yCell = cell(row, yIdx), let vCell = cell(row, valIdx),
                   let v = ValueCoercion.double(from: vCell) else { continue }
-            let xKey: DrillKey = (xCell.isNull || xCell.displayString.isEmpty) ? .blank(xRef) : .anyOf(xRef, [xCell.displayString])
-            let yKey: DrillKey = (yCell.isNull || yCell.displayString.isEmpty) ? .blank(yRef) : .anyOf(yRef, [yCell.displayString])
-            cells.append(HeatmapCell(x: xCell.displayString, y: yCell.displayString, value: v,
-                                      drill: .compound([xKey, yKey])))
+            let (xl, xk) = axisLabelDrill(xCell, row, numeric: layout.xNumericBinned, xb, xRef)
+            let (yl, yk) = axisLabelDrill(yCell, row, numeric: layout.yNumericBinned, yb, yRef)
+            cells.append(HeatmapCell(x: xl, y: yl, value: v, drill: .compound([xk, yk])))
         }
         if cells.isEmpty { return .empty(.allNull) }
-
         var out = ChartData()
         out.heatmapCells = cells
         out.plottedRowCount = cells.count

@@ -108,5 +108,13 @@ func runTests() {
     contains(hm2?.sql, "_yr", "heatmap y-rank CTE")
     contains(hm2?.sql, "rk <=", "heatmap keeps top-N per axis")
 
+    // Heatmap numeric X axis → width_bucket + range CTE; layout flags it.
+    let hmn = SqlPushdownGenerator.generate(cfg(.heatmap, [.x: 3, .y: 0], .count, nb: .b20), userSQL: src, columns: cols)
+    contains(hmn?.sql, "width_bucket", "heatmap numeric axis uses width_bucket")
+    contains(hmn?.sql, "_rx", "heatmap x range CTE")
+    contains(hmn?.sql, "_xlo", "heatmap x carries lo bound for the builder")
+    expect(hmn?.layout.xNumericBinned == true, "layout marks x numeric-binned")
+    expect(hmn?.layout.yNumericBinned == false, "y stays discrete")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
