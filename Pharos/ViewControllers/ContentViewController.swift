@@ -30,6 +30,7 @@ class ContentViewController: NSViewController {
     private let chartHost = ChartHostingController()
     /// The chart's current staged selection (Task C commits it on button press).
     private var stagedChartKeys: [DrillKey] = []
+    private var committedChartKeys: [DrillKey] = []
 
     /// Debounce timers coalescing rapid chart-config edits into one FFI persist
     /// each, keyed by result-tab id so concurrent edits to different tabs don't
@@ -2557,8 +2558,16 @@ extension ContentViewController {
         return cfg.serverAggregation && chartTypeSupportsServer(cfg.chartType)
     }
 
-    /// Commits the staged chart selection (Task C2 wires the real apply logic).
-    @objc private func commitChartSelection() { /* Task C2 */ }
+    /// Commits the staged chart selection: applies it as a drill (client filter
+    /// or server detail query), clears the staged selection, and hides the
+    /// commit button.
+    @objc private func commitChartSelection() {
+        guard !stagedChartKeys.isEmpty else { return }
+        applyDrill(stagedChartKeys)          // client: replace + grid filters; server: detail query (branch inside)
+        stagedChartKeys = []
+        chartFilterButton.isHidden = true
+        chartHost.clearSelection()           // clear the chart's staged highlight
+    }
 
     private func applyDrill(_ keys: [DrillKey]) {
         guard let id = activeResultTabId,
@@ -2570,18 +2579,19 @@ extension ContentViewController {
             return
         }
 
+        // Replace any prior committed chart filter (restore displaced manual filters first).
+        tearDownDrill(restoreManual: true)
+
         let applied = DrillTranslator.filters(for: keys, columns: result.columns)
-        guard !applied.isEmpty else { return }
+        guard !applied.isEmpty else { committedChartKeys = []; chartHost.setCommittedKeys([]); return }
         guard let fc = resultsVC.columnFilterController else { return }
         for a in applied {
-            // Snapshot a pre-existing manual filter once, the first time a drill
-            // takes over this column.
-            if !drillColumns.contains(a.columnId), let existing = fc.filter(forColumn: a.columnId) {
-                displacedFilters[a.columnId] = existing
-            }
+            if let existing = fc.filter(forColumn: a.columnId) { displacedFilters[a.columnId] = existing }
             fc.setFilter(a.filter, forColumn: a.columnId)
             if !drillColumns.contains(a.columnId) { drillColumns.append(a.columnId) }
         }
+        committedChartKeys = keys
+        chartHost.setCommittedKeys(DrillMerge.merge(keys))
         resultsVC.refreshColumnFilters()
         setResultViewMode(.grid)
         updateDrillChip()
@@ -2628,24 +2638,26 @@ extension ContentViewController {
     /// the captured state reflects the user's real manual filters, not the drill.
     private func tearDownDrill(restoreManual: Bool) {
         guard let fc = resultsVC.columnFilterController, !drillColumns.isEmpty else {
-            drillColumns.removeAll(); displacedFilters.removeAll(); updateDrillChip(); return
+            drillColumns.removeAll(); displacedFilters.removeAll()
+            committedChartKeys = []
+            chartHost.setCommittedKeys([])
+            updateDrillChip(); return
         }
         for colId in drillColumns {
             if restoreManual, let restore = displacedFilters[colId] { fc.setFilter(restore, forColumn: colId) }
             else { fc.clearFilter(forColumn: colId) }
         }
         drillColumns.removeAll(); displacedFilters.removeAll()
+        committedChartKeys = []
+        chartHost.setCommittedKeys([])
         updateDrillChip()
     }
 
-    /// Show the chip iff a drill is active; keep its count in the label.
+    /// Show the chip iff a drill is active; label summarizes the committed chart keys.
     private func updateDrillChip() {
         let active = !drillColumns.isEmpty
         drillChip.isHidden = !active
-        if active {
-            let n = drillColumns.count
-            drillChip.title = n > 1 ? "Filtered by chart (\(n))" : "Filtered by chart"
-        }
+        if active { drillChip.title = DrillSummary.label(committedChartKeys, prefix: "Filtered by Chart") }
     }
 
     // MARK: Banner
