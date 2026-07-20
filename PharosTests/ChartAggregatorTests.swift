@@ -181,5 +181,25 @@ func runTests() {
     hm2c.mappings[.value] = ColumnRef(index: 2, name: "amt")
     expect(ChartAggregator.aggregate(hm2, hm2c).heatmapCells.first?.value == 15, "heatmap sum = 15")
 
+    // Heatmap numeric X-axis binning (per-axis): 20 distinct x values, .b10 → 10 bins.
+    do {
+        let cols = [ColumnDef(name: "x", dataType: "numeric"), ColumnDef(name: "y", dataType: "text")]
+        var rows: [[AnyCodable]] = []
+        for i in 0..<20 { rows.append([AnyCodable(String(i)), AnyCodable(i % 2 == 0 ? "a" : "b")]) }
+        let res = QueryResult(columns: cols, rows: rows, rowCount: 20, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+        var cfg = ChartConfig(chartType: .heatmap, aggregation: .count)
+        cfg.mappings[.x] = ColumnRef(index: 0, name: "x")
+        cfg.mappings[.y] = ColumnRef(index: 1, name: "y")
+        cfg.axisBins[.x] = AxisBin(numeric: .b10)
+        let d = ChartAggregator.aggregate(res, cfg)
+        let xLabels = Set(d.heatmapCells.map { $0.x })
+        expect(xLabels.contains { $0.contains("–") }, "heatmap numeric X produces range labels")
+        expect(xLabels.count <= 10, "heatmap numeric X capped at 10 bins")
+        // Cells carry a compound whose X sub-key is a numeric .range.
+        if let cell = d.heatmapCells.first, case .compound(let ks)? = cell.drill, case .range(_, _, _, .numeric) = ks[0] {
+            expect(true, "heatmap numeric X cell drill is a .range")
+        } else { expect(false, "heatmap numeric X cell drill is a .range") }
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -248,23 +248,52 @@ enum ChartAggregator {
         var drillOf: [Key: DrillKey] = [:]
         var saw = false
 
-        // Axis label + per-axis drill sub-key (reuse categorical binning rules).
-        func axis(_ v: AnyCodable, _ ref: ColumnRef, _ kind: ColumnKind) -> (String, DrillKey) {
-            if kind == .temporal, config.temporalBin != .none, case let s as String = v.value, let d = ValueCoercion.date(from: s) {
-                let label = binLabel(d, bin: config.temporalBin)
-                if let (lo, hi) = temporalBinBounds(d, bin: config.temporalBin) { return (label, .range(ref, lo, hi, .temporal)) }
-                return (label, .anyOf(ref, [label]))
-            }
-            if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
-            return (v.displayString, .anyOf(ref, [v.displayString]))
-        }
         let xKind = ColumnClassifier.kind(forDataType: result.columns[xRef.index].dataType)
         let yKind = ColumnClassifier.kind(forDataType: result.columns[yRef.index].dataType)
 
+        // Build a per-axis labeller: numeric binning (first pass for range +
+        // distinct, with the low-cardinality escape) mirrors the categorical
+        // path; temporal binning uses the axis's resolved TemporalBin; otherwise
+        // discrete. Returns (label, drill sub-key) for a raw cell.
+        func makeAxisLabeller(_ ref: ColumnRef, _ kind: ColumnKind, _ bin: AxisBin) -> (AnyCodable) -> (String, DrillKey) {
+            if kind == .numeric {
+                var vals: [Double] = []; var distinct = Set<Double>()
+                for row in result.rows where ref.index < row.count {
+                    if let d = ValueCoercion.double(from: row[ref.index]) { vals.append(d); distinct.insert(d) }
+                }
+                if let count = numericBinCount(bin.numeric, distinct: distinct.count, n: vals.count),
+                   let lo = vals.min(), let hi = vals.max(), hi > lo {
+                    let width = (hi - lo) / Double(count)
+                    let bins = (0..<count).map { (lo: lo + Double($0) * width, hi: lo + Double($0 + 1) * width) }
+                    let binOf: (Double) -> Int = { v in Swift.min(count - 1, Swift.max(0, Int((v - lo) / width))) }
+                    return { v in
+                        guard let d = ValueCoercion.double(from: v) else {
+                            if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
+                            return (v.displayString, .anyOf(ref, [v.displayString]))
+                        }
+                        let b = bins[binOf(d)]
+                        return (binRangeLabel(b.lo, b.hi), .range(ref, b.lo, b.hi, .numeric))
+                    }
+                }
+                // else: fall through to discrete handling below.
+            }
+            return { v in
+                if kind == .temporal, bin.temporal != .none, case let s as String = v.value, let d = ValueCoercion.date(from: s) {
+                    let label = binLabel(d, bin: bin.temporal)
+                    if let (blo, bhi) = temporalBinBounds(d, bin: bin.temporal) { return (label, .range(ref, blo, bhi, .temporal)) }
+                    return (label, .anyOf(ref, [label]))
+                }
+                if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
+                return (v.displayString, .anyOf(ref, [v.displayString]))
+            }
+        }
+        let xLabeller = makeAxisLabeller(xRef, xKind, config.resolvedBin(for: .x))
+        let yLabeller = makeAxisLabeller(yRef, yKind, config.resolvedBin(for: .y))
+
         for row in result.rows {
             guard xRef.index < row.count, yRef.index < row.count else { continue }
-            let (xl, xk) = axis(row[xRef.index], xRef, xKind)
-            let (yl, yk) = axis(row[yRef.index], yRef, yKind)
+            let (xl, xk) = xLabeller(row[xRef.index])
+            let (yl, yk) = yLabeller(row[yRef.index])
             let key = Key(x: xl, y: yl)
             if !xSeen.contains(xl) { xSeen.insert(xl); xOrder.append(xl) }
             if !ySeen.contains(yl) { ySeen.insert(yl); yOrder.append(yl) }
