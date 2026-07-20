@@ -11,8 +11,8 @@ final class ChartHostingController: NSViewController {
     var onConfigChanged: ((ChartConfig) -> Void)?
     /// Requests loading all remaining rows for the current result.
     var onLoadAll: (() -> Void)?
-    /// Reports a drill request from a chart gesture (tap/brush/pie selection).
-    var onDrill: (([DrillKey]) -> Void)?
+    /// Reports the chart's current staged selection (post-merge keys; `[]` clears).
+    var onSelectionChanged: (([DrillKey]) -> Void)?
     /// Fired when a config change lands while server aggregation is on (a
     /// mapping/agg/bin tweak or the toggle flipping on) — the VC (re-)runs the
     /// debounced push-down query. Distinct from `onConfigChanged` (persistence),
@@ -33,7 +33,7 @@ final class ChartHostingController: NSViewController {
             // A change while server mode is on triggers a (debounced) re-run.
             if cfg.serverAggregation { self?.onServerConfigChanged?() }
         }
-        vm.onDrill = { [weak self] keys in self?.onDrill?(keys) }
+        vm.onSelectionChanged = { [weak self] keys in self?.onSelectionChanged?(keys) }
         self.model = vm
 
         let root = ChartRootView(
@@ -50,6 +50,13 @@ final class ChartHostingController: NSViewController {
 
     /// The current config (for persistence on teardown/tab-switch).
     var currentConfig: ChartConfig? { model?.config }
+
+    // MARK: Staged-selection forwarding (VC-driven)
+
+    /// Push the committed chart-filter keys down so marks can light up.
+    func setCommittedKeys(_ keys: [DrillKey]) { model?.committedKeys = keys }
+    /// Clear the chart's staged selection (post-commit / Esc).
+    func clearSelection() { model?.clearToken += 1 }
 
     // MARK: Server-aggregation view-model forwarding (VC-driven)
 

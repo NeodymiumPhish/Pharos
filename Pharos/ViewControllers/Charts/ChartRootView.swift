@@ -23,8 +23,21 @@ final class ChartViewModel: ObservableObject {
     private let result: QueryResult
     /// Called (debounced by the host) whenever config changes, for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
-    /// Called when a chart gesture (tap/brush/pie selection) requests a drill.
-    var onDrill: (([DrillKey]) -> Void)?
+    /// Called when the chart's staged selection changes (post-merge keys; `[]`
+    /// clears). The VC commits it when the action-bar button is pressed.
+    var onSelectionChanged: (([DrillKey]) -> Void)?
+    /// The committed chart filter's keys, pushed down so marks can light up.
+    @Published var committedKeys: [DrillKey] = []
+    /// Bumped by the VC to clear the chart's staged selection (post-commit / Esc).
+    @Published var clearToken: Int = 0
+
+    /// Stable identity of the current config; when it changes the chart drops its
+    /// staged selection (marks no longer refer to the same data).
+    var configFingerprint: String {
+        let m = config.mappings.map { "\($0.key.rawValue):\($0.value.index)" }.sorted().joined(separator: ",")
+        let ab = config.axisBins.map { "\($0.key.rawValue):\($0.value.temporal.rawValue)/\($0.value.numeric.rawValue)" }.sorted().joined(separator: ",")
+        return "\(config.chartType.rawValue)|\(m)|\(config.temporalBin.rawValue)|\(config.numericBin.rawValue)|\(ab)"
+    }
 
     init(result: QueryResult, columns: [ColumnDef], initialConfig: ChartConfig?) {
         self.result = result
@@ -107,7 +120,10 @@ struct ChartRootView: View {
             else if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
                 ChartCanvas(data: model.data, config: model.config,
-                            onDrill: { keys in model.onDrill?(keys) })
+                            onSelectionChanged: { keys in model.onSelectionChanged?(keys) },
+                            committedKeys: model.committedKeys,
+                            clearToken: model.clearToken,
+                            configFingerprint: model.configFingerprint)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)

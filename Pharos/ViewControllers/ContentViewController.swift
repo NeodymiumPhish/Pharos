@@ -28,6 +28,8 @@ class ContentViewController: NSViewController {
     // overlays the same region as the results grid, shown only in chart mode.
     private let chartToggle = NSSegmentedControl(labels: ["Grid", "Chart"], trackingMode: .selectOne, target: nil, action: nil)
     private let chartHost = ChartHostingController()
+    /// The chart's current staged selection (Task C commits it on button press).
+    private var stagedChartKeys: [DrillKey] = []
 
     /// Debounce timers coalescing rapid chart-config edits into one FFI persist
     /// each, keyed by result-tab id so concurrent edits to different tabs don't
@@ -2300,7 +2302,7 @@ extension ContentViewController {
             // empty state; config is preserved for when it's re-executed.
             chartHost.onConfigChanged = nil
             chartHost.onLoadAll = nil
-            chartHost.onDrill = nil
+            chartHost.onSelectionChanged = nil
             chartHost.onServerConfigChanged = nil
             chartHost.onCopySQL = nil
             chartHost.onRunServerAggregation = nil
@@ -2329,7 +2331,7 @@ extension ContentViewController {
             if !newCfg.serverAggregation { self.cancelServerAggregation() }
         }
         chartHost.onLoadAll = { [weak self] in self?.loadAllRowsForChart() }
-        chartHost.onDrill = { [weak self] keys in self?.applyDrill(keys) }
+        chartHost.onSelectionChanged = { [weak self] keys in self?.chartSelectionChanged(keys) }
         // A rail edit while server mode is on (re)runs the debounced query.
         chartHost.onServerConfigChanged = { [weak self] in self?.runServerAggregation(debounced: true) }
         chartHost.onCopySQL = { [weak self] in self?.copyGeneratedChartSQL() }
@@ -2524,6 +2526,9 @@ extension ContentViewController {
     /// (push-down off, or the chart type doesn't aggregate) this is grid column
     /// filters applied in place; in push-down mode it spawns a filtered detail
     /// query as a new result tab instead.
+    /// The chart reported a new staged selection (Task C wires the commit button).
+    private func chartSelectionChanged(_ keys: [DrillKey]) { stagedChartKeys = keys }
+
     private func applyDrill(_ keys: [DrillKey]) {
         guard let id = activeResultTabId,
               let idx = resultTabs.firstIndex(where: { $0.id == id }),

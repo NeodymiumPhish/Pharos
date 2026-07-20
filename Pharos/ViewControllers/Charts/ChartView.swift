@@ -7,8 +7,16 @@ struct ChartCanvas: View {
     /// The live config, so gestures can resolve x/y/category/label ColumnRefs
     /// (scatter points don't carry per-point drill keys).
     let config: ChartConfig
-    /// Reports a drill request (tap/brush/pie selection) up to the view model.
-    var onDrill: ([DrillKey]) -> Void = { _ in }
+    /// Reports the current *staged* selection (post-merge) up to the host; the
+    /// host/VC commit it when the action-bar button is pressed. `[]` = cleared.
+    var onSelectionChanged: ([DrillKey]) -> Void = { _ in }
+    /// The committed chart filter's keys (from the VC) — used to light marks when
+    /// no live selection is staged.
+    var committedKeys: [DrillKey] = []
+    /// Bumped by the VC to clear the staged selection (post-commit / Esc).
+    var clearToken: Int = 0
+    /// Identity of the current config; changing it clears the staged selection.
+    var configFingerprint: String = ""
     /// When false, the gantt renders all rows in a plain (non-scrolling) stack so
     /// ImageRenderer captures every bar on export (a ScrollView renders empty
     /// off-screen). On-screen use keeps the default (scrolling).
@@ -22,6 +30,56 @@ struct ChartCanvas: View {
     @State private var pieSelected: [String] = []
     // Scatter click callout (chart-local; not a drill — brushing filters instead).
     @State private var scatterSelection: XYPoint?
+
+    // Staged-selection scaffold (B1). Marks tracked by stable ID; range/brush
+    // selections carried as a merged key set. B2 fleshes out per-type gestures.
+    @State private var selectedIDs: Set<String> = []
+    @State private var anchorID: String? = nil
+    @State private var rangeSel: RangeSelection? = nil
+    @State private var marquee: CGRect? = nil
+
+    struct RangeSelection: Equatable {
+        var keys: [DrillKey]
+        var xLo: Double; var xHi: Double
+        var yLo: Double?; var yHi: Double?
+    }
+
+    // MARK: - Selection model (B1 scaffold)
+
+    private struct Mark { let id: String; let drill: DrillKey? }
+
+    private var marks: [Mark] {
+        switch chartType {
+        case .bar, .line, .area:
+            return data.series.flatMap { s in s.points.map { Mark(id: "\($0.xLabel)\u{1}\(s.name)", drill: $0.drill) } }
+        case .pie:
+            return (data.series.first?.points ?? []).map { Mark(id: "\($0.xLabel)\u{1}", drill: $0.drill) }
+        case .heatmap:
+            return data.heatmapCells.map { Mark(id: $0.id, drill: $0.drill) }
+        case .gantt:
+            guard let ref = config.mappings[.label] else { return [] }
+            return data.ganttBars.map { Mark(id: $0.label, drill: .anyOf(ref, [$0.label])) }
+        case .scatter:
+            return []
+        }
+    }
+
+    private var stagedKeys: [DrillKey] {
+        if let r = rangeSel { return r.keys }
+        let keys = marks.filter { selectedIDs.contains($0.id) }.compactMap { $0.drill }
+        return DrillMerge.merge(keys)
+    }
+    private var hasStagedSelection: Bool { !selectedIDs.isEmpty || rangeSel != nil }
+    private func report() { onSelectionChanged(stagedKeys) }
+    private func clearSelection() { selectedIDs = []; anchorID = nil; rangeSel = nil; marquee = nil; report() }
+
+    // TEMP (B2 replaces per-gesture): stage a raw key set without mark-ID tracking.
+    private func stageRaw(_ keys: [DrillKey]) {
+        if keys.isEmpty { clearSelection(); return }
+        rangeSel = RangeSelection(keys: DrillMerge.merge(keys), xLo: 0, xHi: 0, yLo: nil, yHi: nil)
+        selectedIDs = []; anchorID = nil
+        report()
+    }
 
     var body: some View {
         if let reason = data.emptyReason {
@@ -88,7 +146,7 @@ struct ChartCanvas: View {
             }
             let subKeys = pieSelected.compactMap { l in (data.series.first?.points ?? []).first(where: { $0.xLabel == l })?.drill }
             let merged = DrillMerge.merge(subKeys)
-            if !merged.isEmpty { onDrill(merged) }
+            stageRaw(merged)
         }
     }
 
@@ -166,35 +224,30 @@ struct ChartCanvas: View {
     // cumulative series band. Line/area: nearest series by value. Single-series
     // or grouped/ambiguous: category-only.
     private func categoryTap(_ label: String, atY py: CGFloat, proxy: ChartProxy) {
-        let seriesWithLabel = data.series.filter { $0.points.contains { $0.xLabel == label } }
-        guard let first = seriesWithLabel.first?.points.first(where: { $0.xLabel == label }), let firstDrill = first.drill else { return }
+        let seriesName = resolveHitSeries(label: label, atY: py, proxy: proxy)
+        let id = "\(label)\u{1}\(seriesName)"
+        selectedIDs = [id]; anchorID = id; rangeSel = nil
+        report()
+    }
 
-        if data.series.count <= 1 { onDrill([firstDrill]); return }
-
-        let tappedValue = proxy.value(atY: py, as: Double.self)
-
-        let resolved: ChartPoint? = {
-            guard let tv = tappedValue else { return nil }
-            switch chartType {
-            case .bar where config.display.stacked:
-                var acc = 0.0
-                for s in data.series {
-                    if let pt = s.points.first(where: { $0.xLabel == label }) {
-                        acc += pt.y
-                        if tv <= acc { return pt }
-                    }
-                }
-                return nil
-            case .line, .area:
-                return data.series.compactMap { $0.points.first(where: { $0.xLabel == label }) }
-                    .min(by: { abs($0.y - tv) < abs($1.y - tv) })
-            default:
-                return nil
-            }
-        }()
-
-        if let pt = resolved, let d = pt.drill { onDrill([d]) }
-        else { onDrill([firstChild(firstDrill)]) }
+    private func resolveHitSeries(label: String, atY py: CGFloat, proxy: ChartProxy) -> String {
+        guard data.series.count > 1, let tv = proxy.value(atY: py, as: Double.self) else {
+            return data.series.count == 1 ? data.series[0].name : ""
+        }
+        switch chartType {
+        case .bar where config.display.stacked:
+            var acc = 0.0
+            for s in data.series { if let pt = s.points.first(where: { $0.xLabel == label }) { acc += pt.y; if tv <= acc { return s.name } } }
+            return ""
+        case .line, .area:
+            return data.series.min(by: { s1, s2 in
+                let y1 = s1.points.first(where: { $0.xLabel == label })?.y ?? .infinity
+                let y2 = s2.points.first(where: { $0.xLabel == label })?.y ?? .infinity
+                return abs(y1 - tv) < abs(y2 - tv)
+            })?.name ?? ""
+        default:
+            return ""
+        }
     }
 
     /// The category sub-key of a series point's compound drill (or the key itself
@@ -216,7 +269,7 @@ struct ChartCanvas: View {
                 }
             }
         }
-        if !keys.isEmpty { onDrill(keys) }
+        stageRaw(keys)
     }
 
     // MARK: - Heatmap gesture overlay (two category axes → compound drill)
@@ -240,7 +293,7 @@ struct ChartCanvas: View {
     private func heatmapTap(_ px: CGFloat, _ py: CGFloat, _ proxy: ChartProxy) {
         guard let xl = proxy.value(atX: px, as: String.self), let yl = proxy.value(atY: py, as: String.self),
               let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }), let drill = cell.drill else { return }
-        onDrill([drill])
+        stageRaw([drill])
     }
 
     // Collect covered cells, flatten their pre-computed compound sub-keys, and
@@ -253,7 +306,7 @@ struct ChartCanvas: View {
             if cx >= xlo, cx <= xhi, cy >= ylo, cy <= yhi { subKeys.append(drill) }
         }
         let merged = DrillMerge.merge(subKeys)
-        if !merged.isEmpty { onDrill(merged) }
+        stageRaw(merged)
     }
 
     // MARK: - Scatter gestures + callout
@@ -283,7 +336,7 @@ struct ChartCanvas: View {
            let yb = proxy.value(atY: ey, as: Double.self) {
             keys.append(.range(yRef, Swift.min(ya, yb), Swift.max(ya, yb), .numeric))
         }
-        onDrill(keys)
+        stageRaw(keys)
     }
 
     @ViewBuilder private func scatterCallout(_ p: XYPoint) -> some View {
@@ -425,7 +478,7 @@ struct ChartCanvas: View {
 
     private func ganttTap(_ bar: GanttBar) {
         guard let labelRef = config.mappings[.label] else { return }
-        onDrill([.anyOf(labelRef, [bar.label])])
+        stageRaw([.anyOf(labelRef, [bar.label])])
     }
 
     private func ganttBrush(_ ax: CGFloat, _ bx: CGFloat, proxy: ChartProxy, bars: [GanttBar]) {
@@ -434,7 +487,7 @@ struct ChartCanvas: View {
               let d1 = proxy.value(atX: max(ax, bx), as: Date.self) else { return }
         // Domain is epoch-seconds-as-Date for both temporal and numeric axes;
         // .timeIntervalSince1970 recovers the epoch/raw value. Kind picks formatting.
-        onDrill([.overlap(startRef, endRef, d0.timeIntervalSince1970, d1.timeIntervalSince1970, data.ganttAxisKind)])
+        stageRaw([.overlap(startRef, endRef, d0.timeIntervalSince1970, d1.timeIntervalSince1970, data.ganttAxisKind)])
     }
 
     @ViewBuilder private func emptyState(_ reason: EmptyReason) -> some View {
