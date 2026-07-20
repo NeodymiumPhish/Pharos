@@ -83,5 +83,5 @@ struct ColumnFilter {
     /// Sentinel placed in `values` (for an `.isAnyOf` filter) to mean "match
     /// null / empty cells". NUL-prefixed so it cannot collide with a rendered
     /// cell value. Also used as the model value of the checklist's "(Blanks)" row.
-    static let blanksSentinel = "\u{0}__pharos_blanks__"
+    static let blanksSentinel = PharosBlanks.sentinel
 }

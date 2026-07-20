@@ -14,6 +14,10 @@ enum DrillKey: Equatable {
     case range(ColumnRef, Double, Double, RangeKind)
     /// Multiple keys ANDed across columns (e.g. a heatmap cell = X and Y).
     case compound([DrillKey])
+    /// A gantt time-brush: rows whose [startRef, endRef] span overlaps [lo, hi].
+    /// RangeKind is REQUIRED — a gantt start/end axis may be numeric, not just
+    /// temporal, so bounds must be formatted per kind (like `.range`).
+    case overlap(ColumnRef, ColumnRef, Double, Double, RangeKind)
 
     /// All column refs this key touches (for chip labels / dedup).
     var columnRefs: [ColumnRef] {
@@ -21,6 +25,7 @@ enum DrillKey: Equatable {
         case .anyOf(let r, _), .blank(let r): return [r]
         case .range(let r, _, _, _): return [r]
         case .compound(let keys): return keys.flatMap { $0.columnRefs }
+        case .overlap(let s, let e, _, _, _): return [s, e]
         }
     }
 }

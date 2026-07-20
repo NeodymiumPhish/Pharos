@@ -16,5 +16,10 @@ func runTests() {
     if case .range(_, let lo, let hi, let kind) = r { expect(lo == 10 && hi == 20 && kind == .numeric, "range payload") }
     else { expect(false, "range payload") }
 
+    let ov = DrillKey.overlap(ColumnRef(index: 1, name: "start"), ColumnRef(index: 2, name: "end"), 100, 200, .temporal)
+    expect(ov.columnRefs.map { $0.name } == ["start", "end"], "overlap exposes both refs")
+    if case .overlap(_, _, let lo, let hi, let kind) = ov { expect(lo == 100 && hi == 200 && kind == .temporal, "overlap payload") }
+    else { expect(false, "overlap payload") }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

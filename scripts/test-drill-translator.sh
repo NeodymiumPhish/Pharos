@@ -6,6 +6,7 @@ swiftc -o /tmp/drill-translator-tests \
   Pharos/Models/Charts/ChartTypes.swift \
   Pharos/Models/Charts/DrillKey.swift \
   Pharos/Utilities/PGTypeCategory.swift \
+  Pharos/Utilities/BlanksSentinel.swift \
   Pharos/Utilities/ColumnFilter.swift \
   Pharos/Models/Charts/DrillTranslator.swift \
   PharosTests/DrillTranslatorTests.swift \

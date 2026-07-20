@@ -23,6 +23,7 @@
 		19877E64248CE46809E223BA /* MetadataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */; };
 		1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */; };
 		1CB48D2E1B11DC3055666BE8 /* SchemaTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */; };
+		1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777B3FE187C2372DED419961 /* DrillMerge.swift */; };
 		1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = F443CAC6284678541D0523EA /* Schema.swift */; };
 		20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */; };
 		2217148AF13F5D02FA2C5ECA /* ChartRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */; };
@@ -127,6 +128,7 @@
 		F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */; };
 		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
+		FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E4096E1BBB69FB83745F0B /* BlanksSentinel.swift */; };
 		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
 /* End PBXBuildFile section */
 
@@ -172,6 +174,7 @@
 		5CA969614B127DE629649F33 /* SQLTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLTextView.swift; sourceTree = "<group>"; };
 		5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Delegates.swift"; sourceTree = "<group>"; };
 		6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
+		65E4096E1BBB69FB83745F0B /* BlanksSentinel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlanksSentinel.swift; sourceTree = "<group>"; };
 		683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Query.swift"; sourceTree = "<group>"; };
 		6C01E8B2BFBB4F7D1CFCA697 /* ChartExportCaption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartExportCaption.swift; sourceTree = "<group>"; };
 		6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnFilterPopoverVC.swift; sourceTree = "<group>"; };
@@ -182,6 +185,7 @@
 		73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTab.swift; sourceTree = "<group>"; };
 		745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsColumnFilterController.swift; sourceTree = "<group>"; };
 		74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuery.swift; sourceTree = "<group>"; };
+		777B3FE187C2372DED419961 /* DrillMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillMerge.swift; sourceTree = "<group>"; };
 		79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
@@ -301,6 +305,7 @@
 		19FB1DD39D4717C543D508AA /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				65E4096E1BBB69FB83745F0B /* BlanksSentinel.swift */,
 				FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */,
 				EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */,
 				EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */,
@@ -408,6 +413,7 @@
 				264FF44EDD39F675DE642D7B /* ChartTypes.swift */,
 				EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */,
 				AA16914752C36D98C5FB61F6 /* DrillKey.swift */,
+				777B3FE187C2372DED419961 /* DrillMerge.swift */,
 				AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */,
 				30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */,
 				096E125694D9A3387A6C7BC8 /* PushdownQuery.swift */,
@@ -606,6 +612,7 @@
 			files = (
 				AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */,
 				65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */,
+				FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */,
 				4A357200F99BA35BECB62716 /* ChartAggregator.swift in Sources */,
 				536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */,
 				49FB38D5C5582642FC4B7EDE /* ChartData.swift in Sources */,
@@ -626,6 +633,7 @@
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
 				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,
+				1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */,
 				7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */,
 				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
 				685684742A13BC19F782590E /* EditorPane.swift in Sources */,

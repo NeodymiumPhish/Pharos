@@ -15,6 +15,7 @@ enum DrillSqlTranslator {
             return "\(ident(ref)) >= \(l) AND \(ident(ref)) < \(h)"
         case .compound(let keys):
             return keys.map { "(" + predicate(for: $0, columns: columns) + ")" }.joined(separator: " AND ")
+        case .overlap: return ""   // TEMP placeholder — real handling added in Task C3
         }
     }
 

@@ -24,6 +24,7 @@ enum DrillTranslator {
             case .range(let ref, let lo, let hi, let kind):
                 ranges.append((ref, lo, hi, kind))
             case .compound: break
+            case .overlap: break   // TEMP placeholder — real handling added in Task C2
             }
         }
 
