@@ -15,6 +15,7 @@ enum DrillTranslator {
         // Coalesce anyOf/blank per column into one value set; ranges pass through.
         var anyOfByCol: [Int: (ref: ColumnRef, vals: [String])] = [:]
         var ranges: [(ref: ColumnRef, lo: Double, hi: Double, kind: RangeKind)] = []
+        var overlaps: [(startRef: ColumnRef, endRef: ColumnRef, lo: Double, hi: Double, kind: RangeKind)] = []
         for k in flat {
             switch k {
             case .anyOf(let ref, let vals):
@@ -24,7 +25,8 @@ enum DrillTranslator {
             case .range(let ref, let lo, let hi, let kind):
                 ranges.append((ref, lo, hi, kind))
             case .compound: break
-            case .overlap: break   // TEMP placeholder — real handling added in Task C2
+            case .overlap(let s, let e, let lo, let hi, let kind):
+                overlaps.append((s, e, lo, hi, kind))
             }
         }
 
@@ -41,6 +43,18 @@ enum DrillTranslator {
             let (loS, hiS) = formatRange(r.lo, r.hi, kind: r.kind, dataType: dt)
             let f = ColumnFilter(columnName: r.ref.name, op: .between, value: loS, value2: hiS, values: nil, dataType: dt)
             out.append(Applied(columnId: "col_\(r.ref.index)", filter: f))
+        }
+        for o in overlaps {
+            guard o.startRef.index < columns.count, o.endRef.index < columns.count else { continue }
+            // A bar overlaps [lo,hi] iff it started at/before hi AND ended at/after lo.
+            let sDT = columns[o.startRef.index].dataType
+            let eDT = columns[o.endRef.index].dataType
+            let (_, hiOnStart) = formatRange(o.lo, o.hi, kind: o.kind, dataType: sDT)
+            let (loOnEnd, _) = formatRange(o.lo, o.hi, kind: o.kind, dataType: eDT)
+            out.append(Applied(columnId: "col_\(o.startRef.index)",
+                               filter: ColumnFilter(columnName: o.startRef.name, op: .lessOrEqual, value: hiOnStart, value2: nil, values: nil, dataType: sDT)))
+            out.append(Applied(columnId: "col_\(o.endRef.index)",
+                               filter: ColumnFilter(columnName: o.endRef.name, op: .greaterOrEqual, value: loOnEnd, value2: nil, values: nil, dataType: eDT)))
         }
         return out
     }

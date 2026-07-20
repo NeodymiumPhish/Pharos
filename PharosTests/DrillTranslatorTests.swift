@@ -37,6 +37,18 @@ func runTests() {
     let m = DrillTranslator.filters(for: [.anyOf(ColumnRef(index:0,name:"status"),["a"]), .anyOf(ColumnRef(index:0,name:"status"),["b"])], columns: cols)
     expect(m.count == 1 && Set(m[0].filter.values ?? []) == ["a","b"], "same-column anyOf coalesced")
 
+    // overlap (temporal): start ≤ hi (lessOrEqual) AND end ≥ lo (greaterOrEqual).
+    let cols2 = [ColumnDef(name: "id", dataType: "int4"), ColumnDef(name: "start", dataType: "timestamptz"), ColumnDef(name: "end", dataType: "timestamptz")]
+    let ovT = DrillTranslator.filters(for: [.overlap(ColumnRef(index: 1, name: "start"), ColumnRef(index: 2, name: "end"), 0, 86400, .temporal)], columns: cols2)
+    expect(ovT.count == 2, "overlap yields two filters")
+    expect(ovT.contains { $0.columnId == "col_1" && $0.filter.op == .lessOrEqual }, "start ≤ hi")
+    expect(ovT.contains { $0.columnId == "col_2" && $0.filter.op == .greaterOrEqual }, "end ≥ lo")
+    // overlap (numeric): bounds are numeric literals, not ISO.
+    let cols3 = [ColumnDef(name: "id", dataType: "int4"), ColumnDef(name: "s", dataType: "int8"), ColumnDef(name: "e", dataType: "int8")]
+    let ovN = DrillTranslator.filters(for: [.overlap(ColumnRef(index: 1, name: "s"), ColumnRef(index: 2, name: "e"), 10, 20, .numeric)], columns: cols3)
+    expect(ovN.first(where: { $0.columnId == "col_1" })?.filter.value == "20", "numeric hi literal on start ≤ hi")
+    expect(ovN.first(where: { $0.columnId == "col_2" })?.filter.value == "10", "numeric lo literal on end ≥ lo")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
 
