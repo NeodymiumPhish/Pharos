@@ -50,7 +50,7 @@ vocabulary. One new pure helper (`DrillSummary`) produces the button/chip labels
 | Button/chip label | Shared summary: `col (N)` per discrete column, `col (range)` for a range/overlap column, joined `; `, ordered by column index. Client button "Filter in Grid — …", server "Query Selected Rows — …", chip "Filtered by Chart — …". |
 | Selection semantics | Per-type (see §1): bar/line/area/pie/heatmap/gantt-rows are discrete-mark; scatter + gantt-time-axis are continuous (marquee/overlap). |
 | Marquee | Dashed accent rubber-band in the plot area; x-band for categorical, 2D rect for heatmap/scatter. |
-| Dimming | Unselected marks → ~20% opacity when a selection is non-empty. |
+| Dimming | Unselected marks → ~20% opacity when a selection is non-empty; the lit set is derived from `DrillMerge.merge(stagedKeys)` so the preview matches the commit. |
 | Clear | Click empty plot area or **Esc**; also cleared on config change / tab switch. |
 | Grid ⌘-click | Add a `.command` toggle branch to the grid's row-selection mouse handler (Shift range unchanged). |
 | Persistence | None new — selection is runtime-only; committed grid filter stays in-memory as today. |
@@ -80,9 +80,14 @@ those keys (existing), then the existing client/server drill path applies it.
 Two selection shapes:
 
 - **Discrete-mark** (`bar`, `line`, `area`, `pie`, `heatmap`, gantt rows): a
-  `Set<String>` of stable mark IDs + an anchor ID. A mark is *lit* iff its ID is in the
-  set. Mark ID: the category `xLabel` (bar/line/area/pie), the `HeatmapCell.id`
-  (`x\u{1}y`), or the gantt bar label.
+  `Set<String>` of stable mark IDs + an anchor ID. Mark ID: `xLabel + "\u{1}" +
+  seriesName` for bar/line/area/pie (the same compound-ID pattern as `HeatmapCell.id`;
+  `seriesName` is `""` for single-series charts, so a **per-series band is individually
+  addressable** — two series at one category are distinct members and dim
+  independently); `HeatmapCell.id` (`x\u{1}y`) for heatmap; the bar label for gantt
+  rows. A Shift-range or marquee spanning a block of categories expands to **all series
+  IDs** within that block. Which marks render *lit* is derived from the merged selection
+  — see §2.
 - **Continuous** (`scatter` marquee, gantt time-axis overlap): a single range value
   (x/y bounds, or a `[t0,t1]` window). Marks inside are lit; commit yields the
   `.range`/`.overlap` key. Only one selection shape is active at a time.
@@ -113,13 +118,22 @@ Notes:
   tracking the live drag translation in the existing `chartOverlay` `GeometryReader`.
   Full-height x-band for bar/line/area; a 2D rectangle for heatmap and scatter.
 - **Dimming:** when the selection is non-empty, unselected marks render at ~0.2 opacity,
-  selected marks at full. During a drag, marks currently under the marquee are treated as
-  selected; on release the set freezes. Empty selection → no dimming.
+  lit marks at full. **The lit set is derived from `DrillMerge.merge(stagedKeys)`, not the
+  raw click set**, so the preview matches exactly what commit will filter: discontiguous
+  ⌘-selected bins whose merge coalesces into one covering span light the in-between bins
+  *live*, and a null bucket the merge drops (when it coexists with a range on the same
+  column) dims as it will commit. A mark is lit iff its own `DrillKey` is subsumed by the
+  merged selection for its column (`.anyOf` value membership incl. the null sentinel;
+  `.range`/`.overlap` containment). During a drag, marks under the marquee join the staged
+  set; on release the set freezes. Empty selection → no dimming.
 - **Clearing:** click on empty plot area, or press **Esc**, clears the selection
   (un-dim, hide the commit button). Esc is handled by the hosting VC / first responder (a
   click on empty plot area is the primary path; Esc is a convenience).
-- A chart **config change** (remapping roles, switching chart type) or a **result-tab
-  switch** clears any pending selection, since the marks change underneath it.
+- A chart **config change** (remapping roles, switching chart type/bins) or a **result-tab
+  switch** clears any pending selection, since the marks change underneath it. Because
+  SwiftUI `@State` survives view updates and resets only on identity change, `ChartCanvas`
+  clears its selection via an explicit `onChange(of: configFingerprint)` (a hash of the
+  mappings + chart type + bins) — not by relying on view diffing.
 
 ## 3 — Commit flow, action bar & labels
 
@@ -136,6 +150,12 @@ Notes:
   (existing `clearDrill`, relabelled). Replaces the current "Filtered by chart (N)" text.
 - The old immediate-on-gesture commit is removed — a gesture updates only the staged
   selection.
+- **After commit** the staged selection clears and the button hides. When the chart of a
+  committed client-mode filter is shown again, its marks re-derive their lit state from the
+  *committed* keys (so the active filter stays visible on the chart) — there is no retained
+  staged state. A fresh gesture stages a new selection that replaces the committed filter on
+  the next commit. This keeps "selection is ephemeral" literally true and resolves any
+  still-lit ambiguity.
 
 ### DrillSummary (label generation — new pure helper)
 
@@ -160,17 +180,23 @@ In `ResultsCellSelection.handleMouseDown` ([ResultsCellSelection.swift:99](../..
 the row-number/row-mode branch currently handles Shift (range from anchor) and plain
 click (single). Add a `.command` branch: **toggle** the clicked row in
 `state.selectedRows` (insert if absent, remove if present) and set `rowAnchor` to the
-clicked row so a subsequent Shift-click extends from there. Shift and plain-click are
+clicked row so a subsequent Shift-click extends from there. The ⌘ branch must **leave
+`state.isSelecting = false`** (unlike the plain/shift branches): `handleMouseDragged`'s
+row-mode path ([ResultsCellSelection.swift:146](../../Pharos/ViewControllers/ResultsGrid/ResultsCellSelection.swift))
+rewrites `selectedRows` as a contiguous anchor→cursor range, so a one-pixel drag during a
+⌘-click would otherwise wipe the whole discontiguous set. (A future ⌘-drag-to-add-range
+could union the drag range with the pre-drag set — out of scope.) Shift and plain-click are
 unchanged. Rectangular *cell* selection (the data-cell branch) is out of scope.
 
 ## 5 — Architecture & components
 
-- **`ChartView.swift` (`ChartCanvas`):** holds `@State` selection (a `Set<String>` mark-ID
-  set + anchor for discrete charts, or a range value for scatter/gantt-time); modifier-aware
-  gestures replace the phase-4 `onDrill(...)` commit calls with selection updates; renders
-  dimming (per-mark opacity) + the marquee overlay; reports the derived `[DrillKey]` and a
-  mark-membership predicate via a new `var onSelectionChanged: ([DrillKey]) -> Void`.
-  Empty selection → `onSelectionChanged([])`.
+- **`ChartView.swift` (`ChartCanvas`):** holds `@State` selection (a `Set<String>` of
+  compound mark IDs + anchor for discrete charts, or a range value for scatter/gantt-time);
+  modifier-aware gestures replace the phase-4 `onDrill(...)` commit calls with selection
+  updates; computes `merged = DrillMerge.merge(stagedKeys)` and renders per-mark dimming
+  from *merged* membership + the marquee overlay; reports the merged `[DrillKey]` via a new
+  `var onSelectionChanged: ([DrillKey]) -> Void`. Clears its `@State` on
+  `onChange(of: configFingerprint)`. Empty selection → `onSelectionChanged([])`.
 - **`ChartRootView.swift` (`ChartViewModel`):** `@Published var selectionKeys: [DrillKey] = []`
   set from `onSelectionChanged`; forwarded to the host. (The rail is unchanged.)
 - **`ChartHostingController.swift`:** replaces `onDrill` with `onSelectionChanged`; exposes
@@ -181,8 +207,9 @@ unchanged. Rectangular *cell* selection (the data-cell branch) is out of scope.
   via the existing `applyDrill`/`applyServerDrill` (now button-triggered, `applyDrill`
   gains the up-front `tearDownDrill(restoreManual:true)` for replace). `updateDrillChip`
   builds its label from `DrillSummary` over the committed keys (store the committed
-  `[DrillKey]` alongside `drillColumns`). Clearing the selection hides the button; Esc /
-  empty-click routes through the host to clear.
+  `[DrillKey]` alongside `drillColumns`). On commit the staged selection is cleared and the
+  button hidden; clearing the selection also hides the button; Esc / empty-click routes
+  through the host to clear.
 - **`DrillSummary.swift`** (new, Foundation-only, `Pharos/Models/Charts/`): the pure label
   helper above.
 - **`ResultsCellSelection.swift`:** the ⌘-click row toggle.
@@ -211,6 +238,10 @@ Per the repo's standalone-`swiftc` harnesses:
   - Marquee draws while dragging; unselected marks dim; Esc / empty-click clears.
   - Single / Shift-range / ⌘-toggle on bar, pie, heatmap, gantt rows; heatmap Shift =
     bounding rect; scatter drag-only; gantt time-axis overlap still works.
+  - Per-series band toggles independently (two series at one category dim separately).
+  - **Merged-preview honesty:** ⌘-select two non-adjacent numeric bins → the in-between
+    span lights up *before* commit, and committing filters exactly the lit span; a lit null
+    bucket beside a range dims (and drops) as it will commit.
   - "Filter in Grid" appears only with a selection, shows the correct summary, and on
     click switches to grid with the right filters + chip label; a *new* selection replaces
     the prior committed filter (no stacking).
@@ -239,6 +270,12 @@ Per the repo's standalone-`swiftc` harnesses:
   order; verify it reads intuitively when the axis is a binned range.
 - **Dimming re-render cost** — per-mark opacity on large categorical/scatter sets; the
   scatter `PointPlot` dims as a whole layer rather than per point if per-point is too costly.
-- **Selection ↔ committed-filter sync** — returning to chart after a commit should show the
-  committed selection still lit; going grid→chart→new-selection must replace cleanly
-  (reuse `tearDownDrill`).
+- **Merged-preview correctness** — the lit set MUST derive from `DrillMerge.merge(stagedKeys)`,
+  not the raw click set (§2). `DrillMerge` coalesces same-column ranges into one covering span
+  and drops a lone null beside a range, so a raw-click preview would misrepresent a
+  discontiguous or null-inclusive selection (dim marks the commit actually includes, or leave
+  a null lit that the commit drops). Cover in manual verification.
+- **Selection ↔ committed-filter sync** — staged selection is ephemeral and clears on commit;
+  the chart re-derives its lit state from the *committed* keys when shown again, so there is
+  no stale staged state to contradict. A fresh gesture stages anew and replaces the committed
+  filter on the next commit (reuse `tearDownDrill`).
