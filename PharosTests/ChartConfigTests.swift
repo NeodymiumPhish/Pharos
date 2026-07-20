@@ -76,5 +76,20 @@ func runTests() {
     let old3 = try! JSONDecoder().decode(ChartConfig.self, from: Data(legacy3.utf8))
     expect(old3.serverAggregation == false && old3.lastServerRun == nil, "legacy config defaults phase-3 fields")
 
+    // axisBins: per-axis granularity round-trips; resolvedBin falls back to globals.
+    var ab = ChartConfig(chartType: .heatmap, temporalBin: .month, numericBin: .b20)
+    ab.axisBins[.x] = AxisBin(temporal: .day, numeric: .auto)
+    let abData = try! JSONEncoder().encode(ab)
+    let abBack = try! JSONDecoder().decode(ChartConfig.self, from: abData)
+    expect(abBack.axisBins[.x]?.temporal == .day, "axisBins[.x] round-trips")
+    expect(abBack.resolvedBin(for: .x).temporal == .day, "resolvedBin(.x) uses axisBins override")
+    expect(abBack.resolvedBin(for: .y).temporal == .month, "resolvedBin(.y) falls back to global temporalBin")
+    expect(abBack.resolvedBin(for: .y).numeric == .b20, "resolvedBin(.y) falls back to global numericBin")
+    // legacy blob (no axisBins) → empty, global behavior preserved.
+    let legacy4 = #"{"chartType":"heatmap","mappings":[],"aggregation":"count","temporalBin":"month","numericBin":"20","display":{"title":"","showLegend":true,"stacked":false,"topNCategories":25}}"#
+    let old4 = try! JSONDecoder().decode(ChartConfig.self, from: Data(legacy4.utf8))
+    expect(old4.axisBins.isEmpty, "legacy config has empty axisBins")
+    expect(old4.resolvedBin(for: .x).temporal == .month, "legacy resolvedBin uses globals")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -9,6 +9,7 @@ struct ChartConfig: Codable, Equatable {
     var display: ChartDisplayOptions
     var serverAggregation: Bool
     var lastServerRun: LastServerRun?
+    var axisBins: [ChartColumnRole: AxisBin] = [:]
 
     init(chartType: ChartType,
          mappings: [ChartColumnRole: ColumnRef] = [:],
@@ -17,7 +18,8 @@ struct ChartConfig: Codable, Equatable {
          numericBin: NumericBin = .auto,
          display: ChartDisplayOptions = ChartDisplayOptions(),
          serverAggregation: Bool = false,
-         lastServerRun: LastServerRun? = nil) {
+         lastServerRun: LastServerRun? = nil,
+         axisBins: [ChartColumnRole: AxisBin] = [:]) {
         self.chartType = chartType
         self.mappings = mappings
         self.aggregation = aggregation
@@ -26,12 +28,13 @@ struct ChartConfig: Codable, Equatable {
         self.display = display
         self.serverAggregation = serverAggregation
         self.lastServerRun = lastServerRun
+        self.axisBins = axisBins
     }
 
     // Tolerant decode: every field decodeIfPresent with a default, so phase-1
     // blobs (no numericBin) still decode and future additions stay compatible.
     enum CodingKeys: String, CodingKey {
-        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun
+        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun, axisBins
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -43,6 +46,14 @@ struct ChartConfig: Codable, Equatable {
         display     = try c.decodeIfPresent(ChartDisplayOptions.self, forKey: .display) ?? ChartDisplayOptions()
         serverAggregation = try c.decodeIfPresent(Bool.self, forKey: .serverAggregation) ?? false
         lastServerRun     = try c.decodeIfPresent(LastServerRun.self, forKey: .lastServerRun) ?? nil
+        axisBins    = try c.decodeIfPresent([ChartColumnRole: AxisBin].self, forKey: .axisBins) ?? [:]
+    }
+
+    /// The effective bin granularity for a role: the per-axis override if set,
+    /// else the chart's global temporal/numeric bins. Centralizes the fallback so
+    /// the aggregator and generator never sprinkle it.
+    func resolvedBin(for role: ChartColumnRole) -> AxisBin {
+        axisBins[role] ?? AxisBin(temporal: temporalBin, numeric: numericBin)
     }
 
     /// Build a sensible default config from the result's columns.

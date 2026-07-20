@@ -51,6 +51,16 @@ enum NumericBin: String, Codable, CaseIterable {
     }
 }
 
+/// Independent per-axis bin granularity (heatmap X/Y). Absent ⇒ the chart's
+/// global `temporalBin`/`numericBin` apply (see `ChartConfig.resolvedBin`).
+struct AxisBin: Codable, Equatable {
+    var temporal: TemporalBin = .auto
+    var numeric: NumericBin = .auto
+    init(temporal: TemporalBin = .auto, numeric: NumericBin = .auto) {
+        self.temporal = temporal; self.numeric = numeric
+    }
+}
+
 /// Result of classifying a column's data type.
 enum ColumnKind: String, Codable {
     case numeric, temporal, categorical
