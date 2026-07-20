@@ -64,5 +64,21 @@ func runTests() {
         "compound wraps children and joins with AND"
     )
 
+    // anyOf with the blanks sentinel → IN (…) OR IS NULL (grid↔SQL parity).
+    let mixed = DrillSqlTranslator.predicate(for: .anyOf(ColumnRef(index: 0, name: "status"), ["a", PharosBlanks.sentinel, "b"]), columns: [])
+    expect(mixed.contains("IN ('a', 'b')"), "sentinel excluded from IN list")
+    expect(mixed.contains(#""status" IS NULL"#), "sentinel adds IS NULL")
+    expect(mixed.contains(" OR "), "IN and IS NULL joined by OR")
+    // pure-sentinel anyOf → IS NULL only.
+    let onlyNull = DrillSqlTranslator.predicate(for: .anyOf(ColumnRef(index: 0, name: "status"), [PharosBlanks.sentinel]), columns: [])
+    expect(onlyNull == #""status" IS NULL"#, "pure-sentinel → IS NULL only")
+    // overlap (temporal): start ≤ hi AND end ≥ lo, UTC ISO bounds.
+    let ovSql = DrillSqlTranslator.predicate(for: .overlap(ColumnRef(index: 0, name: "s"), ColumnRef(index: 1, name: "e"), 0, 86400, .temporal), columns: [])
+    expect(ovSql.contains(#""s" <="#) && ovSql.contains(#""e" >="#), "overlap emits start≤hi AND end≥lo")
+    expect(ovSql.contains("1970-01-02"), "temporal overlap bound is UTC ISO")
+    // overlap (numeric): numeric literals.
+    let ovNum = DrillSqlTranslator.predicate(for: .overlap(ColumnRef(index: 0, name: "s"), ColumnRef(index: 1, name: "e"), 10, 20, .numeric), columns: [])
+    expect(ovNum == #""s" <= 20 AND "e" >= 10"#, "numeric overlap literals")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
