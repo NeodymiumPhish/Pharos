@@ -2367,7 +2367,7 @@ extension ContentViewController {
     /// generator remains the authority on availability).
     private func pushdownUnavailableReason(_ cfg: ChartConfig, userSQL: String) -> String {
         switch cfg.chartType {
-        case .scatter, .gantt: return "Not available for this chart type."
+        case .gantt: return "Not available for this chart type."
         default: break
         }
         let segs = SQLSegmentParser.parse(userSQL)
@@ -2427,7 +2427,8 @@ extension ContentViewController {
         let schema = editorTab.schemaName
         // Pass limit ≥ the generator's group cap so groups aren't silently paged
         // off by executeQuery's own page limit; hasMore then means truncation.
-        let limit = max(Int32(stateManager.settings.query.defaultLimit), Int32(SqlPushdownGenerator.groupCap))
+        let cap = max(SqlPushdownGenerator.groupCap, SqlPushdownGenerator.scatterSampleCap)
+        let limit = max(Int32(stateManager.settings.query.defaultLimit), Int32(cap))
         let rtId = id
         let layout = pushdown.layout
         let sql = pushdown.sql
@@ -2448,7 +2449,8 @@ extension ContentViewController {
                         sql: sql,
                         executedAt: ISO8601DateFormatter().string(from: Date()),
                         rowCount: qr.rowCount,
-                        truncated: qr.hasMore
+                        truncated: qr.hasMore,
+                        sampled: data.wasSampled
                     )
                     self.chartHost.applyServerRun(data, lastRun: lastRun)
                     // Persist the provenance so it survives history pruning + reopen.
@@ -2527,7 +2529,7 @@ extension ContentViewController {
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               let result = resultTabs[idx].queryResult else { return }
 
-        if let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation, chartTypeAggregates(cfg.chartType) {
+        if let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation, chartTypeSupportsServer(cfg.chartType) {
             applyServerDrill(keys, resultTab: resultTabs[idx], columns: result.columns)
             return
         }
@@ -2558,24 +2560,18 @@ extension ContentViewController {
     private func applyServerDrill(_ keys: [DrillKey], resultTab: ResultTab, columns: [ColumnDef]) {
         guard !keys.isEmpty else { return }
         let predicate = keys
-            .map { DrillSqlTranslator.predicate(for: $0, columns: columns) }
+            .map { "(" + DrillSqlTranslator.predicate(for: $0, columns: columns) + ")" }
             .joined(separator: " AND ")
         guard !predicate.isEmpty else { return }
         let sql = "SELECT * FROM ( \(resultTab.sql) ) AS _pharos_src WHERE \(predicate)"
         performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: true)
     }
 
-    /// Whether the chart type aggregates (bar/line/area/pie/heatmap) vs. plots raw
-    /// rows (scatter/gantt) — mirrors `ChartViewModel.chartTypeAggregates`.
-    /// Push-down drill only applies to the former; a non-aggregating type falls
-    /// back to the client drill path even if a stale `serverAggregation` flag is
-    /// still set (it never had push-down data to begin with).
-    private func chartTypeAggregates(_ type: ChartType) -> Bool {
-        switch type {
-        case .scatter, .gantt: return false
-        default: return true
-        }
-    }
+    /// Whether the chart type can use server mode: aggregating types, plus
+    /// scatter (a deterministic sample). Gantt never pushes down.
+    /// Push-down drill only applies to these types; gantt falls back to the
+    /// client drill path even if a stale `serverAggregation` flag is still set.
+    private func chartTypeSupportsServer(_ type: ChartType) -> Bool { type != .gantt }
 
     /// Clear the chart drill: restore any manual filter each drill column
     /// displaced, otherwise drop the filter entirely; then refresh + hide chip.

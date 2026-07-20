@@ -33,15 +33,10 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
-    /// Whether the current chart type aggregates (bar/line/area/pie/heatmap) vs.
-    /// plots raw rows (scatter/gantt). Server aggregation only makes sense for the
-    /// former; for the latter we fall back to the client render even if the
-    /// persisted `serverAggregation` flag is on, so the flag can't strand the UI.
-    var chartTypeAggregates: Bool {
-        switch config.chartType {
-        case .scatter, .gantt: return false
-        default: return true
-        }
+    /// Whether the chart type can use server mode: aggregating types, plus
+    /// scatter (a deterministic sample). Gantt never pushes down.
+    var chartTypeSupportsServer: Bool {
+        config.chartType != .gantt
     }
 
     func recompute() {
@@ -50,9 +45,9 @@ final class ChartViewModel: ObservableObject {
         if columns.isEmpty { data = .empty(.noData); return }
         // In server-aggregation mode the VC supplies `data` via setServerData;
         // don't clobber it with a client-side aggregation of the loaded rows.
-        // Only skip for chart types that actually aggregate — scatter/gantt fall
-        // back to the client render even if the flag is on (it can't push down).
-        if config.serverAggregation && chartTypeAggregates { return }
+        // Only skip for chart types that support server mode — gantt falls back
+        // to the client render even if the flag is on (it can't push down).
+        if config.serverAggregation && chartTypeSupportsServer { return }
         data = ChartAggregator.aggregate(result, config)
     }
 
@@ -106,9 +101,9 @@ struct ChartRootView: View {
         VStack(spacing: 0) {
             // Server-aggregation banner takes precedence over the client subset
             // banner when the toggle is on (they describe different data paths).
-            // Gate on chartTypeAggregates too: a non-aggregating type (scatter/
-            // gantt) renders client-side even with the flag on, so no server banner.
-            if model.config.serverAggregation && model.chartTypeAggregates { serverBanner }
+            // Gate on chartTypeSupportsServer too: gantt renders client-side even
+            // with the flag on, so no server banner for it.
+            if model.config.serverAggregation && model.chartTypeSupportsServer { serverBanner }
             else if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
                 ChartCanvas(data: model.data, config: model.config,
@@ -168,6 +163,7 @@ struct ChartRootView: View {
         var s = "Aggregated server-side over the full dataset"
         if !asOf.isEmpty { s += ", as of \(asOf)" }
         if model.config.lastServerRun?.truncated == true { s += " \u{00B7} truncated" }
+        if model.config.lastServerRun?.sampled == true { s += " \u{00B7} sampled" }
         return s
     }
 

@@ -91,5 +91,10 @@ func runTests() {
     expect(old4.axisBins.isEmpty, "legacy config has empty axisBins")
     expect(old4.resolvedBin(for: .x).temporal == .month, "legacy resolvedBin uses globals")
 
+    // A phase-3 lastServerRun blob (no "sampled") still decodes (defaults false).
+    let p3 = #"{"chartType":"bar","mappings":[],"aggregation":"count","temporalBin":"auto","numericBin":"auto","serverAggregation":true,"lastServerRun":{"sql":"SELECT 1","executedAt":"x","rowCount":3,"truncated":false},"display":{"title":"","showLegend":true,"stacked":false,"topNCategories":25}}"#
+    let p3c = try! JSONDecoder().decode(ChartConfig.self, from: Data(p3.utf8))
+    expect(p3c.lastServerRun?.sampled == false, "phase-3 lastServerRun defaults sampled=false")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

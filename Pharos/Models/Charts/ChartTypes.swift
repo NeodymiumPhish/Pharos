@@ -85,4 +85,17 @@ struct LastServerRun: Codable, Equatable {
     var executedAt: String
     var rowCount: Int
     var truncated: Bool
+    var sampled: Bool = false
+    init(sql: String, executedAt: String, rowCount: Int, truncated: Bool, sampled: Bool = false) {
+        self.sql = sql; self.executedAt = executedAt; self.rowCount = rowCount; self.truncated = truncated; self.sampled = sampled
+    }
+    enum CodingKeys: String, CodingKey { case sql, executedAt, rowCount, truncated, sampled }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        sql = try c.decodeIfPresent(String.self, forKey: .sql) ?? ""
+        executedAt = try c.decodeIfPresent(String.self, forKey: .executedAt) ?? ""
+        rowCount = try c.decodeIfPresent(Int.self, forKey: .rowCount) ?? 0
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        sampled = try c.decodeIfPresent(Bool.self, forKey: .sampled) ?? false
+    }
 }
