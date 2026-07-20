@@ -102,6 +102,10 @@ class ContentViewController: NSViewController {
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
+    /// Local key monitor so Esc clears an in-progress chart selection. A monitor is
+    /// more reliable than the responder chain for a SwiftUI-hosted chart; the guards
+    /// ensure it only consumes Esc while a selection is actually staged.
+    private var escKeyMonitor: Any?
     private var hasSetInitialSplit = false
     private static let splitRatioKey = "PharosEditorSplitRatio"
 
@@ -130,6 +134,22 @@ class ContentViewController: NSViewController {
     private var dragStartY: CGFloat = 0
     private var dragStartEditorHeight: CGFloat = 0
     private static let actionBarHeight: CGFloat = 32
+
+    deinit {
+        if let m = escKeyMonitor { NSEvent.removeMonitor(m) }
+    }
+
+    /// Esc clears a staged chart selection (works everywhere, incl. heatmaps whose
+    /// plot is fully tiled with cells so there's no empty area to click). Only
+    /// consumes Esc while a selection is staged and our window is key with no sheet.
+    private func installEscKeyMonitor() {
+        escKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 53, !self.stagedChartKeys.isEmpty,
+                  let win = self.view.window, win.isKeyWindow, win.attachedSheet == nil else { return event }
+            self.clearStagedChartSelection()
+            return nil
+        }
+    }
 
     override func loadView() {
         let container = NSView()
@@ -175,6 +195,7 @@ class ContentViewController: NSViewController {
 
         // Action bar setup
         setupActionBar()
+        installEscKeyMonitor()
 
         // Wire results VC to use toolbar elements from this VC
         resultsVC.contentVC = self
