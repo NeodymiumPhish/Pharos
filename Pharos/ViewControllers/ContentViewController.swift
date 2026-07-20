@@ -2287,6 +2287,7 @@ extension ContentViewController {
         // outgoing paths call tearDownDrill(restoreManual: true) themselves,
         // before capture. This call is the belt-and-braces cleanup for the empty
         // (no active tab) case.
+        clearStagedChartSelection()
         tearDownDrill(restoreManual: true)
         guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }) else {
             // No active result tab (last result tab closed, or switched to a tab
@@ -2549,6 +2550,15 @@ extension ContentViewController {
         chartFilterButton.title = DrillSummary.label(keys, prefix: server ? "Query Selected Rows" : "Filter in Grid")
         chartFilterButton.toolTip = chartFilterButton.title
         chartFilterButton.isHidden = false
+    }
+
+    /// Drop any *uncommitted* chart selection (button + staged keys + the chart's
+    /// staged highlight). Called on result-tab changes so a stale selection from a
+    /// previous tab can't be committed against a different result.
+    private func clearStagedChartSelection() {
+        stagedChartKeys = []
+        chartFilterButton.isHidden = true
+        chartHost.clearSelection()
     }
 
     /// Whether the active chart commits via server-aggregation (detail query) vs grid filters.

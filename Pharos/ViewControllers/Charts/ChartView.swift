@@ -176,7 +176,7 @@ struct ChartCanvas: View {
         }
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
-            guard let label = newValue else { return }
+            guard let label = newValue else { clearSelection(); return }
             let id = "\(label)\u{1}"
             let order = (data.series.first?.points ?? []).map { "\($0.xLabel)\u{1}" }
             applyModifier(hitIDs: [id]) {
