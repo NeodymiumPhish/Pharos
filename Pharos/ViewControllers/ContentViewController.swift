@@ -834,8 +834,8 @@ class ContentViewController: NSViewController {
         configureToolbarButtonAppearance(resetFiltersButton, symbol: "line.3.horizontal.decrease.circle.fill", tooltip: "Reset Column Filters")
         resetFiltersButton.contentTintColor = .controlAccentColor
         resetFiltersButton.isHidden = true
-        resetFiltersButton.target = resultsVC
-        resetFiltersButton.action = #selector(ResultsGridVC.resetAllColumnFilters)
+        resetFiltersButton.target = self
+        resetFiltersButton.action = #selector(resetAllFiltersAndDrill)
 
         configureToolbarButtonAppearance(clearSelectionButton, symbol: "eraser", tooltip: "Clear Selection")
         clearSelectionButton.contentTintColor = .controlAccentColor
@@ -2661,6 +2661,14 @@ extension ContentViewController {
         committedChartKeys = []
         chartHost.setCommittedKeys([])
         updateDrillChip()
+    }
+
+    /// Toolbar "reset filters" action: clears the chart-drill overlay bookkeeping
+    /// (+ chip) AND all column filters. `restoreManual: false` because a full reset
+    /// means every filter goes — including any manual filter the drill displaced.
+    @objc private func resetAllFiltersAndDrill() {
+        tearDownDrill(restoreManual: false)
+        resultsVC.resetAllColumnFilters()
     }
 
     /// Show the chip iff a drill is active; label summarizes the committed chart keys.
