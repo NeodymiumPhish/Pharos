@@ -72,6 +72,7 @@
 		78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20973E948617F8AF21A804FE /* Toast.swift */; };
 		7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D48095594419F14207C82F /* SQLFoldingParser.swift */; };
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
+		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
@@ -183,6 +184,7 @@
 		6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabResolver.swift; sourceTree = "<group>"; };
 		724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryDetailSheet.swift; sourceTree = "<group>"; };
 		72D48095594419F14207C82F /* SQLFoldingParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFoldingParser.swift; sourceTree = "<group>"; };
+		73C0E80717841FF454B8D378 /* DrillCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillCoverage.swift; sourceTree = "<group>"; };
 		73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTab.swift; sourceTree = "<group>"; };
 		745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsColumnFilterController.swift; sourceTree = "<group>"; };
 		74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuery.swift; sourceTree = "<group>"; };
@@ -414,6 +416,7 @@
 				6C01E8B2BFBB4F7D1CFCA697 /* ChartExportCaption.swift */,
 				264FF44EDD39F675DE642D7B /* ChartTypes.swift */,
 				EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */,
+				73C0E80717841FF454B8D378 /* DrillCoverage.swift */,
 				AA16914752C36D98C5FB61F6 /* DrillKey.swift */,
 				777B3FE187C2372DED419961 /* DrillMerge.swift */,
 				AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */,
@@ -635,6 +638,7 @@
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
+				7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */,
 				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,
 				1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */,
 				7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */,
