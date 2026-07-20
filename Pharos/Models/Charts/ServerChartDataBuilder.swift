@@ -9,6 +9,8 @@ enum ServerChartDataBuilder {
 
     static func build(_ result: QueryResult, layout: PushdownLayout, config: ChartConfig) -> ChartData {
         switch layout.kind {
+        case .scatter:
+            return buildScatter(result, layout: layout)
         case .heatmap:
             return buildHeatmap(result, config: config)
         case .categorical:
@@ -128,6 +130,28 @@ enum ServerChartDataBuilder {
         out.plottedRowCount = cells.count
         out.totalLoadedRowCount = result.rowCount
         out.wasTruncated = result.hasMore
+        return out
+    }
+
+    // MARK: - Scatter (`_x, _y` raw points)
+
+    private static func buildScatter(_ result: QueryResult, layout: PushdownLayout) -> ChartData {
+        guard let xIdx = colIndex(result, "_x"), let yIdx = colIndex(result, "_y") else {
+            return .empty(.noColumns)
+        }
+        var pts: [ChartPoint] = []
+        for row in result.rows {
+            guard let xCell = cell(row, xIdx), let yCell = cell(row, yIdx),
+                  let x = ValueCoercion.double(from: xCell), let y = ValueCoercion.double(from: yCell) else { continue }
+            pts.append(ChartPoint(xLabel: "", xValue: x, y: y))
+        }
+        if pts.isEmpty { return .empty(.allNull) }
+        var out = ChartData()
+        out.series = [ChartSeries(name: "", points: pts)]
+        out.plottedRowCount = pts.count
+        out.totalLoadedRowCount = result.rowCount
+        // Sampled when the DB paged more rows off, or the sample filled the cap.
+        if let cap = layout.sampleCap { out.wasSampled = result.hasMore || pts.count >= cap }
         return out
     }
 

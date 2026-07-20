@@ -127,5 +127,20 @@ func runTests() {
         expect(data.wasTruncated == true, "hasMore true -> wasTruncated true")
     }
 
+    // Scatter: raw _x/_y points, wasSampled when the row count hits the cap.
+    let scLayout = PushdownLayout(kind: .scatter, hasSeries: false, numericBins: nil, sampleCap: 3)
+    var scCfg = ChartConfig(chartType: .scatter)
+    scCfg.mappings[.x] = ColumnRef(index: 0, name: "amt")
+    scCfg.mappings[.y] = ColumnRef(index: 1, name: "age")
+    let scRes = QueryResult(
+        columns: [ColumnDef(name: "_x", dataType: "numeric"), ColumnDef(name: "_y", dataType: "numeric")],
+        rows: [[AnyCodable("1.5"), AnyCodable("10")], [AnyCodable("2.0"), AnyCodable("20")], [AnyCodable("3.0"), AnyCodable("30")]],
+        rowCount: 3, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+    let scData = ServerChartDataBuilder.build(scRes, layout: scLayout, config: scCfg)
+    expect(scData.series.first?.points.count == 3, "scatter maps 3 points")
+    expect(scData.series.first?.points.first?.xValue == 1.5, "scatter reads _x as xValue")
+    expect(scData.series.first?.points.first?.y == 10, "scatter reads _y as y")
+    expect(scData.wasSampled == true, "row count == sampleCap → wasSampled")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
