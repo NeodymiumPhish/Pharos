@@ -27,7 +27,6 @@ struct ChartCanvas: View {
 
     // Pie selection (native angle selection maps to the category label).
     @State private var pieSelection: String?
-    @State private var pieSelected: [String] = []
     // Scatter click callout (chart-local; not a drill — brushing filters instead).
     @State private var scatterSelection: XYPoint?
 
@@ -73,12 +72,18 @@ struct ChartCanvas: View {
     private func report() { onSelectionChanged(stagedKeys) }
     private func clearSelection() { selectedIDs = []; anchorID = nil; rangeSel = nil; marquee = nil; report() }
 
-    // TEMP (B2 replaces per-gesture): stage a raw key set without mark-ID tracking.
-    private func stageRaw(_ keys: [DrillKey]) {
-        if keys.isEmpty { clearSelection(); return }
-        rangeSel = RangeSelection(keys: DrillMerge.merge(keys), xLo: 0, xHi: 0, yLo: nil, yHi: nil)
-        selectedIDs = []; anchorID = nil
-        report()
+    private func stageSingle(_ ids: [String]) { selectedIDs = Set(ids); anchorID = ids.last; rangeSel = nil; report() }
+    private func stageToggle(_ ids: [String]) {
+        for id in ids { if selectedIDs.contains(id) { selectedIDs.remove(id) } else { selectedIDs.insert(id) } }
+        anchorID = ids.last; rangeSel = nil; report()
+    }
+    /// Modifier dispatch: ⌘ toggles, Shift replaces with the range (via `rangeIDs`),
+    /// plain replaces with `hitIDs`. `hitIDs` may expand a category to all its series.
+    private func applyModifier(hitIDs: [String], rangeIDs: () -> [String]) {
+        let m = NSEvent.modifierFlags
+        if m.contains(.command) { stageToggle(hitIDs) }
+        else if m.contains(.shift), anchorID != nil { selectedIDs = Set(rangeIDs()); rangeSel = nil; report() }
+        else { stageSingle(hitIDs) }
     }
 
     var body: some View {
@@ -137,16 +142,13 @@ struct ChartCanvas: View {
         }
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
-            guard let label = newValue else { pieSelected = []; return }
-            let mods = NSEvent.modifierFlags
-            if mods.contains(.command) || mods.contains(.shift) {
-                if !pieSelected.contains(label) { pieSelected.append(label) }
-            } else {
-                pieSelected = [label]
+            guard let label = newValue else { return }
+            let id = "\(label)\u{1}"
+            let order = (data.series.first?.points ?? []).map { "\($0.xLabel)\u{1}" }
+            applyModifier(hitIDs: [id]) {
+                guard let a = anchorID, let ia = order.firstIndex(of: a), let ib = order.firstIndex(of: id) else { return [id] }
+                return Array(order[min(ia, ib)...max(ia, ib)])
             }
-            let subKeys = pieSelected.compactMap { l in (data.series.first?.points ?? []).first(where: { $0.xLabel == l })?.drill }
-            let merged = DrillMerge.merge(subKeys)
-            stageRaw(merged)
         }
     }
 
@@ -223,11 +225,22 @@ struct ChartCanvas: View {
     // (category AND series). Stacked bars: map the tapped y-value to the
     // cumulative series band. Line/area: nearest series by value. Single-series
     // or grouped/ambiguous: category-only.
+    private var orderedCategories: [String] {
+        var seen = Set<String>(); var out: [String] = []
+        for s in data.series { for p in s.points where !seen.contains(p.xLabel) { seen.insert(p.xLabel); out.append(p.xLabel) } }
+        return out
+    }
+    private func idsForCategory(_ cat: String) -> [String] { data.series.map { "\(cat)\u{1}\($0.name)" } }
+    private func categoryOf(_ id: String) -> String { String(id.split(separator: "\u{1}", maxSplits: 1, omittingEmptySubsequences: false).first ?? "") }
+
     private func categoryTap(_ label: String, atY py: CGFloat, proxy: ChartProxy) {
-        let seriesName = resolveHitSeries(label: label, atY: py, proxy: proxy)
-        let id = "\(label)\u{1}\(seriesName)"
-        selectedIDs = [id]; anchorID = id; rangeSel = nil
-        report()
+        let series = resolveHitSeries(label: label, atY: py, proxy: proxy)
+        let hitIDs = series.isEmpty ? idsForCategory(label) : ["\(label)\u{1}\(series)"]
+        applyModifier(hitIDs: hitIDs) {
+            let cats = orderedCategories
+            guard let a = anchorID.map({ categoryOf($0) }), let ia = cats.firstIndex(of: a), let ib = cats.firstIndex(of: label) else { return hitIDs }
+            return cats[min(ia, ib)...max(ia, ib)].flatMap { idsForCategory($0) }
+        }
     }
 
     private func resolveHitSeries(label: String, atY py: CGFloat, proxy: ChartProxy) -> String {
@@ -250,26 +263,14 @@ struct ChartCanvas: View {
         }
     }
 
-    /// The category sub-key of a series point's compound drill (or the key itself
-    /// for single-series points).
-    private func firstChild(_ key: DrillKey) -> DrillKey {
-        if case .compound(let ks) = key, let first = ks.first { return first }
-        return key
-    }
-
     // Collect the distinct categories whose mark falls inside the dragged x-span
-    // and emit their drill keys (the translator coalesces same-column anyOf keys).
+    // and stage all their series IDs.
     private func categoryBrush(_ lo: CGFloat, _ hi: CGFloat, _ proxy: ChartProxy) {
-        var keys: [DrillKey] = []
-        var seen = Set<String>()
-        for series in data.series {
-            for pt in series.points where !seen.contains(pt.xLabel) {
-                if let px = proxy.position(forX: pt.xLabel), px >= lo, px <= hi, let drill = pt.drill {
-                    seen.insert(pt.xLabel); keys.append(firstChild(drill))
-                }
-            }
+        var ids: [String] = []
+        for cat in orderedCategories {
+            if let px = proxy.position(forX: cat), px >= lo, px <= hi { ids.append(contentsOf: idsForCategory(cat)) }
         }
-        stageRaw(keys)
+        selectedIDs = Set(ids); anchorID = ids.last; rangeSel = nil; report()
     }
 
     // MARK: - Heatmap gesture overlay (two category axes → compound drill)
@@ -290,23 +291,29 @@ struct ChartCanvas: View {
         }
     }
 
+    private var orderedHeatX: [String] { var s = Set<String>(); var o: [String] = []; for c in data.heatmapCells where !s.contains(c.x) { s.insert(c.x); o.append(c.x) }; return o }
+    private var orderedHeatY: [String] { var s = Set<String>(); var o: [String] = []; for c in data.heatmapCells where !s.contains(c.y) { s.insert(c.y); o.append(c.y) }; return o }
+
     private func heatmapTap(_ px: CGFloat, _ py: CGFloat, _ proxy: ChartProxy) {
         guard let xl = proxy.value(atX: px, as: String.self), let yl = proxy.value(atY: py, as: String.self),
-              let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }), let drill = cell.drill else { return }
-        stageRaw([drill])
+              let cell = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl }) else { return }
+        applyModifier(hitIDs: [cell.id]) {
+            guard let a = anchorID, let ac = data.heatmapCells.first(where: { $0.id == a }) else { return [cell.id] }
+            let xs = orderedHeatX, ys = orderedHeatY
+            guard let ax = xs.firstIndex(of: ac.x), let bx = xs.firstIndex(of: xl),
+                  let ay = ys.firstIndex(of: ac.y), let by = ys.firstIndex(of: yl) else { return [cell.id] }
+            let xset = Set(xs[min(ax, bx)...max(ax, bx)]); let yset = Set(ys[min(ay, by)...max(ay, by)])
+            return data.heatmapCells.filter { xset.contains($0.x) && yset.contains($0.y) }.map { $0.id }
+        }
     }
 
-    // Collect covered cells, flatten their pre-computed compound sub-keys, and
-    // merge per axis (union anyOf / coalesce range / fold blank) — never rebuilt
-    // from labels (binned-axis labels are range strings that match nothing).
     private func heatmapBrush(_ xlo: CGFloat, _ xhi: CGFloat, _ ylo: CGFloat, _ yhi: CGFloat, _ proxy: ChartProxy) {
-        var subKeys: [DrillKey] = []
+        var ids: [String] = []
         for cell in data.heatmapCells {
-            guard let cx = proxy.position(forX: cell.x), let cy = proxy.position(forY: cell.y), let drill = cell.drill else { continue }
-            if cx >= xlo, cx <= xhi, cy >= ylo, cy <= yhi { subKeys.append(drill) }
+            if let cx = proxy.position(forX: cell.x), let cy = proxy.position(forY: cell.y),
+               cx >= xlo, cx <= xhi, cy >= ylo, cy <= yhi { ids.append(cell.id) }
         }
-        let merged = DrillMerge.merge(subKeys)
-        stageRaw(merged)
+        selectedIDs = Set(ids); anchorID = ids.last; rangeSel = nil; report()
     }
 
     // MARK: - Scatter gestures + callout
@@ -323,6 +330,7 @@ struct ChartCanvas: View {
             if dist < bestDist { bestDist = dist; best = p }
         }
         scatterSelection = best
+        clearSelection()   // a click (no drag) clears any prior staged range selection
     }
 
     private func scatterBrush(_ sx: CGFloat, _ ex: CGFloat, _ sy: CGFloat, _ ey: CGFloat, proxy: ChartProxy) {
@@ -331,12 +339,15 @@ struct ChartCanvas: View {
               let x1 = proxy.value(atX: max(sx, ex), as: Double.self) else { return }
         var keys: [DrillKey] = [.range(xRef, Swift.min(x0, x1), Swift.max(x0, x1), .numeric)]
         // Optional y-range (screen-y is inverted, so resolve both ends and sort).
+        var yLo: Double? = nil, yHi: Double? = nil
         if let yRef = config.mappings[.y],
            let ya = proxy.value(atY: sy, as: Double.self),
            let yb = proxy.value(atY: ey, as: Double.self) {
             keys.append(.range(yRef, Swift.min(ya, yb), Swift.max(ya, yb), .numeric))
+            yLo = Swift.min(ya, yb); yHi = Swift.max(ya, yb)
         }
-        stageRaw(keys)
+        rangeSel = RangeSelection(keys: keys, xLo: Swift.min(x0, x1), xHi: Swift.max(x0, x1), yLo: yLo, yHi: yHi)
+        selectedIDs = []; anchorID = nil; report()
     }
 
     @ViewBuilder private func scatterCallout(_ p: XYPoint) -> some View {
@@ -477,8 +488,11 @@ struct ChartCanvas: View {
     }
 
     private func ganttTap(_ bar: GanttBar) {
-        guard let labelRef = config.mappings[.label] else { return }
-        stageRaw([.anyOf(labelRef, [bar.label])])
+        applyModifier(hitIDs: [bar.label]) {
+            let order = data.ganttBars.map { $0.label }
+            guard let a = anchorID, let ia = order.firstIndex(of: a), let ib = order.firstIndex(of: bar.label) else { return [bar.label] }
+            return Array(order[min(ia, ib)...max(ia, ib)])
+        }
     }
 
     private func ganttBrush(_ ax: CGFloat, _ bx: CGFloat, proxy: ChartProxy, bars: [GanttBar]) {
@@ -487,7 +501,9 @@ struct ChartCanvas: View {
               let d1 = proxy.value(atX: max(ax, bx), as: Date.self) else { return }
         // Domain is epoch-seconds-as-Date for both temporal and numeric axes;
         // .timeIntervalSince1970 recovers the epoch/raw value. Kind picks formatting.
-        stageRaw([.overlap(startRef, endRef, d0.timeIntervalSince1970, d1.timeIntervalSince1970, data.ganttAxisKind)])
+        let ov: DrillKey = .overlap(startRef, endRef, d0.timeIntervalSince1970, d1.timeIntervalSince1970, data.ganttAxisKind)
+        rangeSel = RangeSelection(keys: [ov], xLo: d0.timeIntervalSince1970, xHi: d1.timeIntervalSince1970, yLo: nil, yHi: nil)
+        selectedIDs = []; anchorID = nil; report()
     }
 
     @ViewBuilder private func emptyState(_ reason: EmptyReason) -> some View {
