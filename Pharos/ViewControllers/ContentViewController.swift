@@ -2545,11 +2545,36 @@ extension ContentViewController {
     /// The chart reported a new staged selection — show/label the commit button.
     private func chartSelectionChanged(_ keys: [DrillKey]) {
         stagedChartKeys = keys
-        guard !keys.isEmpty else { chartFilterButton.isHidden = true; return }
-        let server = activeChartUsesServerMode()
-        chartFilterButton.title = DrillSummary.label(keys, prefix: server ? "Query Selected Rows" : "Filter in Grid")
-        chartFilterButton.toolTip = chartFilterButton.title
-        chartFilterButton.isHidden = false
+        if keys.isEmpty {
+            chartFilterButton.isHidden = true
+        } else {
+            let server = activeChartUsesServerMode()
+            chartFilterButton.title = DrillSummary.label(keys, prefix: server ? "Query Selected Rows" : "Filter in Grid")
+            chartFilterButton.toolTip = chartFilterButton.title
+            chartFilterButton.isHidden = false
+        }
+        updateInspectorForChartSelection(keys)
+    }
+
+    /// Show aggregate stats for the rows matching the chart selection (client mode).
+    /// Server-aggregation mode is skipped — its loaded rows are pre-aggregated and
+    /// the drill keys reference original columns not present there.
+    private func updateInspectorForChartSelection(_ keys: [DrillKey]) {
+        guard let splitVC = parent as? PharosSplitViewController else { return }
+        guard !keys.isEmpty, !activeChartUsesServerMode(),
+              let fc = resultsVC.columnFilterController else {
+            splitVC.inspectorVC.showNoSelection(); return
+        }
+        let applied = DrillTranslator.filters(for: keys, columns: resultsVC.columns)
+        guard !applied.isEmpty else { splitVC.inspectorVC.showNoSelection(); return }
+        var filters: [String: ColumnFilter] = [:]
+        for a in applied { filters[a.columnId] = a.filter }
+        let matchIdx = fc.matchingRows(filters, inputDisplayRows: Array(0..<resultsVC.rows.count))
+        let rows = matchIdx.compactMap { $0 < resultsVC.rows.count ? resultsVC.rows[$0] : nil }
+        splitVC.inspectorVC.showAggregation(
+            columns: resultsVC.columns, rows: rows,
+            selectionCount: rows.count, columnCategories: resultsVC.columnCategories)
+        splitVC.showInspector()
     }
 
     /// Drop any *uncommitted* chart selection (button + staged keys + the chart's

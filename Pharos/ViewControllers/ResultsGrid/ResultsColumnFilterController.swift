@@ -41,28 +41,24 @@ class ResultsColumnFilterController {
 
     /// Filters `inputDisplayRows` using all active filters. Returns filtered indices.
     func applyFilters(inputDisplayRows: [Int]) -> [Int] {
-        guard let delegate = delegate, !activeFilters.isEmpty else {
-            return inputDisplayRows
-        }
+        matchingRows(activeFilters, inputDisplayRows: inputDisplayRows)
+    }
 
+    /// Non-mutating: the subset of `inputDisplayRows` passing an explicit filter
+    /// set (independent of `activeFilters`). Used to preview which loaded rows a
+    /// chart selection matches, using the same evaluation the grid commit uses.
+    func matchingRows(_ filters: [String: ColumnFilter], inputDisplayRows: [Int]) -> [Int] {
+        guard let delegate = delegate, !filters.isEmpty else { return inputDisplayRows }
         let rows = delegate.filterableRows
         let categories = delegate.filterableColumnCategories
-
-        // Precompute value sets for .isAnyOf filters once (avoids re-hashing per row).
         var anyOfSets: [String: Set<String>] = [:]
-        for (colId, filter) in activeFilters where filter.op == .isAnyOf {
-            anyOfSets[colId] = Set(filter.values ?? [])
-        }
-
+        for (colId, filter) in filters where filter.op == .isAnyOf { anyOfSets[colId] = Set(filter.values ?? []) }
         return inputDisplayRows.filter { rowIdx in
-            for (colId, filter) in activeFilters {
+            for (colId, filter) in filters {
                 guard let idx = colIndex(from: colId) else { continue }
                 let category = idx < categories.count ? categories[idx] : .string
                 let value: AnyCodable? = idx < rows[rowIdx].count ? rows[rowIdx][idx] : nil
-                if !evaluate(filter: filter, value: value, category: category,
-                             preparedAnyOf: anyOfSets[colId]) {
-                    return false
-                }
+                if !evaluate(filter: filter, value: value, category: category, preparedAnyOf: anyOfSets[colId]) { return false }
             }
             return true
         }
