@@ -2,17 +2,21 @@ import Foundation
 
 enum SqlPushdownGenerator {
     static let groupCap = 1000
+    static let scatterSampleCap = 5000
 
     static func generate(_ config: ChartConfig, userSQL: String, columns: [ColumnDef]) -> PushdownQuery? {
-        // Only aggregating types.
-        switch config.chartType { case .scatter, .gantt: return nil; default: break }
+        // Only gantt is unavailable (never aggregates; can't push down). Scatter
+        // is available as a deterministic sample (handled below).
+        if config.chartType == .gantt { return nil }
         guard isSingleSelect(userSQL) else { return nil }
+        if config.chartType == .scatter {
+            return scatter(config, userSQL: userSQL, columns: columns)
+        }
         let agg = aggExpr(config, columns: columns)
-        guard agg != nil else { return nil }   // non-count needs a value col
-
+        guard let agg else { return nil }   // non-count needs a value col
         switch config.chartType {
-        case .heatmap: return heatmap(config, userSQL: userSQL, columns: columns, agg: agg!)
-        default:       return categorical(config, userSQL: userSQL, columns: columns, agg: agg!)
+        case .heatmap: return heatmap(config, userSQL: userSQL, columns: columns, agg: agg)
+        default:       return categorical(config, userSQL: userSQL, columns: columns, agg: agg)
         }
     }
 
@@ -97,6 +101,23 @@ enum SqlPushdownGenerator {
         ORDER BY _val DESC LIMIT \(groupCap)
         """
         return PushdownQuery(sql: sql, layout: layout)
+    }
+
+    private static func scatter(_ config: ChartConfig, userSQL: String, columns: [ColumnDef]) -> PushdownQuery? {
+        guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
+        let x = quoteIdent(xCol.name), y = quoteIdent(yCol.name)
+        // Deterministic pseudo-random order so a re-run of the recorded SQL
+        // reproduces the same sample (audit). ORDER BY random() would not.
+        let sql = """
+        SELECT \(x) AS _x, \(y) AS _y
+        FROM ( \(userSQL) ) AS _pharos_src
+        WHERE \(x) IS NOT NULL AND \(y) IS NOT NULL
+        ORDER BY hashtext((_pharos_src.*)::text)
+        LIMIT \(scatterSampleCap)
+        """
+        return PushdownQuery(sql: sql,
+                             layout: PushdownLayout(kind: .scatter, hasSeries: false,
+                                                    numericBins: nil, sampleCap: scatterSampleCap))
     }
 
     private static func heatmap(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {

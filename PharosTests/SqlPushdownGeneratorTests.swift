@@ -70,10 +70,27 @@ func runTests() {
     let esc = SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1]), userSQL: "SELECT 1", columns: weird)
     contains(esc?.sql, #""a""b""#, "identifier quote doubled")
 
-    // unavailable: scatter, non-select, multi-statement
-    expect(SqlPushdownGenerator.generate(cfg(.scatter, [.x: 1, .y: 3]), userSQL: src, columns: cols) == nil, "scatter → nil")
+    // unavailable: non-select, multi-statement
     expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1]), userSQL: "UPDATE t SET x=1", columns: cols) == nil, "non-SELECT → nil")
     expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1]), userSQL: "SELECT 1; SELECT 2", columns: cols) == nil, "multi-statement → nil")
+
+    // Scatter is now available under push-down: a deterministic, non-aggregating
+    // sampled query (not random(), not TABLESAMPLE).
+    let sc = SqlPushdownGenerator.generate(cfg(.scatter, [.x: 1, .y: 3]), userSQL: src, columns: cols)
+    contains(sc?.sql, #""amt" AS _x"#, "scatter selects x as _x")
+    contains(sc?.sql, #""age" AS _y"#, "scatter selects y as _y")
+    contains(sc?.sql, "IS NOT NULL", "scatter filters null x/y")
+    contains(sc?.sql, "hashtext", "scatter orders by a stable hash (deterministic)")
+    expect(sc?.sql.contains("random()") == false, "scatter does NOT use random()")
+    contains(sc?.sql, "LIMIT", "scatter caps the sample")
+    expect(sc?.layout.kind == .scatter, "scatter layout kind")
+    expect(sc?.layout.sampleCap == SqlPushdownGenerator.scatterSampleCap, "scatter carries sampleCap")
+    // gantt stays unavailable (never aggregates / samples via push-down).
+    expect(SqlPushdownGenerator.generate(cfg(.gantt, [.label: 0, .start: 2, .end: 2]), userSQL: src, columns: cols) == nil, "gantt → nil")
+    // scatter still needs both x and y.
+    expect(SqlPushdownGenerator.generate(cfg(.scatter, [.x: 1]), userSQL: src, columns: cols) == nil, "scatter without y → nil")
+    // non-SELECT scatter still nil.
+    expect(SqlPushdownGenerator.generate(cfg(.scatter, [.x: 1, .y: 3]), userSQL: "UPDATE t SET x=1", columns: cols) == nil, "scatter non-SELECT → nil")
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
