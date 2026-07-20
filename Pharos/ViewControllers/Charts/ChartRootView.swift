@@ -211,19 +211,24 @@ struct ChartRootView: View {
                     }.labelsHidden()
                 }
 
-                if showTimeBucket {
-                    railLabel("Time bucket")
-                    Picker("", selection: Binding(get: { model.config.temporalBin },
-                                                  set: { b in model.update { $0.temporalBin = b } })) {
-                        ForEach(TemporalBin.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
-                    }.labelsHidden()
-                }
-                if showNumericBins {
-                    railLabel("Bins")
-                    Picker("", selection: Binding(get: { model.config.numericBin },
-                                                  set: { b in model.update { $0.numericBin = b } })) {
-                        ForEach(NumericBin.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                    }.labelsHidden()
+                if model.config.chartType == .heatmap {
+                    axisBinControls(.x, "X")
+                    axisBinControls(.y, "Y")
+                } else {
+                    if showTimeBucket {
+                        railLabel("Time bucket")
+                        Picker("", selection: Binding(get: { model.config.temporalBin },
+                                                      set: { b in model.update { $0.temporalBin = b } })) {
+                            ForEach(TemporalBin.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                        }.labelsHidden()
+                    }
+                    if showNumericBins {
+                        railLabel("Bins")
+                        Picker("", selection: Binding(get: { model.config.numericBin },
+                                                      set: { b in model.update { $0.numericBin = b } })) {
+                            ForEach(NumericBin.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        }.labelsHidden()
+                    }
                 }
 
                 if usesAggregation { serverAggregationSection }
@@ -313,6 +318,27 @@ struct ChartRootView: View {
     }
     private func railLabel(_ s: String) -> some View {
         Text(s.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+    }
+
+    // For heatmap, the bin control for a given axis role, keyed on the mapped
+    // column's kind, writing to config.axisBins[role].
+    @ViewBuilder private func axisBinControls(_ role: ChartColumnRole, _ title: String) -> some View {
+        let k = model.kind(model.config.mappings[role])
+        if k == .temporal {
+            railLabel("\(title) time bucket")
+            Picker("", selection: Binding(
+                get: { model.config.resolvedBin(for: role).temporal },
+                set: { b in model.update { var ab = $0.axisBins[role] ?? AxisBin(temporal: $0.temporalBin, numeric: $0.numericBin); ab.temporal = b; $0.axisBins[role] = ab } })) {
+                ForEach(TemporalBin.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+            }.labelsHidden()
+        } else if k == .numeric {
+            railLabel("\(title) bins")
+            Picker("", selection: Binding(
+                get: { model.config.resolvedBin(for: role).numeric },
+                set: { b in model.update { var ab = $0.axisBins[role] ?? AxisBin(temporal: $0.temporalBin, numeric: $0.numericBin); ab.numeric = b; $0.axisBins[role] = ab } })) {
+                ForEach(NumericBin.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }.labelsHidden()
+        }
     }
 }
 
