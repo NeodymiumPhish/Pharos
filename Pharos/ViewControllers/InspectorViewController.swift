@@ -282,16 +282,34 @@ class InspectorViewController: NSViewController {
             let colHeader = makeKeyLabel(name: agg.columnName, dataType: agg.dataType)
             stackView.addArrangedSubview(colHeader)
 
-            // Count / Distinct / NULL line
-            var countParts = "Count: \(agg.nonNullCount)  Distinct: \(agg.distinctCount)"
+            // Count / Distinct / NULL line. When the selection has exactly one
+            // distinct value, show the value itself (on its own line) instead of
+            // the redundant "Distinct: 1".
             let nullCount = agg.totalCount - agg.nonNullCount
-            if nullCount > 0 {
-                countParts += "  NULL: \(nullCount)"
+            if agg.distinctCount == 1, let only = agg.distinctValues.first {
+                var countPart = "Count: \(agg.nonNullCount)"
+                if nullCount > 0 { countPart += "  NULL: \(nullCount)" }
+                let countLine = NSTextField(labelWithString: countPart)
+                countLine.font = .systemFont(ofSize: 11)
+                countLine.textColor = .labelColor
+                stackView.addArrangedSubview(countLine)
+
+                let distinctLine = NSTextField(labelWithString: "Distinct: \(only)")
+                distinctLine.font = .systemFont(ofSize: 11)
+                distinctLine.textColor = .labelColor
+                distinctLine.lineBreakMode = .byTruncatingTail
+                distinctLine.toolTip = only
+                stackView.addArrangedSubview(distinctLine)
+                distinctLine.translatesAutoresizingMaskIntoConstraints = false
+                distinctLine.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            } else {
+                var countParts = "Count: \(agg.nonNullCount)  Distinct: \(agg.distinctCount)"
+                if nullCount > 0 { countParts += "  NULL: \(nullCount)" }
+                let countLine = NSTextField(labelWithString: countParts)
+                countLine.font = .systemFont(ofSize: 11)
+                countLine.textColor = .labelColor
+                stackView.addArrangedSubview(countLine)
             }
-            let countLine = NSTextField(labelWithString: countParts)
-            countLine.font = .systemFont(ofSize: 11)
-            countLine.textColor = .labelColor
-            stackView.addArrangedSubview(countLine)
 
             // Type-specific stats
             switch agg.category {
