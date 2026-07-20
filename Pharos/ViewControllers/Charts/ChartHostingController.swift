@@ -13,17 +13,36 @@ final class ChartHostingController: NSViewController {
     var onLoadAll: (() -> Void)?
     /// Reports a drill request from a chart gesture (tap/brush/pie selection).
     var onDrill: (([DrillKey]) -> Void)?
+    /// Fired when a config change lands while server aggregation is on (a
+    /// mapping/agg/bin tweak or the toggle flipping on) — the VC (re-)runs the
+    /// debounced push-down query. Distinct from `onConfigChanged` (persistence),
+    /// which fires for every change regardless of mode.
+    var onServerConfigChanged: (() -> Void)?
+    /// Put the current generated push-down SQL on the pasteboard (VC-owned).
+    var onCopySQL: (() -> Void)?
+    /// Explicitly run a server aggregation (the reopen "Run…" affordance).
+    var onRunServerAggregation: (() -> Void)?
 
     override func loadView() { view = NSView() }
 
     /// Configure (or reconfigure) for a result.
     func present(result: QueryResult, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
         let vm = ChartViewModel(result: result, columns: result.columns, initialConfig: initialConfig)
-        vm.onConfigChanged = { [weak self] cfg in self?.onConfigChanged?(cfg) }
+        vm.onConfigChanged = { [weak self] cfg in
+            self?.onConfigChanged?(cfg)
+            // A change while server mode is on triggers a (debounced) re-run.
+            if cfg.serverAggregation { self?.onServerConfigChanged?() }
+        }
         vm.onDrill = { [weak self] keys in self?.onDrill?(keys) }
         self.model = vm
 
-        let root = ChartRootView(model: vm, bannerInfo: banner, onLoadAll: { [weak self] in self?.onLoadAll?() })
+        let root = ChartRootView(
+            model: vm,
+            bannerInfo: banner,
+            onLoadAll: { [weak self] in self?.onLoadAll?() },
+            onCopySQL: { [weak self] in self?.onCopySQL?() },
+            onRunServerAggregation: { [weak self] in self?.onRunServerAggregation?() }
+        )
         let host = NSHostingController(rootView: AnyView(root))
         embed(host)
         self.hosting = host
@@ -31,6 +50,86 @@ final class ChartHostingController: NSViewController {
 
     /// The current config (for persistence on teardown/tab-switch).
     var currentConfig: ChartConfig? { model?.config }
+
+    // MARK: Server-aggregation view-model forwarding (VC-driven)
+
+    /// Toggle the in-flight spinner state in the banner.
+    func setServerLoading(_ loading: Bool) { model?.serverLoading = loading }
+
+    /// Show a DB error in the banner (also clears loading).
+    func setServerError(_ message: String?) {
+        model?.serverError = message
+        model?.serverLoading = false
+    }
+
+    /// Push push-down availability + the disabled-reason into the view model so
+    /// the rail can show/hide the toggle.
+    func setPushdownAvailability(_ available: Bool, reason: String?) {
+        model?.pushdownUnavailableReason = reason
+        model?.pushdownAvailable = available
+    }
+
+    /// Inject a completed server-aggregation run: the built data plus its
+    /// provenance (`lastServerRun`), updating the config so the banner reflects
+    /// the as-of time without re-triggering a run.
+    func applyServerRun(_ data: ChartData, lastRun: LastServerRun) {
+        model?.config.lastServerRun = lastRun
+        model?.setServerData(data)
+    }
+
+    /// Everything `ChartExporter` needs to render + tag one export: a
+    /// caption-annotated snapshot view (chart + provenance footer, sized to
+    /// the on-screen chart region), the same caption text, and the
+    /// generating context to embed as file metadata (the push-down SQL when
+    /// server aggregation produced the current data, else nil).
+    struct ExportSnapshot {
+        let view: AnyView
+        let size: CGSize
+        let caption: String
+        let sql: String?
+        let timestamp: String
+    }
+
+    /// Builds an export snapshot for the chart currently on screen, or nil
+    /// when there's nothing to export (no result presented yet, or the chart
+    /// is in an empty state — no columns mapped / all-null value / demoted
+    /// rows needing a re-run).
+    func buildExportSnapshot(connectionName: String) -> ExportSnapshot? {
+        guard let model, model.data.emptyReason == nil else { return nil }
+        let cfg = model.config
+        let data = model.data
+        let mode = cfg.serverAggregation ? "Server" : "Client"
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let caption = ChartExportCaption.text(
+            mode: mode,
+            connection: connectionName,
+            plotted: data.plottedRowCount,
+            total: data.totalLoadedRowCount,
+            truncated: data.wasTruncated,
+            timestamp: timestamp
+        )
+        let exportView = ChartExportView(data: data, config: cfg, caption: caption)
+        // Match the on-screen chart canvas size when available (the hosting
+        // view includes the config rail, but that's a small, roughly-constant
+        // offset — good enough for an export whose exact pixel dimensions
+        // aren't load-bearing); fall back to a sensible default before layout.
+        let onScreen = view.bounds.size
+        var size = (onScreen.width > 200 && onScreen.height > 200) ? onScreen : CGSize(width: 900, height: 560)
+        // Gantt exports render every row (non-scrolling), so size to the full
+        // content height + caption/padding rather than the on-screen viewport
+        // (which would clip all but the visible rows).
+        if cfg.chartType == .gantt {
+            let width = max(onScreen.width, 900)
+            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(rowCount: data.ganttBars.count) + 64)
+        }
+        return ExportSnapshot(
+            view: AnyView(exportView),
+            size: size,
+            caption: caption,
+            sql: cfg.serverAggregation ? cfg.lastServerRun?.sql : nil,
+            timestamp: timestamp
+        )
+    }
 
     private func embed(_ child: NSHostingController<AnyView>) {
         hosting?.view.removeFromSuperview()

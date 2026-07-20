@@ -33,6 +33,7 @@ pub extern "C" fn pharos_execute_query(
     query_id: *const c_char,
     limit: i32,
     schema: *const c_char,
+    source: *const c_char,
     callback: AsyncCallback,
     context: *mut std::ffi::c_void,
 ) {
@@ -41,12 +42,13 @@ pub extern "C" fn pharos_execute_query(
     let sql_str = unsafe { c_str_to_string(sql) };
     let qid = unsafe { c_str_to_option(query_id) };
     let schema_str = unsafe { c_str_to_option(schema) };
+    let source_str = unsafe { c_str_to_option(source) };
     let lim = if limit > 0 { Some(limit as u32) } else { None };
 
     let ctx = context as usize;
     ffi_spawn!(callback, context, async move {
 
-        match crate::commands::execute_query(conn_id, sql_str, qid, lim, schema_str, state).await {
+        match crate::commands::execute_query(conn_id, sql_str, qid, lim, schema_str, source_str, state).await {
             Ok(result) => {
                 let json = serde_json::to_string(&result).unwrap_or_default();
                 callback_ok(callback, ctx, &json);

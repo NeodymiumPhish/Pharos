@@ -63,5 +63,18 @@ func runTests() {
     // heatmap is a valid chart type.
     expect(ChartType(rawValue: "heatmap") == .heatmap, "heatmap chart type decodes")
 
+    // serverAggregation + lastServerRun round-trip.
+    var sa = ChartConfig(chartType: .bar)
+    sa.serverAggregation = true
+    sa.lastServerRun = LastServerRun(sql: "SELECT 1", executedAt: "2026-07-17T00:00:00Z", rowCount: 5, truncated: false)
+    let saData = try! JSONEncoder().encode(sa)
+    let saBack = try! JSONDecoder().decode(ChartConfig.self, from: saData)
+    expect(saBack.serverAggregation == true, "serverAggregation round-trips")
+    expect(saBack.lastServerRun?.rowCount == 5, "lastServerRun round-trips")
+    // legacy blob (no phase-3 keys) still decodes.
+    let legacy3 = #"{"chartType":"bar","mappings":[],"aggregation":"sum","temporalBin":"auto","numericBin":"auto","display":{"title":"","showLegend":true,"stacked":false,"topNCategories":25}}"#
+    let old3 = try! JSONDecoder().decode(ChartConfig.self, from: Data(legacy3.utf8))
+    expect(old3.serverAggregation == false && old3.lastServerRun == nil, "legacy config defaults phase-3 fields")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

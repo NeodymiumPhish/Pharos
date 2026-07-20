@@ -93,6 +93,8 @@ Add to `ChartExporter`:
 In the export-menu owner (`ResultsCopyExport.showExportMenu` or a chart-aware wrapper in `ContentViewController`), when the active result is in **Chart mode**, present: "Export Chart as PNG…", "Export Chart as PDF…", "Copy Chart as Image", and (push-down only, added in Task 10) "View / Copy Generated SQL". Each renders `chartHost`'s current chart view (force **light** appearance via `.environment(\.colorScheme, .light)`; opaque background; include the caption footer) through `ChartExporter`, then `NSSavePanel` (default name from the result-tab label) or `NSPasteboard`. In Grid mode the menu is unchanged.
 The chart host must expose the SwiftUI view (or a snapshot builder) + current size to the exporter.
 
+**Gantt export caveat (fix):** the gantt's rows live in a `ScrollView`, and `ImageRenderer` does NOT lay out `ScrollView` content off-screen — so a naive export captures only the pinned time axis + caption, no bars. `ChartCanvas` takes a `ganttScrollable: Bool = true`; the export view passes `false` to render all rows in a plain (non-scrolling) stack, and `buildExportSnapshot` sizes gantt exports to the full content height (`ChartCanvas.ganttContentHeight(rowCount:)` + caption/padding) instead of the on-screen viewport. Other chart types are single `Chart` views and export fine at the on-screen size.
+
 - [ ] **Step 4: Build + manual verify**
 
 `xcodegen generate && xcodebuild … build` → BUILD SUCCEEDED. Manually: export PNG/PDF/copy from a chart; confirm content, light background, retina, caption footer, and embedded metadata (open PNG `tEXt` / PDF properties).
@@ -198,6 +200,29 @@ func runTests() {
     contains(num?.sql, "LEAST(", "width_bucket clamped with LEAST")
     contains(num?.sql, "_r.lo = _r.hi", "single-bucket lo=hi guard")
 
+    // series: _series column present, layout.hasSeries true
+    let ser = SqlPushdownGenerator.generate(cfg(.bar, [.category: 0, .value: 1, .series: 2], .sum), userSQL: src, columns: cols)
+    contains(ser?.sql, "AS _series", "series emits _series column")
+    expect(ser?.layout.hasSeries == true, "series layout.hasSeries true")
+
+    // numeric-bin + series: series dropped, no _series, layout.hasSeries false
+    let ns = SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1, .series: 0], .sum, nb: .b20), userSQL: src, columns: cols)
+    expect(ns?.sql.contains("_series") == false, "numeric-bin drops series (no _series in SQL)")
+    expect(ns?.layout.hasSeries == false, "numeric-bin layout.hasSeries false (matches SQL)")
+    contains(ns?.sql, "ORDER BY _bucket", "numeric bins ordered by bucket, not _val")
+
+    // non-count aggregation with no value mapping → unavailable (nil), not count(*)
+    expect(SqlPushdownGenerator.generate(cfg(.bar, [.category: 0], .sum), userSQL: src, columns: cols) == nil, "sum without value → nil")
+
+    // time-of-day temporal column is NOT date_trunc'd (would error); treated discrete.
+    // (Build the config directly — `cfg` closes over the 4-element `cols`, so index 4 would be out of range.)
+    let tcols = cols + [ColumnDef(name: "tod", dataType: "time")]
+    var todCfg = ChartConfig(chartType: .bar, aggregation: .sum, temporalBin: .hour)
+    todCfg.mappings[.category] = ColumnRef(index: 4, name: "tod")
+    todCfg.mappings[.value] = ColumnRef(index: 1, name: "amt")
+    let tod = SqlPushdownGenerator.generate(todCfg, userSQL: "SELECT 1", columns: tcols)
+    expect(tod?.sql.contains("date_trunc") == false, "time column not date_trunc'd")
+
     // heatmap groups by x,y
     let hm = SqlPushdownGenerator.generate(cfg(.heatmap, [.x: 0, .y: 2], .count), userSQL: src, columns: cols)
     contains(hm?.sql, "GROUP BY", "heatmap groups")
@@ -294,7 +319,10 @@ enum SqlPushdownGenerator {
     }
 
     private static func aggExpr(_ config: ChartConfig, columns: [ColumnDef]) -> String? {
-        if config.aggregation == .count || config.mappings[.value] == nil { return "count(*)" }
+        if config.aggregation == .count { return "count(*)" }
+        // Non-count requires a value column — mirror the client aggregator; if
+        // absent, push-down is unavailable (generate() returns nil) rather than
+        // silently degrading a "sum" chart to a count.
         guard let v = resolve(config, .value, columns) else { return nil }
         let c = quoteIdent(v.name)
         switch config.aggregation {
@@ -307,9 +335,13 @@ enum SqlPushdownGenerator {
     private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef) -> (expr: String, numericBins: Int?) {
         let kind = ColumnClassifier.kind(forDataType: col.dataType)
         let id = quoteIdent(col.name)
-        if kind == .temporal, config.temporalBin != .none {
+        let dt = col.dataType.lowercased()
+        // date_trunc accepts date/timestamp[tz] but NOT time/timetz — treat a
+        // time-of-day temporal column as discrete to avoid a runtime SQL error.
+        let isDateTruncable = dt.hasPrefix("date") || dt.hasPrefix("timestamp")
+        if kind == .temporal, config.temporalBin != .none, isDateTruncable {
             let unit = truncUnit(config.temporalBin)
-            let tz = col.dataType.lowercased().hasPrefix("timestamptz") || col.dataType.lowercased().contains("with time zone")
+            let tz = dt.hasPrefix("timestamptz") || dt.contains("with time zone")
             let colExpr = tz ? "\(id) AT TIME ZONE 'UTC'" : id
             return ("date_trunc('\(unit)', \(colExpr))", nil)
         }
@@ -330,7 +362,10 @@ enum SqlPushdownGenerator {
         guard let catCol = resolve(config, .category, columns) else { return nil }
         let series = resolve(config, .series, columns)
         let (catExpr, nbins) = axisExpr(config, catCol)
-        let layout = PushdownLayout(kind: .categorical, hasSeries: series != nil, numericBins: nbins)
+        // Series is dropped when the category axis is width-bucketed (numeric-bin
+        // + series is a deferred combination); the numeric CTE below emits no
+        // _series column, so hasSeries must be false there to match the SQL.
+        let layout = PushdownLayout(kind: .categorical, hasSeries: nbins == nil && series != nil, numericBins: nbins)
 
         if let n = nbins {   // numeric width_bucket needs the range CTE
             let id = quoteIdent(catCol.name)
@@ -529,6 +564,13 @@ git commit -m "feat(charts): query_history.source tag + executeQuery source para
 - Wire the rail's copy-SQL callback to put `pushdown.sql` on the pasteboard.
 
 - [ ] **Step 5: Build + manual verify.** Commit (`feat(charts): push-down execution with cancellation, source tag, lastServerRun, explicit reopen`).
+
+- [ ] **Step 6: Cancellation/state correctness (review fixes — required)**
+  1. **Capture `connectionId` at launch.** `cancelQuery` must target the pool the query ran on; resolving `activeTab.connectionId` at *cancel* time is wrong after a tab switch. Store the launch `connectionId` alongside the in-flight `queryId` and cancel with the stored value.
+  2. **Effective server mode = `serverAggregation && chartTypeAggregates`.** Gate BOTH the view model's `recompute()` server-skip AND the `serverBanner` on an "aggregating type" check (scatter/gantt never aggregate). This makes switching to a non-aggregating type fall back to the client render (and hide the banner) **without** mutating the persisted flag — switching back re-activates it. Prevents the "stuck on, no way to turn off" trap.
+  3. **Cancel in the empty/guard-fail paths.** `syncChartToggleToActiveTab`'s early `guard` (no active result tab — hit by closing the last result tab or switching to a tab with none) must call `cancelServerAggregation()` before returning, so an in-flight query isn't orphaned.
+  4. **Reset `serverLoading = false` in `cancelServerAggregation`** (avoid a stuck spinner).
+  5. **Cancel the prior in-flight run at schedule time** in `runServerAggregation(debounced:)` (call `cancelServerAggregation()` at the start), so a superseded full-table `GROUP BY` doesn't keep running through the debounce window.
 
 ## Task 9: VC push-down drill → spawn detail query
 

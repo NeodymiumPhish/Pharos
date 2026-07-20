@@ -406,6 +406,20 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         )?;
     }
 
+    // Migration: Add source tag column to query_history (e.g. "chart-aggregation"
+    // for push-down server-aggregation runs, so they stay labelled in the audit trail).
+    let has_source_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'source'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_source_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN source TEXT;"
+        )?;
+    }
+
     // Migration: Backfill FTS5 index if it's empty but history has data
     let fts_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM query_history_fts", [], |row| row.get(0))
@@ -736,8 +750,8 @@ pub fn save_query_history(
 
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
         "#,
         (
             &entry.id,
@@ -752,6 +766,7 @@ pub fn save_query_history(
             &entry.schema,
             &entry.column_count,
             &entry.table_names,
+            &entry.source,
         ),
     )?;
 
@@ -1105,7 +1120,7 @@ pub fn load_query_history(
     only_legacy: bool,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
@@ -1152,6 +1167,7 @@ pub fn load_query_history(
             schema: row.get(8)?,
             column_count: row.get(9)?,
             table_names: row.get(10)?,
+            source: row.get(11)?,
         })
     })?;
 
@@ -1290,6 +1306,7 @@ mod workspace_roundtrip_tests {
             schema: Some("public".to_string()),
             column_count: Some(2),
             table_names: Some("t".to_string()),
+            source: None,
         }
     }
 
@@ -1456,6 +1473,58 @@ mod workspace_roundtrip_tests {
         let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
         let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
         assert_eq!(r.chart_view_state_json.as_deref(), Some(json));
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `source` tag column on query_history: chart-aggregation runs (and any other
+/// tagged origin) round-trip through save_query_history -> load_query_history,
+/// while normal (untagged) runs read back as None. Real on-disk DB + real
+/// decode path, per the project lesson that hand-built structs miss decode bugs.
+#[cfg(test)]
+mod history_source_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn history_entry(id: &str, source: Option<&str>) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            sql: format!("SELECT * FROM t_{}", id),
+            row_count: Some(3),
+            execution_time_ms: 12,
+            executed_at: chrono::Utc::now().to_rfc3339(),
+            has_results: false,
+            schema: None,
+            column_count: Some(2),
+            table_names: None,
+            source: source.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn source_tag_round_trips_and_defaults_to_none() {
+        let dir = temp_db_dir("history_source");
+        let conn = init_database(&dir).expect("init_database");
+
+        let tagged = history_entry("h_tagged", Some("chart-aggregation"));
+        let untagged = history_entry("h_untagged", None);
+        save_query_history(&conn, &tagged, None, None).expect("save tagged");
+        save_query_history(&conn, &untagged, None, None).expect("save untagged");
+
+        let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false).expect("load_query_history");
+        let loaded_tagged = loaded.iter().find(|e| e.id == "h_tagged").expect("tagged entry present");
+        let loaded_untagged = loaded.iter().find(|e| e.id == "h_untagged").expect("untagged entry present");
+
+        assert_eq!(loaded_tagged.source.as_deref(), Some("chart-aggregation"));
+        assert_eq!(loaded_untagged.source, None);
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

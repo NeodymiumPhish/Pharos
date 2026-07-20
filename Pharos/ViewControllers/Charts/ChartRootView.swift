@@ -5,6 +5,20 @@ final class ChartViewModel: ObservableObject {
     @Published var config: ChartConfig
     @Published private(set) var data: ChartData = ChartData()
 
+    // MARK: Server-aggregation (push-down) state
+    /// A server-aggregation query is in flight for this chart.
+    @Published var serverLoading = false
+    /// The DB error text from the last failed server-aggregation run, if any.
+    @Published var serverError: String?
+    /// Whether push-down is available for the current config (chart type +
+    /// wrappable SQL + resolvable mappings). Computed by the VC and pushed in.
+    @Published var pushdownAvailable = false
+    /// Whether a server-aggregation run has completed this session — distinguishes
+    /// the reopen "Run…" state (false) from the "aggregated as of …" state (true).
+    @Published var serverHasRun = false
+    /// Human explanation shown when the toggle is disabled (push-down unavailable).
+    var pushdownUnavailableReason: String?
+
     let columns: [ColumnDef]
     private let result: QueryResult
     /// Called (debounced by the host) whenever config changes, for persistence.
@@ -19,11 +33,36 @@ final class ChartViewModel: ObservableObject {
         recompute()
     }
 
+    /// Whether the current chart type aggregates (bar/line/area/pie/heatmap) vs.
+    /// plots raw rows (scatter/gantt). Server aggregation only makes sense for the
+    /// former; for the latter we fall back to the client render even if the
+    /// persisted `serverAggregation` flag is on, so the flag can't strand the UI.
+    var chartTypeAggregates: Bool {
+        switch config.chartType {
+        case .scatter, .gantt: return false
+        default: return true
+        }
+    }
+
     func recompute() {
         // A restored result whose cached rows were demoted arrives with no
         // columns; surface the "re-run to chart" state rather than "pick columns".
         if columns.isEmpty { data = .empty(.noData); return }
+        // In server-aggregation mode the VC supplies `data` via setServerData;
+        // don't clobber it with a client-side aggregation of the loaded rows.
+        // Only skip for chart types that actually aggregate — scatter/gantt fall
+        // back to the client render even if the flag is on (it can't push down).
+        if config.serverAggregation && chartTypeAggregates { return }
         data = ChartAggregator.aggregate(result, config)
+    }
+
+    /// Inject server-aggregated data (built by `ServerChartDataBuilder`), clearing
+    /// the loading/error state and marking that a run completed this session.
+    func setServerData(_ d: ChartData) {
+        data = d
+        serverLoading = false
+        serverError = nil
+        serverHasRun = true
     }
 
     func update(_ mutate: (inout ChartConfig) -> Void) {
@@ -58,10 +97,19 @@ struct ChartRootView: View {
     /// Banner info supplied by the host (loaded/total counts + load-all action).
     let bannerInfo: ChartBannerInfo
     let onLoadAll: () -> Void
+    /// Put the current generated push-down SQL on the pasteboard (host-owned).
+    var onCopySQL: () -> Void = {}
+    /// Explicitly run a server aggregation (the reopen affordance).
+    var onRunServerAggregation: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
-            if bannerInfo.shouldShow { banner }
+            // Server-aggregation banner takes precedence over the client subset
+            // banner when the toggle is on (they describe different data paths).
+            // Gate on chartTypeAggregates too: a non-aggregating type (scatter/
+            // gantt) renders client-side even with the flag on, so no server banner.
+            if model.config.serverAggregation && model.chartTypeAggregates { serverBanner }
+            else if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
                 ChartCanvas(data: model.data, config: model.config,
                             onDrill: { keys in model.onDrill?(keys) })
@@ -82,6 +130,63 @@ struct ChartRootView: View {
         .font(.caption)
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(Color.orange.opacity(0.15))
+    }
+
+    // MARK: Server-aggregation banner
+    // On-screen provenance for push-down mode: a live "Running…" spinner, the DB
+    // error, an "aggregated as of <t>" summary once a run completes, or (on
+    // reopen, before any run) an explicit "Run server aggregation" button so a
+    // reopened workspace never silently re-hits the DB.
+    @ViewBuilder private var serverBanner: some View {
+        HStack(spacing: 8) {
+            if model.serverLoading {
+                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
+                Text("Running server aggregation\u{2026}")
+                Spacer()
+            } else if let err = model.serverError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(err).lineLimit(2)
+                Spacer()
+            } else if model.serverHasRun {
+                Image(systemName: "server.rack")
+                Text(ranSummary)
+                Spacer()
+            } else {
+                Image(systemName: "server.rack")
+                Text("Server aggregation is on.")
+                Spacer()
+                Button(runButtonTitle, action: onRunServerAggregation).buttonStyle(.link)
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background((model.serverError != nil ? Color.red : Color.blue).opacity(0.12))
+    }
+
+    private var ranSummary: String {
+        let asOf = model.config.lastServerRun.map { shortTime($0.executedAt) } ?? ""
+        var s = "Aggregated server-side over the full dataset"
+        if !asOf.isEmpty { s += ", as of \(asOf)" }
+        if model.config.lastServerRun?.truncated == true { s += " \u{00B7} truncated" }
+        return s
+    }
+
+    private var runButtonTitle: String {
+        if let last = model.config.lastServerRun {
+            return "Run server aggregation (last run \(shortTime(last.executedAt)))"
+        }
+        return "Run server aggregation"
+    }
+
+    /// Render an ISO-8601 timestamp as a compact local "yyyy-MM-dd HH:mm", or the
+    /// raw string if it doesn't parse.
+    private func shortTime(_ iso: String) -> String {
+        let parser = ISO8601DateFormatter()
+        guard let d = parser.date(from: iso) else { return iso }
+        let out = DateFormatter()
+        out.locale = Locale(identifier: "en_US_POSIX")
+        out.dateFormat = "yyyy-MM-dd HH:mm"
+        return out.string(from: d)
     }
 
     private var configRail: some View {
@@ -120,8 +225,37 @@ struct ChartRootView: View {
                         ForEach(NumericBin.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }.labelsHidden()
                 }
+
+                if usesAggregation { serverAggregationSection }
+
                 Spacer()
             }.padding(10)
+        }
+    }
+
+    // MARK: server-aggregation rail section
+    @ViewBuilder private var serverAggregationSection: some View {
+        railLabel("Server aggregation")
+        if model.pushdownAvailable {
+            Toggle("Aggregate on server", isOn: Binding(
+                get: { model.config.serverAggregation },
+                set: { on in model.update { $0.serverAggregation = on } }))
+                .toggleStyle(.checkbox)
+                .font(.caption)
+            Button("Copy Generated SQL", action: onCopySQL)
+                .buttonStyle(.link)
+                .font(.caption)
+        } else {
+            Toggle("Aggregate on server", isOn: .constant(false))
+                .toggleStyle(.checkbox)
+                .font(.caption)
+                .disabled(true)
+            if let reason = model.pushdownUnavailableReason {
+                Text(reason)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
