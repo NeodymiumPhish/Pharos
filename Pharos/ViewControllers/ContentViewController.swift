@@ -82,6 +82,8 @@ class ContentViewController: NSViewController {
     let expandResultsButton = NSButton()
     /// Clearable "Filtered by chart" chip shown while a chart drill is applied.
     let drillChip = NSButton()
+    /// Commits the current chart selection (client → grid filters, server → detail query).
+    let chartFilterButton = NSButton()
 
     // Chart drill-down state (active result tab). `drillColumns` are the col_N
     // ids the drill currently owns; `displacedFilters` snapshots any manual
@@ -866,7 +868,19 @@ class ContentViewController: NSViewController {
         drillChip.setContentHuggingPriority(.required, for: .horizontal)
         drillChip.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let actionStack = NSStackView(views: [chartToggle, drillChip, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
+        chartFilterButton.bezelStyle = .recessed
+        chartFilterButton.font = .systemFont(ofSize: 11)
+        chartFilterButton.image = NSImage(systemSymbolName: "line.3.horizontal.decrease.circle", accessibilityDescription: "Filter selection")?
+            .withSymbolConfiguration(drillConfig)
+        chartFilterButton.imagePosition = .imageLeading
+        chartFilterButton.contentTintColor = .controlAccentColor
+        chartFilterButton.target = self
+        chartFilterButton.action = #selector(commitChartSelection)
+        chartFilterButton.isHidden = true
+        chartFilterButton.setContentHuggingPriority(.required, for: .horizontal)
+        chartFilterButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let actionStack = NSStackView(views: [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)
@@ -2526,8 +2540,25 @@ extension ContentViewController {
     /// (push-down off, or the chart type doesn't aggregate) this is grid column
     /// filters applied in place; in push-down mode it spawns a filtered detail
     /// query as a new result tab instead.
-    /// The chart reported a new staged selection (Task C wires the commit button).
-    private func chartSelectionChanged(_ keys: [DrillKey]) { stagedChartKeys = keys }
+    /// The chart reported a new staged selection — show/label the commit button.
+    private func chartSelectionChanged(_ keys: [DrillKey]) {
+        stagedChartKeys = keys
+        guard !keys.isEmpty else { chartFilterButton.isHidden = true; return }
+        let server = activeChartUsesServerMode()
+        chartFilterButton.title = DrillSummary.label(keys, prefix: server ? "Query Selected Rows" : "Filter in Grid")
+        chartFilterButton.toolTip = chartFilterButton.title
+        chartFilterButton.isHidden = false
+    }
+
+    /// Whether the active chart commits via server-aggregation (detail query) vs grid filters.
+    private func activeChartUsesServerMode() -> Bool {
+        guard let id = activeResultTabId, let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              let cfg = resultTabs[idx].chartConfig else { return false }
+        return cfg.serverAggregation && chartTypeSupportsServer(cfg.chartType)
+    }
+
+    /// Commits the staged chart selection (Task C2 wires the real apply logic).
+    @objc private func commitChartSelection() { /* Task C2 */ }
 
     private func applyDrill(_ keys: [DrillKey]) {
         guard let id = activeResultTabId,
