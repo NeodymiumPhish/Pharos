@@ -22,5 +22,11 @@ func runTests() {
     let m5 = DrillMerge.merge([.compound([.anyOf(x, ["a"]), .anyOf(y, ["p"])]), .compound([.anyOf(x, ["b"]), .anyOf(y, ["q"])])])
     expect(m5.count == 2, "two columns yield two merged keys")
 
+    // range + lone blank on one column → keep the range, drop the null (a
+    // range-OR-null can't be expressed as one filter; ANDing them matches nothing).
+    let m6 = DrillMerge.merge([.range(x, 0, 10, .numeric), .blank(x)])
+    expect(m6.count == 1, "range+blank on one column collapses to a single key")
+    if case .range = m6.first { expect(true, "range kept when blank also present") } else { expect(false, "range kept") }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -79,7 +79,7 @@ struct ChartCanvas: View {
         }
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
-            guard let label = newValue else { return }
+            guard let label = newValue else { pieSelected = []; return }
             let mods = NSEvent.modifierFlags
             if mods.contains(.command) || mods.contains(.shift) {
                 if !pieSelected.contains(label) { pieSelected.append(label) }

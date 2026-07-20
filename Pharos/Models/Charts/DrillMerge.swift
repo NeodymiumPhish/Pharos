@@ -36,9 +36,16 @@ enum DrillMerge {
 
         var out: [DrillKey] = []
         for i in order {
+            let hasRange = ranges[i] != nil
             if let a = anyOf[i] {
-                if a.vals.isEmpty && a.blank { out.append(.blank(a.ref)) }
-                else {
+                if a.vals.isEmpty && a.blank {
+                    // Lone blank: emit it ONLY if no range on this column. A range +
+                    // null on one column can't be expressed as "range OR null" in a
+                    // single grid filter, and ANDing them matches nothing — so prefer
+                    // the range and drop the null (a binned-axis brush that includes
+                    // the null bucket excludes it from the drill).
+                    if !hasRange { out.append(.blank(a.ref)) }
+                } else {
                     var vals = dedup(a.vals)
                     if a.blank { vals.append(PharosBlanks.sentinel) }
                     out.append(.anyOf(a.ref, vals))
