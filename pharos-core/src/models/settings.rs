@@ -105,7 +105,7 @@ impl Default for QuerySettings {
     fn default() -> Self {
         QuerySettings {
             default_limit: 1000,
-            timeout_seconds: 30,
+            timeout_seconds: 300,
             auto_commit: true,
             confirm_destructive: true,
             notify_when_app_inactive: default_notify_when_app_inactive(),

@@ -69,7 +69,7 @@ struct EditorSettings: Codable, Equatable {
 
 struct QuerySettings: Codable, Equatable {
     var defaultLimit: UInt32 = 1000
-    var timeoutSeconds: UInt32 = 30
+    var timeoutSeconds: UInt32 = 300
     // Kept only so stored settings JSON round-trips; no UI and no effect —
     // queries run in PostgreSQL's implicit auto-commit mode.
     var autoCommit: Bool = true

@@ -56,7 +56,11 @@ You can change the row limit in [Settings](settings.md) under the Query tab.
 
 ## Query Timeout
 
-Each query runs with a server-side timeout (PostgreSQL's `statement_timeout`), set from the **Timeout** setting (default 30 seconds). A query that exceeds it is cancelled by the server and reports a "canceling statement due to statement timeout" error. Raise the timeout in [Settings](settings.md) if you routinely run longer queries.
+Each query runs with a server-side timeout (PostgreSQL's `statement_timeout`), set from the **Timeout** setting (default 300 seconds). A query that exceeds it is cancelled by the server and reports a "canceling statement due to statement timeout" error. Adjust the timeout in [Settings](settings.md) to suit your workload.
+
+## Destructive Query Confirmation
+
+When **Confirm before DROP / DELETE / TRUNCATE** is enabled in [Settings](settings.md) (the default), running SQL that contains a `DROP`, `DELETE`, or `TRUNCATE` keyword shows a confirmation dialog with a preview of the statement before it executes. Detection ignores keywords inside string literals, comments, and quoted identifiers, and catches data-modifying CTEs (e.g., `WITH x AS (DELETE …)`). The same setting guards Truncate and Drop in the [schema browser](table-operations.md#destructive-operations).
 
 ## Completion Notifications
 

@@ -45,8 +45,8 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Row Limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
-| Timeout | 1–3,600 seconds | 30 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
-| Confirm before DROP / DELETE / TRUNCATE | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations). |
+| Timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
+| Confirm before DROP / DELETE / TRUNCATE | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations) and before running SQL containing DROP, DELETE, or TRUNCATE from the editor. |
 | Notify when query completes and app is in background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
 | Notify when query completes in a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
 | Notification minimum | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
