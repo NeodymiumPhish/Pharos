@@ -246,6 +246,26 @@ class FilterableHeaderView: NSTableHeaderView {
             )
             tinted.draw(in: drawRect)
         }
+
+        // Sort arrow: persistent when a column is sorted (so sort state is visible
+        // at rest), drawn on row-2 right just left of the funnel slot. Overlay only —
+        // reserves no column width.
+        for (colIndex, column) in tableView.tableColumns.enumerated() {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__", let dir = sortDirections[colId] else { continue }
+            let headerRect = self.headerRect(ofColumn: colIndex)
+            let arrow = (dir == .ascending) ? "▲" : "▼"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            let sz = (arrow as NSString).size(withAttributes: attrs)
+            let funnelSlot = iconSize + iconPadding * 2 + 8   // width the funnel occupies at the right
+            let iconRect = filterIconRect(inHeaderRect: headerRect)
+            let x = headerRect.maxX - funnelSlot - sz.width - 2
+            let y = iconRect.midY - sz.height / 2
+            (arrow as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+        }
     }
 
     // MARK: - Sort Cell Indicators
@@ -258,12 +278,9 @@ class FilterableHeaderView: NSTableHeaderView {
 
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
-        return NSRect(
-            x: headerRect.maxX - side - 8,
-            y: headerRect.midY - side / 2,
-            width: side,
-            height: side
-        )
+        // Row 2 ≈ lower third of the (taller) header. Non-flipped: minY = bottom.
+        let row2MidY = headerRect.minY + headerRect.height * 0.30
+        return NSRect(x: headerRect.maxX - side - 8, y: row2MidY - side / 2, width: side, height: side)
     }
 
     /// Returns the column index to auto-fit if the point is near a column's right edge (~4px).
