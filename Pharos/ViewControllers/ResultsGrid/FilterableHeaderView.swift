@@ -2,30 +2,24 @@ import AppKit
 
 // MARK: - Sort Aware Header Cell
 
-/// Header cell drawing the column name on row 1 and the data type on row 2.
-/// Sort/filter affordances are drawn by FilterableHeaderView as row-2 overlays
-/// (Task B2), so this cell reserves no horizontal space for them.
+/// Header cell for the two-row (name / type) header. It draws only its own
+/// background/bezel — the name and type TEXT are drawn by `FilterableHeaderView`
+/// in `draw(_:)`, clipped per column.
+///
+/// The cell intentionally stores NO Swift properties. `NSTableHeaderView` draws
+/// the empty overflow region past the last column using a bitwise `NSCopyObject`
+/// copy of a header cell; that copy does not retain Swift-added stored properties
+/// (e.g. a `String`), so accessing one on the copy dereferences a dangling
+/// pointer → `EXC_BAD_ACCESS`. Keeping the cell property-free makes the copy safe.
 class SortAwareHeaderCell: NSTableHeaderCell {
-    var nameString: String = ""
-    var typeString: String = ""
-
     static let nameFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
     static let typeFont = NSFont.systemFont(ofSize: 9, weight: .regular)
     static let hInset: CGFloat = 6
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        let nameAttrs: [NSAttributedString.Key: Any] = [.font: Self.nameFont, .foregroundColor: NSColor.labelColor]
-        let typeAttrs: [NSAttributedString.Key: Any] = [.font: Self.typeFont, .foregroundColor: NSColor.secondaryLabelColor]
-        let nameSize = (nameString as NSString).size(withAttributes: nameAttrs)
-        let typeSize = (typeString as NSString).size(withAttributes: typeAttrs)
-        let gap: CGFloat = 1
-        let totalH = nameSize.height + gap + typeSize.height
-        // NSTableHeaderView is FLIPPED (y increases downward → smaller y = top).
-        // Draw the name on the top row, the type on the row below it, block-centered.
-        let topY = cellFrame.midY - totalH / 2
-        let x = cellFrame.minX + Self.hInset
-        (nameString as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
-        (typeString as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
+        // Intentionally empty: the two-row text is drawn by FilterableHeaderView
+        // so it can be clipped to the column and to avoid the NSCell copy hazard
+        // described above. The base class still draws the header background/bezel.
     }
 }
 
@@ -46,12 +40,12 @@ class FilterableHeaderView: NSTableHeaderView {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
 
-    /// Target height for the two-row (name / type) header. Applied cooperatively
-    /// by `InsetScrollView.tile()` (before `super.tile()` sizes the header clip),
-    /// NOT by overriding this view's `frame`/`setFrameSize` — overriding those to
-    /// force a height fights NSTableView's own header sizing and sends the scroll
-    /// view into an infinite re-tile loop (freeze) on any relayout.
-    static let headerHeight: CGFloat = 34
+    /// Data-type label to draw on row 2, keyed by column identifier. The name on
+    /// row 1 comes from each column's `title`. Owned by the view (not the cell) so
+    /// the header cells can stay Swift-property-free — see `SortAwareHeaderCell`.
+    var columnTypes: [String: String] = [:] {
+        didSet { needsDisplay = true }
+    }
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
@@ -215,8 +209,19 @@ class FilterableHeaderView: NSTableHeaderView {
 
         super.draw(dirtyRect)
 
-        // Filter icons drawn AFTER super (topmost visual element)
         guard let tableView = tableView else { return }
+
+        // Two-row text (name / type) drawn by the view, clipped per column, so the
+        // header cells stay Swift-property-free (see SortAwareHeaderCell) and names
+        // can't bleed into neighbouring columns.
+        for (colIndex, column) in tableView.tableColumns.enumerated() {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__" else { continue }
+            drawHeaderText(name: column.title, type: columnTypes[colId] ?? "",
+                           in: headerRect(ofColumn: colIndex))
+        }
+
+        // Filter icons drawn AFTER text (topmost visual element)
 
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
@@ -259,6 +264,29 @@ class FilterableHeaderView: NSTableHeaderView {
             let y = iconRect.midY - sz.height / 2
             (arrow as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
         }
+    }
+
+    /// Draws the column name (row 1) and data type (row 2), block-centred and
+    /// clipped to `headerRect`. NSTableHeaderView is FLIPPED (y increases
+    /// downward → smaller y = top), so the name draws at the smaller y.
+    private func drawHeaderText(name: String, type: String, in headerRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current else { return }
+        ctx.saveGraphicsState()
+        defer { ctx.restoreGraphicsState() }
+        NSBezierPath(rect: headerRect.insetBy(dx: SortAwareHeaderCell.hInset, dy: 0)).setClip()
+
+        let nameAttrs: [NSAttributedString.Key: Any] =
+            [.font: SortAwareHeaderCell.nameFont, .foregroundColor: NSColor.labelColor]
+        let typeAttrs: [NSAttributedString.Key: Any] =
+            [.font: SortAwareHeaderCell.typeFont, .foregroundColor: NSColor.secondaryLabelColor]
+        let nameSize = (name as NSString).size(withAttributes: nameAttrs)
+        let typeSize = (type as NSString).size(withAttributes: typeAttrs)
+        let gap: CGFloat = 1
+        let totalH = nameSize.height + gap + typeSize.height
+        let topY = headerRect.midY - totalH / 2
+        let x = headerRect.minX + SortAwareHeaderCell.hInset
+        (name as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
+        (type as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
     }
 
     // MARK: - Sort Cell Indicators
