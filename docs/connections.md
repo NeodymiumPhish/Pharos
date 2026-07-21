@@ -18,49 +18,52 @@ nav_order: 3
 
 ## Overview
 
-Pharos manages PostgreSQL connections through a dropdown menu in the action bar above each editor pane. The dropdown shows the currently active connection and provides options to switch between saved connections, connect, disconnect, edit, or create new connections.
+Connections are managed in the **Connections Manager** window (**Cmd+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in each editor pane's toolbar. Different tabs can point at different databases at the same time.
 
-## Adding a Connection
+## The Connections Manager
 
-Press **Cmd+N** or choose **File > New Connection** from the menu bar to open the connection sheet. Fill in the following fields:
+The Connections Manager is a two-pane window:
+
+- **Left** — the list of saved connections. Each row shows a status dot (green = connected, yellow = connecting, red = error, gray = disconnected), the connection name, and `host:port · database`. Drag rows to reorder. Use **+** to add a connection and **−** to delete the selected one.
+- **Right** — the detail form for the selected connection.
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| Name | A display label for this connection | -- |
-| Host | Server hostname or IP address | localhost |
+| Name | A display label for this connection | — |
+| Host | Server hostname or IP address | — |
 | Port | PostgreSQL listening port | 5432 |
 | Database | Database name to connect to | postgres |
-| Username | PostgreSQL role for authentication | postgres |
-| Password | Password for the role (optional) | -- |
+| Username | PostgreSQL role for authentication | — |
+| Password | Password for the role (stored in the Keychain) | — |
 | SSL Mode | Prefer, Require, or Disable | Prefer |
-| Default Schema | Schema to focus on, or "None" for all schemas. Populated after a successful test connection. | None |
+| Default Schema | Schema focused on connect; populated after a successful Test Connection | None |
 
-Click **Add** to save the connection. It appears immediately in the connection dropdown.
+Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 
 ## Testing a Connection
 
-Before saving, click the **Test Connection** button in the connection sheet. Pharos attempts to connect with the provided credentials and reports the result:
+Click **Test Connection** to verify the settings:
 
-- **Success** -- Displays "Connected" with the round-trip latency in milliseconds
-- **Failure** -- Displays the PostgreSQL error message in red
+- **Success** — shows "Connected" with the round-trip latency in milliseconds, and populates the **Default Schema** menu with the database's schemas
+- **Failure** — shows the PostgreSQL error message in red
 
 ## Connecting and Disconnecting
 
-Select a connection from the dropdown in the action bar and choose **Connect**. The sidebar populates with the database schema once the connection is active.
+In the editor toolbar, open the **connection pull-down**. It lists every saved connection with a live status glyph and a checkmark on the tab's active connection, followed by:
 
-To disconnect, open the same dropdown and choose **Disconnect**.
+- **Connect** / **Disconnect** — open or close the connection for this tab
+- **Refresh Connection** — reload schema metadata (refreshes the schema browser)
+- **Manage Connections…** — open the Connections Manager
 
-## Editing a Connection
-
-Open the connection dropdown in the action bar and choose **Edit**. The connection sheet opens pre-filled with the existing configuration. Make your changes and click **Save**.
+Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection.
 
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, default schema) is stored locally in a SQLite database within the Pharos application data directory. Passwords are stored securely in the macOS Keychain, not in the SQLite database.
+Connection metadata (name, host, port, database, username, SSL mode, default schema) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
 
-{: .warning }
-Connection passwords are stored in the macOS Keychain on your machine. Connection metadata is stored in the local Pharos data directory.
+{: .note }
+Passwords never leave your machine — they live in the macOS Keychain and are read into memory only to open connections.
 
 ## Multiple Connections
 
-You can save as many connections as needed. The connection dropdown lists all saved connections, and you can switch between them by selecting from the menu. Only one connection is active per editor pane -- switching connections updates the schema browser and makes that connection the target for query execution.
+You can save as many connections as needed, and because the active connection is per editor tab, you can work against several databases side by side — each tab's queries, schema browser view, and results follow that tab's connection.

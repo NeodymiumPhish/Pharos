@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Keyboard Shortcuts
-nav_order: 15
+nav_order: 17
 ---
 
 # Keyboard Shortcuts
@@ -16,19 +16,26 @@ nav_order: 15
 
 ---
 
-## Overview
+## Pharos
 
-Pharos uses fixed keyboard shortcuts defined in the application menu bar. All shortcuts are available whenever the corresponding action is applicable.
+| Action | Shortcut |
+|--------|----------|
+| Settings… | Cmd+, |
+| Hide Pharos | Cmd+H |
+| Hide Others | Cmd+Opt+H |
+| Quit Pharos | Cmd+Q |
 
 ## File
 
 | Action | Shortcut |
 |--------|----------|
-| New Connection | Cmd+N |
+| Manage Connections… | Cmd+N |
+| Open… (SQL file) | Cmd+O |
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |
-| Save Query | Cmd+S |
+| Save Query… | Cmd+S |
+| Export Query as SQL File… | Cmd+Opt+S |
 | Close Window | Cmd+Shift+W |
 
 ## Edit
@@ -37,18 +44,16 @@ Pharos uses fixed keyboard shortcuts defined in the application menu bar. All sh
 |--------|----------|
 | Undo | Cmd+Z |
 | Redo | Cmd+Shift+Z |
-| Cut | Cmd+X |
-| Copy | Cmd+C |
-| Paste | Cmd+V |
+| Cut / Copy / Paste | Cmd+X / Cmd+C / Cmd+V |
 | Select All | Cmd+A |
-| Find in Results | Cmd+F |
-| Filter Results | Cmd+Shift+F |
+| Find… (in results) | Cmd+F |
+| Filter Results… | Cmd+Shift+F |
 
 ## Query
 
 | Action | Shortcut |
 |--------|----------|
-| Run Query | Cmd+Enter |
+| Run Query (statement under cursor) | Cmd+Return |
 | Cancel Query | Cmd+. |
 | Format SQL | Ctrl+I |
 
@@ -58,33 +63,43 @@ Pharos uses fixed keyboard shortcuts defined in the application menu bar. All sh
 |--------|----------|
 | Toggle Sidebar | Cmd+Ctrl+S |
 | Toggle Inspector | Cmd+Opt+0 |
-| Switch to Tab 1 | Cmd+1 |
-| Switch to Tab 2 | Cmd+2 |
-| Switch to Tab 3 | Cmd+3 |
-| Switch to Tab 4 | Cmd+4 |
-| Switch to Tab 5 | Cmd+5 |
-| Switch to Tab 6 | Cmd+6 |
-| Switch to Tab 7 | Cmd+7 |
-| Switch to Tab 8 | Cmd+8 |
-| Switch to Tab 9 | Cmd+9 |
+| Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 
-## Application
+## Window
 
 | Action | Shortcut |
 |--------|----------|
-| Settings | Cmd+, |
-| Hide Pharos | Cmd+H |
-| Hide Others | Cmd+Opt+H |
-| Quit Pharos | Cmd+Q |
 | Minimize | Cmd+M |
 
-## Editor
+## In the Editor
 
-| Action | Shortcut |
-|--------|----------|
-| Auto-complete | Ctrl+Space |
-| Indent selection | Tab (with multi-line selection) |
-| Outdent selection | Shift+Tab |
-| Dismiss completion | Escape |
-| Navigate completion | Up/Down arrows |
+| Action | Key |
+|--------|-----|
+| Trigger auto-completion | Ctrl+Space |
+| Navigate completion list | Up / Down |
 | Accept completion | Return or Tab |
+| Dismiss completion | Escape |
+| Indent selection | Tab (with multi-line selection) |
+| Outdent | Shift+Tab |
+| Apply "Format as SQL list" offer | Tab |
+| Dismiss "Format as SQL list" offer | Escape |
+
+## In the Results Grid
+
+| Action | Key |
+|--------|-----|
+| Copy selection as TSV | Cmd+C |
+| Extend row selection | Shift+click (range), Cmd+click (toggle) |
+| Move active cell | Arrow keys |
+| Extend cell selection | Shift+arrows |
+| Step between cells | Tab / Return |
+| Clear selection (or close find bar) | Escape |
+| Navigate find matches | Enter / Shift+Enter |
+
+## In a Chart
+
+| Action | Key |
+|--------|-----|
+| Toggle item in selection | Cmd+click |
+| Extend selection from anchor | Shift+click |
+| Clear staged selection | Escape |

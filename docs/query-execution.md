@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Query Execution
-nav_order: 6
+nav_order: 7
 ---
 
 # Query Execution
@@ -18,42 +18,54 @@ nav_order: 6
 
 ## Overview
 
-Pharos executes SQL queries against the active PostgreSQL connection and displays results in the grid below the editor. It supports both data-returning queries (SELECT, WITH, EXPLAIN, SHOW, TABLE, VALUES) and statements (INSERT, UPDATE, DELETE, CREATE, etc.).
+Pharos executes SQL against the editor tab's active connection and shows the output in [result tabs](results-grid.md#result-tabs) below the editor. Multiple queries can run concurrently, each statement gets its own result tab, and long-running queries can notify you when they finish.
 
-## Running a Query
+## Running Queries
 
-Press **Cmd+Enter** or choose **Query > Run Query** from the menu bar to execute the SQL in the active editor tab. The query runs against the connection shown in the server rail.
+The editor splits your SQL into individual statements. There are three ways to run:
 
-During execution, the tab indicates that a query is in progress. Results appear in the grid below the editor once the query completes.
+- **Cmd+Return** (or **Query > Run Query**) runs the **statement under the cursor** and opens a result tab for it. If nothing parses as a statement, the entire editor text is sent as one batch.
+- **Gutter run buttons** — each statement has its own run button in the line-number gutter.
+- **Run All Queries** — from the toolbar Run button's menu (shown when the tab has multiple statements): runs every statement, up to 3 at a time, in order. Run All pauses if you switch away from the tab and resumes when you return.
 
-## Cancelling a Query
+Each result tab is color-matched to its source statement's bar in the editor gutter, so you can always tell which result came from which SQL.
 
-Press **Cmd+.** or choose **Query > Cancel Query** to cancel a running query. Pharos sends a `pg_cancel_backend()` request to the PostgreSQL server, which terminates the query on the server side.
+## Concurrent Execution
+
+Queries run concurrently — starting a second statement doesn't wait for the first. While queries run:
+
+- The Run button becomes a **red progress ring showing the count** of running queries. With one running, clicking it cancels; with several, it opens a popover listing each in-flight query with its elapsed time and a per-query cancel button.
+- Each running statement's gutter bar **pulses** until its query completes.
+- Re-running SQL that is already in flight is skipped, with a toast pointing at the running query.
+
+## Cancelling
+
+Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side.
 
 ## Query Types
 
-Pharos distinguishes between two types of SQL:
+- **Data queries** (`SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `TABLE`, `VALUES`) return a result set displayed in the results grid.
+- **Statements** (`INSERT`, `UPDATE`, `DELETE`, `CREATE`, …) return an execution summary showing the number of affected rows.
 
-- **Data queries** (SELECT, WITH, EXPLAIN, SHOW, TABLE, VALUES) -- return a result set displayed in the results grid with column headers and rows
-- **Statements** (INSERT, UPDATE, DELETE, CREATE, DROP, etc.) -- return an execution summary showing the number of affected rows
+## Row Limit and Load More
 
-## Row Limit and Pagination
-
-By default, data queries return a limited number of rows controlled by the **Row Limit** setting (default: 1,000). If the query produces more rows than the limit, a **Load More** button appears at the bottom of the results grid.
-
-Click **Load More** to fetch the next page of rows. The additional rows are appended to the existing results, and sorting or filtering is reapplied automatically. This process can be repeated until all rows are loaded.
+Data queries return up to the **Row Limit** setting per page (default 1,000). When more rows exist, the status text notes "(more available)" and a **Load More Rows** bar appears below the grid. Loading more appends rows and re-applies any active sort and filters. [Charts](charts.md) offer a separate "Load all rows" shortcut, and server-side chart aggregation avoids loading rows entirely.
 
 {: .tip }
-You can change the default row limit in [Settings](settings.md) under the Query tab.
+You can change the row limit in [Settings](settings.md) under the Query tab.
 
 ## Query Timeout
 
-Queries are subject to a configurable timeout (default: 30 seconds). If a query exceeds the timeout, it is automatically cancelled. You can adjust the timeout in [Settings](settings.md) under the Query tab.
+Each query runs with a server-side timeout (PostgreSQL's `statement_timeout`), set from the **Timeout** setting (default 30 seconds). A query that exceeds it is cancelled by the server and reports a "canceling statement due to statement timeout" error. Raise the timeout in [Settings](settings.md) if you routinely run longer queries.
+
+## Completion Notifications
+
+Pharos can post a macOS notification when a query finishes (successfully or with an error) so you don't have to babysit long runs. A notification fires when the query ran at least the configured minimum duration (default 5 seconds) **and** either Pharos is in the background or the query's tab isn't the one you're looking at — both conditions are individually toggleable in [Settings](settings.md). Clicking the notification brings Pharos forward and focuses the originating tab. Queries you cancelled yourself don't notify.
 
 ## Error Handling
 
-When a query fails, the error message from PostgreSQL is displayed in the results area. If the error includes a character position, the editor highlights the error location with a red underline to help you find the problem.
+When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the editor underlines the location in red to help you find the problem.
 
-## Query History
+## History
 
-Every executed query is automatically recorded in the [Query History](query-history.md). You can revisit previous queries and their results from the History panel in the sidebar.
+Successful queries are recorded automatically — grouped into workspaces per editor tab — in [Query History](query-history.md).

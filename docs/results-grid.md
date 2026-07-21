@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Results Grid
-nav_order: 7
+nav_order: 8
 ---
 
 # Results Grid
@@ -18,58 +18,63 @@ nav_order: 7
 
 ## Overview
 
-The results grid displays query output in a native table view below the SQL editor. It supports column sorting, row selection, inline search with highlighting, and result filtering.
+The results grid displays query output in a native table below the SQL editor. It supports type-aware sorting, cell and row selection, inline find with highlighting, [column filters](column-filters.md), and copy/export in multiple formats. Every result lives in its own **result tab**, and any result can be flipped to a [chart](charts.md).
+
+## Result Tabs
+
+Each executed statement gets its own tab in the result tab bar (below the action bar). Tabs are labeled with the statement's line range and the table it touches (e.g., "L1-3: users"), or a preview of the SQL, and each tab's colored dot matches the statement's bar in the editor gutter.
+
+- **Select** a tab to show its result; its source lines are highlighted in the editor, and the tab's grid state (sort, filters, column widths, scroll position, selection) is restored exactly.
+- **Close** a tab with its ✕ button or right-click > **Close**.
+- Right-click > **View SQL Query** shows the exact SQL that produced the result.
+- If you edit the SQL a result came from, the tab dims to indicate it is **stale** — the result no longer matches the current editor text.
+
+## Column Headers
+
+Each column header has two rows: the **column name** on top and its **PostgreSQL data type** below (e.g., `INTEGER`, `TIMESTAMP WITH TIME ZONE`). Columns start at a content-aware width — sized to fit the name, type, and sampled cell content, up to 1000px — and can be resized or reordered by dragging. Double-click a column's right divider to auto-fit it.
+
+The type row also hosts two overlay affordances on its right edge:
+
+- a **▲/▼ sort triangle** while a sort is active
+- a **funnel icon** — appears on hover, stays visible (filled, accent-colored) when the column has an active [filter](column-filters.md); click it to open the filter popover
 
 ## Column Sorting
 
-Click a column header to sort the results by that column. The sort cycles through three states:
+Click a column header to sort. The sort cycles through **ascending → descending → original order**. Sorting is type-aware: numeric columns sort by value, booleans sort false before true, everything else uses localized string comparison, and **NULLs always sort to the end**. A **Reset Sort** button appears in the action bar while a sort is active.
 
-1. **Ascending** -- indicated by an upward chevron
-2. **Descending** -- indicated by a downward chevron
-3. **Original order** -- removes the sort and restores the query's original row order
+## Selection
 
-Sorting is type-aware:
+The grid supports both row and cell selection:
 
-- **Numeric** columns sort by numeric value
-- **Boolean** columns sort false before true
-- **All other** columns sort by localized string comparison
-- **NULL** values always sort to the end regardless of direction
+- **Rows** — click a row's number in the **#** column. **Shift-click** extends a range, **⌘-click** toggles individual rows in and out of the selection, and dragging on the # column selects a range.
+- **Cells** — click any data cell, or click-drag to select a rectangular cell range. Arrow keys move the active cell, **Shift+arrows** extend the range, and **Tab**/**Return** step between cells.
 
-A **Reset Sort** button appears when any sort is active, allowing you to clear the sort in one click.
-
-Double-click a column divider in the header to auto-fit that column's width to its content.
-
-## Row Selection
-
-Click a row's **number column** (the **#** column) to select it. Hold **Shift** and click another row number to select a range. Selected rows are used for copy and export operations -- if no rows are selected, copy and export operate on all displayed rows.
+Press **Esc** or click the **Clear Selection** button to clear. The selection drives the [Inspector](inspector.md) (row detail or aggregate statistics) and copy/export operations — copy uses the selected cells if any, otherwise the selected rows, otherwise all displayed rows.
 
 ## Find in Results
 
-Press **Cmd+F** or choose **Edit > Find** to open the find bar above the results grid. Type a search term to highlight all matching cells across the results.
-
-The find bar provides:
-
-- **Match counter** showing "N of M" matches
-- **Previous/Next** navigation buttons to jump between matches (or press Enter/Shift+Enter)
-- **Scroll to match** -- the grid automatically scrolls to reveal the current match
-- **Clear** button to reset the search
-
-Press **Escape** to close the find bar.
+Press **Cmd+F** (or **Edit > Find…**) to open the find controls in the action bar. Type to highlight all matching cells, with a "N of M" match counter. Navigate matches with the Previous/Next buttons or **Enter**/**Shift+Enter** — the grid scrolls to each match. Press **Escape** to close.
 
 ## Filter Results
 
-Press **Cmd+Shift+F** or choose **Edit > Filter Results** to open the find bar in filter mode. In filter mode, the funnel icon toggle is active, and only rows containing the search term are displayed -- non-matching rows are hidden.
+Press **Cmd+Shift+F** (or **Edit > Filter Results…**) to open the same controls in **filter mode** (funnel toggle active): only rows containing the search text are shown. Toggle the funnel to switch between highlight-only and filter modes. For per-column, type-aware filtering, see [Column Filters](column-filters.md).
 
-Toggle the funnel icon to switch between highlight-only and filter modes while the find bar is open.
+## Value Rendering
 
-## Copy and Export
+Cell values are colored by type: numeric blue, temporal purple, JSON orange, booleans green (true) / red (false), formatted per the Bool Display setting. NULLs render per the NULL Display setting in italic gray. Newlines inside cells are flattened to `↵` for single-line display.
 
-See [Data Export](data-export.md) for details on copying results to the clipboard and exporting to files.
+## Load More
+
+When a query has more rows than the current page (see [Row Limit](query-execution.md#row-limit-and-load-more)), a **Load More Rows** bar appears at the bottom of the grid. Loading appends the next page and re-applies the active sort and filters.
 
 ## Pin Results
 
-Results can be pinned to keep them visible while switching between tabs. When results are pinned, switching to another tab does not replace the displayed results. Unpin to restore the default behavior where each tab shows its own results.
+Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name; selecting any result tab unpins.
 
-## Status Bar
+## Status Text
 
-The bottom of the results area displays a status bar with information about the current result set, including row count and query execution time.
+The action bar's status text summarizes the current result: row count and execution time (e.g., "1,000 rows in 0.42s"), plus visible-of-total counts and active filter counts when filters hide rows, match counts during a find, and "(more available)" when more rows can be loaded. Statements show "N rows affected".
+
+## Copy and Export
+
+See [Data Export](data-export.md) for copying results to the clipboard and exporting to files.

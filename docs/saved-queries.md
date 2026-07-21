@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Saved Queries
-nav_order: 11
+nav_order: 13
 ---
 
 # Saved Queries
@@ -18,65 +18,49 @@ nav_order: 11
 
 ## Overview
 
-The Saved Queries panel lives in the Library section at the top of the sidebar. It provides a persistent library of SQL queries organized by connection and folder, allowing you to build and reuse a collection of frequently used queries.
+The **Query Library** is the first panel of the sidebar (folder icon). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
 
 ## Saving a Query
 
-- Press **Cmd+S** to save the current tab's SQL as a saved query. If the tab is already linked to a saved query, this updates the existing query silently.
-- If the tab has no linked saved query, a save sheet appears where you can provide a name, choose a folder, and select whether to associate the query with the current connection or save it as a general query.
+- Press **Cmd+S** (**File > Save Query…**). If the tab is already linked to a saved query, it updates in place silently; if the tab is backed by a `.sql` file, the file is written instead; otherwise a save sheet appears asking for a **Name** and a **Folder** ("No Folder", an existing folder, or "New Folder…").
+- **Save As…** in the editor toolbar's Save dropdown always opens the save sheet, creating a new saved query from the current tab.
+- Saving with a name that already exists offers **Replace All / Keep Both / Cancel**.
+
+Query variables are saved along with the SQL, so a parameterized query reopens with its variables and values intact.
 
 ## Organization
 
-Saved queries are organized into two top-level sections:
-
-- **Connection section** -- Queries associated with the active connection. The section header shows the connection name.
-- **General section** -- Queries not tied to any specific connection. These are always visible regardless of which connection is active.
-
-Within each section, queries can be organized into folders. Folders are listed alphabetically, followed by unfiled queries sorted by name.
+Queries can be organized into folders; folders are listed alphabetically, followed by unfiled queries. To move queries, **drag and drop** them onto a folder (multi-select works), or drag them to the root to unfile them. Empty folders are kept until deleted.
 
 ## Opening a Saved Query
 
-Double-click a saved query to open it in a new editor tab. If the query is already open in an existing tab, Pharos switches to that tab instead of creating a duplicate.
+Double-click a saved query to open it in a new editor tab. If it's already open in a tab, Pharos switches to that tab instead of creating a duplicate. Hovering over a query shows a tooltip preview of its SQL.
 
-## Display
+## Context Menus
 
-Each saved query in the list shows a single-line title. Hovering over a query displays a tooltip with a preview of the SQL text.
-
-## Bottom Bar
-
-The bottom bar of the saved queries panel has a **New Folder** button for creating new folders. Save and Save As functionality is available from the editor toolbar (not the saved queries panel itself).
-
-## Context Menu
-
-Right-click a saved query, folder, or section header for additional options:
-
-### Query Context Menu
+**Query:**
 
 | Action | Description |
 |--------|-------------|
 | Open in Tab | Opens the query in a new editor tab |
-| Copy SQL | Copies the query's SQL to the clipboard |
-| Rename... | Opens a rename dialog |
+| Copy SQL | Copies the SQL to the clipboard (variables rendered) |
+| Export as SQL File… | Saves the query to a `.sql` file |
+| Rename… | Renames the query |
 | Delete | Deletes the query |
 
-### Folder Context Menu
+**Folder:**
 
 | Action | Description |
 |--------|-------------|
-| Rename | Renames the folder and all queries within it |
-| Delete | Deletes the folder and all its queries (with confirmation) |
-
-### Section Context Menu
-
-| Action | Description |
-|--------|-------------|
-| New Query | Creates a new query in this section |
-| New Folder | Creates a new folder in this section |
+| New Query | Creates a new query in the folder |
+| Export Folder as SQL Files… | Saves every query in the folder as `.sql` files (with collision handling) |
+| Rename… | Renames the folder |
+| Delete | Deletes the folder and its queries (with confirmation) |
 
 ## Filtering
 
-Use the search field at the top of the sidebar to filter saved queries. The filter matches against both query names and SQL content.
+The sidebar's **Filter** field searches saved queries by name and SQL content.
 
 ## Storage
 
-Saved queries are stored in the local SQLite database alongside connection configurations. They persist across application launches.
+Saved queries live in the local SQLite database alongside connection metadata and persist across launches.

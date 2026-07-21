@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Table Operations
-nav_order: 13
+nav_order: 15
 ---
 
 # Table Operations
@@ -18,57 +18,68 @@ nav_order: 13
 
 ## Overview
 
-Pharos provides several table-level operations accessible from the schema browser context menu. These operations let you clone tables, import data, export data, and inspect table metadata without writing SQL.
+Pharos provides table-level operations from the [Schema Browser](schema-browser.md) context menu: view and copy DDL, clone tables, import CSV data, export data, inspect indexes and constraints, and run truncate/drop with confirmation.
+
+## View Table DDL
+
+Right-click a table and choose **View Table DDL…** to open the DDL sheet. It shows the generated `CREATE TABLE` statement in a read-only, scrollable monospaced view, with three detail levels selectable in the sidebar:
+
+- **Columns** — column definitions only
+- **+ Constraints** — adds primary key, foreign key, unique, and check constraints
+- **Full (+ Indexes)** — adds index definitions
+
+Click **Copy DDL** to copy the displayed statement to the clipboard.
 
 ## Clone Table
 
-Right-click a table in the [Schema Browser](schema-browser.md) and choose **Clone Table DDL** to open the clone sheet.
+Cloning lives inside the DDL sheet: click **Clone Table…** to reveal an inline clone section with:
 
-The clone operation creates a new table with the same structure (DDL) as the source table. Options include:
+- **New table name** — defaults to `<table>_copy`; the clone is created in the same schema
+- **Include table rows** — optionally copy all rows into the clone (off by default)
 
-- **Target name** -- The name for the new table (created in the same schema)
-- **Include data** -- Optionally copy all rows from the source table into the clone
-
-After cloning, a confirmation dialog shows the result. If data was included, it reports the number of rows copied. The schema browser refreshes automatically to show the new table.
+After cloning, an alert reports the result ("Table structure cloned." or "Table cloned with N rows.") and the schema browser refreshes to show the new table.
 
 ## Import CSV
 
-Right-click a table and choose **Import Data** to open the import sheet.
+Right-click a table and choose **Import Data…** to open the import sheet:
 
-The import operation reads a CSV file and inserts its rows into the selected table. Options include:
+- **CSV File** — choose the file to import
+- **CSV file has headers** — whether the first row contains column headers (on by default)
 
-- **File path** -- The CSV file to import
-- **Has headers** -- Whether the first row of the CSV contains column headers
-
-After import, a confirmation dialog reports the number of rows imported.
+The import runs in a single transaction and reports the number of rows imported. While it runs, the table's row in the schema browser shows a live "Importing: N" counter.
 
 {: .warning }
-The CSV columns must match the table's column structure. Mismatched columns will cause the import to fail.
+Import is positional: the CSV must have exactly as many columns as the table, in table-column order. A mismatch fails the import and rolls back the transaction. Empty CSV fields are inserted as NULL. There is no delimiter option — files must be comma-separated.
 
 ## Export Table Data
 
-Right-click a table or view and choose **Export Data** to open the export sheet. See [Data Export](data-export.md) for full details on the export sheet options.
+Right-click a table, view, or partition and choose **Export Data…** to open the export sheet:
 
-The table export supports the following formats: CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, and Excel (XLSX). You can select which columns to include and configure header and NULL value options.
+- **Format** — CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, or Excel (XLSX)
+- **Include headers** — toggle column headers in the output
+- **NULL values** — render nulls as an empty string or as `NULL`
+- **Columns** — check or uncheck individual columns, with **All** / **None** buttons
+
+Click **Export…** to choose a destination file; an alert reports the number of rows exported. See [Data Export](data-export.md) for exporting from the results grid instead.
 
 ## View Indexes
 
-Right-click a table and choose **View Indexes** to display the table's indexes in a detail sheet. This shows index names, types, and the columns they cover.
+Right-click a table (or partition) and choose **View Indexes** to see the table's indexes in a detail sheet: name, covered columns, index type, and whether each is unique or the primary key.
 
 ## View Constraints
 
-Right-click a table or view and choose **View Constraints** to display constraints in a detail sheet. This includes primary keys, foreign keys, unique constraints, and check constraints.
+Right-click a table, view, or partition and choose **View Constraints** to see its constraints: name, type, columns, and referenced table for foreign keys.
 
 ## View Functions
 
-Right-click a schema node and choose **View Functions** to display all functions defined in that schema.
+Right-click a schema and choose **View Functions** to see all functions defined in that schema, with their arguments, return types, and language.
 
 ## Destructive Operations
 
 Two destructive operations are available from the table context menu:
 
-- **Truncate Table** -- Removes all rows from the table while preserving the table structure
-- **Drop Table** (or **Drop View**) -- Permanently deletes the table/view and all its data
+- **Truncate Table** — removes all rows while preserving the table structure
+- **Drop Table** / **Drop View** — permanently deletes the object and its data
 
 {: .warning }
-Both truncate and drop operations are irreversible. If the **Confirm before DROP / DELETE / TRUNCATE** setting is enabled (the default), Pharos displays a confirmation dialog before proceeding.
+Both operations are irreversible. When **Confirm before DROP / DELETE / TRUNCATE** is enabled in [Settings](settings.md) (the default), Pharos shows a confirmation dialog first; with the setting off, they execute immediately.

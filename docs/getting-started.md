@@ -18,7 +18,7 @@ nav_order: 2
 
 ## System Requirements
 
-- macOS 14.0 (Sonoma) or later
+- macOS 15.0 (Sequoia) or later
 - A PostgreSQL server (local or remote) to connect to
 
 ## Installation
@@ -54,32 +54,41 @@ brew tap NeodymiumPhish/pharos && brew install --cask pharos
 {: .note }
 Building from source requires Xcode and a Rust toolchain installed via [rustup](https://rustup.rs).
 
-## First Launch
+## The Main Window
 
-When you launch Pharos for the first time, you will see an empty workspace with a prompt to connect to a database. The main window contains three areas:
+The Pharos window has three panes:
 
-- **Server Rail** (left edge) -- Shows your saved connections with status indicators
-- **Sidebar** -- Contains the Library (saved queries and history) and Navigator (schema browser)
-- **Content Area** -- The SQL editor and results grid
+- **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with three views, switched by the icons at its top: **Query Library** (saved queries), **Results History** (workspaces and past queries), and **Database Navigation** (the schema browser). A shared **Filter** field searches whichever view is active.
+- **Content area** (center) — one or more side-by-side editor panes, each with its own query tabs and toolbar, above the results area (grid or chart) and its action bar.
+- **Inspector** (right, toggle with **Cmd+Opt+0**) — row details, selection statistics, and schema object details. Collapsed by default.
+
+Connections are chosen **per editor tab** from the connection pull-down in the editor toolbar — there is no global connection selector.
 
 ## Creating Your First Connection
 
-1. Press **Cmd+N** or choose **File > New Connection** from the menu bar
-2. A connection sheet appears with the following fields:
-   - **Name** -- A friendly label for this connection (e.g., "Local Dev")
-   - **Host** -- The server address (defaults to `localhost`)
-   - **Port** -- The PostgreSQL port (defaults to `5432`)
-   - **Database** -- The database name (defaults to `postgres`)
-   - **Username** -- Your PostgreSQL username
-   - **Password** -- Your password (optional, stored locally)
-   - **SSL Mode** -- Choose Prefer, Require, or Disable
-3. Click **Test Connection** to verify your settings
-4. Click **Add** to save the connection
+1. Press **Cmd+N** or choose **File > Manage Connections…** to open the Connections Manager window
+2. Click the **+** button below the connection list
+3. Fill in the connection details:
+   - **Name** — a friendly label (e.g., "Local Dev")
+   - **Host** — the server address
+   - **Port** — the PostgreSQL port (5432 by default)
+   - **Database** — the database name
+   - **Username** and **Password**
+   - **SSL Mode** — Prefer, Require, or Disable
+4. Click **Test Connection** to verify — on success, the latency is shown and the **Default Schema** menu is populated
+5. Click **Save**
 
-The new connection appears in the server rail on the left. Click it to connect and start exploring your database.
+Then, in the editor toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigation panel populates with your schema, and you're ready to run queries.
+
+## Running Your First Query
+
+1. Type a query in the editor, for example `SELECT * FROM my_table LIMIT 100;`
+2. Press **Cmd+Return** to run the statement under the cursor
+3. Results appear in the grid below — sort, filter, [chart](charts.md), or [export](data-export.md) them from the action bar
 
 ## Next Steps
 
-- Browse your database schema in the [Schema Browser](schema-browser.md)
-- Write and run queries in the [Query Editor](query-editor.md)
+- Browse your database in the [Schema Browser](schema-browser.md)
+- Learn the [Query Editor](query-editor.md)'s completion, folding, and formatting features
+- Visualize results with [Charts](charts.md)
 - Learn the full set of [Keyboard Shortcuts](keyboard-shortcuts.md)
