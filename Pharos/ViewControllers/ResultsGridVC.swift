@@ -118,6 +118,9 @@ class ResultsGridVC: NSViewController {
 
         filterableHeaderView = FilterableHeaderView()
         filterableHeaderView.filterDelegate = self
+        var hf = filterableHeaderView.frame
+        hf.size.height = 34
+        filterableHeaderView.frame = hf
         tableView.headerView = filterableHeaderView
 
         scrollView.documentView = tableView
@@ -434,19 +437,9 @@ class ResultsGridVC: NSViewController {
             col.minWidth = 50
             col.maxWidth = 720
 
-            let attrStr = NSMutableAttributedString(
-                string: colDef.name,
-                attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]
-            )
-            attrStr.append(NSAttributedString(
-                string: "  \(colDef.dataType)",
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 9),
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                ]
-            ))
             let headerCell = SortAwareHeaderCell()
-            headerCell.attributedStringValue = attrStr
+            headerCell.nameString = colDef.name
+            headerCell.typeString = colDef.dataType.uppercased()
             col.headerCell = headerCell
             col.sortDescriptorPrototype = NSSortDescriptor(key: "col_\(index)", ascending: true)
             tableView.addTableColumn(col)
@@ -664,9 +657,18 @@ class ResultsGridVC: NSViewController {
         let colId = column.identifier.rawValue
         guard colId != "__rownum__" else { return }
 
-        // Measure header text width
-        let headerWidth = column.headerCell.attributedStringValue
-            .size().width + 50  // Padding for sort+filter icons + margins
+        // Measure header text width from the two-row header cell (name / type).
+        let headerTextWidth: CGFloat
+        if let cell = column.headerCell as? SortAwareHeaderCell {
+            let nameW = (cell.nameString as NSString)
+                .size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
+            let typeW = (cell.typeString as NSString)
+                .size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
+            headerTextWidth = max(nameW, typeW)
+        } else {
+            headerTextWidth = column.headerCell.attributedStringValue.size().width
+        }
+        let headerWidth = headerTextWidth + 50  // Padding for sort+filter icons + margins
 
         // Sample visible rows + first/last 100
         let visibleRange = tableView.rows(in: tableView.visibleRect)

@@ -2,25 +2,30 @@ import AppKit
 
 // MARK: - Sort Aware Header Cell
 
-/// Custom header cell that draws a sort indicator (▲/▼) on the left and insets the column name.
+/// Header cell drawing the column name on row 1 and the data type on row 2.
+/// Sort/filter affordances are drawn by FilterableHeaderView as row-2 overlays
+/// (Task B2), so this cell reserves no horizontal space for them.
 class SortAwareHeaderCell: NSTableHeaderCell {
-    var sortIndicator: String?  // "▲" or "▼", nil when unsorted
+    var nameString: String = ""
+    var typeString: String = ""
+
+    static let nameFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+    static let typeFont = NSFont.systemFont(ofSize: 9, weight: .regular)
+    static let hInset: CGFloat = 6
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        var frame = cellFrame
-        if let indicator = sortIndicator {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-            let indicatorStr = NSAttributedString(string: indicator, attributes: attrs)
-            let size = indicatorStr.size()
-            let y = frame.midY - size.height / 2
-            indicatorStr.draw(at: NSPoint(x: frame.minX + 4, y: y))
-            frame.origin.x += size.width + 8
-            frame.size.width -= size.width + 8
-        }
-        super.drawInterior(withFrame: frame, in: controlView)
+        let nameAttrs: [NSAttributedString.Key: Any] = [.font: Self.nameFont, .foregroundColor: NSColor.labelColor]
+        let typeAttrs: [NSAttributedString.Key: Any] = [.font: Self.typeFont, .foregroundColor: NSColor.secondaryLabelColor]
+        let nameSize = (nameString as NSString).size(withAttributes: nameAttrs)
+        let typeSize = (typeString as NSString).size(withAttributes: typeAttrs)
+        let gap: CGFloat = 1
+        let totalH = nameSize.height + gap + typeSize.height
+        // Header cells are NON-flipped (y increases upward). Center the two-line
+        // block; type sits below the name.
+        let bottomY = cellFrame.midY - totalH / 2
+        let x = cellFrame.minX + Self.hInset
+        (typeString as NSString).draw(at: NSPoint(x: x, y: bottomY), withAttributes: typeAttrs)
+        (nameString as NSString).draw(at: NSPoint(x: x, y: bottomY + typeSize.height + gap), withAttributes: nameAttrs)
     }
 }
 
@@ -40,6 +45,20 @@ protocol FilterableHeaderViewDelegate: AnyObject {
 class FilterableHeaderView: NSTableHeaderView {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
+
+    /// Minimum header height needed to fit the two-row (name / type) header cell.
+    /// NSScrollView re-tiles the table and resets the header frame to the default
+    /// single-row height; clamping here keeps the two-row layout from clipping.
+    static let minHeaderHeight: CGFloat = 34
+
+    override var frame: NSRect {
+        get { super.frame }
+        set {
+            var f = newValue
+            f.size.height = max(f.size.height, Self.minHeaderHeight)
+            super.frame = f
+        }
+    }
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
@@ -232,16 +251,7 @@ class FilterableHeaderView: NSTableHeaderView {
     // MARK: - Sort Cell Indicators
 
     private func updateSortCellIndicators() {
-        guard let tv = tableView else { return }
-        for col in tv.tableColumns {
-            guard let cell = col.headerCell as? SortAwareHeaderCell else { continue }
-            let colId = col.identifier.rawValue
-            if let dir = sortDirections[colId] {
-                cell.sortIndicator = dir == .ascending ? "▲" : "▼"
-            } else {
-                cell.sortIndicator = nil
-            }
-        }
+        needsDisplay = true
     }
 
     // MARK: - Geometry
