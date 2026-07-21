@@ -30,18 +30,10 @@ struct ChartCanvas: View {
     private var chartType: ChartType { config.chartType }
     private var temporalBin: TemporalBin { config.temporalBin }
 
-    /// Display names of the color domain for bar/line/area (one per series;
-    /// "" → "value" to match the `foregroundStyle(by:)` fallback below).
-    private var categorySeriesNames: [String] {
-        data.series.map { $0.name.isEmpty ? "value" : $0.name }
-    }
-    /// Pie color domain: each distinct slice label, first-seen order. Deduped
-    /// so the explicit foreground-style scale maps one color per category even
-    /// if the data (e.g. a server-aggregated result) repeats a display label.
-    private var pieLabels: [String] {
-        var seen = Set<String>()
-        return (data.series.first?.points ?? []).compactMap { seen.insert($0.xLabel).inserted ? $0.xLabel : nil }
-    }
+    /// Color domain for bar/line/area (delegates to the shared source of truth).
+    private var categorySeriesNames: [String] { data.colorDomainLabels(for: chartType) }
+    /// Pie color domain (delegates to the shared source of truth).
+    private var pieLabels: [String] { data.colorDomainLabels(for: .pie) }
     /// The single resolved color for scatter (no per-series split).
     private var scatterColor: Color {
         resolvedColors(count: 1).first ?? .accentColor

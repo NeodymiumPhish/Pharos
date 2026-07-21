@@ -289,16 +289,7 @@ struct ChartRootView: View {
     /// The color-domain labels for the current chart type (one control each).
     /// Empty for gantt/heatmap, which don't use the categorical palette.
     private var colorDomainLabels: [String] {
-        switch model.config.chartType {
-        case .bar, .line, .area:
-            return model.data.series.map { $0.name.isEmpty ? "value" : $0.name }
-        case .pie:
-            return (model.data.series.first?.points ?? []).map { $0.xLabel }
-        case .scatter:
-            return (model.data.series.first?.points.isEmpty == false) ? ["Points"] : []
-        case .gantt, .heatmap:
-            return []
-        }
+        model.data.colorDomainLabels(for: model.config.chartType)
     }
 
     @ViewBuilder private var colorSection: some View {
