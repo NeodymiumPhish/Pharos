@@ -2,25 +2,24 @@ import AppKit
 
 // MARK: - Sort Aware Header Cell
 
-/// Custom header cell that draws a sort indicator (▲/▼) on the left and insets the column name.
+/// Header cell for the two-row (name / type) header. It draws only its own
+/// background/bezel — the name and type TEXT are drawn by `FilterableHeaderView`
+/// in `draw(_:)`, clipped per column.
+///
+/// The cell intentionally stores NO Swift properties. `NSTableHeaderView` draws
+/// the empty overflow region past the last column using a bitwise `NSCopyObject`
+/// copy of a header cell; that copy does not retain Swift-added stored properties
+/// (e.g. a `String`), so accessing one on the copy dereferences a dangling
+/// pointer → `EXC_BAD_ACCESS`. Keeping the cell property-free makes the copy safe.
 class SortAwareHeaderCell: NSTableHeaderCell {
-    var sortIndicator: String?  // "▲" or "▼", nil when unsorted
+    static let nameFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
+    static let typeFont = NSFont.systemFont(ofSize: 9, weight: .regular)
+    static let hInset: CGFloat = 6
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        var frame = cellFrame
-        if let indicator = sortIndicator {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor
-            ]
-            let indicatorStr = NSAttributedString(string: indicator, attributes: attrs)
-            let size = indicatorStr.size()
-            let y = frame.midY - size.height / 2
-            indicatorStr.draw(at: NSPoint(x: frame.minX + 4, y: y))
-            frame.origin.x += size.width + 8
-            frame.size.width -= size.width + 8
-        }
-        super.drawInterior(withFrame: frame, in: controlView)
+        // Intentionally empty: the two-row text is drawn by FilterableHeaderView
+        // so it can be clipped to the column and to avoid the NSCell copy hazard
+        // described above. The base class still draws the header background/bezel.
     }
 }
 
@@ -40,6 +39,13 @@ protocol FilterableHeaderViewDelegate: AnyObject {
 class FilterableHeaderView: NSTableHeaderView {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
+
+    /// Data-type label to draw on row 2, keyed by column identifier. The name on
+    /// row 1 comes from each column's `title`. Owned by the view (not the cell) so
+    /// the header cells can stay Swift-property-free — see `SortAwareHeaderCell`.
+    var columnTypes: [String: String] = [:] {
+        didSet { needsDisplay = true }
+    }
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
@@ -203,8 +209,19 @@ class FilterableHeaderView: NSTableHeaderView {
 
         super.draw(dirtyRect)
 
-        // Filter icons drawn AFTER super (topmost visual element)
         guard let tableView = tableView else { return }
+
+        // Two-row text (name / type) drawn by the view, clipped per column, so the
+        // header cells stay Swift-property-free (see SortAwareHeaderCell) and names
+        // can't bleed into neighbouring columns.
+        for (colIndex, column) in tableView.tableColumns.enumerated() {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__" else { continue }
+            drawHeaderText(name: column.title, type: columnTypes[colId] ?? "",
+                           in: headerRect(ofColumn: colIndex))
+        }
+
+        // Filter icons drawn AFTER text (topmost visual element)
 
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
@@ -227,33 +244,65 @@ class FilterableHeaderView: NSTableHeaderView {
             )
             tinted.draw(in: drawRect)
         }
+
+        // Sort arrow: persistent when a column is sorted (so sort state is visible
+        // at rest), drawn on row-2 right just left of the funnel slot. Overlay only —
+        // reserves no column width.
+        for (colIndex, column) in tableView.tableColumns.enumerated() {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__", let dir = sortDirections[colId] else { continue }
+            let headerRect = self.headerRect(ofColumn: colIndex)
+            let arrow = (dir == .ascending) ? "▲" : "▼"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            let sz = (arrow as NSString).size(withAttributes: attrs)
+            let funnelSlot = iconSize + iconPadding * 2 + 8   // width the funnel occupies at the right
+            let iconRect = filterIconRect(inHeaderRect: headerRect)
+            let x = headerRect.maxX - funnelSlot - sz.width - 2
+            let y = iconRect.midY - sz.height / 2
+            (arrow as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+        }
+    }
+
+    /// Draws the column name (row 1) and data type (row 2), block-centred and
+    /// clipped to `headerRect`. NSTableHeaderView is FLIPPED (y increases
+    /// downward → smaller y = top), so the name draws at the smaller y.
+    private func drawHeaderText(name: String, type: String, in headerRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current else { return }
+        ctx.saveGraphicsState()
+        defer { ctx.restoreGraphicsState() }
+        NSBezierPath(rect: headerRect.insetBy(dx: SortAwareHeaderCell.hInset, dy: 0)).setClip()
+
+        let nameAttrs: [NSAttributedString.Key: Any] =
+            [.font: SortAwareHeaderCell.nameFont, .foregroundColor: NSColor.labelColor]
+        let typeAttrs: [NSAttributedString.Key: Any] =
+            [.font: SortAwareHeaderCell.typeFont, .foregroundColor: NSColor.secondaryLabelColor]
+        let nameSize = (name as NSString).size(withAttributes: nameAttrs)
+        let typeSize = (type as NSString).size(withAttributes: typeAttrs)
+        let gap: CGFloat = 1
+        let totalH = nameSize.height + gap + typeSize.height
+        let topY = headerRect.midY - totalH / 2
+        let x = headerRect.minX + SortAwareHeaderCell.hInset
+        (name as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
+        (type as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
     }
 
     // MARK: - Sort Cell Indicators
 
     private func updateSortCellIndicators() {
-        guard let tv = tableView else { return }
-        for col in tv.tableColumns {
-            guard let cell = col.headerCell as? SortAwareHeaderCell else { continue }
-            let colId = col.identifier.rawValue
-            if let dir = sortDirections[colId] {
-                cell.sortIndicator = dir == .ascending ? "▲" : "▼"
-            } else {
-                cell.sortIndicator = nil
-            }
-        }
+        needsDisplay = true
     }
 
     // MARK: - Geometry
 
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
-        return NSRect(
-            x: headerRect.maxX - side - 8,
-            y: headerRect.midY - side / 2,
-            width: side,
-            height: side
-        )
+        // Row 2 (the type row) is the LOWER band. NSTableHeaderView is flipped
+        // (y increases downward), so the lower band is near maxY, not minY.
+        let row2MidY = headerRect.maxY - headerRect.height * 0.30
+        return NSRect(x: headerRect.maxX - side - 8, y: row2MidY - side / 2, width: side, height: side)
     }
 
     /// Returns the column index to auto-fit if the point is near a column's right edge (~4px).

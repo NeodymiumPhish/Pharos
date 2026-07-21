@@ -131,6 +131,7 @@
 		F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD847E740BEC6F542D9BE20D /* DrillSummary.swift */; };
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
 		FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E4096E1BBB69FB83745F0B /* BlanksSentinel.swift */; };
+		FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D712C9854028F854DE9E6E46 /* ResultCellText.swift */; };
 		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
 /* End PBXBuildFile section */
 
@@ -230,6 +231,7 @@
 		D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryEditorVC.swift; sourceTree = "<group>"; };
 		D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueListView.swift; sourceTree = "<group>"; };
 		D662512D7219078869005EED /* ResultsDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsDataSource.swift; sourceTree = "<group>"; };
+		D712C9854028F854DE9E6E46 /* ResultCellText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultCellText.swift; sourceTree = "<group>"; };
 		D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaListFilter.swift; sourceTree = "<group>"; };
 		D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterableHeaderView.swift; sourceTree = "<group>"; };
 		DB718C65F3D74705409121A4 /* TableDDL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableDDL.swift; sourceTree = "<group>"; };
@@ -276,6 +278,7 @@
 				D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */,
 				36EE0E6CA75016ED53876601 /* FilterValueSort.swift */,
 				CDED3E898043241B00FE18D7 /* ResizeGripView.swift */,
+				D712C9854028F854DE9E6E46 /* ResultCellText.swift */,
 				06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */,
 				745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */,
 				F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */,
@@ -692,6 +695,7 @@
 				4F7D024CB09110ABCE76F81F /* QueryVariablesPanelVC.swift in Sources */,
 				75F6AB8A66D389286E0A1C1D /* ResizeDividerView.swift in Sources */,
 				F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */,
+				FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */,
 				62B0D5879E818278B570C216 /* ResultTab.swift in Sources */,
 				D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */,
 				0754C2EB81577A660A258460 /* ResultTabResolver.swift in Sources */,
