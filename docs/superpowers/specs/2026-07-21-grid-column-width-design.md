@@ -1,130 +1,157 @@
-# Results-Grid Column Width — Design Spec
+# Results-Grid Column Width & Two-Row Header — Design Spec
 
 **Date:** 2026-07-21
 **Status:** Approved for planning
 
 ## Summary
 
-Fix results-grid columns defaulting to an oversized width (short-content columns
-open at ~150px of dead space) and being un-resizable past 720px. Make the default
-width **content-aware** — the width of the column name/type header and the actual
-rendered cell contents — and tighten that measurement so it doesn't bake in
-excess padding. Raise the resize cap to **1000px**.
+Results-grid columns default to an oversized width (short-content columns open at
+~150px of dead space) and can't be resized past 720px. The root cause is the
+**header packing four things onto one horizontal row** — column name, grey type
+suffix, sort arrow (left), filter funnel (right) — which sets a width floor no
+data-fit can beat.
+
+Fix it by making the header **two rows**: row 1 the column **name**, row 2 the
+**data type**, with the sort/filter affordances drawn as **overlays on row 2's
+right** (appearing on hover / when active/sorted) so they reserve **no** horizontal
+width. A column's width then collapses to `max(nameWidth, typeWidth, contentWidth)`.
+Pair this with a **content-aware measurement** (measure what's actually rendered,
+including the compact BOOL glyph) and raise the resize cap to **1000px**.
 
 ## Goals
 
-- Columns open snug to their header + rendered contents (no wasted whitespace).
-- The width calc measures what is actually *drawn* (e.g. the BOOL ✓/✗ glyph), not
-  the raw value ("true"/"false").
+- Columns open snug to `max(name, type, rendered-content)` — no wasted whitespace.
+- Header shows the name prominently with the type as a subtitle; sort/filter
+  affordances never widen a column (overlay on hover / when sorted).
+- Width calc measures what's actually *drawn* (BOOL ✓/✗ glyph, null string,
+  flattened text), not the raw value.
 - Users can drag any column up to 1000px (horizontal scroll handles overflow).
-- One shared measurement used by both the initial default and the on-demand
-  auto-fit, so they never diverge.
+- One shared measurement for the initial default and on-demand auto-fit.
 
 ## Non-Goals
 
-- No change to the row-number column (`__rownum__`, fixed 40 / 30–60).
-- No change to saved-width restore (`applyGridState`) — it still overrides the
-  default when a workspace has a stored width per column.
-- No dynamic per-window-resize width cap (a static 1000px cap; see brainstorming).
-- No change to horizontal scrolling, sorting, or filtering.
+- No change to the row-number column (`__rownum__`, fixed 40 / 30–60), other than
+  it living in the now-taller header.
+- No change to saved-width restore (`applyGridState`) — it overwrites the default.
+- No per-window-resize width cap (static 1000; see brainstorming).
+- No change to sorting/filtering *behavior* — only where the affordances are drawn
+  and hit-tested.
 
 ## Current behavior (what's wrong)
 
 `ResultsGridVC.swift`:
-- **Default width** ([`estimateColumnWidth`:456](../../Pharos/ViewControllers/ResultsGridVC.swift)) ignores row data: `max(nameWidth, typeWidth)` where `nameWidth = name.count*8 + 20` and `typeWidth` is a per-type constant (**text/default = 150**, bool = 60, …). So a 2-char `cc` text column opens at 150px. Applied at column creation ([:433](../../Pharos/ViewControllers/ResultsGridVC.swift)) with `minWidth = 50`, `maxWidth = 720`.
-- **Auto-fit** ([`autoFitColumn`:661](../../Pharos/ViewControllers/ResultsGridVC.swift)) *does* measure content but over-pads: header = `attributedStringValue.size().width + 50`; content = `value.displayString.size(font).width + 12`; clamps to `min(max(…), 720)`. Three flaws: (a) the **+50** is `33` (funnel footprint: box `25` + `8` right margin) + `17` (sort arrow) reserved **unconditionally** even for unsorted columns; (b) it measures the **raw** `displayString` — for BOOL that's "true"/"false" (~30px) though the cell renders the compact glyph (~10px); (c) it never accounts for the sort arrow when the column *is* sorted (the arrow isn't in `attributedStringValue`), so a sorted column's auto-fit is ~17px too narrow and its header text clips.
+- **Default width** ([`estimateColumnWidth`:456](../../Pharos/ViewControllers/ResultsGridVC.swift)) ignores row data: `max(nameWidth, typeWidth)` with `typeWidth` a per-type constant (**text/default = 150**). A 2-char `cc` column opens at 150px. Set at column creation ([:433](../../Pharos/ViewControllers/ResultsGridVC.swift)), `minWidth = 50`, `maxWidth = 720`.
+- **Auto-fit** ([`autoFitColumn`:661](../../Pharos/ViewControllers/ResultsGridVC.swift)) measures content but over-pads: header `+50`, content `+12`, clamp 720. It measures the **raw** `displayString` (BOOL → "true"/"false" ~30px vs the ~10px glyph) and, being one-row, can't shrink below `name+type+icons`.
+- **Header** ([:437–451](../../Pharos/ViewControllers/ResultsGridVC.swift)): the cell's `attributedStringValue` is `"name  type"` on one line, in a `SortAwareHeaderCell`; the custom `filterableHeaderView` is the table's header view ([:121](../../Pharos/ViewControllers/ResultsGridVC.swift)).
 
-Supporting facts:
-- Cell text insets are leading **6** / trailing **6** ([`ResultsDataSource`:247–248](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift)) → the `+12` content pad is exact; keep it.
-- BOOL cells render `boolTrueString`/`boolFalseString`, NULL renders `nullDisplayString`, and string/json/array are newline-flattened (`flattenedForCell`) — all in [`styleCell`:402](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift). The measurement must mirror this.
-- Header icons: filter funnel ([`FilterableHeaderView`:65–66,249–256](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)) `side = iconSize(13) + iconPadding(6)*2 = 25`, drawn at `maxX - 25 - 8` (footprint 33px from the right edge; glyph inset 6 within the box), **only when hovered or the column is filtered**.
-- Sort arrow ([`SortAwareHeaderCell`:9–24](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)): drawn on the **left** at `frame.minX + 4` **when sorted**, then shifts the title frame right by `arrowWidth + 8 ≈ 17px` — and it is **not** part of `attributedStringValue`, so any header measurement must add this allowance itself for sorted columns.
+Supporting facts (verified):
+- `tableView.headerView = filterableHeaderView` — a custom `NSTableHeaderView`; the results layout already reads `headerView?.frame.height` ([`ResultsGridVC+Setup`:26](../../Pharos/ViewControllers/ResultsGrid/ResultsGridVC+Setup.swift)), so a taller header propagates to the layout.
+- Cell text insets: leading **6** / trailing **6** ([`ResultsDataSource`:247–248](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift)) → the content `+12` pad is exact.
+- BOOL renders `boolTrueString`/`boolFalseString`, NULL renders `nullDisplayString` (italic), string/json/array are newline-flattened (`flattenedForCell`) — all in [`styleCell`:402](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift). Cell font `regularFont` = `NSFont.monospacedSystemFont(ofSize:12)`.
+- Sort arrow ([`SortAwareHeaderCell`:9–24](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)): drawn **left** at `frame.minX + 4` when sorted and shifts the title right ~17px (removed by this redesign).
+- Filter funnel ([`FilterableHeaderView`:249–256,207–229](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)): `side = 13 + 6*2 = 25`, drawn at `maxX - 25 - 8`, only when hovered or filtered.
+- Header click routing ([`FilterableHeaderView.mouseDown`:147–188](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)): double-click near right edge → auto-fit; click inside `filterIconRect` → open filter; else → `super` (sort via `sortDescriptorPrototype`). Hit-testing follows `filterIconRect`, so moving that rect moves the hit area.
 
 ## Design
 
-### 1. Resize cap → 1000px
-At column creation set `col.maxWidth = 1000` (was 720). Clamp `autoFitColumn` to
-1000 (was 720). `minWidth` stays 50.
+### 1. Two-row header
+Increase the header height to fit two text lines (target ≈ **34px**, from ~24) by
+sizing `filterableHeaderView` taller; the results layout already respects
+`headerView.frame.height`.
 
-### 2. Content-aware default via one shared measurement
-Extract the measurement into a single method
-`measuredColumnWidth(column: NSTableColumn, colId: String, includeVisibleSample: Bool) -> CGFloat`
-and use it for both the initial default and `autoFitColumn`. It returns
-`min(max(headerWidth, contentWidth, column.minWidth), 1000)` where:
-- `headerWidth = column.headerCell.attributedStringValue.size().width + funnelReserve + (isSorted(colId) ? sortArrowAllowance : 0)` (see §3).
-- `contentWidth` = max over the sampled rows of `renderedText.size(cellFont).width + 12`
-  (`cellFont = NSFont.monospacedSystemFont(ofSize: 12)` — this equals the cells' `regularFont`; verified).
+- **Header cell** (`SortAwareHeaderCell`, or a small rename): holds the **name** and
+  **type** as separate strings (not one `attributedStringValue`). `drawInterior`
+  draws the name on the **top** sub-row (semibold ~11–12pt, primary colour) and the
+  type on the **bottom** sub-row (~9pt, secondary colour), both left-aligned at the
+  standard leading inset. The old left sort-arrow + `frame.origin.x` shift is
+  **removed**.
+- **Affordances drawn by `filterableHeaderView` as row-2 right overlays** (reserving
+  no layout width):
+  - **filter funnel** — on hover or when the column is filtered (as today), y
+    repositioned to row 2.
+  - **sort arrow** (▲/▼) — whenever the column is sorted (persistent, so sort state
+    is visible at rest), drawn just left of the funnel slot, also on row 2.
+  On a narrow column these overlay the tail of the small type label; the **name
+  (row 1) is never touched**. Sort-arrow rendering moves out of the cell into the
+  header view (which already holds `sortDirections`), so it no longer shifts text.
+- **Hit-testing / interaction unchanged in behavior**: `filterIconRect` is
+  recomputed for the row-2 position; `mouseDown` routing (funnel-rect → filter,
+  elsewhere → sort, right-edge double-click → auto-fit) is untouched. `minWidth`
+  stays **50**, which guarantees room for the overlay affordances.
 
-Ordering is settled from the code: `showResult` sets `rows`
-([:191](../../Pharos/ViewControllers/ResultsGridVC.swift)) and `displayRows`
-([:197](../../Pharos/ViewControllers/ResultsGridVC.swift)) **before** calling
-`rebuildColumns()` ([:207](../../Pharos/ViewControllers/ResultsGridVC.swift)), so the
-default is measured **directly at column creation** (no post-load pass). But
-`tableView.reloadData()` runs *after* ([:210](../../Pharos/ViewControllers/ResultsGridVC.swift)),
-so at creation `tableView.rows(in: visibleRect)` still reflects the *previous*
-result — therefore the initial default passes `includeVisibleSample: false` and
-samples **first/last 100 only** (both drawn from the already-set `displayRows`/`rows`);
-`autoFitColumn` passes `includeVisibleSample: true`. `estimateColumnWidth` (the
-type-based heuristic) is removed. Saved-width restore (`applyGridState`
-[:271](../../Pharos/ViewControllers/ResultsGridVC.swift)) runs after `showResult`
-and simply overwrites the default for stored columns — no carve-out needed.
+### 2. Content-aware width via one shared measurement
+Replace `estimateColumnWidth` with a single method
+`measuredColumnWidth(column:colId:includeVisibleSample:) -> CGFloat` used by both
+the initial default and `autoFitColumn`, returning
+`min(max(nameWidth, typeWidth, contentWidth, column.minWidth), 1000)`:
+- `nameWidth = name.size(headerNameFont).width + headerInset`
+- `typeWidth = type.size(headerTypeFont).width + headerInset`
+- `contentWidth = maxₛₐₘₚₗₑ renderedText.size(cellFont).width + 12` (`cellFont = regularFont`)
+- **No funnel reserve, no sort allowance** — both overlay row 2 (this is the payoff
+  of the two-row header, and it removes the sort-arrow-shift bug by construction).
+- `headerInset` = the cell's leading+trailing text inset (small, matching the cell's
+  drawInterior insets).
 
-### 3. Tighter, render-accurate measurement
-- **Header reserve = `funnelReserve(22)` + `sortArrowAllowance(17)` when sorted** (was a flat inline `+50`).
-  - `funnelReserve = 22`: enough that the hover/active funnel grazes but doesn't hide the header. Accepted tradeoff (brainstorming): on a very narrow column the funnel may overlap the last few px of the small grey **type** label; the **column name is never obscured**.
-  - `sortArrowAllowance ≈ 17` (`arrowWidth + 8`) is added **only when the column is sorted** (`sortController`/`sortDirections[colId] != nil`), because the arrow is drawn left-of-title and isn't in `attributedStringValue`. This fixes the current auto-fit-while-sorted under-measure (flaw (c) above): without it, sorting a snug column clips its type label *permanently* (not just on hover) and shifts the name under the funnel.
-  - A comment documents both reserves.
-- **Measure the rendered string, not the raw value.** Introduce a pure helper:
-  ```
-  ResultCellText.rendered(value: AnyCodable, category: PGTypeCategory,
-                          boolTrue: String, boolFalse: String, nullString: String) -> String
-  ```
-  returning: NULL → `nullString`; BOOL → `boolTrue`/`boolFalse` for `t`/`true`/`f`/`false` (case-insensitive), else raw; string/json/array → `value.displayString.flattenedForCell`; numeric/temporal/other → `value.displayString`. The measurement calls this per sampled cell.
-- **DRY:** `styleCell` is refactored to derive its displayed string from the same
-  `ResultCellText.rendered(...)` helper, so what's measured and what's drawn can't
-  drift. (Colour/font selection stays in `styleCell`.)
-- **Settings source:** `boolTrue`/`boolFalse`/`nullString` are runtime settings the
-  data source already holds (`boolTrueString`/`boolFalseString`/`nullDisplayString`,
-  [`ResultsDataSource`:160–162](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift)).
-  The measurement reads those same fields so it can't diverge from the render.
-  Accepted: changing a bool/null display setting doesn't re-measure existing column
-  widths (only affects the next result load) — a sub-pixel, transient discrepancy.
-- **NULL font:** null cells render in the *italic* mono variant while the measurement
-  uses regular mono; the width slack is sub-pixel and ignored.
+Ordering (settled from code): `showResult` sets `rows` ([:191](../../Pharos/ViewControllers/ResultsGridVC.swift)) and `displayRows` ([:197](../../Pharos/ViewControllers/ResultsGridVC.swift)) **before** `rebuildColumns()` ([:207](../../Pharos/ViewControllers/ResultsGridVC.swift)); `reloadData()` runs after ([:210](../../Pharos/ViewControllers/ResultsGridVC.swift)). So the default is measured **at column creation** with `includeVisibleSample: false` (sample **first/last 100** only, since the visible-rect is stale pre-reload); `autoFitColumn` passes `true` (adds visible rows). Saved-width restore (`applyGridState` [:271](../../Pharos/ViewControllers/ResultsGridVC.swift)) runs after and overwrites — no carve-out.
+
+### 3. Render-accurate content string
+Introduce a pure helper so measured text == drawn text:
+```
+ResultCellText.rendered(value: AnyCodable, category: PGTypeCategory,
+                        boolTrue: String, boolFalse: String, nullString: String) -> String
+```
+Returns: NULL → `nullString`; BOOL → `boolTrue`/`boolFalse` for `t`/`true`/`f`/`false`
+(case-insensitive), else raw; string/json/array → `value.displayString.flattenedForCell`;
+numeric/temporal/other → `value.displayString`. The measurement calls this per
+sampled cell. **DRY:** `styleCell` is refactored to derive its displayed string from
+the same helper (colour/font selection stays in `styleCell`), so measurement and
+render can't drift.
+- **Settings source:** `boolTrue`/`boolFalse`/`nullString` are the data source's
+  existing `boolTrueString`/`boolFalseString`/`nullDisplayString` ([:160–162](../../Pharos/ViewControllers/ResultsGrid/ResultsDataSource.swift)); the measurement reads the same fields. Accepted: changing a display setting doesn't re-measure existing widths (affects the next load only).
+- **NULL font:** null renders italic mono, measured with regular mono — sub-pixel slack, ignored.
 
 ### Net effect
-`cc` (text, 2-char values) → ~header("cc TEXT")+22 ≈ 65px; the BOOL columns →
-~header("is_selector BOOL")+22, snug to the glyph. Long-content columns cap at
-1000px by default and can be dragged no wider than 1000.
+`cc` opens to `max("cc" name, "text" type, "BD/US" content)` ≈ 40–45px; the BOOL
+columns to about their `is_selector` / `routable` name width, snug. Sort/filter never
+change a column's width. Long-content columns cap at 1000 by default and drag no
+wider than 1000.
 
 ## Testing
 
 - **Pure (`swiftc` harness `scripts/test-result-cell-text.sh`)** for
   `ResultCellText.rendered`: BOOL `t`/`true`/`f`/`false`/`TRUE` → glyphs; unknown
-  bool → raw; NULL → null string; string with newlines → flattened (single line);
-  numeric/temporal/json/array → expected. This is where the BOOL over-measure bug
-  lived, so it's the highest-value test.
-- **Build-gated + manual (GUI):** short text/BOOL columns open snug (the reported
-  screenshot); a long-text/JSON column opens capped at 1000 and fits its content
-  otherwise; drag a column — stops at 1000; divider double-click auto-fit matches
-  the default width; a workspace with saved widths still restores them; the header
-  **name** is never clipped by the funnel (type-label overlap on hover is expected).
-  - **Sorted column:** sort a snug-fit column → its header text (name) stays fully
-    visible (the arrow allowance widened it), and double-click auto-fit while sorted
-    lands at the same width (no ~17px under-measure / clip).
+  bool → raw; NULL → null string; string with newlines → flattened; numeric/
+  temporal/json/array → expected. (This is where the BOOL over-measure lived.)
+- **Build-gated + manual (GUI):**
+  - Two-row header renders: name on top, type beneath; header height looks right
+    (not too tall); row-number "#" reads cleanly in the taller header.
+  - Short text/BOOL columns open snug (the reported screenshot); a long-text/JSON
+    column opens capped at 1000 and otherwise fits.
+  - Sort/filter affordances overlay row 2 on hover / when sorted, **never shifting
+    or widening** the column; the column **name** is never obscured; sort direction
+    is visible at rest when a column is sorted.
+  - Filter funnel still opens the filter popover; header click still sorts;
+    right-edge double-click auto-fits; drag stops at 1000; saved widths restore.
 
 ## Phasing
 
 - **A — `ResultCellText.rendered` pure helper** (TDD) + refactor `styleCell` to use it.
-- **B — Width measurement**: `measuredColumnWidth` (funnelReserve 22 + sorted arrow
-  allowance + rendered-string content sampling), applied as the default at column
-  creation (`includeVisibleSample: false`) and by `autoFitColumn` (`true`); remove
-  `estimateColumnWidth`; `maxWidth`/clamp → 1000. Build-gated + manual.
+- **B — Two-row header rendering**: taller `filterableHeaderView`; two-row cell
+  (name row 1 / type row 2, no left sort-shift); move sort arrow + filter funnel to
+  row-2 right overlays in the header view; reposition `filterIconRect`. Build-gated + manual.
+- **C — Width measurement**: `measuredColumnWidth` (`max(name, type, content)`, no
+  icon reserve), applied as the default at column creation (`includeVisibleSample:false`)
+  and by `autoFitColumn` (`true`); remove `estimateColumnWidth`; `maxWidth`/clamp → 1000.
+  Build-gated + manual.
 
 ## Risks / Open Questions
 
-- **Sample cost** — the measurement samples ≤~200–300 rows (first/last 100, plus
-  visible rows for on-demand auto-fit) once per column; negligible. Keep the same bounds.
-- **Header reserve tradeoff** — 22px may let the funnel touch the type label on
-  hover for the narrowest columns; accepted. If it reads poorly in practice, the
-  constant is trivially tunable.
+- **Custom header height** — `NSTableHeaderView` normally matches a system height;
+  setting `filterableHeaderView` taller must actually take effect and stay in sync
+  with the scroll/clip layout ([`ResultsGridVC+Setup`:26](../../Pharos/ViewControllers/ResultsGrid/ResultsGridVC+Setup.swift) reads it). Verify early in Phase B; if the header won't grow cleanly, that's the task's main risk.
+- **Two-line cell drawing** — vertical placement of name/type within the taller cell
+  (baseline math, retina), and the `#` header rendering acceptably. Manual-tune.
+- **Overlay on narrow columns** — funnel/sort cover the type label's tail on the
+  narrowest columns; accepted per brainstorming (name always clear). `minWidth = 50`
+  keeps the affordances usable.
+- **Sample cost** — ≤~200–300 rows sampled once per column; negligible.
