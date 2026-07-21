@@ -10,6 +10,7 @@ struct ChartConfig: Codable, Equatable {
     var serverAggregation: Bool
     var lastServerRun: LastServerRun?
     var axisBins: [ChartColumnRole: AxisBin] = [:]
+    var seriesColors: [String] = []
 
     init(chartType: ChartType,
          mappings: [ChartColumnRole: ColumnRef] = [:],
@@ -19,7 +20,8 @@ struct ChartConfig: Codable, Equatable {
          display: ChartDisplayOptions = ChartDisplayOptions(),
          serverAggregation: Bool = false,
          lastServerRun: LastServerRun? = nil,
-         axisBins: [ChartColumnRole: AxisBin] = [:]) {
+         axisBins: [ChartColumnRole: AxisBin] = [:],
+         seriesColors: [String] = []) {
         self.chartType = chartType
         self.mappings = mappings
         self.aggregation = aggregation
@@ -29,12 +31,13 @@ struct ChartConfig: Codable, Equatable {
         self.serverAggregation = serverAggregation
         self.lastServerRun = lastServerRun
         self.axisBins = axisBins
+        self.seriesColors = seriesColors
     }
 
     // Tolerant decode: every field decodeIfPresent with a default, so phase-1
     // blobs (no numericBin) still decode and future additions stay compatible.
     enum CodingKeys: String, CodingKey {
-        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun, axisBins
+        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun, axisBins, seriesColors
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -47,6 +50,7 @@ struct ChartConfig: Codable, Equatable {
         serverAggregation = try c.decodeIfPresent(Bool.self, forKey: .serverAggregation) ?? false
         lastServerRun     = try c.decodeIfPresent(LastServerRun.self, forKey: .lastServerRun) ?? nil
         axisBins    = try c.decodeIfPresent([ChartColumnRole: AxisBin].self, forKey: .axisBins) ?? [:]
+        seriesColors = try c.decodeIfPresent([String].self, forKey: .seriesColors) ?? []
     }
 
     /// The effective bin granularity for a role: the per-axis override if set,

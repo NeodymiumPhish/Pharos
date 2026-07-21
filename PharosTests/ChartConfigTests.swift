@@ -96,5 +96,15 @@ func runTests() {
     let p3c = try! JSONDecoder().decode(ChartConfig.self, from: Data(p3.utf8))
     expect(p3c.lastServerRun?.sampled == false, "phase-3 lastServerRun defaults sampled=false")
 
+    // seriesColors: default empty, round-trips, and legacy blobs default to [].
+    var sc = ChartConfig(chartType: .bar)
+    expect(sc.seriesColors.isEmpty, "seriesColors defaults to empty")
+    sc.seriesColors = ["#E12D48", "#3E7CC4"]
+    let scData = try! JSONEncoder().encode(sc)
+    let scBack = try! JSONDecoder().decode(ChartConfig.self, from: scData)
+    expect(scBack.seriesColors == ["#E12D48", "#3E7CC4"], "seriesColors round-trips")
+    // `old3` (decoded earlier from a blob with no seriesColors) defaults to [].
+    expect(old3.seriesColors.isEmpty, "legacy config defaults seriesColors to []")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
