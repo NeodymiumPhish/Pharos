@@ -11,7 +11,10 @@ extension ChartPalette {
 
     /// "#RRGGBB" for a SwiftUI `Color`, via its sRGB `NSColor` components.
     static func hex(from color: Color) -> String {
-        let ns = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color)
+        // Only an sRGB (RGB-backed) NSColor can safely expose r/g/b components;
+        // if conversion fails (e.g. a pattern/catalog color) fall back rather
+        // than crash. ColorPicker values are RGB-backed, so this is defensive.
+        guard let ns = NSColor(color).usingColorSpace(.sRGB) else { return "#000000" }
         return hex(fromRGB: RGB(
             r: Int((ns.redComponent * 255).rounded()),
             g: Int((ns.greenComponent * 255).rounded()),
