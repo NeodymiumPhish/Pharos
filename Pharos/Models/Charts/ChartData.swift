@@ -54,3 +54,25 @@ struct ChartData {
         var d = ChartData(); d.emptyReason = reason; return d
     }
 }
+
+extension ChartData {
+    /// Ordered, de-duplicated color-domain labels for `chartType` — the values
+    /// series/slices are colored by, and the single source of truth shared by
+    /// the chart canvas (scale domain) and the config rail (color wells).
+    /// Bar/line/area: one per series ("" → "value"). Pie: each distinct slice
+    /// label in first-seen order. Scatter: a single "Points" entry when
+    /// non-empty. Gantt/heatmap: none (not palette-colored).
+    func colorDomainLabels(for chartType: ChartType) -> [String] {
+        switch chartType {
+        case .bar, .line, .area:
+            return series.map { $0.name.isEmpty ? "value" : $0.name }
+        case .pie:
+            var seen = Set<String>()
+            return (series.first?.points ?? []).compactMap { seen.insert($0.xLabel).inserted ? $0.xLabel : nil }
+        case .scatter:
+            return (series.first?.points.isEmpty == false) ? ["Points"] : []
+        case .gantt, .heatmap:
+            return []
+        }
+    }
+}

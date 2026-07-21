@@ -20,7 +20,7 @@ enum ChartType: String, Codable, CaseIterable {
 /// The vocabulary of column roles across all chart types.
 enum ChartColumnRole: String, Codable, CaseIterable {
     case category, value, series      // bar/line/area/pie
-    case x, y, size, color            // scatter (color also reusable)
+    case x, y, size                   // scatter
     case label, start, end            // gantt
 }
 

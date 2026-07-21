@@ -98,6 +98,10 @@ struct KeyboardSettings: Codable, Equatable {
     var shortcuts: [KeyboardShortcut] = []
 }
 
+struct ChartSettings: Codable, Equatable {
+    var palette: [String] = ChartPalette.defaultHex
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -109,4 +113,5 @@ struct AppSettings: Codable, Equatable {
     var boolDisplay: BoolDisplay = .trueFalse
     var checkForUpdates: Bool = true
     var showLeafPartitions: Bool = false
+    var charts: ChartSettings = ChartSettings()
 }

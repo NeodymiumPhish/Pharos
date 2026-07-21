@@ -22,8 +22,27 @@ struct ChartCanvas: View {
     /// off-screen). On-screen use keeps the default (scrolling).
     var ganttScrollable: Bool = true
 
+    /// The app-wide default series palette (hex). Per-chart overrides in
+    /// `config.seriesColors` take precedence. Defaulted so non-updated call
+    /// sites still compile.
+    var globalPalette: [String] = ChartPalette.defaultHex
+
     private var chartType: ChartType { config.chartType }
     private var temporalBin: TemporalBin { config.temporalBin }
+
+    /// Color domain for bar/line/area (delegates to the shared source of truth).
+    private var categorySeriesNames: [String] { data.colorDomainLabels(for: chartType) }
+    /// Pie color domain (delegates to the shared source of truth).
+    private var pieLabels: [String] { data.colorDomainLabels(for: .pie) }
+    /// The single resolved color for scatter (no per-series split).
+    private var scatterColor: Color {
+        resolvedColors(count: 1).first ?? .accentColor
+    }
+    /// Resolved series colors for `count` domain entries: the per-chart override
+    /// (`config.seriesColors`) if set, else the global palette.
+    private func resolvedColors(count: Int) -> [Color] {
+        ChartPalette.resolveColors(override: config.seriesColors, global: globalPalette, count: count)
+    }
 
     // Pie selection (native angle selection maps to the category label).
     @State private var pieSelection: String?
@@ -157,8 +176,10 @@ struct ChartCanvas: View {
     }
 
     // Bar/line/area, one MarkContent per point, colored by series.
-    @ViewBuilder private func categoryChart<M: ChartContent>(@ChartContentBuilder _ mark: @escaping (ChartPoint) -> M) -> some View {
-        Chart {
+    private func categoryChart<M: ChartContent>(@ChartContentBuilder _ mark: @escaping (ChartPoint) -> M) -> some View {
+        let names = categorySeriesNames
+        let colors = resolvedColors(count: names.count)
+        return Chart {
             ForEach(Array(data.series.enumerated()), id: \.offset) { _, series in
                 ForEach(Array(series.points.enumerated()), id: \.offset) { _, pt in
                     mark(pt).foregroundStyle(by: .value("Series", series.name.isEmpty ? "value" : series.name))
@@ -166,6 +187,7 @@ struct ChartCanvas: View {
                 }
             }
         }
+        .chartForegroundStyleScale(domain: names, range: colors)
     }
 
     @ViewBuilder private var pieChart: some View {
@@ -174,6 +196,10 @@ struct ChartCanvas: View {
                 .foregroundStyle(by: .value("Category", pt.xLabel))
                 .opacity(isLit(pt.drill) ? 1 : 0.2)
         }
+        .chartForegroundStyleScale(
+            domain: pieLabels,
+            range: resolvedColors(count: pieLabels.count)
+        )
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
             guard let label = newValue else { clearSelection(); return }
@@ -201,9 +227,9 @@ struct ChartCanvas: View {
                 let inR: (XYPoint) -> Bool = { r.xLo <= $0.x && $0.x <= r.xHi && (r.yLo == nil || (r.yLo! <= $0.y && $0.y <= r.yHi!)) }
                 let inside = pts.filter(inR); let outside = pts.filter { !inR($0) }
                 PointPlot(outside, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(.gray.opacity(0.2))
-                PointPlot(inside, x: .value("X", \.x), y: .value("Y", \.y))
+                PointPlot(inside, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(scatterColor)
             } else {
-                PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y))
+                PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(scatterColor)
             }
         }
         .chartOverlay { proxy in

@@ -18,7 +18,7 @@ nav_order: 10
 
 ## Overview
 
-Any query result can be visualized as a chart without leaving Pharos. Switch a result to Chart view, map columns to chart roles, and Pharos aggregates and renders the data — either from the rows already loaded in the grid, or by pushing an aggregation query down to PostgreSQL to chart the full dataset. Charts support interactive drill-down back into the grid, image export with provenance, and per-tab persistence.
+Any query result can be visualized as a chart without leaving Pharos. Switch a result to Chart view, map columns to chart roles, and Pharos aggregates and renders the data — either from the rows already loaded in the grid, or by pushing an aggregation query down to PostgreSQL to chart the full dataset. Charts support interactive drill-down back into the grid, customizable series colors, image export, and per-tab persistence.
 
 ## Switching Between Grid and Chart
 
@@ -54,11 +54,20 @@ The rail on the right side of the chart provides all configuration:
 - **Time bucket** — shown when the axis column is temporal: None, Auto, Hour, Day, Week, Month, or Year.
 - **Bins** — shown when the axis column is numeric: Off, Auto, 10, 20, or 50. Auto picks roughly √n buckets (capped at 50), and an Auto axis with 12 or fewer distinct values stays discrete instead of binning.
 - **Heatmap per-axis controls** — the heatmap gets independent "X bins" / "Y bins" (or "X time bucket" / "Y time bucket") controls, so each axis can be bucketed separately.
+- **Colors** — shown for bar, line, area, pie, and scatter; see [Colors](#colors) below.
 - **Server aggregation** — see below.
 
 ### Top Categories and "Other"
 
 Categorical axes are capped at the top 25 categories by aggregate total; remaining categories are folded into a single **Other** category, and the chart is marked as truncated. Heatmaps apply the cap per axis (up to 25 × 25 cells). Binned numeric and temporal axes are not capped.
+
+## Colors
+
+Series colors come from a global default palette, with an optional per-chart override.
+
+- **Default palette** — Settings → Charts holds an ordered list of colors used across all charts: a red-led, accessibility-considered six-color set out of the box. Each slot has a native color well; add or remove slots, or use **Reset to defaults** to restore the built-in set.
+- **Per-chart override** — the rail's Colors section (bar, line, area, pie, and scatter) shows one color well per series, slice, or — for scatter, which plots a single color — per point. Picking a color there overrides the global palette for that chart only; **Reset to palette** clears the override and reverts to the default palette.
+- Heatmaps use their own value-based color gradient instead of the palette.
 
 ## Client-Side vs Server-Side Aggregation
 
@@ -110,7 +119,4 @@ The export button in the action bar offers chart-specific options while Chart vi
 - **Copy Chart as Image** — PNG on the clipboard
 - **View / Copy Generated SQL** — shown when server aggregation is on
 
-Every export includes a provenance caption below the chart: aggregation mode (Client or Server), connection name, plotted vs. total row counts, and a timestamp — plus a "truncated" note when the top-25 cap applied. The same provenance is embedded in the file's metadata, and in server mode the generated SQL is embedded too. Gantt exports render at full content height so no rows are clipped.
-
-{: .tip }
-The provenance caption makes exported charts self-documenting — anyone receiving the image can see exactly when it was generated, from which connection, and whether it reflects the full dataset or a client-side subset.
+Exports render the chart alone, with no caption or footer. File metadata is limited to generic, non-sensitive fields: PNG exports set `Software` to "Pharos" and a creation timestamp; PDF exports set `Creator` to "Pharos". No connection name, row counts, or SQL are embedded. Gantt exports render at full content height so no rows are clipped.

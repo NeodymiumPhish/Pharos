@@ -1,6 +1,7 @@
 import AppKit
+import SwiftUI
 
-/// Settings sheet with tabbed sections: General, Editor, Query.
+/// Settings sheet with tabbed sections: General, Editor, Query, Charts.
 class SettingsSheet: NSViewController {
 
     private var settings: AppSettings
@@ -29,6 +30,9 @@ class SettingsSheet: NSViewController {
     private let notifyBackgroundTabCheck = NSButton(checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
     private let notifyMinDurationField = NSTextField()
 
+    // Charts
+    private let paletteModel = ChartPaletteModel(palette: [])
+
     init() {
         self.settings = stateManager.settings
         super.init(nibName: nil, bundle: nil)
@@ -52,6 +56,7 @@ class SettingsSheet: NSViewController {
         tabView.addTabViewItem(makeGeneralTab())
         tabView.addTabViewItem(makeEditorTab())
         tabView.addTabViewItem(makeQueryTab())
+        tabView.addTabViewItem(makeChartsTab())
 
         // Buttons
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelSheet))
@@ -233,6 +238,26 @@ class SettingsSheet: NSViewController {
         return item
     }
 
+    private func makeChartsTab() -> NSTabViewItem {
+        let item = NSTabViewItem()
+        item.label = "Charts"
+
+        let host = NSHostingView(rootView: ChartPaletteEditor(model: paletteModel))
+        host.translatesAutoresizingMaskIntoConstraints = false
+
+        let wrapper = NSView()
+        wrapper.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            host.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            host.trailingAnchor.constraint(lessThanOrEqualTo: wrapper.trailingAnchor),
+            host.bottomAnchor.constraint(lessThanOrEqualTo: wrapper.bottomAnchor),
+        ])
+
+        item.view = wrapper
+        return item
+    }
+
     // MARK: - Populate / Collect
 
     private func populateFromSettings() {
@@ -275,6 +300,9 @@ class SettingsSheet: NSViewController {
         notifyAppInactiveCheck.state = settings.query.notifyWhenAppInactive ? .on : .off
         notifyBackgroundTabCheck.state = settings.query.notifyWhenBackgroundTab ? .on : .off
         notifyMinDurationField.integerValue = Int(settings.query.notifyMinDurationSeconds)
+
+        // Charts
+        paletteModel.palette = settings.charts.palette
     }
 
     private func collectSettings() -> AppSettings {
@@ -318,6 +346,9 @@ class SettingsSheet: NSViewController {
         s.query.notifyWhenAppInactive = notifyAppInactiveCheck.state == .on
         s.query.notifyWhenBackgroundTab = notifyBackgroundTabCheck.state == .on
         s.query.notifyMinDurationSeconds = UInt32(clamping: notifyMinDurationField.integerValue)
+
+        // Charts
+        s.charts.palette = paletteModel.palette
 
         return s
     }

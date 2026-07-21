@@ -159,6 +159,26 @@ pub struct KeyboardSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ChartSettings {
+    #[serde(default = "default_palette")]
+    pub palette: Vec<String>,
+}
+
+fn default_palette() -> Vec<String> {
+    vec![
+        "#E12D48".into(), "#3E7CC4".into(), "#C9820E".into(),
+        "#2A9C81".into(), "#9B57C9".into(), "#E05525".into(),
+    ]
+}
+
+impl Default for ChartSettings {
+    fn default() -> Self {
+        ChartSettings { palette: default_palette() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub theme: ThemeMode,
     pub editor: EditorSettings,
@@ -176,6 +196,8 @@ pub struct AppSettings {
     pub check_for_updates: bool,
     #[serde(default)]
     pub show_leaf_partitions: bool,
+    #[serde(default)]
+    pub charts: ChartSettings,
 }
 
 fn default_check_for_updates() -> bool { true }
@@ -193,6 +215,7 @@ impl Default for AppSettings {
             bool_display: BoolDisplay::default(),
             check_for_updates: default_check_for_updates(),
             show_leaf_partitions: false,
+            charts: ChartSettings::default(),
         }
     }
 }

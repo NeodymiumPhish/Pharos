@@ -84,16 +84,12 @@ final class ChartHostingController: NSViewController {
         model?.setServerData(data)
     }
 
-    /// Everything `ChartExporter` needs to render + tag one export: a
-    /// caption-annotated snapshot view (chart + provenance footer, sized to
-    /// the on-screen chart region), the same caption text, and the
-    /// generating context to embed as file metadata (the push-down SQL when
-    /// server aggregation produced the current data, else nil).
+    /// Everything `ChartExporter` needs to render one export: the chart snapshot
+    /// view (sized to the on-screen chart region) and a timestamp for the PNG's
+    /// generic creation-time metadata. No caption/SQL provenance.
     struct ExportSnapshot {
         let view: AnyView
         let size: CGSize
-        let caption: String
-        let sql: String?
         let timestamp: String
     }
 
@@ -101,41 +97,29 @@ final class ChartHostingController: NSViewController {
     /// when there's nothing to export (no result presented yet, or the chart
     /// is in an empty state — no columns mapped / all-null value / demoted
     /// rows needing a re-run).
-    func buildExportSnapshot(connectionName: String) -> ExportSnapshot? {
+    func buildExportSnapshot() -> ExportSnapshot? {
         guard let model, model.data.emptyReason == nil else { return nil }
         let cfg = model.config
         let data = model.data
-        let mode = cfg.serverAggregation ? "Server" : "Client"
         let timestamp = ISO8601DateFormatter().string(from: Date())
-        let caption = ChartExportCaption.text(
-            mode: mode,
-            connection: connectionName,
-            plotted: data.plottedRowCount,
-            total: data.totalLoadedRowCount,
-            truncated: data.wasTruncated,
-            timestamp: timestamp
+        let exportView = ChartExportView(
+            data: data, config: cfg,
+            globalPalette: AppStateManager.shared.settings.charts.palette
         )
-        let exportView = ChartExportView(data: data, config: cfg, caption: caption)
-        // Match the on-screen chart canvas size when available (the hosting
-        // view includes the config rail, but that's a small, roughly-constant
-        // offset — good enough for an export whose exact pixel dimensions
-        // aren't load-bearing); fall back to a sensible default before layout.
+        // Match the on-screen chart canvas size when available (the hosting view
+        // includes the config rail, but that's a small, roughly-constant offset
+        // — good enough for an export whose exact pixel dimensions aren't
+        // load-bearing); fall back to a sensible default before layout.
         let onScreen = view.bounds.size
         var size = (onScreen.width > 200 && onScreen.height > 200) ? onScreen : CGSize(width: 900, height: 560)
         // Gantt exports render every row (non-scrolling), so size to the full
-        // content height + caption/padding rather than the on-screen viewport
-        // (which would clip all but the visible rows).
+        // content height + padding rather than the on-screen viewport (which
+        // would clip all but the visible rows).
         if cfg.chartType == .gantt {
             let width = max(onScreen.width, 900)
             size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(rowCount: data.ganttBars.count) + 64)
         }
-        return ExportSnapshot(
-            view: AnyView(exportView),
-            size: size,
-            caption: caption,
-            sql: cfg.serverAggregation ? cfg.lastServerRun?.sql : nil,
-            timestamp: timestamp
-        )
+        return ExportSnapshot(view: AnyView(exportView), size: size, timestamp: timestamp)
     }
 
     private func embed(_ child: NSHostingController<AnyView>) {
