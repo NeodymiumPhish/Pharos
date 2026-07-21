@@ -60,6 +60,12 @@ class FilterableHeaderView: NSTableHeaderView {
         }
     }
 
+    // NSScrollView tiling often resizes via setFrameSize(_:), which bypasses the
+    // `frame` setter — clamp here too so the two-row height survives every path.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(NSSize(width: newSize.width, height: max(newSize.height, Self.minHeaderHeight)))
+    }
+
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
         didSet { needsDisplay = true }
