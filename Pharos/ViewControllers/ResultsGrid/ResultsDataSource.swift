@@ -1,19 +1,6 @@
 import AppKit
 import Combine
 
-// MARK: - Newline Flattening
-
-private extension String {
-    /// Replaces newlines with a visible ↵ indicator so multi-line data
-    /// displays as a single line in the results grid.
-    var flattenedForCell: String {
-        guard contains(where: \.isNewline) else { return self }
-        return replacingOccurrences(of: "\r\n", with: "↵")
-            .replacingOccurrences(of: "\n", with: "↵")
-            .replacingOccurrences(of: "\r", with: "↵")
-    }
-}
-
 // MARK: - Find Match Address
 
 struct CellAddress: Hashable {
@@ -401,47 +388,27 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     private func styleCell(_ cell: ResultCellView, value: AnyCodable, category: PGTypeCategory) {
         guard let textField = cell.textField else { return }
+        textField.stringValue = ResultCellText.rendered(
+            value: value, category: category,
+            boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString)
 
         if value.isNull {
-            textField.stringValue = nullDisplayString
             textField.font = italicFont
             cell.normalTextColor = .tertiaryLabelColor
             return
         }
-
         textField.font = regularFont
-
-        // Newline flattening allocates and scans the string. Only strings,
-        // JSON, and arrays can plausibly contain newlines; numeric/boolean/
-        // temporal columns skip the scan entirely.
-        let raw = value.displayString
-        textField.stringValue = (category == .string || category == .json || category == .array)
-            ? raw.flattenedForCell
-            : raw
-
         let color: NSColor
         switch category {
-        case .numeric:
-            color = .systemBlue
+        case .numeric: color = .systemBlue
         case .boolean:
-            let str = textField.stringValue.lowercased()
-            if str == "t" || str == "true" {
-                textField.stringValue = boolTrueString
-                color = .systemGreen
-            } else if str == "f" || str == "false" {
-                textField.stringValue = boolFalseString
-                color = .systemRed
-            } else {
-                color = .labelColor
-            }
-        case .temporal:
-            color = .systemPurple
-        case .json:
-            color = .systemOrange
-        case .array:
-            color = .secondaryLabelColor
-        case .string:
-            color = .labelColor
+            let low = value.displayString.lowercased()
+            color = (low == "t" || low == "true") ? .systemGreen
+                  : (low == "f" || low == "false") ? .systemRed : .labelColor
+        case .temporal: color = .systemPurple
+        case .json: color = .systemOrange
+        case .array: color = .secondaryLabelColor
+        case .string: color = .labelColor
         }
         cell.normalTextColor = color
     }
