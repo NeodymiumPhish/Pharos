@@ -111,10 +111,11 @@ render can't drift.
 - **NULL font:** null renders italic mono, measured with regular mono — sub-pixel slack, ignored.
 
 ### Net effect
-`cc` opens to `max("cc" name, "text" type, "BD/US" content)` ≈ 40–45px; the BOOL
-columns to about their `is_selector` / `routable` name width, snug. Sort/filter never
-change a column's width. Long-content columns cap at 1000 by default and drag no
-wider than 1000.
+`cc` measures ~40px from `max(name, type, content)` but **opens at exactly 50px —
+the `minWidth` floor** (which also guarantees room for the row-2 overlay
+affordances); the BOOL columns open to about their `is_selector` / `routable` name
+width. Sort/filter never change a column's width. Long-content columns cap at 1000
+by default and drag no wider than 1000.
 
 ## Testing
 
@@ -125,8 +126,8 @@ wider than 1000.
 - **Build-gated + manual (GUI):**
   - Two-row header renders: name on top, type beneath; header height looks right
     (not too tall); row-number "#" reads cleanly in the taller header.
-  - Short text/BOOL columns open snug (the reported screenshot); a long-text/JSON
-    column opens capped at 1000 and otherwise fits.
+  - Short text/BOOL columns open snug — down to the 50px `minWidth` floor (the
+    reported screenshot); a long-text/JSON column opens capped at 1000 and otherwise fits.
   - Sort/filter affordances overlay row 2 on hover / when sorted, **never shifting
     or widening** the column; the column **name** is never obscured; sort direction
     is visible at rest when a column is sorted.
@@ -136,9 +137,10 @@ wider than 1000.
 ## Phasing
 
 - **A — `ResultCellText.rendered` pure helper** (TDD) + refactor `styleCell` to use it.
-- **B — Two-row header rendering**: taller `filterableHeaderView`; two-row cell
-  (name row 1 / type row 2, no left sort-shift); move sort arrow + filter funnel to
-  row-2 right overlays in the header view; reposition `filterIconRect`. Build-gated + manual.
+- **B — Two-row header rendering**: size `filterableHeaderView` taller; two-row cell
+  drawing (name row 1 / type row 2). **Remove `SortAwareHeaderCell.sortIndicator` +
+  its `drawInterior` left-shift, and delete or repurpose `updateSortCellIndicators`
+  ([`FilterableHeaderView`:234–245](../../Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift)) to trigger a header-view redraw** instead of pushing the arrow onto the cell — otherwise the cell still draws its left arrow and *both* arrows render. Draw the sort arrow + filter funnel as row-2 right overlays in the header view; reposition `filterIconRect`. **Keep `col.title = colDef.name` ([:432](../../Pharos/ViewControllers/ResultsGridVC.swift))** (feeds accessibility + the column-drag image) even though the combined `attributedStringValue` is dropped. Build-gated + manual.
 - **C — Width measurement**: `measuredColumnWidth` (`max(name, type, content)`, no
   icon reserve), applied as the default at column creation (`includeVisibleSample:false`)
   and by `autoFitColumn` (`true`); remove `estimateColumnWidth`; `maxWidth`/clamp → 1000.
