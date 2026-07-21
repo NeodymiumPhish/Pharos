@@ -95,7 +95,7 @@ final class ChartViewModel: ObservableObject {
                 return k == .numeric || (role == .start || role == .end || role == .x ? k == .temporal : false)
             }
         default:
-            return refs   // category/series/label/color accept anything
+            return refs   // category/series/label accept anything
         }
     }
 }
@@ -338,8 +338,8 @@ struct ChartRootView: View {
     private func rolesForCurrentType() -> [ChartColumnRole] {
         switch model.config.chartType {
         case .bar, .line, .area, .pie: return [.category, .value, .series]
-        case .scatter: return [.x, .y, .size, .color]
-        case .gantt: return [.label, .start, .end, .color]
+        case .scatter: return [.x, .y, .size]
+        case .gantt: return [.label, .start, .end]
         case .heatmap: return [.x, .y, .value]
         }
     }
@@ -370,7 +370,7 @@ struct ChartRootView: View {
         }
         switch r {
         case .category: return "Category (X)"; case .value: return "Value (Y)"; case .series: return "Series (optional)"
-        case .x: return "X"; case .y: return "Y"; case .size: return "Size (optional)"; case .color: return "Color (optional)"
+        case .x: return "X"; case .y: return "Y"; case .size: return "Size (optional)"
         case .label: return "Label"; case .start: return "Start"; case .end: return "End"
         }
     }
