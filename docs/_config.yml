@@ -34,3 +34,4 @@ footer_content: "Pharos &mdash; A native macOS PostgreSQL client built with Swif
 exclude:
   - Gemfile
   - Gemfile.lock
+  - superpowers
