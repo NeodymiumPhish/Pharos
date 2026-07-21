@@ -1242,7 +1242,8 @@ class ContentViewController: NSViewController {
         segmentIndex: Int,
         lineRange: ClosedRange<Int>,
         customLabel: String?,
-        createResultTab: Bool
+        createResultTab: Bool,
+        destructiveConfirmed: Bool = false
     ) {
         guard let activeTab = stateManager.activeTab,
               let connectionId = activeTab.connectionId,
@@ -1257,6 +1258,25 @@ class ContentViewController: NSViewController {
         }
         let sql = rendered.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
+
+        // Editor-level destructive guard, mirroring the schema browser's.
+        // Checked on the rendered SQL so variable values can't sneak past it.
+        if !destructiveConfirmed, stateManager.settings.query.confirmDestructive {
+            let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
+            if !keywords.isEmpty {
+                presentDestructiveQueryConfirmation(keywords: keywords, sql: sql) { [weak self] in
+                    self?.performQuery(
+                        querySQL,
+                        segmentIndex: segmentIndex,
+                        lineRange: lineRange,
+                        customLabel: customLabel,
+                        createResultTab: createResultTab,
+                        destructiveConfirmed: true
+                    )
+                }
+                return
+            }
+        }
 
         let normalized = Self.normalizeSQL(sql)
 
@@ -1450,6 +1470,33 @@ class ContentViewController: NSViewController {
             duration: 3.0
         )
         focusedPaneVC?.revealVariablesPanel()
+    }
+
+    /// Confirmation sheet for destructive SQL run from the editor. Same style
+    /// as the schema browser's truncate/drop guard.
+    private func presentDestructiveQueryConfirmation(
+        keywords: [String],
+        sql: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Run destructive query?"
+        let preview = sql.count > 200 ? String(sql.prefix(200)) + "…" : sql
+        alert.informativeText = "This SQL contains \(keywords.joined(separator: ", ")):\n\n\(preview)"
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Run")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        // No window to present on → don't run: an unconfirmed destructive query
+        // is worse than a query that silently doesn't fire (matches the schema
+        // browser guard's behavior).
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                onConfirm()
+            }
+        }
     }
 
     /// Assemble metadata and invoke QueryNotifier. Single entry point from the
