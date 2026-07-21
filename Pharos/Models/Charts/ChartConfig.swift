@@ -10,6 +10,11 @@ struct ChartConfig: Codable, Equatable {
     var serverAggregation: Bool
     var lastServerRun: LastServerRun?
     var axisBins: [ChartColumnRole: AxisBin] = [:]
+    /// Per-chart color override: hex colors applied positionally to the chart's
+    /// color domain (series for bar/line/area, slices for pie, index 0 for
+    /// scatter). Empty = inherit the global palette. Positional by index, so if
+    /// the domain's order/membership changes between runs an override reattaches
+    /// to whatever now sits at that index; the rail's "Reset to palette" clears it.
     var seriesColors: [String] = []
 
     init(chartType: ChartType,
