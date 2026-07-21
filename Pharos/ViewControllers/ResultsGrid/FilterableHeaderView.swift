@@ -20,12 +20,12 @@ class SortAwareHeaderCell: NSTableHeaderCell {
         let typeSize = (typeString as NSString).size(withAttributes: typeAttrs)
         let gap: CGFloat = 1
         let totalH = nameSize.height + gap + typeSize.height
-        // Header cells are NON-flipped (y increases upward). Center the two-line
-        // block; type sits below the name.
-        let bottomY = cellFrame.midY - totalH / 2
+        // NSTableHeaderView is FLIPPED (y increases downward → smaller y = top).
+        // Draw the name on the top row, the type on the row below it, block-centered.
+        let topY = cellFrame.midY - totalH / 2
         let x = cellFrame.minX + Self.hInset
-        (typeString as NSString).draw(at: NSPoint(x: x, y: bottomY), withAttributes: typeAttrs)
-        (nameString as NSString).draw(at: NSPoint(x: x, y: bottomY + typeSize.height + gap), withAttributes: nameAttrs)
+        (nameString as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
+        (typeString as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
     }
 }
 
@@ -284,8 +284,9 @@ class FilterableHeaderView: NSTableHeaderView {
 
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
-        // Row 2 ≈ lower third of the (taller) header. Non-flipped: minY = bottom.
-        let row2MidY = headerRect.minY + headerRect.height * 0.30
+        // Row 2 (the type row) is the LOWER band. NSTableHeaderView is flipped
+        // (y increases downward), so the lower band is near maxY, not minY.
+        let row2MidY = headerRect.maxY - headerRect.height * 0.30
         return NSRect(x: headerRect.maxX - side - 8, y: row2MidY - side / 2, width: side, height: side)
     }
 
