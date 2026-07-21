@@ -80,6 +80,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var nullDisplayString: String = NullDisplay.uppercase.rawValue
     private var boolTrueString: String = BoolDisplay.trueFalse.trueString
     private var boolFalseString: String = BoolDisplay.trueFalse.falseString
+
+    // Read-only accessors so column-width measurement in ResultsGridVC uses the
+    // SAME strings styleCell renders (single source of truth).
+    var boolDisplayTrue: String { boolTrueString }
+    var boolDisplayFalse: String { boolFalseString }
+    var nullDisplay: String { nullDisplayString }
     private var regularFont: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)
     private var italicFont: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
     private var rownumFont: NSFont = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)

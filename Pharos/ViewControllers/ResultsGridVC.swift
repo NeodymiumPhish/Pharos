@@ -433,33 +433,18 @@ class ResultsGridVC: NSViewController {
         for (index, colDef) in columns.enumerated() {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("col_\(index)"))
             col.title = colDef.name
-            col.width = estimateColumnWidth(colDef)
             col.minWidth = 50
-            col.maxWidth = 720
+            col.maxWidth = 1000
 
             let headerCell = SortAwareHeaderCell()
             headerCell.nameString = colDef.name
             headerCell.typeString = colDef.dataType.uppercased()
             col.headerCell = headerCell
+            // Measure AFTER the two-row header cell is set so name/type rows count.
+            col.width = measuredColumnWidth(column: col, colId: "col_\(index)", includeVisibleSample: false)
             col.sortDescriptorPrototype = NSSortDescriptor(key: "col_\(index)", ascending: true)
             tableView.addTableColumn(col)
         }
-    }
-
-    private func estimateColumnWidth(_ col: ColumnDef) -> CGFloat {
-        let nameWidth = CGFloat(col.name.count) * 8 + 20
-        let typeWidth: CGFloat
-        switch col.dataType.lowercased() {
-        case "boolean", "bool": typeWidth = 60
-        case "integer", "int", "int4", "smallint", "int2": typeWidth = 80
-        case "bigint", "int8": typeWidth = 100
-        case "uuid": typeWidth = 260
-        case "timestamp", "timestamptz",
-             "timestamp without time zone", "timestamp with time zone": typeWidth = 180
-        case "date": typeWidth = 100
-        default: typeWidth = 150
-        }
-        return max(nameWidth, typeWidth)
     }
 
     // MARK: - Column Filter Pipeline
@@ -651,54 +636,53 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Auto-Fit Column
 
+    /// Content-aware column width: the max of the header name row, the header type
+    /// row, and the rendered cell contents (sampled), clamped to [minWidth, 1000].
+    /// No funnel/sort reserve — those overlay row 2 (two-row header). Pass
+    /// `includeVisibleSample: true` for on-demand auto-fit (adds on-screen rows);
+    /// the initial default passes false (reloadData hasn't run, visible rect stale).
+    func measuredColumnWidth(column: NSTableColumn, colId: String, includeVisibleSample: Bool) -> CGFloat {
+        guard let idx = colIndex(from: colId) else { return column.width }
+        let headerInset: CGFloat = SortAwareHeaderCell.hInset * 2
+        var headerW: CGFloat = 0
+        if let cell = column.headerCell as? SortAwareHeaderCell {
+            let nameW = (cell.nameString as NSString).size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
+            let typeW = (cell.typeString as NSString).size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
+            headerW = max(nameW, typeW)
+        } else {
+            headerW = column.headerCell.attributedStringValue.size().width
+        }
+        var maxW = headerW + headerInset
+
+        var sampleIndices = Set<Int>()
+        let total = displayRows.count
+        for i in 0..<min(100, total) { sampleIndices.insert(i) }
+        for i in max(0, total - 100)..<total { sampleIndices.insert(i) }
+        if includeVisibleSample {
+            let vr = tableView.rows(in: tableView.visibleRect)
+            if vr.length > 0 { for i in vr.location..<(vr.location + vr.length) { sampleIndices.insert(i) } }
+        }
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
+        for r in sampleIndices {
+            guard r < displayRows.count else { continue }
+            let d = displayRows[r]
+            guard d < rows.count, idx < rows[d].count else { continue }
+            let cat = idx < columnCategories.count ? columnCategories[idx] : .string
+            let text = ResultCellText.rendered(value: rows[d][idx], category: cat,
+                                               boolTrue: dataSource.boolDisplayTrue,
+                                               boolFalse: dataSource.boolDisplayFalse,
+                                               nullString: dataSource.nullDisplay)
+            maxW = max(maxW, (text as NSString).size(withAttributes: attrs).width + 12)
+        }
+        return min(max(maxW, column.minWidth), 1000)
+    }
+
     func autoFitColumn(at columnIndex: Int) {
         guard columnIndex >= 0, columnIndex < tableView.tableColumns.count else { return }
         let column = tableView.tableColumns[columnIndex]
         let colId = column.identifier.rawValue
         guard colId != "__rownum__" else { return }
-
-        // Measure header text width from the two-row header cell (name / type).
-        let headerTextWidth: CGFloat
-        if let cell = column.headerCell as? SortAwareHeaderCell {
-            let nameW = (cell.nameString as NSString)
-                .size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
-            let typeW = (cell.typeString as NSString)
-                .size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
-            headerTextWidth = max(nameW, typeW)
-        } else {
-            headerTextWidth = column.headerCell.attributedStringValue.size().width
-        }
-        let headerWidth = headerTextWidth + 50  // Padding for sort+filter icons + margins
-
-        // Sample visible rows + first/last 100
-        let visibleRange = tableView.rows(in: tableView.visibleRect)
-        var sampleIndices = Set<Int>()
-        if visibleRange.length > 0 {
-            for i in visibleRange.location..<(visibleRange.location + visibleRange.length) {
-                sampleIndices.insert(i)
-            }
-        }
-        let totalRows = displayRows.count
-        for i in 0..<min(100, totalRows) { sampleIndices.insert(i) }
-        for i in max(0, totalRows - 100)..<totalRows { sampleIndices.insert(i) }
-
-        var maxWidth: CGFloat = headerWidth
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font]
-
-        for rowIdx in sampleIndices {
-            guard rowIdx < displayRows.count else { continue }
-            let dataIdx = displayRows[rowIdx]
-            guard dataIdx < rows.count else { continue }
-            if let idx = colIndex(from: colId), idx < rows[dataIdx].count {
-                let value = rows[dataIdx][idx]
-                let text = value.displayString
-                let width = (text as NSString).size(withAttributes: attrs).width + 12
-                maxWidth = max(maxWidth, width)
-            }
-        }
-
-        column.width = min(max(maxWidth, column.minWidth), 720)
+        column.width = measuredColumnWidth(column: column, colId: colId, includeVisibleSample: true)
     }
 
     // MARK: - Formatting
