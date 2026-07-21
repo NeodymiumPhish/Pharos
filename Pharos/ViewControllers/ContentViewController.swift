@@ -2904,28 +2904,19 @@ extension ContentViewController {
     @objc private func copyChartAsImage() { performChartExport(.copy) }
 
     private func performChartExport(_ kind: ChartExportKind) {
-        guard let snapshot = chartHost.buildExportSnapshot(connectionName: activeConnectionDisplayName()) else {
+        guard let snapshot = chartHost.buildExportSnapshot() else {
             NSSound.beep()
             return
         }
         switch kind {
         case .png:
-            guard let data = ChartExporter.png(
-                of: snapshot.view, size: snapshot.size,
-                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
-            ) else { return }
+            guard let data = ChartExporter.png(of: snapshot.view, size: snapshot.size, timestamp: snapshot.timestamp) else { return }
             saveChartExport(data: data, filename: "\(defaultChartExportBaseName()).png", type: .png)
         case .pdf:
-            guard let data = ChartExporter.pdf(
-                of: snapshot.view, size: snapshot.size,
-                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
-            ) else { return }
+            guard let data = ChartExporter.pdf(of: snapshot.view, size: snapshot.size) else { return }
             saveChartExport(data: data, filename: "\(defaultChartExportBaseName()).pdf", type: .pdf)
         case .copy:
-            guard let data = ChartExporter.png(
-                of: snapshot.view, size: snapshot.size,
-                caption: snapshot.caption, sql: snapshot.sql, timestamp: snapshot.timestamp
-            ) else { return }
+            guard let data = ChartExporter.png(of: snapshot.view, size: snapshot.size, timestamp: snapshot.timestamp) else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setData(data, forType: .png)
         }
@@ -2954,13 +2945,6 @@ extension ContentViewController {
         let cleaned = tab.label.components(separatedBy: invalid).joined(separator: "-")
             .trimmingCharacters(in: .whitespaces)
         return cleaned.isEmpty ? "chart" : cleaned
-    }
-
-    /// Display name of the connection backing the focused editor tab, for the
-    /// export caption's provenance.
-    private func activeConnectionDisplayName() -> String {
-        guard let connId = stateManager.activeTab?.connectionId else { return "\u{2014}" }
-        return stateManager.connections.first { $0.id == connId }?.name ?? connId
     }
 }
 
