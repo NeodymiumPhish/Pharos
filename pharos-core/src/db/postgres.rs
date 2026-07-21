@@ -59,22 +59,18 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
         .connect(&connection_string)
         .await?;
 
-    // Try to set session-level safety timeouts. These are PostgreSQL-specific
-    // and will fail (and may kill the connection) on non-PG servers like
-    // ClickHouse, so we run them after pool creation on a separate connection
-    // rather than in after_connect where a failure poisons every connection.
+    // Try to set a session-level idle-in-transaction guard. This is
+    // PostgreSQL-specific and will fail (and may kill the connection) on
+    // non-PG servers like ClickHouse, so we run it after pool creation on a
+    // separate connection rather than in after_connect where a failure
+    // poisons every connection. The query timeout is applied per query on
+    // the executing connection (see commands/query.rs), not here.
     if let Ok(mut conn) = pool.acquire().await {
-        let ok = (&mut *conn)
+        let _ = (&mut *conn)
             .execute(sqlx::raw_sql(
                 "SET idle_in_transaction_session_timeout = '30s'",
             ))
-            .await
-            .is_ok();
-        if ok {
-            let _ = (&mut *conn)
-                .execute(sqlx::raw_sql("SET statement_timeout = '300000'"))
-                .await;
-        }
+            .await;
     }
 
     Ok(pool)

@@ -24,7 +24,6 @@ class SettingsSheet: NSViewController {
     // Query
     private let defaultLimitField = NSTextField()
     private let timeoutField = NSTextField()
-    private let autoCommitCheck = NSButton(checkboxWithTitle: "Auto-commit transactions", target: nil, action: nil)
     private let confirmDestructiveCheck = NSButton(checkboxWithTitle: "Confirm before DROP / DELETE / TRUNCATE", target: nil, action: nil)
     private let notifyAppInactiveCheck = NSButton(checkboxWithTitle: "Notify when query completes and app is in background", target: nil, action: nil)
     private let notifyBackgroundTabCheck = NSButton(checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
@@ -214,7 +213,6 @@ class SettingsSheet: NSViewController {
         let grid = NSGridView(views: [
             [limitLabel, defaultLimitField],
             [timeoutLabel, timeoutRow],
-            [NSGridCell.emptyContentView, autoCommitCheck],
             [NSGridCell.emptyContentView, confirmDestructiveCheck],
             [NSGridCell.emptyContentView, notifyAppInactiveCheck],
             [NSGridCell.emptyContentView, notifyBackgroundTabCheck],
@@ -273,7 +271,6 @@ class SettingsSheet: NSViewController {
         // Query
         defaultLimitField.integerValue = Int(settings.query.defaultLimit)
         timeoutField.integerValue = Int(settings.query.timeoutSeconds)
-        autoCommitCheck.state = settings.query.autoCommit ? .on : .off
         confirmDestructiveCheck.state = settings.query.confirmDestructive ? .on : .off
         notifyAppInactiveCheck.state = settings.query.notifyWhenAppInactive ? .on : .off
         notifyBackgroundTabCheck.state = settings.query.notifyWhenBackgroundTab ? .on : .off
@@ -317,7 +314,6 @@ class SettingsSheet: NSViewController {
         // Query
         s.query.defaultLimit = UInt32(clamping: defaultLimitField.integerValue)
         s.query.timeoutSeconds = UInt32(clamping: timeoutField.integerValue)
-        s.query.autoCommit = autoCommitCheck.state == .on
         s.query.confirmDestructive = confirmDestructiveCheck.state == .on
         s.query.notifyWhenAppInactive = notifyAppInactiveCheck.state == .on
         s.query.notifyWhenBackgroundTab = notifyBackgroundTabCheck.state == .on

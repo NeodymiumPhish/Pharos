@@ -28,6 +28,39 @@ pub(crate) async fn set_search_path(
     Ok(())
 }
 
+/// Read the user's query timeout (seconds) from settings, falling back to the default.
+fn query_timeout_seconds(state: &AppState) -> u32 {
+    state
+        .metadata_db
+        .lock()
+        .ok()
+        .and_then(|db| sqlite::load_settings(&db).ok())
+        .map(|s| s.query.timeout_seconds)
+        .unwrap_or_else(|| crate::models::QuerySettings::default().timeout_seconds)
+}
+
+/// Apply the user's statement timeout on this connection. PostgreSQL-specific —
+/// returns Err on servers that don't support it (e.g. ClickHouse), where the
+/// caller should re-acquire since the failed SET may have killed the connection.
+async fn apply_statement_timeout(
+    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    timeout_seconds: u32,
+) -> Result<(), sqlx::Error> {
+    let ms = (timeout_seconds as u64).saturating_mul(1000);
+    let set_sql = format!("SET statement_timeout = {}", ms);
+    (&mut **conn).execute(sqlx::raw_sql(&set_sql)).await?;
+    Ok(())
+}
+
+/// Reset statement_timeout before the connection returns to the pool so that
+/// metadata queries and background ANALYZE on reused connections aren't capped
+/// by the per-query timeout.
+async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>) {
+    let _ = (&mut **conn)
+        .execute(sqlx::raw_sql("RESET statement_timeout"))
+        .await;
+}
+
 /// Format a database error, preserving PostgreSQL's character position if available.
 /// sqlx's `.to_string()` drops the position field; this re-extracts it from PgDatabaseError.
 fn format_db_error(e: &sqlx::Error) -> String {
@@ -104,6 +137,13 @@ pub async fn execute_query(
     // Register this query for potential cancellation
     let cancelled = state.register_query(query_id.clone(), backend_pid);
 
+    // Apply the user's query timeout on this connection. Non-PG servers don't
+    // support it — re-acquire on failure (the failed SET may kill the connection).
+    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
+        drop(conn);
+        conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    }
+
     // Set search_path if schema is specified. Non-PG servers like ClickHouse
     // don't support this — silently skip on failure rather than blocking the query.
     if let Some(ref schema_name) = schema {
@@ -125,6 +165,7 @@ pub async fn execute_query(
         if cancelled.load(Ordering::SeqCst) {
             drop(stream);
             state.unregister_query(&query_id);
+            reset_statement_timeout(&mut conn).await;
             return Err("Query was cancelled".to_string());
         }
 
@@ -144,6 +185,7 @@ pub async fn execute_query(
 
     drop(stream);
     state.unregister_query(&query_id);
+    reset_statement_timeout(&mut conn).await;
 
     if let Some(err) = fetch_error {
         return Err(err);
@@ -298,6 +340,12 @@ pub async fn fetch_more_rows(
 
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
+    // Apply the user's query timeout (non-fatal for non-PG servers)
+    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
+        drop(conn);
+        conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    }
+
     // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
         if let Err(_) = set_search_path(&mut conn, schema_name).await {
@@ -327,11 +375,13 @@ pub async fn fetch_more_rows(
             }
             Err(e) => {
                 drop(stream);
+                reset_statement_timeout(&mut conn).await;
                 return Err(e.to_string());
             }
         }
     }
     drop(stream);
+    reset_statement_timeout(&mut conn).await;
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -399,6 +449,12 @@ pub async fn execute_statement(
     // run on the same connection
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
+    // Apply the user's query timeout (non-fatal for non-PG servers)
+    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
+        drop(conn);
+        conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    }
+
     // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
         if let Err(_) = set_search_path(&mut conn, schema_name).await {
@@ -407,9 +463,9 @@ pub async fn execute_statement(
         }
     }
 
-    let result = (&mut *conn).execute(sqlx::raw_sql(&sql))
-        .await
-        .map_err(|e| format_db_error(&e))?;
+    let result = (&mut *conn).execute(sqlx::raw_sql(&sql)).await;
+    reset_statement_timeout(&mut conn).await;
+    let result = result.map_err(|e| format_db_error(&e))?;
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 

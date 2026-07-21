@@ -85,6 +85,8 @@ impl Default for EditorSettings {
 pub struct QuerySettings {
     pub default_limit: u32,
     pub timeout_seconds: u32,
+    // Kept only so stored settings JSON round-trips; no UI and no effect —
+    // queries run in PostgreSQL's implicit auto-commit mode.
     pub auto_commit: bool,
     pub confirm_destructive: bool,
     #[serde(default = "default_notify_when_app_inactive")]
