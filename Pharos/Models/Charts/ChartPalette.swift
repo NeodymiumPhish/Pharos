@@ -17,13 +17,13 @@ enum ChartPalette {
         "#E05525", // orange
     ]
 
-    struct RGB: Equatable { var r: Int; var g: Int; var b: Int }   // components 0...255
+    struct RGB: Equatable { let r: Int; let g: Int; let b: Int }   // components 0...255
 
     /// Parse "#RRGGBB" or "RRGGBB" → RGB; `nil` for malformed input.
     static func rgb(fromHex hex: String) -> RGB? {
         var s = hex.trimmingCharacters(in: .whitespaces)
         if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        guard s.count == 6, s.allSatisfy({ $0.isHexDigit }), let v = UInt32(s, radix: 16) else { return nil }
         return RGB(r: Int((v >> 16) & 0xFF), g: Int((v >> 8) & 0xFF), b: Int(v & 0xFF))
     }
 
@@ -39,9 +39,8 @@ enum ChartPalette {
     static func resolveHex(override: [String], global: [String], count: Int) -> [String] {
         guard count > 0 else { return [] }
         let chosen = !override.isEmpty ? override : (!global.isEmpty ? global : defaultHex)
-        let base = chosen.isEmpty ? defaultHex : chosen
         return (0..<count).map { i in
-            let candidate = base[i % base.count]
+            let candidate = chosen[i % chosen.count]
             if rgb(fromHex: candidate) != nil { return candidate }
             return defaultHex[i % defaultHex.count]
         }

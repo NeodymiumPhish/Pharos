@@ -49,5 +49,11 @@ func runTests() {
     // resolveHex: count 0 -> empty.
     expect(ChartPalette.resolveHex(override: [], global: [], count: 0) == [], "count 0 yields empty")
 
+    // Lowercase hex parses the same as uppercase.
+    expect(ChartPalette.rgb(fromHex: "e12d48") == ChartPalette.RGB(r: 225, g: 45, b: 72), "parses lowercase hex")
+    // A leading sign is not valid hex.
+    expect(ChartPalette.rgb(fromHex: "+1234A") == nil, "rejects leading sign")
+    expect(ChartPalette.rgb(fromHex: "-1234A") == nil, "rejects leading minus")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
