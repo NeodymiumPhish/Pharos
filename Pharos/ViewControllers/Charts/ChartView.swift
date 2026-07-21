@@ -35,13 +35,21 @@ struct ChartCanvas: View {
     private var categorySeriesNames: [String] {
         data.series.map { $0.name.isEmpty ? "value" : $0.name }
     }
-    /// Pie color domain: the category label of each slice.
+    /// Pie color domain: each distinct slice label, first-seen order. Deduped
+    /// so the explicit foreground-style scale maps one color per category even
+    /// if the data (e.g. a server-aggregated result) repeats a display label.
     private var pieLabels: [String] {
-        (data.series.first?.points ?? []).map { $0.xLabel }
+        var seen = Set<String>()
+        return (data.series.first?.points ?? []).compactMap { seen.insert($0.xLabel).inserted ? $0.xLabel : nil }
     }
     /// The single resolved color for scatter (no per-series split).
     private var scatterColor: Color {
-        ChartPalette.resolveColors(override: config.seriesColors, global: globalPalette, count: 1).first ?? .accentColor
+        resolvedColors(count: 1).first ?? .accentColor
+    }
+    /// Resolved series colors for `count` domain entries: the per-chart override
+    /// (`config.seriesColors`) if set, else the global palette.
+    private func resolvedColors(count: Int) -> [Color] {
+        ChartPalette.resolveColors(override: config.seriesColors, global: globalPalette, count: count)
     }
 
     // Pie selection (native angle selection maps to the category label).
@@ -178,7 +186,7 @@ struct ChartCanvas: View {
     // Bar/line/area, one MarkContent per point, colored by series.
     private func categoryChart<M: ChartContent>(@ChartContentBuilder _ mark: @escaping (ChartPoint) -> M) -> some View {
         let names = categorySeriesNames
-        let colors = ChartPalette.resolveColors(override: config.seriesColors, global: globalPalette, count: names.count)
+        let colors = resolvedColors(count: names.count)
         return Chart {
             ForEach(Array(data.series.enumerated()), id: \.offset) { _, series in
                 ForEach(Array(series.points.enumerated()), id: \.offset) { _, pt in
@@ -198,7 +206,7 @@ struct ChartCanvas: View {
         }
         .chartForegroundStyleScale(
             domain: pieLabels,
-            range: ChartPalette.resolveColors(override: config.seriesColors, global: globalPalette, count: pieLabels.count)
+            range: resolvedColors(count: pieLabels.count)
         )
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
