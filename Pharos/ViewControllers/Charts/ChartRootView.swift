@@ -110,6 +110,11 @@ struct ChartRootView: View {
     /// Explicitly run a server aggregation (the reopen affordance).
     var onRunServerAggregation: () -> Void = {}
 
+    /// Observe the global chart palette so charts recolor live when it changes
+    /// in Settings.
+    @ObservedObject private var appState = AppStateManager.shared
+    private var globalPalette: [String] { appState.settings.charts.palette }
+
     var body: some View {
         VStack(spacing: 0) {
             // Server-aggregation banner takes precedence over the client subset
@@ -123,7 +128,8 @@ struct ChartRootView: View {
                             onSelectionChanged: { keys in model.onSelectionChanged?(keys) },
                             committedKeys: model.committedKeys,
                             clearToken: model.clearToken,
-                            configFingerprint: model.configFingerprint)
+                            configFingerprint: model.configFingerprint,
+                            globalPalette: globalPalette)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 configRail.frame(width: 160)
@@ -243,6 +249,8 @@ struct ChartRootView: View {
                     }
                 }
 
+                colorSection
+
                 if usesAggregation { serverAggregationSection }
 
                 Spacer()
@@ -274,6 +282,65 @@ struct ChartRootView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    // MARK: colors rail section
+
+    /// The color-domain labels for the current chart type (one control each).
+    /// Empty for gantt/heatmap, which don't use the categorical palette.
+    private var colorDomainLabels: [String] {
+        switch model.config.chartType {
+        case .bar, .line, .area:
+            return model.data.series.map { $0.name.isEmpty ? "value" : $0.name }
+        case .pie:
+            return (model.data.series.first?.points ?? []).map { $0.xLabel }
+        case .scatter:
+            return (model.data.series.first?.points.isEmpty == false) ? ["Points"] : []
+        case .gantt, .heatmap:
+            return []
+        }
+    }
+
+    @ViewBuilder private var colorSection: some View {
+        let labels = colorDomainLabels
+        if !labels.isEmpty {
+            railLabel("Colors")
+            ForEach(Array(labels.enumerated()), id: \.offset) { idx, label in
+                HStack(spacing: 6) {
+                    ColorPicker("", selection: seriesColorBinding(index: idx, domainCount: labels.count), supportsOpacity: false)
+                        .labelsHidden()
+                    Text(label).font(.caption).lineLimit(1).truncationMode(.tail)
+                    Spacer()
+                }
+            }
+            if !model.config.seriesColors.isEmpty {
+                Button("Reset to palette") { model.update { $0.seriesColors = [] } }
+                    .buttonStyle(.link).font(.caption)
+            }
+        }
+    }
+
+    /// A binding for the color well at `index`. Reads the currently-effective
+    /// color; writing seeds the override with the full effective palette first
+    /// (so untouched wells keep their color) then updates just `index`.
+    private func seriesColorBinding(index: Int, domainCount: Int) -> Binding<Color> {
+        let palette = globalPalette
+        return Binding(
+            get: {
+                let hexes = ChartPalette.resolveHex(override: model.config.seriesColors, global: palette, count: domainCount)
+                return ChartPalette.color(fromHex: hexes[index])
+            },
+            set: { newColor in
+                model.update { cfg in
+                    var colors = cfg.seriesColors
+                    if colors.count < domainCount {
+                        colors = ChartPalette.resolveHex(override: cfg.seriesColors, global: palette, count: domainCount)
+                    }
+                    if index < colors.count { colors[index] = ChartPalette.hex(from: newColor) }
+                    cfg.seriesColors = colors
+                }
+            }
+        )
     }
 
     // MARK: role helpers
