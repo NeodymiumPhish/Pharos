@@ -434,10 +434,12 @@ class ResultsGridVC: NSViewController {
         for (index, colDef) in columns.enumerated() {
             let colId = "col_\(index)"
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(colId))
+            // Assign the header cell BEFORE the title: replacing headerCell resets
+            // its stringValue (title), so setting title first would be discarded.
+            col.headerCell = SortAwareHeaderCell()
             col.title = colDef.name
             col.minWidth = 50
             col.maxWidth = 1000
-            col.headerCell = SortAwareHeaderCell()
             types[colId] = colDef.dataType.uppercased()
             col.width = measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
             col.sortDescriptorPrototype = NSSortDescriptor(key: colId, ascending: true)
@@ -642,13 +644,16 @@ class ResultsGridVC: NSViewController {
     /// the initial default passes false (reloadData hasn't run, visible rect stale).
     func measuredColumnWidth(column: NSTableColumn, colId: String, includeVisibleSample: Bool) -> CGFloat {
         guard let idx = colIndex(from: colId) else { return column.width }
-        let headerInset: CGFloat = SortAwareHeaderCell.hInset * 2
+        // Padding = the 6/6 text insets (both header text and body cells use them)
+        // + the table's intercell gap (eats into a cell's drawable width) + a small
+        // rounding safety, so the rendered text never lands a hair short and truncates.
+        let pad: CGFloat = SortAwareHeaderCell.hInset * 2 + tableView.intercellSpacing.width + 2
         // Header contributes the wider of the two rows: name (row 1) and type (row 2).
         let nameStr = idx < columns.count ? columns[idx].name : column.title
         let typeStr = (idx < columns.count ? columns[idx].dataType : "").uppercased()
         let nameW = (nameStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
         let typeW = (typeStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
-        var maxW = max(nameW, typeW) + headerInset
+        var maxW = ceil(max(nameW, typeW)) + pad
 
         var sampleIndices = Set<Int>()
         let total = displayRows.count
@@ -668,7 +673,7 @@ class ResultsGridVC: NSViewController {
                                                boolTrue: dataSource.boolDisplayTrue,
                                                boolFalse: dataSource.boolDisplayFalse,
                                                nullString: dataSource.nullDisplay)
-            maxW = max(maxW, (text as NSString).size(withAttributes: attrs).width + 12)
+            maxW = max(maxW, ceil((text as NSString).size(withAttributes: attrs).width) + pad)
         }
         return min(max(maxW, column.minWidth), 1000)
     }
