@@ -46,25 +46,12 @@ class FilterableHeaderView: NSTableHeaderView {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
 
-    /// Minimum header height needed to fit the two-row (name / type) header cell.
-    /// NSScrollView re-tiles the table and resets the header frame to the default
-    /// single-row height; clamping here keeps the two-row layout from clipping.
-    static let minHeaderHeight: CGFloat = 34
-
-    override var frame: NSRect {
-        get { super.frame }
-        set {
-            var f = newValue
-            f.size.height = max(f.size.height, Self.minHeaderHeight)
-            super.frame = f
-        }
-    }
-
-    // NSScrollView tiling often resizes via setFrameSize(_:), which bypasses the
-    // `frame` setter — clamp here too so the two-row height survives every path.
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(NSSize(width: newSize.width, height: max(newSize.height, Self.minHeaderHeight)))
-    }
+    /// Target height for the two-row (name / type) header. Applied cooperatively
+    /// by `InsetScrollView.tile()` (before `super.tile()` sizes the header clip),
+    /// NOT by overriding this view's `frame`/`setFrameSize` — overriding those to
+    /// force a height fights NSTableView's own header sizing and sends the scroll
+    /// view into an infinite re-tile loop (freeze) on any relayout.
+    static let headerHeight: CGFloat = 34
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {

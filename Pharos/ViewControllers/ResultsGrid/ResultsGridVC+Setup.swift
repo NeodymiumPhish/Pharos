@@ -5,7 +5,22 @@ import AppKit
 /// NSScrollView subclass that positions scrollers outside the content area
 /// instead of overlaying them on top of the document view.
 class InsetScrollView: NSScrollView {
+    private var isTiling = false
+
     override func tile() {
+        // Give the two-row header its taller height BEFORE super.tile() sizes the
+        // header clip from it. A re-entrancy guard makes this loop-safe: if setting
+        // the header frame (or super.tile) re-invalidates layout, the nested tile
+        // just runs super.tile() and returns — so we can't spin into the freeze the
+        // old frame/setFrameSize override on the header used to cause.
+        guard !isTiling else { super.tile(); return }
+        isTiling = true
+        defer { isTiling = false }
+        if let hv = (documentView as? NSTableView)?.headerView as? FilterableHeaderView,
+           hv.frame.height != FilterableHeaderView.headerHeight {
+            hv.setFrameSize(NSSize(width: hv.frame.width, height: FilterableHeaderView.headerHeight))
+        }
+
         super.tile()
 
         // Only adjust the clip view's SIZE to make room for scrollers.
