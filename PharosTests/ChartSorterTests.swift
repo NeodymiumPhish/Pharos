@@ -53,5 +53,21 @@ func runTests() {
     let empty = ChartSorter.sorted(ChartData(), by: .valueDesc, chartType: .bar)
     expect(empty.series.isEmpty, "empty data returns empty, no crash")
 
+    // Value ties keep original relative order (deterministic stable tiebreak).
+    let ties = mkData([("x", 5), ("y", 5), ("z", 5)])
+    expect(labels(ChartSorter.sorted(ties, by: .valueDesc, chartType: .bar)) == ["x", "y", "z"], "value ties preserve original order (desc)")
+    expect(labels(ChartSorter.sorted(ties, by: .valueAsc, chartType: .bar)) == ["x", "y", "z"], "value ties preserve original order (asc)")
+
+    // Sparse series: s2 is missing category "b"; both series reorder to the same
+    // sequence, and the missing category is simply absent (no crash).
+    var sparse = ChartData()
+    sparse.series = [
+        ChartSeries(name: "s1", points: [ChartPoint(xLabel: "a", xValue: nil, y: 1), ChartPoint(xLabel: "b", xValue: nil, y: 2), ChartPoint(xLabel: "c", xValue: nil, y: 3)]),
+        ChartSeries(name: "s2", points: [ChartPoint(xLabel: "a", xValue: nil, y: 1), ChartPoint(xLabel: "c", xValue: nil, y: 1)]),
+    ]
+    let sp = ChartSorter.sorted(sparse, by: .categoryDesc, chartType: .bar)
+    expect(sp.series[0].points.map { $0.xLabel } == ["c", "b", "a"], "sparse: full series reordered")
+    expect(sp.series[1].points.map { $0.xLabel } == ["c", "a"], "sparse: subset series reordered, missing category absent")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
