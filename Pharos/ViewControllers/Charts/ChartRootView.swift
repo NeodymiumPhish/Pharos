@@ -61,13 +61,14 @@ final class ChartViewModel: ObservableObject {
         // Only skip for chart types that support server mode — gantt falls back
         // to the client render even if the flag is on (it can't push down).
         if config.serverAggregation && chartTypeSupportsServer { return }
-        data = ChartAggregator.aggregate(result, config)
+        data = ChartSorter.sorted(ChartAggregator.aggregate(result, config),
+                                  by: config.display.sort, chartType: config.chartType)
     }
 
     /// Inject server-aggregated data (built by `ServerChartDataBuilder`), clearing
     /// the loading/error state and marking that a run completed this session.
     func setServerData(_ d: ChartData) {
-        data = d
+        data = ChartSorter.sorted(d, by: config.display.sort, chartType: config.chartType)
         serverLoading = false
         serverError = nil
         serverHasRun = true
