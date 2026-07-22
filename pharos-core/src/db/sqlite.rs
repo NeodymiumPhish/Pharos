@@ -1096,7 +1096,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
     let mut stmt = conn.prepare(
         "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                 result_columns, result_rows, schema, column_count, table_names,
-                result_order, color_index, custom_label
+                result_order, color_index, custom_label, chart_view_state_json, raw_sql
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -1107,6 +1107,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<Vec<u8>>>(6)?, r.get::<_, Option<Vec<u8>>>(7)?,
                 r.get::<_, Option<String>>(8)?, r.get::<_, Option<i64>>(9)?, r.get::<_, Option<String>>(10)?,
                 r.get::<_, Option<i64>>(11)?, r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?,
+                r.get::<_, Option<String>>(14)?, r.get::<_, Option<String>>(15)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -1116,13 +1117,13 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
             "INSERT INTO query_history
                 (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                  result_columns, result_rows, schema, column_count, table_names,
-                 workspace_id, result_order, color_index, custom_label)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
-            (
-                &child_id, &row.0, &row.1, &row.2, &row.3, &row.4, &row.5,
-                &row.6, &row.7, &row.8, &row.9, &row.10,
-                &new_id, &row.11, &row.12, &row.13,
-            ),
+                 workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+            rusqlite::params![
+                child_id, row.0, row.1, row.2, row.3, row.4, row.5,
+                row.6, row.7, row.8, row.9, row.10,
+                new_id, row.11, row.12, row.13, row.14, row.15,
+            ],
         )?;
     }
     Ok(Some(new_id))
@@ -1540,6 +1541,42 @@ mod workspace_roundtrip_tests {
         let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
         let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
         assert_eq!(r.raw_sql.as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"));
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_workspace_preserves_raw_sql_and_chart_state() {
+        let dir = temp_db_dir("dup_raw_sql");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: Some("Orig".to_string()),
+            name_is_custom: true,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT * FROM users WHERE id = {{id}}".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        associate_result_to_workspace(
+            &conn, "h1", "ws1", 0, 0,
+            Some("SELECT * FROM users WHERE id = {{id}}"),
+        ).expect("associate h1");
+        update_result_chart_state(&conn, "h1", r#"{"viewMode":"chart"}"#).expect("chart state");
+
+        let new_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("some new id");
+        let detail = load_workspace(&conn, &new_id).expect("load").expect("dup exists");
+        assert_eq!(detail.results.len(), 1, "child copied");
+        let r = &detail.results[0];
+        assert_eq!(r.raw_sql.as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"), "raw_sql copied");
+        assert_eq!(r.chart_view_state_json.as_deref(), Some(r#"{"viewMode":"chart"}"#), "chart state copied");
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
