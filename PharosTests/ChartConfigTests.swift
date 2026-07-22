@@ -106,5 +106,15 @@ func runTests() {
     // `old3` (decoded earlier from a blob with no seriesColors) defaults to [].
     expect(old3.seriesColors.isEmpty, "legacy config defaults seriesColors to []")
 
+    // display.sort: default, round-trip, and legacy display (no "sort" key) → .queryOrder.
+    var srt = ChartConfig(chartType: .bar)
+    expect(srt.display.sort == .queryOrder, "display.sort defaults to queryOrder")
+    srt.display.sort = .valueDesc
+    let srtData = try! JSONEncoder().encode(srt)
+    let srtBack = try! JSONDecoder().decode(ChartConfig.self, from: srtData)
+    expect(srtBack.display.sort == .valueDesc, "display.sort round-trips")
+    // `old3` was decoded earlier from a legacy blob whose `display` object lacks "sort".
+    expect(old3.display.sort == .queryOrder, "legacy display without sort defaults to queryOrder")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

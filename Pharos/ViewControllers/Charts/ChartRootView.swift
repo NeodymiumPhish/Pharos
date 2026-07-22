@@ -61,13 +61,14 @@ final class ChartViewModel: ObservableObject {
         // Only skip for chart types that support server mode — gantt falls back
         // to the client render even if the flag is on (it can't push down).
         if config.serverAggregation && chartTypeSupportsServer { return }
-        data = ChartAggregator.aggregate(result, config)
+        data = ChartSorter.sorted(ChartAggregator.aggregate(result, config),
+                                  by: config.display.sort, chartType: config.chartType)
     }
 
     /// Inject server-aggregated data (built by `ServerChartDataBuilder`), clearing
     /// the loading/error state and marking that a run completed this session.
     func setServerData(_ d: ChartData) {
-        data = d
+        data = ChartSorter.sorted(d, by: config.display.sort, chartType: config.chartType)
         serverLoading = false
         serverError = nil
         serverHasRun = true
@@ -249,6 +250,14 @@ struct ChartRootView: View {
                     }
                 }
 
+                if showSort {
+                    railLabel("Sort")
+                    Picker("", selection: Binding(get: { model.config.display.sort },
+                                                  set: { s in model.update { $0.display.sort = s } })) {
+                        ForEach(ChartSort.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }.labelsHidden()
+                }
+
                 colorSection
 
                 if usesAggregation { serverAggregationSection }
@@ -345,6 +354,14 @@ struct ChartRootView: View {
     }
     private var usesAggregation: Bool {
         switch model.config.chartType { case .scatter, .gantt: return false; default: return true }
+    }
+    // Sort applies only to categorical charts (bar/line/area/pie); scatter and
+    // numeric axes auto-sort by value, and gantt/heatmap aren't categorical.
+    private var showSort: Bool {
+        switch model.config.chartType {
+        case .bar, .line, .area, .pie: return true
+        default: return false
+        }
     }
     // Show the Time Bucket control when the axis is date-based: the mapped
     // category for categorical charts, or the Start column for gantt.
