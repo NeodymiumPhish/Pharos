@@ -420,6 +420,22 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         )?;
     }
 
+    // Migration: Add raw (pre-substitution, {{var}}-form) SQL column to query_history.
+    // Holds the editor segment text used to re-locate a result's query for highlighting;
+    // `sql` keeps the substituted text that actually ran. Migration-only (no base CREATE
+    // entry), matching the convention of every other later column here.
+    let has_raw_sql_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'raw_sql'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_raw_sql_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN raw_sql TEXT;"
+        )?;
+    }
+
     // Migration: Backfill FTS5 index if it's empty but history has data
     let fts_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM query_history_fts", [], |row| row.get(0))
@@ -1474,6 +1490,23 @@ mod workspace_roundtrip_tests {
         let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
         assert_eq!(r.chart_view_state_json.as_deref(), Some(json));
 
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn raw_sql_migration_is_idempotent_and_present() {
+        let dir = temp_db_dir("raw_sql_migration");
+        let conn = init_database(&dir).expect("init 1");
+        drop(conn);
+        // Second init must not error (idempotent guarded ALTER).
+        let conn = init_database(&dir).expect("init 2 idempotent");
+        let count: i64 = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'raw_sql'")
+            .expect("prepare")
+            .query_row([], |r| r.get(0))
+            .expect("query_row");
+        assert_eq!(count, 1, "raw_sql column present after migration");
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
