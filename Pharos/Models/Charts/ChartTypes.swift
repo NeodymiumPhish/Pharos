@@ -71,12 +71,56 @@ enum ResultViewMode: String, Codable {
     case grid, chart
 }
 
+/// How a categorical chart's points are ordered. `queryOrder` preserves the
+/// order produced by aggregation (today's behavior); the others sort by the
+/// X-axis label or the per-category Y total.
+enum ChartSort: String, Codable, CaseIterable {
+    case queryOrder     // as returned (default; preserves today's behavior)
+    case categoryAsc    // by X-axis label, ascending
+    case categoryDesc   // by X-axis label, descending
+    case valueAsc       // by Y-axis total, ascending
+    case valueDesc      // by Y-axis total, descending
+
+    var displayName: String {
+        switch self {
+        case .queryOrder:  return "Query order"
+        case .categoryAsc: return "Category \u{2191}"
+        case .categoryDesc: return "Category \u{2193}"
+        case .valueAsc:    return "Value \u{2191}"
+        case .valueDesc:   return "Value \u{2193}"
+        }
+    }
+}
+
 /// Non-mapping display options.
 struct ChartDisplayOptions: Codable, Equatable {
     var title: String = ""
     var showLegend: Bool = true
     var stacked: Bool = false          // grouped vs stacked for series
     var topNCategories: Int = 25       // cardinality cap
+    var sort: ChartSort = .queryOrder  // categorical point ordering
+
+    init(title: String = "", showLegend: Bool = true, stacked: Bool = false,
+         topNCategories: Int = 25, sort: ChartSort = .queryOrder) {
+        self.title = title
+        self.showLegend = showLegend
+        self.stacked = stacked
+        self.topNCategories = topNCategories
+        self.sort = sort
+    }
+
+    // Tolerant decode: every field decodeIfPresent with a default, so a persisted
+    // `display` blob written before `sort` existed still decodes (Swift's
+    // synthesized decoder would otherwise throw keyNotFound on the missing key).
+    enum CodingKeys: String, CodingKey { case title, showLegend, stacked, topNCategories, sort }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        showLegend = try c.decodeIfPresent(Bool.self, forKey: .showLegend) ?? true
+        stacked = try c.decodeIfPresent(Bool.self, forKey: .stacked) ?? false
+        topNCategories = try c.decodeIfPresent(Int.self, forKey: .topNCategories) ?? 25
+        sort = try c.decodeIfPresent(ChartSort.self, forKey: .sort) ?? .queryOrder
+    }
 }
 
 /// Provenance of the last server-side (push-down) aggregation run for a chart.
