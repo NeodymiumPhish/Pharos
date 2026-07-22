@@ -250,6 +250,14 @@ struct ChartRootView: View {
                     }
                 }
 
+                if showSort {
+                    railLabel("Sort")
+                    Picker("", selection: Binding(get: { model.config.display.sort },
+                                                  set: { s in model.update { $0.display.sort = s } })) {
+                        ForEach(ChartSort.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }.labelsHidden()
+                }
+
                 colorSection
 
                 if usesAggregation { serverAggregationSection }
@@ -346,6 +354,14 @@ struct ChartRootView: View {
     }
     private var usesAggregation: Bool {
         switch model.config.chartType { case .scatter, .gantt: return false; default: return true }
+    }
+    // Sort applies only to categorical charts (bar/line/area/pie); scatter and
+    // numeric axes auto-sort by value, and gantt/heatmap aren't categorical.
+    private var showSort: Bool {
+        switch model.config.chartType {
+        case .bar, .line, .area, .pie: return true
+        default: return false
+        }
     }
     // Show the Time Bucket control when the axis is date-based: the mapped
     // category for categorical charts, or the Start column for gantt.
