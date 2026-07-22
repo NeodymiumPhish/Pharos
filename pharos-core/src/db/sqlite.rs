@@ -856,10 +856,11 @@ pub fn associate_result_to_workspace(
     workspace_id: &str,
     result_order: i64,
     color_index: i64,
+    raw_sql: Option<&str>,
 ) -> SqliteResult<()> {
     conn.execute(
-        "UPDATE query_history SET workspace_id = ?1, result_order = ?2, color_index = ?3 WHERE id = ?4",
-        (workspace_id, result_order, color_index, history_id),
+        "UPDATE query_history SET workspace_id = ?1, result_order = ?2, color_index = ?3, raw_sql = ?4 WHERE id = ?5",
+        (workspace_id, result_order, color_index, raw_sql, history_id),
     )?;
     enforce_workspace_budget(conn, workspace_id)?;
     Ok(())
@@ -975,7 +976,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
     let mut stmt = conn.prepare(
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
-                execution_time_ms, executed_at, chart_view_state_json
+                execution_time_ms, executed_at, chart_view_state_json, raw_sql
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -995,6 +996,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 execution_time_ms: row.get(10)?,
                 executed_at: row.get(11)?,
                 chart_view_state_json: row.get(12)?,
+                raw_sql: row.get(13)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -1349,8 +1351,8 @@ mod workspace_roundtrip_tests {
         let h2 = history_entry("h2", "c2", "other-db", &now_offset(1));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
         save_query_history(&conn, &h2, None, None).expect("save h2");
-        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0).expect("associate h1");
-        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1).expect("associate h2");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
+        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
 
         // 4. load_workspaces: resolved name ("prod-db +1" for 2 distinct dbs),
         // query_count, distinct_db_count all come back through the real decode.
@@ -1426,7 +1428,7 @@ mod workspace_roundtrip_tests {
         for (i, id) in ["h3", "h4", "h5"].iter().enumerate() {
             let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
             save_query_history(&conn, &entry, Some("[]"), Some("[]")).expect("save history row");
-            associate_result_to_workspace(&conn, id, "ws2", i as i64, 0).expect("associate");
+            associate_result_to_workspace(&conn, id, "ws2", i as i64, 0, None).expect("associate");
         }
 
         // Overwrite with large blobs (bypassing gzip so sizes are exact) to exercise
@@ -1480,7 +1482,7 @@ mod workspace_roundtrip_tests {
 
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
-        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0).expect("associate h1");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
 
         let json = r#"{"viewMode":"chart","chartConfig":{"chartType":"bar"}}"#;
         let ok = update_result_chart_state(&conn, "h1", json).expect("update_result_chart_state");
@@ -1507,6 +1509,38 @@ mod workspace_roundtrip_tests {
             .query_row([], |r| r.get(0))
             .expect("query_row");
         assert_eq!(count, 1, "raw_sql column present after migration");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn raw_sql_round_trips_through_associate_and_load() {
+        let dir = temp_db_dir("raw_sql_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT * FROM users WHERE id = {{id}}".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        associate_result_to_workspace(
+            &conn, "h1", "ws1", 0, 0,
+            Some("SELECT * FROM users WHERE id = {{id}}"),
+        ).expect("associate h1");
+
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
+        assert_eq!(r.raw_sql.as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"));
+
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

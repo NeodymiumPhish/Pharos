@@ -37,7 +37,7 @@ pub extern "C" fn pharos_associate_result(json: *const c_char) -> *mut c_char {
             Ok(a) => a,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
-        match rt.block_on(crate::commands::associate_result(a.history_id, a.workspace_id, a.result_order, a.color_index, state)) {
+        match rt.block_on(crate::commands::associate_result(a.history_id, a.workspace_id, a.result_order, a.color_index, None, state)) {
             Ok(()) => to_c_string("true"),
             Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
         }
