@@ -69,5 +69,19 @@ func runTests() {
     expect(sp.series[0].points.map { $0.xLabel } == ["c", "b", "a"], "sparse: full series reordered")
     expect(sp.series[1].points.map { $0.xLabel } == ["c", "a"], "sparse: subset series reordered, missing category absent")
 
+    // Numeric-bin range labels spanning negatives sort by value, not lexically.
+    let negBins = mkData([
+        ("-100\u{2013}0", 1), ("-500\u{2013}-400", 1), ("0\u{2013}100", 1), ("-300\u{2013}-200", 1),
+    ])
+    expect(labels(ChartSorter.sorted(negBins, by: .categoryAsc, chartType: .bar))
+           == ["-500\u{2013}-400", "-300\u{2013}-200", "-100\u{2013}0", "0\u{2013}100"],
+           "numeric-bin labels sort by value across negatives (asc)")
+    expect(labels(ChartSorter.sorted(negBins, by: .categoryDesc, chartType: .bar))
+           == ["0\u{2013}100", "-100\u{2013}0", "-300\u{2013}-200", "-500\u{2013}-400"],
+           "numeric-bin labels sort by value across negatives (desc)")
+    // Non-numeric (plain) labels still sort lexically.
+    let plain = mkData([("banana", 1), ("apple", 1), ("cherry", 1)])
+    expect(labels(ChartSorter.sorted(plain, by: .categoryAsc, chartType: .bar)) == ["apple", "banana", "cherry"], "plain labels still sort lexically")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

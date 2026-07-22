@@ -8,6 +8,17 @@ import Foundation
 /// categorical String x-scale and pie slices follow point order, so reordering
 /// `points` is exactly what the axis honors.
 enum ChartSorter {
+    /// Numeric key for a category label, so numeric-bin range labels
+    /// (e.g. "-500–-400", lo and hi separated by an en-dash U+2013) and discrete
+    /// numeric categories sort by value rather than lexically. Parses the leading
+    /// number (the part before the en-dash). Returns nil for non-numeric labels
+    /// (plain text categories, temporal date strings that use ASCII "-"), which
+    /// then fall back to string ordering.
+    private static func numericKey(_ label: String) -> Double? {
+        let head = label.split(separator: "\u{2013}", maxSplits: 1).first.map(String.init) ?? label
+        return Double(head.trimmingCharacters(in: .whitespaces))
+    }
+
     static func sorted(_ data: ChartData, by sort: ChartSort, chartType: ChartType) -> ChartData {
         guard sort != .queryOrder else { return data }
         switch chartType {
@@ -35,10 +46,24 @@ enum ChartSorter {
         let origIndex = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
 
         switch sort {
-        case .categoryAsc:
-            sortable.sort { $0 != $1 ? $0 < $1 : (origIndex[$0] ?? 0) < (origIndex[$1] ?? 0) }
-        case .categoryDesc:
-            sortable.sort { $0 != $1 ? $0 > $1 : (origIndex[$0] ?? 0) < (origIndex[$1] ?? 0) }
+        case .categoryAsc, .categoryDesc:
+            let asc = (sort == .categoryAsc)
+            // Numeric-aware: when every label parses as a leading number
+            // (numeric-bin ranges, discrete numeric categories), sort by value —
+            // lexical order is wrong once a range spans negatives. Otherwise fall
+            // back to string order (plain categories, temporal date labels).
+            if sortable.allSatisfy({ numericKey($0) != nil }) {
+                sortable.sort {
+                    let a = numericKey($0)!, b = numericKey($1)!
+                    if a != b { return asc ? a < b : a > b }
+                    return (origIndex[$0] ?? 0) < (origIndex[$1] ?? 0)
+                }
+            } else {
+                sortable.sort {
+                    if $0 != $1 { return asc ? $0 < $1 : $0 > $1 }
+                    return (origIndex[$0] ?? 0) < (origIndex[$1] ?? 0)
+                }
+            }
         case .valueAsc, .valueDesc:
             var totals: [String: Double] = [:]
             for s in data.series {
