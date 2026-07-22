@@ -54,6 +54,7 @@ The rail on the right side of the chart provides all configuration:
 - **Time bucket** — shown when the axis column is temporal: None, Auto, Hour, Day, Week, Month, or Year.
 - **Bins** — shown when the axis column is numeric: Off, Auto, 10, 20, or 50. Auto picks roughly √n buckets (capped at 50), and an Auto axis with 12 or fewer distinct values stays discrete instead of binning.
 - **Heatmap per-axis controls** — the heatmap gets independent "X bins" / "Y bins" (or "X time bucket" / "Y time bucket") controls, so each axis can be bucketed separately.
+- **Sort** — shown for bar, line, area, and pie: order points by Query order (default), Category (X label), or Value (Y total), each ascending or descending.
 - **Colors** — shown for bar, line, area, pie, and scatter; see [Colors](#colors) below.
 - **Server aggregation** — see below.
 
