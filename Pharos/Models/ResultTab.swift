@@ -6,6 +6,10 @@ struct ResultTab: Identifiable {
     let id: String
     var segmentIndex: Int
     let sql: String
+    /// Raw editor segment text (still containing `{{var}}` tokens) captured at
+    /// execution time. Used ONLY to re-locate this query's segment in the editor.
+    /// Distinct from `sql`, which holds the substituted text that actually ran.
+    let rawSQL: String
     var lineRange: ClosedRange<Int>  // 1-based, captured at execution time
     let color: NSColor
     let timestamp: Date
