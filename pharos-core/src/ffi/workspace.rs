@@ -32,12 +32,19 @@ pub extern "C" fn pharos_associate_result(json: *const c_char) -> *mut c_char {
         let s = unsafe { c_str_to_string(json) };
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct Assoc { history_id: String, workspace_id: String, result_order: i64, color_index: i64 }
+        struct Assoc {
+            history_id: String,
+            workspace_id: String,
+            result_order: i64,
+            color_index: i64,
+            #[serde(default)]
+            raw_sql: Option<String>,
+        }
         let a: Assoc = match serde_json::from_str(&s) {
             Ok(a) => a,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
-        match rt.block_on(crate::commands::associate_result(a.history_id, a.workspace_id, a.result_order, a.color_index, state)) {
+        match rt.block_on(crate::commands::associate_result(a.history_id, a.workspace_id, a.result_order, a.color_index, a.raw_sql, state)) {
             Ok(()) => to_c_string("true"),
             Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
         }

@@ -42,6 +42,7 @@ struct WorkspaceResultMeta: Codable {
     let executionTimeMs: Int
     let executedAt: String
     let chartViewStateJson: String?
+    let rawSql: String?
 }
 
 /// Full workspace payload for reopen.

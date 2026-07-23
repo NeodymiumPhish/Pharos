@@ -1359,7 +1359,7 @@ class ContentViewController: NSViewController {
                         if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, lineRange: lineRange, color: color, timestamp: Date()
+                                sql: sql, rawSQL: querySQL, lineRange: lineRange, color: color, timestamp: Date()
                             )
                             rt.customLabel = customLabel
                             rt.queryResult = result
@@ -1371,7 +1371,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: querySQL)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
@@ -1396,7 +1396,7 @@ class ContentViewController: NSViewController {
                         if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, lineRange: lineRange, color: color, timestamp: Date()
+                                sql: sql, rawSQL: querySQL, lineRange: lineRange, color: color, timestamp: Date()
                             )
                             rt.customLabel = customLabel
                             rt.executeResult = result
@@ -1407,7 +1407,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: querySQL)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
@@ -1778,7 +1778,7 @@ class ContentViewController: NSViewController {
             for i in self.resultTabs.indices {
                 let tab = self.resultTabs[i]
                 if let outcome = ResultTabResolver.resolve(
-                    sql: tab.sql,
+                    sql: tab.rawSQL,
                     previousLineRange: tab.lineRange,
                     in: segments
                 ) {
@@ -1977,14 +1977,14 @@ class ContentViewController: NSViewController {
     /// Associate a produced result (by its history id) with the editor tab's
     /// workspace, at the next order slot. `color` supplies the persisted palette
     /// index (falls back to an order-cycled color for inline results).
-    private func captureExecutedResult(historyId: String, editorTabId: String, workspaceId: String, color: NSColor) {
+    private func captureExecutedResult(historyId: String, editorTabId: String, workspaceId: String, color: NSColor, rawSQL: String) {
         let order = resultOrderByEditorTab[editorTabId, default: 0]
         resultOrderByEditorTab[editorTabId] = order + 1
         let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
         do {
             try PharosCore.associateResult(.init(
                 historyId: historyId, workspaceId: workspaceId,
-                resultOrder: order, colorIndex: colorIndex
+                resultOrder: order, colorIndex: colorIndex, rawSql: rawSQL
             ))
             NotificationCoalescer.post(.workspaceHistoryDidChange)
         } catch {
@@ -2126,6 +2126,7 @@ extension ContentViewController {
                 id: UUID().uuidString,
                 segmentIndex: -1,
                 sql: entry.sql,
+                rawSQL: entry.sql,
                 lineRange: 0...0,
                 color: ResultTab.nextColor(),
                 timestamp: Date()
@@ -2206,6 +2207,7 @@ extension ContentViewController {
                     id: UUID().uuidString,
                     segmentIndex: -1,
                     sql: meta.sql,
+                    rawSQL: meta.rawSql ?? meta.sql,
                     lineRange: 0...0,
                     color: color,
                     timestamp: Date()

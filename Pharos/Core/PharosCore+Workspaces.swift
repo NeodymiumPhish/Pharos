@@ -15,6 +15,7 @@ extension PharosCore {
         let workspaceId: String
         let resultOrder: Int
         let colorIndex: Int
+        let rawSql: String?
     }
 
     /// Associate a produced result (by its history id) with a workspace.
