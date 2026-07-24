@@ -283,12 +283,13 @@ class InspectorViewController: NSViewController {
             stackView.addArrangedSubview(colHeader)
 
             // Count / Distinct / NULL — each on its own line. When the selection
-            // has exactly one distinct value, the Distinct line shows the value
-            // itself instead of the redundant "Distinct: 1".
+            // has exactly one distinct value, the count keeps its place and the
+            // value follows in parentheses, so a lone "443" can't be misread as
+            // a count of 443 distinct values.
             let nullCount = agg.totalCount - agg.nonNullCount
             var statLines = ["Count: \(agg.nonNullCount)"]
             if agg.distinctCount == 1, let only = agg.distinctValues.first {
-                statLines.append("Distinct: \(only)")
+                statLines.append("Distinct: 1 (\(only))")
             } else {
                 statLines.append("Distinct: \(agg.distinctCount)")
             }
