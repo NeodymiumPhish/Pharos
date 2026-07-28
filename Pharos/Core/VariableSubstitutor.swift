@@ -124,6 +124,12 @@ enum VariableSubstitutor {
     struct RowState: Equatable {
         /// Where this row sits among the rows sharing its name. `nil` when the
         /// name is unique.
+        ///
+        /// The user-facing wording for each case is deliberately not here, unlike
+        /// `ValueProblem.message`. `ValueProblem.message` works as one string
+        /// because it's the same tooltip everywhere; duplication copy differs by
+        /// surface (a terse list caption vs. a full sentence in the detail view),
+        /// so it lives with the views that render each surface, not the model.
         enum Duplication: Equatable {
             /// An earlier duplicate. `render(_:with:)` takes a later definition
             /// instead, so this row's value never reaches the query — it is inert,
@@ -144,6 +150,12 @@ enum VariableSubstitutor {
     /// What every row should say about itself, keyed by variable id. Ids with
     /// nothing to report are absent.
     ///
+    /// Presence in the dictionary means the row has *something* to say, not that
+    /// anything is wrong — a healthy row that merely overrides an earlier
+    /// duplicate is present too, same as any duplicated row of a name nothing
+    /// references. Branch on `.problem` for failure and `.duplication` for
+    /// inertness; never treat presence itself as an error.
+    ///
     /// List-at-a-time because both rules need the whole list: `render(_:with:)`
     /// resolves a repeated name last-definition-wins, so which row can fail — and
     /// which row is inert — depends on what else is defined.
@@ -152,10 +164,17 @@ enum VariableSubstitutor {
         referenced: Set<String>
     ) -> [UUID: RowState] {
         // Last-wins, matching render()'s own resolution, plus occurrence counts so
-        // we know which names are duplicated at all. Skipping unnamed variables
-        // here is the single thing that keeps a freshly added row — name still
-        // empty — out of both signals: with no entry in either map, the loop below
-        // can find nothing to say about it.
+        // we know which names are duplicated at all. Skipping unnamed/blank-named
+        // variables here is the single thing that keeps a freshly added row —
+        // name still empty, or later trimmed to nothing — out of both signals:
+        // with no entry in either map, the loop below can find nothing to say
+        // about it. Two rows both named "" (or both " ") must not badge each
+        // other as duplicates — neither can ever be referenced (tokenRegex
+        // requires a leading identifier character), so "duplicate" isn't a
+        // meaningful thing to say about them. The map keys themselves stay
+        // untrimmed: a real name like " ip " is still distinct from "ip" and
+        // simply never matches anything, which `problem(for:)` and `render(_:with:)`
+        // already agree on.
         var effective: [String: UUID] = [:]
         var occurrences: [String: Int] = [:]
         for variable in variables where !variable.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

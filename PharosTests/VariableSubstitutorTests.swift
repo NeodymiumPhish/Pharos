@@ -214,6 +214,13 @@ func runTests() {
     expectProblemNil(VariableSubstitutor.rowStates(in: [unnamed], referenced: [""])[unnamed.id]?.problem,
                      "unnamed variable not flagged even when the set contains an empty name")
 
+    // Clicking + twice leaves two unnamed rows. They are not duplicates of each
+    // other in any sense the user cares about, and badging them would make the
+    // most common state in the panel look broken.
+    let twoBlank = [v("", "", .literal), v("", "", .literal)]
+    expectTrue(VariableSubstitutor.rowStates(in: twoBlank, referenced: []).isEmpty,
+               "two freshly added blank rows are not reported as duplicates of each other")
+
     // A whitespace-only name is just as inert as an empty one — tokenRegex
     // requires a leading identifier character, so " " can never be referenced,
     // same as "". The guard trims before checking for exactly this reason.
@@ -266,9 +273,12 @@ func runTests() {
                "duplication is reported even when the name is unreferenced")
 
     // Property: across a sweep of small variable lists, two invariants must hold
-    // by construction regardless of names/values/lengths — at most one row per
-    // name is ever marked .overriding, and a .shadowed row never also carries a
-    // problem (it cannot break a query it does not reach).
+    // by construction regardless of names/values/lengths — the .overriding row
+    // for a duplicated name is exactly the LAST occurrence of that name in the
+    // list (which subsumes "at most one overriding row per name" and ties the
+    // marking to render()'s own last-wins rule, rather than just counting), and
+    // a .shadowed row never also carries a problem (it cannot break a query it
+    // does not reach).
     // Pool holds (name, value, type) recipes, not QueryVariable instances — a
     // combination that repeats a recipe must still produce two DISTINCT rows
     // (fresh UUIDs), matching how real duplicate-named rows arise (each added
@@ -291,19 +301,29 @@ func runTests() {
         }
         return result
     }
+    // Describes every row's name, value, and type, so a failure names the exact
+    // offending list — two pool recipes share the value "", so a value-only
+    // label would be ambiguous across several possible lists.
+    func describe(_ list: [QueryVariable]) -> String {
+        "[" + list.map { "\($0.name.debugDescription)=\($0.value.debugDescription):\($0.type.displayName)" }
+            .joined(separator: ", ") + "]"
+    }
     for length in 1...3 {
         for recipe in combinations(pool, length: length) {
             let list = recipe.map { v($0.name, $0.value, $0.type) }
             let names = Set(list.map(\.name))
             let states = VariableSubstitutor.rowStates(in: list, referenced: names)
+            let label = describe(list)
             for name in names {
-                let overridingCount = list.filter { $0.name == name && states[$0.id]?.duplication == .overriding }.count
-                expectTrue(overridingCount <= 1,
-                           "at most one overriding row for name \(name.debugDescription) in \(list.map(\.value))")
+                let indices = list.indices.filter { list[$0].name == name }
+                guard indices.count > 1, let lastIndex = indices.last else { continue }
+                let overridingIndices = indices.filter { states[list[$0].id]?.duplication == .overriding }
+                expectTrue(overridingIndices == [lastIndex],
+                           "the overriding row for name \(name.debugDescription) is the last occurrence in \(label)")
             }
             for variable in list where states[variable.id]?.duplication == .shadowed {
                 expectTrue(states[variable.id]?.problem == nil,
-                           "shadowed row carries no problem in \(list.map(\.value))")
+                           "shadowed row carries no problem in \(label)")
             }
         }
     }
