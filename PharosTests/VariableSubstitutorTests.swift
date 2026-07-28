@@ -191,45 +191,108 @@ func runTests() {
     expectNames(VariableSubstitutor.referencedNames(in: "{{\nx\n}}"), ["x"], "a token can span a newline (regex \\s matches line breaks)")
     expectNames(VariableSubstitutor.referencedNames(in: "{{1x}}"), [], "a name cannot start with a digit")
 
-    // MARK: displayProblems(in:referenced:) — only referenced, non-shadowed variables are flagged
+    // MARK: rowStates(in:referenced:) — problem + duplication signal per row
 
     let ipEmpty = v("ip", "", .literal)
-    expectProblem(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: ["ip"])[ipEmpty.id],
+    expectProblem(VariableSubstitutor.rowStates(in: [ipEmpty], referenced: ["ip"])[ipEmpty.id]?.problem,
                   .emptyLiteral, "referenced empty literal flagged")
-    expectProblemNil(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: [])[ipEmpty.id],
+    expectProblemNil(VariableSubstitutor.rowStates(in: [ipEmpty], referenced: [])[ipEmpty.id]?.problem,
                      "unreferenced empty literal not flagged")
-    expectProblemNil(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: ["other"])[ipEmpty.id],
+    expectProblemNil(VariableSubstitutor.rowStates(in: [ipEmpty], referenced: ["other"])[ipEmpty.id]?.problem,
                      "empty literal referenced under a different name not flagged")
 
     // Two different reasons an unnamed variable is not flagged, asserted separately
-    // so the `!name.isEmpty` guard in displayProblems is load-bearing in this suite.
+    // so the `!name.isEmpty` guard in rowStates is load-bearing in this suite.
     // First: the name simply isn't in the set (also true without the guard).
     let unnamed = v("", "", .literal)
-    expectProblemNil(VariableSubstitutor.displayProblems(in: [unnamed], referenced: ["ip"])[unnamed.id],
+    expectProblemNil(VariableSubstitutor.rowStates(in: [unnamed], referenced: ["ip"])[unnamed.id]?.problem,
                      "unnamed variable not flagged when the set has other names")
     // Second: the set contains the empty string, so only the guard prevents a
     // false-positive flag. `referencedNames` can never produce this — its regex
-    // requires a leading identifier character — but displayProblems takes an
+    // requires a leading identifier character — but rowStates takes an
     // arbitrary Set, so the guard is what makes that safe.
-    expectProblemNil(VariableSubstitutor.displayProblems(in: [unnamed], referenced: [""])[unnamed.id],
+    expectProblemNil(VariableSubstitutor.rowStates(in: [unnamed], referenced: [""])[unnamed.id]?.problem,
                      "unnamed variable not flagged even when the set contains an empty name")
 
-    // Duplicate names: render() takes the LAST definition, so a shadowed row
-    // cannot break the query and must not be flagged.
-    let shadowedFirst = [v("ip", "", .literal), v("ip", "8.8.8.8", .literal)]
-    let shadowedProblems = VariableSubstitutor.displayProblems(in: shadowedFirst, referenced: ["ip"])
-    expectTrue(shadowedProblems.isEmpty, "shadowed empty literal is not flagged")
+    // Duplicate names: render() takes the LAST definition. The earlier row is
+    // inert, so it is marked shadowed and never carries a problem; the effective
+    // row is marked overriding.
+    let dupA = [v("ip", "", .literal), v("ip", "8.8.8.8", .literal)]
+    let statesA = VariableSubstitutor.rowStates(in: dupA, referenced: ["ip"])
+    expectTrue(statesA[dupA[0].id]?.duplication == .shadowed, "earlier duplicate is shadowed")
+    expectProblemNil(statesA[dupA[0].id]?.problem, "shadowed row carries no problem")
+    expectTrue(statesA[dupA[1].id]?.duplication == .overriding, "later duplicate is overriding")
+    expectProblemNil(statesA[dupA[1].id]?.problem, "effective valid row carries no problem")
     // …and the query it belongs to really does succeed, which is why.
-    expectEqual(VariableSubstitutor.render("WHERE ip = {{ip}}", with: shadowedFirst).sql,
+    expectEqual(VariableSubstitutor.render("WHERE ip = {{ip}}", with: dupA).sql,
                 "WHERE ip = 8.8.8.8", "last definition wins at render time")
 
-    // Reverse order: now the empty one is the effective definition, so it IS
-    // flagged — and only it.
-    let shadowedLast = [v("ip", "8.8.8.8", .literal), v("ip", "", .literal)]
-    let lastProblems = VariableSubstitutor.displayProblems(in: shadowedLast, referenced: ["ip"])
-    expectProblem(lastProblems[shadowedLast[1].id], .emptyLiteral, "effective empty literal is flagged")
-    expectProblemNil(lastProblems[shadowedLast[0].id], "shadowed valid literal is not flagged")
-    expectTrue(lastProblems.count == 1, "exactly one row flagged for a duplicated name")
+    // Both signals on one row: the effective definition is also unable to render.
+    let dupB = [v("ip", "8.8.8.8", .literal), v("ip", "", .literal)]
+    let statesB = VariableSubstitutor.rowStates(in: dupB, referenced: ["ip"])
+    expectTrue(statesB[dupB[0].id]?.duplication == .shadowed, "valid earlier duplicate is still shadowed")
+    expectTrue(statesB[dupB[1].id]?.duplication == .overriding, "broken later duplicate is overriding")
+    expectProblem(statesB[dupB[1].id]?.problem, .emptyLiteral, "effective broken row carries the problem")
+
+    // Three or more: only the last is effective.
+    let dupC = [v("n", "", .literal), v("n", "", .literal), v("n", "5", .literal)]
+    let statesC = VariableSubstitutor.rowStates(in: dupC, referenced: ["n"])
+    expectTrue(statesC[dupC[0].id]?.duplication == .shadowed
+                && statesC[dupC[1].id]?.duplication == .shadowed, "all earlier duplicates are shadowed")
+    expectTrue(statesC[dupC[2].id]?.duplication == .overriding, "only the last is overriding")
+    expectTrue(statesC.values.allSatisfy { $0.problem == nil }, "no problem when the effective value is fine")
+
+    // A unique name is not marked at all when its value is fine.
+    expectTrue(VariableSubstitutor.rowStates(in: [v("ip", "1", .literal)], referenced: ["ip"]).isEmpty,
+               "a healthy unique row has nothing to say")
+    // Duplication is a fact about the list, not about the query — it is reported
+    // even when nothing references the name.
+    let unrefDup = [v("z", "", .literal), v("z", "", .literal)]
+    expectTrue(VariableSubstitutor.rowStates(in: unrefDup, referenced: []).count == 2,
+               "duplication is reported even when the name is unreferenced")
+
+    // Property: across a sweep of small variable lists, two invariants must hold
+    // by construction regardless of names/values/lengths — at most one row per
+    // name is ever marked .overriding, and a .shadowed row never also carries a
+    // problem (it cannot break a query it does not reach).
+    // Pool holds (name, value, type) recipes, not QueryVariable instances — a
+    // combination that repeats a recipe must still produce two DISTINCT rows
+    // (fresh UUIDs), matching how real duplicate-named rows arise (each added
+    // independently via the panel's + button). Reusing one QueryVariable value
+    // across two slots would give both the same id, which rowStates is not
+    // required to handle sanely (ids are guaranteed fresh in practice).
+    let pool: [(name: String, value: String, type: VariableType)] = [
+        ("a", "", .literal), ("a", "1", .literal),
+        ("b", "abc", .number), ("b", "2", .number),
+        ("c", "", .text),
+    ]
+    func combinations(_ pool: [(name: String, value: String, type: VariableType)], length: Int)
+        -> [[(name: String, value: String, type: VariableType)]] {
+        guard length > 0 else { return [[]] }
+        var result: [[(name: String, value: String, type: VariableType)]] = []
+        for item in pool {
+            for rest in combinations(pool, length: length - 1) {
+                result.append([item] + rest)
+            }
+        }
+        return result
+    }
+    for length in 1...3 {
+        for recipe in combinations(pool, length: length) {
+            let list = recipe.map { v($0.name, $0.value, $0.type) }
+            let names = Set(list.map(\.name))
+            let states = VariableSubstitutor.rowStates(in: list, referenced: names)
+            for name in names {
+                let overridingCount = list.filter { $0.name == name && states[$0.id]?.duplication == .overriding }.count
+                expectTrue(overridingCount <= 1,
+                           "at most one overriding row for name \(name.debugDescription) in \(list.map(\.value))")
+            }
+            for variable in list where states[variable.id]?.duplication == .shadowed {
+                expectTrue(states[variable.id]?.problem == nil,
+                           "shadowed row carries no problem in \(list.map(\.value))")
+            }
+        }
+    }
 
     // MARK: Property — problem(for:) agrees with render()'s rejection, and
     // referencedNames(in:) agrees with render()'s substitution. These are the

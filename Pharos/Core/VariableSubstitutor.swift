@@ -102,7 +102,7 @@ enum VariableSubstitutor {
     /// that fails the validation `format(_:)` performs. Not exhaustive — a
     /// `Literal` is a raw-SQL escape hatch, so a value like `"'"` or `")"` can
     /// still produce broken SQL and returns `nil` here. Says nothing about
-    /// whether any SQL references it — see `displayProblems(in:referenced:)`.
+    /// whether any SQL references it — see `rowStates(in:referenced:)`.
     static func problem(for variable: QueryVariable) -> ValueProblem? {
         switch variable.type {
         case .literal:
@@ -118,37 +118,67 @@ enum VariableSubstitutor {
         }
     }
 
-    /// The problems worth showing the user, keyed by variable id. Absent id =
-    /// nothing to flag.
-    ///
-    /// Deliberately list-at-a-time. `render(_:with:)` resolves duplicate names
-    /// last-definition-wins, so a row whose name is shadowed by a later row has
-    /// no effect on the query and must not be flagged — a per-variable entry
-    /// point could not express that, and would paint a red "the query will
-    /// fail" badge on a row belonging to a query that succeeds.
-    static func displayProblems(
-        in variables: [QueryVariable],
-        referenced: Set<String>
-    ) -> [UUID: ValueProblem] {
-        // Same last-wins resolution render() uses, so the row we flag is the one
-        // whose value actually reaches the query. Skipping unnamed variables here
-        // is the single thing that keeps a freshly added row — name still empty —
-        // from being flagged: with no entry in this map, nothing below can match
-        // it, whatever the caller passed as `referenced`.
-        var effective: [String: UUID] = [:]
-        for variable in variables where !variable.name.isEmpty {
-            effective[variable.name] = variable.id
+    /// What a variables-list row should say about itself. Duplication and failure
+    /// are independent: the effective definition of a duplicated name can also be
+    /// unable to render, in which case both fields are set.
+    struct RowState: Equatable {
+        /// Where this row sits among the rows sharing its name. `nil` when the
+        /// name is unique.
+        enum Duplication: Equatable {
+            /// An earlier duplicate. `render(_:with:)` takes a later definition
+            /// instead, so this row's value never reaches the query — it is inert,
+            /// which the panel says out loud rather than leaving the user to
+            /// wonder why editing it changes nothing.
+            case shadowed
+            /// The last duplicate: the definition `render(_:with:)` actually uses.
+            case overriding
         }
 
-        var problems: [UUID: ValueProblem] = [:]
-        for variable in variables {
-            guard referenced.contains(variable.name),
-                  effective[variable.name] == variable.id,
-                  let problem = problem(for: variable)
-            else { continue }
-            problems[variable.id] = problem
+        var duplication: Duplication?
+
+        /// Why this row's value cannot become working SQL. Never set on a
+        /// `.shadowed` row — it cannot break a query it does not reach.
+        var problem: ValueProblem?
+    }
+
+    /// What every row should say about itself, keyed by variable id. Ids with
+    /// nothing to report are absent.
+    ///
+    /// List-at-a-time because both rules need the whole list: `render(_:with:)`
+    /// resolves a repeated name last-definition-wins, so which row can fail — and
+    /// which row is inert — depends on what else is defined.
+    static func rowStates(
+        in variables: [QueryVariable],
+        referenced: Set<String>
+    ) -> [UUID: RowState] {
+        // Last-wins, matching render()'s own resolution, plus occurrence counts so
+        // we know which names are duplicated at all. Skipping unnamed variables
+        // here is the single thing that keeps a freshly added row — name still
+        // empty — out of both signals: with no entry in either map, the loop below
+        // can find nothing to say about it.
+        var effective: [String: UUID] = [:]
+        var occurrences: [String: Int] = [:]
+        for variable in variables where !variable.name.isEmpty {
+            effective[variable.name] = variable.id
+            occurrences[variable.name, default: 0] += 1
         }
-        return problems
+
+        var states: [UUID: RowState] = [:]
+        for variable in variables {
+            let isEffective = effective[variable.name] == variable.id
+            var state = RowState()
+
+            if (occurrences[variable.name] ?? 0) > 1 {
+                state.duplication = isEffective ? .overriding : .shadowed
+            }
+            if isEffective, referenced.contains(variable.name) {
+                state.problem = problem(for: variable)
+            }
+
+            guard state.duplication != nil || state.problem != nil else { continue }
+            states[variable.id] = state
+        }
+        return states
     }
 
     /// Every `{{name}}` referenced in the text, deduplicated. Uses the same
