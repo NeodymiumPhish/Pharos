@@ -9,6 +9,7 @@ TMPMAIN=$(mktemp -d)/main.swift
 echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/variable-row-layout-tests \
   Pharos/ViewControllers/QueryVariables/VariableRowView.swift \
+  Pharos/ViewControllers/QueryVariables/VariableListView.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValuePreview.swift \

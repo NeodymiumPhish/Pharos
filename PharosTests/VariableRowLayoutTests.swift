@@ -321,6 +321,314 @@ private func testAccessibilityIdentity() {
         "row accessibility label mentions the variable name")
 }
 
+// MARK: - VariableListView harness helpers
+//
+// VariableListView owns no test-visible state beyond its view hierarchy, so
+// these helpers locate things by walking public `subviews`/`arrangedSubviews`
+// rather than reaching into private stored properties — the same approach
+// `chevron(in:)` and `topRightStack(in:)` above already use for VariableRowView.
+
+/// A borderless, never-shown window hosting `list` at an explicit numeric
+/// width and height — mirroring `makeHostedRow`'s own pattern above rather
+/// than pinning all four edges to `container`. Measured directly: pinning
+/// leading/top/trailing/bottom to a `container` whose own size is only ever
+/// set via `frame` (not a constraint) leaves nothing in the graph anchored to
+/// an absolute number, so Auto Layout is free to resolve `container` itself
+/// to a different width than the one it was created with — `list` measured
+/// 198pt wide inside a 180pt-wide container this way. An explicit width/height
+/// constant on `list` closes that off.
+private func makeHostedList(width: CGFloat, height: CGFloat = 600) -> (window: NSWindow, container: NSView, list: VariableListView) {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+        styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    window.contentView = container
+    let list = VariableListView()
+    list.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(list)
+    NSLayoutConstraint.activate([
+        list.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        list.topAnchor.constraint(equalTo: container.topAnchor),
+        list.widthAnchor.constraint(equalToConstant: width),
+        list.heightAnchor.constraint(equalToConstant: height),
+    ])
+    container.layoutSubtreeIfNeeded()
+    return (window, container, list)
+}
+
+private func makeVariables(_ n: Int) -> [QueryVariable] {
+    (0..<n).map { QueryVariable(name: "var\($0)", value: "v\($0)", type: .literal) }
+}
+
+private func listScrollView(in list: VariableListView) -> NSScrollView {
+    list.subviews.compactMap { $0 as? NSScrollView }.first!
+}
+
+private func rowsStackView(in list: VariableListView) -> NSStackView {
+    listScrollView(in: list).documentView as! NSStackView
+}
+
+private func rowViews(in list: VariableListView) -> [VariableRowView] {
+    rowsStackView(in: list).arrangedSubviews.compactMap { $0 as? VariableRowView }
+}
+
+/// A hairline container is a plain `NSView` (not a `VariableRowView`) whose
+/// only subview is the separator line — identified by exclusion (no
+/// `NSTextField` descendant) rather than by the separator's own concrete
+/// type, since that type is a private implementation detail of
+/// `VariableListView`. Distinguishes it from the empty-state container,
+/// whose subview is an `NSTextField`.
+private func hairlineContainers(in list: VariableListView) -> [NSView] {
+    rowsStackView(in: list).arrangedSubviews.filter { view in
+        !(view is VariableRowView) && !view.subviews.contains { $0 is NSTextField }
+    }
+}
+
+private func emptyStateContainer(in list: VariableListView) -> NSView? {
+    rowsStackView(in: list).arrangedSubviews.first { view in
+        !(view is VariableRowView) && view.subviews.contains { $0 is NSTextField }
+    }
+}
+
+/// The header title reads "Variables" always; the count label is the other
+/// direct-subview NSTextField (empty string or a digit). Neither the title nor
+/// the count label are inside the scroll view, so this never collides with
+/// the empty-state label above.
+private func headerTitleLabel(in list: VariableListView) -> NSTextField {
+    list.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "Variables" }!
+}
+
+private func headerCountLabel(in list: VariableListView) -> NSTextField {
+    list.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue != "Variables" }!
+}
+
+private func headerAddButton(in list: VariableListView) -> NSButton {
+    list.subviews.compactMap { $0 as? NSButton }.first!
+}
+
+// MARK: - VariableListView tests
+
+/// Layout must fully resolve — no ambiguity anywhere in the tree — for an
+/// empty list, a single row, and a long (~20-row) list, at every width the
+/// panel actually uses.
+private func testListLayoutUnambiguous() {
+    for width: CGFloat in [180, 300, 600] {
+        for count in [0, 1, 20] {
+            let (_, _, list) = makeHostedList(width: width)
+            list.setVariables(makeVariables(count), referenced: [])
+            list.layoutSubtreeIfNeeded()
+            expectTrue(
+                !hasAmbiguousLayoutRecursively(list),
+                "list layout unambiguous at \(Int(width))pt with \(count) variable(s)")
+        }
+    }
+}
+
+/// `.width` is the only NSStackView alignment that stretches arranged
+/// subviews on a vertical stack — this is exactly what silently failed for
+/// the old panel's empty-state label, so it is worth pinning for rows too.
+private func testRowsAreFullWidth() {
+    for width: CGFloat in [180, 300, 600] {
+        let (_, _, list) = makeHostedList(width: width)
+        list.setVariables(makeVariables(5), referenced: [])
+        list.layoutSubtreeIfNeeded()
+        for (i, row) in rowViews(in: list).enumerated() {
+            expectClose(row.frame.width, width, "row \(i) full width at \(Int(width))pt")
+        }
+    }
+}
+
+/// The regression the user actually reported: the old panel's empty-state
+/// label sat inset from both edges and centred instead of hugging the
+/// leading edge. Pinned here at every width the panel uses.
+///
+/// Two things measured, not assumed: (1) `NSTextField`'s frame extends
+/// `alignmentRectInsets` (2pt a side here) beyond what Auto Layout actually
+/// pins — Auto Layout constrains the *alignment rect*, not the raw frame —
+/// so the raw-frame minX sits 2pt short of the nominal 10pt inset; comparing
+/// against the unadjusted 10 would itself fail on a correctly-pinned label.
+/// (2) comparing minX against `width / 2` at a single width is not a
+/// reliable "not centred" check: at 180pt this label's own frame happens to
+/// span nearly the full available width, so a genuinely centred layout and a
+/// properly leading-pinned one land on the same midX by coincidence.
+/// Comparing minX *across* widths is unambiguous instead — a fixed-inset pin
+/// keeps it constant; proportional centring would grow it with the
+/// container.
+private func testEmptyStateLabelLeftAligned() {
+    var minXByWidth: [CGFloat: CGFloat] = [:]
+    for width: CGFloat in [180, 300, 600] {
+        let (_, _, list) = makeHostedList(width: width)
+        list.setVariables([], referenced: [])
+        list.layoutSubtreeIfNeeded()
+
+        guard let container = emptyStateContainer(in: list),
+              let label = container.subviews.first(where: { $0 is NSTextField }) as? NSTextField
+        else {
+            failures += 1
+            print("FAIL empty-state label not found at \(Int(width))pt")
+            continue
+        }
+
+        let frameInList = container.convert(label.frame, to: list)
+        let expectedMinX = 10 - label.alignmentRectInsets.left
+        expectClose(
+            frameInList.minX, expectedMinX,
+            "empty-state label minX == 10pt (alignment-rect adjusted) at \(Int(width))pt")
+        minXByWidth[width] = frameInList.minX
+    }
+
+    if let at180 = minXByWidth[180], let at600 = minXByWidth[600] {
+        expectClose(
+            at180, at600, tolerance: 1,
+            "empty-state label minX is constant across widths (not proportionally centred): 180pt=\(at180), 600pt=\(at600)")
+    } else {
+        failures += 1
+        print("FAIL empty-state label minX comparison: missing measurement")
+    }
+}
+
+/// A list of N variables must yield N rows and N hairlines in
+/// `rowsStack.arrangedSubviews`, each hairline's line inset 10pt from the
+/// leading edge and 1pt tall.
+private func testHairlinesSeparateRows() {
+    for n in [1, 3, 20] {
+        let (_, _, list) = makeHostedList(width: 300, height: 2000)
+        list.setVariables(makeVariables(n), referenced: [])
+        list.layoutSubtreeIfNeeded()
+
+        let rows = rowViews(in: list)
+        let hairlines = hairlineContainers(in: list)
+        expectTrue(rows.count == n, "\(n) variable(s) yields \(n) rows (got \(rows.count))")
+        expectTrue(hairlines.count == n, "\(n) variable(s) yields \(n) hairlines (got \(hairlines.count))")
+
+        for hairline in hairlines {
+            expectClose(hairline.frame.height, 1, "hairline container height == 1pt")
+            guard let line = hairline.subviews.first else {
+                failures += 1
+                print("FAIL hairline missing its separator line")
+                continue
+            }
+            let lineInList = hairline.convert(line.frame, to: list)
+            expectClose(lineInList.minX, 10, "hairline line inset 10pt from leading edge")
+            expectClose(line.frame.height, 1, "hairline line height == 1pt")
+        }
+    }
+}
+
+/// This is C2 one level up: the previous task's defect was decorative
+/// subviews covering the row and swallowing hitTest. Here the row is hosted
+/// inside the list's scroll view / stack view chain instead of a bare
+/// container, so this also confirms nothing in that ancestor chain (the
+/// plain, non-passthrough `rowsStack`, the flipped clip view, the scroll
+/// view) claims a point that falls on a row before the row itself does.
+///
+/// The row's own bounding-box centre is checked, but that alone does not
+/// discriminate a C2-style regression: proven by reverting
+/// `PassthroughTextField`'s hitTest override and finding this check alone
+/// kept passing anyway, because for this row's short content the geometric
+/// centre falls in blank space between labels, not on any of them. Each
+/// row's own subview midpoints (name, caption, value, chevron, …) are the
+/// actual locus of that bug, so those are checked too — mirroring
+/// `testHitTestReachesRow` above, but exercised through the list's real
+/// scroll view / stack view ancestry rather than a bare hosting container.
+private func testListHitTestReachesRow() {
+    let (_, container, list) = makeHostedList(width: 300)
+    list.setVariables(makeVariables(5), referenced: [])
+    list.layoutSubtreeIfNeeded()
+
+    for (i, row) in rowViews(in: list).enumerated() {
+        expectTrue(
+            hitsRow(row, in: container, at: NSPoint(x: row.bounds.midX, y: row.bounds.midY)),
+            "hitTest at row \(i)'s centre returns that VariableRowView")
+        for subview in row.subviews {
+            let mid = NSPoint(x: subview.frame.midX, y: subview.frame.midY)
+            expectTrue(
+                hitsRow(row, in: container, at: mid),
+                "hitTest over row \(i)'s \(type(of: subview)) returns that VariableRowView")
+        }
+    }
+}
+
+/// `updateStates` must re-render in place, not rebuild — a rebuild would drop
+/// scroll position and hover. Checked two ways: the row view instances must
+/// be identical before and after, and a row's rendering must actually change
+/// when its state does (an empty Literal that becomes referenced flags its
+/// warning glyph), so this is not a vacuously-true identity check.
+private func testUpdateStatesPreservesRowIdentity() {
+    let (_, _, list) = makeHostedList(width: 300)
+    var variables = makeVariables(3)
+    variables[0].type = .literal
+    variables[0].value = ""  // empty literal — flags once referenced
+
+    list.setVariables(variables, referenced: [])
+    list.layoutSubtreeIfNeeded()
+
+    let before = rowViews(in: list)
+    expectTrue(before.count == 3, "updateStates setup: 3 rows present")
+
+    let warningBefore = topRightStack(in: before[0]).subviews.compactMap { $0 as? NSImageView }.first!
+    expectTrue(warningBefore.isHidden, "row 0 warning hidden before var0 is referenced")
+
+    list.updateStates(for: variables, referenced: [variables[0].name])
+    list.layoutSubtreeIfNeeded()
+
+    let after = rowViews(in: list)
+    expectTrue(after.count == before.count, "updateStates keeps the same row count")
+    for (i, pair) in zip(before, after).enumerated() {
+        expectTrue(pair.0 === pair.1, "updateStates reuses the same VariableRowView instance at index \(i)")
+    }
+
+    let warningAfter = topRightStack(in: after[0]).subviews.compactMap { $0 as? NSImageView }.first!
+    expectTrue(!warningAfter.isHidden, "row 0 warning becomes visible once var0 is referenced and empty")
+}
+
+/// `setVariables` must fully replace the previous content: no stale rows left
+/// behind when collapsing to empty, and no leftover empty-state label when
+/// filling back in.
+private func testSetVariablesClearsProperly() {
+    let (_, _, list) = makeHostedList(width: 300, height: 3000)
+
+    list.setVariables(makeVariables(20), referenced: [])
+    list.layoutSubtreeIfNeeded()
+    expectTrue(rowViews(in: list).count == 20, "20 variables yields 20 rows")
+
+    list.setVariables([], referenced: [])
+    list.layoutSubtreeIfNeeded()
+    expectTrue(rowViews(in: list).isEmpty, "20 -> 0 variables leaves no rows")
+    expectTrue(emptyStateContainer(in: list) != nil, "20 -> 0 variables shows the empty state")
+    expectTrue(
+        rowsStackView(in: list).arrangedSubviews.count == 1,
+        "20 -> 0 variables leaves exactly one arranged subview (the empty state), got \(rowsStackView(in: list).arrangedSubviews.count)")
+
+    list.setVariables(makeVariables(3), referenced: [])
+    list.layoutSubtreeIfNeeded()
+    expectTrue(rowViews(in: list).count == 3, "0 -> 3 variables yields 3 rows")
+    expectTrue(emptyStateContainer(in: list) == nil, "0 -> 3 variables removes the empty state")
+    expectTrue(
+        rowsStackView(in: list).arrangedSubviews.count == 6,
+        "0 -> 3 variables leaves exactly 6 arranged subviews (3 rows + 3 hairlines), got \(rowsStackView(in: list).arrangedSubviews.count)")
+}
+
+/// `countLabel` mirrors the variable count (blank when empty, not "0"), and
+/// `addButton` sits pinned `trailing - 8` regardless of width.
+private func testHeaderReflectsCountAndLayout() {
+    for width: CGFloat in [180, 300, 600] {
+        let (_, _, list) = makeHostedList(width: width)
+
+        list.setVariables([], referenced: [])
+        list.layoutSubtreeIfNeeded()
+        expectEqual(headerCountLabel(in: list).stringValue, "", "countLabel empty for empty list at \(Int(width))pt")
+
+        list.setVariables(makeVariables(3), referenced: [])
+        list.layoutSubtreeIfNeeded()
+        expectEqual(headerCountLabel(in: list).stringValue, "3", "countLabel shows 3 for three variables at \(Int(width))pt")
+
+        let button = headerAddButton(in: list)
+        expectClose(button.frame.maxX, width - 8, "addButton trailing == width - 8 at \(Int(width))pt")
+    }
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -334,6 +642,15 @@ func runTests() {
     testColorsFollowAppearanceChange()
     testLayoutUnambiguous()
     testAccessibilityIdentity()
+
+    testListLayoutUnambiguous()
+    testRowsAreFullWidth()
+    testEmptyStateLabelLeftAligned()
+    testHairlinesSeparateRows()
+    testListHitTestReachesRow()
+    testUpdateStatesPreservesRowIdentity()
+    testSetVariablesClearsProperly()
+    testHeaderReflectsCountAndLayout()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
