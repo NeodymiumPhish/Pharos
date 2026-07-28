@@ -11,6 +11,13 @@ func expectEqual(_ actual: String, _ expected: String, _ name: String) {
     }
 }
 
+func expectTrue(_ actual: Bool, _ name: String) {
+    if actual { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name) — expected true")
+    }
+}
+
 func runTests() {
     // snippet: the first line with visible content wins.
     expectEqual(VariableValuePreview.snippet(for: "production"), "production", "snippet single line")
@@ -28,6 +35,21 @@ func runTests() {
     expectEqual(VariableValuePreview.caption(for: "a\nb"), "2 lines", "caption counts lines")
     expectEqual(VariableValuePreview.caption(for: "a\nb\n"), "2 lines", "caption ignores one trailing newline")
     expectEqual(VariableValuePreview.caption(for: "a\nb\n\n"), "3 lines", "caption counts a blank final line")
+    expectEqual(VariableValuePreview.caption(for: "500\n"), "3 chars", "caption strips one trailing break before counting chars")
+
+    // CRLF / lone-CR line breaks (Windows/Excel/RDP pastes) must split just like "\n".
+    expectEqual(VariableValuePreview.caption(for: "8f2a1c,\r\n9b0e44,\r\n71cc03,"), "3 lines", "caption splits on CRLF")
+    expectEqual(VariableValuePreview.snippet(for: "8f2a1c,\r\n9b0e44,"), "8f2a1c,", "snippet splits on CRLF")
+    expectEqual(VariableValuePreview.caption(for: "a\rb"), "2 lines", "caption splits on lone CR")
+
+    // snippet length is bounded so one very long line cannot blow out row layout.
+    let longSingleLine = String(repeating: "a", count: 900)
+    expectEqual(VariableValuePreview.snippet(for: longSingleLine), String(repeating: "a", count: 500),
+                "snippet caps at 500 characters")
+
+    // Invariant: whatever line-break style the input used, the snippet is truly one line.
+    let crlfSnippet = VariableValuePreview.snippet(for: "8f2a1c,\r\n9b0e44,\r\n71cc03,")
+    expectTrue(crlfSnippet.rangeOfCharacter(from: .newlines) == nil, "snippet never contains a line break")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
