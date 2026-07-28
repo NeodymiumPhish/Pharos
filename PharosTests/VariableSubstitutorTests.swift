@@ -164,8 +164,17 @@ func runTests() {
                      "unreferenced empty literal not flagged")
     expectProblemNil(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: ["other"]),
                      "empty literal referenced under a different name not flagged")
+    // Two different reasons an unnamed variable is not flagged, asserted separately
+    // so the `!name.isEmpty` guard in displayProblem is load-bearing in this suite.
+    // First: the name simply isn't in the set (also true without the guard).
     expectProblemNil(VariableSubstitutor.displayProblem(for: v("", "", .literal), referenced: ["ip"]),
-                     "unnamed variable never flagged")
+                     "unnamed variable not flagged when the set has other names")
+    // Second: the set contains the empty string, so only the guard prevents a
+    // false-positive flag. `referencedNames` can never produce this — its regex
+    // requires a leading identifier character — but displayProblem takes an
+    // arbitrary Set, so the guard is what makes that safe.
+    expectProblemNil(VariableSubstitutor.displayProblem(for: v("", "", .literal), referenced: [""]),
+                     "unnamed variable not flagged even when the set contains an empty name")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
