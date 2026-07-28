@@ -32,9 +32,10 @@ enum VariableValuePreview {
     /// in characters.
     static func caption(for value: String) -> String {
         var measured = value
-        if measured.hasSuffix("\r\n") {
-            measured.removeLast(2)
-        } else if measured.hasSuffix("\n") || measured.hasSuffix("\r") {
+        // `\r\n` is a single Character (one grapheme cluster), so one removal
+        // covers LF, CR and CRLF alike — `removeLast(2)` would eat a real
+        // character (or crash on a value that is only the break itself).
+        if let last = measured.last, last.isNewline {
             measured.removeLast()
         }
 
