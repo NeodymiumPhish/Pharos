@@ -120,6 +120,7 @@
 		E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */; };
 		E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */; };
 		E491BC10BA527CA04AD618BF /* FilterValueListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */; };
+		E4A2680ED03F72BC7E70D456 /* VariablesPanelPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F95498A83DC24D8ACC78262 /* VariablesPanelPrefs.swift */; };
 		E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */; };
 		E6F80A5B6624AE350D131717 /* SavedQueryFilename.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED326E9C544D4D71C63ACFFB /* SavedQueryFilename.swift */; };
 		E95A1BECEE9799B577E51E26 /* FilterableHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */; };
@@ -151,6 +152,7 @@
 		0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabBar.swift; sourceTree = "<group>"; };
 		0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTab.swift; sourceTree = "<group>"; };
 		0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableOps.swift"; sourceTree = "<group>"; };
+		0F95498A83DC24D8ACC78262 /* VariablesPanelPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariablesPanelPrefs.swift; sourceTree = "<group>"; };
 		1154372FFE011857B1F28F1B /* ChartSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSorter.swift; sourceTree = "<group>"; };
 		16679621777BEB58D425E66E /* ChartData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartData.swift; sourceTree = "<group>"; };
 		1DEE8A90621927B4A546E936 /* ResultsFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsFindController.swift; sourceTree = "<group>"; };
@@ -489,6 +491,7 @@
 				FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
+				0F95498A83DC24D8ACC78262 /* VariablesPanelPrefs.swift */,
 				B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */,
 				A51B7E42D0E3720183013836 /* VariableValuePreview.swift */,
 			);
@@ -762,6 +765,7 @@
 				75791F1BEBAD2E5780C43995 /* ValueCoercion.swift in Sources */,
 				CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */,
 				957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */,
+				E4A2680ED03F72BC7E70D456 /* VariablesPanelPrefs.swift in Sources */,
 				534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */,
 				4544AA18681DE8297EE4419C /* main.swift in Sources */,
 			);

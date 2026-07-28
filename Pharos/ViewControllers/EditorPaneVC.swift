@@ -50,21 +50,6 @@ class EditorPaneVC: NSViewController {
     private let variablesPanelVC = QueryVariablesPanelVC()
     private let variablesDivider = ResizeDividerView()
     private let variablesDividerWidth: CGFloat = 5
-    private let variablesPanelMinWidth: CGFloat = 180
-    private let variablesPanelMaxWidth: CGFloat = 600
-    private let variablesPanelWidthKey = "QueryVariablesPanelWidth"
-
-    private var variablesPanelWidth: CGFloat {
-        get {
-            let stored = UserDefaults.standard.double(forKey: variablesPanelWidthKey)
-            let value = stored == 0 ? 260 : CGFloat(stored)
-            return min(max(value, variablesPanelMinWidth), variablesPanelMaxWidth)
-        }
-        set {
-            let clamped = min(max(newValue, variablesPanelMinWidth), variablesPanelMaxWidth)
-            UserDefaults.standard.set(Double(clamped), forKey: variablesPanelWidthKey)
-        }
-    }
 
     private var isVariablesPanelVisible: Bool {
         guard let tabId = lastActiveTabId,
@@ -294,7 +279,7 @@ class EditorPaneVC: NSViewController {
         // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
         let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
         let showPanel = isVariablesPanelVisible
-        let panelW = showPanel ? variablesPanelWidth : 0
+        let panelW = showPanel ? VariablesPanelPrefs.width : 0
         let dividerW = showPanel ? variablesDividerWidth : 0
         let editorW = max(0, view.bounds.width - panelW - dividerW)
 
@@ -644,13 +629,19 @@ class EditorPaneVC: NSViewController {
 
     @objc private func toggleVariablesPanel() {
         guard let tabId = lastActiveTabId else { return }
-        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible.toggle() }
+        var nowVisible = false
+        stateManager.updateTab(id: tabId) {
+            $0.variablesPanelVisible.toggle()
+            nowVisible = $0.variablesPanelVisible
+        }
+        // Remember the choice so new tabs inherit it.
+        VariablesPanelPrefs.visibleByDefault = nowVisible
         syncVariablesPanel()
     }
 
     private func resizeVariablesPanel(byDelta delta: CGFloat) {
         // Dragging the divider left (negative delta) widens the panel.
-        variablesPanelWidth = variablesPanelWidth - delta
+        VariablesPanelPrefs.width = VariablesPanelPrefs.width - delta
         view.needsLayout = true
     }
 

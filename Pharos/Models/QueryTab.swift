@@ -51,8 +51,12 @@ struct QueryTab: Identifiable {
     var sourceURL: URL?
     /// User-defined query variables for this tab (referenced as `{{name}}`).
     var variables: [QueryVariable] = []
-    /// Whether the right-docked variables panel is shown for this tab.
-    var variablesPanelVisible: Bool = false
+    /// Whether the right-docked variables panel is shown for this tab. Seeded
+    /// from the app-wide default so new tabs open with the panel showing (and,
+    /// after the user toggles it, inherit whatever they last chose). Defaulting
+    /// here rather than at each `QueryTab(...)` call site covers every path that
+    /// makes a tab — new, initial, duplicate, and reopen-from-history.
+    var variablesPanelVisible: Bool = VariablesPanelPrefs.visibleByDefault
     /// The persisted workspace history record this tab is bound to. nil until
     /// the first query executes (or until reopened from history). When set,
     /// executed results associate to this workspace and appear as one history item.
