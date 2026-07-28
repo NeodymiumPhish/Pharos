@@ -132,6 +132,7 @@
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
 		EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */; };
 		F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDED3E898043241B00FE18D7 /* ResizeGripView.swift */; };
+		F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */; };
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
 		F2C880B8BDC0D89AB3380A47 /* FilterValueSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EE0E6CA75016ED53876601 /* FilterValueSort.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
@@ -159,6 +160,7 @@
 		1154372FFE011857B1F28F1B /* ChartSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSorter.swift; sourceTree = "<group>"; };
 		116E4CCC67DA783A2FCCFFEC /* VariableRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableRowView.swift; sourceTree = "<group>"; };
 		16679621777BEB58D425E66E /* ChartData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartData.swift; sourceTree = "<group>"; };
+		1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableDetailVC.swift; sourceTree = "<group>"; };
 		1DEE8A90621927B4A546E936 /* ResultsFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsFindController.swift; sourceTree = "<group>"; };
 		20973E948617F8AF21A804FE /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDataSheet.swift; sourceTree = "<group>"; };
@@ -534,6 +536,7 @@
 		EE1FA3E4810487115172B109 /* QueryVariables */ = {
 			isa = PBXGroup;
 			children = (
+				1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */,
 				3F1ACA16C38A777BDCF7104A /* VariableListView.swift */,
 				116E4CCC67DA783A2FCCFFEC /* VariableRowView.swift */,
 				9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */,
@@ -780,6 +783,7 @@
 				78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */,
 				F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */,
 				75791F1BEBAD2E5780C43995 /* ValueCoercion.swift in Sources */,
+				F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */,
 				915C735DB5EE744A31495822 /* VariableListView.swift in Sources */,
 				CFB3EFEA0CF91443AA21DC63 /* VariableRowView.swift in Sources */,
 				CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */,
