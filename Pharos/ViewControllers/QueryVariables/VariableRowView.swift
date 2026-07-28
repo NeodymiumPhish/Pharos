@@ -1,5 +1,15 @@
 import AppKit
 
+/// Decorative: the row itself is the click target, and a label that swallowed
+/// hit-testing would make the row unopenable and block its tooltip.
+private final class PassthroughTextField: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class PassthroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// One row in the variables list. Read-only: the whole row is a click target
 /// that drills in to the detail level. The layout mirrors the detail header —
 /// `{{name}}` leading, type trailing — above a size caption and the value
@@ -10,16 +20,25 @@ final class VariableRowView: NSView {
     var onClick: (() -> Void)?
     var onDelete: (() -> Void)?
 
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let warningView = NSImageView()
-    private let typeLabel = NSTextField(labelWithString: "")
-    private let captionLabel = NSTextField(labelWithString: "")
-    private let valueLabel = NSTextField(labelWithString: "")
-    private let chevronView = NSImageView()
+    private let nameLabel = PassthroughTextField(labelWithString: "")
+    private let warningView = PassthroughImageView()
+    private let typeLabel = PassthroughTextField(labelWithString: "")
+    private let captionLabel = PassthroughTextField(labelWithString: "")
+    private let valueLabel = PassthroughTextField(labelWithString: "")
+    private let chevronView = PassthroughImageView()
 
     private var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
+
+    private var trackingArea: NSTrackingArea?
+
+    /// The last content handed to `configure`, replayed on an effective-appearance
+    /// change. The name label's attributed string bakes in resolved colours at
+    /// build time, so it does not follow a light/dark switch on its own —
+    /// rebuilding it from the same inputs is simpler than trying to keep a
+    /// second, always-dynamic copy in sync.
+    private var lastConfigured: (variable: QueryVariable, state: VariableSubstitutor.RowState?)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -42,23 +61,36 @@ final class VariableRowView: NSView {
     /// normal here, because it works — its "also defined above" note belongs in
     /// the detail level, where the name is edited.
     func configure(with variable: QueryVariable, state: VariableSubstitutor.RowState?) {
+        lastConfigured = (variable, state)
+
         let problem = state?.problem
         let isShadowed = state?.duplication == .shadowed
         let named = !variable.name.isEmpty
 
+        // Brace colour is a semantic pair with the body tint, not derived from
+        // it: `.tertiaryLabelColor`'s own alpha (~0.26) is already lower than
+        // 0.55, so multiplying it by 0.55 would make the braces *more* opaque
+        // than the name they're meant to recede behind. `.systemIndigo` and
+        // `.systemRed` are opaque, so deriving from them is fine.
         let nameTint: NSColor
+        let braceColor: NSColor
         if !named {
             nameTint = .tertiaryLabelColor
+            braceColor = .quaternaryLabelColor
         } else if problem != nil {
             nameTint = .systemRed
+            braceColor = .systemRed.withAlphaComponent(0.55)
         } else if isShadowed {
             // Inert, not broken — drained of the indigo that means "this token
             // is live in your SQL".
             nameTint = .tertiaryLabelColor
+            braceColor = .quaternaryLabelColor
         } else {
             nameTint = .systemIndigo
+            braceColor = .systemIndigo.withAlphaComponent(0.55)
         }
-        nameLabel.attributedStringValue = Self.tokenString(name: named ? variable.name : "name", tint: nameTint)
+        nameLabel.attributedStringValue = Self.tokenString(
+            name: named ? variable.name : "name", tint: nameTint, braceColor: braceColor)
 
         typeLabel.stringValue = variable.type.displayName
         typeLabel.textColor = isShadowed ? .tertiaryLabelColor : .secondaryLabelColor
@@ -84,6 +116,18 @@ final class VariableRowView: NSView {
         toolTip = problem?.message ?? (isShadowed
             ? "Another variable with this name is defined further down, and that one is used."
             : nil)
+
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(named ? variable.name : "unnamed variable"), \(typeLabel.stringValue), \(captionLabel.stringValue)")
+    }
+
+    /// The attributed name string bakes in resolved colours at configure time,
+    /// so it does not follow a light/dark switch on its own — replay the last
+    /// configuration to rebuild it under the new appearance.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard let last = lastConfigured else { return }
+        configure(with: last.variable, state: last.state)
     }
 
     // MARK: - Layout
@@ -120,6 +164,11 @@ final class VariableRowView: NSView {
         chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
             .withSymbolConfiguration(smallSymbol)
         chevronView.contentTintColor = .tertiaryLabelColor
+        // Without this, the required leading/trailing pins on both sides of
+        // this view make it — not the text next to it — absorb all the row's
+        // slack width, and NSImageView centres its small glyph inside however
+        // much space it is given, so the chevron drifts away from the edge.
+        chevronView.setContentHuggingPriority(.required, for: .horizontal)
 
         // A stack collapses `warningView` out of the layout while it is hidden,
         // so the type caption does not sit permanently indented.
@@ -160,12 +209,20 @@ final class VariableRowView: NSView {
     }
 
     /// `{{name}}` with the braces dimmed, matching how the editor paints tokens.
-    private static func tokenString(name: String, tint: NSColor) -> NSAttributedString {
+    /// Truncation is carried on the string's own paragraph style rather than
+    /// left to `nameLabel.lineBreakMode`: `NSTextField.attributedStringValue`
+    /// lets the string's own style win over the control's property, so without
+    /// this a long name wraps instead of truncating and the row's height grows.
+    private static func tokenString(name: String, tint: NSColor, braceColor: NSColor) -> NSAttributedString {
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
         let braces: [NSAttributedString.Key: Any] = [
-            .font: font, .foregroundColor: tint.withAlphaComponent(0.55),
+            .font: font, .foregroundColor: braceColor, .paragraphStyle: paragraph,
         ]
-        let body: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tint]
+        let body: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: tint, .paragraphStyle: paragraph,
+        ]
         let result = NSMutableAttributedString()
         result.append(NSAttributedString(string: "{{", attributes: braces))
         result.append(NSAttributedString(string: name, attributes: body))
@@ -177,12 +234,20 @@ final class VariableRowView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow],
+            // `.inVisibleRect` clips the tracked rect to what is actually on
+            // screen inside an enclosing clip view — without it, a row that
+            // scrolls out from under a fixed header still keeps a tracking
+            // rect covering its full (offscreen) bounds and can receive a
+            // `mouseEntered` for a position it no longer occupies, leaving the
+            // hover highlight stuck on a row that isn't under the pointer.
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
             owner: self
-        ))
+        )
+        addTrackingArea(area)
+        trackingArea = area
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
