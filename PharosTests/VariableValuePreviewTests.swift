@@ -45,7 +45,11 @@ func runTests() {
     // "\r\n" is a single Character (one grapheme cluster) in Swift, so trailing-break
     // stripping must remove exactly one Character, not two, or it eats a real character too.
     expectEqual(VariableValuePreview.caption(for: "500\r\n"), "3 chars", "caption strips a trailing CRLF without eating a character")
-    expectEqual(VariableValuePreview.caption(for: "a\nb\r\n"), "2 lines", "caption strips a trailing CRLF without dropping a line")
+    expectEqual(VariableValuePreview.caption(for: "ab\r\n"), "2 chars", "caption strips a trailing CRLF from a two-char value")
+    // Note: no input can discriminate the line count here — eating one character
+    // from the final line never changes how many lines there are — so this only
+    // asserts that a trailing CRLF is discounted from the count, nothing more.
+    expectEqual(VariableValuePreview.caption(for: "a\nb\r\n"), "2 lines", "caption discounts a trailing CRLF from the line count")
     expectEqual(VariableValuePreview.caption(for: "500\r"), "3 chars", "caption strips a trailing lone CR")
     expectEqual(VariableValuePreview.caption(for: "\r\n"), "0 chars", "caption of a value that is only a trailing break")
 
