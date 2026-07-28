@@ -156,24 +156,26 @@ func runTests() {
             in: "email = 'admin@example.com' AND tags @> '{\"k\":1}' AND a::int = $1 AND $tag$x$tag$ = ''"),
         [], "no collision with emails/operators/casts/params/dollar-quotes")
 
-    // MARK: displayProblem(for:referenced:) — only referenced variables are flagged
+    // MARK: displayProblems(in:referenced:) — only referenced, non-shadowed variables are flagged
 
-    expectProblem(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: ["ip"]),
+    let ipEmpty = v("ip", "", .literal)
+    expectProblem(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: ["ip"])[ipEmpty.id],
                   .emptyLiteral, "referenced empty literal flagged")
-    expectProblemNil(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: []),
+    expectProblemNil(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: [])[ipEmpty.id],
                      "unreferenced empty literal not flagged")
-    expectProblemNil(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: ["other"]),
+    expectProblemNil(VariableSubstitutor.displayProblems(in: [ipEmpty], referenced: ["other"])[ipEmpty.id],
                      "empty literal referenced under a different name not flagged")
     // Two different reasons an unnamed variable is not flagged, asserted separately
-    // so the `!name.isEmpty` guard in displayProblem is load-bearing in this suite.
+    // so the `!name.isEmpty` guard in displayProblems is load-bearing in this suite.
     // First: the name simply isn't in the set (also true without the guard).
-    expectProblemNil(VariableSubstitutor.displayProblem(for: v("", "", .literal), referenced: ["ip"]),
+    let unnamed = v("", "", .literal)
+    expectProblemNil(VariableSubstitutor.displayProblems(in: [unnamed], referenced: ["ip"])[unnamed.id],
                      "unnamed variable not flagged when the set has other names")
     // Second: the set contains the empty string, so only the guard prevents a
     // false-positive flag. `referencedNames` can never produce this — its regex
-    // requires a leading identifier character — but displayProblem takes an
+    // requires a leading identifier character — but displayProblems takes an
     // arbitrary Set, so the guard is what makes that safe.
-    expectProblemNil(VariableSubstitutor.displayProblem(for: v("", "", .literal), referenced: [""]),
+    expectProblemNil(VariableSubstitutor.displayProblems(in: [unnamed], referenced: [""])[unnamed.id],
                      "unnamed variable not flagged even when the set contains an empty name")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")

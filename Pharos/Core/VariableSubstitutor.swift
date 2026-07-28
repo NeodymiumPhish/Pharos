@@ -97,8 +97,12 @@ enum VariableSubstitutor {
         }
     }
 
-    /// Whether this variable would render into usable SQL. Says nothing about
-    /// whether any SQL references it — see `displayProblem(for:referenced:)`.
+    /// Whether the substitutor already knows this variable's value cannot
+    /// become working SQL: an empty/whitespace `Literal`, or a `Number`/`Bool`
+    /// that fails the validation `format(_:)` performs. Not exhaustive — a
+    /// `Literal` is a raw-SQL escape hatch, so a value like `"'"` or `")"` can
+    /// still produce broken SQL and returns `nil` here. Says nothing about
+    /// whether any SQL references it — see `displayProblems(in:referenced:)`.
     static func problem(for variable: QueryVariable) -> ValueProblem? {
         switch variable.type {
         case .literal:
@@ -114,15 +118,35 @@ enum VariableSubstitutor {
         }
     }
 
-    /// The problem worth showing the user: a variable is only a problem if the
-    /// SQL actually references it. Defining a variable you have not used yet is
-    /// a normal working state, not an error.
-    static func displayProblem(
-        for variable: QueryVariable,
+    /// The problems worth showing the user, keyed by variable id. Absent id =
+    /// nothing to flag.
+    ///
+    /// Deliberately list-at-a-time. `render(_:with:)` resolves duplicate names
+    /// last-definition-wins, so a row whose name is shadowed by a later row has
+    /// no effect on the query and must not be flagged — a per-variable entry
+    /// point could not express that, and would paint a red "the query will
+    /// fail" badge on a row belonging to a query that succeeds.
+    static func displayProblems(
+        in variables: [QueryVariable],
         referenced: Set<String>
-    ) -> ValueProblem? {
-        guard !variable.name.isEmpty, referenced.contains(variable.name) else { return nil }
-        return problem(for: variable)
+    ) -> [UUID: ValueProblem] {
+        // Same last-wins resolution render() uses, so the row we flag is the
+        // one whose value actually reaches the query.
+        var effective: [String: UUID] = [:]
+        for variable in variables where !variable.name.isEmpty {
+            effective[variable.name] = variable.id
+        }
+
+        var problems: [UUID: ValueProblem] = [:]
+        for variable in variables {
+            guard !variable.name.isEmpty,
+                  referenced.contains(variable.name),
+                  effective[variable.name] == variable.id,
+                  let problem = problem(for: variable)
+            else { continue }
+            problems[variable.id] = problem
+        }
+        return problems
     }
 
     /// Every `{{name}}` referenced in the text, deduplicated. Uses the same
