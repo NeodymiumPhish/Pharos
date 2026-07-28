@@ -76,6 +76,69 @@ enum VariableSubstitutor {
         return Result(sql: out, unresolved: unresolved, invalid: invalid)
     }
 
+    /// Why a variable's value cannot become working SQL. `nil` means it can.
+    enum ValueProblem: Equatable {
+        /// A `Literal` whose value is empty or whitespace-only: it renders to
+        /// nothing, leaving a hole such as `WHERE ip_addr = `.
+        case emptyLiteral
+        /// A `Number` or `Bool` whose value fails validation. `reason` is the
+        /// message `format(_:)` produces, so the panel badge and the pre-flight
+        /// guard describe the failure identically.
+        case invalidValue(reason: String)
+
+        /// Human-readable explanation, shown as the panel's tooltip.
+        var message: String {
+            switch self {
+            case .emptyLiteral:
+                return "Referenced in the query but has no value — the query will fail."
+            case .invalidValue(let reason):
+                return "Referenced in the query but the value is \(reason)."
+            }
+        }
+    }
+
+    /// Whether this variable would render into usable SQL. Says nothing about
+    /// whether any SQL references it — see `displayProblem(for:referenced:)`.
+    static func problem(for variable: QueryVariable) -> ValueProblem? {
+        switch variable.type {
+        case .literal:
+            return variable.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .emptyLiteral : nil
+        case .text, .null:
+            // Text renders '' (a legal empty string); Null ignores the value.
+            return nil
+        case .number, .bool:
+            let formatted = format(variable)
+            guard formatted.value == nil else { return nil }
+            return .invalidValue(reason: formatted.reason ?? "invalid value")
+        }
+    }
+
+    /// The problem worth showing the user: a variable is only a problem if the
+    /// SQL actually references it. Defining a variable you have not used yet is
+    /// a normal working state, not an error.
+    static func displayProblem(
+        for variable: QueryVariable,
+        referenced: Set<String>
+    ) -> ValueProblem? {
+        guard !variable.name.isEmpty, referenced.contains(variable.name) else { return nil }
+        return problem(for: variable)
+    }
+
+    /// Every `{{name}}` referenced in the text, deduplicated. Uses the same
+    /// regex `render(_:with:)` substitutes with — including tokens inside string
+    /// literals, which `render` also substitutes — so the panel cannot disagree
+    /// with what actually runs.
+    static func referencedNames(in sql: String) -> Set<String> {
+        let ns = sql as NSString
+        var names: Set<String> = []
+        tokenRegex.enumerateMatches(in: sql, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match else { return }
+            names.insert(ns.substring(with: match.range(at: 1)))
+        }
+        return names
+    }
+
     private static func format(_ variable: QueryVariable) -> (value: String?, reason: String?) {
         let raw = variable.value
         switch variable.type {

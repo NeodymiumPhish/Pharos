@@ -26,6 +26,31 @@ func v(_ name: String, _ value: String, _ type: VariableType) -> QueryVariable {
     QueryVariable(name: name, value: value, type: type)
 }
 
+func expectProblem(
+    _ actual: VariableSubstitutor.ValueProblem?,
+    _ expected: VariableSubstitutor.ValueProblem?,
+    _ name: String
+) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(String(describing: expected))\n  actual:   \(String(describing: actual))")
+    }
+}
+
+func expectNames(_ actual: Set<String>, _ expected: Set<String>, _ name: String) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(expected.sorted())\n  actual:   \(actual.sorted())")
+    }
+}
+
+func expectProblemNil(_ actual: VariableSubstitutor.ValueProblem?, _ name: String) {
+    if actual == nil { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name) — expected nil, got \(String(describing: actual))")
+    }
+}
+
 func runTests() {
     // Literal (raw) substitution
     expectEqual(
@@ -80,6 +105,67 @@ func runTests() {
     // containsTokens
     expectTrue(VariableSubstitutor.containsTokens("x = {{y}}"), "containsTokens true")
     expectTrue(!VariableSubstitutor.containsTokens("x = 'a@b'"), "containsTokens false")
+
+    // MARK: problem(for:) — can this value become working SQL?
+
+    // Literal renders raw, so an empty or whitespace-only value leaves a hole.
+    expectProblem(VariableSubstitutor.problem(for: v("a", "", .literal)), .emptyLiteral, "empty literal flagged")
+    expectProblem(VariableSubstitutor.problem(for: v("a", "   ", .literal)), .emptyLiteral, "whitespace literal flagged")
+    expectProblem(VariableSubstitutor.problem(for: v("a", "\n\t", .literal)), .emptyLiteral, "whitespace-newline literal flagged")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "1", .literal)), "non-empty literal not flagged")
+
+    // Text renders '' — a legal empty string. Null ignores the value entirely.
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "", .text)), "empty text not flagged")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "", .null)), "empty null not flagged")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "anything", .null)), "null never flagged")
+
+    // Number / Bool are flagged for any value the substitutor already rejects.
+    expectProblem(VariableSubstitutor.problem(for: v("a", "", .number)),
+                  .invalidValue(reason: "not a valid number: \"\""), "empty number flagged")
+    expectProblem(VariableSubstitutor.problem(for: v("a", "abc", .number)),
+                  .invalidValue(reason: "not a valid number: \"abc\""), "non-numeric number flagged")
+    expectProblem(VariableSubstitutor.problem(for: v("a", "1.2.3", .number)),
+                  .invalidValue(reason: "not a valid number: \"1.2.3\""), "malformed number flagged")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "-4.5", .number)), "valid negative decimal not flagged")
+    expectProblem(VariableSubstitutor.problem(for: v("a", "maybe", .bool)),
+                  .invalidValue(reason: "not a valid boolean: \"maybe\""), "invalid bool flagged")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "yes", .bool)), "yes is a valid bool")
+    expectProblemNil(VariableSubstitutor.problem(for: v("a", "0", .bool)), "0 is a valid bool")
+
+    // MARK: message — the tooltip text the panel shows
+
+    expectEqual(VariableSubstitutor.ValueProblem.emptyLiteral.message,
+                "Referenced in the query but has no value — the query will fail.",
+                "emptyLiteral message")
+    expectEqual(VariableSubstitutor.ValueProblem.invalidValue(reason: "not a valid number: \"abc\"").message,
+                "Referenced in the query but the value is not a valid number: \"abc\".",
+                "invalidValue message")
+
+    // MARK: referencedNames(in:)
+
+    expectNames(VariableSubstitutor.referencedNames(in: "a = {{x}} AND b = {{y}}"), ["x", "y"], "two tokens")
+    expectNames(VariableSubstitutor.referencedNames(in: "{{a}}-{{b}}-{{a}}"), ["a", "b"], "duplicates collapse")
+    expectNames(VariableSubstitutor.referencedNames(in: "x = {{  ip  }}"), ["ip"], "inner whitespace tolerated")
+    // render() substitutes inside string literals, so the panel must count them
+    // too — otherwise a broken value inside quotes would never be flagged.
+    expectNames(VariableSubstitutor.referencedNames(in: "orig_h = '{{ip}}'"), ["ip"], "tokens inside string literals count")
+    expectNames(VariableSubstitutor.referencedNames(in: "SELECT 1"), [], "no tokens")
+    // The delimiter was chosen so ordinary SQL cannot form a token by accident.
+    expectNames(
+        VariableSubstitutor.referencedNames(
+            in: "email = 'admin@example.com' AND tags @> '{\"k\":1}' AND a::int = $1 AND $tag$x$tag$ = ''"),
+        [], "no collision with emails/operators/casts/params/dollar-quotes")
+
+    // MARK: displayProblem(for:referenced:) — only referenced variables are flagged
+
+    expectProblem(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: ["ip"]),
+                  .emptyLiteral, "referenced empty literal flagged")
+    expectProblemNil(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: []),
+                     "unreferenced empty literal not flagged")
+    expectProblemNil(VariableSubstitutor.displayProblem(for: v("ip", "", .literal), referenced: ["other"]),
+                     "empty literal referenced under a different name not flagged")
+    expectProblemNil(VariableSubstitutor.displayProblem(for: v("", "", .literal), referenced: ["ip"]),
+                     "unnamed variable never flagged")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
