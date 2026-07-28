@@ -130,8 +130,11 @@ enum VariableSubstitutor {
         in variables: [QueryVariable],
         referenced: Set<String>
     ) -> [UUID: ValueProblem] {
-        // Same last-wins resolution render() uses, so the row we flag is the
-        // one whose value actually reaches the query.
+        // Same last-wins resolution render() uses, so the row we flag is the one
+        // whose value actually reaches the query. Skipping unnamed variables here
+        // is the single thing that keeps a freshly added row — name still empty —
+        // from being flagged: with no entry in this map, nothing below can match
+        // it, whatever the caller passed as `referenced`.
         var effective: [String: UUID] = [:]
         for variable in variables where !variable.name.isEmpty {
             effective[variable.name] = variable.id
@@ -139,8 +142,7 @@ enum VariableSubstitutor {
 
         var problems: [UUID: ValueProblem] = [:]
         for variable in variables {
-            guard !variable.name.isEmpty,
-                  referenced.contains(variable.name),
+            guard referenced.contains(variable.name),
                   effective[variable.name] == variable.id,
                   let problem = problem(for: variable)
             else { continue }
