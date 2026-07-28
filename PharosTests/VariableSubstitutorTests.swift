@@ -51,6 +51,13 @@ func expectProblemNil(_ actual: VariableSubstitutor.ValueProblem?, _ name: Strin
     }
 }
 
+func expectAgree(_ a: Bool, _ b: Bool, _ name: String) {
+    if a == b { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  panel: \(a)  render: \(b)")
+    }
+}
+
 func runTests() {
     // Literal (raw) substitution
     expectEqual(
@@ -231,16 +238,30 @@ func runTests() {
     // what actually executes.
 
     let probeValues = ["", " ", "443", " 443 ", "-4.5", "+5", ".5", "abc", "1.2.3", "1e3", "yes", "no", "TRUE", "0", "maybe", "'"]
-    for type in VariableType.allCases {
+    for type in VariableType.allCases where type != .literal {
         for value in probeValues {
             let variable = v("x", value, type)
             let renderRejects = !VariableSubstitutor.render("q = {{x}}", with: [variable]).invalid.isEmpty
             let panelFlags = VariableSubstitutor.problem(for: variable) != nil
-            let isDocumentedException = (type == .literal)
-            if isDocumentedException { continue }
-            expectTrue(panelFlags == renderRejects,
-                       "problem() agrees with render() for \(type.displayName) \(value.debugDescription)")
+            expectAgree(panelFlags, renderRejects,
+                        "problem() agrees with render() for \(type.displayName) \(value.debugDescription)")
         }
+    }
+
+    // .literal is excluded from the loop above because render() reports no
+    // `invalid` for it — a raw value is substituted verbatim, whatever it is.
+    // Its failure mode is a HOLE in the SQL, so derive that from render's own
+    // output: substitute into a marked slot and see whether the slot came back
+    // empty. This is what ties "empty Literal breaks the query" to what actually
+    // executes, rather than to our own restatement of the rule.
+    for value in probeValues {
+        let variable = v("x", value, .literal)
+        let inner = VariableSubstitutor.render("<{{x}}>", with: [variable]).sql
+            .dropFirst().dropLast()
+        let rendersHole = inner.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let panelFlags = VariableSubstitutor.problem(for: variable) != nil
+        expectAgree(panelFlags, rendersHole,
+                    "emptyLiteral agrees with render's hole for \(value.debugDescription)")
     }
 
     let probeSQL = [
@@ -251,8 +272,8 @@ func runTests() {
         let substituted = VariableSubstitutor.render(sql, with: [v("x", "SENTINEL", .literal)]).sql
         let renderSubstitutes = substituted.contains("SENTINEL")
         let named = VariableSubstitutor.referencedNames(in: sql).contains("x")
-        expectTrue(named == renderSubstitutes,
-                   "referencedNames agrees with render for \(sql.debugDescription)")
+        expectAgree(named, renderSubstitutes,
+                    "referencedNames agrees with render for \(sql.debugDescription)")
     }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
