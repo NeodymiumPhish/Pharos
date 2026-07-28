@@ -10,6 +10,15 @@ private final class PassthroughImageView: NSImageView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// `topRight` wraps the warning glyph and type label purely for layout — its
+/// own frame sits between the row and those (passthrough) children, so without
+/// this override any point that lands on it and not on one of its children
+/// (e.g. the inter-item spacing) is claimed by the stack view itself rather
+/// than falling through to the row underneath.
+private final class PassthroughStackView: NSStackView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// One row in the variables list. Read-only: the whole row is a click target
 /// that drills in to the detail level. The layout mirrors the detail header —
 /// `{{name}}` leading, type trailing — above a size caption and the value
@@ -172,7 +181,7 @@ final class VariableRowView: NSView {
 
         // A stack collapses `warningView` out of the layout while it is hidden,
         // so the type caption does not sit permanently indented.
-        let topRight = NSStackView(views: [warningView, typeLabel])
+        let topRight = PassthroughStackView(views: [warningView, typeLabel])
         topRight.orientation = .horizontal
         topRight.spacing = 3
         topRight.alignment = .centerY
