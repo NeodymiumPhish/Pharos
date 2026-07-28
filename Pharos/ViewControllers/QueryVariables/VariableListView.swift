@@ -58,11 +58,7 @@ final class VariableListView: NSView {
                 empty.bottomAnchor.constraint(equalTo: padded.bottomAnchor),
             ])
             rowsStack.addArrangedSubview(padded)
-            // See the identical pin on each row below: `.width` alignment alone
-            // does not reliably stretch every arranged subview to the stack's
-            // width — measured directly, this wrapper (and the hairlines) can
-            // end up a few points wide, flush to one edge, once *any* sibling
-            // arranged subview also carries an explicit required width tie.
+            // Same explicit width tie as the rows below — see the note there.
             padded.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
             return
         }
@@ -79,17 +75,14 @@ final class VariableListView: NSView {
             row.onClick = { [weak self] in self?.onSelect?(id) }
             row.onDelete = { [weak self] in self?.onDelete?(id) }
             rowsStack.addArrangedSubview(row)
-            // `.width` alignment on a vertical NSStackView does not reliably
-            // stretch every arranged subview to the stack's width — measured
-            // directly. In isolation a bare `NSView` (the hairline) does end up
-            // full width from the weak alignment constraints alone, but a row
-            // whose own required internal constraints already settle on a
-            // narrower natural width does not, *and*, once any one arranged
-            // subview in the stack carries an explicit required width tie like
-            // this, the stack's weak per-view alignment constraints for its
-            // *other* arranged subviews stop reliably resolving to full width
-            // too. Pinning every arranged subview's width explicitly sidesteps
-            // relying on that alignment mechanism at all.
+            // Belt and braces, not a workaround: `.width` alignment on a vertical
+            // stack does stretch arranged subviews (measured — a row with only
+            // internal constraints comes out at the stack's full width, with and
+            // without odd-sized siblings). This states the row width where it
+            // matters instead of leaving it to the stack's alignment machinery,
+            // and the layout harness asserts it, because a row that quietly failed
+            // to stretch would put every chevron and type caption in the wrong
+            // place with nothing else complaining.
             row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
             let hairline = Self.hairline()
             rowsStack.addArrangedSubview(hairline)
@@ -210,15 +203,16 @@ private final class FlippedClipView: NSClipView {
 /// panel's existing `PanelBackgroundView` idiom (see `QueryVariablesPanelVC`).
 ///
 /// Deliberately not `NSBox(boxType: .separator)`, which the plan originally
-/// specified: measured directly, that box does not reliably honour an
-/// explicit `heightAnchor.constraint(equalToConstant: 1)` once its container
-/// is also width-constrained by a stack — Auto Layout resolves the
-/// constraint graph as unambiguous at height 1, but the box's own internal
-/// sizing then overrides that and renders ~5pt tall, overflowing 2pt above
-/// and below its container (bleeding into neighbouring rows) — reproduced in
-/// isolation with `boxType`, an explicit height constraint, and no other
-/// competing constraints. A plain layer-backed view has no such internal
-/// override and measures exactly as constrained.
+/// specified — but not because `NSBox` is broken. Measured directly, a separator
+/// box *does* honour `heightAnchor.constraint(equalToConstant: 1)` and reports no
+/// ambiguity. The bug was that the plan gave the inner box no height constraint
+/// at all, and an unconstrained separator box measures **5pt** (it has no
+/// intrinsic height, so nothing pinned it), which then overflowed 2pt above and
+/// below its 1pt container and bled into neighbouring rows.
+///
+/// So either shape works if the height is actually constrained. This one is used
+/// because a layer-backed view cannot acquire a height by accident: the size is
+/// stated once, by the caller, with nothing else able to influence it.
 private final class HairlineView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
