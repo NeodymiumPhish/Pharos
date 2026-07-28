@@ -51,6 +51,11 @@ class EditorPaneVC: NSViewController {
     private let variablesDivider = ResizeDividerView()
     private let variablesDividerWidth: CGFloat = 5
 
+    /// Panel width when the current divider drag began. The width is re-derived
+    /// from this on every drag event rather than nudged, so overshooting the
+    /// min/max is not absorbed — see `ResizeDividerView`.
+    private var variablesPanelWidthAtDragStart: CGFloat = 0
+
     private var isVariablesPanelVisible: Bool {
         guard let tabId = lastActiveTabId,
               let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
@@ -146,8 +151,11 @@ class EditorPaneVC: NSViewController {
         variablesPanelVC.onChange = { [weak self] vars in
             self?.variablesDidChange(vars)
         }
-        variablesDivider.onDrag = { [weak self] delta in
-            self?.resizeVariablesPanel(byDelta: delta)
+        variablesDivider.onDragBegan = { [weak self] in
+            self?.variablesPanelWidthAtDragStart = VariablesPanelPrefs.width
+        }
+        variablesDivider.onDrag = { [weak self] offset in
+            self?.resizeVariablesPanel(byOffset: offset)
         }
 
         container.addSubview(paneTabBar)
@@ -639,9 +647,12 @@ class EditorPaneVC: NSViewController {
         syncVariablesPanel()
     }
 
-    private func resizeVariablesPanel(byDelta delta: CGFloat) {
-        // Dragging the divider left (negative delta) widens the panel.
-        VariablesPanelPrefs.width = VariablesPanelPrefs.width - delta
+    /// `offset` is how far the pointer has moved since the drag began; dragging
+    /// left (negative) widens the panel. Deriving the width from the drag-start
+    /// snapshot each time — rather than nudging the current width — is what keeps
+    /// the divider stuck to the cursor after an overshoot past the min or max.
+    private func resizeVariablesPanel(byOffset offset: CGFloat) {
+        VariablesPanelPrefs.width = variablesPanelWidthAtDragStart - offset
         view.needsLayout = true
     }
 

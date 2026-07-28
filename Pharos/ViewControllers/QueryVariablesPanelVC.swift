@@ -124,9 +124,25 @@ final class QueryVariablesPanelVC: NSViewController {
             let empty = NSTextField(labelWithString: "No variables — click + to add one.")
             empty.font = .systemFont(ofSize: 11)
             empty.textColor = .tertiaryLabelColor
+            empty.alignment = .left
             empty.lineBreakMode = .byWordWrapping
             empty.maximumNumberOfLines = 2
-            rowsStack.addArrangedSubview(empty)
+            empty.translatesAutoresizingMaskIntoConstraints = false
+
+            // Pinned inside a container rather than added to the stack directly:
+            // the stack was centring this label instead of stretching it, so the
+            // text sat oddly inset from both edges. An explicit leading pin makes
+            // the alignment independent of how the stack treats a lone label.
+            let container = NSView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(empty)
+            NSLayoutConstraint.activate([
+                empty.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                empty.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+                empty.topAnchor.constraint(equalTo: container.topAnchor),
+                empty.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+            rowsStack.addArrangedSubview(container)
         }
     }
 
