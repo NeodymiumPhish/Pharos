@@ -25,17 +25,40 @@ final class VariableValueTextView: NSTextView {
         fatalError("init(coder:) not implemented")
     }
 
+    /// Builds its own TextKit stack. `init(frame:textContainer:)` with a nil
+    /// container does not — it leaves `textStorage`, `layoutManager` and
+    /// `textContainer` all nil, and the view then silently discards every
+    /// assignment to `string`. Sizing (`isVerticallyResizable`, `minSize`,
+    /// `maxSize`) stays with the host, matching `QueryEditorVC`.
+    convenience init() {
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer()
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+        self.init(frame: .zero, textContainer: container)
+    }
+
     /// A value may be SQL, an ID list, or a path — never prose. Every automatic
     /// substitution is off so nothing silently rewrites what was typed or pasted
-    /// (a smart quote in a SQL fragment is a broken query).
+    /// (a smart quote in a SQL fragment is a broken query, and smart insert-delete
+    /// silently adding/removing spaces around a paste or deletion is exactly the
+    /// kind of rewrite this view exists to avoid — relevant here in particular
+    /// because a common value shape is a comma-joined ID list).
     private func applyDefaults() {
+        isEditable = true
+        isSelectable = true
         isRichText = false
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
         isAutomaticTextReplacementEnabled = false
         isAutomaticSpellingCorrectionEnabled = false
+        isAutomaticTextCompletionEnabled = false
         isContinuousSpellCheckingEnabled = false
         isGrammarCheckingEnabled = false
+        smartInsertDeleteEnabled = false
         allowsUndo = true
         font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         textColor = .labelColor
