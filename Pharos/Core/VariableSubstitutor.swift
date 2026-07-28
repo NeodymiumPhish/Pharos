@@ -158,7 +158,7 @@ enum VariableSubstitutor {
         // can find nothing to say about it.
         var effective: [String: UUID] = [:]
         var occurrences: [String: Int] = [:]
-        for variable in variables where !variable.name.isEmpty {
+        for variable in variables where !variable.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             effective[variable.name] = variable.id
             occurrences[variable.name, default: 0] += 1
         }

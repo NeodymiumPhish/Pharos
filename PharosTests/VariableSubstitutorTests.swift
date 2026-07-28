@@ -214,6 +214,20 @@ func runTests() {
     expectProblemNil(VariableSubstitutor.rowStates(in: [unnamed], referenced: [""])[unnamed.id]?.problem,
                      "unnamed variable not flagged even when the set contains an empty name")
 
+    // A whitespace-only name is just as inert as an empty one — tokenRegex
+    // requires a leading identifier character, so " " can never be referenced,
+    // same as "". The guard trims before checking for exactly this reason.
+    let twoWhitespace = [v(" ", "", .literal), v(" ", "", .literal)]
+    expectTrue(VariableSubstitutor.rowStates(in: twoWhitespace, referenced: []).isEmpty,
+               "two rows named whitespace-only are not reported as duplicates of each other")
+    // A real (non-blank) name with incidental surrounding whitespace is a
+    // distinct, unreferenceable name — not the same case as "unnamed" — and is
+    // still correctly left unflagged when nothing references it under that
+    // literal, untrimmed spelling.
+    let spacedName = v(" ip ", "", .literal)
+    expectProblemNil(VariableSubstitutor.rowStates(in: [spacedName], referenced: ["ip"])[spacedName.id]?.problem,
+                     "a name with surrounding whitespace is not flagged under the trimmed name")
+
     // Duplicate names: render() takes the LAST definition. The earlier row is
     // inert, so it is marked shadowed and never carries a problem; the effective
     // row is marked overriding.
