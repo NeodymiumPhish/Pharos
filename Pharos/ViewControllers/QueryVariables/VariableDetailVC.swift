@@ -102,10 +102,13 @@ final class VariableDetailVC: NSViewController {
         // Measured directly (see PharosTests/VariableDetailVCTests.swift):
         // `NSBox(boxType: .separator)` with an explicit `heightAnchor == 1`
         // constraint — the form the plan originally specified here — still
-        // resolves to 5pt tall in this view's actual layout, not 1pt. That
-        // contradicts what the same shape measured as elsewhere in isolation;
-        // apparently its separator-vs-divider auto-orientation detection is
-        // sensitive to surrounding context in a way that isn't reliable here.
+        // resolves to 5pt tall in this view's actual layout, not 1pt. An isolated
+        // probe of the same shape measured 1pt, so the mechanism is unresolved —
+        // plausibly the same settle-timing effect the harness documents (stack
+        // geometry here needs a second layout pass before it is final), or
+        // something about this assembly. Rather than chase it: a layer-backed view
+        // cannot acquire a height by accident, since nothing but one explicit
+        // constraint can influence it, and the harness asserts the 1pt result.
         // `VariableListView` hit the same "unconstrained separator measures
         // 5pt" problem for its row hairlines and fixed it with a plain
         // layer-backed 1pt view instead of `NSBox` — used here for the same
