@@ -253,6 +253,55 @@ class LineNumberGutter: NSView {
         return lo  // 1-based line number
     }
 
+    // MARK: - Line Y (gutter-space)
+
+    /// Converts a line-fragment rect from text-*container* coordinates into
+    /// this gutter's own (flipped) coordinate space via the real view
+    /// hierarchy (`NSView.convert(_:to:)`), instead of hand-deriving the text
+    /// view's scroll offset from `scrollView.contentView.bounds.origin.y` and
+    /// adding the inset by arithmetic.
+    ///
+    /// That arithmetic assumes the text view's frame sits at a fixed,
+    /// predictable position relative to its clip view — true whenever the
+    /// scroll view is in its ordinary, freshly-tiled state, but NOT
+    /// guaranteed in general. Measured directly: a `VariableDetailVC` value
+    /// editor, built from a standalone TextKit stack and given its text via
+    /// `textView.string = …` (never through the interactive editing path),
+    /// can end up with `scrollView.contentView.bounds.origin.y` nonzero with
+    /// no scrolling having occurred — the old formula then placed every line
+    /// number a fixed amount below the line it labels, which is exactly the
+    /// "number sits below its line of text" symptom. Real coordinate
+    /// conversion asks AppKit where the glyph actually paints, so it is
+    /// correct regardless of why the text view's own geometry ended up where
+    /// it did — including genuine scrolling, which it also handles.
+    private func gutterY(forTextContainerRect rect: NSRect) -> CGFloat? {
+        guard let textView else { return nil }
+        var inViewCoords = rect
+        inViewCoords.origin.x += textView.textContainerInset.width
+        inViewCoords.origin.y += textView.textContainerInset.height
+        return textView.convert(inViewCoords, to: self).origin.y
+    }
+
+    /// The y, in this gutter's own coordinate space, at which the given
+    /// 1-based line's text visually renders. Internal (not `private`) purely
+    /// as a test seam: PharosTests/VariableDetailVCTests.swift calls this and
+    /// independently measures the same line's real screen position via its
+    /// own `NSView.convert(_:to:)` call, to confirm the two agree — a
+    /// hand-duplicated copy of `gutterY(forTextContainerRect:)` in the test
+    /// would pass even if both copies shared the same bug, which is why the
+    /// test computes ground truth via the view hierarchy instead of via this
+    /// gutter's formula.
+    func y(forLine line: Int) -> CGFloat? {
+        guard let textView, let layoutManager = textView.layoutManager,
+              line >= 1, line <= lineStarts.count else { return nil }
+        let text = textView.string as NSString
+        let charIndex = min(lineStarts[line - 1], text.length)
+        let lineRange = text.lineRange(for: NSRange(location: charIndex, length: 0))
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+        let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        return gutterY(forTextContainerRect: lineRect)
+    }
+
     // MARK: - Notifications
 
     @objc private func textDidChange(_: Notification) {
@@ -319,7 +368,6 @@ class LineNumberGutter: NSView {
               let textContainer = textView.textContainer else { return }
 
         let scrollOffset = scrollView.contentView.bounds.origin.y
-        let textInset = textView.textContainerInset
         let text = textView.string as NSString
         guard text.length > 0 else { return }
 
@@ -343,7 +391,11 @@ class LineNumberGutter: NSView {
             let lineRange = text.lineRange(for: NSRange(location: charIndex, length: 0))
             let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
-            let y = lineRect.origin.y + textInset.height - scrollOffset
+            guard let y = gutterY(forTextContainerRect: lineRect) else {
+                lineNum += 1
+                charIndex = NSMaxRange(lineRange)
+                continue
+            }
 
             // Fold chevron cursor (leftmost 14pt)
             if foldRegions.contains(where: { $0.startLine == lineNum }) {
@@ -431,23 +483,24 @@ class LineNumberGutter: NSView {
         onRunSegment?(segments[idx])
     }
 
-    /// Map a point (in gutter coordinates) to a 1-based line number.
+    /// Map a point (in gutter coordinates) to a 1-based line number. The
+    /// inverse of `gutterY(forTextContainerRect:)`: converts the point into
+    /// the text view's own coordinate space via the real view hierarchy,
+    /// then subtracts the container inset to land in text-container
+    /// coordinates, rather than re-deriving the text view's position from
+    /// the scroll offset by hand.
     private func lineNumber(at point: NSPoint) -> Int {
-        guard let textView, let scrollView,
-              let layoutManager = textView.layoutManager,
+        guard let textView, let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return 0 }
-
-        let scrollOffset = scrollView.contentView.bounds.origin.y
-        let textInset = textView.textContainerInset
-
-        // Convert gutter y to text view y
-        let textY = point.y + scrollOffset - textInset.height
 
         let text = textView.string as NSString
         guard text.length > 0 else { return 1 }
 
-        // Find the glyph at this y position
-        let testPoint = NSPoint(x: 0, y: textY)
+        let pointInTextView = convert(point, to: textView)
+        let testPoint = NSPoint(
+            x: pointInTextView.x - textView.textContainerInset.width,
+            y: pointInTextView.y - textView.textContainerInset.height
+        )
         let glyphIndex = layoutManager.glyphIndex(for: testPoint, in: textContainer)
         let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
 
@@ -466,7 +519,6 @@ class LineNumberGutter: NSView {
 
         let text = textView.string as NSString
         let scrollOffset = scrollView.contentView.bounds.origin.y
-        let textInset = textView.textContainerInset
 
         // Background — seamless with editor (no visible boundary)
         NSColor.textBackgroundColor.setFill()
@@ -515,8 +567,13 @@ class LineNumberGutter: NSView {
             let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
 
-            // y position in our coordinate space: line's position in text + inset - scroll offset
-            let y = lineRect.origin.y + textInset.height - scrollOffset
+            // y position in our coordinate space, via real view-hierarchy
+            // coordinate conversion — see `gutterY(forTextContainerRect:)`.
+            guard let y = gutterY(forTextContainerRect: lineRect) else {
+                lineNumber += 1
+                charIndex = NSMaxRange(lineRange)
+                continue
+            }
 
             lineYPositions.append((line: lineNumber, y: y, height: lineRect.height))
 
