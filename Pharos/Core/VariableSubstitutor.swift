@@ -21,8 +21,17 @@ enum VariableSubstitutor {
     )
 
     /// SQL numeric literal: optional sign, integer/decimal (no exponent).
+    ///
+    /// `[0-9]` rather than `\d`: ICU's `\d` matches all of Unicode category Nd, so
+    /// `٤٤٣`, `１２３` and `१२३` used to validate, render bare into the SQL, and be
+    /// lexed by Postgres as identifiers — the user saw `column "٤٤٣" does not
+    /// exist` instead of "not a valid number".
+    ///
+    /// `\A`/`\z` rather than `^`/`$`: ICU's `$` also matches before a single
+    /// trailing line terminator, so `"443\n"` validated and then rendered with the
+    /// newline still attached. `\z` is the hard end of input a reader expects here.
     private static let numberRegex = try! NSRegularExpression(
-        pattern: #"^[+-]?(\d+(\.\d+)?|\.\d+)$"#
+        pattern: #"\A[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)\z"#
     )
 
     private static let trueSet: Set<String> = ["true", "t", "1", "yes", "y"]
@@ -222,7 +231,11 @@ enum VariableSubstitutor {
         case .text:
             return ("'" + raw.replacingOccurrences(of: "'", with: "''") + "'", nil)
         case .number:
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            // Newlines too, not just spaces: a value pasted from a spreadsheet or
+            // a terminal arrives with a trailing line break, and the regex anchors
+            // to the hard end of input, so an untrimmed one would now be rejected
+            // outright rather than silently rendered into the SQL.
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let ns = trimmed as NSString
             let ok = numberRegex.firstMatch(in: trimmed, range: NSRange(location: 0, length: ns.length)) != nil
             if ok { return (trimmed, nil) }

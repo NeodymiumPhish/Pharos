@@ -373,6 +373,46 @@ func runTests() {
                     "referencedNames agrees with render for \(sql.debugDescription)")
     }
 
+    // MARK: Number validation must mean ASCII digits, anchored to the whole value
+
+    // ICU's `\d` matches all of Unicode category Nd, so these three passed
+    // validation, rendered bare into the SQL, and Postgres then lexed them as
+    // identifiers — the user got `column "٤٤٣" does not exist` instead of the
+    // "not a valid number" message the type check exists to give them.
+    // Asserted as non-nil rather than against a reason string, because the reason
+    // embeds the value and a literal here would be about quoting, not behaviour.
+    for digits in ["\u{0664}\u{0664}\u{0663}", "\u{FF11}\u{FF12}\u{FF13}", "\u{0967}\u{0968}\u{0969}"] {
+        expectTrue(VariableSubstitutor.problem(for: v("n", digits, .number)) != nil,
+                   "non-ASCII digits are not a valid number: \(digits.debugDescription)")
+        let rendered = VariableSubstitutor.render("p = {{n}}", with: [v("n", digits, .number)])
+        expectEqual(rendered.sql, "p = {{n}}", "non-ASCII digits leave the token verbatim: \(digits.debugDescription)")
+        expectTrue(rendered.invalid.count == 1, "non-ASCII digits are collected as invalid: \(digits.debugDescription)")
+    }
+
+    // `$` in ICU also matches before a single trailing line terminator, so a
+    // pasted value carrying one validated and then rendered *with* the newline
+    // still attached (`.whitespaces` does not trim newlines). Both halves are
+    // fixed: the anchor is `\z`, and the trim covers newlines — so the value is
+    // still accepted, but it renders clean.
+    expectEqual(VariableSubstitutor.render("p = {{n}}", with: [v("n", "443\n", .number)]).sql,
+                "p = 443", "a trailing newline is trimmed, not rendered")
+    expectEqual(VariableSubstitutor.render("p = {{n}}", with: [v("n", "443\r\n", .number)]).sql,
+                "p = 443", "a trailing CRLF is trimmed, not rendered")
+    expectEqual(VariableSubstitutor.render("p = {{n}}", with: [v("n", "443\r", .number)]).sql,
+                "p = 443", "a trailing CR is trimmed, not rendered")
+
+    // An interior newline is a different matter and stays rejected — this one
+    // holds both before and after the fix, and is pinned because it is the case
+    // that would actually matter if the anchor were ever loosened again.
+    expectTrue(VariableSubstitutor.problem(for: v("n", "443\nDROP TABLE t", .number)) != nil,
+               "a number with an interior newline stays invalid")
+
+    // Asymmetry left in place deliberately: only the `.number` branch trims
+    // newlines. A Bool carrying one is still rejected rather than coerced, which
+    // is the safer default for a value that renders as a bare `true`/`false`.
+    expectTrue(VariableSubstitutor.problem(for: v("b", "yes\n", .bool)) != nil,
+               "a bool with a trailing newline is still rejected")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
