@@ -700,6 +700,82 @@ private func testChoiceControlFitsAvailableWidth() {
             + "editor width (\(availableWidth)pt) at the panel's 180pt minimum")
 }
 
+// MARK: - Gutter line-number alignment (defect 3)
+
+/// Ground truth for where line `line`'s text actually renders, in the
+/// gutter's own coordinate space — measured via real view-hierarchy
+/// coordinate conversion (`NSView.convert(_:to:)`), NOT by restating the
+/// gutter's own y-computation formula. A hand-duplicated copy of that
+/// formula would agree with the gutter even if both copies shared the same
+/// bug; asking AppKit where the glyph actually paints cannot.
+private func groundTruthGutterY(line: Int, in vc: VariableDetailVC) -> CGFloat? {
+    let tv = valueTextView(in: vc)
+    let gutter = gutterView(in: vc)
+    guard let lm = tv.layoutManager else { return nil }
+    let ns = tv.string as NSString
+    let lines = tv.string.components(separatedBy: "\n")
+    guard line >= 1, line <= lines.count else { return nil }
+    let charIndex = lines[0..<(line - 1)].reduce(0) { $0 + $1.utf16.count + 1 }
+    let lineRange = ns.lineRange(for: NSRange(location: min(charIndex, ns.length), length: 0))
+    let glyphRange = lm.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+    let lineRect = lm.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+    var rectInTextView = lineRect
+    rectInTextView.origin.x += tv.textContainerInset.width
+    rectInTextView.origin.y += tv.textContainerInset.height
+    return tv.convert(rectInTextView, to: gutter).origin.y
+}
+
+/// Hosts a real `VariableDetailVC` for `variable`, optionally overriding the
+/// value editor's `textContainerInset` (to prove the fix generalizes across
+/// insets rather than merely cancelling out at the one `VariableValueTextView`
+/// happens to use), and checks the gutter's `y(forLine:)` seam against
+/// `groundTruthGutterY` for every line.
+private func checkGutterAlignment(
+    variable: QueryVariable, lineCount: Int, inset: NSSize?, label: String
+) {
+    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
+    let tv = valueTextView(in: vc)
+    if let inset { tv.textContainerInset = inset }
+    vc.view.layoutSubtreeIfNeeded()
+    if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
+
+    let gutter = gutterView(in: vc)
+    for line in 1...lineCount {
+        guard let groundTruth = groundTruthGutterY(line: line, in: vc) else {
+            expectTrue(false, "\(label): could not measure ground-truth y for line \(line)")
+            continue
+        }
+        let seam = gutter.y(forLine: line)
+        let matched = seam.map { abs($0 - groundTruth) < 1.0 } ?? false
+        expectTrue(
+            matched,
+            "\(label): gutter y for line \(line) matches the text's line-fragment y "
+                + "(seam=\(seam.map { String(format: "%.2f", $0) } ?? "nil"), "
+                + "text=\(String(format: "%.2f", groundTruth)))")
+    }
+}
+
+/// Pins the defect: for a one-line and a five-line value, at the value
+/// editor's own inset and again at `SQLTextView`'s (4, 8) inset, the gutter's
+/// computed y for every line must match where that line's text actually is.
+/// Measured directly: before the fix, `y(forLine:)`'s predecessor (inline
+/// `lineRect.origin.y + textInset.height - scrollOffset` arithmetic) put line
+/// 1 at y≈25 while the text itself rendered at y≈4 — the gutter number a
+/// full line below its text, matching the reported symptom exactly.
+private func testGutterLineNumberAlignsWithTextLine() {
+    let oneLine = QueryVariable(name: "v", value: "test text", type: .literal)
+    let fiveLine = QueryVariable(name: "v", value: "line1\nline2\nline3\nline4\nline5", type: .literal)
+
+    checkGutterAlignment(variable: oneLine, lineCount: 1, inset: nil, label: "one-line, default inset")
+    checkGutterAlignment(variable: fiveLine, lineCount: 5, inset: nil, label: "five-line, default inset")
+    checkGutterAlignment(
+        variable: oneLine, lineCount: 1, inset: NSSize(width: 4, height: 8),
+        label: "one-line, SQLTextView-style inset")
+    checkGutterAlignment(
+        variable: fiveLine, lineCount: 5, inset: NSSize(width: 4, height: 8),
+        label: "five-line, SQLTextView-style inset")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -723,6 +799,8 @@ func runTests() {
     testSwitchingTypeSwapsControlsAndPreservesValue()
     testAllTypesLayoutUnambiguous()
     testChoiceControlFitsAvailableWidth()
+
+    testGutterLineNumberAlignsWithTextLine()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
