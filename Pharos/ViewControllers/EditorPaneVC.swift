@@ -51,6 +51,12 @@ class EditorPaneVC: NSViewController {
     private let variablesDivider = ResizeDividerView()
     private let variablesDividerWidth: CGFloat = 5
 
+    /// Coalesces the `{{token}}` scan behind editor typing. The scan is a full
+    /// regex pass over the text, so it runs once per pause rather than once per
+    /// keystroke.
+    private var referencedNamesScanTimer: Timer?
+    private let referencedNamesScanDelay: TimeInterval = 0.15
+
     /// Panel width when the current divider drag began. The width is re-derived
     /// from this on every drag event rather than nudged, so overshooting the
     /// min/max is not absorbed — see `ResizeDividerView`.
@@ -138,6 +144,9 @@ class EditorPaneVC: NSViewController {
         editorVC.onTextEdited = { [weak self] in
             guard let self else { return }
             self.delegate?.editorPane(self, didEditText: self.paneId)
+            // Adding or removing a `{{token}}` changes which variables are
+            // referenced, and therefore which of them are flagged in the panel.
+            self.scheduleReferencedNamesScan()
         }
         editorVC.textView.onListPasteDetected = { [weak self] in
             self?.formatListButton.isHidden = false
@@ -662,12 +671,31 @@ class EditorPaneVC: NSViewController {
         editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
     }
 
+    /// Re-scan the editor text for `{{token}}` references and push the result to
+    /// the panel, which uses it to decide the red warning state. Debounced.
+    private func scheduleReferencedNamesScan() {
+        referencedNamesScanTimer?.invalidate()
+        referencedNamesScanTimer = Timer.scheduledTimer(
+            withTimeInterval: referencedNamesScanDelay, repeats: false
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.variablesPanelVC.setReferencedNames(
+                VariableSubstitutor.referencedNames(in: self.editorVC.textView.string))
+        }
+    }
+
     /// Refresh the panel's data, visibility, toolbar tint, and editor highlighting
     /// from the active tab. Call on toggle and on tab switch.
+    ///
+    /// This is the only path that updates the panel. `variables` and
+    /// `variablesPanelVisible` are deliberately absent from the `$tabs`
+    /// `removeDuplicates` whitelist above, so mutating them never republishes —
+    /// do not try to drive the panel from that sink.
     private func syncVariablesPanel() {
         let tab = lastActiveTabId.flatMap { id in stateManager.tabs.first(where: { $0.id == id }) }
         let vars = tab?.variables ?? []
-        variablesPanelVC.setVariables(vars)
+        let referenced = VariableSubstitutor.referencedNames(in: editorVC.textView.string)
+        variablesPanelVC.setVariables(vars, referenced: referenced)
         editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
         variablesToggle.contentTintColor = (tab?.variablesPanelVisible ?? false)
             ? .controlAccentColor : .secondaryLabelColor
