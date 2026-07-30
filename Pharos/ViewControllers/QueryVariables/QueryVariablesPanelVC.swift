@@ -64,14 +64,15 @@ final class QueryVariablesPanelVC: NSViewController {
     func setVariables(_ vars: [QueryVariable], referenced: Set<String>) {
         variables = vars
         self.referenced = referenced
-        dismissDetail(animated: false, pruningEmpty: false)
+        dismissDetail(animated: false)
         refreshList()
     }
 
     /// Settles (commits if valid, drops if colliding) whatever the detail
-    /// level's name field currently shows, without dismissing anything else —
-    /// no level swap, no list rebuild. A no-op if the detail level isn't
-    /// showing.
+    /// level's name field currently shows, and discards the variable
+    /// outright if nothing valid was ever entered for it (see
+    /// `pruneIfAbandoned`) — without dismissing anything else: no level
+    /// swap, no list rebuild. A no-op if the detail level isn't showing.
     ///
     /// This exists specifically for a caller that is about to change which
     /// tab is active (`EditorPaneVC.paneStateChanged`): it must call this
@@ -86,9 +87,30 @@ final class QueryVariablesPanelVC: NSViewController {
     /// bookkeeping have already moved on — the same lookup would either fail
     /// silently (losing the rename) or, if that guard were ever relaxed,
     /// succeed against the *incoming* tab's array and land the outgoing
-    /// tab's rename in the wrong tab's stored variables.
+    /// tab's rename in the wrong tab's stored variables. `pruneIfAbandoned`
+    /// has the identical ordering requirement, for the identical reason: its
+    /// own `variables.contains(where:)` lookup would just as silently find
+    /// nothing once `variables` has moved on to the incoming tab.
     func settlePendingEdit() {
-        detailVC?.settleForDismissal()
+        guard let detail = detailVC else { return }
+        detail.settleForDismissal()
+        pruneIfAbandoned(detail.variable)
+    }
+
+    /// Discards `variable` if it is empty in both (trimmed) name and value —
+    /// an abandoned `+` row, or a name that only ever collided (so never
+    /// committed, per `commitNameIfValid`'s collision guard) and was never
+    /// given a value either. Shared by `settlePendingEdit` (the tab-switch
+    /// path, called before `variables` moves on to the incoming tab) and
+    /// `dismissDetail` (back/delete, where `variables` hasn't moved at all).
+    /// A variable with a non-empty value is always kept, even with an empty
+    /// name — the user typed something, and discarding it silently would be
+    /// the same class of mistake the mangled-prefix bug was.
+    private func pruneIfAbandoned(_ variable: QueryVariable) {
+        guard variable.name.isEmpty, variable.value.isEmpty,
+              variables.contains(where: { $0.id == variable.id }) else { return }
+        variables.removeAll { $0.id == variable.id }
+        onChange?(variables)
     }
 
     /// Update only which names the SQL references — called from the debounced
@@ -227,7 +249,7 @@ final class QueryVariablesPanelVC: NSViewController {
         let detail = VariableDetailVC(variable: variable)
         detail.onChange = { [weak self] updated in self?.variableEdited(updated) }
         detail.onDelete = { [weak self] in self?.deleteVariable(id) }
-        detail.onBack = { [weak self] in self?.dismissDetail(animated: true, pruningEmpty: true) }
+        detail.onBack = { [weak self] in self?.dismissDetail(animated: true) }
         addChild(detail)
         detailVC = detail
         refreshDetailState()
@@ -235,22 +257,31 @@ final class QueryVariablesPanelVC: NSViewController {
         push(detail.view)
     }
 
-    /// Return to the list level. `pruningEmpty` discards a variable that is still
-    /// empty in both name and value, so an abandoned `+` leaves no junk row.
+    /// Return to the list level. Discards a variable that is empty in both
+    /// (trimmed) name and value — an abandoned `+` row, or a name that only
+    /// ever collided and so never committed — on EVERY dismissal path now,
+    /// not only back: a colliding draft never commits regardless of how the
+    /// detail level closes, so a variable left with an empty name this way
+    /// is exactly as abandoned whether the user pressed Back or switched
+    /// tabs. (History: this used to only prune when `onBack` passed
+    /// `pruningEmpty: true`, and the tab-switch path passed `false` —
+    /// leaving a variable that was typed toward a colliding name, then
+    /// abandoned by switching tabs, sitting in the list forever as a
+    /// subdued, valueless row. Made uniform instead of threading a flag
+    /// through every caller.)
     ///
     /// Every path here — `onBack` (which already settled via `attemptBack`
     /// before calling this), and every other path that tears the detail
     /// level down without going through it at all (a tab switch is the one
-    /// that actually happened) — must settle the name field before reading
-    /// `detail.variable` below. `settleForDismissal()` is a no-op if
-    /// `attemptBack` already committed; it exists for the other paths, which
-    /// cannot refuse to leave the way `attemptBack` can, so a valid typed
-    /// name commits and a colliding one is simply dropped — there is nowhere
-    /// to send the user back to argue about it. Settling first also means a
-    /// freshly added row that was given a valid name here is no longer empty
-    /// by the time the prune check below reads it, so it is correctly kept
-    /// rather than pruned as abandoned.
-    private func dismissDetail(animated: Bool, pruningEmpty: Bool) {
+    /// that actually happened) — must settle the name field, and prune if
+    /// abandoned, before reading `detail.variable` below.
+    /// `settleForDismissal()`/`pruneIfAbandoned` are no-ops if
+    /// `settlePendingEdit()` already ran for this same variable (the
+    /// tab-switch path calls that first, before `variables` moves on — see
+    /// its own doc comment); they exist here for the paths that don't call
+    /// it (back, delete), where `variables` hasn't moved and the lookups
+    /// still succeed normally.
+    private func dismissDetail(animated: Bool) {
         guard let detail = detailVC else {
             listView.isHidden = false
             listView.frame = contentArea.bounds
@@ -258,15 +289,7 @@ final class QueryVariablesPanelVC: NSViewController {
         }
 
         detail.settleForDismissal()
-
-        let abandoned = detail.variable
-        if pruningEmpty,
-           abandoned.name.isEmpty,
-           abandoned.value.isEmpty,
-           variables.contains(where: { $0.id == abandoned.id }) {
-            variables.removeAll { $0.id == abandoned.id }
-            onChange?(variables)
-        }
+        pruneIfAbandoned(detail.variable)
 
         detail.removeFromParent()
         detailVC = nil
@@ -349,8 +372,9 @@ final class QueryVariablesPanelVC: NSViewController {
         onChange?(variables)
         if detailVC != nil {
             // The detail level was showing this variable; it is already gone
-            // from `variables`, so nothing is left to prune.
-            dismissDetail(animated: true, pruningEmpty: false)
+            // from `variables`, so `dismissDetail`'s own prune check finds
+            // nothing to remove (the id lookup fails) and no-ops.
+            dismissDetail(animated: true)
         } else {
             refreshList()
         }

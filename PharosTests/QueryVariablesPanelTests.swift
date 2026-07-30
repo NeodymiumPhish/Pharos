@@ -771,6 +771,79 @@ private func testPlusRowGivenValidNameSurvivesDismissalNotPruned() {
     expectEqual(vc.variables.first?.name ?? "<missing>", "new_var", "the surviving row has the typed name")
 }
 
+/// Item 3: the prune used to only run on the back path (`pruningEmpty` was
+/// `false` for the tab-switch path), so a colliding draft — which never
+/// commits, per `commitNameIfValid`'s collision guard — left an
+/// empty-name, empty-value row sitting in `variables` forever once the user
+/// switched tabs instead of pressing Back. Reported symptom: type an
+/// existing name, switch tabs, switch back, and the row persists as a
+/// subdued `{{name}}` with "no value."
+///
+/// Exercises `settlePendingEdit()` directly, in the order
+/// `EditorPaneVC.paneStateChanged` actually calls it — before the array
+/// moves on to a different tab — since that ordering is what makes the
+/// prune (like the rename fix before it) land while `variables` still
+/// belongs to the tab it's pruning from.
+private func testColliderRowIsDiscardedOnTabSwitch() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    let existing = QueryVariable(name: "seed", value: "v0", type: .literal)
+    vc.setVariables([existing], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    listView(in: vc).onAdd?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: + did not drill in")
+        return
+    }
+    let newId = detail.variable.id
+
+    let field = nameField(in: detail)
+    field.stringValue = "seed"  // collides with the existing variable; never commits
+    detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectTrue(vc.variables.count == 2, "setup: the new row is present, still unnamed, alongside the existing one")
+
+    vc.settlePendingEdit()
+
+    expectTrue(vc.variables.count == 1, "the colliding, never-committed row is discarded on tab switch")
+    expectTrue(!vc.variables.contains { $0.id == newId }, "specifically, the abandoned row is the one discarded")
+    expectTrue(vc.variables.contains { $0.id == existing.id }, "the pre-existing variable is untouched")
+}
+
+/// The other half of the same rule: a variable with an empty name but a
+/// NON-empty value must survive — the user typed something, and discarding
+/// it silently would be the same class of mistake the mangled-prefix bug
+/// was.
+private func testEmptyNameButNonEmptyValueSurvivesTabSwitch() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    vc.setVariables([], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    listView(in: vc).onAdd?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: + did not drill in")
+        return
+    }
+
+    // A value, but never a name. The value editor applies live (it is not
+    // part of commit-on-settle), so this reaches `vc.variables` immediately.
+    let tv = detailValueTextView(in: detail)
+    tv.string = "some value"
+    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
+    expectEqual(
+        vc.variables.first?.value ?? "<missing>", "some value",
+        "setup: the value committed live")
+
+    vc.settlePendingEdit()
+
+    expectTrue(
+        vc.variables.count == 1,
+        "a variable with an empty name but a non-empty value survives a tab switch")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -792,6 +865,8 @@ func runTests() {
     testTabSwitchMidCollisionTypingDoesNotCommitPrefix()
     testValidRenameSurvivesTabSwitch()
     testPlusRowGivenValidNameSurvivesDismissalNotPruned()
+    testColliderRowIsDiscardedOnTabSwitch()
+    testEmptyNameButNonEmptyValueSurvivesTabSwitch()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
