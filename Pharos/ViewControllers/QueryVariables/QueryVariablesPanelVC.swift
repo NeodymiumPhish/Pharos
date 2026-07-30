@@ -58,11 +58,30 @@ final class QueryVariablesPanelVC: NSViewController {
 
     /// Push the detail level's state, resolved against the whole list so that
     /// both of its signals — the red failure and the duplicate-name note — agree
-    /// with what the list says about the same row.
+    /// with what the list says about the same row. Also refreshes the
+    /// comparison set the detail level checks a typed name against, since the
+    /// detail VC cannot see its own siblings and the list can change
+    /// underneath it (add / delete / another edit) while it is showing.
     private func refreshDetailState() {
         guard let detail = detailVC else { return }
+        detail.otherNames = otherNames(excluding: detail.variable.id)
         let states = VariableSubstitutor.rowStates(in: variables, referenced: referenced)
         detail.setState(states[detail.variable.id])
+    }
+
+    /// Trimmed, non-empty names of every variable except `id` — the set a
+    /// typed name in the detail level is checked against. Names that trim to
+    /// empty are excluded here (not left to the detail level to filter out):
+    /// an empty name can never collide with anything, including another
+    /// empty name, since two freshly added rows are not duplicates of each
+    /// other.
+    private func otherNames(excluding id: UUID) -> Set<String> {
+        Set(
+            variables
+                .filter { $0.id != id }
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 
     // MARK: - View

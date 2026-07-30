@@ -362,7 +362,11 @@ private func testGutterAndScrollViewLayout() {
 }
 
 /// The duplication note must collapse (contribute no height) when absent,
-/// and show the state-specific copy for `.shadowed` / `.overriding`.
+/// show the state-specific copy for `.shadowed`, and render nothing at all
+/// for `.overriding` — deleted because the new name-collision refusal (see
+/// `testCollidingNameNeverReachesModelOrFiresOnChange` etc. below) makes it
+/// unreachable for anything the user can type; only a duplicate pair loaded
+/// from a saved query that predates that rule can still produce `.shadowed`.
 private func testDuplicationNoteCollapsesWhenAbsent() {
     let (_, _, vcNone) = makeHostedDetail(width: 300, variable: shortValueVariable())
     // The label starts hidden by construction (before any `setState` call at
@@ -394,11 +398,9 @@ private func testDuplicationNoteCollapsesWhenAbsent() {
     let (_, _, vcOverriding) = makeHostedDetail(width: 300, variable: shortValueVariable())
     vcOverriding.setState(.init(duplication: .overriding, problem: nil))
     vcOverriding.view.layoutSubtreeIfNeeded()
-    expectTrue(!duplicationLabel(in: vcOverriding).isHidden, "duplication label shown for .overriding")
-    expectEqual(
-        duplicationLabel(in: vcOverriding).stringValue,
-        "Also defined above — this definition wins.",
-        ".overriding shows the overriding copy")
+    expectTrue(
+        duplicationLabel(in: vcOverriding).isHidden,
+        ".overriding renders no note at all (deleted — unreachable via typing; only .shadowed still shows)")
 
     // With the total body height fixed by the outer constraints, a note that
     // truly collapses (rather than merely going blank while still reserving
@@ -432,7 +434,7 @@ private func testSetStateRendersSignalsIndependently() {
         "duplication-only: duplication note shown")
 
     let (_, _, vcBoth) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcBoth.setState(.init(duplication: .overriding, problem: .emptyLiteral))
+    vcBoth.setState(.init(duplication: .shadowed, problem: .emptyLiteral))
     expectTrue(
         nameField(in: vcBoth).textColor == .systemRed,
         "both: name field reddens")
@@ -700,6 +702,161 @@ private func testChoiceControlFitsAvailableWidth() {
             + "editor width (\(availableWidth)pt) at the panel's 180pt minimum")
 }
 
+// MARK: - Name collision refusal (defect 2)
+
+/// A typed name that collides (exact, trimmed, case-sensitive) with another
+/// row's name is refused: never written to `variable.name`, and `onChange`
+/// never fires for it.
+private func testCollidingNameNeverReachesModelOrFiresOnChange() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    var changeCount = 0
+    vc.onChange = { _ in changeCount += 1 }
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(vc.variable.name, "original", "colliding name is not written to variable.name")
+    expectTrue(changeCount == 0, "colliding name fires no onChange (got \(changeCount))")
+}
+
+/// The collision surfaces as red inline text in the slot the old duplication
+/// note used, and reddens the name field — which itself keeps showing
+/// exactly what was typed, since the refusal must not fight the user's
+/// typing.
+private func testCollidingNameShowsInlineErrorAndRedTint() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(field.stringValue, "ip", "the field keeps showing exactly what was typed")
+    expectTrue(field.textColor == .systemRed, "the name field is tinted red")
+    expectTrue(!duplicationLabel(in: vc).isHidden, "the inline error is shown")
+    expectEqual(
+        duplicationLabel(in: vc).stringValue, "A variable named \"ip\" already exists.",
+        "the inline error names the colliding value")
+    expectTrue(duplicationLabel(in: vc).textColor == .systemRed, "the inline error is red")
+}
+
+/// A unique (non-colliding) name is accepted normally: written to the model,
+/// with `onChange` firing for it, and any prior collision UI clearing.
+private func testUniqueNameAcceptedNormally() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    var lastValue: String?
+    vc.onChange = { lastValue = $0.name }
+
+    let field = nameField(in: vc)
+    field.stringValue = "hostname"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(vc.variable.name, "hostname", "a unique name is written to variable.name")
+    expectEqual(lastValue ?? "<no onChange fired>", "hostname", "onChange fires with the unique name")
+    expectTrue(field.textColor == .systemIndigo, "the name field returns to its normal colour")
+    expectTrue(duplicationLabel(in: vc).isHidden, "the inline error is hidden once the name is unique")
+}
+
+/// Navigating back with a colliding field reverts the displayed text to the
+/// variable's actual (last valid) name — no silent acceptance — while still
+/// navigating away: no trapping the user on the screen.
+private func testBackRevertsCollidingField() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectEqual(vc.variable.name, "original", "setup: colliding name not committed")
+
+    var backFired = false
+    vc.onBack = { backFired = true }
+    triggerAction(of: backButton(in: vc))
+
+    expectEqual(field.stringValue, "original", "back reverts the field to the variable's actual name")
+    expectTrue(backFired, "back still navigates away rather than trapping the user on the screen")
+}
+
+/// An empty (trimmed) name never collides with anything, including another
+/// empty name — two freshly added rows are not duplicates of each other.
+private func testEmptyNameNeverCollides() {
+    let variable = QueryVariable(name: "", value: "", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    // Deliberately includes "" — the panel is documented to exclude empty
+    // names from what it supplies, but the VC's own check must not depend on
+    // that: an empty typed name must never collide even if `otherNames`
+    // somehow contained one (e.g. another freshly added, still-empty row).
+    vc.otherNames = [""]
+
+    var changeCount = 0
+    vc.onChange = { _ in changeCount += 1 }
+
+    let field = nameField(in: vc)
+    field.stringValue = ""
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(vc.variable.name, "", "empty name is accepted, not refused, even against another empty name")
+    expectTrue(changeCount == 1, "empty name still fires onChange normally (got \(changeCount))")
+    expectTrue(duplicationLabel(in: vc).isHidden, "no collision note for an empty name")
+}
+
+/// Matching is case-sensitive: `{{IP}}` and `{{ip}}` are different tokens to
+/// `render`, so they must not collide here either.
+private func testCaseDifferenceDoesNotCollide() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    var changeCount = 0
+    vc.onChange = { _ in changeCount += 1 }
+
+    let field = nameField(in: vc)
+    field.stringValue = "IP"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(vc.variable.name, "IP", "a case-different name is accepted, not treated as a collision")
+    expectTrue(changeCount == 1, "onChange fires for the accepted case-different name (got \(changeCount))")
+}
+
+/// The layout-shift bug the note exposed: the editor's frame must move in
+/// the same call that shows the inline message, not on some later pass that
+/// happens to be triggered by something else (in practice, the user's next
+/// keystroke) — pinned by NOT forcing a layout pass here ourselves.
+private func testInlineMessageShiftsEditorInSameLayoutPass() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let editorFrameBefore = editorContainer(in: vc).frame
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    // No explicit layoutSubtreeIfNeeded() call here: the fix must force its
+    // own relayout as part of showing the message, not rely on this test (or
+    // anything else) to trigger a follow-up pass.
+    let editorFrameAfter = editorContainer(in: vc).frame
+
+    // The stack keeps the editor's *bottom* edge anchored (captionLabel and
+    // valueChoiceContainer sit below it) and shrinks its *height* to make
+    // room for the note appearing above — so the frame that actually moves
+    // is its top edge / height, not `minY`. Comparing the whole rect catches
+    // that shift regardless of which edge the stack happens to move.
+    expectTrue(
+        editorFrameAfter != editorFrameBefore,
+        "editor container's frame moves in the same pass the inline message appears "
+            + "(before: \(editorFrameBefore), after: \(editorFrameAfter))")
+}
+
 // MARK: - Gutter line-number alignment (defect 3)
 
 /// Ground truth for where line `line`'s text actually renders, in the
@@ -799,6 +956,14 @@ func runTests() {
     testSwitchingTypeSwapsControlsAndPreservesValue()
     testAllTypesLayoutUnambiguous()
     testChoiceControlFitsAvailableWidth()
+
+    testCollidingNameNeverReachesModelOrFiresOnChange()
+    testCollidingNameShowsInlineErrorAndRedTint()
+    testUniqueNameAcceptedNormally()
+    testBackRevertsCollidingField()
+    testEmptyNameNeverCollides()
+    testCaseDifferenceDoesNotCollide()
+    testInlineMessageShiftsEditorInSameLayoutPass()
 
     testGutterLineNumberAlignsWithTextLine()
 

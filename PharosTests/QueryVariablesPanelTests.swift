@@ -485,6 +485,37 @@ private func testContentAreaClipsAndFinalFramesUnchanged() {
         "list view fills contentArea's bounds again after back (non-animated)")
 }
 
+/// Defect 2, end to end through the real panel: the detail level cannot see
+/// its own siblings, so the panel must supply the comparison set on drill-in
+/// — excluding this row's own name and any empty-named rows — and a typed
+/// rename that collides with a sibling must never reach `vc.variables`.
+private func testPanelSuppliesOtherNamesAndRefusesCollidingRename() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    var vars = makeVariables(3)  // var0, var1, var2
+    vars.append(QueryVariable(name: "", value: "", type: .literal))  // an empty-named row
+    vc.setVariables(vars, referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    rowViews(in: listView(in: vc))[1].onClick?()  // drill into var1
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after drilling in")
+        return
+    }
+
+    expectTrue(
+        detail.otherNames == ["var0", "var2"],
+        "panel supplies siblings' names, excluding this row's own name and the empty-named row "
+            + "(got \(detail.otherNames))")
+
+    let field = nameField(in: detail)
+    field.stringValue = "var0"
+    detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    expectEqual(vc.variables[1].name, "var1", "a rename colliding with a sibling never reaches vc.variables")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -500,6 +531,7 @@ func runTests() {
     testPlusAppendsFiresOnChangeAndDrillsIn()
     testDeleteViaListContextMenuLeavesListShowing()
     testContentAreaClipsAndFinalFramesUnchanged()
+    testPanelSuppliesOtherNamesAndRefusesCollidingRename()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

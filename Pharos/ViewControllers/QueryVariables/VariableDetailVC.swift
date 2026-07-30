@@ -289,6 +289,26 @@ final class VariableDetailVC: NSViewController {
         )
     }
 
+    /// Sibling variables' trimmed, non-empty names (this variable's own name
+    /// excluded) — supplied by the panel, since this VC cannot see its own
+    /// siblings. Read only from `controlTextDidChange` to decide whether a
+    /// typed name may be committed; refreshed by the panel whenever the list
+    /// changes underneath (see `QueryVariablesPanelVC.refreshDetailState`).
+    var otherNames: Set<String> = []
+
+    /// Whether `nameField`'s current *displayed* text collides with
+    /// `otherNames` right now. Live and ephemeral — set the moment a typed
+    /// name collides, cleared the moment it doesn't — and independent of
+    /// `lastRowState.duplication`, which reflects only the committed model
+    /// and can still be `.shadowed` for a duplicate pair loaded from a saved
+    /// query that predates this refusal rule.
+    private var isNameCollision = false
+
+    /// The state `setState` was last given, cached so `updateDuplicationDisplay`
+    /// can fall back to it (the `.shadowed` legacy note) once a live
+    /// collision clears.
+    private var lastRowState: VariableSubstitutor.RowState?
+
     // MARK: - API
 
     /// Move focus to the name field — used right after `+` creates a variable.
@@ -296,35 +316,24 @@ final class VariableDetailVC: NSViewController {
         view.window?.makeFirstResponder(nameField)
     }
 
-    /// Apply the state the panel resolved for this variable. Both signals appear
-    /// here because both are consequences of the name, and the name is edited on
-    /// this screen: red for a value that cannot render, and a duplication note
-    /// that tells you which of two same-named rows the query actually uses.
+    /// Apply the state the panel resolved for this variable: red for a value
+    /// that cannot render, and (for legacy duplicate data only — see
+    /// `updateDuplicationDisplay`) a note about an inert `.shadowed` row.
     ///
-    /// The note appears as you type, so a duplicate is caught when it is created
-    /// rather than discovered later. It comes from the same `rowStates` pass the
-    /// list uses, so the two levels cannot contradict each other.
+    /// It comes from the same `rowStates` pass the list uses, so the two
+    /// levels cannot contradict each other.
     func setState(_ state: VariableSubstitutor.RowState?) {
-        let problem = state?.problem
-        nameField.textColor = problem == nil ? .systemIndigo : .systemRed
-        nameField.toolTip = problem?.message
-
-        switch state?.duplication {
-        case .shadowed:
-            duplicationLabel.stringValue = "Redefined below — this row has no effect."
-            duplicationLabel.isHidden = false
-        case .overriding:
-            duplicationLabel.stringValue = "Also defined above — this definition wins."
-            duplicationLabel.isHidden = false
-        case nil:
-            duplicationLabel.stringValue = ""
-            duplicationLabel.isHidden = true
-        }
+        lastRowState = state
+        updateNameFieldColor()
+        updateDuplicationDisplay()
     }
 
     // MARK: - Actions
 
-    @objc private func backTapped() { onBack?() }
+    @objc private func backTapped() {
+        revertNameFieldIfColliding()
+        onBack?()
+    }
     @objc private func deleteTapped() { onDelete?() }
 
     @objc private func typeChanged() {
@@ -344,7 +353,82 @@ final class VariableDetailVC: NSViewController {
     }
 
     /// Escape with neither text control focused (e.g. straight after the slide).
-    override func cancelOperation(_ sender: Any?) { onBack?() }
+    override func cancelOperation(_ sender: Any?) {
+        revertNameFieldIfColliding()
+        onBack?()
+    }
+
+    // MARK: - Name collision refusal
+
+    /// Tints the name field red for either signal that can cause it — a live
+    /// typed collision takes priority since it means an edit is actively
+    /// being refused right now; otherwise falls back to the committed
+    /// `problem` `setState` reported — and reverts to the normal indigo when
+    /// neither applies.
+    private func updateNameFieldColor() {
+        if isNameCollision {
+            nameField.textColor = .systemRed
+            nameField.toolTip = "A variable named \(collidingName.debugDescription) already exists."
+        } else {
+            let problem = lastRowState?.problem
+            nameField.textColor = problem == nil ? .systemIndigo : .systemRed
+            nameField.toolTip = problem?.message
+        }
+    }
+
+    /// The trimmed text currently in the name field — used to name the
+    /// variable in the collision message.
+    private var collidingName: String {
+        nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Renders `duplicationLabel`'s content. A live typed collision takes
+    /// priority over the committed `.shadowed` note — it is more urgent, since
+    /// it is blocking an edit right now, whereas `.shadowed` merely describes
+    /// an already-saved row that has always been inert. `.overriding` no
+    /// longer renders anything at all: the only way to type your way into
+    /// becoming the "winning" half of a duplicate is now refused before it
+    /// ever reaches the model, so the note that used to call that out is
+    /// unreachable for anything the user can create here — only a duplicate
+    /// pair loaded from a saved query that predates this rule can still
+    /// surface `.shadowed`.
+    ///
+    /// Forces an immediate relayout after changing `duplicationLabel.isHidden`
+    /// rather than leaving `body`'s stack to catch up on some later, unrelated
+    /// pass: that lag is exactly what let the value editor (and its cursor)
+    /// sit in the wrong place until the user's next keystroke happened to
+    /// trigger layout.
+    private func updateDuplicationDisplay() {
+        if isNameCollision {
+            duplicationLabel.stringValue = "A variable named \(collidingName.debugDescription) already exists."
+            duplicationLabel.textColor = .systemRed
+            duplicationLabel.isHidden = false
+        } else if lastRowState?.duplication == .shadowed {
+            duplicationLabel.stringValue = "Redefined below — this row has no effect."
+            duplicationLabel.textColor = .secondaryLabelColor
+            duplicationLabel.isHidden = false
+        } else {
+            duplicationLabel.stringValue = ""
+            duplicationLabel.isHidden = true
+        }
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+    }
+
+    /// Called on every path back to the list level. A colliding name was
+    /// never written to the model (`controlTextDidChange` refused it), so
+    /// this only needs to fix up what the field is *displaying* — restore the
+    /// variable's actual, last-valid name — rather than undo anything on
+    /// `variable` itself. Never blocks navigation: the whole point of the
+    /// refusal is that the user is not trapped on this screen by an
+    /// unresolved collision.
+    private func revertNameFieldIfColliding() {
+        guard isNameCollision else { return }
+        isNameCollision = false
+        nameField.stringValue = variable.name
+        updateNameFieldColor()
+        updateDuplicationDisplay()
+    }
 
     // MARK: - Value control switching
 
@@ -397,16 +481,41 @@ final class VariableDetailVC: NSViewController {
 }
 
 extension VariableDetailVC: NSTextFieldDelegate {
+    /// While the trimmed typed name exactly (case-sensitively) matches
+    /// another variable's trimmed name, the edit is refused outright: it is
+    /// never written to `variable.name`, and `onChange` never fires for it.
+    /// The field itself is left showing exactly what was typed — the point is
+    /// to stop a duplicate from ever reaching the model, not to fight the
+    /// user's typing — with the collision explained inline instead (see
+    /// `updateDuplicationDisplay`). An empty trimmed name never collides,
+    /// including with another empty name: two freshly added rows are not
+    /// duplicates of each other.
     func controlTextDidChange(_ obj: Notification) {
-        variable.name = nameField.stringValue
+        let typed = nameField.stringValue
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard trimmed.isEmpty || !otherNames.contains(trimmed) else {
+            isNameCollision = true
+            updateNameFieldColor()
+            updateDuplicationDisplay()
+            return
+        }
+
+        isNameCollision = false
+        variable.name = typed
+        updateNameFieldColor()
+        updateDuplicationDisplay()
         onChange?(variable)
     }
 
-    /// Escape while the name field has focus returns to the list.
+    /// Escape while the name field has focus returns to the list, after
+    /// reverting any uncommitted colliding text (see
+    /// `revertNameFieldIfColliding`).
     func control(
         _ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector
     ) -> Bool {
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        revertNameFieldIfColliding()
         onBack?()
         return true
     }
