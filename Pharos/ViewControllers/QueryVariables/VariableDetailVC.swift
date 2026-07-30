@@ -56,17 +56,32 @@ final class VariableDetailVC: NSViewController {
     /// `editorContainer` does, unambiguously, and the control sits inside it
     /// at its natural size, positioned by ordinary constraints.
     private let valueChoiceContainer = NSView()
-    /// Duplicate-name note, hidden unless this variable shares its name with
-    /// another row. Sits directly under the header so it reads as a comment on
-    /// the name field above it.
+    /// Legacy duplicate-name note, hidden unless this variable is `.shadowed`
+    /// by a same-named row from a saved query that predates the collision
+    /// refusal below. Sits directly under the header. The live, typeable
+    /// collision case used to render here too; it now lives in the value
+    /// area instead (`collisionNoticeContainer`) — see `updateDuplicationDisplay`.
     private let duplicationLabel = NSTextField(labelWithString: "")
     private let editorContainer = EditorBackgroundView()
     /// `NSTextView` has no native placeholder, unlike `nameField`'s
     /// `placeholderString` above — the old, single-line value field had one
     /// ("value"), and the spec calls for keeping it, so this stands in:
     /// shown only while the value editor is empty, positioned to align with
-    /// where typed text would actually start (see `viewDidLayout`).
+    /// where typed text would actually start (see `layoutEditorArea`).
     private let valuePlaceholderLabel = NSTextField(labelWithString: "value")
+    /// The value area's third state, alongside the free-text editor and the
+    /// Bool choice control: while the name field collides, this replaces
+    /// whichever of those two would otherwise show, in the same slot, so
+    /// `body`'s height doesn't change between states. Multi-line, since the
+    /// message can wrap at the panel's narrower widths. See
+    /// `applyValueControlVisibility` for why collision wins outright over
+    /// the type.
+    private let collisionNoticeLabel = NSTextField(labelWithString: "")
+    /// Plain, size-less wrapper — the same trick `editorContainer` /
+    /// `valueChoiceContainer` already use — so `collisionNoticeLabel` can
+    /// stretch to fill the leftover space in `body` exactly as they do,
+    /// unambiguously, without carrying an intrinsic size of its own.
+    private let collisionNoticeContainer = NSView()
     private var gutter: LineNumberGutter?
 
     init(variable: QueryVariable) {
@@ -241,18 +256,35 @@ final class VariableDetailVC: NSViewController {
         duplicationLabel.maximumNumberOfLines = 2
         duplicationLabel.isHidden = true
 
+        collisionNoticeLabel.font = .systemFont(ofSize: 11)
+        collisionNoticeLabel.textColor = .systemRed
+        collisionNoticeLabel.lineBreakMode = .byWordWrapping
+        collisionNoticeLabel.maximumNumberOfLines = 0
+        collisionNoticeLabel.translatesAutoresizingMaskIntoConstraints = false
+        collisionNoticeContainer.translatesAutoresizingMaskIntoConstraints = false
+        collisionNoticeContainer.addSubview(collisionNoticeLabel)
+        NSLayoutConstraint.activate([
+            collisionNoticeLabel.leadingAnchor.constraint(equalTo: collisionNoticeContainer.leadingAnchor),
+            collisionNoticeLabel.trailingAnchor.constraint(equalTo: collisionNoticeContainer.trailingAnchor),
+            collisionNoticeLabel.topAnchor.constraint(equalTo: collisionNoticeContainer.topAnchor),
+            collisionNoticeLabel.bottomAnchor.constraint(lessThanOrEqualTo: collisionNoticeContainer.bottomAnchor),
+        ])
+
         // A vertical stack rather than pinned constraints, because the
         // duplication note is usually absent and a stack collapses hidden
         // arranged subviews instead of leaving a gap where it would have been.
         // `editorContainer` hugs loosely so it absorbs the remaining height.
-        // `valueChoiceContainer` sits last, after `captionLabel`: it and
-        // `editorContainer`/`captionLabel` are never visible at the same
-        // time (see `applyValueControlVisibility`), so its position doesn't
-        // create any visual overlap, and appending it here leaves the
+        // `valueChoiceContainer` and `collisionNoticeContainer` sit last,
+        // after `captionLabel`: none of `editorContainer`/`captionLabel`,
+        // `valueChoiceContainer`, and `collisionNoticeContainer` is ever
+        // visible at the same time as either of the other two (see
+        // `applyValueControlVisibility`), so appending both here leaves the
         // existing three arranged-subview indices the test harness already
         // relies on (`duplicationLabel`@0, `editorContainer`@1,
         // `captionLabel`@2) untouched.
-        let body = NSStackView(views: [duplicationLabel, editorContainer, captionLabel, valueChoiceContainer])
+        let body = NSStackView(views: [
+            duplicationLabel, editorContainer, captionLabel, valueChoiceContainer, collisionNoticeContainer,
+        ])
         body.orientation = .vertical
         body.alignment = .width
         body.spacing = 5
@@ -262,6 +294,7 @@ final class VariableDetailVC: NSViewController {
         // the leftover height unambiguously when it's the only visible
         // arranged subview (the Bool case, absent a duplication note).
         valueChoiceContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
+        collisionNoticeContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
 
         // Measured directly: switching types hides whichever of
         // `editorContainer` / `valueChoiceContainer` isn't current, and a
@@ -275,8 +308,12 @@ final class VariableDetailVC: NSViewController {
         // zero-size fallback on both gives the hidden one something
         // determinate to resolve to instead of nothing, which resolves it —
         // confirmed by removing either pair below and watching the
-        // corresponding "no ambiguous layout" assertion fail.
-        for view in [editorContainer, valueChoiceContainer] {
+        // corresponding "no ambiguous layout" assertion fail. Extended to
+        // `collisionNoticeContainer` for the same reason, on the same
+        // measured basis: it is exactly this shape (a hidden, size-less view
+        // beside a sibling absorbing the leftover space) whenever the name
+        // isn't currently colliding.
+        for view in [editorContainer, valueChoiceContainer, collisionNoticeContainer] {
             let fallbackWidth = view.widthAnchor.constraint(equalToConstant: 0)
             let fallbackHeight = view.heightAnchor.constraint(equalToConstant: 0)
             fallbackWidth.priority = NSLayoutConstraint.Priority(rawValue: 1)
@@ -303,11 +340,40 @@ final class VariableDetailVC: NSViewController {
             body.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
 
-        applyValueControlVisibility()
+        // Not a bare `applyValueControlVisibility()`: this is the point that
+        // catches a variable whose COMMITTED name already collides (see
+        // `recomputeCollisionState`'s doc comment) — `nameField.stringValue`
+        // was just set to `variable.name` above, and the panel has already
+        // supplied `otherNames` by now (`drillIn` sets it before `.view` is
+        // ever accessed, which is what triggers this method to run at all).
+        recomputeCollisionState()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        layoutEditorArea()
+    }
+
+    /// Positions `gutter`, `scrollView`, and `valuePlaceholderLabel` — all
+    /// frame-positioned, not Auto Layout constrained, inside `editorContainer`
+    /// — against its CURRENT bounds.
+    ///
+    /// Called from `viewDidLayout` for the normal AppKit-driven layout pass,
+    /// and directly (via `relayoutImmediately`) after any programmatic change
+    /// that can alter `body`'s height. That second call site is the one that
+    /// matters: `view.layoutSubtreeIfNeeded()` resolves Auto Layout, so
+    /// `editorContainer`'s own frame is correct immediately after it returns
+    /// — but it does NOT re-invoke `viewDidLayout()`, so without calling this
+    /// again explicitly, `gutter`/`scrollView`/`valuePlaceholderLabel` would
+    /// keep frames sized for `editorContainer`'s PREVIOUS bounds until
+    /// whatever happens to trigger AppKit's next natural layout pass — in
+    /// practice, the user's next keystroke. That gap is exactly the reported
+    /// bug: the insertion point drawing above the editor's actual top edge,
+    /// with the line number only snapping into place once you type. Fixed
+    /// generally, not just for the one path (the collision notice) that
+    /// happened to surface it first — the Bool/text control swap changes
+    /// `body`'s height too, and so would anything added later.
+    private func layoutEditorArea() {
         // 1 pt inset keeps the gutter and text inside the container's border.
         let bounds = editorContainer.bounds
         let gutterWidth = gutter?.desiredWidth ?? 0
@@ -331,19 +397,70 @@ final class VariableDetailVC: NSViewController {
         )
     }
 
+    /// Forces `body`'s Auto Layout to resolve immediately, then re-positions
+    /// `editorContainer`'s frame-positioned children against the freshly
+    /// resolved bounds in the SAME pass — see `layoutEditorArea`'s doc
+    /// comment for why the second step doesn't happen on its own. Call this,
+    /// not a bare `view.layoutSubtreeIfNeeded()`, after any programmatic
+    /// change that can alter `body`'s height.
+    private func relayoutImmediately() {
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        layoutEditorArea()
+    }
+
     /// Shown only while the value editor is empty — never at the same time
-    /// as real content, and never while `variable.type == .bool` (the
-    /// choice control has no notion of "empty" the way free text does).
+    /// as real content, never while `variable.type == .bool` (the choice
+    /// control has no notion of "empty" the way free text does), and never
+    /// while the name collides (the editor itself is hidden then, replaced
+    /// by the collision notice).
     private func updateValuePlaceholderVisibility() {
-        valuePlaceholderLabel.isHidden = variable.type == .bool || !valueTextView.string.isEmpty
+        valuePlaceholderLabel.isHidden = isNameCollision || variable.type == .bool || !valueTextView.string.isEmpty
+    }
+
+    /// Recomputes the live collision signal from the name field's CURRENT
+    /// displayed text against `otherNames`, and updates everything that
+    /// depends on it (the field's tint, and the value area's three-way
+    /// state). Called on every keystroke (`controlTextDidChange`), from
+    /// `otherNames`'s own `didSet` once the view has loaded, and once from
+    /// the end of `loadView` — that last call is what makes a variable whose
+    /// COMMITTED name already collides (a duplicate pair loaded from a saved
+    /// query that predates this refusal rule) show the collision notice the
+    /// moment you drill in, rather than only after the next keystroke: at
+    /// that point `nameField.stringValue` has just been set to
+    /// `variable.name`, and the panel has already supplied `otherNames`
+    /// (`QueryVariablesPanelVC.drillIn` sets it before `.view` is ever
+    /// accessed), so this is the first point where checking the two against
+    /// each other is meaningful.
+    private func recomputeCollisionState() {
+        let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        isNameCollision = !trimmed.isEmpty && otherNames.contains(trimmed)
+        updateNameFieldColor()
+        applyValueControlVisibility()
     }
 
     /// Sibling variables' trimmed, non-empty names (this variable's own name
     /// excluded) — supplied by the panel, since this VC cannot see its own
-    /// siblings. Read only from `controlTextDidChange` to decide whether a
-    /// typed name may be committed; refreshed by the panel whenever the list
-    /// changes underneath (see `QueryVariablesPanelVC.refreshDetailState`).
-    var otherNames: Set<String> = []
+    /// siblings; refreshed by the panel whenever the list changes underneath
+    /// (see `QueryVariablesPanelVC.refreshDetailState`).
+    ///
+    /// Recomputes the collision signal on every set — not just from
+    /// `controlTextDidChange` — guarded by `isViewLoaded` because the panel
+    /// sets this *before* the view is ever created (`drillIn` sets it via
+    /// `refreshDetailState` before first touching `.view`), at which point
+    /// `nameField` exists as an object but hasn't been populated with
+    /// `variable.name` yet. That initial case is handled separately, at the
+    /// end of `loadView`, once the field's text is actually set — see
+    /// `recomputeCollisionState`'s own doc for why it matters: a duplicate
+    /// pair loaded from a saved query that predates this refusal rule has a
+    /// COMMITTED name that already collides, and must show the collision
+    /// notice the moment you drill in, not only after the next keystroke.
+    var otherNames: Set<String> = [] {
+        didSet {
+            guard isViewLoaded else { return }
+            recomputeCollisionState()
+        }
+    }
 
     /// Whether `nameField`'s current *displayed* text collides with
     /// `otherNames` right now. Live and ephemeral — set the moment a typed
@@ -438,28 +555,31 @@ final class VariableDetailVC: NSViewController {
         "A variable named \(name.debugDescription) already exists. Choose a different name."
     }
 
-    /// Renders `duplicationLabel`'s content. A live typed collision takes
-    /// priority over the committed `.shadowed` note — it is more urgent, since
-    /// it is blocking an edit right now, whereas `.shadowed` merely describes
-    /// an already-saved row that has always been inert. `.overriding` no
-    /// longer renders anything at all: the only way to type your way into
-    /// becoming the "winning" half of a duplicate is now refused before it
-    /// ever reaches the model, so the note that used to call that out is
-    /// unreachable for anything the user can create here — only a duplicate
-    /// pair loaded from a saved query that predates this rule can still
-    /// surface `.shadowed`.
+    /// Renders `duplicationLabel`'s content — now only ever the committed
+    /// `.shadowed` note for legacy duplicate data (an already-saved row that
+    /// has always been inert). `.overriding` renders nothing at all: the
+    /// only way to type your way into becoming the "winning" half of a
+    /// duplicate is refused before it ever reaches the model, so the note
+    /// that used to call that out is unreachable for anything the user can
+    /// create here — only a duplicate pair loaded from a saved query that
+    /// predates this rule can still surface `.shadowed`.
+    ///
+    /// A live typed collision used to render here too, taking priority over
+    /// `.shadowed`. It doesn't anymore: it now replaces the value area
+    /// entirely instead (see `applyValueControlVisibility`), because
+    /// reporting it in TWO places at once — this header-level note AND the
+    /// value area — was itself what caused the layout-shift bug this note's
+    /// forced relayout exists to prevent: two independent height changes for
+    /// what was really one state change.
     ///
     /// Forces an immediate relayout after changing `duplicationLabel.isHidden`
     /// rather than leaving `body`'s stack to catch up on some later, unrelated
     /// pass: that lag is exactly what let the value editor (and its cursor)
     /// sit in the wrong place until the user's next keystroke happened to
-    /// trigger layout.
+    /// trigger layout. `relayoutImmediately` fixes that lag generally now,
+    /// not just for this one caller.
     private func updateDuplicationDisplay() {
-        if isNameCollision {
-            duplicationLabel.stringValue = Self.collisionMessage(for: collidingName)
-            duplicationLabel.textColor = .systemRed
-            duplicationLabel.isHidden = false
-        } else if lastRowState?.duplication == .shadowed {
+        if lastRowState?.duplication == .shadowed {
             duplicationLabel.stringValue = "Redefined below — this row has no effect."
             duplicationLabel.textColor = .secondaryLabelColor
             duplicationLabel.isHidden = false
@@ -467,8 +587,7 @@ final class VariableDetailVC: NSViewController {
             duplicationLabel.stringValue = ""
             duplicationLabel.isHidden = true
         }
-        view.needsLayout = true
-        view.layoutSubtreeIfNeeded()
+        relayoutImmediately()
     }
 
     /// The single entry point for every path off this screen: the back
@@ -604,24 +723,46 @@ final class VariableDetailVC: NSViewController {
         return VariableSubstitutor.BoolChoice.allCases.firstIndex(of: choice)
     }
 
-    /// Shows the value editor that matches `variable.type` — the free-text
-    /// editor for everything else, the True/False/NULL choice for `.bool` —
-    /// and hides the other. `body` is a stack, so hiding either side
-    /// collapses it rather than leaving a gap (same mechanism the
-    /// duplication note already relies on).
+    /// Shows exactly one of the value area's three states and hides the
+    /// other two: the collision notice, the free-text editor (plus caption)
+    /// for non-Bool, or the True/False/NULL choice for `.bool`. `body` is a
+    /// stack, so hiding any of them collapses it rather than leaving a gap
+    /// (same mechanism the duplication note already relies on).
     ///
-    /// Also keeps whichever control is *becoming* hidden's content in sync
-    /// with `variable.value` before it goes: switching type never clears or
-    /// otherwise mutates the value (`"true"` is a perfectly good `Literal`),
-    /// but each control only actively tracks `variable.value` while it is the
-    /// one visible, so the other one needs a one-time refresh on the way in.
+    /// Collision wins outright over the type: while the name field's
+    /// displayed text collides with another variable's name, this variable
+    /// cannot be saved at all, so there is nothing useful to show or edit
+    /// about its value regardless of whether it's Bool or not — see the
+    /// user's own framing, quoted in the commit that added this: block
+    /// input into the *value*, not the name (`nameField` stays fully
+    /// editable throughout; only the value area changes).
+    ///
+    /// Also keeps whichever of the editor/choice control is *becoming*
+    /// hidden in sync with `variable.value` before it goes: switching type,
+    /// or the name starting or stopping colliding, never clears or otherwise
+    /// mutates the value (`"true"` is a perfectly good `Literal`), but each
+    /// control only actively tracks `variable.value` while it is the one
+    /// visible, so it needs a one-time refresh on the way back in.
+    ///
+    /// Ends with `relayoutImmediately()`, not a bare `view.needsLayout`/
+    /// `layoutSubtreeIfNeeded()`: any of the three states can be a different
+    /// height than any other, so every call site that can change which one
+    /// is showing (a keystroke in the name field, a type change) needs the
+    /// same immediate re-layout of `editorContainer`'s frame-positioned
+    /// children that `updateDuplicationDisplay` needs — see
+    /// `layoutEditorArea`'s doc comment for why that second step doesn't
+    /// happen on its own.
     private func applyValueControlVisibility() {
         let isBool = variable.type == .bool
-        editorContainer.isHidden = isBool
-        captionLabel.isHidden = isBool
-        valueChoiceContainer.isHidden = !isBool
 
-        if isBool {
+        editorContainer.isHidden = isNameCollision || isBool
+        captionLabel.isHidden = isNameCollision || isBool
+        valueChoiceContainer.isHidden = isNameCollision || !isBool
+        collisionNoticeContainer.isHidden = !isNameCollision
+
+        if isNameCollision {
+            collisionNoticeLabel.stringValue = Self.collisionMessage(for: collidingName)
+        } else if isBool {
             if let index = Self.boolSegmentIndex(for: variable.value) {
                 valueChoiceControl.selectedSegment = index
             } else {
@@ -632,15 +773,20 @@ final class VariableDetailVC: NSViewController {
             captionLabel.stringValue = VariableValuePreview.caption(for: variable.value)
         }
         updateValuePlaceholderVisibility()
+        relayoutImmediately()
     }
 }
 
 extension VariableDetailVC: NSTextFieldDelegate {
-    /// Updates the live collision signal — red tint, inline message — on
-    /// every keystroke. Deliberately does NOT write to `variable.name` or
+    /// Updates the live collision signal on every keystroke via
+    /// `recomputeCollisionState()`: the name field's red tint, and (via
+    /// `applyValueControlVisibility`) the value area swapping to the
+    /// collision notice. Deliberately does NOT write to `variable.name` or
     /// fire `onChange` here, unlike every other control in this view: see
     /// `commitNameIfValid` for why the name field alone defers its actual
-    /// commit to a handful of settle points instead of applying live.
+    /// commit to a handful of settle points instead of applying live. The
+    /// name field itself keeps accepting every keystroke regardless — only
+    /// the value area reacts to collision state; nothing here blocks typing.
     ///
     /// The collision check itself is unchanged and still runs against the
     /// field's live content: exact (case-sensitive) match on the trimmed
@@ -648,10 +794,7 @@ extension VariableDetailVC: NSTextFieldDelegate {
     /// name never colliding — including with another empty name, since two
     /// freshly added rows are not duplicates of each other.
     func controlTextDidChange(_ obj: Notification) {
-        let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        isNameCollision = !trimmed.isEmpty && otherNames.contains(trimmed)
-        updateNameFieldColor()
-        updateDuplicationDisplay()
+        recomputeCollisionState()
     }
 
     /// Losing first responder is a settle point (see `commitNameIfValid`):

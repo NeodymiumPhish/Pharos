@@ -567,6 +567,41 @@ private func testPanelSuppliesOtherNamesAndRefusesCollidingRename() {
     expectEqual(vc.variables[1].name, "var1", "a rename colliding with a sibling never reaches vc.variables")
 }
 
+/// Item 1's consequence for legacy data, observed end to end through the
+/// real panel: a duplicate pair loaded from a saved query (predating the
+/// collision refusal) has committed names that genuinely collide with each
+/// other. Drilling into either one correctly supplies the sibling's own
+/// name as part of `otherNames` — the same wiring
+/// `testPanelSuppliesOtherNamesAndRefusesCollidingRename` above already
+/// proves in general, extended here to the specific case where the OTHER
+/// variable's name also happens to equal this row's own committed name.
+/// (`VariableDetailVCTests.swift`'s
+/// `testLegacyDuplicateShowsCollisionNoticeWhenOtherNamesIsRefreshed` and
+/// `testCommittedCollisionDetectedBeforeViewEverLoads` already confirm what
+/// the detail level does with that `otherNames` value on its own: shows the
+/// collision notice immediately, keeps the name field editable, and clears
+/// normally once you type past it — sane, not broken.)
+private func testLegacyDuplicatePairSuppliesSiblingNameOnDrillIn() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    let first = QueryVariable(name: "dup", value: "v1", type: .literal)
+    let second = QueryVariable(name: "dup", value: "v2", type: .literal)
+    vc.setVariables([first, second], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    rowViews(in: listView(in: vc))[0].onClick?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after drilling into the first of the duplicate pair")
+        return
+    }
+
+    expectTrue(
+        detail.otherNames == ["dup"],
+        "drilling into either half of a legacy duplicate pair supplies the sibling's own name "
+            + "(got \(detail.otherNames)) — so its committed name genuinely collides the moment you open it")
+}
+
 /// The regression commit-on-settle exists to close, at the door that
 /// actually got hit. Renaming an existing "seed_list" by typing a second
 /// "seed_list" walks the field through every prefix on the way there —
@@ -753,6 +788,7 @@ func runTests() {
     testContentAreaClipsAndFinalFramesUnchanged()
     testDoubleClickOnRowDoesNotDrillInTwice()
     testPanelSuppliesOtherNamesAndRefusesCollidingRename()
+    testLegacyDuplicatePairSuppliesSiblingNameOnDrillIn()
     testTabSwitchMidCollisionTypingDoesNotCommitPrefix()
     testValidRenameSurvivesTabSwitch()
     testPlusRowGivenValidNameSurvivesDismissalNotPruned()

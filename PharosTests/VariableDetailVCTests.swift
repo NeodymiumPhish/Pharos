@@ -209,6 +209,17 @@ private func valueChoiceControl(in vc: VariableDetailVC) -> NSSegmentedControl {
     allDescendants(of: vc.view).compactMap { $0 as? NSSegmentedControl }.first!
 }
 
+/// The fifth (last) arranged subview of `body`, appended after
+/// `valueChoiceContainer` — see the comment at its construction site in
+/// `VariableDetailVC.loadView`.
+private func collisionNoticeContainer(in vc: VariableDetailVC) -> NSView {
+    bodyStack(in: vc).arrangedSubviews[4]
+}
+
+private func collisionNoticeLabel(in vc: VariableDetailVC) -> NSTextField {
+    collisionNoticeContainer(in: vc).subviews.compactMap { $0 as? NSTextField }.first!
+}
+
 /// Simulates a real click/selection on a control wired with `target`/`action`
 /// — the same dispatch path AppKit itself uses, rather than calling the
 /// (private) action method directly, which test code cannot reach anyway.
@@ -338,7 +349,9 @@ private func testNameFieldDelegateWiringReactsToRealNotification() {
     NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
 
     expectTrue(field.textColor == .systemRed, "the real notification reached the delegate and flagged the collision")
-    expectTrue(!duplicationLabel(in: vc).isHidden, "the real notification path shows the inline collision message")
+    expectTrue(
+        !collisionNoticeContainer(in: vc).isHidden,
+        "the real notification path shows the collision notice in the value area")
 
     var backFired = false
     vc.onBack = { backFired = true }
@@ -841,10 +854,14 @@ private func testCollidingNameNeverReachesModelOrFiresOnChange() {
     expectTrue(changeCount == 0, "colliding name fires no onChange (got \(changeCount))")
 }
 
-/// The collision surfaces as red inline text in the slot the old duplication
-/// note used, and reddens the name field — which itself keeps showing
-/// exactly what was typed, since the refusal must not fight the user's
-/// typing.
+/// The collision replaces the value area entirely (the notice fills the same
+/// slot the editor occupies, in place of it — not a separate note under the
+/// header, which is where it used to live and which caused the layout-shift
+/// bug by reporting the same thing twice), and reddens the name field. The
+/// name field itself keeps showing exactly what was typed and keeps
+/// accepting keystrokes — the refusal blocks the VALUE, per the user's own
+/// framing ("block input into the value, not the name"), never the name
+/// field's typing.
 private func testCollidingNameShowsInlineErrorAndRedTint() {
     let variable = QueryVariable(name: "original", value: "v", type: .literal)
     let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
@@ -856,11 +873,88 @@ private func testCollidingNameShowsInlineErrorAndRedTint() {
 
     expectEqual(field.stringValue, "ip", "the field keeps showing exactly what was typed")
     expectTrue(field.textColor == .systemRed, "the name field is tinted red")
-    expectTrue(!duplicationLabel(in: vc).isHidden, "the inline error is shown")
+
+    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "the collision notice replaces the value area")
     expectEqual(
-        duplicationLabel(in: vc).stringValue, "A variable named \"ip\" already exists. Choose a different name.",
-        "the inline error names the colliding value and instructs the user what to do")
-    expectTrue(duplicationLabel(in: vc).textColor == .systemRed, "the inline error is red")
+        collisionNoticeLabel(in: vc).stringValue, "A variable named \"ip\" already exists. Choose a different name.",
+        "the collision notice names the colliding value and instructs the user what to do")
+    expectTrue(collisionNoticeLabel(in: vc).textColor == .systemRed, "the collision notice is red")
+
+    expectTrue(editorContainer(in: vc).isHidden, "the text editor is hidden while colliding")
+    expectTrue(captionLabel(in: vc).isHidden, "the size caption is hidden while colliding")
+    expectTrue(valueChoiceContainer(in: vc).isHidden, "the Bool choice control is hidden while colliding")
+
+    expectTrue(
+        duplicationLabel(in: vc).isHidden,
+        "the header-level note does not also report the collision — only the value area does")
+}
+
+/// A duplicate pair loaded from a saved query that predates this refusal
+/// rule has a COMMITTED name that already collides with its sibling. This
+/// exercises `otherNames`'s own `didSet`: the view is already loaded (this
+/// helper forces that), and `otherNames` is set afterward, mirroring
+/// `QueryVariablesPanelVC.refreshDetailState` being called again later
+/// (e.g. another edit changing the comparison set) rather than the very
+/// first `drillIn`. Confirmed sane, not broken: the name field stays fully
+/// editable (still shows the actual name, still red), and typing past the
+/// collision clears the notice and restores the editor normally — the same
+/// behaviour a legal, user-typed collision gets.
+private func testLegacyDuplicateShowsCollisionNoticeWhenOtherNamesIsRefreshed() {
+    let variable = QueryVariable(name: "dup", value: "some value", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+
+    vc.otherNames = ["dup"]
+
+    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "the collision notice shows immediately, without any keystroke")
+    expectEqual(
+        collisionNoticeLabel(in: vc).stringValue, "A variable named \"dup\" already exists. Choose a different name.",
+        "the notice names the collision correctly")
+    expectTrue(nameField(in: vc).textColor == .systemRed, "the name field is red immediately too")
+    expectEqual(nameField(in: vc).stringValue, "dup", "the name field still shows the actual name, and stays editable")
+
+    let field = nameField(in: vc)
+    field.stringValue = "dup2"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectTrue(collisionNoticeContainer(in: vc).isHidden, "typing past the legacy collision clears the notice normally")
+    expectTrue(!editorContainer(in: vc).isHidden, "the editor returns once the name is unique")
+}
+
+/// The exact ordering the real panel uses: `QueryVariablesPanelVC.drillIn`
+/// sets `otherNames` (via `refreshDetailState`) BEFORE ever touching
+/// `detail.view` — unlike `makeHostedDetail`, which forces view creation as
+/// part of hosting the VC. Constructs the VC directly and hosts it manually
+/// so `otherNames` is genuinely set first, exercising `loadView`'s own
+/// initial `recomputeCollisionState()` call rather than `otherNames`'s
+/// `didSet` (which the test above already covers) — this is the path that
+/// makes a variable whose committed name already collides show the notice
+/// the very first time you drill into it, not just on a later refresh.
+private func testCommittedCollisionDetectedBeforeViewEverLoads() {
+    let variable = QueryVariable(name: "dup", value: "v", type: .literal)
+    let vc = VariableDetailVC(variable: variable)
+    vc.otherNames = ["dup"]  // set before `.view` is ever accessed, exactly like drillIn does
+
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 300, height: 300),
+        styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+    window.contentView = container
+    vc.view.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(vc.view)
+    NSLayoutConstraint.activate([
+        vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        vc.view.topAnchor.constraint(equalTo: container.topAnchor),
+        vc.view.widthAnchor.constraint(equalToConstant: 300),
+        vc.view.heightAnchor.constraint(equalToConstant: 300),
+    ])
+    container.layoutSubtreeIfNeeded()
+    vc.view.needsLayout = true
+    container.layoutSubtreeIfNeeded()
+
+    expectTrue(
+        !collisionNoticeContainer(in: vc).isHidden,
+        "the collision notice shows the moment the view loads, before any keystroke")
+    expectTrue(nameField(in: vc).textColor == .systemRed, "the name field is red the moment the view loads")
 }
 
 /// A unique (non-colliding) typed name updates the live UI immediately —
@@ -885,7 +979,8 @@ private func testUniqueNameNotCommittedUntilSettle() {
     expectEqual(vc.variable.name, "original", "a unique typed name is not written to variable.name while still just typed")
     expectTrue(changeCount == 0, "no onChange fires for typing alone, even when the typed name is unique (got \(changeCount))")
     expectTrue(field.textColor == .systemIndigo, "the name field shows its normal colour for a non-colliding name")
-    expectTrue(duplicationLabel(in: vc).isHidden, "no inline error for a non-colliding name")
+    expectTrue(collisionNoticeContainer(in: vc).isHidden, "no collision notice for a non-colliding name")
+    expectTrue(!editorContainer(in: vc).isHidden, "the value editor shows normally for a non-colliding name")
 }
 
 /// Commit-on-settle, end to end, at each of the four settle points: typing
@@ -980,7 +1075,9 @@ private func testBackRefusedWhileColliding() {
 
     expectTrue(!backFired, "back does not navigate while the field collides")
     expectEqual(field.stringValue, "ip", "back does not revert the field while it collides")
-    expectTrue(!duplicationLabel(in: vc).isHidden, "the collision message stays visible after a refused back")
+    expectTrue(
+        !collisionNoticeContainer(in: vc).isHidden,
+        "the collision notice stays visible in the value area after a refused back")
     expectTrue(
         field.currentEditor() != nil,
         "focus returns to the name field after a refused back (it has an active field editor)")
@@ -1201,7 +1298,7 @@ private func testEmptyNameNeverCollides() {
     field.stringValue = ""
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
 
-    expectTrue(duplicationLabel(in: vc).isHidden, "no collision note for an empty name")
+    expectTrue(collisionNoticeContainer(in: vc).isHidden, "no collision notice for an empty name")
     expectTrue(changeCount == 0, "clearing to an empty name does not commit while still just typed (got \(changeCount))")
     expectEqual(vc.variable.name, "x", "the model is unchanged mid-typing")
 
@@ -1250,19 +1347,83 @@ private func testInlineMessageShiftsEditorInSameLayoutPass() {
     field.stringValue = "ip"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
     // No explicit layoutSubtreeIfNeeded() call here: the fix must force its
-    // own relayout as part of showing the message, not rely on this test (or
-    // anything else) to trigger a follow-up pass.
+    // own relayout as part of showing the collision state, not rely on this
+    // test (or anything else) to trigger a follow-up pass.
     let editorFrameAfter = editorContainer(in: vc).frame
 
-    // The stack keeps the editor's *bottom* edge anchored (captionLabel and
-    // valueChoiceContainer sit below it) and shrinks its *height* to make
-    // room for the note appearing above — so the frame that actually moves
-    // is its top edge / height, not `minY`. Comparing the whole rect catches
-    // that shift regardless of which edge the stack happens to move.
+    // Under the current design the editor is HIDDEN outright while
+    // colliding (replaced by the collision notice, not merely displaced by
+    // a note above it) — a stronger version of "the frame changed in the
+    // same pass," since there's no ambiguity about whether hiding actually
+    // took effect immediately.
     expectTrue(
         editorFrameAfter != editorFrameBefore,
-        "editor container's frame moves in the same pass the inline message appears "
+        "editor container's frame changes in the same pass the collision state appears "
             + "(before: \(editorFrameBefore), after: \(editorFrameAfter))")
+}
+
+/// Item 2, generalized: the frame math for `gutter`/`scrollView` must be
+/// re-applied after ANY programmatic change that can alter `body`'s height —
+/// not merely, by coincidence, for the one path (the old collision note
+/// under the header) that happened to surface the bug first.
+/// `view.layoutSubtreeIfNeeded()` resolves `editorContainer`'s own Auto
+/// Layout frame immediately, but does not re-invoke `viewDidLayout()`, so
+/// without `layoutEditorArea()` being called again explicitly,
+/// `gutter`/`scrollView` (positioned by frames, not constraints) would stay
+/// sized for the container's PREVIOUS bounds. Toggling the `.shadowed` note
+/// — the only note left under the header now that the collision case moved
+/// out (see item 1) — changes `body`'s height while the editor stays
+/// visible throughout, which is the general shape this needs to cover.
+private func testGutterAndScrollViewMatchContainerImmediatelyAfterHeightChange() {
+    let variable = QueryVariable(name: "v", value: "hello", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
+
+    let gutter = gutterView(in: vc)
+    let scroll = scrollView(in: vc)
+    let editor = editorContainer(in: vc)
+
+    vc.setState(.init(duplication: .shadowed, problem: nil))
+    // Deliberately no vc.view.layoutSubtreeIfNeeded() call here: the fix
+    // must settle the frame-positioned children on its own, in the very
+    // call that changes body's height, not on some later pass.
+
+    let containerHeight = editor.bounds.height
+    expectClose(
+        gutter.frame.height, max(0, containerHeight - 2),
+        "gutter height matches the container's new bounds immediately after the .shadowed note appears")
+    expectClose(
+        scroll.frame.height, max(0, containerHeight - 2),
+        "scroll view height matches the container's new bounds immediately after the .shadowed note appears")
+    expectClose(gutter.frame.maxX, scroll.frame.minX, "gutter and scroll view still sit side by side with no gap")
+}
+
+/// The same general fix, exercised through the NEW path item 1 added: the
+/// editor's frame-positioned children must not be left stale for when the
+/// name stops colliding and the editor comes back, either.
+private func testGutterAndScrollViewMatchContainerAfterCollisionClears() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "setup: colliding")
+
+    field.stringValue = "ip2"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    // No explicit layoutSubtreeIfNeeded() here either.
+    expectTrue(!editorContainer(in: vc).isHidden, "setup: editor shows again once the name is unique")
+
+    let gutter = gutterView(in: vc)
+    let scroll = scrollView(in: vc)
+    let containerHeight = editorContainer(in: vc).bounds.height
+    expectClose(
+        gutter.frame.height, max(0, containerHeight - 2),
+        "gutter height matches the container's bounds immediately after the collision clears")
+    expectClose(
+        scroll.frame.height, max(0, containerHeight - 2),
+        "scroll view height matches the container's bounds immediately after the collision clears")
 }
 
 // MARK: - Gutter line-number alignment (defect 3)
@@ -1513,6 +1674,8 @@ func runTests() {
 
     testCollidingNameNeverReachesModelOrFiresOnChange()
     testCollidingNameShowsInlineErrorAndRedTint()
+    testLegacyDuplicateShowsCollisionNoticeWhenOtherNamesIsRefreshed()
+    testCommittedCollisionDetectedBeforeViewEverLoads()
     testUniqueNameNotCommittedUntilSettle()
     testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint()
     testModelNameUnchangedWhileTypingUntilSettle()
@@ -1527,6 +1690,8 @@ func runTests() {
     testEmptyNameNeverCollides()
     testCaseDifferenceDoesNotCollide()
     testInlineMessageShiftsEditorInSameLayoutPass()
+    testGutterAndScrollViewMatchContainerImmediatelyAfterHeightChange()
+    testGutterAndScrollViewMatchContainerAfterCollisionClears()
 
     testGutterLineNumberAlignsWithTextLine()
     testSQLEditorStyleGutterAlignmentUnscrolledAndScrolled()
