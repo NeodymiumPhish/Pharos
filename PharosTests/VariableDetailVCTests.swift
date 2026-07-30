@@ -740,8 +740,8 @@ private func testCollidingNameShowsInlineErrorAndRedTint() {
     expectTrue(field.textColor == .systemRed, "the name field is tinted red")
     expectTrue(!duplicationLabel(in: vc).isHidden, "the inline error is shown")
     expectEqual(
-        duplicationLabel(in: vc).stringValue, "A variable named \"ip\" already exists.",
-        "the inline error names the colliding value")
+        duplicationLabel(in: vc).stringValue, "A variable named \"ip\" already exists. Choose a different name.",
+        "the inline error names the colliding value and instructs the user what to do")
     expectTrue(duplicationLabel(in: vc).textColor == .systemRed, "the inline error is red")
 }
 
@@ -765,10 +765,11 @@ private func testUniqueNameAcceptedNormally() {
     expectTrue(duplicationLabel(in: vc).isHidden, "the inline error is hidden once the name is unique")
 }
 
-/// Navigating back with a colliding field reverts the displayed text to the
-/// variable's actual (last valid) name — no silent acceptance — while still
-/// navigating away: no trapping the user on the screen.
-private func testBackRevertsCollidingField() {
+/// While the field collides, the back button must do nothing except keep
+/// the message visible and return focus to the name field — not revert the
+/// field, not commit anything, not navigate. (See `testSeedListPrefixWalk...`
+/// below for why reverting is actively wrong, not just unnecessary.)
+private func testBackRefusedWhileColliding() {
     let variable = QueryVariable(name: "original", value: "v", type: .literal)
     let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
     vc.otherNames = ["ip"]
@@ -776,14 +777,132 @@ private func testBackRevertsCollidingField() {
     let field = nameField(in: vc)
     field.stringValue = "ip"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectEqual(vc.variable.name, "original", "setup: colliding name not committed")
 
     var backFired = false
     vc.onBack = { backFired = true }
     triggerAction(of: backButton(in: vc))
 
-    expectEqual(field.stringValue, "original", "back reverts the field to the variable's actual name")
-    expectTrue(backFired, "back still navigates away rather than trapping the user on the screen")
+    expectTrue(!backFired, "back does not navigate while the field collides")
+    expectEqual(field.stringValue, "ip", "back does not revert the field while it collides")
+    expectTrue(!duplicationLabel(in: vc).isHidden, "the collision message stays visible after a refused back")
+    expectTrue(
+        field.currentEditor() != nil,
+        "focus returns to the name field after a refused back (it has an active field editor)")
+}
+
+/// Escape is refused the same way as the back button, through both the
+/// paths that can trigger it: the name field's own delegate (Escape while
+/// it has focus) and `cancelOperation` (Escape with no text control
+/// focused, e.g. right after the level-slide).
+private func testEscapeRefusedWhileColliding() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    var backFired = false
+    vc.onBack = { backFired = true }
+
+    let handled = vc.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+    expectTrue(handled, "the name field's delegate still claims to handle Escape while colliding")
+    expectTrue(!backFired, "Escape via the name field's delegate does not navigate while colliding")
+    expectEqual(field.stringValue, "ip", "Escape via the delegate does not revert the field while colliding")
+
+    vc.cancelOperation(nil)
+    expectTrue(!backFired, "Escape via cancelOperation does not navigate while colliding")
+    expectEqual(field.stringValue, "ip", "Escape via cancelOperation does not revert the field while colliding")
+}
+
+/// Once the field is unique again, back (and therefore Escape) works
+/// normally — the refusal is specific to the colliding state, not a
+/// permanent lock on this screen.
+private func testBackSucceedsOnceUnique() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    field.stringValue = "ip2"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectEqual(vc.variable.name, "ip2", "setup: the field is unique and committed again")
+
+    var backFired = false
+    vc.onBack = { backFired = true }
+    triggerAction(of: backButton(in: vc))
+
+    expectTrue(backFired, "back navigates normally once the field is unique again")
+}
+
+/// Delete must still work while the field collides — it is the only
+/// guaranteed way off this screen if the user does not want to resolve the
+/// collision by typing. Without this, refusing to leave would trap the user
+/// outright, which is worse than the bug the refusal exists to prevent.
+private func testDeleteWorksWhileColliding() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    var deleteFired = false
+    vc.onDelete = { deleteFired = true }
+    triggerAction(of: deleteButton(in: vc))
+
+    expectTrue(deleteFired, "delete still works while the name field collides")
+}
+
+/// The regression this fix exists for. Renaming an existing "seed_list" by
+/// typing a second "seed_list" walks the field through every prefix on the
+/// way there — "s", "se", …, "seed_lis" — none of which collide, so each is
+/// accepted and committed in turn; only the final keystroke, "seed_list"
+/// itself, collides. Under the old "revert to the variable's last valid
+/// name" rule, attempting to leave right after typing that final character
+/// committed "seed_lis" — a name the user never typed and does not
+/// recognize, with the actual collision "silently resolved" by mangling
+/// their input instead of being surfaced. Refusing to leave instead of
+/// reverting means the field is never touched by anything but the user's
+/// own typing, and continuing past the collision (to "seed_list2") is still
+/// how they actually get off this screen.
+private func testSeedListPrefixWalkNeverMangledOnBack() {
+    let variable = QueryVariable(name: "", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["seed_list"]
+
+    let field = nameField(in: vc)
+    var backFired = false
+    vc.onBack = { backFired = true }
+
+    for prefix in ["s", "se", "see", "seed", "seed_", "seed_l", "seed_li", "seed_lis", "seed_list"] {
+        field.stringValue = prefix
+        vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+    expectEqual(
+        vc.variable.name, "seed_lis",
+        "setup: the last non-colliding prefix is still the committed name while \"seed_list\" collides")
+
+    triggerAction(of: backButton(in: vc))
+    expectTrue(!backFired, "back is refused while the final keystroke collides")
+    expectEqual(
+        field.stringValue, "seed_list",
+        "the field is not reverted by the refused back — it still shows exactly what was typed")
+
+    field.stringValue = "seed_list2"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    triggerAction(of: backButton(in: vc))
+    expectTrue(backFired, "back succeeds once the field is extended to a unique name")
+    expectEqual(vc.variable.name, "seed_list2", "the final committed name is exactly what the user typed")
+    expectTrue(
+        vc.variable.name != "seed_lis",
+        "the name is never left as the mangled intermediate prefix \"seed_lis\"")
 }
 
 /// An empty (trimmed) name never collides with anything, including another
@@ -1102,7 +1221,11 @@ func runTests() {
     testCollidingNameNeverReachesModelOrFiresOnChange()
     testCollidingNameShowsInlineErrorAndRedTint()
     testUniqueNameAcceptedNormally()
-    testBackRevertsCollidingField()
+    testBackRefusedWhileColliding()
+    testEscapeRefusedWhileColliding()
+    testBackSucceedsOnceUnique()
+    testDeleteWorksWhileColliding()
+    testSeedListPrefixWalkNeverMangledOnBack()
     testEmptyNameNeverCollides()
     testCaseDifferenceDoesNotCollide()
     testInlineMessageShiftsEditorInSameLayoutPass()

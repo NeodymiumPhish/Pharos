@@ -330,10 +330,7 @@ final class VariableDetailVC: NSViewController {
 
     // MARK: - Actions
 
-    @objc private func backTapped() {
-        revertNameFieldIfColliding()
-        onBack?()
-    }
+    @objc private func backTapped() { attemptBack() }
     @objc private func deleteTapped() { onDelete?() }
 
     @objc private func typeChanged() {
@@ -353,10 +350,7 @@ final class VariableDetailVC: NSViewController {
     }
 
     /// Escape with neither text control focused (e.g. straight after the slide).
-    override func cancelOperation(_ sender: Any?) {
-        revertNameFieldIfColliding()
-        onBack?()
-    }
+    override func cancelOperation(_ sender: Any?) { attemptBack() }
 
     // MARK: - Name collision refusal
 
@@ -368,7 +362,7 @@ final class VariableDetailVC: NSViewController {
     private func updateNameFieldColor() {
         if isNameCollision {
             nameField.textColor = .systemRed
-            nameField.toolTip = "A variable named \(collidingName.debugDescription) already exists."
+            nameField.toolTip = Self.collisionMessage(for: collidingName)
         } else {
             let problem = lastRowState?.problem
             nameField.textColor = problem == nil ? .systemIndigo : .systemRed
@@ -380,6 +374,14 @@ final class VariableDetailVC: NSViewController {
     /// variable in the collision message.
     private var collidingName: String {
         nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Reads as an instruction, not just an observation: while colliding, the
+    /// name field also blocks leaving this screen (see `attemptBack`), so the
+    /// message has to tell the user what to do about it, not merely name the
+    /// problem.
+    private static func collisionMessage(for name: String) -> String {
+        "A variable named \(name.debugDescription) already exists. Choose a different name."
     }
 
     /// Renders `duplicationLabel`'s content. A live typed collision takes
@@ -400,7 +402,7 @@ final class VariableDetailVC: NSViewController {
     /// trigger layout.
     private func updateDuplicationDisplay() {
         if isNameCollision {
-            duplicationLabel.stringValue = "A variable named \(collidingName.debugDescription) already exists."
+            duplicationLabel.stringValue = Self.collisionMessage(for: collidingName)
             duplicationLabel.textColor = .systemRed
             duplicationLabel.isHidden = false
         } else if lastRowState?.duplication == .shadowed {
@@ -415,19 +417,31 @@ final class VariableDetailVC: NSViewController {
         view.layoutSubtreeIfNeeded()
     }
 
-    /// Called on every path back to the list level. A colliding name was
-    /// never written to the model (`controlTextDidChange` refused it), so
-    /// this only needs to fix up what the field is *displaying* — restore the
-    /// variable's actual, last-valid name — rather than undo anything on
-    /// `variable` itself. Never blocks navigation: the whole point of the
-    /// refusal is that the user is not trapped on this screen by an
-    /// unresolved collision.
-    private func revertNameFieldIfColliding() {
-        guard isNameCollision else { return }
-        isNameCollision = false
-        nameField.stringValue = variable.name
-        updateNameFieldColor()
-        updateDuplicationDisplay()
+    /// The single entry point for every path off this screen: the back
+    /// button, Escape via `cancelOperation` with no text control focused, and
+    /// Escape while the name field specifically has focus (the delegate
+    /// below). While the field's displayed text collides with another
+    /// variable's name, leaving is refused outright rather than reverted.
+    ///
+    /// Reverting looks safe — a colliding name was never written to the
+    /// model, so nothing about `variable` needs undoing — but it silently
+    /// mangles input the collision refusal was never meant to touch: renaming
+    /// an existing "seed_list" by typing a second "seed_list" and continuing
+    /// walks the field through "s", "se", …, "seed_lis" (all accepted, since
+    /// none of them collide) before the final keystroke collides — and a
+    /// revert at that point commits "seed_lis", a name the user never typed
+    /// and does not recognize. Refusing to leave instead keeps the field, the
+    /// message, and focus exactly where the user left them, so continuing to
+    /// type (e.g. on to "seed_list2") is still the way through — the only two
+    /// ways off this screen while colliding are fixing the name or deleting
+    /// the variable outright (`deleteTapped` is intentionally not gated on
+    /// `isNameCollision` at all).
+    private func attemptBack() {
+        guard !isNameCollision else {
+            view.window?.makeFirstResponder(nameField)
+            return
+        }
+        onBack?()
     }
 
     // MARK: - Value control switching
@@ -508,15 +522,14 @@ extension VariableDetailVC: NSTextFieldDelegate {
         onChange?(variable)
     }
 
-    /// Escape while the name field has focus returns to the list, after
-    /// reverting any uncommitted colliding text (see
-    /// `revertNameFieldIfColliding`).
+    /// Escape while the name field has focus returns to the list — unless the
+    /// field currently collides, in which case `attemptBack` refuses to leave
+    /// (see its doc comment for why reverting instead is the wrong fix).
     func control(
         _ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector
     ) -> Bool {
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        revertNameFieldIfColliding()
-        onBack?()
+        attemptBack()
         return true
     }
 }
