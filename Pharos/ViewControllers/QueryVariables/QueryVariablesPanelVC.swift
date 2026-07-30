@@ -78,6 +78,17 @@ final class QueryVariablesPanelVC: NSViewController {
         edge.translatesAutoresizingMaskIntoConstraints = false
 
         contentArea.wantsLayer = true
+        // The level-slide animation parallaxes the outgoing view to
+        // `x = -bounds.width * 0.35` (see `push`/`pop` below). AppKit does not
+        // clip subviews to their superview's bounds by default, so without
+        // this the part that slides past the leading edge keeps drawing —
+        // over the resize divider and into the editor beside the panel —
+        // until the animation completes. `contentArea` is already
+        // layer-backed, so `masksToBounds` is the minimal fix; `edge` (the
+        // panel's leading hairline) and the split view's resize divider are
+        // both siblings of `contentArea`, not its descendants, so this clip
+        // cannot hide either of them.
+        contentArea.layer?.masksToBounds = true
         contentArea.translatesAutoresizingMaskIntoConstraints = false
 
         listView.onAdd = { [weak self] in self?.addVariable() }

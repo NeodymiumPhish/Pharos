@@ -99,6 +99,14 @@ private func listView(in vc: QueryVariablesPanelVC) -> VariableListView {
     allDescendants(of: vc.view).compactMap { $0 as? VariableListView }.first!
 }
 
+/// `contentArea` (the view that must clip the level-slide animation) is a
+/// private stored property, so it is located structurally instead: `loadView`
+/// adds `listView` as a direct subview of `contentArea`, so `listView`'s
+/// superview *is* `contentArea`.
+private func contentArea(in vc: QueryVariablesPanelVC) -> NSView {
+    listView(in: vc).superview!
+}
+
 /// `detailVC` is added via `addChild(detail)`, so `NSViewController.children`
 /// — public API — surfaces it without needing the private stored property.
 private func detailVC(in vc: QueryVariablesPanelVC) -> VariableDetailVC? {
@@ -434,6 +442,49 @@ private func testDeleteViaListContextMenuLeavesListShowing() {
     expectTrue(rowViews(in: listView(in: vc)).count == 2, "context-menu delete leaves 2 rows")
 }
 
+/// Defect 1: the level-slide animation parallaxes the outgoing view to
+/// `x = -bounds.width * 0.35` (see `push`/`pop` in `QueryVariablesPanelVC`),
+/// and AppKit does not clip subviews to their superview's bounds by default —
+/// so without an explicit clip, the part that slides past the panel's
+/// leading edge keeps drawing over the resize divider and the editor beside
+/// it until the animation finishes. `contentArea` is already layer-backed,
+/// so `masksToBounds` is the fix. This pins that it's set, and — with
+/// animation forced off via the existing `animatesLevelTransitions` seam —
+/// that the fix changes nothing about the final, settled frames: the list
+/// fills `contentArea`'s bounds on the list level, and the detail view fills
+/// it after drilling in and again after back, exactly as before the clip was
+/// added.
+private func testContentAreaClipsAndFinalFramesUnchanged() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    vc.setVariables(makeVariables(2), referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    let area = contentArea(in: vc)
+    expectTrue(area.wantsLayer, "setup: contentArea is layer-backed")
+    expectTrue(area.layer?.masksToBounds == true, "contentArea clips its children (masksToBounds)")
+
+    expectTrue(
+        listView(in: vc).frame == area.bounds,
+        "list view fills contentArea's bounds on the list level")
+
+    rowViews(in: listView(in: vc))[0].onClick?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after drilling in")
+        return
+    }
+    expectTrue(
+        detail.view.frame == area.bounds,
+        "detail view fills contentArea's bounds after drilling in (non-animated)")
+
+    triggerAction(of: backButton(in: detail))
+    vc.view.layoutSubtreeIfNeeded()
+    expectTrue(
+        listView(in: vc).frame == area.bounds,
+        "list view fills contentArea's bounds again after back (non-animated)")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -448,6 +499,7 @@ func runTests() {
     testLayoutUnambiguousOnBothLevels()
     testPlusAppendsFiresOnChangeAndDrillsIn()
     testDeleteViaListContextMenuLeavesListShowing()
+    testContentAreaClipsAndFinalFramesUnchanged()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
