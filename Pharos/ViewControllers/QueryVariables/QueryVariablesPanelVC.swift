@@ -39,11 +39,47 @@ final class QueryVariablesPanelVC: NSViewController {
     /// Replace the displayed variables and the referenced-name set (e.g. on tab
     /// switch). Returns to the list level, since the detail level belonged to
     /// whatever was showing before.
+    ///
+    /// Does NOT settle the outgoing detail level's name field itself — by the
+    /// time this runs, the caller (`EditorPaneVC.syncVariablesPanel`, on the
+    /// tab-switch path) has *already* moved its own bookkeeping of "which tab
+    /// is active" on to the incoming tab, so a settle triggered from in here
+    /// would misattribute the rename to the wrong tab. Callers that can
+    /// change which tab is active must call `settlePendingEdit()` first,
+    /// while their own notion of "current tab" (and `variables` below) still
+    /// belongs to the outgoing one. `dismissDetail` still calls
+    /// `settleForDismissal()` as a safety net for callers that don't (it's a
+    /// no-op if this already ran), so a colliding draft is still dropped
+    /// either way — only a *valid* rename depends on the caller settling
+    /// first.
     func setVariables(_ vars: [QueryVariable], referenced: Set<String>) {
         variables = vars
         self.referenced = referenced
         dismissDetail(animated: false, pruningEmpty: false)
         refreshList()
+    }
+
+    /// Settles (commits if valid, drops if colliding) whatever the detail
+    /// level's name field currently shows, without dismissing anything else —
+    /// no level swap, no list rebuild. A no-op if the detail level isn't
+    /// showing.
+    ///
+    /// This exists specifically for a caller that is about to change which
+    /// tab is active (`EditorPaneVC.paneStateChanged`): it must call this
+    /// *before* updating its own "which tab is this" state and before
+    /// calling `setVariables` for the incoming tab. `variableEdited` below
+    /// (which `settleForDismissal` -> `commitNameIfValid` -> `onChange`
+    /// ultimately triggers) looks up the edited variable's id in `variables`
+    /// — while that array, and the caller's own tab bookkeeping, still belong
+    /// to the outgoing tab, the lookup succeeds and the rename lands on the
+    /// right tab. Called even one step later than that — e.g. from inside
+    /// `setVariables` itself, after `variables` and the caller's tab
+    /// bookkeeping have already moved on — the same lookup would either fail
+    /// silently (losing the rename) or, if that guard were ever relaxed,
+    /// succeed against the *incoming* tab's array and land the outgoing
+    /// tab's rename in the wrong tab's stored variables.
+    func settlePendingEdit() {
+        detailVC?.settleForDismissal()
     }
 
     /// Update only which names the SQL references — called from the debounced

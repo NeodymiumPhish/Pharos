@@ -614,9 +614,15 @@ private func testTabSwitchMidCollisionTypingDoesNotCommitPrefix() {
         "mid-typing, before any settle point, the row's committed name is still \"other\" "
             + "(got \(midTyping?.name ?? "<missing>"))")
 
-    // The tab switch itself: the panel is handed a fresh variable set, as
-    // ContentViewController does when the user switches tabs, discarding
-    // whatever the in-progress edit was.
+    // The tab switch itself. Handing the SAME array back here (rather than a
+    // genuinely different one, as `testValidRenameSurvivesTabSwitch` now
+    // does) makes these three checks trivially true regardless of ordering —
+    // `seedList`/`other` are untouched local values, so `vc.variables` can
+    // only equal what was just passed in. They stay only as a belt-and-braces
+    // sanity check; the assertion above (before any switch happens at all)
+    // is the one actually pinning "a colliding draft never reaches
+    // onChange," and it does not depend on which array `setVariables` is
+    // given.
     vc.setVariables([seedList, other], referenced: [])
 
     let afterSwitch = vc.variables.first { $0.id == other.id }
@@ -636,30 +642,67 @@ private func testTabSwitchMidCollisionTypingDoesNotCommitPrefix() {
 /// `dismissDetail` before it reads `detail.variable`, closes this: a valid
 /// rename now commits on the way out here too, exactly as it already does
 /// via `attemptBack` on the back/Escape path.
+/// The regression on the other side of the same fix, corrected. The
+/// original version of this test passed for the wrong reason: it handed the
+/// SAME array back on the simulated "tab switch", so `variableEdited`'s id
+/// lookup happened to still find the row regardless of when the settle
+/// happened. A real tab switch hands over a genuinely different tab's own
+/// array — the outgoing row's id is simply absent from it — which this
+/// version does instead.
+///
+/// Same rename, same genuinely-different incoming array, two call orders:
+/// `setVariables` alone — relying only on `dismissDetail`'s own
+/// `settleForDismissal()`, which by the time it runs has already had
+/// `variables` swapped to the incoming array — loses the rename outright,
+/// since `variableEdited`'s id lookup fails silently and `onChange` never
+/// fires for it. `settlePendingEdit()`, called *first* — the order
+/// `EditorPaneVC.paneStateChanged` now uses (verified directly against that
+/// file, not assumed: it calls this before reassigning `lastActiveTabId`,
+/// specifically because `variablesDidChange` looks the tab up by
+/// `lastActiveTabId`, and by the time `setVariables` itself runs that id
+/// already points at the incoming tab) — settles the rename while
+/// `variables` still belongs to the outgoing tab, and it survives.
 private func testValidRenameSurvivesTabSwitch() {
-    let (_, _, vc) = makeHostedPanel(width: 300)
-    let original = QueryVariable(name: "original", value: "v", type: .literal)
-    vc.setVariables([original], referenced: [])
-    vc.view.layoutSubtreeIfNeeded()
+    /// Drills into a fresh single-variable panel, renames it without
+    /// touching any settle point, switches to a genuinely different
+    /// variable (simulating a real tab switch), and returns whatever the
+    /// panel's own `onChange` last reported for the original variable's id
+    /// — nil if `onChange` never fired for it at all.
+    func rename(settleFirst: Bool) -> String? {
+        let (_, _, vc) = makeHostedPanel(width: 300)
+        let original = QueryVariable(name: "original", value: "v", type: .literal)
+        vc.setVariables([original], referenced: [])
+        vc.view.layoutSubtreeIfNeeded()
 
-    rowViews(in: listView(in: vc))[0].onClick?()
-    vc.view.layoutSubtreeIfNeeded()
-    guard let detail = detailVC(in: vc) else {
-        failures += 1
-        print("FAIL setup: no detail child after drilling in")
-        return
+        var lastVariables = [original]
+        vc.onChange = { lastVariables = $0 }
+
+        rowViews(in: listView(in: vc))[0].onClick?()
+        vc.view.layoutSubtreeIfNeeded()
+        guard let detail = detailVC(in: vc) else { return nil }
+
+        let field = nameField(in: detail)
+        field.stringValue = "renamed"
+        detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        // Deliberately touches no settle point of its own before the switch.
+
+        if settleFirst { vc.settlePendingEdit() }
+
+        // A genuinely different tab's own array — a fresh variable, a
+        // different id — never the same row handed back.
+        let incoming = QueryVariable(name: "unrelated", value: "v2", type: .literal)
+        vc.setVariables([incoming], referenced: [])
+
+        return lastVariables.first { $0.id == original.id }?.name
     }
 
-    let field = nameField(in: detail)
-    field.stringValue = "renamed"
-    detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    // Deliberately touches no settle point — no back, no Enter, no focus
-    // change, no type change — before the tab switch.
-
-    vc.setVariables([original], referenced: [])
-
-    let after = vc.variables.first { $0.id == original.id }
-    expectEqual(after?.name ?? "<missing>", "renamed", "a valid typed name survives a tab switch mid-edit")
+    expectEqual(
+        rename(settleFirst: false) ?? "<missing>", "original",
+        "setVariables alone, without settling first, loses the rename: onChange never fires for it, "
+            + "so the outgoing tab's stored variables would keep the pre-edit name")
+    expectEqual(
+        rename(settleFirst: true) ?? "<missing>", "renamed",
+        "settlePendingEdit(), called before setVariables, preserves the rename")
 }
 
 /// The ordering consequence of settling before the prune check: a freshly

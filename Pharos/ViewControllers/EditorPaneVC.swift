@@ -330,6 +330,15 @@ class EditorPaneVC: NSViewController {
         // Detect active tab change
         if pane.activeTabId != lastActiveTabId {
             let oldTabId = lastActiveTabId
+            // Settle any pending variable-name edit in the OUTGOING tab's
+            // panel *before* `lastActiveTabId` moves on to the new tab. This
+            // has to happen here, not inside `setVariables` (called below,
+            // via `tabChanged` -> `syncVariablesPanel`): by the time that
+            // runs, `lastActiveTabId` already points at the incoming tab, so
+            // a settle triggered from in there would have `variablesDidChange`
+            // write the outgoing tab's rename into the incoming tab's stored
+            // variables instead — see `QueryVariablesPanelVC.settlePendingEdit`.
+            variablesPanelVC.settlePendingEdit()
             lastActiveTabId = pane.activeTabId
             tabChanged(from: oldTabId, to: pane.activeTabId)
             delegate?.editorPane(self, didChangeActiveTab: pane.activeTabId)
@@ -1090,6 +1099,7 @@ class EditorPaneVC: NSViewController {
             NotificationCenter.default.removeObserver(observer)
         }
         NotificationCenter.default.removeObserver(self)
+        referencedNamesScanTimer?.invalidate()
     }
 }
 
