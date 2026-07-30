@@ -23,6 +23,27 @@ final class VariableDetailVC: NSViewController {
     private let valueTextView = VariableValueTextView()
     private let scrollView = NSScrollView()
     private let captionLabel = NSTextField(labelWithString: "")
+    /// Stands in for `editorContainer`/`captionLabel` when `variable.type ==
+    /// .bool` — a free-text editor is the wrong control for a value that is
+    /// only ever one of three things. Segments are `True` / `False` / `NULL`,
+    /// in that fixed order (index 0 / 1 / 2), matching `boolSegmentIndex(for:)`
+    /// below.
+    private let valueChoiceControl = NSSegmentedControl(
+        labels: ["True", "False", "NULL"], trackingMode: .selectOne, target: nil, action: nil)
+    /// Plain, size-less wrapper that takes `editorContainer`'s place in
+    /// `body`'s arranged-subview list. `valueChoiceControl` itself carries a
+    /// fixed intrinsic size (an `NSContentSizeLayoutConstraint` at the same
+    /// priority NSStackView uses for its own arranged-subview edge ties) —
+    /// measured directly: putting the control straight into the stack and
+    /// only tuning its hugging priority still leaves `hasAmbiguousLayout`
+    /// true, because the tie is over horizontal *position*, not size, and no
+    /// hugging value fixes that. Wrapping it — the same trick
+    /// `editorContainer` already uses for the text editor — sidesteps the
+    /// problem instead of fighting it: the wrapper has no intrinsic size of
+    /// its own, so it stretches to fill the leftover space exactly as
+    /// `editorContainer` does, unambiguously, and the control sits inside it
+    /// at its natural size, positioned by ordinary constraints.
+    private let valueChoiceContainer = NSView()
     /// Duplicate-name note, hidden unless this variable shares its name with
     /// another row. Sits directly under the header so it reads as a comment on
     /// the name field above it.
@@ -79,6 +100,28 @@ final class VariableDetailVC: NSViewController {
         typePopup.refusesFirstResponder = true
         typePopup.target = self
         typePopup.action = #selector(typeChanged)
+
+        valueChoiceControl.controlSize = .small
+        valueChoiceControl.font = .systemFont(ofSize: 10)
+        // Kept out of the key-view loop for the same reason as `typePopup`
+        // just above: Tab should move name → value editor without landing on
+        // a popup/segmented control in between. This matters even more here,
+        // since when the type is `.bool` this control IS the value editor —
+        // without `refusesFirstResponder` it would be the one place Tab could
+        // strand focus with no text control to land on.
+        valueChoiceControl.refusesFirstResponder = true
+        valueChoiceControl.target = self
+        valueChoiceControl.action = #selector(valueChoiceChanged)
+
+        valueChoiceControl.translatesAutoresizingMaskIntoConstraints = false
+        valueChoiceContainer.translatesAutoresizingMaskIntoConstraints = false
+        valueChoiceContainer.addSubview(valueChoiceControl)
+        NSLayoutConstraint.activate([
+            valueChoiceControl.topAnchor.constraint(equalTo: valueChoiceContainer.topAnchor),
+            valueChoiceControl.leadingAnchor.constraint(equalTo: valueChoiceContainer.leadingAnchor),
+            valueChoiceControl.trailingAnchor.constraint(
+                lessThanOrEqualTo: valueChoiceContainer.trailingAnchor),
+        ])
 
         let deleteButton = NSButton()
         deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete variable")
@@ -172,12 +215,44 @@ final class VariableDetailVC: NSViewController {
         // duplication note is usually absent and a stack collapses hidden
         // arranged subviews instead of leaving a gap where it would have been.
         // `editorContainer` hugs loosely so it absorbs the remaining height.
-        let body = NSStackView(views: [duplicationLabel, editorContainer, captionLabel])
+        // `valueChoiceContainer` sits last, after `captionLabel`: it and
+        // `editorContainer`/`captionLabel` are never visible at the same
+        // time (see `applyValueControlVisibility`), so its position doesn't
+        // create any visual overlap, and appending it here leaves the
+        // existing three arranged-subview indices the test harness already
+        // relies on (`duplicationLabel`@0, `editorContainer`@1,
+        // `captionLabel`@2) untouched.
+        let body = NSStackView(views: [duplicationLabel, editorContainer, captionLabel, valueChoiceContainer])
         body.orientation = .vertical
         body.alignment = .width
         body.spacing = 5
         body.translatesAutoresizingMaskIntoConstraints = false
         editorContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
+        // Same reason, same mechanism: a plain, size-less wrapper absorbs
+        // the leftover height unambiguously when it's the only visible
+        // arranged subview (the Bool case, absent a duplication note).
+        valueChoiceContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
+
+        // Measured directly: switching types hides whichever of
+        // `editorContainer` / `valueChoiceContainer` isn't current, and a
+        // *hidden*, size-less `NSView` (neither one has an intrinsic content
+        // size) sitting next to a sibling that IS absorbing the stack's
+        // leftover space comes back `hasAmbiguousLayout == true` — reproduced
+        // in isolation with a two-view stack with no other differences, so
+        // this is an NSStackView/NSView interaction, not something specific
+        // to either view here. It renders at zero size with no visual or
+        // hit-testing consequence either way, but a lowest-priority
+        // zero-size fallback on both gives the hidden one something
+        // determinate to resolve to instead of nothing, which resolves it —
+        // confirmed by removing either pair below and watching the
+        // corresponding "no ambiguous layout" assertion fail.
+        for view in [editorContainer, valueChoiceContainer] {
+            let fallbackWidth = view.widthAnchor.constraint(equalToConstant: 0)
+            let fallbackHeight = view.heightAnchor.constraint(equalToConstant: 0)
+            fallbackWidth.priority = NSLayoutConstraint.Priority(rawValue: 1)
+            fallbackHeight.priority = NSLayoutConstraint.Priority(rawValue: 1)
+            NSLayoutConstraint.activate([fallbackWidth, fallbackHeight])
+        }
 
         container.addSubview(header)
         container.addSubview(headerSeparator)
@@ -197,6 +272,8 @@ final class VariableDetailVC: NSViewController {
             body.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
             body.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
         ])
+
+        applyValueControlVisibility()
     }
 
     override func viewDidLayout() {
@@ -254,11 +331,77 @@ final class VariableDetailVC: NSViewController {
         let index = typePopup.indexOfSelectedItem
         guard index >= 0, index < VariableType.allCases.count else { return }
         variable.type = VariableType.allCases[index]
+        applyValueControlVisibility()
+        onChange?(variable)
+    }
+
+    @objc private func valueChoiceChanged() {
+        let canonical: String
+        switch valueChoiceControl.selectedSegment {
+        case 0: canonical = "true"
+        case 1: canonical = "false"
+        case 2: canonical = "NULL"
+        default: return  // trackingMode is .selectOne; a real click always lands on 0/1/2.
+        }
+        variable.value = canonical
         onChange?(variable)
     }
 
     /// Escape with neither text control focused (e.g. straight after the slide).
     override func cancelOperation(_ sender: Any?) { onBack?() }
+
+    // MARK: - Value control switching
+
+    /// Same three sets `VariableSubstitutor.format`'s `.bool` branch matches
+    /// against (that method and its sets are private to the substitutor, so
+    /// they're restated here rather than shared — kept in sync by hand).
+    private static let boolTrueValues: Set<String> = ["true", "t", "1", "yes", "y"]
+    private static let boolFalseValues: Set<String> = ["false", "f", "0", "no", "n"]
+    private static let boolNullValues: Set<String> = ["null"]
+
+    /// Maps a stored value to a segment index using the exact same
+    /// case-insensitive, trimmed matching the substitutor performs. Returns
+    /// `nil` — no segment selected — for anything that matches none of the
+    /// three sets, including `""` and leftovers like `"abc"` from a value
+    /// typed while the type was `.text`. Never guesses a default: an
+    /// unmatched value must leave the control looking exactly as unresolved
+    /// as `problem(for:)`'s red badge says it is.
+    private static func boolSegmentIndex(for value: String) -> Int? {
+        let key = value.trimmingCharacters(in: .whitespaces).lowercased()
+        if boolTrueValues.contains(key) { return 0 }
+        if boolFalseValues.contains(key) { return 1 }
+        if boolNullValues.contains(key) { return 2 }
+        return nil
+    }
+
+    /// Shows the value editor that matches `variable.type` — the free-text
+    /// editor for everything else, the True/False/NULL choice for `.bool` —
+    /// and hides the other. `body` is a stack, so hiding either side
+    /// collapses it rather than leaving a gap (same mechanism the
+    /// duplication note already relies on).
+    ///
+    /// Also keeps whichever control is *becoming* hidden's content in sync
+    /// with `variable.value` before it goes: switching type never clears or
+    /// otherwise mutates the value (`"true"` is a perfectly good `Literal`),
+    /// but each control only actively tracks `variable.value` while it is the
+    /// one visible, so the other one needs a one-time refresh on the way in.
+    private func applyValueControlVisibility() {
+        let isBool = variable.type == .bool
+        editorContainer.isHidden = isBool
+        captionLabel.isHidden = isBool
+        valueChoiceContainer.isHidden = !isBool
+
+        if isBool {
+            if let index = Self.boolSegmentIndex(for: variable.value) {
+                valueChoiceControl.selectedSegment = index
+            } else {
+                valueChoiceControl.selectedSegment = -1
+            }
+        } else {
+            valueTextView.string = variable.value
+            captionLabel.stringValue = VariableValuePreview.caption(for: variable.value)
+        }
+    }
 }
 
 extension VariableDetailVC: NSTextFieldDelegate {
