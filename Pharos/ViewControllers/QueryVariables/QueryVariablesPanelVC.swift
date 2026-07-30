@@ -146,7 +146,37 @@ final class QueryVariablesPanelVC: NSViewController {
 
     // MARK: - Level swap
 
+    /// Re-entrancy guard. `VariableRowView.mouseUp` fires `onClick` on every
+    /// `mouseUp`, including the second one in a double-click — it does not
+    /// check `clickCount` — and `push` only sets `listView.isHidden = true`
+    /// inside its animation completion handler, up to `slideDuration` (180ms)
+    /// later; until then the list is still visible and hit-testable. Without
+    /// this guard, the second click's `drillIn` call would add a SECOND
+    /// `VariableDetailVC` as a child and a second view into `contentArea`
+    /// while the first is still there, overwriting `detailVC` to point at
+    /// the second and orphaning the first: `pop` only ever removes the one
+    /// view it is handed, so the first, orphaned child never gets
+    /// `removeFromParent()`'d or has its view removed. It sits on top of the
+    /// list (added to `contentArea` after `listView`, so it draws above it)
+    /// and its Back button still hit-tests — but the closure it fires is
+    /// `{ self?.dismissDetail(...) }`, which acts on whichever child
+    /// `detailVC` *currently* references (the second one, not itself), so
+    /// clicking it dismisses the wrong child and leaves `detailVC` nil with
+    /// the orphan still on screen; every interaction after that (another
+    /// click on the orphan's own Back, or a tab switch) hits
+    /// `dismissDetail`'s `detailVC == nil` early return and does nothing.
+    ///
+    /// Also gates on `!isAnimating`, not just `detailVC == nil`, to close a
+    /// second, narrower window: `dismissDetail` sets `detailVC = nil`
+    /// *before* `pop`'s animation runs, so for the ~180ms the list is
+    /// sliding back into view after Back, `detailVC` is already nil while a
+    /// transition is still structurally in flight. `viewDidLayout` already
+    /// treats `isAnimating` as "no structural frame changes right now" for
+    /// exactly this reason; a `drillIn` landing mid-pop would add a child and
+    /// push a new animation on top of one whose completion handler hasn't
+    /// run yet, racing which one's `isAnimating = false` wins.
     private func drillIn(to id: UUID) {
+        guard detailVC == nil, !isAnimating else { return }
         guard let variable = variables.first(where: { $0.id == id }) else { return }
 
         let detail = VariableDetailVC(variable: variable)

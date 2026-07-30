@@ -485,6 +485,57 @@ private func testContentAreaClipsAndFinalFramesUnchanged() {
         "list view fills contentArea's bounds again after back (non-animated)")
 }
 
+/// C1: a double-click on a row must not drill in twice. `VariableRowView
+/// .mouseUp` does not check `clickCount`, and `push` only hides `listView`
+/// inside its animation completion handler — up to `slideDuration` (180ms)
+/// later — so for that whole window the list stays visible and
+/// hit-testable, and a second `mouseUp` (the second half of a double-click)
+/// reaches `onClick` again.
+///
+/// Requires the ANIMATED path specifically. `makeHostedPanel` forces
+/// `animatesLevelTransitions = false` for every other test in this file so
+/// their assertions can read final frames synchronously — but that seam
+/// closes exactly the window this bug lives in: with animation off, `push`
+/// hides `listView` immediately (its early-return branch), so a same-tick
+/// second click never reaches a hit-testable row at all, and the bug is
+/// invisible. This test re-enables animation explicitly. The harness never
+/// spins a run loop, so the animation's completion handler (what the
+/// production 180ms window stands in for here) simply never runs between
+/// the two synchronous `onClick?()` calls below — a deterministic stand-in
+/// for "mid-animation" that doesn't need to race an actual timer.
+private func testDoubleClickOnRowDoesNotDrillInTwice() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    vc.animatesLevelTransitions = true
+    vc.setVariables(makeVariables(2), referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    let row = rowViews(in: listView(in: vc))[0]
+    row.onClick?()
+    row.onClick?()  // the second half of a double-click, same tick — no run loop in between
+
+    // `detailVC(in:)` uses `.compactMap { … }.first`, which would report
+    // exactly one child even if a second, orphaned one were also present —
+    // asserting `children.count` directly is what actually catches it.
+    expectTrue(
+        vc.children.count == 1,
+        "a double-click adds exactly one detail child, not two (got \(vc.children.count))")
+    expectTrue(
+        contentArea(in: vc).subviews.count == 2,
+        "contentArea holds exactly listView + one detail view after a double-click "
+            + "(got \(contentArea(in: vc).subviews.count))")
+
+    // Recovery: with only ever one child to dismiss, back is unconditionally
+    // reachable — no orphan sitting on top capturing clicks that dismiss the
+    // wrong (or no) child.
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after the double-click")
+        return
+    }
+    triggerAction(of: backButton(in: detail))
+    expectTrue(vc.children.count == 0, "back recovers cleanly: no detail child remains")
+}
+
 /// Defect 2, end to end through the real panel: the detail level cannot see
 /// its own siblings, so the panel must supply the comparison set on drill-in
 /// — excluding this row's own name and any empty-named rows — and a typed
@@ -657,6 +708,7 @@ func runTests() {
     testPlusAppendsFiresOnChangeAndDrillsIn()
     testDeleteViaListContextMenuLeavesListShowing()
     testContentAreaClipsAndFinalFramesUnchanged()
+    testDoubleClickOnRowDoesNotDrillInTwice()
     testPanelSuppliesOtherNamesAndRefusesCollidingRename()
     testTabSwitchMidCollisionTypingDoesNotCommitPrefix()
     testValidRenameSurvivesTabSwitch()
