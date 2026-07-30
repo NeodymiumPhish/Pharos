@@ -516,6 +516,64 @@ private func testPanelSuppliesOtherNamesAndRefusesCollidingRename() {
     expectEqual(vc.variables[1].name, "var1", "a rename colliding with a sibling never reaches vc.variables")
 }
 
+/// The regression commit-on-settle exists to close, at the door that
+/// actually got hit. Renaming an existing "seed_list" by typing a second
+/// "seed_list" walks the field through every prefix on the way there —
+/// each one unique on its own. Under a per-keystroke-commit rule, every one
+/// of those prefixes really did reach `vc.onChange` (what the real app
+/// persists to a tab's stored variables) before the final, colliding
+/// keystroke was ever reached — so switching tabs mid-edit, which calls
+/// `setVariables` directly and never goes through `VariableDetailVC`'s
+/// settle points at all, left the variable renamed to whatever prefix was
+/// typed last. `attemptBack` refusing to leave while colliding (the
+/// previous fix) does not touch this path, because no door in
+/// `VariableDetailVC` is involved — the panel replaces the whole array out
+/// from under it. Commit-on-settle closes it anyway, by leaving nothing
+/// intermediate to have ever reached `vc.onChange` in the first place.
+private func testTabSwitchMidCollisionTypingDoesNotCommitPrefix() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    let seedList = QueryVariable(name: "seed_list", value: "v0", type: .literal)
+    let other = QueryVariable(name: "other", value: "v1", type: .literal)
+    vc.setVariables([seedList, other], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    var lastVariables = [seedList, other]
+    vc.onChange = { lastVariables = $0 }
+
+    rowViews(in: listView(in: vc))[1].onClick?()  // drill into "other"
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after drilling in")
+        return
+    }
+
+    let field = nameField(in: detail)
+    for prefix in ["s", "se", "see", "seed", "seed_", "seed_l", "seed_li", "seed_lis", "seed_list"] {
+        field.stringValue = prefix
+        detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+
+    // Nothing has settled — no back, no Enter, no focus change, no type
+    // change — so nothing about "other" should have reached vc.onChange
+    // (what the real app persists to a tab's stored variables) at all.
+    let midTyping = lastVariables.first { $0.id == other.id }
+    expectTrue(
+        midTyping?.name == "other",
+        "mid-typing, before any settle point, the row's committed name is still \"other\" "
+            + "(got \(midTyping?.name ?? "<missing>"))")
+
+    // The tab switch itself: the panel is handed a fresh variable set, as
+    // ContentViewController does when the user switches tabs, discarding
+    // whatever the in-progress edit was.
+    vc.setVariables([seedList, other], referenced: [])
+
+    let afterSwitch = vc.variables.first { $0.id == other.id }
+    expectTrue(afterSwitch?.name == "other", "after the tab switch, the row is still named \"other\"")
+    expectTrue(afterSwitch?.name != "seed_lis", "the row's name is never the mangled prefix \"seed_lis\"")
+    expectTrue(afterSwitch?.name != "seed_list", "the row's name never silently becomes the colliding \"seed_list\"")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -532,6 +590,7 @@ func runTests() {
     testDeleteViaListContextMenuLeavesListShowing()
     testContentAreaClipsAndFinalFramesUnchanged()
     testPanelSuppliesOtherNamesAndRefusesCollidingRename()
+    testTabSwitchMidCollisionTypingDoesNotCommitPrefix()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

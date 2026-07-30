@@ -745,24 +745,102 @@ private func testCollidingNameShowsInlineErrorAndRedTint() {
     expectTrue(duplicationLabel(in: vc).textColor == .systemRed, "the inline error is red")
 }
 
-/// A unique (non-colliding) name is accepted normally: written to the model,
-/// with `onChange` firing for it, and any prior collision UI clearing.
-private func testUniqueNameAcceptedNormally() {
+/// A unique (non-colliding) typed name updates the live UI immediately —
+/// normal colour, no inline error — but is NOT written to the model, and
+/// fires no `onChange`, while it is still just typed. Commit is deferred to
+/// a settle point (see `testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint`
+/// below for the commit side of this): mirrors
+/// `testCollidingNameNeverReachesModelOrFiresOnChange` in that neither a
+/// colliding nor a non-colliding keystroke reaches the model by itself.
+private func testUniqueNameNotCommittedUntilSettle() {
     let variable = QueryVariable(name: "original", value: "v", type: .literal)
     let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
     vc.otherNames = ["ip"]
 
-    var lastValue: String?
-    vc.onChange = { lastValue = $0.name }
+    var changeCount = 0
+    vc.onChange = { _ in changeCount += 1 }
 
     let field = nameField(in: vc)
     field.stringValue = "hostname"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
 
-    expectEqual(vc.variable.name, "hostname", "a unique name is written to variable.name")
-    expectEqual(lastValue ?? "<no onChange fired>", "hostname", "onChange fires with the unique name")
-    expectTrue(field.textColor == .systemIndigo, "the name field returns to its normal colour")
-    expectTrue(duplicationLabel(in: vc).isHidden, "the inline error is hidden once the name is unique")
+    expectEqual(vc.variable.name, "original", "a unique typed name is not written to variable.name while still just typed")
+    expectTrue(changeCount == 0, "no onChange fires for typing alone, even when the typed name is unique (got \(changeCount))")
+    expectTrue(field.textColor == .systemIndigo, "the name field shows its normal colour for a non-colliding name")
+    expectTrue(duplicationLabel(in: vc).isHidden, "no inline error for a non-colliding name")
+}
+
+/// Commit-on-settle, end to end, at each of the four settle points: typing
+/// a unique name never commits it, and reaching exactly one settle point
+/// commits it exactly once, with the final value.
+private func testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint() {
+    // `expectedChangeCount` is 1 for every settle point except the type
+    // popup, which is two logically separate edits landing in the same
+    // gesture: `typeChanged` commits the deferred name (one `onChange`),
+    // then applies the type change itself (a second, independent
+    // `onChange` — the same call it always made, with or without a pending
+    // name). Two calls for two edits is not the per-keystroke-commit bug
+    // this suite guards against; only a *name* commit firing more than
+    // once per edit would be.
+    func run(_ label: String, expectedChangeCount: Int = 1, settle: (VariableDetailVC) -> Void) {
+        let variable = QueryVariable(name: "original", value: "v", type: .literal)
+        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+        vc.otherNames = ["ip"]
+
+        var changeCount = 0
+        var lastName: String?
+        vc.onChange = { changeCount += 1; lastName = $0.name }
+
+        let field = nameField(in: vc)
+        for prefix in ["h", "ho", "hos", "host", "hostname"] {
+            field.stringValue = prefix
+            vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        }
+        expectTrue(changeCount == 0, "\(label): no onChange fires while typing (got \(changeCount))")
+        expectEqual(vc.variable.name, "original", "\(label): the model is unchanged while still just typed")
+
+        settle(vc)
+
+        expectTrue(
+            changeCount == expectedChangeCount,
+            "\(label): settling commits the name exactly once (expected \(expectedChangeCount) onChange call(s), "
+                + "got \(changeCount))")
+        expectEqual(lastName ?? "<no onChange fired>", "hostname", "\(label): the committed name is the final typed value")
+    }
+
+    run("back") { vc in triggerAction(of: backButton(in: vc)) }
+    run("Enter") { vc in
+        _ = vc.control(
+            nameField(in: vc), textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+    }
+    run("losing first responder") { vc in
+        vc.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: nameField(in: vc)))
+    }
+    run("type change via popup", expectedChangeCount: 2) { vc in
+        let popup = typePopup(in: vc)
+        let textIndex = VariableType.allCases.firstIndex(of: .text)!
+        popup.selectItem(at: textIndex)
+        triggerAction(of: popup)
+    }
+}
+
+/// The new invariant commit-on-settle exists to guarantee: for as long as
+/// the user is just typing — before any settle point — the model's name is
+/// exactly what it was before this edit began, at every intermediate
+/// prefix, not just the final one.
+private func testModelNameUnchangedWhileTypingUntilSettle() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    for prefix in ["h", "ho", "hos", "host", "hostname"] {
+        field.stringValue = prefix
+        vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        expectEqual(
+            vc.variable.name, "original",
+            "the model name stays \"original\" mid-typing at prefix \(prefix.debugDescription)")
+    }
 }
 
 /// While the field collides, the back button must do nothing except keep
@@ -830,13 +908,14 @@ private func testBackSucceedsOnceUnique() {
 
     field.stringValue = "ip2"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectEqual(vc.variable.name, "ip2", "setup: the field is unique and committed again")
+    expectEqual(vc.variable.name, "original", "setup: the unique extension is not committed until a settle point")
 
     var backFired = false
     vc.onBack = { backFired = true }
     triggerAction(of: backButton(in: vc))
 
     expectTrue(backFired, "back navigates normally once the field is unique again")
+    expectEqual(vc.variable.name, "ip2", "back commits the unique name on the way out")
 }
 
 /// Delete must still work while the field collides — it is the only
@@ -883,19 +962,22 @@ private func testSeedListPrefixWalkNeverMangledOnBack() {
     for prefix in ["s", "se", "see", "seed", "seed_", "seed_l", "seed_li", "seed_lis", "seed_list"] {
         field.stringValue = prefix
         vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        expectEqual(
+            vc.variable.name, "",
+            "the model's name is unchanged mid-walk at prefix \(prefix.debugDescription) — nothing "
+                + "intermediate is ever committed, not even \"seed_lis\"")
     }
-    expectEqual(
-        vc.variable.name, "seed_lis",
-        "setup: the last non-colliding prefix is still the committed name while \"seed_list\" collides")
 
     triggerAction(of: backButton(in: vc))
     expectTrue(!backFired, "back is refused while the final keystroke collides")
     expectEqual(
         field.stringValue, "seed_list",
         "the field is not reverted by the refused back — it still shows exactly what was typed")
+    expectEqual(vc.variable.name, "", "the model still has its pre-edit name after a refused back")
 
     field.stringValue = "seed_list2"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectEqual(vc.variable.name, "", "the unique extension is not committed until the next settle point")
 
     triggerAction(of: backButton(in: vc))
     expectTrue(backFired, "back succeeds once the field is extended to a unique name")
@@ -908,7 +990,7 @@ private func testSeedListPrefixWalkNeverMangledOnBack() {
 /// An empty (trimmed) name never collides with anything, including another
 /// empty name — two freshly added rows are not duplicates of each other.
 private func testEmptyNameNeverCollides() {
-    let variable = QueryVariable(name: "", value: "", type: .literal)
+    let variable = QueryVariable(name: "x", value: "", type: .literal)
     let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
     // Deliberately includes "" — the panel is documented to exclude empty
     // names from what it supplies, but the VC's own check must not depend on
@@ -917,15 +999,21 @@ private func testEmptyNameNeverCollides() {
     vc.otherNames = [""]
 
     var changeCount = 0
-    vc.onChange = { _ in changeCount += 1 }
+    var lastName: String?
+    vc.onChange = { changeCount += 1; lastName = $0.name }
 
     let field = nameField(in: vc)
     field.stringValue = ""
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
 
-    expectEqual(vc.variable.name, "", "empty name is accepted, not refused, even against another empty name")
-    expectTrue(changeCount == 1, "empty name still fires onChange normally (got \(changeCount))")
     expectTrue(duplicationLabel(in: vc).isHidden, "no collision note for an empty name")
+    expectTrue(changeCount == 0, "clearing to an empty name does not commit while still just typed (got \(changeCount))")
+    expectEqual(vc.variable.name, "x", "the model is unchanged mid-typing")
+
+    triggerAction(of: backButton(in: vc))
+
+    expectTrue(changeCount == 1, "settling commits the empty name exactly once (got \(changeCount))")
+    expectEqual(lastName ?? "<no onChange fired>", "", "the committed name is empty, as typed, even against another empty name")
 }
 
 /// Matching is case-sensitive: `{{IP}}` and `{{ip}}` are different tokens to
@@ -936,14 +1024,20 @@ private func testCaseDifferenceDoesNotCollide() {
     vc.otherNames = ["ip"]
 
     var changeCount = 0
-    vc.onChange = { _ in changeCount += 1 }
+    var lastName: String?
+    vc.onChange = { changeCount += 1; lastName = $0.name }
 
     let field = nameField(in: vc)
     field.stringValue = "IP"
     vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
 
-    expectEqual(vc.variable.name, "IP", "a case-different name is accepted, not treated as a collision")
-    expectTrue(changeCount == 1, "onChange fires for the accepted case-different name (got \(changeCount))")
+    expectTrue(field.textColor == .systemIndigo, "a case-different name is not treated as a collision")
+    expectTrue(changeCount == 0, "a case-different (non-colliding) name does not commit while still just typed (got \(changeCount))")
+
+    triggerAction(of: backButton(in: vc))
+
+    expectTrue(changeCount == 1, "settling commits the case-different name exactly once (got \(changeCount))")
+    expectEqual(lastName ?? "<no onChange fired>", "IP", "the committed name is exactly what was typed, case preserved")
 }
 
 /// The layout-shift bug the note exposed: the editor's frame must move in
@@ -1220,7 +1314,9 @@ func runTests() {
 
     testCollidingNameNeverReachesModelOrFiresOnChange()
     testCollidingNameShowsInlineErrorAndRedTint()
-    testUniqueNameAcceptedNormally()
+    testUniqueNameNotCommittedUntilSettle()
+    testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint()
+    testModelNameUnchangedWhileTypingUntilSettle()
     testBackRefusedWhileColliding()
     testEscapeRefusedWhileColliding()
     testBackSucceedsOnceUnique()

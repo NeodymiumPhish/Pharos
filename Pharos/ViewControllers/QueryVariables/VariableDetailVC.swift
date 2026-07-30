@@ -4,6 +4,15 @@ import AppKit
 /// level is read-only, so this is the only place a name, type, or value is
 /// edited. Edits apply live (as the panel has always behaved) — there is no
 /// save/cancel model, and therefore no way to lose work by navigating back.
+///
+/// The name field is the one deliberate exception to "live": see the note at
+/// `controlTextDidChange` and `commitNameIfValid` for why. Every other
+/// control here — the type popup, the value editor, the Bool choice — still
+/// writes straight through to `variable` and fires `onChange` on every
+/// change, exactly as the class comment above describes. The name alone
+/// defers its write to a handful of explicit "settle" points, because it is
+/// the one field with a uniqueness constraint another row can violate one
+/// keystroke at a time.
 final class VariableDetailVC: NSViewController {
 
     /// Fired on every keystroke / type change with the updated variable.
@@ -334,6 +343,11 @@ final class VariableDetailVC: NSViewController {
     @objc private func deleteTapped() { onDelete?() }
 
     @objc private func typeChanged() {
+        // A type change is a settle point (see `commitNameIfValid`): the user
+        // has moved on to a different control, so whatever the name field
+        // currently shows either commits now or never will via this
+        // interaction.
+        commitNameIfValid()
         let index = typePopup.indexOfSelectedItem
         guard index >= 0, index < VariableType.allCases.count else { return }
         variable.type = VariableType.allCases[index]
@@ -421,27 +435,70 @@ final class VariableDetailVC: NSViewController {
     /// button, Escape via `cancelOperation` with no text control focused, and
     /// Escape while the name field specifically has focus (the delegate
     /// below). While the field's displayed text collides with another
-    /// variable's name, leaving is refused outright rather than reverted.
+    /// variable's name, leaving is refused outright — kept from the previous
+    /// fix; see `commitNameIfValid` for the deeper problem that fix alone
+    /// didn't close. Otherwise, this is a settle point: commit whatever the
+    /// field currently shows before actually leaving.
     ///
-    /// Reverting looks safe — a colliding name was never written to the
-    /// model, so nothing about `variable` needs undoing — but it silently
-    /// mangles input the collision refusal was never meant to touch: renaming
-    /// an existing "seed_list" by typing a second "seed_list" and continuing
-    /// walks the field through "s", "se", …, "seed_lis" (all accepted, since
-    /// none of them collide) before the final keystroke collides — and a
-    /// revert at that point commits "seed_lis", a name the user never typed
-    /// and does not recognize. Refusing to leave instead keeps the field, the
-    /// message, and focus exactly where the user left them, so continuing to
-    /// type (e.g. on to "seed_list2") is still the way through — the only two
-    /// ways off this screen while colliding are fixing the name or deleting
-    /// the variable outright (`deleteTapped` is intentionally not gated on
-    /// `isNameCollision` at all).
+    /// (History, for whoever finds `git blame` pointing here: this used to
+    /// *revert* the field to the variable's last valid name instead of
+    /// refusing to leave. That looked safe — a colliding name was never
+    /// written to the model — but it mangled input the refusal was never
+    /// meant to touch: renaming an existing "seed_list" by typing a second
+    /// "seed_list" walks the field through "s", "se", …, "seed_lis" on the
+    /// way there, and a revert right after the final, colliding keystroke
+    /// committed "seed_lis" — a name the user never typed. Refusing instead
+    /// of reverting fixed *that* symptom, but not the underlying cause: see
+    /// `commitNameIfValid` for why the real fix is one level up.)
     private func attemptBack() {
         guard !isNameCollision else {
             view.window?.makeFirstResponder(nameField)
             return
         }
+        commitNameIfValid()
         onBack?()
+    }
+
+    /// Commits whatever the name field currently displays to `variable.name`
+    /// — but only here, at a deliberate "settle" point, never as a direct
+    /// side effect of a keystroke. `controlTextDidChange` below updates the
+    /// live collision signal (red tint, inline message) on every keystroke,
+    /// but does not write through to the model or fire `onChange` itself.
+    ///
+    /// This is the fix one level up from simply refusing to leave while
+    /// colliding. Every *individual* prefix typed on the way to a colliding
+    /// name is, on its own, unique — typing "seed_list" against an existing
+    /// "seed_list" passes through "s", "se", …, "seed_lis", none of which
+    /// collide. Committing per keystroke (as every other control in this
+    /// view does, and as this one used to) means each of those prefixes
+    /// really was written to the model and really did fire `onChange` before
+    /// the final, colliding keystroke was ever reached — so any path that
+    /// doesn't go through `attemptBack` (switching tabs mid-edit is the one
+    /// that was actually hit) leaves the variable renamed to whatever prefix
+    /// was typed last, with no collision ever having been visibly refused.
+    /// Refusing to leave via `attemptBack` closes that one door; it does not
+    /// stop the leak, because the leak already happened by the time
+    /// `attemptBack` runs.
+    ///
+    /// Deferring the write to a handful of explicit settle points — this,
+    /// Enter, losing first responder, and a type change (see
+    /// `controlTextDidEndEditing` and `typeChanged`) — means there is
+    /// nothing intermediate to commit in the first place: mid-typing, the
+    /// model still has whatever name the variable had before this edit
+    /// began, through every door, known or not.
+    ///
+    /// Guards against firing a no-op `onChange` when a settle point is
+    /// reached without the name actually having changed (e.g. back pressed
+    /// right after opening the detail level), and against firing twice for
+    /// the same edit when more than one settle signal fires for it — Enter
+    /// typically also ends editing, so both call this, but the second call
+    /// finds `typed == variable.name` already and does nothing.
+    private func commitNameIfValid() {
+        guard !isNameCollision else { return }
+        let typed = nameField.stringValue
+        guard typed != variable.name else { return }
+        variable.name = typed
+        onChange?(variable)
     }
 
     // MARK: - Value control switching
@@ -495,42 +552,53 @@ final class VariableDetailVC: NSViewController {
 }
 
 extension VariableDetailVC: NSTextFieldDelegate {
-    /// While the trimmed typed name exactly (case-sensitively) matches
-    /// another variable's trimmed name, the edit is refused outright: it is
-    /// never written to `variable.name`, and `onChange` never fires for it.
-    /// The field itself is left showing exactly what was typed — the point is
-    /// to stop a duplicate from ever reaching the model, not to fight the
-    /// user's typing — with the collision explained inline instead (see
-    /// `updateDuplicationDisplay`). An empty trimmed name never collides,
-    /// including with another empty name: two freshly added rows are not
-    /// duplicates of each other.
+    /// Updates the live collision signal — red tint, inline message — on
+    /// every keystroke. Deliberately does NOT write to `variable.name` or
+    /// fire `onChange` here, unlike every other control in this view: see
+    /// `commitNameIfValid` for why the name field alone defers its actual
+    /// commit to a handful of settle points instead of applying live.
+    ///
+    /// The collision check itself is unchanged and still runs against the
+    /// field's live content: exact (case-sensitive) match on the trimmed
+    /// text against another variable's trimmed name, with an empty trimmed
+    /// name never colliding — including with another empty name, since two
+    /// freshly added rows are not duplicates of each other.
     func controlTextDidChange(_ obj: Notification) {
-        let typed = nameField.stringValue
-        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard trimmed.isEmpty || !otherNames.contains(trimmed) else {
-            isNameCollision = true
-            updateNameFieldColor()
-            updateDuplicationDisplay()
-            return
-        }
-
-        isNameCollision = false
-        variable.name = typed
+        let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        isNameCollision = !trimmed.isEmpty && otherNames.contains(trimmed)
         updateNameFieldColor()
         updateDuplicationDisplay()
-        onChange?(variable)
     }
 
-    /// Escape while the name field has focus returns to the list — unless the
-    /// field currently collides, in which case `attemptBack` refuses to leave
-    /// (see its doc comment for why reverting instead is the wrong fix).
+    /// Losing first responder is a settle point (see `commitNameIfValid`):
+    /// this fires whenever the name field's editing session ends for any
+    /// reason — Tab, a click elsewhere, or Return (which ends editing on a
+    /// single-line field even when focus doesn't visibly move) — covering
+    /// "the name field losing first responder" on its own. Return is also
+    /// handled explicitly below, so the two can both fire for the same
+    /// keystroke; `commitNameIfValid`'s no-op guard absorbs that safely.
+    func controlTextDidEndEditing(_ obj: Notification) {
+        commitNameIfValid()
+    }
+
+    /// Escape while the name field has focus returns to the list — unless
+    /// the field currently collides, in which case `attemptBack` refuses to
+    /// leave. Return is a settle point in its own right (see
+    /// `commitNameIfValid`): commit if valid and swallow the keystroke
+    /// either way, since this is a single-line field with nowhere for an
+    /// actual newline to go.
     func control(
         _ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector
     ) -> Bool {
-        guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        attemptBack()
-        return true
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            attemptBack()
+            return true
+        }
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            commitNameIfValid()
+            return true
+        }
+        return false
     }
 }
 
