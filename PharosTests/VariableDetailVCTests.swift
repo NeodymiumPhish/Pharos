@@ -879,6 +879,25 @@ private func testCollidingNameShowsInlineErrorAndRedTint() {
         collisionNoticeLabel(in: vc).stringValue, "A variable named \"ip\" already exists. Choose a different name.",
         "the collision notice names the colliding value and instructs the user what to do")
     expectTrue(collisionNoticeLabel(in: vc).textColor == .systemRed, "the collision notice is red")
+    // Centred, and asserted rather than left to `.natural`: this label stands in
+    // for the value editor, so it should read as a notice about the whole area.
+    // The old empty-state label shipped visibly mis-aligned because nothing
+    // pinned its alignment, and that is the bug this line exists to prevent.
+    expectTrue(collisionNoticeLabel(in: vc).alignment == .center, "the collision notice is centred")
+    // Centring only means anything if the label actually spans the slot it is
+    // centred within — a label hugging its text would look centred at one string
+    // length and not another.
+    vc.view.layoutSubtreeIfNeeded()
+    // Compare *alignment* rects, not frames: Auto Layout equates alignment rects,
+    // and a borderless NSTextField insets its by a couple of points, so its frame
+    // legitimately overhangs the container it is pinned to. Measured 284 vs 280.
+    let label = collisionNoticeLabel(in: vc)
+    let slot = collisionNoticeContainer(in: vc)
+    let labelSpan = label.alignmentRect(forFrame: label.frame).width
+    let slotSpan = slot.alignmentRect(forFrame: slot.frame).width
+    expectTrue(
+        labelSpan == slotSpan && slotSpan > 0,
+        "the collision notice label spans its container (\(labelSpan) vs \(slotSpan))")
 
     expectTrue(editorContainer(in: vc).isHidden, "the text editor is hidden while colliding")
     expectTrue(captionLabel(in: vc).isHidden, "the size caption is hidden while colliding")

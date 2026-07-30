@@ -258,6 +258,12 @@ final class VariableDetailVC: NSViewController {
 
         collisionNoticeLabel.font = .systemFont(ofSize: 11)
         collisionNoticeLabel.textColor = .systemRed
+        // Centred, unlike every other label in the panel. This one stands in for
+        // the value editor rather than labelling something beside it, so it reads
+        // as a notice about the whole area rather than as a caption anchored to
+        // the leading edge. Explicit rather than left to `.natural`, which is
+        // where the old empty-state label went wrong.
+        collisionNoticeLabel.alignment = .center
         collisionNoticeLabel.lineBreakMode = .byWordWrapping
         collisionNoticeLabel.maximumNumberOfLines = 0
         collisionNoticeLabel.translatesAutoresizingMaskIntoConstraints = false
