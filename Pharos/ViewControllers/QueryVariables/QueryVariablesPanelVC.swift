@@ -26,13 +26,22 @@ final class QueryVariablesPanelVC: NSViewController {
     private var detailVC: VariableDetailVC?
     private var isAnimating = false
 
-    /// Whether level swaps animate. Defaults to the system's reduce-motion
-    /// setting, matching production behaviour. A headless test harness has no
-    /// way to toggle `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion`,
-    /// so this is an explicit seam: overriding it forces the instant
-    /// (non-animated) path, letting the harness assert final frames
-    /// deterministically instead of racing a 0.18s animation.
-    var animatesLevelTransitions: Bool = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    /// Whether level swaps animate. Consults the system's reduce-motion
+    /// setting fresh on every read — not cached at `init` — so toggling
+    /// System Settings > Accessibility > Reduce Motion while the app is
+    /// running takes effect on the next drill-in/back, rather than needing a
+    /// restart. `animatesLevelTransitionsOverride`, once set, wins
+    /// unconditionally: a headless test harness has no way to toggle the
+    /// real system setting, so this is the explicit seam tests use instead —
+    /// forcing the instant (non-animated) path lets most assertions read
+    /// final frames deterministically instead of racing a 0.18s animation,
+    /// while `testDoubleClickOnRowDoesNotDrillInTwice` forces the opposite
+    /// (leaves it animated) to reach the one bug that only exists in that path.
+    var animatesLevelTransitions: Bool {
+        get { animatesLevelTransitionsOverride ?? !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        set { animatesLevelTransitionsOverride = newValue }
+    }
+    private var animatesLevelTransitionsOverride: Bool?
 
     // MARK: - Input
 

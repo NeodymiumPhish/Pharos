@@ -58,6 +58,12 @@ final class VariableDetailVC: NSViewController {
     /// the name field above it.
     private let duplicationLabel = NSTextField(labelWithString: "")
     private let editorContainer = EditorBackgroundView()
+    /// `NSTextView` has no native placeholder, unlike `nameField`'s
+    /// `placeholderString` above — the old, single-line value field had one
+    /// ("value"), and the spec calls for keeping it, so this stands in:
+    /// shown only while the value editor is empty, positioned to align with
+    /// where typed text would actually start (see `viewDidLayout`).
+    private let valuePlaceholderLabel = NSTextField(labelWithString: "value")
     private var gutter: LineNumberGutter?
 
     init(variable: QueryVariable) {
@@ -210,10 +216,18 @@ final class VariableDetailVC: NSViewController {
         gutterView.onWidthChange = { [weak self] in self?.view.needsLayout = true }
         gutter = gutterView
 
+        valuePlaceholderLabel.font = valueTextView.font
+        valuePlaceholderLabel.textColor = .tertiaryLabelColor
+        valuePlaceholderLabel.isSelectable = false
+        // A label, not the editor, so it must not intercept clicks meant to
+        // focus the (empty) text view underneath it.
+        valuePlaceholderLabel.isEnabled = false
+
         editorContainer.wantsLayer = true
         editorContainer.translatesAutoresizingMaskIntoConstraints = false
         editorContainer.addSubview(gutterView)
         editorContainer.addSubview(scrollView)
+        editorContainer.addSubview(valuePlaceholderLabel)
 
         captionLabel.font = .systemFont(ofSize: 9)
         captionLabel.textColor = .tertiaryLabelColor
@@ -301,6 +315,25 @@ final class VariableDetailVC: NSViewController {
             x: 1 + gutterWidth, y: 1,
             width: max(0, bounds.width - gutterWidth - 2), height: height
         )
+
+        // Aligned with where the first line of typed text would actually
+        // start: `editorContainer` is not flipped, so its visual top is the
+        // larger y, and `valueTextView.textContainerInset` (2, 4) is what
+        // pushes real text 2pt right / 4pt down from that same corner.
+        let placeholderHeight = valuePlaceholderLabel.intrinsicContentSize.height
+        valuePlaceholderLabel.frame = NSRect(
+            x: scrollView.frame.minX + 2,
+            y: scrollView.frame.maxY - 4 - placeholderHeight,
+            width: max(0, scrollView.frame.width - 4),
+            height: placeholderHeight
+        )
+    }
+
+    /// Shown only while the value editor is empty — never at the same time
+    /// as real content, and never while `variable.type == .bool` (the
+    /// choice control has no notion of "empty" the way free text does).
+    private func updateValuePlaceholderVisibility() {
+        valuePlaceholderLabel.isHidden = variable.type == .bool || !valueTextView.string.isEmpty
     }
 
     /// Sibling variables' trimmed, non-empty names (this variable's own name
@@ -597,6 +630,7 @@ final class VariableDetailVC: NSViewController {
             valueTextView.string = variable.value
             captionLabel.stringValue = VariableValuePreview.caption(for: variable.value)
         }
+        updateValuePlaceholderVisibility()
     }
 }
 
@@ -655,6 +689,7 @@ extension VariableDetailVC: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         variable.value = valueTextView.string
         captionLabel.stringValue = VariableValuePreview.caption(for: variable.value)
+        updateValuePlaceholderVisibility()
         onChange?(variable)
     }
 }

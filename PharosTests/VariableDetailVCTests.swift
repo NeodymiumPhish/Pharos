@@ -170,6 +170,13 @@ private func captionLabel(in vc: VariableDetailVC) -> NSTextField {
     bodyStack(in: vc).arrangedSubviews[2] as! NSTextField
 }
 
+/// The only `NSTextField` added directly to `editorContainer` (the gutter
+/// and scroll view are its other two direct subviews, neither an
+/// `NSTextField`).
+private func valuePlaceholderLabel(in vc: VariableDetailVC) -> NSTextField {
+    editorContainer(in: vc).subviews.compactMap { $0 as? NSTextField }.first!
+}
+
 /// The separator is a private, file-scoped type (`HairlineView`, mirroring
 /// `VariableListView`'s own private hairline), so it cannot be looked up by
 /// concrete type from this file. It is identified structurally instead: of
@@ -273,6 +280,35 @@ private func testValueEditorHoldsText() {
     let reassigned = "a\tb\nc\r\nd\te"
     tv.string = reassigned
     expectEqual(tv.string, reassigned, "valueTextView round-trips a value containing tabs and mixed line breaks")
+}
+
+/// Minor: the multi-line value editor has no native placeholder (unlike
+/// `nameField.placeholderString`), but the spec calls for keeping one — the
+/// old single-line value field had "value". Shown only while the editor is
+/// empty and the type isn't Bool (the choice control has no "empty" state
+/// the way free text does), and updates live as the value is typed/cleared.
+private func testValuePlaceholderShowsOnlyWhenEmpty() {
+    let empty = QueryVariable(name: "v", value: "", type: .literal)
+    let (_, _, vcEmpty) = makeHostedDetail(width: 300, variable: empty)
+    expectTrue(!valuePlaceholderLabel(in: vcEmpty).isHidden, "placeholder shown for an empty Literal value")
+
+    let filled = QueryVariable(name: "v", value: "something", type: .literal)
+    let (_, _, vcFilled) = makeHostedDetail(width: 300, variable: filled)
+    expectTrue(valuePlaceholderLabel(in: vcFilled).isHidden, "placeholder hidden for a non-empty value")
+
+    let boolVar = QueryVariable(name: "b", value: "", type: .bool)
+    let (_, _, vcBool) = makeHostedDetail(width: 300, variable: boolVar)
+    expectTrue(valuePlaceholderLabel(in: vcBool).isHidden, "placeholder hidden for Bool regardless of value")
+
+    // Live updates as the value is edited.
+    let tv = valueTextView(in: vcFilled)
+    tv.string = ""
+    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
+    expectTrue(!valuePlaceholderLabel(in: vcFilled).isHidden, "clearing the value restores the placeholder")
+
+    tv.string = "x"
+    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
+    expectTrue(valuePlaceholderLabel(in: vcFilled).isHidden, "typing again hides the placeholder")
 }
 
 /// I5: every other test in this file that exercises `controlTextDidChange`
@@ -1453,6 +1489,7 @@ func runTests() {
 
     testLayoutUnambiguous()
     testValueEditorHoldsText()
+    testValuePlaceholderShowsOnlyWhenEmpty()
     testNameFieldDelegateWiringReactsToRealNotification()
     testValueTextViewDelegateWiringReactsToRealNotification()
     testTabAndBacktabBehavior()
