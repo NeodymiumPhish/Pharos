@@ -859,15 +859,13 @@ private func testInlineMessageShiftsEditorInSameLayoutPass() {
 
 // MARK: - Gutter line-number alignment (defect 3)
 
-/// Ground truth for where line `line`'s text actually renders, in the
-/// gutter's own coordinate space — measured via real view-hierarchy
-/// coordinate conversion (`NSView.convert(_:to:)`), NOT by restating the
-/// gutter's own y-computation formula. A hand-duplicated copy of that
-/// formula would agree with the gutter even if both copies shared the same
-/// bug; asking AppKit where the glyph actually paints cannot.
-private func groundTruthGutterY(line: Int, in vc: VariableDetailVC) -> CGFloat? {
-    let tv = valueTextView(in: vc)
-    let gutter = gutterView(in: vc)
+/// Ground truth for where line `line` actually renders, in `gutter`'s own
+/// coordinate space — measured via real view-hierarchy coordinate
+/// conversion (`NSView.convert(_:to:)`), NOT by restating the gutter's own
+/// y-computation formula. A hand-duplicated copy of that formula would
+/// agree with the gutter even if both copies shared the same bug; asking
+/// AppKit where the glyph actually paints cannot.
+private func groundTruthGutterY(line: Int, textView tv: NSTextView, gutter: LineNumberGutter) -> CGFloat? {
     guard let lm = tv.layoutManager else { return nil }
     let ns = tv.string as NSString
     let lines = tv.string.components(separatedBy: "\n")
@@ -880,6 +878,11 @@ private func groundTruthGutterY(line: Int, in vc: VariableDetailVC) -> CGFloat? 
     rectInTextView.origin.x += tv.textContainerInset.width
     rectInTextView.origin.y += tv.textContainerInset.height
     return tv.convert(rectInTextView, to: gutter).origin.y
+}
+
+/// Convenience for the `VariableDetailVC`-hosted checks below.
+private func groundTruthGutterY(line: Int, in vc: VariableDetailVC) -> CGFloat? {
+    groundTruthGutterY(line: line, textView: valueTextView(in: vc), gutter: gutterView(in: vc))
 }
 
 /// Hosts a real `VariableDetailVC` for `variable`, optionally overriding the
@@ -933,6 +936,145 @@ private func testGutterLineNumberAlignsWithTextLine() {
         label: "five-line, SQLTextView-style inset")
 }
 
+// MARK: - SQL editor gutter-alignment regression guard
+
+/// Mirrors `SQLTextView`'s exact shape — a subclass with its own manually
+/// assembled `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`,
+/// swapping only its `FoldingLayoutManager` for plain `NSLayoutManager`
+/// (irrelevant to this bug, which lives in TextKit/AppKit's own geometry,
+/// not in anything either subclass adds on top) — including setting
+/// `textContainerInset` from *inside* its own init, exactly where
+/// `SQLTextView.commonInit()` sets it (`Pharos/Editor/SQLTextView.swift`).
+///
+/// Measured directly, and this is the one genuinely surprising part: that
+/// last detail is *the* discriminator. Assigning the identical `(4, 8)`
+/// inset from outside, after construction (as this test's first draft did,
+/// and as the resizing/scroller flags genuinely are assigned externally by
+/// `QueryEditorVC.loadView`) never reproduced defect 3's symptom, in a
+/// subclass or not. Setting it inside init — which is genuinely how
+/// `SQLTextView` and `VariableValueTextView` (the view that actually hit
+/// this bug) both do it — reproduces it every time. That means `SQLTextView`
+/// sits in the exact same risk class as `VariableValueTextView`,
+/// independently of anything specific to the variables panel. This class
+/// exists so a test can stand in for `SQLTextView` without pulling in its
+/// `FoldingLayoutManager`, syntax highlighting, or any of `QueryEditorVC`'s
+/// dependency graph.
+private final class SQLEditorStyleTextView: NSTextView {
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        commonInit()
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+    convenience init() {
+        let storage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer()
+        container.widthTracksTextView = true
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+        self.init(frame: .zero, textContainer: container)
+    }
+    private func commonInit() {
+        // SQLTextView.commonInit() sets exactly this, exactly here.
+        textContainerInset = NSSize(width: 4, height: 8)
+        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+    }
+}
+
+/// Hosts `SQLEditorStyleTextView` with the SQL editor's own configuration on
+/// top of that shared construction shape — not horizontally resizable,
+/// width-tracking container, vertical-only scroller, all assigned
+/// externally exactly as `QueryEditorVC.loadView` assigns them (only the
+/// inset is internal — see `SQLEditorStyleTextView.commonInit()`). Uses
+/// `makeKeyAndOrderFront` + `displayIfNeeded()` rather than the other
+/// harnesses' `orderFrontRegardless()` + `layoutSubtreeIfNeeded()` —
+/// measured directly: this bug only surfaces once the window actually
+/// displays, not merely lays out, so a harness that skips a real display
+/// pass would silently fail to reproduce it.
+private func makeHostedSQLEditorStyleGutter(
+    text: String, width: CGFloat = 300, height: CGFloat = 200
+) -> (window: NSWindow, textView: NSTextView, scrollView: NSScrollView, gutter: LineNumberGutter) {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+        styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    window.contentView = container
+
+    let textView = SQLEditorStyleTextView()
+    textView.string = text
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = false
+    textView.autoresizingMask = [.width]
+    textView.minSize = NSSize(width: 0, height: 0)
+    textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    textView.textContainer?.widthTracksTextView = true
+
+    let scrollView = NSScrollView(frame: container.bounds)
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.borderType = .noBorder
+    scrollView.drawsBackground = false
+    scrollView.documentView = textView
+
+    let gutter = LineNumberGutter(textView: textView, scrollView: scrollView)
+    gutter.frame = NSRect(x: 0, y: 0, width: gutter.desiredWidth, height: height)
+    scrollView.frame = NSRect(
+        x: gutter.frame.width, y: 0, width: width - gutter.frame.width, height: height)
+
+    container.addSubview(gutter)
+    container.addSubview(scrollView)
+
+    window.makeKeyAndOrderFront(nil)
+    container.layoutSubtreeIfNeeded()
+    container.displayIfNeeded()
+    if let tc = textView.textContainer { textView.layoutManager?.ensureLayout(for: tc) }
+
+    return (window, textView, scrollView, gutter)
+}
+
+/// Protects the SQL editor from a regression introduced by changes made to
+/// `LineNumberGutter` for the variables panel (defect 3, above, rewrote
+/// `y(forLine:)` from `lineRect.origin.y + inset.height - scrollOffset`
+/// arithmetic to real `NSView.convert(_:to:)` coordinate conversion).
+/// Checks alignment for lines 1–3 of a multi-line string under the SQL
+/// editor's own text-view configuration, both at rest and — the assertion
+/// that actually pins the bug *class*, not just the one instance the
+/// variables panel hit — after the clip view has been scrolled to a
+/// nonzero `contentView.bounds.origin.y`, which is exactly the condition
+/// that broke the old formula for the value editor.
+private func testSQLEditorStyleGutterAlignmentUnscrolledAndScrolled() {
+    let text = "select 1;\nselect 2;\nselect 3;\nselect 4;\nselect 5;\nselect 6;\nselect 7;\nselect 8;"
+    let (_, textView, scrollView, gutter) = makeHostedSQLEditorStyleGutter(text: text, height: 60)
+
+    func checkAlignment(_ label: String) {
+        for line in 1...3 {
+            guard let groundTruth = groundTruthGutterY(line: line, textView: textView, gutter: gutter) else {
+                expectTrue(false, "\(label): could not measure ground truth for line \(line)")
+                continue
+            }
+            let seam = gutter.y(forLine: line)
+            let matched = seam.map { abs($0 - groundTruth) < 1.0 } ?? false
+            expectTrue(
+                matched,
+                "\(label): line \(line) gutter y "
+                    + "(seam=\(seam.map { String(format: "%.2f", $0) } ?? "nil")) matches the text's "
+                    + "line-fragment y (\(String(format: "%.2f", groundTruth)))")
+        }
+    }
+
+    checkAlignment("SQL-editor-style gutter, unscrolled")
+
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: 20))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    let scrollOffset = scrollView.contentView.bounds.origin.y
+    expectTrue(scrollOffset != 0, "setup: scrolling actually moved the clip view (offset=\(scrollOffset))")
+
+    checkAlignment("SQL-editor-style gutter, scrolled to a nonzero contentView.bounds.origin.y")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -966,6 +1108,7 @@ func runTests() {
     testInlineMessageShiftsEditorInSameLayoutPass()
 
     testGutterLineNumberAlignsWithTextLine()
+    testSQLEditorStyleGutterAlignmentUnscrolledAndScrolled()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
