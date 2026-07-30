@@ -336,14 +336,10 @@ final class VariableDetailVC: NSViewController {
     }
 
     @objc private func valueChoiceChanged() {
-        let canonical: String
-        switch valueChoiceControl.selectedSegment {
-        case 0: canonical = "true"
-        case 1: canonical = "false"
-        case 2: canonical = "NULL"
-        default: return  // trackingMode is .selectOne; a real click always lands on 0/1/2.
-        }
-        variable.value = canonical
+        let index = valueChoiceControl.selectedSegment
+        // trackingMode is .selectOne, so a real click always lands on a segment.
+        guard index >= 0, index < VariableSubstitutor.BoolChoice.allCases.count else { return }
+        variable.value = VariableSubstitutor.BoolChoice.allCases[index].rawValue
         onChange?(variable)
     }
 
@@ -352,26 +348,22 @@ final class VariableDetailVC: NSViewController {
 
     // MARK: - Value control switching
 
-    /// Same three sets `VariableSubstitutor.format`'s `.bool` branch matches
-    /// against (that method and its sets are private to the substitutor, so
-    /// they're restated here rather than shared — kept in sync by hand).
-    private static let boolTrueValues: Set<String> = ["true", "t", "1", "yes", "y"]
-    private static let boolFalseValues: Set<String> = ["false", "f", "0", "no", "n"]
-    private static let boolNullValues: Set<String> = ["null"]
-
-    /// Maps a stored value to a segment index using the exact same
-    /// case-insensitive, trimmed matching the substitutor performs. Returns
-    /// `nil` — no segment selected — for anything that matches none of the
-    /// three sets, including `""` and leftovers like `"abc"` from a value
-    /// typed while the type was `.text`. Never guesses a default: an
-    /// unmatched value must leave the control looking exactly as unresolved
-    /// as `problem(for:)`'s red badge says it is.
+    /// Maps a stored value to a segment index by asking the substitutor which of
+    /// `Bool`'s three values it means. The accepted spellings and the canonical
+    /// ones live there and only there — this view restated all three sets by hand
+    /// at first, which is precisely how a control ends up disagreeing with the SQL
+    /// it produces after someone edits one list and not the other.
+    ///
+    /// Returns `nil` — no segment selected — for anything that means none of the
+    /// three, including `""` and leftovers like `"abc"` from a value typed while
+    /// the type was `.text`. Never guesses a default: an unmatched value must leave
+    /// the control looking exactly as unresolved as the red badge says it is.
+    ///
+    /// Segment order therefore has to match `BoolChoice.allCases`, which the
+    /// harness asserts rather than trusting the labels to stay in step.
     private static func boolSegmentIndex(for value: String) -> Int? {
-        let key = value.trimmingCharacters(in: .whitespaces).lowercased()
-        if boolTrueValues.contains(key) { return 0 }
-        if boolFalseValues.contains(key) { return 1 }
-        if boolNullValues.contains(key) { return 2 }
-        return nil
+        guard let choice = VariableSubstitutor.boolChoice(for: value) else { return nil }
+        return VariableSubstitutor.BoolChoice.allCases.firstIndex(of: choice)
     }
 
     /// Shows the value editor that matches `variable.type` — the free-text

@@ -40,6 +40,30 @@ enum VariableSubstitutor {
     /// hand-types this: the detail level offers it as a choice.
     private static let nullSet: Set<String> = ["null"]
 
+    /// The three values a `Bool` variable can hold. `rawValue` is the canonical
+    /// stored spelling, and also exactly what `format(_:)` renders.
+    ///
+    /// Exposed so a UI offering these as choices does not have to restate the
+    /// accepted spellings or the canonical ones — the panel's Bool control reads
+    /// `boolChoice(for:)` and writes `rawValue`, which is why it cannot drift from
+    /// what ends up in the SQL.
+    enum BoolChoice: String, CaseIterable, Equatable {
+        case isTrue = "true"
+        case isFalse = "false"
+        case isNull = "NULL"
+    }
+
+    /// Which of `Bool`'s three values `value` means, or `nil` if it means none of
+    /// them — an empty value, or something like `"abc"` left behind after the type
+    /// was switched from `Text`. Classified by the same sets `format(_:)` uses.
+    static func boolChoice(for value: String) -> BoolChoice? {
+        let key = value.trimmingCharacters(in: .whitespaces).lowercased()
+        if trueSet.contains(key) { return .isTrue }
+        if falseSet.contains(key) { return .isFalse }
+        if nullSet.contains(key) { return .isNull }
+        return nil
+    }
+
     /// True if the text contains at least one `{{name}}` token.
     static func containsTokens(_ sql: String) -> Bool {
         let ns = sql as NSString

@@ -84,6 +84,35 @@ func runTests() {
         VariableSubstitutor.render("ok = {{b}}", with: [v("b", "YES", .bool)]).sql,
         "ok = true", "bool YES -> true")
 
+    // MARK: BoolChoice is the single source the panel's choice control reads
+
+    // Property: every choice's canonical rawValue round-trips — classified back to
+    // itself, and rendered by format() as exactly that same string. This is what
+    // lets the detail level's segmented control write `rawValue` and read
+    // `boolChoice(for:)` without restating any spellings of its own.
+    for choice in VariableSubstitutor.BoolChoice.allCases {
+        expectTrue(VariableSubstitutor.boolChoice(for: choice.rawValue) == choice,
+                   "BoolChoice \(choice.rawValue) classifies back to itself")
+        expectEqual(VariableSubstitutor.render("c = {{x}}", with: [v("x", choice.rawValue, .bool)]).sql,
+                    "c = \(choice.rawValue)", "BoolChoice \(choice.rawValue) renders as its rawValue")
+        expectProblemNil(VariableSubstitutor.problem(for: v("x", choice.rawValue, .bool)),
+                         "BoolChoice \(choice.rawValue) is a valid bool value")
+    }
+
+    // Property: classification agrees with validity for every spelling either
+    // accepts, so the control can never show a selection for a value the badge
+    // calls broken, or vice versa.
+    for spelling in ["true", "TRUE", "t", "1", "yes", "y", "false", "F", "0", "no", "n",
+                     "null", "NULL", "Null", "", " ", "abc", "maybe", "2", "nil"] {
+        let classified = VariableSubstitutor.boolChoice(for: spelling) != nil
+        let valid = VariableSubstitutor.problem(for: v("x", spelling, .bool)) == nil
+        expectAgree(classified, valid, "boolChoice agrees with validity for \(spelling.debugDescription)")
+    }
+
+    // The three choices, in the order the segmented control relies on.
+    expectEqual(VariableSubstitutor.BoolChoice.allCases.map(\.rawValue).joined(separator: ","),
+                "true,false,NULL", "BoolChoice order and canonical spellings")
+
     // NULL is a Bool value, not a type of its own. Case-insensitive on the way in
     // (legacy values, hand-typed values), uppercase `NULL` on the way out.
     expectEqual(
