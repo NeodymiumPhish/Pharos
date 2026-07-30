@@ -275,6 +275,61 @@ private func testValueEditorHoldsText() {
     expectEqual(tv.string, reassigned, "valueTextView round-trips a value containing tabs and mixed line breaks")
 }
 
+/// I5: every other test in this file that exercises `controlTextDidChange`
+/// / `controlTextDidEndEditing` / `textDidChange` calls the delegate method
+/// directly — which proves the *method* behaves correctly, but not that
+/// `nameField.delegate = self` (or `valueTextView.delegate = self`) is
+/// actually wired up. Mutation testing confirmed the gap: deleting either
+/// assignment left every one of those tests green. This posts the real
+/// `NSControl.textDidChangeNotification` — the notification AppKit itself
+/// posts, naming the control as its object — and relies on `nameField
+/// .delegate` being set to route it to `controlTextDidChange`, exactly as a
+/// real keystroke would.
+private func testNameFieldDelegateWiringReactsToRealNotification() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    // A COLLIDING value, deliberately: `attemptBack`/`commitNameIfValid`
+    // read `nameField.stringValue` directly regardless of whether the
+    // delegate ever ran, so a unique rename here would make the "back
+    // commits it" assertion pass even with the delegate disconnected —
+    // exactly the false confidence this test exists to avoid. Red is not
+    // the field's default colour (indigo is), so it can only appear as a
+    // result of `controlTextDidChange` actually running.
+    field.stringValue = "ip"
+    NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+
+    expectTrue(field.textColor == .systemRed, "the real notification reached the delegate and flagged the collision")
+    expectTrue(!duplicationLabel(in: vc).isHidden, "the real notification path shows the inline collision message")
+
+    var backFired = false
+    vc.onBack = { backFired = true }
+    triggerAction(of: backButton(in: vc))
+    expectTrue(!backFired, "back is refused: the delegate-driven collision state still blocks leaving")
+}
+
+/// The `NSTextViewDelegate` counterpart, via `NSText.didChangeNotification`
+/// — the real notification a text view's own typing posts, naming the text
+/// view as its object — relying on `valueTextView.delegate` being wired up.
+/// Also checks the two things `textDidChange` is responsible for:
+/// `variable.value` and the size caption, both of which apply live (the
+/// value editor is not part of commit-on-settle).
+private func testValueTextViewDelegateWiringReactsToRealNotification() {
+    let variable = QueryVariable(name: "v", value: "old", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    let tv = valueTextView(in: vc)
+
+    tv.string = "new value here"
+    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
+
+    expectEqual(vc.variable.value, "new value here", "the real notification reaches variable.value")
+    expectEqual(
+        captionLabel(in: vc).stringValue, VariableValuePreview.caption(for: "new value here"),
+        "the real notification updates the size caption to match the new value")
+}
+
 /// Tab must insert a literal tab character; Shift-Tab (`insertBacktab`) must
 /// hand focus to the host's name field rather than inserting anything.
 private func testTabAndBacktabBehavior() {
@@ -558,6 +613,33 @@ private func testBoolViewIsShorterThanLiteral() {
     expectTrue(
         boolHeight < literalHeight,
         "bool view (\(boolHeight)pt) is shorter than the same variable rendered as Literal (\(literalHeight)pt)")
+}
+
+/// I5: `boolSegmentIndex(for:)`'s doc comment claims "segment order has to
+/// match `BoolChoice.allCases`, which the harness asserts" — it did not.
+/// Every existing test (including the one below) compares segment *indices*
+/// against expected index numbers, which stays green even if the control's
+/// construction-time labels are reordered: mutation-tested directly by
+/// rebuilding with `["NULL", "True", "False"]` — in that build a `true`
+/// value selects index 0, which now reads "NULL" on screen, and clicking
+/// "NULL" writes `true`. This ties the actual label *text* at each index to
+/// what that index means, closing the gap.
+private func testBoolSegmentLabelsMatchChoiceOrder() {
+    let variable = QueryVariable(name: "b", value: "true", type: .bool)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    let seg = valueChoiceControl(in: vc)
+
+    for (index, choice) in VariableSubstitutor.BoolChoice.allCases.enumerated() {
+        let expectedLabel: String
+        switch choice {
+        case .isTrue: expectedLabel = "True"
+        case .isFalse: expectedLabel = "False"
+        case .isNull: expectedLabel = "NULL"
+        }
+        expectEqual(
+            seg.label(forSegment: index) ?? "<none>", expectedLabel,
+            "segment \(index) displays the label a user would read as \(choice)")
+    }
 }
 
 /// Entry-side selection mapping: the same case-insensitive, trimmed sets
@@ -1371,6 +1453,8 @@ func runTests() {
 
     testLayoutUnambiguous()
     testValueEditorHoldsText()
+    testNameFieldDelegateWiringReactsToRealNotification()
+    testValueTextViewDelegateWiringReactsToRealNotification()
     testTabAndBacktabBehavior()
     testEditorContainerFillsRemainingHeight()
     testGutterAndScrollViewLayout()
@@ -1382,6 +1466,7 @@ func runTests() {
 
     testBoolTypeSwapsValueControl()
     testBoolViewIsShorterThanLiteral()
+    testBoolSegmentLabelsMatchChoiceOrder()
     testBoolSelectionMappingOnEntry()
     testChoosingSegmentWritesCanonicalValueAndFiresOnChangeOnce()
     testChoosingNullRoundTripsThroughSubstitutor()

@@ -557,8 +557,14 @@ final class VariableDetailVC: NSViewController {
     /// the type was `.text`. Never guesses a default: an unmatched value must leave
     /// the control looking exactly as unresolved as the red badge says it is.
     ///
-    /// Segment order therefore has to match `BoolChoice.allCases`, which the
-    /// harness asserts rather than trusting the labels to stay in step.
+    /// Segment order therefore has to match `BoolChoice.allCases`.
+    /// `PharosTests/VariableDetailVCTests.swift`'s
+    /// `testBoolSegmentLabelsMatchChoiceOrder` ties the control's actual
+    /// label *text* at each index to what that index means — index-only
+    /// comparisons (which every other Bool test here makes) stay green even
+    /// if the construction-time `labels:` array is reordered independently
+    /// of this function, so that test is the one actually asserting the two
+    /// stay in step, not merely trusting them to.
     private static func boolSegmentIndex(for value: String) -> Int? {
         guard let choice = VariableSubstitutor.boolChoice(for: value) else { return nil }
         return VariableSubstitutor.BoolChoice.allCases.firstIndex(of: choice)
