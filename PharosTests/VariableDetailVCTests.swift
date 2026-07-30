@@ -77,6 +77,35 @@ private func makeHostedDetail(
     return (window, container, vc)
 }
 
+/// Hosts the VC with only its width pinned — no height constraint — so
+/// `vc.view.fittingSize` reflects the minimum height Auto Layout actually
+/// needs for this content, rather than whatever fixed height a test harness
+/// forces on it. Used only for the Bool-vs-Literal height comparison; every
+/// other test in this file needs a concrete, pinned height to measure real
+/// geometry inside.
+private func makeHostedDetailForFittingSize(
+    width: CGFloat, variable: QueryVariable
+) -> (window: NSWindow, container: NSView, vc: VariableDetailVC) {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: width, height: 800),
+        styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
+    window.contentView = container
+    let vc = VariableDetailVC(variable: variable)
+    vc.view.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(vc.view)
+    NSLayoutConstraint.activate([
+        vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        vc.view.topAnchor.constraint(equalTo: container.topAnchor),
+        vc.view.widthAnchor.constraint(equalToConstant: width),
+    ])
+    container.layoutSubtreeIfNeeded()
+    vc.view.needsLayout = true
+    container.layoutSubtreeIfNeeded()
+    return (window, container, vc)
+}
+
 private func hasAmbiguousLayoutRecursively(_ view: NSView) -> Bool {
     if view.hasAmbiguousLayout { return true }
     return view.subviews.contains { hasAmbiguousLayoutRecursively($0) }
@@ -160,6 +189,25 @@ private func scrollView(in vc: VariableDetailVC) -> NSScrollView {
 
 private func valueTextView(in vc: VariableDetailVC) -> VariableValueTextView {
     scrollView(in: vc).documentView as! VariableValueTextView
+}
+
+/// The fourth (last) arranged subview of `body` — see the comment at its
+/// construction site in `VariableDetailVC.loadView` for why it was appended
+/// rather than inserted among the first three.
+private func valueChoiceContainer(in vc: VariableDetailVC) -> NSView {
+    bodyStack(in: vc).arrangedSubviews[3]
+}
+
+private func valueChoiceControl(in vc: VariableDetailVC) -> NSSegmentedControl {
+    allDescendants(of: vc.view).compactMap { $0 as? NSSegmentedControl }.first!
+}
+
+/// Simulates a real click/selection on a control wired with `target`/`action`
+/// — the same dispatch path AppKit itself uses, rather than calling the
+/// (private) action method directly, which test code cannot reach anyway.
+private func triggerAction(of control: NSControl) {
+    guard let action = control.action else { return }
+    _ = NSApp.sendAction(action, to: control.target, from: control)
 }
 
 /// True when `a` sits visually above `b` in `view`'s own coordinate space,
@@ -443,6 +491,215 @@ private func testControlsWireUpCorrectly() {
     expectTrue(backButton(in: vc).toolTip == "Back to variables", "back button is reachable and labeled")
 }
 
+// MARK: - Bool value control tests
+
+/// `.bool` shows the True/False/NULL choice and hides the free-text editor
+/// and its `N chars` caption (a per-character caption is meaningless for a
+/// three-way choice); every other type does the reverse. Both hidden
+/// controls must contribute zero height, not merely go invisible while still
+/// reserving their row (the same distinction `testDuplicationNoteCollapsesWhenAbsent`
+/// already draws for the duplication note).
+private func testBoolTypeSwapsValueControl() {
+    for width: CGFloat in [180, 300, 600] {
+        let boolVariable = QueryVariable(name: "b", value: "true", type: .bool)
+        let (_, _, vcBool) = makeHostedDetail(width: width, variable: boolVariable)
+        vcBool.view.layoutSubtreeIfNeeded()
+
+        expectTrue(
+            !valueChoiceContainer(in: vcBool).isHidden,
+            "bool @\(Int(width))pt: choice control is visible")
+        expectTrue(
+            editorContainer(in: vcBool).isHidden, "bool @\(Int(width))pt: editor is hidden")
+        expectTrue(
+            captionLabel(in: vcBool).isHidden, "bool @\(Int(width))pt: caption is hidden")
+        expectClose(
+            editorContainer(in: vcBool).frame.height, 0,
+            "bool @\(Int(width))pt: hidden editor contributes no height")
+        // Not asserted the same way for `captionLabel`: unlike `editorContainer`
+        // (a plain, size-less `NSView`, forced to exactly 0 by the fallback
+        // constraint added in `loadView`), a hidden `NSTextField` label simply
+        // retains its own last intrinsic frame rather than collapsing to
+        // zero — measured directly (11pt, its text height), even though it
+        // reserves no space in the stack and paints nothing. The height
+        // comparison in `testBoolViewIsShorterThanLiteral` below is what
+        // actually proves the caption isn't consuming space.
+
+        for type: VariableType in [.literal, .text, .number] {
+            let variable = QueryVariable(name: "v", value: "true", type: type)
+            let (_, _, vc) = makeHostedDetail(width: width, variable: variable)
+            vc.view.layoutSubtreeIfNeeded()
+            expectTrue(
+                valueChoiceContainer(in: vc).isHidden,
+                "\(type) @\(Int(width))pt: choice control is hidden")
+            expectTrue(!editorContainer(in: vc).isHidden, "\(type) @\(Int(width))pt: editor is visible")
+            expectTrue(!captionLabel(in: vc).isHidden, "\(type) @\(Int(width))pt: caption is visible")
+            expectClose(
+                valueChoiceContainer(in: vc).frame.height, 0,
+                "\(type) @\(Int(width))pt: hidden choice control contributes no height")
+        }
+    }
+}
+
+/// A `.bool` variable's natural content height is shorter than the same
+/// value rendered as a `.literal` — the choice control replaces both the
+/// editor and its caption rather than just one of them. Measured via
+/// `fittingSize` with only width pinned (see `makeHostedDetailForFittingSize`),
+/// since a harness that also pins height would force both configurations to
+/// the same forced number regardless of content.
+private func testBoolViewIsShorterThanLiteral() {
+    let boolVariable = QueryVariable(name: "b", value: "true", type: .bool)
+    let literalVariable = QueryVariable(name: "b", value: "true", type: .literal)
+    let (_, _, vcBool) = makeHostedDetailForFittingSize(width: 300, variable: boolVariable)
+    let (_, _, vcLiteral) = makeHostedDetailForFittingSize(width: 300, variable: literalVariable)
+    let boolHeight = vcBool.view.fittingSize.height
+    let literalHeight = vcLiteral.view.fittingSize.height
+    expectTrue(
+        boolHeight < literalHeight,
+        "bool view (\(boolHeight)pt) is shorter than the same variable rendered as Literal (\(literalHeight)pt)")
+}
+
+/// Entry-side selection mapping: the same case-insensitive, trimmed sets
+/// `VariableSubstitutor.format`'s `.bool` branch matches against must select
+/// the matching segment, and anything that matches none of them — including
+/// empty and a leftover non-bool value like "abc" — must leave no segment
+/// selected at all, never a guessed default.
+private func testBoolSelectionMappingOnEntry() {
+    let matching: [(String, Int)] = [
+        ("true", 0), ("TRUE", 0), ("True", 0), ("t", 0), ("1", 0), ("yes", 0), ("y", 0),
+        ("false", 1), ("FALSE", 1), ("f", 1), ("0", 1), ("no", 1), ("n", 1),
+        ("null", 2), ("NULL", 2), ("Null", 2),
+    ]
+    for (value, expectedSegment) in matching {
+        let variable = QueryVariable(name: "b", value: value, type: .bool)
+        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+        let selected = valueChoiceControl(in: vc).selectedSegment
+        expectTrue(
+            selected == expectedSegment,
+            "value \(value.debugDescription) selects segment \(expectedSegment) (got \(selected))")
+    }
+
+    for unmatched in ["", "abc", "  ", "truee"] {
+        let variable = QueryVariable(name: "b", value: unmatched, type: .bool)
+        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+        let selected = valueChoiceControl(in: vc).selectedSegment
+        expectTrue(
+            selected == -1,
+            "value \(unmatched.debugDescription) selects no segment (got \(selected))")
+    }
+}
+
+/// Exit-side mapping: choosing each segment writes the canonical spelling
+/// (not whatever variant was there before) and fires `onChange` exactly
+/// once — the same contract the text editor's `textDidChange` honors.
+private func testChoosingSegmentWritesCanonicalValueAndFiresOnChangeOnce() {
+    let cases: [(Int, String)] = [(0, "true"), (1, "false"), (2, "NULL")]
+    for (segmentIndex, expectedValue) in cases {
+        let variable = QueryVariable(name: "b", value: "", type: .bool)
+        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+        var changeCount = 0
+        var lastValue: String?
+        vc.onChange = { updated in
+            changeCount += 1
+            lastValue = updated.value
+        }
+
+        let seg = valueChoiceControl(in: vc)
+        seg.selectedSegment = segmentIndex
+        triggerAction(of: seg)
+
+        expectEqual(
+            lastValue ?? "<no onChange fired>", expectedValue,
+            "choosing segment \(segmentIndex) writes the canonical value")
+        expectTrue(
+            changeCount == 1,
+            "choosing segment \(segmentIndex) fires onChange exactly once (got \(changeCount))")
+    }
+}
+
+/// The assertion that ties the control to what actually executes, rather
+/// than to this file's own restatement of the mapping rule: after choosing
+/// NULL through the real control, `VariableSubstitutor.render` must produce
+/// the literal SQL keyword.
+private func testChoosingNullRoundTripsThroughSubstitutor() {
+    let variable = QueryVariable(name: "n", value: "", type: .bool)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    let seg = valueChoiceControl(in: vc)
+    seg.selectedSegment = 2
+    triggerAction(of: seg)
+
+    let result = VariableSubstitutor.render("x = {{n}}", with: [vc.variable])
+    expectEqual(result.sql, "x = NULL", "choosing NULL renders to \"x = NULL\" through the real substitutor")
+}
+
+/// Switching type via the popup — Bool → Text → Bool — must swap which
+/// control is showing both ways, and must never mutate the value along the
+/// way: `"true"` is a perfectly good `Literal`/`Text` value too.
+private func testSwitchingTypeSwapsControlsAndPreservesValue() {
+    let variable = QueryVariable(name: "b", value: "true", type: .bool)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    let popup = typePopup(in: vc)
+
+    expectTrue(!valueChoiceContainer(in: vc).isHidden, "starts Bool: choice control visible")
+    expectTrue(editorContainer(in: vc).isHidden, "starts Bool: editor hidden")
+
+    let textIndex = VariableType.allCases.firstIndex(of: .text)!
+    popup.selectItem(at: textIndex)
+    triggerAction(of: popup)
+    vc.view.layoutSubtreeIfNeeded()
+
+    expectTrue(valueChoiceContainer(in: vc).isHidden, "Bool -> Text: choice control hidden")
+    expectTrue(!editorContainer(in: vc).isHidden, "Bool -> Text: editor visible")
+    expectEqual(vc.variable.value, "true", "Bool -> Text preserves the value")
+    expectEqual(valueTextView(in: vc).string, "true", "Bool -> Text: text editor reflects the preserved value")
+
+    let boolIndex = VariableType.allCases.firstIndex(of: .bool)!
+    popup.selectItem(at: boolIndex)
+    triggerAction(of: popup)
+    vc.view.layoutSubtreeIfNeeded()
+
+    expectTrue(!valueChoiceContainer(in: vc).isHidden, "Text -> Bool: choice control visible")
+    expectTrue(editorContainer(in: vc).isHidden, "Text -> Bool: editor hidden")
+    expectEqual(vc.variable.value, "true", "Text -> Bool preserves the value")
+    expectTrue(
+        valueChoiceControl(in: vc).selectedSegment == 0,
+        "Text -> Bool: re-selects True from the preserved value")
+}
+
+/// No ambiguity or conflicts anywhere in the tree for any `VariableType`,
+/// not just `.bool` — extends `testLayoutUnambiguous`'s width matrix across
+/// every type, since the Bool/non-Bool control swap is the part of this
+/// view most likely to introduce a fresh ambiguity the original test never
+/// had reason to check for.
+private func testAllTypesLayoutUnambiguous() {
+    for width: CGFloat in [180, 300, 600] {
+        for type in VariableType.allCases {
+            let variable = QueryVariable(name: "v", value: "true", type: type)
+            let (_, _, vc) = makeHostedDetail(width: width, variable: variable)
+            vc.view.layoutSubtreeIfNeeded()
+            expectTrue(
+                !hasAmbiguousLayoutRecursively(vc.view),
+                "layout unambiguous at \(Int(width))pt for type \(type)")
+        }
+    }
+}
+
+/// The choice control must actually fit the panel at its 180pt minimum
+/// width: its natural (`fittingSize`) width must not exceed the available
+/// editor width (panel width minus the `body` stack's 10pt-per-side insets).
+/// A failure here is the documented signal to switch from a segmented
+/// control to a popup instead.
+private func testChoiceControlFitsAvailableWidth() {
+    let variable = QueryVariable(name: "b", value: "true", type: .bool)
+    let (_, _, vc) = makeHostedDetail(width: 180, variable: variable)
+    vc.view.layoutSubtreeIfNeeded()
+    let seg = valueChoiceControl(in: vc)
+    let availableWidth: CGFloat = 180 - 20
+    expectTrue(
+        seg.fittingSize.width <= availableWidth,
+        "choice control's natural width (\(seg.fittingSize.width)pt) fits the available "
+            + "editor width (\(availableWidth)pt) at the panel's 180pt minimum")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -457,6 +714,15 @@ func runTests() {
     testHeaderSeparatorIsOnePoint()
     testHitTestReachesControls()
     testControlsWireUpCorrectly()
+
+    testBoolTypeSwapsValueControl()
+    testBoolViewIsShorterThanLiteral()
+    testBoolSelectionMappingOnEntry()
+    testChoosingSegmentWritesCanonicalValueAndFiresOnChangeOnce()
+    testChoosingNullRoundTripsThroughSubstitutor()
+    testSwitchingTypeSwapsControlsAndPreservesValue()
+    testAllTypesLayoutUnambiguous()
+    testChoiceControlFitsAvailableWidth()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
