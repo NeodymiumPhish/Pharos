@@ -36,6 +36,9 @@ enum VariableSubstitutor {
 
     private static let trueSet: Set<String> = ["true", "t", "1", "yes", "y"]
     private static let falseSet: Set<String> = ["false", "f", "0", "no", "n"]
+    /// `Bool`'s third value. Only the one spelling — unlike true/false, nothing
+    /// hand-types this: the detail level offers it as a choice.
+    private static let nullSet: Set<String> = ["null"]
 
     /// True if the text contains at least one `{{name}}` token.
     static func containsTokens(_ sql: String) -> Bool {
@@ -117,8 +120,8 @@ enum VariableSubstitutor {
         case .literal:
             return variable.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? .emptyLiteral : nil
-        case .text, .null:
-            // Text renders '' (a legal empty string); Null ignores the value.
+        case .text:
+            // Renders '' — a legal empty string, and plausibly what was meant.
             return nil
         case .number, .bool:
             let formatted = format(variable)
@@ -241,12 +244,14 @@ enum VariableSubstitutor {
             if ok { return (trimmed, nil) }
             return (nil, "not a valid number: \(raw.debugDescription)")
         case .bool:
+            // Three values, not two: NULL is a Bool value rather than a variable
+            // type of its own. Rendered uppercase because it is a SQL keyword, not
+            // a boolean literal — `true`/`false` stay lowercase.
             let key = raw.trimmingCharacters(in: .whitespaces).lowercased()
             if trueSet.contains(key) { return ("true", nil) }
             if falseSet.contains(key) { return ("false", nil) }
+            if nullSet.contains(key) { return ("NULL", nil) }
             return (nil, "not a valid boolean: \(raw.debugDescription)")
-        case .null:
-            return ("NULL", nil)
         }
     }
 }

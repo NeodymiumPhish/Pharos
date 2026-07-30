@@ -84,10 +84,51 @@ func runTests() {
         VariableSubstitutor.render("ok = {{b}}", with: [v("b", "YES", .bool)]).sql,
         "ok = true", "bool YES -> true")
 
-    // Null: emits NULL, ignores value
+    // NULL is a Bool value, not a type of its own. Case-insensitive on the way in
+    // (legacy values, hand-typed values), uppercase `NULL` on the way out.
     expectEqual(
-        VariableSubstitutor.render("c = {{x}}", with: [v("x", "ignored", .null)]).sql,
-        "c = NULL", "null emits NULL")
+        VariableSubstitutor.render("c = {{x}}", with: [v("x", "NULL", .bool)]).sql,
+        "c = NULL", "bool NULL -> NULL")
+    expectEqual(
+        VariableSubstitutor.render("c = {{x}}", with: [v("x", "null", .bool)]).sql,
+        "c = NULL", "bool lowercase null -> NULL")
+    expectEqual(
+        VariableSubstitutor.render("c = {{x}}", with: [v("x", "Null", .bool)]).sql,
+        "c = NULL", "bool mixed-case Null -> NULL")
+    expectProblemNil(VariableSubstitutor.problem(for: v("x", "NULL", .bool)),
+                     "a bool holding NULL is valid")
+
+    // The type set itself: `Null` was removed in favour of a Literal holding NULL.
+    expectTrue(VariableType.allCases.count == 4, "four variable types remain")
+    expectTrue(VariableType(rawValue: "null") == nil, "there is no null variable type")
+
+    // Legacy saved queries may carry `"type": "null"`. Decoding must migrate it to
+    // a Literal holding NULL — identical rendering — rather than throw, because
+    // SavedQueryVariables.decode swallows errors and would drop the whole array.
+    let legacyJSON = #"[{"id":"3F2504E0-4F89-11D3-9A0C-0305E82C3301","name":"n","value":"ignored","type":"null"}]"#
+    if let data = legacyJSON.data(using: .utf8),
+       let migrated = try? JSONDecoder().decode([QueryVariable].self, from: data),
+       let first = migrated.first {
+        expectTrue(first.type == .literal, "a legacy null type migrates to Literal")
+        expectEqual(first.value, "NULL", "a legacy null type migrates to the value NULL")
+        expectEqual(VariableSubstitutor.render("c = {{n}}", with: migrated).sql,
+                    "c = NULL", "a migrated legacy null still renders NULL")
+    } else {
+        failures += 1
+        print("FAIL legacy null type failed to decode at all")
+    }
+
+    // An unknown future type must also not throw away the array.
+    let futureJSON = #"[{"id":"3F2504E0-4F89-11D3-9A0C-0305E82C3302","name":"n","value":"x","type":"quantum"}]"#
+    if let data = futureJSON.data(using: .utf8),
+       let decoded = try? JSONDecoder().decode([QueryVariable].self, from: data),
+       let first = decoded.first {
+        expectTrue(first.type == .literal, "an unknown type falls back to Literal")
+        expectEqual(first.value, "x", "an unknown type keeps its value")
+    } else {
+        failures += 1
+        print("FAIL unknown type failed to decode at all")
+    }
 
     // Unresolved: token left verbatim, name collected
     let unres = VariableSubstitutor.render("a = {{foo}}", with: [])
@@ -121,10 +162,14 @@ func runTests() {
     expectProblem(VariableSubstitutor.problem(for: v("a", "\n\t", .literal)), .emptyLiteral, "whitespace-newline literal flagged")
     expectProblemNil(VariableSubstitutor.problem(for: v("a", "1", .literal)), "non-empty literal not flagged")
 
-    // Text renders '' — a legal empty string. Null ignores the value entirely.
+    // Text renders '' — a legal empty string, so an empty one is not a problem.
     expectProblemNil(VariableSubstitutor.problem(for: v("a", "", .text)), "empty text not flagged")
-    expectProblemNil(VariableSubstitutor.problem(for: v("a", "", .null)), "empty null not flagged")
-    expectProblemNil(VariableSubstitutor.problem(for: v("a", "anything", .null)), "null never flagged")
+
+    // A Bool with no value chosen yet IS flagged: it renders nothing usable, and
+    // the detail level offers three explicit choices, so "unset" is a real gap
+    // rather than a default worth guessing at.
+    expectProblem(VariableSubstitutor.problem(for: v("a", "", .bool)),
+                  .invalidValue(reason: "not a valid boolean: \"\""), "an unset bool is flagged")
 
     // Number / Bool are flagged for any value the substitutor already rejects.
     expectProblem(VariableSubstitutor.problem(for: v("a", "", .number)),
