@@ -126,9 +126,11 @@ final class VariableListView: NSView {
         headerSeparator.wantsLayer = true
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        // `.fill` is not a valid NSStackView alignment; `.width` is the closest
-        // named option, but (see the explicit width pins below) it does not by
-        // itself reliably stretch arranged subviews to the stack's width.
+        // `.fill` is not a valid NSStackView alignment; `.width` is the
+        // correct one for a vertical stack, and does reliably stretch
+        // arranged subviews (measured — see the note at the explicit width
+        // pins below, which are belt-and-braces, not a workaround for a real
+        // deficiency here).
         rowsStack.orientation = .vertical
         rowsStack.alignment = .width
         rowsStack.spacing = 0

@@ -15,7 +15,10 @@ import AppKit
 /// keystroke at a time.
 final class VariableDetailVC: NSViewController {
 
-    /// Fired on every keystroke / type change with the updated variable.
+    /// Fired with the updated variable on every value/type edit, and on a
+    /// name edit only at a settle point — see the class comment above and
+    /// `commitNameIfValid` for why the name field alone is not "every
+    /// keystroke."
     var onChange: ((QueryVariable) -> Void)?
     var onDelete: (() -> Void)?
     /// Back chevron or Escape.
@@ -157,21 +160,20 @@ final class VariableDetailVC: NSViewController {
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         header.translatesAutoresizingMaskIntoConstraints = false
 
-        // Measured directly (see PharosTests/VariableDetailVCTests.swift):
-        // `NSBox(boxType: .separator)` with an explicit `heightAnchor == 1`
-        // constraint — the form the plan originally specified here — still
-        // resolves to 5pt tall in this view's actual layout, not 1pt. An isolated
-        // probe of the same shape measured 1pt, so the mechanism is unresolved —
-        // plausibly the same settle-timing effect the harness documents (stack
-        // geometry here needs a second layout pass before it is final), or
-        // something about this assembly. Rather than chase it: a layer-backed view
-        // cannot acquire a height by accident, since nothing but one explicit
-        // constraint can influence it, and the harness asserts the 1pt result.
-        // `VariableListView` hit the same "unconstrained separator measures
-        // 5pt" problem for its row hairlines and fixed it with a plain
-        // layer-backed 1pt view instead of `NSBox` — used here for the same
-        // reason: a layer-backed view cannot acquire a height by accident,
-        // since nothing but this one explicit constraint can influence it.
+        // A layer-backed 1pt view, not `NSBox(boxType: .separator)` — the
+        // form the plan originally specified here. Corrected understanding
+        // (see the note at `VariableListView`'s own row hairlines, which hit
+        // the identical situation): an `NSBox` separator DOES honour an
+        // explicit `heightAnchor.constraint(equalToConstant: 1)` and reports
+        // no ambiguity — it is only an *unconstrained* separator box, with no
+        // intrinsic height of its own, that measures 5pt. A now-stale claim
+        // once stood here — that even a constrained `NSBox` still measured
+        // 5pt in this specific view, with the mechanism "unresolved" — which
+        // does not survive that corrected story and was not independently
+        // re-verified in this file specifically. A layer-backed view is kept
+        // here regardless: it cannot acquire a height by accident, since
+        // nothing but the one explicit constraint below can influence it,
+        // and the harness asserts the 1pt result either way.
         let headerSeparator = HairlineView()
         headerSeparator.wantsLayer = true
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
@@ -534,7 +536,6 @@ final class VariableDetailVC: NSViewController {
     /// the same edit when more than one settle signal fires for it — Enter
     /// typically also ends editing, so both call this, but the second call
     /// finds `typed == variable.name` already and does nothing.
-    ///
     /// Commits the *trimmed* field content, not the raw one. Every collision
     /// rule trims — `otherNames(excluding:)` and this file's own
     /// `controlTextDidChange` both trim before comparing, and
