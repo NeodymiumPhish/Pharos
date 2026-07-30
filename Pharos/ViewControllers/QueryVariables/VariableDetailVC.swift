@@ -481,11 +481,12 @@ final class VariableDetailVC: NSViewController {
     /// `attemptBack` runs.
     ///
     /// Deferring the write to a handful of explicit settle points — this,
-    /// Enter, losing first responder, and a type change (see
-    /// `controlTextDidEndEditing` and `typeChanged`) — means there is
-    /// nothing intermediate to commit in the first place: mid-typing, the
-    /// model still has whatever name the variable had before this edit
-    /// began, through every door, known or not.
+    /// Enter, losing first responder, a type change (see
+    /// `controlTextDidEndEditing` and `typeChanged`), and dismissal the VC
+    /// cannot refuse (see `settleForDismissal`) — means there is nothing
+    /// intermediate to commit in the first place: mid-typing, the model
+    /// still has whatever name the variable had before this edit began,
+    /// through every door, known or not.
     ///
     /// Guards against firing a no-op `onChange` when a settle point is
     /// reached without the name actually having changed (e.g. back pressed
@@ -499,6 +500,23 @@ final class VariableDetailVC: NSViewController {
         guard typed != variable.name else { return }
         variable.name = typed
         onChange?(variable)
+    }
+
+    /// The settle point for dismissal the VC cannot refuse: a tab switch (or
+    /// anything else that tears the detail level down out from under the
+    /// user) calls this — not `attemptBack` — because there is nowhere to
+    /// send the user back to argue about a collision. A valid typed name
+    /// still commits; a colliding one is simply dropped, which is exactly
+    /// what `commitNameIfValid`'s existing collision guard already does, so
+    /// this is only a public name for calling it from outside the VC.
+    ///
+    /// The caller (`QueryVariablesPanelVC.dismissDetail`) must call this
+    /// *before* reading `variable` for its own abandoned-row prune check:
+    /// settling first means a freshly added row that was given a valid name
+    /// is no longer empty, so it is correctly kept rather than pruned as
+    /// abandoned.
+    func settleForDismissal() {
+        commitNameIfValid()
     }
 
     // MARK: - Value control switching

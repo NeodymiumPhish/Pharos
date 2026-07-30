@@ -574,6 +574,74 @@ private func testTabSwitchMidCollisionTypingDoesNotCommitPrefix() {
     expectTrue(afterSwitch?.name != "seed_list", "the row's name never silently becomes the colliding \"seed_list\"")
 }
 
+/// The regression on the other side of the same fix: `dismissDetail` used
+/// to read `detail.variable` for its prune check without ever settling the
+/// name field first, so on the tab-switch path a *valid, unique* typed
+/// rename was discarded too — not just a colliding one. Under the old
+/// per-keystroke-commit rule the rename survived (each accepted keystroke
+/// wrote straight through), so commit-on-settle traded one bug (a colliding
+/// draft leaking through) for a smaller one (a valid draft being lost) on
+/// this specific path. `VariableDetailVC.settleForDismissal()`, called from
+/// `dismissDetail` before it reads `detail.variable`, closes this: a valid
+/// rename now commits on the way out here too, exactly as it already does
+/// via `attemptBack` on the back/Escape path.
+private func testValidRenameSurvivesTabSwitch() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    let original = QueryVariable(name: "original", value: "v", type: .literal)
+    vc.setVariables([original], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    rowViews(in: listView(in: vc))[0].onClick?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: no detail child after drilling in")
+        return
+    }
+
+    let field = nameField(in: detail)
+    field.stringValue = "renamed"
+    detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    // Deliberately touches no settle point — no back, no Enter, no focus
+    // change, no type change — before the tab switch.
+
+    vc.setVariables([original], referenced: [])
+
+    let after = vc.variables.first { $0.id == original.id }
+    expectEqual(after?.name ?? "<missing>", "renamed", "a valid typed name survives a tab switch mid-edit")
+}
+
+/// The ordering consequence of settling before the prune check: a freshly
+/// added row that was given a valid name is no longer empty by the time
+/// `dismissDetail` checks for an abandoned row, so it is correctly kept.
+/// Exercised via the back path — the only path that ever prunes at all
+/// (`pruningEmpty` is `true` only from `onBack`) — as a consistency check
+/// that the ordering fix does not regress the case `attemptBack` already
+/// handled on its own.
+private func testPlusRowGivenValidNameSurvivesDismissalNotPruned() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    vc.setVariables([], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+
+    listView(in: vc).onAdd?()
+    vc.view.layoutSubtreeIfNeeded()
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL setup: + did not drill in")
+        return
+    }
+
+    let field = nameField(in: detail)
+    field.stringValue = "new_var"
+    detail.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    expectEqual(vc.variables.first?.name ?? "<missing>", "", "setup: not committed until a settle point")
+
+    triggerAction(of: backButton(in: detail))
+
+    expectTrue(vc.variables.count == 1, "a + row given a valid name survives dismissal instead of being pruned")
+    expectEqual(vc.variables.first?.name ?? "<missing>", "new_var", "the surviving row has the typed name")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
@@ -591,6 +659,8 @@ func runTests() {
     testContentAreaClipsAndFinalFramesUnchanged()
     testPanelSuppliesOtherNamesAndRefusesCollidingRename()
     testTabSwitchMidCollisionTypingDoesNotCommitPrefix()
+    testValidRenameSurvivesTabSwitch()
+    testPlusRowGivenValidNameSurvivesDismissalNotPruned()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

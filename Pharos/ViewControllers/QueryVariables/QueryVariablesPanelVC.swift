@@ -162,12 +162,27 @@ final class QueryVariablesPanelVC: NSViewController {
 
     /// Return to the list level. `pruningEmpty` discards a variable that is still
     /// empty in both name and value, so an abandoned `+` leaves no junk row.
+    ///
+    /// Every path here — `onBack` (which already settled via `attemptBack`
+    /// before calling this), and every other path that tears the detail
+    /// level down without going through it at all (a tab switch is the one
+    /// that actually happened) — must settle the name field before reading
+    /// `detail.variable` below. `settleForDismissal()` is a no-op if
+    /// `attemptBack` already committed; it exists for the other paths, which
+    /// cannot refuse to leave the way `attemptBack` can, so a valid typed
+    /// name commits and a colliding one is simply dropped — there is nowhere
+    /// to send the user back to argue about it. Settling first also means a
+    /// freshly added row that was given a valid name here is no longer empty
+    /// by the time the prune check below reads it, so it is correctly kept
+    /// rather than pruned as abandoned.
     private func dismissDetail(animated: Bool, pruningEmpty: Bool) {
         guard let detail = detailVC else {
             listView.isHidden = false
             listView.frame = contentArea.bounds
             return
         }
+
+        detail.settleForDismissal()
 
         let abandoned = detail.variable
         if pruningEmpty,
