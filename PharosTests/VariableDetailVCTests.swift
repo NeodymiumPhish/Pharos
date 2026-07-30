@@ -894,6 +894,42 @@ private func testEscapeRefusedWhileColliding() {
     expectEqual(field.stringValue, "ip", "Escape via cancelOperation does not revert the field while colliding")
 }
 
+/// I4: Escape while the *value editor* has focus is a fourth path off this
+/// screen, distinct from the name field's own Escape handling above —
+/// `VariableValueTextView.onCancel` used to call `onBack` directly, bypassing
+/// `attemptBack` (and so the collision refusal) entirely. The value editor
+/// has its own focus, independent of the name field's, so a colliding name
+/// can still be showing when this fires.
+private func testEscapeInValueEditorRoutesThroughAttemptBack() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = ["ip"]
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+    var backFired = false
+    vc.onBack = { backFired = true }
+
+    // The real production path: cancelOperation is what AppKit calls when
+    // Escape is pressed while this view has focus, and
+    // VariableValueTextView routes it to `onCancel`.
+    valueTextView(in: vc).cancelOperation(nil)
+
+    expectTrue(!backFired, "Escape in the value editor does not navigate while the name field collides")
+    expectEqual(field.stringValue, "ip", "Escape in the value editor does not revert the colliding name field")
+
+    // And once the name field is unique again, this same path must still
+    // work — it is a real way off the screen, not merely blocked forever.
+    field.stringValue = "ip2"
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    valueTextView(in: vc).cancelOperation(nil)
+
+    expectTrue(backFired, "Escape in the value editor navigates normally once the name field is unique")
+    expectEqual(vc.variable.name, "ip2", "Escape in the value editor commits the unique name on the way out")
+}
+
 /// Once the field is unique again, back (and therefore Escape) works
 /// normally — the refusal is specific to the colliding state, not a
 /// permanent lock on this screen.
@@ -985,6 +1021,47 @@ private func testSeedListPrefixWalkNeverMangledOnBack() {
     expectTrue(
         vc.variable.name != "seed_lis",
         "the name is never left as the mangled intermediate prefix \"seed_lis\"")
+}
+
+/// The commit trims, matching every collision rule (which also trims).
+/// Typing "ip " (trailing space) settles to the trimmed "ip", not the raw
+/// string with the space still attached — an untrimmed commit produced a
+/// row no `{{token}}` could ever reference, showed healthy (indigo, no
+/// badge — `rowStates` cannot flag a collision the model itself does not
+/// contain), and then refused the correctly-spelled "ip" on another row as
+/// a duplicate, with no visible reason why the two looked different.
+private func testCommitTrimsTheName() {
+    let variable = QueryVariable(name: "original", value: "v", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = []
+
+    var lastName: String?
+    vc.onChange = { lastName = $0.name }
+
+    let field = nameField(in: vc)
+    field.stringValue = "ip "
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    triggerAction(of: backButton(in: vc))
+
+    expectEqual(vc.variable.name, "ip", "the committed name is trimmed, not \"ip \" verbatim")
+    expectEqual(lastName ?? "<no onChange fired>", "ip", "onChange reports the trimmed name")
+}
+
+/// The prune-gap half of the same fix: a name of only whitespace commits as
+/// empty (not as a non-empty string of spaces), so an abandoned `+` row
+/// still prunes on back rather than surviving as an unreferenceable junk
+/// row.
+private func testWhitespaceOnlyNameCommitsEmptyAndStillPrunes() {
+    let variable = QueryVariable(name: "", value: "", type: .literal)
+    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+    vc.otherNames = []
+
+    let field = nameField(in: vc)
+    field.stringValue = "   "
+    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    triggerAction(of: backButton(in: vc))
+
+    expectEqual(vc.variable.name, "", "a whitespace-only name commits as empty, not as three spaces")
 }
 
 /// An empty (trimmed) name never collides with anything, including another
@@ -1319,9 +1396,12 @@ func runTests() {
     testModelNameUnchangedWhileTypingUntilSettle()
     testBackRefusedWhileColliding()
     testEscapeRefusedWhileColliding()
+    testEscapeInValueEditorRoutesThroughAttemptBack()
     testBackSucceedsOnceUnique()
     testDeleteWorksWhileColliding()
     testSeedListPrefixWalkNeverMangledOnBack()
+    testCommitTrimsTheName()
+    testWhitespaceOnlyNameCommitsEmptyAndStillPrunes()
     testEmptyNameNeverCollides()
     testCaseDifferenceDoesNotCollide()
     testInlineMessageShiftsEditorInSameLayoutPass()

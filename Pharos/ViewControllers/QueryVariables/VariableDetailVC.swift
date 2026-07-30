@@ -196,7 +196,12 @@ final class VariableDetailVC: NSViewController {
             guard let self else { return }
             self.view.window?.makeFirstResponder(self.nameField)
         }
-        valueTextView.onCancel = { [weak self] in self?.onBack?() }
+        // Routed through `attemptBack()`, not `onBack` directly: Escape here
+        // is a fourth path off this screen, and without this it bypassed the
+        // collision refusal entirely (a colliding name field could still be
+        // showing when this fires — the value editor has its own focus,
+        // independent of the name field's).
+        valueTextView.onCancel = { [weak self] in self?.attemptBack() }
         scrollView.documentView = valueTextView
 
         nameField.nextKeyView = valueTextView
@@ -432,9 +437,11 @@ final class VariableDetailVC: NSViewController {
     }
 
     /// The single entry point for every path off this screen: the back
-    /// button, Escape via `cancelOperation` with no text control focused, and
+    /// button, Escape via `cancelOperation` with no text control focused,
     /// Escape while the name field specifically has focus (the delegate
-    /// below). While the field's displayed text collides with another
+    /// below), and Escape while the value editor has focus
+    /// (`valueTextView.onCancel`, wired to this rather than `onBack`
+    /// directly). While the field's displayed text collides with another
     /// variable's name, leaving is refused outright — kept from the previous
     /// fix; see `commitNameIfValid` for the deeper problem that fix alone
     /// didn't close. Otherwise, this is a settle point: commit whatever the
@@ -494,9 +501,27 @@ final class VariableDetailVC: NSViewController {
     /// the same edit when more than one settle signal fires for it — Enter
     /// typically also ends editing, so both call this, but the second call
     /// finds `typed == variable.name` already and does nothing.
+    ///
+    /// Commits the *trimmed* field content, not the raw one. Every collision
+    /// rule trims — `otherNames(excluding:)` and this file's own
+    /// `controlTextDidChange` both trim before comparing, and
+    /// `VariableSubstitutor.rowStates` keys its duplicate-detection on the
+    /// stored name as-is — so an untrimmed commit could put a name into the
+    /// model that no rule downstream agrees is the same as its trimmed self.
+    /// Measured consequence of not trimming here: typing `"ip "` committed a
+    /// row no `{{token}}` could ever reference (the trailing space makes it
+    /// a different string), which showed healthy (indigo, no badge, since
+    /// `rowStates` cannot flag a collision the model itself doesn't contain)
+    /// and then refused the *correct* name `"ip"` on another row as a
+    /// duplicate — because by then two rows really did share the same
+    /// trimmed name, just spelled differently in storage — blocking exit
+    /// with no way to tell why. Trimming here also closes a second gap: a
+    /// name of three spaces is non-empty by `String.isEmpty`, so it used to
+    /// survive `dismissDetail`'s abandoned-row prune as a junk row; trimmed,
+    /// it commits as `""` and prunes normally.
     private func commitNameIfValid() {
         guard !isNameCollision else { return }
-        let typed = nameField.stringValue
+        let typed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard typed != variable.name else { return }
         variable.name = typed
         onChange?(variable)
