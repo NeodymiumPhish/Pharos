@@ -965,8 +965,11 @@ pub fn load_workspaces(
     let mut idx = 1;
 
     if let Some(q) = search {
-        if !q.is_empty() {
-            let escaped = escape_fts5_query(q);
+        // Guard on the *escaped* expression, not the raw input. A filter of
+        // whitespace only is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hides.
+        let escaped = escape_fts5_query(q);
+        if !escaped.is_empty() {
             sql.push_str(&format!(
                 " AND (w.rowid IN (SELECT rowid FROM workspaces_fts WHERE workspaces_fts MATCH ?{i})
                        OR w.id IN (SELECT qh.workspace_id FROM query_history qh
@@ -1386,6 +1389,29 @@ mod workspace_roundtrip_tests {
             table_names: Some("t".to_string()),
             source: None,
         }
+    }
+
+    #[test]
+    fn whitespace_only_filter_behaves_as_no_filter() {
+        let dir = temp_db_dir("ws_blank_filter");
+        let conn = init_database(&dir).expect("init_database");
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        // Before the guard this built `MATCH ''`, an FTS5 syntax error, which only
+        // the caller's fallback hid.
+        let summaries = load_workspaces(&conn, Some("   "), 50, 0)
+            .expect("a whitespace-only filter must not error");
+        assert_eq!(summaries.len(), 1);
     }
 
     #[test]
