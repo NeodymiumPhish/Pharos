@@ -31,17 +31,20 @@ fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
 
 // ==================== FTS5 Helpers ====================
 
+/// Tokenise user input into quoted FTS5 prefix terms. Shared by the plain and
+/// the column-scoped escapers so the two can never disagree about what counts
+/// as a token.
+fn fts5_terms(input: &str) -> Vec<String> {
+    input
+        .split_whitespace()
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect()
+}
+
 /// Escape user input for safe use in FTS5 MATCH queries.
 /// Each token is quoted as a literal with prefix matching (*).
 fn escape_fts5_query(input: &str) -> String {
-    input
-        .split_whitespace()
-        .map(|word| {
-            let escaped = word.replace('"', "\"\"");
-            format!("\"{}\"*", escaped)
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    fts5_terms(input).join(" ")
 }
 
 /// Escape user input for an FTS5 MATCH query restricted to a single column.
@@ -53,11 +56,12 @@ fn escape_fts5_query(input: &str) -> String {
 ///
 /// Returns `None` when the input holds no tokens. `{sql} : ()` is an FTS5
 /// syntax error, so the caller must skip the query rather than run it.
+///
+/// `column` is interpolated into the expression as given: it is neither
+/// validated nor quoted, so it must name a real column of the target FTS5
+/// table. A wrong value fails at run time with `no such column`.
 fn escape_fts5_query_scoped(input: &str, column: &str) -> Option<String> {
-    let terms: Vec<String> = input
-        .split_whitespace()
-        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
-        .collect();
+    let terms = fts5_terms(input);
     if terms.is_empty() {
         return None;
     }
@@ -953,7 +957,12 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
 /// also indexes `connection_name`, and an unscoped match on a connection name
 /// would mark every query in the workspace, which tells the user nothing.
 ///
-/// Rows for workspaces outside the current page are discarded.
+/// The query is restricted to the workspaces in `summaries`, so rows for
+/// workspaces outside the current page are never read.
+///
+/// IDs come back in `result_order ASC, executed_at ASC` — the same order
+/// `load_workspace` returns its rows in, so the ID list and the preview rows
+/// agree.
 fn attach_matching_result_ids(
     conn: &Connection,
     scoped_match: &str,
@@ -961,12 +970,37 @@ fn attach_matching_result_ids(
 ) -> SqliteResult<()> {
     use std::collections::HashMap;
 
-    let mut stmt = conn.prepare(
+    if summaries.is_empty() {
+        return Ok(());
+    }
+
+    // Restrict to the workspaces on this page. Without it, a one-character
+    // filter prefix-matches most of the 90-day history and this runs on every
+    // debounced keystroke while the metadata mutex is held. The caller's limit
+    // is 200, so the bound variable count stays far below SQLite's cap.
+    //
+    // `IN (...)` never matches NULL, so this also subsumes the previous
+    // `qh.workspace_id IS NOT NULL` test — unassociated history rows are
+    // excluded by the IN list itself.
+    let holes = (1..=summaries.len())
+        .map(|i| format!("?{}", i))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
         "SELECT qh.workspace_id, qh.id FROM query_history qh
-         WHERE qh.workspace_id IS NOT NULL
-           AND qh.rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?1)",
-    )?;
-    let rows = stmt.query_map([scoped_match], |row| {
+         WHERE qh.workspace_id IN ({})
+           AND qh.rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{})
+         ORDER BY qh.result_order ASC, qh.executed_at ASC",
+        holes,
+        summaries.len() + 1
+    );
+
+    let mut params: Vec<&dyn rusqlite::ToSql> =
+        summaries.iter().map(|s| &s.id as &dyn rusqlite::ToSql).collect();
+    params.push(&scoped_match);
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params.as_slice(), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
 
@@ -1045,14 +1079,16 @@ pub fn load_workspaces(
 
     // Which individual queries matched, for marking rows in the preview pane.
     //
-    // The error is swallowed on purpose. If it escaped, the fallback in
-    // commands::workspace::load_workspaces would re-run the whole load with
-    // `search: None` — turning a lost highlight into a lost filter, and showing
-    // every workspace. A lost highlight is the smaller failure. The crate has
-    // no logging facility, so there is nowhere to report it.
+    // The error is logged and then swallowed on purpose. If it escaped, the
+    // fallback in commands::workspace::load_workspaces would re-run the whole
+    // load with `search: None` — turning a lost highlight into a lost filter,
+    // and showing every workspace. A lost highlight is the smaller failure, so
+    // the filtered list below is returned as-is with the highlights missing.
     if let Some(q) = search {
         if let Some(scoped) = escape_fts5_query_scoped(q, "sql") {
-            let _ = attach_matching_result_ids(conn, &scoped, &mut summaries);
+            if let Err(e) = attach_matching_result_ids(conn, &scoped, &mut summaries) {
+                log::warn!("Match-highlight IDs unavailable, list still filtered: {}", e);
+            }
         }
     }
 
@@ -1271,8 +1307,13 @@ pub fn load_query_history(
     }
 
     if let Some(q) = search {
-        if !q.is_empty() {
-            let escaped = escape_fts5_query(q);
+        // Guard on the *escaped* expression, not the raw input. A filter of
+        // whitespace only is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hides. The
+        // sidebar sends the same filter text here and to load_workspaces, so
+        // both call sites need this guard.
+        let escaped = escape_fts5_query(q);
+        if !escaped.is_empty() {
             sql.push_str(&format!(
                 " AND rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{})",
                 param_idx
@@ -1466,6 +1507,29 @@ mod workspace_roundtrip_tests {
         let summaries = load_workspaces(&conn, Some("   "), 50, 0)
             .expect("a whitespace-only filter must not error");
         assert_eq!(summaries.len(), 1);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn whitespace_only_history_filter_behaves_as_no_filter() {
+        // The sidebar sends the same filter text to load_workspaces and to
+        // load_query_history, so both call sites need the escaped-expression
+        // guard. `"   "` is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hid.
+        let dir = temp_db_dir("history_blank_filter");
+        let conn = init_database(&dir).expect("init_database");
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &h1, None, None).expect("save h1");
+
+        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false)
+            .expect("a whitespace-only filter must not error");
+        assert_eq!(entries.len(), 1, "the filter must be ignored, not applied");
+        assert_eq!(entries[0].id, "h1");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1879,3 +1943,5 @@ mod history_source_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
