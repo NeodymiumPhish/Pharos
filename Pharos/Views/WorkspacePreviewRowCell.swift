@@ -8,11 +8,20 @@ import AppKit
 /// can compile it. `QueryHistoryVC` pulls in the whole PharosCore FFI bridge,
 /// which cannot link in a plain swiftc binary.
 class WorkspacePreviewRowCell: NSTableCellView {
+    /// The tint of the match bar. A static so the harness can assert the bar is
+    /// actually filled with it — a `CGColor` on a layer was unreachable from a
+    /// test, and two ways of making the bar invisible passed the whole suite.
+    static let matchTint: NSColor = .controlAccentColor
+
     /// Shown only when this row's SQL matched the active filter. An accent bar
     /// rather than a tinted row background: the background already carries
     /// alternating colours and selection, and an accent tint cannot be told
     /// apart from a selected row.
-    let matchBar = NSView()
+    ///
+    /// An `NSBox` rather than a layer-backed view because AppKit resolves
+    /// `fillColor` at draw time, so the bar follows a change to the system
+    /// Accent colour. A `CGColor` in `layer.backgroundColor` never re-resolves.
+    let matchBar = NSBox()
     let dot = NSView()
     let primaryLabel = NSTextField(labelWithString: "")
     let secondaryLabel = NSTextField(labelWithString: "")
@@ -22,7 +31,10 @@ class WorkspacePreviewRowCell: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
-        matchBar.wantsLayer = true
+        matchBar.boxType = .custom
+        matchBar.titlePosition = .noTitle
+        matchBar.borderWidth = 0
+        matchBar.fillColor = Self.matchTint
         matchBar.isHidden = true
         matchBar.translatesAutoresizingMaskIntoConstraints = false
 
@@ -93,15 +105,20 @@ class WorkspacePreviewRowCell: NSTableCellView {
             parts.append("\(columnCount) col\(columnCount == 1 ? "" : "s")")
         }
         if let rowCount = meta.rowCount {
-            parts.append("\(HistoryRowText.rowCount(Int64(rowCount))) row\(rowCount == 1 ? "" : "s")")
+            parts.append("\(HistoryRowText.rowCountText(Int64(rowCount))) row\(rowCount == 1 ? "" : "s")")
         }
         secondaryLabel.stringValue = parts.joined(separator: " · ")
         secondaryLabel.textColor = meta.hasResults ? .secondaryLabelColor : .tertiaryLabelColor
 
         matchBar.isHidden = !isMatch
-        matchBar.layer?.backgroundColor = isMatch ? NSColor.controlAccentColor.cgColor : nil
         primaryLabel.font = isMatch
             ? .systemFont(ofSize: Self.primaryFontSize, weight: .semibold)
             : .systemFont(ofSize: Self.primaryFontSize)
+
+        // The bar and the semibold font are visual only. Clearing the label on
+        // the unmatched path is required, not tidiness — the cell is recycled.
+        setAccessibilityLabel(
+            isMatch ? "\(primaryLabel.stringValue), matches the filter" : nil
+        )
     }
 }

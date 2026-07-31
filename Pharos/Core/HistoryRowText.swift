@@ -26,12 +26,19 @@ enum HistoryRowText {
         return "\(matches) of \(total) \(noun) \(verb)"
     }
 
-    /// A row count with thousands grouping, for both history rows and preview
-    /// rows.
-    static func rowCount(_ count: Int64) -> String {
+    /// Hoisted because this runs once per row on every reload. Both call sites
+    /// are on the main thread, and nothing mutates the formatter after this
+    /// initialiser, so sharing one instance is safe.
+    private static let rowCountFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        return formatter
+    }()
+
+    /// A row count with thousands grouping, for both history rows and preview
+    /// rows.
+    static func rowCountText(_ count: Int64) -> String {
+        rowCountFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
     }
 }
