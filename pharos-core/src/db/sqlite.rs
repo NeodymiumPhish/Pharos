@@ -44,6 +44,65 @@ fn escape_fts5_query(input: &str) -> String {
         .join(" ")
 }
 
+/// Escape user input for an FTS5 MATCH query restricted to a single column.
+///
+/// Each token is quoted and prefix-matched exactly as `escape_fts5_query` does,
+/// then the whole list is wrapped in parentheses behind a column filter. The
+/// parentheses are required: FTS5 applies a bare column filter to the next term
+/// only, so `{sql} : "a"* "b"*` would leave `"b"*` searching every column.
+///
+/// Returns `None` when the input holds no tokens. `{sql} : ()` is an FTS5
+/// syntax error, so the caller must skip the query rather than run it.
+fn escape_fts5_query_scoped(input: &str, column: &str) -> Option<String> {
+    let terms: Vec<String> = input
+        .split_whitespace()
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect();
+    if terms.is_empty() {
+        return None;
+    }
+    Some(format!("{{{}}} : ({})", column, terms.join(" ")))
+}
+
+#[cfg(test)]
+mod fts5_scoped_tests {
+    use super::*;
+
+    #[test]
+    fn single_word_is_quoted_prefixed_and_scoped() {
+        assert_eq!(
+            escape_fts5_query_scoped("orders", "sql").as_deref(),
+            Some(r#"{sql} : ("orders"*)"#)
+        );
+    }
+
+    #[test]
+    fn every_term_sits_inside_the_parentheses() {
+        // FTS5 applies a bare column filter to the next term only. Without the
+        // parentheses `"2024"*` would match connection_name too.
+        assert_eq!(
+            escape_fts5_query_scoped("orders 2024", "sql").as_deref(),
+            Some(r#"{sql} : ("orders"* "2024"*)"#)
+        );
+    }
+
+    #[test]
+    fn embedded_quotes_are_doubled() {
+        assert_eq!(
+            escape_fts5_query_scoped("a\"b", "sql").as_deref(),
+            Some(r#"{sql} : ("a""b"*)"#)
+        );
+    }
+
+    #[test]
+    fn input_without_tokens_yields_none() {
+        // `{sql} : ()` is an FTS5 syntax error, so the caller must skip the
+        // query entirely rather than run an empty expression.
+        assert_eq!(escape_fts5_query_scoped("   ", "sql"), None);
+        assert_eq!(escape_fts5_query_scoped("", "sql"), None);
+    }
+}
+
 /// Resolve a workspace's display name. Custom names win; otherwise use the
 /// first-queried connection name, suffixed with " +N" when N additional
 /// distinct databases were queried in the same workspace.
