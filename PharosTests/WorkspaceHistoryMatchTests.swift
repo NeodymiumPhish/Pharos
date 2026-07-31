@@ -66,9 +66,104 @@ private func testRowCountGroupsThousands() {
     expectEqual(HistoryRowText.rowCount(7), "7", "row count below a thousand")
 }
 
+// MARK: - WorkspacePreviewRowCell
+
+private func makeMeta(
+    id: String = "h1",
+    sql: String = "SELECT * FROM orders",
+    customLabel: String? = nil,
+    tableNames: String? = nil,
+    rowCount: Int? = nil,
+    columnCount: Int? = nil,
+    hasResults: Bool = true
+) -> WorkspaceResultMeta {
+    WorkspaceResultMeta(
+        id: id, sql: sql, resultOrder: 0, colorIndex: 0, customLabel: customLabel,
+        rowCount: rowCount, columnCount: columnCount, schema: nil, tableNames: tableNames,
+        hasResults: hasResults, executionTimeMs: 5, executedAt: "2026-07-31T00:00:00Z",
+        chartViewStateJson: nil, rawSql: nil
+    )
+}
+
+/// A cell with a resolved layout. No window is needed: a view with a real frame
+/// resolves its own subview constraints under `layoutSubtreeIfNeeded()`.
+private func makeCell(width: CGFloat = 320, height: CGFloat = 34) -> WorkspacePreviewRowCell {
+    let cell = WorkspacePreviewRowCell()
+    cell.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    return cell
+}
+
+private func testUnmatchedRowHasNoMark() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: false)
+    expectTrue(cell.matchBar.isHidden, "unmatched row hides the bar")
+    expectTrue(
+        cell.primaryLabel.font == .systemFont(ofSize: 12),
+        "unmatched row keeps the regular label font"
+    )
+}
+
+private func testMatchedRowIsMarked() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: true)
+    expectTrue(!cell.matchBar.isHidden, "matched row shows the bar")
+    expectTrue(
+        cell.primaryLabel.font == .systemFont(ofSize: 12, weight: .semibold),
+        "matched row uses the semibold label font"
+    )
+}
+
+/// The one test that catches the reuse defect: `makeView` recycles cells, so a
+/// configure that only *adds* the mark leaves it on the next row. Two separate
+/// cells would pass while the defect stayed.
+private func testReusedCellDropsThePreviousRowsMark() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(id: "h1"), dotColor: .systemBlue, isMatch: true)
+    cell.configure(meta: makeMeta(id: "h2"), dotColor: .systemBlue, isMatch: false)
+    expectTrue(cell.matchBar.isHidden, "reused cell hides the bar again")
+    expectTrue(
+        cell.primaryLabel.font == .systemFont(ofSize: 12),
+        "reused cell returns to the regular label font"
+    )
+}
+
+private func testMatchBarLayoutDoesNotDisturbTheDot() {
+    let cell = makeCell(height: 34)
+    cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: true)
+    cell.layoutSubtreeIfNeeded()
+    expectEqual("\(cell.matchBar.frame.width)", "3.0", "bar is 3pt wide")
+    expectEqual("\(cell.matchBar.frame.height)", "34.0", "bar spans the row height")
+    expectEqual("\(cell.matchBar.frame.minX)", "0.0", "bar sits on the leading edge")
+    expectEqual("\(cell.dot.frame.minX)", "8.0", "the dot is not pushed by the bar")
+}
+
+private func testLabelsPreferCustomLabelThenTableNamesThenSQL() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(customLabel: "Revenue", tableNames: "orders"), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.primaryLabel.stringValue, "Revenue", "custom label wins")
+
+    cell.configure(meta: makeMeta(tableNames: "orders"), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.primaryLabel.stringValue, "orders", "table names come next")
+
+    cell.configure(meta: makeMeta(sql: "  SELECT 1\nFROM t"), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "first SQL line is the fallback")
+}
+
+private func testSizeCaption() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(rowCount: 1000, columnCount: 1), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.secondaryLabel.stringValue, "1 col · 1,000 rows", "caption pluralises each part")
+}
+
 // MARK: - Entry point
 
 func runTests() {
+    testUnmatchedRowHasNoMark()
+    testMatchedRowIsMarked()
+    testReusedCellDropsThePreviousRowsMark()
+    testMatchBarLayoutDoesNotDisturbTheDot()
+    testLabelsPreferCustomLabelThenTableNamesThenSQL()
+    testSizeCaption()
     testPlainClauseWhenNotFiltering()
     testMatchClauseVerbAgreesWithTheCount()
     testZeroMatchesKeepsThePlainClause()
