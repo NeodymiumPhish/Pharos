@@ -27,6 +27,7 @@ struct WorkspaceSummary: Codable {
     let lastActivityAt: String
     /// IDs of this workspace's queries whose SQL matched the active filter.
     /// Empty when no filter is active. Same IDs as `WorkspaceResultMeta.id`.
+    /// Order is not significant — the consumer uses set membership only.
     let matchingResultIds: [String]
 }
 

@@ -117,7 +117,15 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     /// Rust returns no IDs when no filter is active, so this empties itself.
     private var matchesByWorkspace: [String: Set<String>] = [:]
 
-    private var isFiltering: Bool { !(filterText?.isEmpty ?? true) }
+    /// The filter text that produced the rows currently on screen. Written in
+    /// the same block as `matchesByWorkspace`, so the workspace row's clause and
+    /// the preview rows' marks always describe the same load. Deriving this from
+    /// `filterText` instead would let the two disagree — `filterText` is written
+    /// synchronously by `applyFilter`, while the map arrives with the FFI result,
+    /// and a failed load never arrives at all.
+    private var appliedFilterText: String?
+
+    private var isFiltering: Bool { !(appliedFilterText?.isEmpty ?? true) }
 
     /// Called when the table selection changes; passes the number of selected rows.
     var onSelectionChanged: ((Int) -> Void)?
@@ -311,8 +319,9 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             await MainActor.run {
                 guard let self, generation == self.requeryGeneration else { return }
                 self.workspaces = ws
-                self.matchesByWorkspace = ws.reduce(into: [:]) {
-                    $0[$1.id] = Set($1.matchingResultIds)
+                self.appliedFilterText = search
+                self.matchesByWorkspace = ws.reduce(into: [:]) { map, summary in
+                    map[summary.id] = Set(summary.matchingResultIds)
                 }
                 self.legacyEntries = legacy
                 self.rebuildRows()
@@ -655,7 +664,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         // Line 2: "1,000 Rows - 1h ago"
         let rowText: String
         if let count = entry.rowCount {
-            rowText = "\(HistoryRowText.rowCount(count)) Row\(count == 1 ? "" : "s")"
+            rowText = "\(HistoryRowText.rowCountText(count)) Row\(count == 1 ? "" : "s")"
         } else {
             rowText = ""
         }
