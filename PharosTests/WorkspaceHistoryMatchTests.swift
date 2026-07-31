@@ -17,6 +17,20 @@ private func expectEqual(_ actual: String, _ expected: String, _ name: String) {
     }
 }
 
+private func expectEqual(_ actual: CGFloat, _ expected: CGFloat, _ name: String) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(expected)\n  actual:   \(actual)")
+    }
+}
+
+private func expectEqual(_ actual: NSColor, _ expected: NSColor, _ name: String) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(expected)\n  actual:   \(actual)")
+    }
+}
+
 private func expectTrue(_ actual: Bool, _ name: String) {
     if actual { print("PASS \(name)") } else {
         failures += 1
@@ -91,8 +105,17 @@ private func testZeroMatchesKeepsThePlainClause() {
 }
 
 private func testRowCountGroupsThousands() {
-    expectEqual(HistoryRowText.rowCount(1000), "1,000", "row count grouping")
-    expectEqual(HistoryRowText.rowCount(7), "7", "row count below a thousand")
+    expectEqual(HistoryRowText.rowCountText(1000), "1,000", "row count grouping")
+    expectEqual(HistoryRowText.rowCountText(7), "7", "row count below a thousand")
+}
+
+/// A workspace whose editor holds text but that never ran a query. It is listed,
+/// so its clause has to read sensibly with nothing to count.
+private func testNoQueriesAtAll() {
+    expectEqual(
+        HistoryRowText.queryClause(total: 0, matches: 0, isFiltering: false),
+        "0 queries", "a workspace with no executed query"
+    )
 }
 
 // MARK: - WorkspacePreviewRowCell
@@ -160,10 +183,59 @@ private func testMatchBarLayoutDoesNotDisturbTheDot() {
     let cell = makeCell(height: 34)
     cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: true)
     cell.layoutSubtreeIfNeeded()
-    expectEqual("\(cell.matchBar.frame.width)", "3.0", "bar is 3pt wide")
-    expectEqual("\(cell.matchBar.frame.height)", "34.0", "bar spans the row height")
-    expectEqual("\(cell.matchBar.frame.minX)", "0.0", "bar sits on the leading edge")
-    expectEqual("\(cell.dot.frame.minX)", "8.0", "the dot is not pushed by the bar")
+    expectEqual(cell.matchBar.frame.width, 3, "bar is 3pt wide")
+    expectEqual(cell.matchBar.frame.height, 34, "bar spans the row height")
+    expectEqual(cell.matchBar.frame.minX, 0, "bar sits on the leading edge")
+    expectEqual(cell.dot.frame.minX, 8, "the dot is not pushed by the bar")
+}
+
+/// Without this, the whole visible feature can be deleted with a green suite:
+/// an unfilled bar shows the row background and reads as no mark at all.
+private func testMatchBarIsFilledWithTheAccentTint() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: true)
+    expectEqual(cell.matchBar.fillColor, WorkspacePreviewRowCell.matchTint, "bar is filled with the match tint")
+    expectTrue(cell.matchBar.borderWidth == 0, "bar draws no border")
+    expectTrue(cell.matchBar.titlePosition == .noTitle, "bar draws no title")
+}
+
+/// The bar and the semibold font say nothing to assistive technology. One
+/// recycled cell, because the unmatched path has to *clear* the label.
+private func testAccessibilityLabelTracksTheMark() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(customLabel: "Revenue"), dotColor: .systemBlue, isMatch: true)
+    expectEqual(
+        cell.accessibilityLabel() ?? "<nil>",
+        "Revenue, matches the filter", "matched row announces the match"
+    )
+
+    cell.configure(meta: makeMeta(customLabel: "Revenue"), dotColor: .systemBlue, isMatch: false)
+    expectTrue(cell.accessibilityLabel() == nil, "reused cell clears the announcement")
+}
+
+/// Nothing read the dot colour, so deleting the assignment passed everything.
+/// One recycled cell: the colour has to change on the second configure.
+private func testDotColourFollowsTheResult() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(), dotColor: .systemBlue, isMatch: false)
+    let first = cell.dot.layer?.backgroundColor
+    cell.configure(meta: makeMeta(), dotColor: .systemPink, isMatch: false)
+    let second = cell.dot.layer?.backgroundColor
+
+    expectTrue(first != nil && second != nil, "the dot is filled on both configures")
+    expectTrue(first != second, "the reused dot takes the new result's colour")
+    expectTrue(second == NSColor.systemPink.cgColor, "the dot's colour is the one passed in")
+}
+
+/// The only test that exercises `hasResults: false`, and it does so on a
+/// recycled cell so the tertiary colour cannot stick.
+private func testSecondaryLabelColourFollowsHasResults() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(rowCount: 1, hasResults: false), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.secondaryLabel.textColor ?? .clear, .tertiaryLabelColor, "a row with no stored result dims its caption")
+
+    cell.configure(meta: makeMeta(rowCount: 1, hasResults: true), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.secondaryLabel.textColor ?? .clear, .secondaryLabelColor, "the reused caption brightens again")
 }
 
 private func testLabelsPreferCustomLabelThenTableNamesThenSQL() {
@@ -176,6 +248,23 @@ private func testLabelsPreferCustomLabelThenTableNamesThenSQL() {
 
     cell.configure(meta: makeMeta(sql: "  SELECT 1\nFROM t"), dotColor: .systemBlue, isMatch: false)
     expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "first SQL line is the fallback")
+}
+
+/// SQLite hands back `""` rather than NULL for a label the user cleared, so an
+/// empty string has to fall through exactly as a nil does.
+private func testEmptyStringsFallThroughLikeNil() {
+    let cell = makeCell()
+    cell.configure(
+        meta: makeMeta(customLabel: "", tableNames: "orders"),
+        dotColor: .systemBlue, isMatch: false
+    )
+    expectEqual(cell.primaryLabel.stringValue, "orders", "an empty custom label falls through to table names")
+
+    cell.configure(
+        meta: makeMeta(sql: "  SELECT 1\nFROM t", customLabel: "", tableNames: ""),
+        dotColor: .systemBlue, isMatch: false
+    )
+    expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "both empty falls through to the first SQL line")
 }
 
 private func testSizeCaption() {
@@ -192,11 +281,17 @@ func runTests() {
     testMatchedRowIsMarked()
     testReusedCellDropsThePreviousRowsMark()
     testMatchBarLayoutDoesNotDisturbTheDot()
+    testMatchBarIsFilledWithTheAccentTint()
+    testAccessibilityLabelTracksTheMark()
+    testDotColourFollowsTheResult()
+    testSecondaryLabelColourFollowsHasResults()
     testLabelsPreferCustomLabelThenTableNamesThenSQL()
+    testEmptyStringsFallThroughLikeNil()
     testSizeCaption()
     testPlainClauseWhenNotFiltering()
     testMatchClauseVerbAgreesWithTheCount()
     testZeroMatchesKeepsThePlainClause()
+    testNoQueriesAtAll()
     testRowCountGroupsThousands()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
