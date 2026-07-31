@@ -1787,7 +1787,10 @@ mod workspace_roundtrip_tests {
 
     /// One workspace ("ws1", connection "prod-db") holding two queries with
     /// distinct SQL: h1 mentions `orders`, h2 mentions `customers`.
-    fn workspace_with_two_queries(tag: &str) -> Connection {
+    ///
+    /// Returns the temp dir with the connection so every caller can clean up,
+    /// matching the convention of the other tests in this module.
+    fn workspace_with_two_queries(tag: &str) -> (Connection, PathBuf) {
         let dir = temp_db_dir(tag);
         let conn = init_database(&dir).expect("init_database");
         let ws = WorkspaceUpsert {
@@ -1810,47 +1813,59 @@ mod workspace_roundtrip_tests {
         save_query_history(&conn, &h2, None, None).expect("save h2");
         associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
         associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
-        conn
+        (conn, dir)
     }
 
     #[test]
     fn sql_match_returns_only_the_matching_query_id() {
-        let conn = workspace_with_two_queries("ws_match_sql");
+        let (conn, dir) = workspace_with_two_queries("ws_match_sql");
         let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].matching_result_ids, vec!["h1".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn connection_name_match_marks_no_query() {
-        let conn = workspace_with_two_queries("ws_match_conn");
+        let (conn, dir) = workspace_with_two_queries("ws_match_conn");
         // query_history_fts indexes connection_name, so "prod" lists the workspace.
         // The scoped expression looks at `sql` only, so no individual query matches.
         let summaries = load_workspaces(&conn, Some("prod"), 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1, "the workspace is still listed");
         assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn workspace_name_match_marks_no_query() {
-        let conn = workspace_with_two_queries("ws_match_name");
+        let (conn, dir) = workspace_with_two_queries("ws_match_name");
         rename_workspace(&conn, "ws1", "Quarterly review").expect("rename_workspace");
         let summaries = load_workspaces(&conn, Some("quarterly"), 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1);
         assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn no_filter_yields_empty_match_sets() {
-        let conn = workspace_with_two_queries("ws_match_none");
+        let (conn, dir) = workspace_with_two_queries("ws_match_none");
         let summaries = load_workspaces(&conn, None, 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1);
         assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn multi_word_filter_can_list_a_workspace_with_no_marked_query() {
-        let conn = workspace_with_two_queries("ws_match_split");
+        let (conn, dir) = workspace_with_two_queries("ws_match_split");
         // The list filter is unscoped, so h2 matches it: "customers" is in its sql
         // and "prod" is in its connection_name. No single query holds both terms in
         // its sql, so the scoped expression marks nothing.
@@ -1858,15 +1873,100 @@ mod workspace_roundtrip_tests {
             load_workspaces(&conn, Some("customers prod"), 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1, "the workspace is still listed");
         assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn matches_for_workspaces_outside_the_page_are_dropped() {
-        let dir = temp_db_dir("ws_match_page");
+    fn every_matching_query_in_a_workspace_is_listed_in_order() {
+        // Two things at once.
+        //
+        // Accumulation: every other match test asserts 0 or 1 ID, so an
+        // overwrite in place of the `entry().or_default().push(...)` would pass
+        // them all. Both queries here match, and both must come back.
+        //
+        // Order: the row inserted SECOND carries result_order 0, so the natural
+        // rowid scan order and the result_order the preview pane draws in
+        // disagree. Drop or reverse the ORDER BY and this test fails.
+        let dir = temp_db_dir("ws_match_both");
         let conn = init_database(&dir).expect("init_database");
-        // upsert_workspace stamps last_activity_at with Utc::now() per call, so the
-        // second workspace sorts first under ORDER BY last_activity_at DESC.
-        for (workspace_id, history_id, offset) in [("ws_old", "h_old", 0i64), ("ws_new", "h_new", 10i64)] {
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let mut first = history_entry("h_inserted_first", "c1", "prod-db", &now_offset(0));
+        first.sql = "SELECT * FROM orders".to_string();
+        let mut second = history_entry("h_inserted_second", "c1", "prod-db", &now_offset(1));
+        second.sql = "SELECT * FROM customers".to_string();
+        save_query_history(&conn, &first, None, None).expect("save first");
+        save_query_history(&conn, &second, None, None).expect("save second");
+        // Deliberately inverted: the second-inserted row is the first tab.
+        associate_result_to_workspace(&conn, "h_inserted_first", "ws1", 1, 0, None)
+            .expect("associate first");
+        associate_result_to_workspace(&conn, "h_inserted_second", "ws1", 0, 1, None)
+            .expect("associate second");
+
+        let summaries = load_workspaces(&conn, Some("select"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(
+            summaries[0].matching_result_ids,
+            vec!["h_inserted_second".to_string(), "h_inserted_first".to_string()],
+            "both queries match, ordered by result_order, not by insertion"
+        );
+
+        // The IDs must line up with the rows load_workspace hands the preview pane.
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let detail_order: Vec<String> = detail.results.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(
+            summaries[0].matching_result_ids, detail_order,
+            "the ID list and the preview rows must agree"
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_matching_history_row_with_no_workspace_is_ignored() {
+        // The page restriction is an `IN (...)` list of workspace ids, and
+        // `IN (...)` never matches NULL. An unassociated history row must
+        // therefore never be attributed to a workspace, nor make the load fail.
+        let (conn, dir) = workspace_with_two_queries("ws_match_orphan");
+        let mut orphan = history_entry("h_orphan", "c1", "prod-db", &now_offset(2));
+        orphan.sql = "SELECT * FROM orders_archive".to_string();
+        save_query_history(&conn, &orphan, None, None).expect("save orphan");
+        // Deliberately never associated to a workspace.
+
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the orphan lists no workspace of its own");
+        assert_eq!(
+            summaries[0].matching_result_ids,
+            vec!["h1".to_string()],
+            "the workspace reports only its own query"
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_listed_workspace_gets_only_its_own_ids() {
+        // The paging test uses limit 1, so per-summary partitioning is proven for
+        // a single row only. With two rows on one page each must keep its own ID.
+        let dir = temp_db_dir("ws_match_two_rows");
+        let conn = init_database(&dir).expect("init_database");
+        for (workspace_id, history_id, executed_offset) in
+            [("ws_a", "h_a", 0i64), ("ws_b", "h_b", 1i64)]
+        {
             let ws = WorkspaceUpsert {
                 id: workspace_id.to_string(),
                 name: None,
@@ -1878,17 +1978,114 @@ mod workspace_roundtrip_tests {
                 cursor_position: None,
             };
             upsert_workspace(&conn, &ws).expect("upsert_workspace");
-            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(offset));
+            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
             h.sql = "SELECT * FROM orders".to_string();
             save_query_history(&conn, &h, None, None).expect("save history");
             associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
                 .expect("associate");
         }
 
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 2, "both workspaces are on the page");
+        let a = summaries.iter().find(|s| s.id == "ws_a").expect("ws_a listed");
+        let b = summaries.iter().find(|s| s.id == "ws_b").expect("ws_b listed");
+        assert_eq!(a.matching_result_ids, vec!["h_a".to_string()]);
+        assert_eq!(b.matching_result_ids, vec!["h_b".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn punctuation_only_filter_does_not_error() {
+        // Same failure class as the whitespace-only filter, but it lands
+        // differently. Our tokeniser sees one token, so the filter IS applied:
+        // `"-"*` is a well-formed FTS5 expression whose quoted phrase holds
+        // nothing indexable, so it matches nothing. The whitespace case skips
+        // the filter and lists everything; this one applies it and lists
+        // nothing. What both must never do is error, which would drop the
+        // caller into its unfiltered fallback and show every workspace.
+        let (conn, dir) = workspace_with_two_queries("ws_match_punct");
+        let summaries = load_workspaces(&conn, Some("-"), 50, 0)
+            .expect("a punctuation-only filter must not error");
+        assert!(summaries.is_empty(), "the filter applies and matches nothing");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn matching_result_ids_serialises_as_matching_result_ids_camel_case() {
+        // The Swift side declares matchingResultIds as non-optional, so a casing
+        // slip here breaks every history load at run time with no compile-time
+        // signal on either side of the FFI.
+        let summary = crate::models::WorkspaceSummary {
+            id: "ws1".to_string(),
+            name: "prod-db".to_string(),
+            connection_name: "prod-db".to_string(),
+            distinct_db_count: 1,
+            query_count: 1,
+            last_activity_at: now_offset(0),
+            matching_result_ids: vec!["h1".to_string()],
+        };
+        let json = serde_json::to_string(&summary).expect("serialise WorkspaceSummary");
+        assert!(
+            json.contains(r#""matchingResultIds":["h1"]"#),
+            "FFI key must be camelCase, got: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn matches_for_workspaces_outside_the_page_are_dropped() {
+        let dir = temp_db_dir("ws_match_page");
+        let conn = init_database(&dir).expect("init_database");
+        for (workspace_id, history_id, executed_offset) in
+            [("ws_old", "h_old", 0i64), ("ws_new", "h_new", 10i64)]
+        {
+            let ws = WorkspaceUpsert {
+                id: workspace_id.to_string(),
+                name: None,
+                name_is_custom: false,
+                connection_id: "c1".to_string(),
+                connection_name: "prod-db".to_string(),
+                editor_text: "SELECT 1".to_string(),
+                variables_json: "[]".to_string(),
+                cursor_position: None,
+            };
+            upsert_workspace(&conn, &ws).expect("upsert_workspace");
+            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
+            h.sql = "SELECT * FROM orders".to_string();
+            save_query_history(&conn, &h, None, None).expect("save history");
+            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+                .expect("associate");
+        }
+
+        // Pin the sort order rather than trusting the two Utc::now() stamps
+        // upsert_workspace wrote. to_rfc3339() uses SecondsFormat::AutoSi, which
+        // prints 0, 3, 6 or 9 subsecond digits, and the '+' of the "+00:00"
+        // suffix (0x2B) sorts below the digits -- so a later stamp printing fewer
+        // digits can sort below an earlier one in the text ORDER BY. Millis is a
+        // fixed width, so these two compare chronologically. Both stay well
+        // inside the 90-day window, or the retention prune would delete them.
+        let base = chrono::Utc::now();
+        for (workspace_id, seconds_ago) in [("ws_old", 60i64), ("ws_new", 10i64)] {
+            let stamp = (base - chrono::Duration::seconds(seconds_ago))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            conn.execute(
+                "UPDATE workspaces SET last_activity_at = ?1 WHERE id = ?2",
+                (&stamp, workspace_id),
+            )
+            .expect("pin last_activity_at");
+        }
+
         let summaries = load_workspaces(&conn, Some("orders"), 1, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].id, "ws_new");
         assert_eq!(summaries[0].matching_result_ids, vec!["h_new".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
