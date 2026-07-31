@@ -31,17 +31,80 @@ fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
 
 // ==================== FTS5 Helpers ====================
 
+/// Tokenise user input into quoted FTS5 prefix terms. Shared by the plain and
+/// the column-scoped escapers so the two can never disagree about what counts
+/// as a token.
+fn fts5_terms(input: &str) -> Vec<String> {
+    input
+        .split_whitespace()
+        .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
+        .collect()
+}
+
 /// Escape user input for safe use in FTS5 MATCH queries.
 /// Each token is quoted as a literal with prefix matching (*).
 fn escape_fts5_query(input: &str) -> String {
-    input
-        .split_whitespace()
-        .map(|word| {
-            let escaped = word.replace('"', "\"\"");
-            format!("\"{}\"*", escaped)
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    fts5_terms(input).join(" ")
+}
+
+/// Escape user input for an FTS5 MATCH query restricted to a single column.
+///
+/// Each token is quoted and prefix-matched exactly as `escape_fts5_query` does,
+/// then the whole list is wrapped in parentheses behind a column filter. The
+/// parentheses are required: FTS5 applies a bare column filter to the next term
+/// only, so `{sql} : "a"* "b"*` would leave `"b"*` searching every column.
+///
+/// Returns `None` when the input holds no tokens. `{sql} : ()` is an FTS5
+/// syntax error, so the caller must skip the query rather than run it.
+///
+/// `column` is interpolated into the expression as given: it is neither
+/// validated nor quoted, so it must name a real column of the target FTS5
+/// table. A wrong value fails at run time with `no such column`.
+fn escape_fts5_query_scoped(input: &str, column: &str) -> Option<String> {
+    let terms = fts5_terms(input);
+    if terms.is_empty() {
+        return None;
+    }
+    Some(format!("{{{}}} : ({})", column, terms.join(" ")))
+}
+
+#[cfg(test)]
+mod fts5_scoped_tests {
+    use super::*;
+
+    #[test]
+    fn single_word_is_quoted_prefixed_and_scoped() {
+        assert_eq!(
+            escape_fts5_query_scoped("orders", "sql").as_deref(),
+            Some(r#"{sql} : ("orders"*)"#)
+        );
+    }
+
+    #[test]
+    fn every_term_sits_inside_the_parentheses() {
+        // FTS5 applies a bare column filter to the next term only. Without the
+        // parentheses `"2024"*` would match connection_name too.
+        assert_eq!(
+            escape_fts5_query_scoped("orders 2024", "sql").as_deref(),
+            Some(r#"{sql} : ("orders"* "2024"*)"#)
+        );
+    }
+
+    #[test]
+    fn embedded_quotes_are_doubled() {
+        assert_eq!(
+            escape_fts5_query_scoped("a\"b", "sql").as_deref(),
+            Some(r#"{sql} : ("a""b"*)"#)
+        );
+    }
+
+    #[test]
+    fn input_without_tokens_yields_none() {
+        // `{sql} : ()` is an FTS5 syntax error, so the caller must skip the
+        // query entirely rather than run an empty expression.
+        assert_eq!(escape_fts5_query_scoped("   ", "sql"), None);
+        assert_eq!(escape_fts5_query_scoped("", "sql"), None);
+    }
 }
 
 /// Resolve a workspace's display name. Custom names win; otherwise use the
@@ -888,6 +951,73 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
     Ok(())
 }
 
+/// Attach the IDs of each summary's queries whose SQL matched the filter.
+///
+/// `scoped_match` must already be column-filtered to `sql`. `query_history_fts`
+/// also indexes `connection_name`, and an unscoped match on a connection name
+/// would mark every query in the workspace, which tells the user nothing.
+///
+/// The query is restricted to the workspaces in `summaries`, so rows for
+/// workspaces outside the current page are never read.
+///
+/// IDs come back in `result_order ASC, executed_at ASC` — the same order
+/// `load_workspace` returns its rows in, so the ID list and the preview rows
+/// agree.
+fn attach_matching_result_ids(
+    conn: &Connection,
+    scoped_match: &str,
+    summaries: &mut [crate::models::WorkspaceSummary],
+) -> SqliteResult<()> {
+    use std::collections::HashMap;
+
+    if summaries.is_empty() {
+        return Ok(());
+    }
+
+    // Restrict to the workspaces on this page. Without it, a one-character
+    // filter prefix-matches most of the 90-day history and this runs on every
+    // debounced keystroke while the metadata mutex is held. The caller's limit
+    // is 200, so the bound variable count stays far below SQLite's cap.
+    //
+    // `IN (...)` never matches NULL, so this also subsumes the previous
+    // `qh.workspace_id IS NOT NULL` test — unassociated history rows are
+    // excluded by the IN list itself.
+    let holes = (1..=summaries.len())
+        .map(|i| format!("?{}", i))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT qh.workspace_id, qh.id FROM query_history qh
+         WHERE qh.workspace_id IN ({})
+           AND qh.rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{})
+         ORDER BY qh.result_order ASC, qh.executed_at ASC",
+        holes,
+        summaries.len() + 1
+    );
+
+    let mut params: Vec<&dyn rusqlite::ToSql> =
+        summaries.iter().map(|s| &s.id as &dyn rusqlite::ToSql).collect();
+    params.push(&scoped_match);
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    let mut by_workspace: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        let (workspace_id, result_id) = row?;
+        by_workspace.entry(workspace_id).or_default().push(result_id);
+    }
+
+    for summary in summaries.iter_mut() {
+        if let Some(ids) = by_workspace.remove(&summary.id) {
+            summary.matching_result_ids = ids;
+        }
+    }
+    Ok(())
+}
+
 /// Load workspace summaries, newest activity first. When `search` is set, a
 /// workspace matches if its name/editor_text match OR any child query SQL matches.
 pub fn load_workspaces(
@@ -906,8 +1036,11 @@ pub fn load_workspaces(
     let mut idx = 1;
 
     if let Some(q) = search {
-        if !q.is_empty() {
-            let escaped = escape_fts5_query(q);
+        // Guard on the *escaped* expression, not the raw input. A filter of
+        // whitespace only is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hides.
+        let escaped = escape_fts5_query(q);
+        if !escaped.is_empty() {
             sql.push_str(&format!(
                 " AND (w.rowid IN (SELECT rowid FROM workspaces_fts WHERE workspaces_fts MATCH ?{i})
                        OR w.id IN (SELECT qh.workspace_id FROM query_history qh
@@ -938,9 +1071,28 @@ pub fn load_workspaces(
             distinct_db_count,
             query_count: row.get(5)?,
             last_activity_at: row.get(4)?,
+            matching_result_ids: Vec::new(),
         })
     })?;
-    rows.collect()
+    let mut summaries: Vec<crate::models::WorkspaceSummary> =
+        rows.collect::<SqliteResult<Vec<_>>>()?;
+
+    // Which individual queries matched, for marking rows in the preview pane.
+    //
+    // The error is logged and then swallowed on purpose. If it escaped, the
+    // fallback in commands::workspace::load_workspaces would re-run the whole
+    // load with `search: None` — turning a lost highlight into a lost filter,
+    // and showing every workspace. A lost highlight is the smaller failure, so
+    // the filtered list below is returned as-is with the highlights missing.
+    if let Some(q) = search {
+        if let Some(scoped) = escape_fts5_query_scoped(q, "sql") {
+            if let Err(e) = attach_matching_result_ids(conn, &scoped, &mut summaries) {
+                log::warn!("Match-highlight IDs unavailable, list still filtered: {}", e);
+            }
+        }
+    }
+
+    Ok(summaries)
 }
 
 /// Load a workspace with its ordered child results (metadata only; blobs are
@@ -1155,8 +1307,13 @@ pub fn load_query_history(
     }
 
     if let Some(q) = search {
-        if !q.is_empty() {
-            let escaped = escape_fts5_query(q);
+        // Guard on the *escaped* expression, not the raw input. A filter of
+        // whitespace only is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hides. The
+        // sidebar sends the same filter text here and to load_workspaces, so
+        // both call sites need this guard.
+        let escaped = escape_fts5_query(q);
+        if !escaped.is_empty() {
             sql.push_str(&format!(
                 " AND rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?{})",
                 param_idx
@@ -1327,6 +1484,52 @@ mod workspace_roundtrip_tests {
             table_names: Some("t".to_string()),
             source: None,
         }
+    }
+
+    #[test]
+    fn whitespace_only_filter_behaves_as_no_filter() {
+        let dir = temp_db_dir("ws_blank_filter");
+        let conn = init_database(&dir).expect("init_database");
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        // Before the guard this built `MATCH ''`, an FTS5 syntax error, which only
+        // the caller's fallback hid.
+        let summaries = load_workspaces(&conn, Some("   "), 50, 0)
+            .expect("a whitespace-only filter must not error");
+        assert_eq!(summaries.len(), 1);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn whitespace_only_history_filter_behaves_as_no_filter() {
+        // The sidebar sends the same filter text to load_workspaces and to
+        // load_query_history, so both call sites need the escaped-expression
+        // guard. `"   "` is non-empty but tokenises to nothing, and `MATCH ''`
+        // is an FTS5 syntax error that only the caller's fallback hid.
+        let dir = temp_db_dir("history_blank_filter");
+        let conn = init_database(&dir).expect("init_database");
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &h1, None, None).expect("save h1");
+
+        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false)
+            .expect("a whitespace-only filter must not error");
+        assert_eq!(entries.len(), 1, "the filter must be ignored, not applied");
+        assert_eq!(entries[0].id, "h1");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1581,6 +1784,313 @@ mod workspace_roundtrip_tests {
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// One workspace ("ws1", connection "prod-db") holding two queries with
+    /// distinct SQL: h1 mentions `orders`, h2 mentions `customers`.
+    ///
+    /// Returns the temp dir with the connection so every caller can clean up,
+    /// matching the convention of the other tests in this module.
+    fn workspace_with_two_queries(tag: &str) -> (Connection, PathBuf) {
+        let dir = temp_db_dir(tag);
+        let conn = init_database(&dir).expect("init_database");
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let mut h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        h1.sql = "SELECT * FROM orders WHERE year = 2024".to_string();
+        let mut h2 = history_entry("h2", "c1", "prod-db", &now_offset(1));
+        h2.sql = "SELECT * FROM customers".to_string();
+        save_query_history(&conn, &h1, None, None).expect("save h1");
+        save_query_history(&conn, &h2, None, None).expect("save h2");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
+        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
+        (conn, dir)
+    }
+
+    #[test]
+    fn sql_match_returns_only_the_matching_query_id() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_sql");
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].matching_result_ids, vec!["h1".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn connection_name_match_marks_no_query() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_conn");
+        // query_history_fts indexes connection_name, so "prod" lists the workspace.
+        // The scoped expression looks at `sql` only, so no individual query matches.
+        let summaries = load_workspaces(&conn, Some("prod"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the workspace is still listed");
+        assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_name_match_marks_no_query() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_name");
+        rename_workspace(&conn, "ws1", "Quarterly review").expect("rename_workspace");
+        let summaries = load_workspaces(&conn, Some("quarterly"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_filter_yields_empty_match_sets() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_none");
+        let summaries = load_workspaces(&conn, None, 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn multi_word_filter_can_list_a_workspace_with_no_marked_query() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_split");
+        // The list filter is unscoped, so h2 matches it: "customers" is in its sql
+        // and "prod" is in its connection_name. No single query holds both terms in
+        // its sql, so the scoped expression marks nothing.
+        let summaries =
+            load_workspaces(&conn, Some("customers prod"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the workspace is still listed");
+        assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_matching_query_in_a_workspace_is_listed_in_order() {
+        // Two things at once.
+        //
+        // Accumulation: every other match test asserts 0 or 1 ID, so an
+        // overwrite in place of the `entry().or_default().push(...)` would pass
+        // them all. Both queries here match, and both must come back.
+        //
+        // Order: the row inserted SECOND carries result_order 0, so the natural
+        // rowid scan order and the result_order the preview pane draws in
+        // disagree. Drop or reverse the ORDER BY and this test fails.
+        let dir = temp_db_dir("ws_match_both");
+        let conn = init_database(&dir).expect("init_database");
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let mut first = history_entry("h_inserted_first", "c1", "prod-db", &now_offset(0));
+        first.sql = "SELECT * FROM orders".to_string();
+        let mut second = history_entry("h_inserted_second", "c1", "prod-db", &now_offset(1));
+        second.sql = "SELECT * FROM customers".to_string();
+        save_query_history(&conn, &first, None, None).expect("save first");
+        save_query_history(&conn, &second, None, None).expect("save second");
+        // Deliberately inverted: the second-inserted row is the first tab.
+        associate_result_to_workspace(&conn, "h_inserted_first", "ws1", 1, 0, None)
+            .expect("associate first");
+        associate_result_to_workspace(&conn, "h_inserted_second", "ws1", 0, 1, None)
+            .expect("associate second");
+
+        let summaries = load_workspaces(&conn, Some("select"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(
+            summaries[0].matching_result_ids,
+            vec!["h_inserted_second".to_string(), "h_inserted_first".to_string()],
+            "both queries match, ordered by result_order, not by insertion"
+        );
+
+        // The IDs must line up with the rows load_workspace hands the preview pane.
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let detail_order: Vec<String> = detail.results.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(
+            summaries[0].matching_result_ids, detail_order,
+            "the ID list and the preview rows must agree"
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_matching_history_row_with_no_workspace_is_ignored() {
+        // The page restriction is an `IN (...)` list of workspace ids, and
+        // `IN (...)` never matches NULL. An unassociated history row must
+        // therefore never be attributed to a workspace, nor make the load fail.
+        let (conn, dir) = workspace_with_two_queries("ws_match_orphan");
+        let mut orphan = history_entry("h_orphan", "c1", "prod-db", &now_offset(2));
+        orphan.sql = "SELECT * FROM orders_archive".to_string();
+        save_query_history(&conn, &orphan, None, None).expect("save orphan");
+        // Deliberately never associated to a workspace.
+
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the orphan lists no workspace of its own");
+        assert_eq!(
+            summaries[0].matching_result_ids,
+            vec!["h1".to_string()],
+            "the workspace reports only its own query"
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_listed_workspace_gets_only_its_own_ids() {
+        // The paging test uses limit 1, so per-summary partitioning is proven for
+        // a single row only. With two rows on one page each must keep its own ID.
+        let dir = temp_db_dir("ws_match_two_rows");
+        let conn = init_database(&dir).expect("init_database");
+        for (workspace_id, history_id, executed_offset) in
+            [("ws_a", "h_a", 0i64), ("ws_b", "h_b", 1i64)]
+        {
+            let ws = WorkspaceUpsert {
+                id: workspace_id.to_string(),
+                name: None,
+                name_is_custom: false,
+                connection_id: "c1".to_string(),
+                connection_name: "prod-db".to_string(),
+                editor_text: "SELECT 1".to_string(),
+                variables_json: "[]".to_string(),
+                cursor_position: None,
+            };
+            upsert_workspace(&conn, &ws).expect("upsert_workspace");
+            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
+            h.sql = "SELECT * FROM orders".to_string();
+            save_query_history(&conn, &h, None, None).expect("save history");
+            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+                .expect("associate");
+        }
+
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 2, "both workspaces are on the page");
+        let a = summaries.iter().find(|s| s.id == "ws_a").expect("ws_a listed");
+        let b = summaries.iter().find(|s| s.id == "ws_b").expect("ws_b listed");
+        assert_eq!(a.matching_result_ids, vec!["h_a".to_string()]);
+        assert_eq!(b.matching_result_ids, vec!["h_b".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn punctuation_only_filter_does_not_error() {
+        // Same failure class as the whitespace-only filter, but it lands
+        // differently. Our tokeniser sees one token, so the filter IS applied:
+        // `"-"*` is a well-formed FTS5 expression whose quoted phrase holds
+        // nothing indexable, so it matches nothing. The whitespace case skips
+        // the filter and lists everything; this one applies it and lists
+        // nothing. What both must never do is error, which would drop the
+        // caller into its unfiltered fallback and show every workspace.
+        let (conn, dir) = workspace_with_two_queries("ws_match_punct");
+        let summaries = load_workspaces(&conn, Some("-"), 50, 0)
+            .expect("a punctuation-only filter must not error");
+        assert!(summaries.is_empty(), "the filter applies and matches nothing");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn matching_result_ids_serialises_as_matching_result_ids_camel_case() {
+        // The Swift side declares matchingResultIds as non-optional, so a casing
+        // slip here breaks every history load at run time with no compile-time
+        // signal on either side of the FFI.
+        //
+        // Asserted as a whole payload, not just the one key, because this exact
+        // string is the fixture that `PharosTests/WorkspaceHistoryMatchTests.swift`
+        // decodes. The two must be edited together — that pairing is what proves
+        // the Swift struct still matches what Rust emits.
+        let summary = crate::models::WorkspaceSummary {
+            id: "ws1".to_string(),
+            name: "prod-db".to_string(),
+            connection_name: "prod-db".to_string(),
+            distinct_db_count: 1,
+            query_count: 1,
+            last_activity_at: "2026-07-31T00:00:00Z".to_string(),
+            matching_result_ids: vec!["h1".to_string()],
+        };
+        let json = serde_json::to_string(&summary).expect("serialise WorkspaceSummary");
+        assert_eq!(
+            json,
+            r#"{"id":"ws1","name":"prod-db","connectionName":"prod-db","distinctDbCount":1,"queryCount":1,"lastActivityAt":"2026-07-31T00:00:00Z","matchingResultIds":["h1"]}"#
+        );
+    }
+
+    #[test]
+    fn matches_for_workspaces_outside_the_page_are_dropped() {
+        let dir = temp_db_dir("ws_match_page");
+        let conn = init_database(&dir).expect("init_database");
+        for (workspace_id, history_id, executed_offset) in
+            [("ws_old", "h_old", 0i64), ("ws_new", "h_new", 10i64)]
+        {
+            let ws = WorkspaceUpsert {
+                id: workspace_id.to_string(),
+                name: None,
+                name_is_custom: false,
+                connection_id: "c1".to_string(),
+                connection_name: "prod-db".to_string(),
+                editor_text: "SELECT 1".to_string(),
+                variables_json: "[]".to_string(),
+                cursor_position: None,
+            };
+            upsert_workspace(&conn, &ws).expect("upsert_workspace");
+            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
+            h.sql = "SELECT * FROM orders".to_string();
+            save_query_history(&conn, &h, None, None).expect("save history");
+            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+                .expect("associate");
+        }
+
+        // Pin the sort order rather than trusting the two Utc::now() stamps
+        // upsert_workspace wrote. to_rfc3339() uses SecondsFormat::AutoSi, which
+        // prints 0, 3, 6 or 9 subsecond digits, and the '+' of the "+00:00"
+        // suffix (0x2B) sorts below the digits -- so a later stamp printing fewer
+        // digits can sort below an earlier one in the text ORDER BY. Millis is a
+        // fixed width, so these two compare chronologically. Both stay well
+        // inside the 90-day window, or the retention prune would delete them.
+        let base = chrono::Utc::now();
+        for (workspace_id, seconds_ago) in [("ws_old", 60i64), ("ws_new", 10i64)] {
+            let stamp = (base - chrono::Duration::seconds(seconds_ago))
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            conn.execute(
+                "UPDATE workspaces SET last_activity_at = ?1 WHERE id = ?2",
+                (&stamp, workspace_id),
+            )
+            .expect("pin last_activity_at");
+        }
+
+        let summaries = load_workspaces(&conn, Some("orders"), 1, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "ws_new");
+        assert_eq!(summaries[0].matching_result_ids, vec!["h_new".to_string()]);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// `source` tag column on query_history: chart-aggregation runs (and any other
@@ -1634,3 +2144,5 @@ mod history_source_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+

@@ -76,62 +76,6 @@ private class HistorySingleLineCell: NSTableCellView {
     }
 }
 
-// MARK: - Preview Row Cell View (bottom pane)
-
-private class PreviewRowCell: NSTableCellView {
-    let dot = NSView()
-    let primaryLabel = NSTextField(labelWithString: "")
-    let secondaryLabel = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-
-        dot.wantsLayer = true
-        dot.layer?.cornerRadius = 4
-        dot.translatesAutoresizingMaskIntoConstraints = false
-
-        primaryLabel.lineBreakMode = .byTruncatingTail
-        primaryLabel.font = .systemFont(ofSize: 12)
-        primaryLabel.textColor = .labelColor
-        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        primaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        secondaryLabel.lineBreakMode = .byTruncatingTail
-        secondaryLabel.font = .systemFont(ofSize: 10)
-        secondaryLabel.textColor = .secondaryLabelColor
-        secondaryLabel.alignment = .right
-        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        secondaryLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        addSubview(dot)
-        addSubview(primaryLabel)
-        addSubview(secondaryLabel)
-
-        NSLayoutConstraint.activate([
-            dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            dot.centerYAnchor.constraint(equalTo: centerYAnchor),
-            dot.widthAnchor.constraint(equalToConstant: 8),
-            dot.heightAnchor.constraint(equalToConstant: 8),
-
-            primaryLabel.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 8),
-            primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            secondaryLabel.leadingAnchor.constraint(greaterThanOrEqualTo: primaryLabel.trailingAnchor, constant: 8),
-            secondaryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            secondaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
-    }
-
-    func setDotColor(_ color: NSColor) {
-        dot.layer?.backgroundColor = color.cgColor
-    }
-}
-
 // MARK: - QueryHistoryVC
 
 class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
@@ -168,6 +112,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     private var connectionFilter: String?
     private var filterText: String?
+
+    /// Result IDs whose SQL matched the active filter, keyed by workspace.
+    /// Rust returns no IDs when no filter is active, so this empties itself.
+    private var matchesByWorkspace: [String: Set<String>] = [:]
+
+    private var isFiltering: Bool { !(filterText?.isEmpty ?? true) }
 
     /// Called when the table selection changes; passes the number of selected rows.
     var onSelectionChanged: ((Int) -> Void)?
@@ -361,9 +311,16 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             await MainActor.run {
                 guard let self, generation == self.requeryGeneration else { return }
                 self.workspaces = ws
+                self.matchesByWorkspace = ws.reduce(into: [:]) {
+                    $0[$1.id] = Set($1.matchingResultIds)
+                }
                 self.legacyEntries = legacy
                 self.rebuildRows()
                 self.tableView.reloadData()
+                // The preview rows' marks come from the map above, so they must
+                // redraw too. Without this, clearing the filter leaves stale
+                // marks on the visible rows.
+                self.previewTable.reloadData()
                 self.resyncSelectionToPreviewedWorkspace()
             }
         }
@@ -641,8 +598,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         }
 
         cell.primaryLabel.stringValue = "📊 \(w.name)"
-        let queryWord = w.queryCount == 1 ? "query" : "queries"
-        cell.secondaryLabel.stringValue = "\(w.queryCount) \(queryWord) · \(formatDate(w.lastActivityAt)) · \(w.connectionName)"
+        let clause = HistoryRowText.queryClause(
+            total: w.queryCount,
+            matches: matchesByWorkspace[w.id]?.count ?? 0,
+            isFiltering: isFiltering
+        )
+        cell.secondaryLabel.stringValue = "\(clause) · \(formatDate(w.lastActivityAt)) · \(w.connectionName)"
         return cell
     }
 
@@ -694,7 +655,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         // Line 2: "1,000 Rows - 1h ago"
         let rowText: String
         if let count = entry.rowCount {
-            rowText = "\(formatRowCount(count)) Row\(count == 1 ? "" : "s")"
+            rowText = "\(HistoryRowText.rowCount(count)) Row\(count == 1 ? "" : "s")"
         } else {
             rowText = ""
         }
@@ -712,39 +673,24 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     private func previewCell(for row: Int) -> NSView {
         let cellId = NSUserInterfaceItemIdentifier("PreviewRow")
-        let cell: PreviewRowCell
-        if let existing = previewTable.makeView(withIdentifier: cellId, owner: self) as? PreviewRowCell {
+        let cell: WorkspacePreviewRowCell
+        if let existing = previewTable.makeView(withIdentifier: cellId, owner: self) as? WorkspacePreviewRowCell {
             cell = existing
         } else {
-            cell = PreviewRowCell()
+            cell = WorkspacePreviewRowCell()
             cell.identifier = cellId
         }
 
         guard row < previewResults.count else { return cell }
         let meta = previewResults[row]
-
         let colorIndex = (meta.colorIndex ?? 0) % ResultTab.palette.count
-        cell.setDotColor(ResultTab.palette[colorIndex])
+        let matches = selectedWorkspaceId.flatMap { matchesByWorkspace[$0] } ?? []
 
-        if let label = meta.customLabel, !label.isEmpty {
-            cell.primaryLabel.stringValue = label
-        } else if let tableNames = meta.tableNames, !tableNames.isEmpty {
-            cell.primaryLabel.stringValue = tableNames
-        } else {
-            let firstLine = meta.sql.components(separatedBy: .newlines).first ?? meta.sql
-            cell.primaryLabel.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
-        }
-
-        var parts: [String] = []
-        if let columnCount = meta.columnCount {
-            parts.append("\(columnCount) col\(columnCount == 1 ? "" : "s")")
-        }
-        if let rowCount = meta.rowCount {
-            parts.append("\(formatRowCount(Int64(rowCount))) row\(rowCount == 1 ? "" : "s")")
-        }
-        cell.secondaryLabel.stringValue = parts.joined(separator: " · ")
-        cell.secondaryLabel.textColor = meta.hasResults ? .secondaryLabelColor : .tertiaryLabelColor
-
+        cell.configure(
+            meta: meta,
+            dotColor: ResultTab.palette[colorIndex],
+            isMatch: matches.contains(meta.id)
+        )
         return cell
     }
 
@@ -802,13 +748,6 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     }
 
     // MARK: - Formatting
-
-    private func formatRowCount(_ count: Int64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-    }
 
     private func formatDate(_ iso: String) -> String {
         let formatter = ISO8601DateFormatter()

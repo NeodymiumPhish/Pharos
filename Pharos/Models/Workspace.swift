@@ -25,6 +25,9 @@ struct WorkspaceSummary: Codable {
     let distinctDbCount: Int
     let queryCount: Int
     let lastActivityAt: String
+    /// IDs of this workspace's queries whose SQL matched the active filter.
+    /// Empty when no filter is active. Same IDs as `WorkspaceResultMeta.id`.
+    let matchingResultIds: [String]
 }
 
 /// One child result's metadata.
