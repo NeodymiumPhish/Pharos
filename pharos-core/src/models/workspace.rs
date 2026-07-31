@@ -33,6 +33,10 @@ pub struct WorkspaceSummary {
     pub distinct_db_count: i64,
     pub query_count: i64,
     pub last_activity_at: String,
+    /// IDs of this workspace's queries whose SQL matched the active filter.
+    /// Always empty when no filter is active. Same IDs as
+    /// `WorkspaceResultMeta::id`, that is, `query_history.id`.
+    pub matching_result_ids: Vec<String>,
 }
 
 /// One child result's metadata, for the preview pane and restore.

@@ -947,6 +947,43 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
     Ok(())
 }
 
+/// Attach the IDs of each summary's queries whose SQL matched the filter.
+///
+/// `scoped_match` must already be column-filtered to `sql`. `query_history_fts`
+/// also indexes `connection_name`, and an unscoped match on a connection name
+/// would mark every query in the workspace, which tells the user nothing.
+///
+/// Rows for workspaces outside the current page are discarded.
+fn attach_matching_result_ids(
+    conn: &Connection,
+    scoped_match: &str,
+    summaries: &mut [crate::models::WorkspaceSummary],
+) -> SqliteResult<()> {
+    use std::collections::HashMap;
+
+    let mut stmt = conn.prepare(
+        "SELECT qh.workspace_id, qh.id FROM query_history qh
+         WHERE qh.workspace_id IS NOT NULL
+           AND qh.rowid IN (SELECT rowid FROM query_history_fts WHERE query_history_fts MATCH ?1)",
+    )?;
+    let rows = stmt.query_map([scoped_match], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    let mut by_workspace: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows {
+        let (workspace_id, result_id) = row?;
+        by_workspace.entry(workspace_id).or_default().push(result_id);
+    }
+
+    for summary in summaries.iter_mut() {
+        if let Some(ids) = by_workspace.remove(&summary.id) {
+            summary.matching_result_ids = ids;
+        }
+    }
+    Ok(())
+}
+
 /// Load workspace summaries, newest activity first. When `search` is set, a
 /// workspace matches if its name/editor_text match OR any child query SQL matches.
 pub fn load_workspaces(
@@ -1000,9 +1037,26 @@ pub fn load_workspaces(
             distinct_db_count,
             query_count: row.get(5)?,
             last_activity_at: row.get(4)?,
+            matching_result_ids: Vec::new(),
         })
     })?;
-    rows.collect()
+    let mut summaries: Vec<crate::models::WorkspaceSummary> =
+        rows.collect::<SqliteResult<Vec<_>>>()?;
+
+    // Which individual queries matched, for marking rows in the preview pane.
+    //
+    // The error is swallowed on purpose. If it escaped, the fallback in
+    // commands::workspace::load_workspaces would re-run the whole load with
+    // `search: None` — turning a lost highlight into a lost filter, and showing
+    // every workspace. A lost highlight is the smaller failure. The crate has
+    // no logging facility, so there is nowhere to report it.
+    if let Some(q) = search {
+        if let Some(scoped) = escape_fts5_query_scoped(q, "sql") {
+            let _ = attach_matching_result_ids(conn, &scoped, &mut summaries);
+        }
+    }
+
+    Ok(summaries)
 }
 
 /// Load a workspace with its ordered child results (metadata only; blobs are
@@ -1665,6 +1719,112 @@ mod workspace_roundtrip_tests {
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One workspace ("ws1", connection "prod-db") holding two queries with
+    /// distinct SQL: h1 mentions `orders`, h2 mentions `customers`.
+    fn workspace_with_two_queries(tag: &str) -> Connection {
+        let dir = temp_db_dir(tag);
+        let conn = init_database(&dir).expect("init_database");
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        let mut h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        h1.sql = "SELECT * FROM orders WHERE year = 2024".to_string();
+        let mut h2 = history_entry("h2", "c1", "prod-db", &now_offset(1));
+        h2.sql = "SELECT * FROM customers".to_string();
+        save_query_history(&conn, &h1, None, None).expect("save h1");
+        save_query_history(&conn, &h2, None, None).expect("save h2");
+        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
+        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
+        conn
+    }
+
+    #[test]
+    fn sql_match_returns_only_the_matching_query_id() {
+        let conn = workspace_with_two_queries("ws_match_sql");
+        let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].matching_result_ids, vec!["h1".to_string()]);
+    }
+
+    #[test]
+    fn connection_name_match_marks_no_query() {
+        let conn = workspace_with_two_queries("ws_match_conn");
+        // query_history_fts indexes connection_name, so "prod" lists the workspace.
+        // The scoped expression looks at `sql` only, so no individual query matches.
+        let summaries = load_workspaces(&conn, Some("prod"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the workspace is still listed");
+        assert!(summaries[0].matching_result_ids.is_empty());
+    }
+
+    #[test]
+    fn workspace_name_match_marks_no_query() {
+        let conn = workspace_with_two_queries("ws_match_name");
+        rename_workspace(&conn, "ws1", "Quarterly review").expect("rename_workspace");
+        let summaries = load_workspaces(&conn, Some("quarterly"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].matching_result_ids.is_empty());
+    }
+
+    #[test]
+    fn no_filter_yields_empty_match_sets() {
+        let conn = workspace_with_two_queries("ws_match_none");
+        let summaries = load_workspaces(&conn, None, 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert!(summaries[0].matching_result_ids.is_empty());
+    }
+
+    #[test]
+    fn multi_word_filter_can_list_a_workspace_with_no_marked_query() {
+        let conn = workspace_with_two_queries("ws_match_split");
+        // The list filter is unscoped, so h2 matches it: "customers" is in its sql
+        // and "prod" is in its connection_name. No single query holds both terms in
+        // its sql, so the scoped expression marks nothing.
+        let summaries =
+            load_workspaces(&conn, Some("customers prod"), 50, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1, "the workspace is still listed");
+        assert!(summaries[0].matching_result_ids.is_empty());
+    }
+
+    #[test]
+    fn matches_for_workspaces_outside_the_page_are_dropped() {
+        let dir = temp_db_dir("ws_match_page");
+        let conn = init_database(&dir).expect("init_database");
+        // upsert_workspace stamps last_activity_at with Utc::now() per call, so the
+        // second workspace sorts first under ORDER BY last_activity_at DESC.
+        for (workspace_id, history_id, offset) in [("ws_old", "h_old", 0i64), ("ws_new", "h_new", 10i64)] {
+            let ws = WorkspaceUpsert {
+                id: workspace_id.to_string(),
+                name: None,
+                name_is_custom: false,
+                connection_id: "c1".to_string(),
+                connection_name: "prod-db".to_string(),
+                editor_text: "SELECT 1".to_string(),
+                variables_json: "[]".to_string(),
+                cursor_position: None,
+            };
+            upsert_workspace(&conn, &ws).expect("upsert_workspace");
+            let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(offset));
+            h.sql = "SELECT * FROM orders".to_string();
+            save_query_history(&conn, &h, None, None).expect("save history");
+            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+                .expect("associate");
+        }
+
+        let summaries = load_workspaces(&conn, Some("orders"), 1, 0).expect("load_workspaces");
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "ws_new");
+        assert_eq!(summaries[0].matching_result_ids, vec!["h_new".to_string()]);
     }
 }
 
