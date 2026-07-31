@@ -24,6 +24,35 @@ private func expectTrue(_ actual: Bool, _ name: String) {
     }
 }
 
+// MARK: - FFI decode
+
+/// The exact payload Rust emits for one `WorkspaceSummary`, copied from the
+/// `assert_eq!` in `matching_result_ids_serialises_as_matching_result_ids_camel_case`
+/// (`pharos-core/src/db/sqlite.rs`). The two are a pair: the Rust test pins what
+/// Rust produces, this one pins that Swift can read it.
+///
+/// `matchingResultIds` is non-optional on the Swift side, so a casing slip makes
+/// every history load fail to decode at run time — an empty sidebar with no
+/// compile-time signal on either side of the FFI.
+private let rustWorkspaceSummaryJSON = """
+{"id":"ws1","name":"prod-db","connectionName":"prod-db","distinctDbCount":1,\
+"queryCount":1,"lastActivityAt":"2026-07-31T00:00:00Z","matchingResultIds":["h1"]}
+"""
+
+private func testWorkspaceSummaryDecodesRustPayload() {
+    let decoder = JSONDecoder() // Matches JSONDecoder.pharos: no key strategy.
+    guard let data = rustWorkspaceSummaryJSON.data(using: .utf8),
+          let summary = try? decoder.decode(WorkspaceSummary.self, from: data)
+    else {
+        failures += 1
+        print("FAIL WorkspaceSummary decodes the Rust payload")
+        return
+    }
+    expectEqual(summary.id, "ws1", "decoded id")
+    expectEqual(summary.matchingResultIds.joined(separator: ","), "h1", "decoded matchingResultIds")
+    expectEqual("\(summary.queryCount)", "1", "decoded queryCount")
+}
+
 // MARK: - HistoryRowText
 
 private func testPlainClauseWhenNotFiltering() {
@@ -158,6 +187,7 @@ private func testSizeCaption() {
 // MARK: - Entry point
 
 func runTests() {
+    testWorkspaceSummaryDecodesRustPayload()
     testUnmatchedRowHasNoMark()
     testMatchedRowIsMarked()
     testReusedCellDropsThePreviousRowsMark()

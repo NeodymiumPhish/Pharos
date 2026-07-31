@@ -2019,20 +2019,24 @@ mod workspace_roundtrip_tests {
         // The Swift side declares matchingResultIds as non-optional, so a casing
         // slip here breaks every history load at run time with no compile-time
         // signal on either side of the FFI.
+        //
+        // Asserted as a whole payload, not just the one key, because this exact
+        // string is the fixture that `PharosTests/WorkspaceHistoryMatchTests.swift`
+        // decodes. The two must be edited together — that pairing is what proves
+        // the Swift struct still matches what Rust emits.
         let summary = crate::models::WorkspaceSummary {
             id: "ws1".to_string(),
             name: "prod-db".to_string(),
             connection_name: "prod-db".to_string(),
             distinct_db_count: 1,
             query_count: 1,
-            last_activity_at: now_offset(0),
+            last_activity_at: "2026-07-31T00:00:00Z".to_string(),
             matching_result_ids: vec!["h1".to_string()],
         };
         let json = serde_json::to_string(&summary).expect("serialise WorkspaceSummary");
-        assert!(
-            json.contains(r#""matchingResultIds":["h1"]"#),
-            "FFI key must be camelCase, got: {}",
-            json
+        assert_eq!(
+            json,
+            r#"{"id":"ws1","name":"prod-db","connectionName":"prod-db","distinctDbCount":1,"queryCount":1,"lastActivityAt":"2026-07-31T00:00:00Z","matchingResultIds":["h1"]}"#
         );
     }
 
