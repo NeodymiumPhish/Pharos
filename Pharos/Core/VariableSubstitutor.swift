@@ -15,9 +15,23 @@ enum VariableSubstitutor {
         var invalid: [Invalid]     // defined but value failed type validation
     }
 
-    /// `{{ name }}` — double braces, optional inner whitespace, identifier only.
+    /// `{{ name }}` — double braces, optional inner whitespace, and a name made
+    /// of `[A-Za-z0-9_]` that carries at least one letter or underscore.
+    ///
+    /// The name is *not* held to SQL's identifier rule (leading letter or
+    /// underscore), which is what it used to require. A token name never
+    /// reaches the SQL — it is a lookup key, replaced whole — so a leading
+    /// digit costs nothing, and refusing one meant a variable named
+    /// `185_domains` silently never matched: the token went to the server
+    /// verbatim and Postgres answered `syntax error at or near "{"`.
+    ///
+    /// The one thing the name may not be is *all* digits. `'{{1}}'` is a legal
+    /// Postgres 2-D array literal, and reading it as an undefined variable
+    /// would block a query that runs today (`ContentViewController` refuses to
+    /// execute while any token is unresolved). Requiring one letter or
+    /// underscore somewhere keeps every all-digit token out.
     private static let tokenRegex = try! NSRegularExpression(
-        pattern: #"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
+        pattern: #"\{\{\s*([A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
     )
 
     /// SQL numeric literal: optional sign, integer/decimal (no exponent).
@@ -206,7 +220,7 @@ enum VariableSubstitutor {
         // with no entry in either map, the loop below can find nothing to say
         // about it. Two rows both named "" (or both " ") must not badge each
         // other as duplicates — neither can ever be referenced (tokenRegex
-        // requires a leading identifier character), so "duplicate" isn't a
+        // requires at least one name character), so "duplicate" isn't a
         // meaningful thing to say about them. The map keys themselves stay
         // untrimmed: a real name like " ip " is still distinct from "ip" and
         // simply never matches anything, which `problem(for:)` and `render(_:with:)`

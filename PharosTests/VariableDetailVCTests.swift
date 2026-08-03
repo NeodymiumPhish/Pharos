@@ -28,6 +28,13 @@ private func expectEqual(_ actual: String, _ expected: String, _ name: String) {
     }
 }
 
+private func expectEqual(_ actual: Int, _ expected: Int, _ name: String) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(expected)\n  actual:   \(actual)")
+    }
+}
+
 private func expectClose(_ actual: CGFloat, _ expected: CGFloat, tolerance: CGFloat = 0.5, _ name: String) {
     if abs(actual - expected) <= tolerance { print("PASS \(name)") } else {
         failures += 1
@@ -379,6 +386,49 @@ private func testValueTextViewDelegateWiringReactsToRealNotification() {
         "the real notification updates the size caption to match the new value")
 }
 
+/// An edit in the middle of a value must leave the insertion point where that
+/// edit put it — not at the end of the document.
+///
+/// Every keystroke round-trips through the panel: `textDidChange` ->
+/// `onChange` -> `QueryVariablesPanelVC.variableEdited` -> `refreshDetailState`
+/// -> `otherNames` (assigned unconditionally, so its `didSet` always fires) ->
+/// `recomputeCollisionState` -> `applyValueControlVisibility`, which lands back
+/// in this VC and re-assigns `valueTextView.string`. Assigning `string` on an
+/// `NSTextView` collapses the selection to the end of the new text, even when
+/// the text is identical to what the view already holds — so before the guard
+/// there, every Return, Tab, Backspace and plain keystroke typed anywhere but
+/// the very end threw the caret to the end of the value.
+///
+/// A fresh VC per case: `variable.value` must agree with the text view's
+/// content at the start of each edit, which only the real edit path
+/// establishes.
+private func testValueEditKeepsInsertionPointAfterPanelRoundTrip() {
+    let cases: [(name: String, edit: (VariableValueTextView) -> Void, text: String, caret: Int)] = [
+        ("plain keystroke", { $0.insertText("X", replacementRange: $0.selectedRange()) }, "abcXdef", 4),
+        ("Return", { $0.insertNewline(nil) }, "abc\ndef", 4),
+        ("Tab", { $0.insertTab(nil) }, "abc\tdef", 4),
+        ("Backspace", { $0.deleteBackward(nil) }, "abdef", 2),
+    ]
+    for testCase in cases {
+        let variable = QueryVariable(name: "v", value: "abcdef", type: .literal)
+        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
+        let tv = valueTextView(in: vc)
+        // Stands in for the panel: it re-supplies `otherNames` on every edit,
+        // whether or not the sibling names actually changed.
+        vc.onChange = { [weak vc] _ in vc?.otherNames = ["other"] }
+        _ = vc.view.window?.makeFirstResponder(tv)
+
+        tv.setSelectedRange(NSRange(location: 3, length: 0))
+        testCase.edit(tv)
+
+        expectEqual(tv.string, testCase.text, "\(testCase.name) mid-value: the edit itself lands correctly")
+        expectEqual(
+            tv.selectedRange().location, testCase.caret,
+            "\(testCase.name) mid-value: the insertion point stays where the edit left it")
+        expectEqual(vc.variable.value, testCase.text, "\(testCase.name) mid-value: the model still tracks the edit")
+    }
+}
+
 /// Tab must insert a literal tab character; Shift-Tab (`insertBacktab`) must
 /// hand focus to the host's name field rather than inserting anything.
 private func testTabAndBacktabBehavior() {
@@ -438,6 +488,171 @@ private func testEditorContainerFillsRemainingHeight() {
     expectTrue(
         tallHeight > shortHeight,
         "editor container grows when the view is made taller (\(shortHeight) at 250pt vs \(tallHeight) at 600pt)")
+}
+
+/// `LineNumberGutter.Metrics.compact` must actually reclaim the two columns
+/// the variables panel has no use for, and `.sqlEditor` must keep the exact
+/// width it had before metrics were factored out — the main editor's gutter is
+/// not part of this change.
+private func testGutterMetricsWidths() {
+    let digit = NSAttributedString(
+        string: "8",
+        attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)]
+    ).size().width
+
+    let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+    scroll.documentView = textView
+    textView.string = "one\ntwo\nthree\nfour"
+
+    let sql = LineNumberGutter(textView: textView, scrollView: scroll)
+    let compact = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
+
+    // The literal formula the gutter used before Metrics existed:
+    // 3-digit floor, +20 of padding, plus the 4pt bar and its 6pt gap.
+    expectClose(
+        sql.desiredWidth, 3 * digit + 20 + 4 + 6,
+        "the SQL editor's gutter is exactly as wide as it was before Metrics")
+    // 2-digit floor, 4pt leading, 5pt trailing, no bar column.
+    expectClose(
+        compact.desiredWidth, 2 * digit + 4 + 5,
+        "the compact gutter is only its digits plus 9pt of padding")
+    expectTrue(
+        compact.desiredWidth < sql.desiredWidth - 25,
+        "the compact gutter reclaims over 25pt from the SQL editor's "
+            + "(\(compact.desiredWidth) vs \(sql.desiredWidth))")
+
+    // The width must be right in the host's FIRST layout pass, before any
+    // keystroke: the stored default cannot be correct for both metric sets.
+    let fresh = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
+    expectClose(
+        fresh.desiredWidth, 2 * digit + 4 + 5,
+        "the gutter resolves its width from its metrics at construction, not on the first edit")
+}
+
+/// The value text must start close to the gutter, and the gutter's numbers
+/// close to the panel edge — the whole point of the compact metrics. Measured
+/// as real laid-out geometry rather than re-asserting the constants.
+///
+/// Also pins the placeholder to the same x as the real first glyph: it stands
+/// in for that text, and `NSTextContainer`'s default 5pt line-fragment padding
+/// used to push the glyph right while `layoutEditorArea` left the placeholder
+/// at `textContainerInset.width`.
+private func testValueTextStartsCloseToTheGutter() {
+    let (_, _, vc) = makeHostedDetail(width: 260, variable: shortValueVariable())
+    vc.view.layoutSubtreeIfNeeded()
+
+    let tv = valueTextView(in: vc)
+    let gutter = gutterView(in: vc)
+    guard let container = tv.textContainer, let layoutManager = tv.layoutManager else {
+        failures += 1
+        print("FAIL value text view has no TextKit stack to measure")
+        return
+    }
+    layoutManager.ensureLayout(for: container)
+
+    let glyphX = tv.convert(
+        NSPoint(
+            x: layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: container).minX
+                + tv.textContainerInset.width,
+            y: 0),
+        to: vc.view
+    ).x
+    let gutterTrailingX = gutter.convert(NSPoint(x: gutter.bounds.maxX, y: 0), to: vc.view).x
+    let gutterLeadingX = gutter.convert(NSPoint(x: 0, y: 0), to: vc.view).x
+
+    expectTrue(
+        glyphX - gutterTrailingX <= 3,
+        "the first glyph sits within 3pt of the gutter's trailing edge (gap \(glyphX - gutterTrailingX)pt)")
+    expectTrue(
+        gutter.desiredWidth <= 24,
+        "the gutter itself is no wider than 24pt (\(gutter.desiredWidth)pt)")
+    expectTrue(
+        glyphX - gutterLeadingX <= 26,
+        "the whole gutter plus its padding costs under 26pt before the first character "
+            + "(\(glyphX - gutterLeadingX)pt)")
+
+    let placeholderX = valuePlaceholderLabel(in: vc).frame.minX
+    let placeholderInVC = valuePlaceholderLabel(in: vc).superview!
+        .convert(NSPoint(x: placeholderX, y: 0), to: vc.view).x
+    expectClose(
+        placeholderInVC, glyphX,
+        "the placeholder starts at the same x as the real text it stands in for")
+}
+
+/// Every line the gutter *places* inside its own bounds must also be inside the
+/// range the gutter decides to *draw*. When the two disagree the visible rows
+/// past the end of that range get no line number — the "blank unnumbered rows
+/// at the bottom of a long value" symptom.
+///
+/// Ground truth is `y(forLine:)`, which converts through the real view
+/// hierarchy; the range under test is `visibleCharacterRange()`. The two are
+/// computed by different means on purpose: the range used to be hand-derived
+/// from `scrollView.contentView.bounds.origin.y` in text-container space, and
+/// in this editor that origin is a large negative number, so the rect landed
+/// entirely above the text.
+///
+/// Checked both unscrolled and scrolled to the end, because the old
+/// arithmetic's error moved with the scroll offset.
+private func testGutterNumbersEveryVisibleLine() {
+    let value = (1...30).map { "line \($0)" }.joined(separator: "\n")
+    let variable = QueryVariable(name: "long", value: value, type: .literal)
+    let (window, _, vc) = makeHostedDetail(width: 260, height: 400, variable: variable)
+    window.makeKeyAndOrderFront(nil)
+    let gutter = gutterView(in: vc)
+    let tv = valueTextView(in: vc)
+    if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
+    vc.view.layoutSubtreeIfNeeded()
+
+    /// 1-based line number containing `index`, counted independently of the
+    /// gutter's own cached `lineStarts`.
+    let text = tv.string as NSString
+    func line(at index: Int) -> Int {
+        var line = 1
+        for i in 0..<min(index, text.length) where text.character(at: i) == 0x0A { line += 1 }
+        return line
+    }
+
+    for scrolledToEnd in [false, true] {
+        if scrolledToEnd {
+            tv.scrollRangeToVisible(NSRange(location: text.length, length: 0))
+            vc.view.layoutSubtreeIfNeeded()
+        }
+        let label = scrolledToEnd ? "scrolled to the end" : "unscrolled"
+
+        // Ground truth: the lines whose text actually paints inside the gutter.
+        let onScreen = (1...30).filter { lineNumber in
+            guard let y = gutter.y(forLine: lineNumber) else { return false }
+            return y >= 0 && y + 13 <= gutter.bounds.height
+        }
+        guard let first = onScreen.first, let last = onScreen.last else {
+            failures += 1
+            print("FAIL \(label): setup — no line is on screen at all")
+            continue
+        }
+        // A 400pt-tall panel must not fit all 30 lines, or "the range stops
+        // early" could never be observed in the first place.
+        expectTrue(
+            onScreen.count < 30,
+            "\(label): setup — the value is taller than the editor (\(onScreen.count) of 30 lines on screen)")
+
+        guard let range = gutter.visibleCharacterRange() else {
+            failures += 1
+            print("FAIL \(label): the gutter reports no visible character range")
+            continue
+        }
+        let drawnFirst = line(at: range.location)
+        let drawnLast = line(at: max(range.location, NSMaxRange(range) - 1))
+
+        expectTrue(
+            drawnFirst <= first,
+            "\(label): the drawn range starts at or above the first on-screen line "
+                + "(draws from \(drawnFirst), line \(first) is on screen)")
+        expectTrue(
+            drawnLast >= last,
+            "\(label): the drawn range reaches the last on-screen line "
+                + "(draws to \(drawnLast), line \(last) is on screen)")
+    }
 }
 
 /// The gutter and scroll view must be laid out inside `editorContainer`, side
@@ -1672,8 +1887,12 @@ func runTests() {
     testValuePlaceholderShowsOnlyWhenEmpty()
     testNameFieldDelegateWiringReactsToRealNotification()
     testValueTextViewDelegateWiringReactsToRealNotification()
+    testValueEditKeepsInsertionPointAfterPanelRoundTrip()
     testTabAndBacktabBehavior()
     testEditorContainerFillsRemainingHeight()
+    testGutterMetricsWidths()
+    testGutterNumbersEveryVisibleLine()
+    testValueTextStartsCloseToTheGutter()
     testGutterAndScrollViewLayout()
     testDuplicationNoteCollapsesWhenAbsent()
     testSetStateRendersSignalsIndependently()

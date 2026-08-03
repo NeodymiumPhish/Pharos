@@ -52,9 +52,41 @@ class LineNumberGutter: NSView {
     /// Whether the mouse is currently inside the gutter (for showing expanded chevrons).
     private var mouseInGutter: Bool = false
 
-    // Segment bar layout constants
-    private let segmentBarWidth: CGFloat = 4
-    private let segmentBarGap: CGFloat = 6  // gap between line numbers and bar
+    /// Horizontal metrics — everything that decides how wide the gutter is and
+    /// where inside it the line numbers sit.
+    ///
+    /// The SQL editor's gutter carries two extra columns beside the numbers: a
+    /// fold-chevron column on the left (drawn at x = 3, 14 pt wide) and a
+    /// segment-bar column on the right. A host that never calls
+    /// `setFoldRegions` or `setSegments` has neither, and reserving space for
+    /// them is dead width — which matters in a narrow sidebar, where every
+    /// point taken by the gutter is a point of value text the user cannot see.
+    struct Metrics {
+        /// Space left of the line numbers — the fold-chevron column.
+        var leadingPadding: CGFloat
+        /// Space between the line numbers and the segment-bar column.
+        var numberTrailingPadding: CGFloat
+        var segmentBarWidth: CGFloat
+        /// Space between the line numbers' trailing padding and the bar.
+        var segmentBarGap: CGFloat
+        /// Width floor in digits, so the gutter does not twitch narrower on a
+        /// one- or two-line document and wider on the next keystroke.
+        var minimumDigits: Int
+
+        /// The main SQL editor: both extra columns present.
+        static let sqlEditor = Metrics(
+            leadingPadding: 16, numberTrailingPadding: 4,
+            segmentBarWidth: 4, segmentBarGap: 6, minimumDigits: 3)
+
+        /// The variables panel's value editor: no chevrons, no segment bars,
+        /// and a two-digit floor — a variable value that runs past 99 lines is
+        /// not what this editor is for.
+        static let compact = Metrics(
+            leadingPadding: 4, numberTrailingPadding: 5,
+            segmentBarWidth: 0, segmentBarGap: 0, minimumDigits: 2)
+    }
+
+    private let metrics: Metrics
 
     // MARK: - Pulse State
 
@@ -96,9 +128,10 @@ class LineNumberGutter: NSView {
     /// pass) on every keystroke that doesn't cross a power-of-ten boundary.
     private var lastDigitCount: Int = 0
 
-    init(textView: NSTextView, scrollView: NSScrollView) {
+    init(textView: NSTextView, scrollView: NSScrollView, metrics: Metrics = .sqlEditor) {
         self.textView = textView
         self.scrollView = scrollView
+        self.metrics = metrics
         super.init(frame: .zero)
 
         lineAttributes = [
@@ -122,6 +155,13 @@ class LineNumberGutter: NSView {
         )
 
         rebuildLineStarts()
+        // Resolve the width from `metrics` now rather than leaving the stored
+        // default standing until the first keystroke: a host reads
+        // `desiredWidth` in its very first layout pass, and with a per-host
+        // metric set there is no single default that could be right for it.
+        // `onWidthChange` is still nil here, so this cannot call back out
+        // into a host that has not finished building itself.
+        recalculateWidth()
     }
 
     required init?(coder: NSCoder) {
@@ -282,6 +322,44 @@ class LineNumberGutter: NSView {
         return textView.convert(inViewCoords, to: self).origin.y
     }
 
+    /// The part of the text the user can currently see, in text-*container*
+    /// coordinates — the exact inverse of `gutterY(forTextContainerRect:)`, and
+    /// wrong in exactly the same way if hand-derived instead of converted.
+    ///
+    /// The arithmetic this replaces was
+    /// `NSRect(y: scrollView.contentView.bounds.origin.y, height: contentView.bounds.height)`,
+    /// which assumes the clip view's bounds origin *is* the offset into the
+    /// text container. Measured on a `VariableDetailVC` value editor holding 30
+    /// lines: the clip view's `bounds.origin.y` and the text view's
+    /// `frame.origin.y` are both large negative numbers (-339 and -398), so
+    /// that rect lands entirely above the text and
+    /// `glyphRange(forBoundingRect:)` collapses to almost nothing. The line
+    /// numbers then stop partway down the editor and leave unnumbered rows
+    /// below them — and, from the same walk, the segment bars stop with them.
+    /// Real coordinate conversion asks AppKit which text is on screen, so it
+    /// holds however the scroll view's geometry ended up.
+    private func visibleTextContainerRect() -> NSRect? {
+        guard let textView, let scrollView else { return nil }
+        var rect = textView.convert(scrollView.contentView.bounds, from: scrollView.contentView)
+        rect.origin.x -= textView.textContainerInset.width
+        rect.origin.y -= textView.textContainerInset.height
+        return rect
+    }
+
+    /// The character range of the text currently on screen. Internal (not
+    /// `private`) as a test seam: PharosTests/VariableDetailVCTests.swift
+    /// checks that the lines this covers are the same lines that `y(forLine:)`
+    /// places inside the gutter's own bounds — the two must not disagree, or
+    /// visible rows go unnumbered.
+    func visibleCharacterRange() -> NSRange? {
+        guard let textView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let rect = visibleTextContainerRect() else { return nil }
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: rect, in: textContainer)
+        return layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+    }
+
     /// The y, in this gutter's own coordinate space, at which the given
     /// 1-based line's text visually renders. Internal (not `private`) purely
     /// as a test seam: PharosTests/VariableDetailVCTests.swift calls this and
@@ -334,11 +412,12 @@ class LineNumberGutter: NSView {
         // count hasn't changed: that's the only thing that moves the gutter
         // width, and crossing 99→100→1000 is a rare event compared to typing.
         let lineCount = max(lineStarts.count, 1)
-        let digits = max(String(lineCount).count, 3)
+        let digits = max(String(lineCount).count, metrics.minimumDigits)
         guard digits != lastDigitCount else { return }
         lastDigitCount = digits
 
-        let newWidth = CGFloat(digits) * cachedDigitWidth + 20 + segmentBarWidth + segmentBarGap
+        let newWidth = metrics.leadingPadding + CGFloat(digits) * cachedDigitWidth
+            + metrics.numberTrailingPadding + metrics.segmentBarWidth + metrics.segmentBarGap
         if abs(desiredWidth - newWidth) > 1 {
             desiredWidth = newWidth
             onWidthChange?()
@@ -363,21 +442,12 @@ class LineNumberGutter: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard let textView, let scrollView,
+        guard let textView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
 
-        let scrollOffset = scrollView.contentView.bounds.origin.y
         let text = textView.string as NSString
-        guard text.length > 0 else { return }
-
-        let visibleRect = NSRect(
-            x: 0, y: scrollOffset,
-            width: scrollView.contentView.bounds.width,
-            height: scrollView.contentView.bounds.height
-        )
-        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+        guard text.length > 0, let visibleCharRange = visibleCharacterRange() else { return }
 
         // Build line → y map for visible lines
         var charIndex = visibleCharRange.location
@@ -404,9 +474,9 @@ class LineNumberGutter: NSView {
             }
 
             // Segment run button cursor (rightmost bar column)
-            let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+            let barColumnX = desiredWidth - metrics.segmentBarGap - metrics.segmentBarWidth
             if segments.contains(where: { lineNum >= $0.startLine && lineNum <= $0.endLine }) {
-                let barRect = NSRect(x: barColumnX - 4, y: y, width: segmentBarWidth + 8, height: lineRect.height)
+                let barRect = NSRect(x: barColumnX - 4, y: y, width: metrics.segmentBarWidth + 8, height: lineRect.height)
                 addCursorRect(barRect, cursor: .pointingHand)
             }
 
@@ -422,7 +492,7 @@ class LineNumberGutter: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+        let barColumnX = desiredWidth - metrics.segmentBarGap - metrics.segmentBarWidth
 
         // Track mouse-in-gutter for fold chevron visibility
         if !mouseInGutter {
@@ -470,7 +540,7 @@ class LineNumberGutter: NSView {
             }
         }
 
-        let barColumnX = desiredWidth - segmentBarGap - segmentBarWidth
+        let barColumnX = desiredWidth - metrics.segmentBarGap - metrics.segmentBarWidth
 
         // Only handle clicks in the segment bar column
         guard point.x >= barColumnX - 4,
@@ -513,12 +583,11 @@ class LineNumberGutter: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let textView, let scrollView,
+        guard let textView,
               let layoutManager = textView.layoutManager,
               let textContainer = textView.textContainer else { return }
 
         let text = textView.string as NSString
-        let scrollOffset = scrollView.contentView.bounds.origin.y
 
         // Background — seamless with editor (no visible boundary)
         NSColor.textBackgroundColor.setFill()
@@ -529,14 +598,8 @@ class LineNumberGutter: NSView {
         var activeAttributes = lineAttributes
         activeAttributes[.foregroundColor] = NSColor.labelColor
 
-        // Visible range in the text view
-        let visibleTextRect = NSRect(
-            x: 0, y: scrollOffset,
-            width: scrollView.contentView.bounds.width,
-            height: scrollView.contentView.bounds.height
-        )
-        let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleTextRect, in: textContainer)
-        let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+        // Visible range in the text view — see `visibleTextContainerRect()`.
+        guard let visibleCharRange = visibleCharacterRange() else { return }
 
         // Starting line number: O(log N) lookup into the cached lineStarts
         // instead of an O(N) per-redraw walk via enumerateSubstrings.
@@ -609,7 +672,8 @@ class LineNumberGutter: NSView {
             let attrString = NSAttributedString(string: numberString, attributes: attrs)
             let stringSize = attrString.size()
             let drawPoint = NSPoint(
-                x: desiredWidth - segmentBarWidth - segmentBarGap - stringSize.width - 4,
+                x: desiredWidth - metrics.segmentBarWidth - metrics.segmentBarGap
+                    - metrics.numberTrailingPadding - stringSize.width,
                 y: y + (lineRect.height - stringSize.height) / 2
             )
             attrString.draw(at: drawPoint)
@@ -623,7 +687,7 @@ class LineNumberGutter: NSView {
               let firstEntry = lineYPositions.first,
               let lastEntry = lineYPositions.last else { return }
 
-        let barX = desiredWidth - segmentBarGap / 2 - segmentBarWidth
+        let barX = desiredWidth - metrics.segmentBarGap / 2 - metrics.segmentBarWidth
         let firstVisibleLine = firstEntry.line
         let lastVisibleLine = lastEntry.line
 
@@ -667,7 +731,7 @@ class LineNumberGutter: NSView {
                 barColor = defaultBarColor(for: segIdx)
             }
 
-            let barRect = NSRect(x: barX, y: barY, width: segmentBarWidth, height: barHeight)
+            let barRect = NSRect(x: barX, y: barY, width: metrics.segmentBarWidth, height: barHeight)
             barColor.setFill()
             NSBezierPath(roundedRect: barRect, xRadius: 2, yRadius: 2).fill()
 
@@ -681,7 +745,7 @@ class LineNumberGutter: NSView {
             let top = lineYPositions.first!.y + 2
             let bottomEntry = lineYPositions.last!
             let bottom = bottomEntry.y + bottomEntry.height - 2
-            let phantomRect = NSRect(x: barX, y: top, width: segmentBarWidth, height: max(bottom - top, 4))
+            let phantomRect = NSRect(x: barX, y: top, width: metrics.segmentBarWidth, height: max(bottom - top, 4))
             NSColor.controlAccentColor.withAlphaComponent(currentPulseAlpha()).setFill()
             NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()
         } else if let fade = fadeOutStates[-1], lineYPositions.count >= 1 {
@@ -690,7 +754,7 @@ class LineNumberGutter: NSView {
                 let top = lineYPositions.first!.y + 2
                 let bottomEntry = lineYPositions.last!
                 let bottom = bottomEntry.y + bottomEntry.height - 2
-                let phantomRect = NSRect(x: barX, y: top, width: segmentBarWidth, height: max(bottom - top, 4))
+                let phantomRect = NSRect(x: barX, y: top, width: metrics.segmentBarWidth, height: max(bottom - top, 4))
                 let progress = CGFloat(1.0 - (remaining / fadeOutDuration))
                 NSColor.controlAccentColor.withAlphaComponent(fade.startAlpha * (1.0 - progress)).setFill()
                 NSBezierPath(roundedRect: phantomRect, xRadius: 2, yRadius: 2).fill()

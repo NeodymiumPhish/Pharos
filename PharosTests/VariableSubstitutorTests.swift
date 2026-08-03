@@ -183,6 +183,43 @@ func runTests() {
     expectTrue(VariableSubstitutor.containsTokens("x = {{y}}"), "containsTokens true")
     expectTrue(!VariableSubstitutor.containsTokens("x = 'a@b'"), "containsTokens false")
 
+    // MARK: A name may start with a digit
+
+    // The token name never reaches the SQL — it is a lookup key, replaced
+    // whole — so there is no reason to hold it to SQL's identifier rule. A
+    // name like `185_domains` used not to match at all: the token was left
+    // verbatim and Postgres reported `syntax error at or near "{"`.
+    expectEqual(
+        VariableSubstitutor.render("d IN ({{185_domains}})", with: [v("185_domains", "'a','b'", .literal)]).sql,
+        "d IN ('a','b')", "a name starting with a digit is substituted")
+    expectNames(
+        VariableSubstitutor.referencedNames(in: "d IN ({{185_domains}})"), ["185_domains"],
+        "a name starting with a digit is counted as referenced")
+    expectTrue(
+        VariableSubstitutor.containsTokens("d IN ({{185_domains}})"),
+        "containsTokens sees a name starting with a digit")
+    for name in ["185_domains", "1a", "_1", "a1", "_", "x"] {
+        expectNames(
+            VariableSubstitutor.referencedNames(in: "{{\(name)}}"), [name],
+            "\(name) is a usable variable name")
+    }
+
+    // An all-digit token stays unmatched, deliberately: `'{{1}}'` is a legal
+    // Postgres 2-D array literal, and treating it as an undefined variable
+    // would block a query that runs today. A name must carry at least one
+    // letter or underscore somewhere.
+    for arrayLiteral in ["1", "12", "007"] {
+        expectNames(
+            VariableSubstitutor.referencedNames(in: "SELECT '{{\(arrayLiteral)}}'::int[]"), [],
+            "the array literal '{{\(arrayLiteral)}}' is not read as a variable")
+    }
+    expectEqual(
+        VariableSubstitutor.render("SELECT '{{1}}'::int[]", with: []).sql,
+        "SELECT '{{1}}'::int[]", "a 2-D array literal passes through untouched")
+    expectTrue(
+        !VariableSubstitutor.containsTokens("SELECT '{{1}}'::int[]"),
+        "containsTokens ignores a 2-D array literal")
+
     // MARK: problem(for:) — can this value become working SQL?
 
     // Literal renders raw, so an empty or whitespace-only value leaves a hole.
@@ -263,7 +300,7 @@ func runTests() {
     // not a referencedNames/render disagreement — it pins actual behavior
     // rather than the assumption that whitespace excludes newlines.
     expectNames(VariableSubstitutor.referencedNames(in: "{{\nx\n}}"), ["x"], "a token can span a newline (regex \\s matches line breaks)")
-    expectNames(VariableSubstitutor.referencedNames(in: "{{1x}}"), [], "a name cannot start with a digit")
+    expectNames(VariableSubstitutor.referencedNames(in: "{{1x}}"), ["1x"], "a name may start with a digit")
 
     // MARK: rowStates(in:referenced:) — problem + duplication signal per row
 

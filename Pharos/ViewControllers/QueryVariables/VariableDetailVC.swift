@@ -214,6 +214,14 @@ final class VariableDetailVC: NSViewController {
         valueTextView.textContainer?.widthTracksTextView = false
         valueTextView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        // `NSTextContainer`'s default 5 pt line-fragment padding sits between
+        // the gutter and the first glyph, on top of `textContainerInset.width`
+        // — invisible padding the user cannot type in, in a panel narrow
+        // enough that it costs real characters. Zeroing it also aligns the
+        // text with `valuePlaceholderLabel`, which `layoutEditorArea` places
+        // at `textContainerInset.width` and so was 5 pt to the left of the
+        // real text it stands in for.
+        valueTextView.textContainer?.lineFragmentPadding = 0
         valueTextView.delegate = self
         valueTextView.onBacktab = { [weak self] in
             guard let self else { return }
@@ -229,7 +237,13 @@ final class VariableDetailVC: NSViewController {
 
         nameField.nextKeyView = valueTextView
 
-        let gutterView = LineNumberGutter(textView: valueTextView, scrollView: scrollView)
+        // `.compact`: this editor never calls `setSegments` or
+        // `setFoldRegions`, so the segment-bar and fold-chevron columns the
+        // SQL editor's gutter reserves would be permanently empty here — and
+        // this panel is narrow enough that the width they take is width the
+        // value itself needs. See `LineNumberGutter.Metrics`.
+        let gutterView = LineNumberGutter(
+            textView: valueTextView, scrollView: scrollView, metrics: .compact)
         gutterView.onWidthChange = { [weak self] in self?.view.needsLayout = true }
         gutter = gutterView
 
@@ -775,7 +789,17 @@ final class VariableDetailVC: NSViewController {
                 valueChoiceControl.selectedSegment = -1
             }
         } else {
-            valueTextView.string = variable.value
+            // Only when the editor is actually out of date. Assigning `string`
+            // replaces the whole text storage and collapses the selection to
+            // the end of the document — even when the text is identical to
+            // what the view already holds. This method runs on every keystroke
+            // (textDidChange -> onChange -> the panel's refreshDetailState ->
+            // otherNames -> recomputeCollisionState -> here), so the
+            // unconditional assignment threw the insertion point to the end of
+            // the value on every edit made anywhere but the end.
+            if valueTextView.string != variable.value {
+                valueTextView.string = variable.value
+            }
             captionLabel.stringValue = VariableValuePreview.caption(for: variable.value)
         }
         updateValuePlaceholderVisibility()
