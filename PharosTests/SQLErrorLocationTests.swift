@@ -161,6 +161,20 @@ func runTests() {
                 NSRange(location: 23, length: 5),
                 "an end-of-input position with no token to mark falls back to the last token, WHERE")
 
+    // The production shape, end to end. `runQuery` sends
+    // `rendered.sql.trimmingCharacters(...)`, so the SQL that ran is the TRIMMED
+    // text while the editor document usually keeps a trailing newline. The
+    // position therefore has to survive both the end-of-input fallback and the
+    // move into document coordinates. Document is 29 units, the sent text 28, and
+    // WHERE sits at 23 in both because the trim only took the trailing newline.
+    let editorDocument = "SELECT\n  *\nFROM\n  conn\nWHERE\n"
+    let sentToServer = editorDocument.trimmingCharacters(in: .whitespacesAndNewlines)
+    expectTrue(editorDocument != sentToServer, "the document and the sent SQL really do differ")
+    expectRange(SQLErrorLocation.parse(from: endOfInputMessage)?
+                    .range(of: sentToServer, in: editorDocument),
+                NSRange(location: 23, length: 5),
+                "an end-of-input mark reaches the editor document through the trim")
+
     // "SELECT * FROM t\n" is 16 characters; the last one is a newline. An
     // end-of-input position is 17 (one past 16). The newline is whitespace, so
     // the walk back lands on "t" at index 14, length 1.
