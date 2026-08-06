@@ -26,6 +26,9 @@ class SettingsSheet: NSViewController {
     private let defaultLimitField = NSTextField()
     private let timeoutField = NSTextField()
     private let confirmDestructiveCheck = NSButton(checkboxWithTitle: "Confirm before DROP / DELETE / TRUNCATE", target: nil, action: nil)
+    private let showCancelledDialogCheck = NSButton(
+        checkboxWithTitle: "Show details when you cancel a query", target: nil, action: nil
+    )
     private let notifyAppInactiveCheck = NSButton(checkboxWithTitle: "Notify when query completes and app is in background", target: nil, action: nil)
     private let notifyBackgroundTabCheck = NSButton(checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
     private let notifyMinDurationField = NSTextField()
@@ -219,6 +222,7 @@ class SettingsSheet: NSViewController {
             [limitLabel, defaultLimitField],
             [timeoutLabel, timeoutRow],
             [NSGridCell.emptyContentView, confirmDestructiveCheck],
+            [NSGridCell.emptyContentView, showCancelledDialogCheck],
             [NSGridCell.emptyContentView, notifyAppInactiveCheck],
             [NSGridCell.emptyContentView, notifyBackgroundTabCheck],
             [notifyMinDurationLabel, notifyMinDurationRow],
@@ -297,6 +301,7 @@ class SettingsSheet: NSViewController {
         defaultLimitField.integerValue = Int(settings.query.defaultLimit)
         timeoutField.integerValue = Int(settings.query.timeoutSeconds)
         confirmDestructiveCheck.state = settings.query.confirmDestructive ? .on : .off
+        showCancelledDialogCheck.state = settings.query.showCancelledQueryDialog ? .on : .off
         notifyAppInactiveCheck.state = settings.query.notifyWhenAppInactive ? .on : .off
         notifyBackgroundTabCheck.state = settings.query.notifyWhenBackgroundTab ? .on : .off
         notifyMinDurationField.integerValue = Int(settings.query.notifyMinDurationSeconds)
@@ -343,6 +348,7 @@ class SettingsSheet: NSViewController {
         s.query.defaultLimit = UInt32(clamping: defaultLimitField.integerValue)
         s.query.timeoutSeconds = UInt32(clamping: timeoutField.integerValue)
         s.query.confirmDestructive = confirmDestructiveCheck.state == .on
+        s.query.showCancelledQueryDialog = showCancelledDialogCheck.state == .on
         s.query.notifyWhenAppInactive = notifyAppInactiveCheck.state == .on
         s.query.notifyWhenBackgroundTab = notifyBackgroundTabCheck.state == .on
         s.query.notifyMinDurationSeconds = UInt32(clamping: notifyMinDurationField.integerValue)

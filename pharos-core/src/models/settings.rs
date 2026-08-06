@@ -95,11 +95,17 @@ pub struct QuerySettings {
     pub notify_when_background_tab: bool,
     #[serde(default = "default_notify_min_duration_seconds")]
     pub notify_min_duration_seconds: u32,
+    /// Whether a query the user cancelled opens the error sheet. The failure is
+    /// recorded on its tab either way; this only decides whether the app
+    /// interrupts the user.
+    #[serde(default = "default_show_cancelled_query_dialog")]
+    pub show_cancelled_query_dialog: bool,
 }
 
 fn default_notify_when_app_inactive() -> bool { true }
 fn default_notify_when_background_tab() -> bool { true }
 fn default_notify_min_duration_seconds() -> u32 { 5 }
+fn default_show_cancelled_query_dialog() -> bool { true }
 
 impl Default for QuerySettings {
     fn default() -> Self {
@@ -111,6 +117,7 @@ impl Default for QuerySettings {
             notify_when_app_inactive: default_notify_when_app_inactive(),
             notify_when_background_tab: default_notify_when_background_tab(),
             notify_min_duration_seconds: default_notify_min_duration_seconds(),
+            show_cancelled_query_dialog: default_show_cancelled_query_dialog(),
         }
     }
 }
@@ -217,5 +224,26 @@ impl Default for AppSettings {
             show_leaf_partitions: false,
             charts: ChartSettings::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Settings stored before this field existed must still load. Without the
+    /// serde default, the whole settings blob fails to parse and the app falls
+    /// back to defaults for everything.
+    #[test]
+    fn query_settings_default_show_cancelled_query_dialog() {
+        let json = r#"{
+            "defaultLimit": 500,
+            "timeoutSeconds": 30,
+            "autoCommit": true,
+            "confirmDestructive": true
+        }"#;
+        let parsed: QuerySettings = serde_json::from_str(json).expect("old settings must still parse");
+        assert_eq!(parsed.default_limit, 500);
+        assert!(parsed.show_cancelled_query_dialog, "the field defaults to true");
     }
 }

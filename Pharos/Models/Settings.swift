@@ -77,6 +77,9 @@ struct QuerySettings: Codable, Equatable {
     var notifyWhenAppInactive: Bool = true
     var notifyWhenBackgroundTab: Bool = true
     var notifyMinDurationSeconds: UInt32 = 5
+    /// Whether a query the user cancelled opens the error sheet. The failure is
+    /// recorded on its tab either way.
+    var showCancelledQueryDialog: Bool = true
 }
 
 struct UISettings: Codable, Equatable {
