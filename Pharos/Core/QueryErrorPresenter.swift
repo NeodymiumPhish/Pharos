@@ -40,6 +40,11 @@ final class QueryErrorPresenter {
     /// sheet and no other sign the failure happened.
     private(set) var liveSheet: QueryErrorSheet?
 
+    /// A sheet waiting for the previous one to finish leaving. At most one of
+    /// this and `liveSheet` is ever set. A later `open` supersedes it, so a burst
+    /// of failures cannot stack two sheets on the window.
+    private var pendingSheet: QueryErrorSheet?
+
     /// A failure has just arrived on the tab the user is looking at.
     func failureDidArrive(
         _ failure: QueryFailure,
@@ -75,10 +80,12 @@ final class QueryErrorPresenter {
 
         // One sheet at a time. A swap must let the old sheet finish leaving before
         // the new one arrives, or AppKit can drop the second presentation.
-        if liveSheet != nil {
+        if liveSheet != nil || pendingSheet != nil {
             close()
+            pendingSheet = sheet
             afterCurrentTurn { [weak self] in
-                guard let self else { return }
+                guard let self, self.pendingSheet === sheet else { return }
+                self.pendingSheet = nil
                 self.liveSheet = sheet
                 self.showSheet(sheet)
             }
@@ -96,6 +103,10 @@ final class QueryErrorPresenter {
     }
 
     func close() {
+        // A pending arrival must be cancelled here too, or a `Done` pressed during
+        // the gap would be followed by a sheet appearing out of nowhere once the
+        // deferred block runs.
+        pendingSheet = nil
         guard let sheet = liveSheet else { return }
         liveSheet = nil
         closeSheet(sheet)
