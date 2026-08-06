@@ -37,6 +37,8 @@ private func makePresenter(showCancelled: Bool) -> (QueryErrorPresenter, () -> I
     var closed = 0
     let presenter = QueryErrorPresenter()
     presenter.showCancelledDialog = { showCancelled }
+    // Run the deferred swap at once, so the test stays synchronous and deterministic.
+    presenter.afterCurrentTurn = { $0() }
     presenter.showSheet = { sheet in
         opened += 1
         // The real owner presents the sheet, which loads the view. Touch the view
@@ -106,6 +108,18 @@ func runTests() {
     expectInt(refreshP.liveSheet?.entries.count ?? -1, 2,
               "an open sheet still takes the new entry, so its counter is right")
     expectInt(refreshP.liveSheet?.index ?? -1, 1, "and it stays on the entry the user reads")
+
+    // MARK: a suppressed cancellation on another tab swaps nothing
+
+    let (otherP, otherOpened, otherClosed) = makePresenter(showCancelled: false)
+    otherP.open(entries: [failure("a")], index: 0, tabId: "tab-1", delegate: delegate)
+    otherP.failureDidArrive(
+        failure("z", kind: .cancelled, tabId: "tab-2"), entries: [failure("z", kind: .cancelled, tabId: "tab-2")],
+        delegate: delegate
+    )
+    expectInt(otherClosed(), 0, "a suppressed cancellation on another tab closes nothing")
+    expectInt(otherOpened(), 1, "and opens no second sheet")
+    expectTrue(otherP.liveSheet?.tabId == "tab-1", "the live sheet is still tab-1's")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

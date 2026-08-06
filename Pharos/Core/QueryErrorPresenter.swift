@@ -25,6 +25,19 @@ final class QueryErrorPresenter {
     /// Take the sheet off screen. The owner fills this with `dismiss`.
     var closeSheet: (QueryErrorSheet) -> Void = { _ in }
 
+    /// Runs a block after the current turn of the run loop. Injected so a test
+    /// stays deterministic — a test replaces it with one that runs the block at
+    /// once. Production needs the wait: AppKit ends a sheet asynchronously.
+    var afterCurrentTurn: (@escaping () -> Void) -> Void = { block in
+        DispatchQueue.main.async(execute: block)
+    }
+
+    /// The sheet on screen, or nil when none is. The owner must call `close()`
+    /// whenever the sheet leaves the screen by ANY path — Done, Escape, the
+    /// window closing — not only through `open`'s own swap. Miss one and this
+    /// keeps pointing at a sheet nobody can see: the next failure on that tab
+    /// calls `update` on it instead of opening a new one, so the user gets no
+    /// sheet and no other sign the failure happened.
     private(set) var liveSheet: QueryErrorSheet?
 
     /// A failure has just arrived on the tab the user is looking at.
@@ -56,13 +69,22 @@ final class QueryErrorPresenter {
         delegate: QueryErrorSheetDelegate
     ) {
         guard !entries.isEmpty else { return }
-        // One sheet at a time. The user cannot reach this state today, because a
-        // sheet stops the window, but the rule keeps the presenter safe.
-        if liveSheet != nil { close() }
-
         let sheet = QueryErrorSheet(
             entries: entries, index: index, tabId: tabId, delegate: delegate
         )
+
+        // One sheet at a time. A swap must let the old sheet finish leaving before
+        // the new one arrives, or AppKit can drop the second presentation.
+        if liveSheet != nil {
+            close()
+            afterCurrentTurn { [weak self] in
+                guard let self else { return }
+                self.liveSheet = sheet
+                self.showSheet(sheet)
+            }
+            return
+        }
+
         liveSheet = sheet
         showSheet(sheet)
     }
