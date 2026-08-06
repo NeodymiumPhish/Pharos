@@ -103,7 +103,9 @@ struct QueryFailureLog: Equatable {
 
     func index(of id: String) -> Int? { entries.firstIndex { $0.id == id } }
 
-    func counterText(index: Int) -> String { "\(index + 1) of \(entries.count)" }
+    /// "2 of 3". Static and count-taking, because the sheet shows an entry list
+    /// rather than a log, and one format string in two places drifts.
+    static func counterText(index: Int, count: Int) -> String { "\(index + 1) of \(count)" }
 
     /// Which entry the sheet shows after the one at `removedIndex` leaves the
     /// log. Nil means the log is empty and the sheet must close.

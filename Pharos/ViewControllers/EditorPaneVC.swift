@@ -446,10 +446,6 @@ class EditorPaneVC: NSViewController {
         editorVC.formatSQL()
     }
 
-    func markError(_ location: SQLErrorLocation) {
-        editorVC.markError(location)
-    }
-
     /// `range` is in document coordinates — see `QueryEditorVC.markError(range:)`.
     func markError(range: NSRange) {
         editorVC.markError(range: range)

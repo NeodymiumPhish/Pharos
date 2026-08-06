@@ -96,7 +96,8 @@ func runTests() {
 
     // MARK: counter and sub-header
 
-    expectString(read.counterText(index: 1), "2 of 2", "the counter counts from 1")
+    expectString(QueryFailureLog.counterText(index: 1, count: read.count), "2 of 2",
+                 "the counter counts from 1")
     expectTrue(failure("a").subheader.hasPrefix("Query 1 · localhost · "),
                "the sub-header holds the tab name, then the connection, then the time")
     expectString(failure("a", kind: .cancelled).title, "Query Cancelled",

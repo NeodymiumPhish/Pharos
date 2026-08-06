@@ -225,7 +225,7 @@ final class QueryErrorSheet: NSViewController {
         counterLabel.isHidden = !many
         previousButton.isHidden = !many
         nextButton.isHidden = !many
-        counterLabel.stringValue = "\(index + 1) of \(entries.count)"
+        counterLabel.stringValue = QueryFailureLog.counterText(index: index, count: entries.count)
         previousButton.isEnabled = index > 0
         nextButton.isEnabled = index < entries.count - 1
         goToErrorButton.isEnabled = highlight != nil
