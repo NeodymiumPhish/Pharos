@@ -71,8 +71,7 @@ func runTests() {
     // MARK: one entry
 
     let spy = SpyDelegate()
-    let sheet = QueryErrorSheet(entries: [failure("a")], index: 0, tabId: "tab-1")
-    sheet.delegate = spy
+    let sheet = QueryErrorSheet(entries: [failure("a")], index: 0, tabId: "tab-1", delegate: spy)
     _ = host(sheet)
 
     expectString(spy.shown.joined(separator: ","), "a", "opening reports the shown entry once")
@@ -100,6 +99,17 @@ func runTests() {
                "the faulty token carries a background highlight")
     expectTrue(sheet.goToErrorButton.isEnabled, "Go to Error is enabled when a position exists")
 
+    sheet.copyErrorButton.performClick(nil)
+    expectString(
+        NSPasteboard.general.string(forType: .string) ?? "", failure("a").message,
+        "Copy Error puts the message on the pasteboard"
+    )
+    sheet.copyQueryButton.performClick(nil)
+    expectString(
+        NSPasteboard.general.string(forType: .string) ?? "", failure("a").sql,
+        "Copy Query puts the SQL on the pasteboard"
+    )
+
     sheet.goToErrorButton.performClick(nil)
     expectString(spy.wentTo.joined(separator: ","), "a", "Go to Error reports the failure")
 
@@ -108,10 +118,11 @@ func runTests() {
 
     // MARK: no position
 
+    let plainSpy = SpyDelegate()
     let plain = QueryErrorSheet(
-        entries: [failure("p", message: "relation \"users\" does not exist")], index: 0, tabId: "tab-1"
+        entries: [failure("p", message: "relation \"users\" does not exist")], index: 0, tabId: "tab-1",
+        delegate: plainSpy
     )
-    plain.delegate = SpyDelegate()
     _ = host(plain)
     expectTrue(!plain.goToErrorButton.isEnabled, "Go to Error is disabled with no position in the message")
 
@@ -119,9 +130,8 @@ func runTests() {
 
     let spy3 = SpyDelegate()
     let many = QueryErrorSheet(
-        entries: [failure("c"), failure("b"), failure("a")], index: 0, tabId: "tab-1"
+        entries: [failure("c"), failure("b"), failure("a")], index: 0, tabId: "tab-1", delegate: spy3
     )
-    many.delegate = spy3
     _ = host(many)
 
     expectTrue(!many.counterLabel.isHidden, "the counter shows for more than one entry")
@@ -151,6 +161,14 @@ func runTests() {
 
     many.dismissAllButton.performClick(nil)
     expectString("\(spy3.dismissedAll)", "1", "Dismiss All asks the owner to empty the log")
+
+    // MARK: empty list
+
+    // The owner answers Dismiss All by handing back an empty list. The sheet
+    // must not sit there showing the last entry as if it were still live.
+    many.update(entries: [], index: 0)
+    expectString("\(spy3.closed)", "1", "an empty list asks the owner to close the sheet")
+    expectTrue(many.entries.isEmpty, "an empty list leaves the sheet with no entries")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

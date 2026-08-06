@@ -40,16 +40,24 @@ final class QueryErrorSheet: NSViewController {
     let dismissButton = NSButton(title: "Dismiss", target: nil, action: nil)
     let dismissAllButton = NSButton(title: "Dismiss All", target: nil, action: nil)
     let doneButton = NSButton(title: "Done", target: nil, action: nil)
+    let copyErrorButton = NSButton(title: "Copy Error", target: nil, action: nil)
+    let copyQueryButton = NSButton(title: "Copy Query", target: nil, action: nil)
 
     private var current: QueryFailure? {
         guard index >= 0, index < entries.count else { return nil }
         return entries[index]
     }
 
-    init(entries: [QueryFailure], index: Int, tabId: String) {
+    init(
+        entries: [QueryFailure],
+        index: Int,
+        tabId: String,
+        delegate: QueryErrorSheetDelegate?
+    ) {
         self.entries = entries
         self.index = min(max(index, 0), max(entries.count - 1, 0))
         self.tabId = tabId
+        self.delegate = delegate
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -59,6 +67,13 @@ final class QueryErrorSheet: NSViewController {
 
     /// Take a new entry list from the owner, after a dismissal or a new failure.
     func update(entries: [QueryFailure], index: Int) {
+        // An empty list has nothing to show. Ask the owner to close rather than
+        // leaving the last entry on screen, which would read as a live failure.
+        guard !entries.isEmpty else {
+            self.entries = []
+            delegate?.errorSheetDidRequestClose(self)
+            return
+        }
         self.entries = entries
         self.index = min(max(index, 0), max(entries.count - 1, 0))
         guard isViewLoaded else { return }
@@ -116,7 +131,6 @@ final class QueryErrorSheet: NSViewController {
         errorScroll.borderType = .bezelBorder
         errorScroll.drawsBackground = true
         configure(textView: errorTextView, monospaced: false)
-        errorTextView.textColor = .systemRed
         errorScroll.documentView = errorTextView
         errorScroll.translatesAutoresizingMaskIntoConstraints = false
         errorScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
@@ -125,16 +139,14 @@ final class QueryErrorSheet: NSViewController {
             (goToErrorButton, #selector(goToError)),
             (dismissButton, #selector(dismissCurrent)),
             (dismissAllButton, #selector(dismissAll)),
-            (doneButton, #selector(close)),
+            (doneButton, #selector(requestClose)),
+            (copyErrorButton, #selector(copyError)),
+            (copyQueryButton, #selector(copyQuery)),
         ] {
             button.bezelStyle = .rounded
             button.target = self
             button.action = action
         }
-        let copyErrorButton = NSButton(title: "Copy Error", target: self, action: #selector(copyError))
-        copyErrorButton.bezelStyle = .rounded
-        let copyQueryButton = NSButton(title: "Copy Query", target: self, action: #selector(copyQuery))
-        copyQueryButton.bezelStyle = .rounded
         doneButton.keyEquivalent = "\u{1b}"   // Escape
 
         let buttonRow = NSStackView(views: [
@@ -204,7 +216,10 @@ final class QueryErrorSheet: NSViewController {
         errorTextView.string = failure.message
         errorTextView.textColor = .systemRed
 
-        applySQL(failure)
+        // Computed once here, not re-parsed by every reader: `location` re-runs
+        // two regular expressions on each read.
+        let highlight = failure.location?.range(in: failure.sql)
+        applySQL(failure, highlight: highlight)
 
         let many = entries.count > 1
         counterLabel.isHidden = !many
@@ -213,28 +228,28 @@ final class QueryErrorSheet: NSViewController {
         counterLabel.stringValue = "\(index + 1) of \(entries.count)"
         previousButton.isEnabled = index > 0
         nextButton.isEnabled = index < entries.count - 1
-        goToErrorButton.isEnabled = failure.location?.range(in: failure.sql) != nil
+        goToErrorButton.isEnabled = highlight != nil
 
         delegate?.errorSheet(self, didShow: failure.id, tabId: tabId)
     }
 
-    private func applySQL(_ failure: QueryFailure) {
+    private func applySQL(_ failure: QueryFailure, highlight: NSRange?) {
         let colored = SQLSyntaxHighlighter.attributedString(
             for: failure.sql,
             font: .monospacedSystemFont(ofSize: 12, weight: .regular),
             baseColor: .textColor
         )
         let text = NSMutableAttributedString(attributedString: colored)
-        if let range = failure.location?.range(in: failure.sql) {
+        if let highlight {
             text.addAttributes([
                 .backgroundColor: NSColor.systemRed.withAlphaComponent(0.22),
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
                 .underlineColor: NSColor.systemRed,
-            ], range: range)
+            ], range: highlight)
         }
         sqlTextView.textStorage?.setAttributedString(text)
-        if let range = failure.location?.range(in: failure.sql) {
-            sqlTextView.scrollRangeToVisible(range)
+        if let highlight {
+            sqlTextView.scrollRangeToVisible(highlight)
         }
     }
 
@@ -278,7 +293,7 @@ final class QueryErrorSheet: NSViewController {
         delegate?.errorSheetDidRequestDismissAll(self, tabId: tabId)
     }
 
-    @objc private func close() {
+    @objc private func requestClose() {
         delegate?.errorSheetDidRequestClose(self)
     }
 }
