@@ -42,7 +42,10 @@ struct QueryTab: Identifiable {
     /// (single-result-per-editor-tab) path. Not used when results live in
     /// ResultTab instances — those carry their own `timestamp` field.
     var resultExecutedAt: Date?
-    var error: String?
+    /// Failures from this tab, newest first. Replaces the old single `error`
+    /// string: a failure now shows in a sheet and stays available from the tab's
+    /// error button, instead of taking over the results grid.
+    var failureLog = QueryFailureLog()
     var savedQueryId: String?
     var gridState: ResultsGridState?
     var paneId: String?
