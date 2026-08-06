@@ -213,36 +213,37 @@ class QueryEditorVC: NSViewController {
 
     // MARK: - Error Markers
 
-    /// Mark an error at the given character position in the editor.
-    /// Sets the gutter error dot and adds a red underline on the error token.
-    /// - Parameters:
-    ///   - charPosition: 1-based character offset from PostgreSQL's error position
-    ///   - tokenLength: length of the error token to underline (0 = underline to end of line)
-    func markError(charPosition: Int, tokenLength: Int) {
+    /// Mark an error at `range` in the document: a dot in the gutter and a red
+    /// underline on the faulty text.
+    ///
+    /// The range is in document coordinates, not in the coordinates of the SQL
+    /// that produced the error. Those two differ whenever the user runs one
+    /// segment out of a longer document, or whenever `{{variable}}` substitution
+    /// changed the text — so the caller does the move, with
+    /// `SQLErrorLocation.range(of:in:)`.
+    func markError(range: NSRange) {
         let text = textView.string
-        let nsText = text as NSString
-        let pos0 = charPosition - 1 // Convert to 0-based
-        guard pos0 >= 0, pos0 < nsText.length else { return }
+        guard NSMaxRange(range) <= (text as NSString).length else { return }
+        // +1 because lineNumber counts to a 1-based position, which is the form
+        // PostgreSQL reports and the form this code has always been given.
+        gutter?.setErrorLines([lineNumber(forCharacterIndex: range.location + 1, in: text)])
+        textView.addErrorUnderline(range: range)
+    }
 
-        // Set gutter error dot
-        let line = lineNumber(forCharacterIndex: charPosition, in: text)
-        gutter?.setErrorLines([line])
+    /// Mark an error whose position counts into the whole document. Live
+    /// validation runs on the document text, so it takes this path.
+    func markError(_ location: SQLErrorLocation) {
+        guard let range = location.range(in: textView.string) else { return }
+        markError(range: range)
+    }
 
-        // Determine underline range
-        let underlineLength: Int
-        if tokenLength > 0 {
-            underlineLength = min(tokenLength, nsText.length - pos0)
-        } else {
-            // Underline from position to end of line
-            let lineRange = nsText.lineRange(for: NSRange(location: pos0, length: 0))
-            let lineEnd = lineRange.location + lineRange.length
-            // Trim trailing newline
-            let effectiveEnd = (lineEnd > 0 && nsText.character(at: lineEnd - 1) == UInt16(UnicodeScalar("\n").value))
-                ? lineEnd - 1 : lineEnd
-            underlineLength = max(1, effectiveEnd - pos0)
-        }
-
-        textView.addErrorUnderline(range: NSRange(location: pos0, length: underlineLength))
+    /// Put the caret on `range`, scroll it into sight and take focus. Used by the
+    /// error sheet's Go to Error button, with a document range.
+    func revealError(range: NSRange) {
+        guard NSMaxRange(range) <= (textView.string as NSString).length else { return }
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        view.window?.makeFirstResponder(textView)
     }
 
     /// Clear all error markers (gutter dots + underlines).
@@ -568,8 +569,10 @@ class QueryEditorVC: NSViewController {
             let result = try await PharosCore.validateSQL(connectionId: connectionId, sql: sql)
             await MainActor.run {
                 if let error = result.error, let position = error.position {
-                    let tokenLength = Self.parseTokenLength(from: error.message)
-                    self.markError(charPosition: position, tokenLength: tokenLength)
+                    self.markError(SQLErrorLocation(
+                        charPosition: position,
+                        tokenLength: SQLErrorLocation.tokenLength(from: error.message)
+                    ))
                 } else {
                     self.clearErrorMarkers()
                 }
@@ -578,20 +581,6 @@ class QueryEditorVC: NSViewController {
             // Validation failure is non-critical, just clear markers
             await MainActor.run { self.clearErrorMarkers() }
         }
-    }
-
-    /// Extract token length from a PostgreSQL error message like `syntax error at or near "WHERE"`.
-    /// Returns 0 if no token is found (caller falls back to underlining to end of line).
-    private static let nearTokenRegex = try! NSRegularExpression(pattern: #"near "([^"]+)""#)
-
-    static func parseTokenLength(from message: String) -> Int {
-        let nsMessage = message as NSString
-        guard let match = nearTokenRegex.firstMatch(
-            in: message, range: NSRange(location: 0, length: nsMessage.length)
-        ), match.numberOfRanges > 1 else {
-            return 0
-        }
-        return match.range(at: 1).length
     }
 
     private func lineNumber(forCharacterIndex index: Int, in text: String) -> Int {

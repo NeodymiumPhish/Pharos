@@ -18,6 +18,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
     func editorPane(_ pane: EditorPaneVC, didEditText paneId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestShowErrors paneId: String)
 }
 
 /// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
@@ -47,6 +48,9 @@ class EditorPaneVC: NSViewController {
 
     // Query variables
     private let variablesToggle = NSButton()
+    /// Per-tab failure indicator. Hidden until the pane's active tab has a
+    /// failure in its log.
+    let errorButton = ErrorBadgeButton()
     private let variablesPanelVC = QueryVariablesPanelVC()
     private let variablesDivider = ResizeDividerView()
     private let variablesDividerWidth: CGFloat = 5
@@ -442,8 +446,17 @@ class EditorPaneVC: NSViewController {
         editorVC.formatSQL()
     }
 
-    func markError(charPosition: Int, tokenLength: Int) {
-        editorVC.markError(charPosition: charPosition, tokenLength: tokenLength)
+    func markError(_ location: SQLErrorLocation) {
+        editorVC.markError(location)
+    }
+
+    /// `range` is in document coordinates — see `QueryEditorVC.markError(range:)`.
+    func markError(range: NSRange) {
+        editorVC.markError(range: range)
+    }
+
+    func revealError(range: NSRange) {
+        editorVC.revealError(range: range)
     }
 
     func clearErrorMarkers() {
@@ -610,7 +623,9 @@ class EditorPaneVC: NSViewController {
         queryIndicator.isHidden = true
         editorToolbar.addSubview(queryIndicator)
 
-        // Variables panel toggle (right-aligned, not part of the leading stack)
+        // Variables panel toggle and the error badge, right-aligned as one group
+        // and not part of the leading stack. The error badge goes to the left of
+        // the toggle, so the toggle keeps the position it always had.
         let varConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         variablesToggle.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: "Query Variables")?.withSymbolConfiguration(varConfig)
         variablesToggle.bezelStyle = .recessed
@@ -619,8 +634,14 @@ class EditorPaneVC: NSViewController {
         variablesToggle.contentTintColor = .secondaryLabelColor
         variablesToggle.target = self
         variablesToggle.action = #selector(toggleVariablesPanel)
-        variablesToggle.translatesAutoresizingMaskIntoConstraints = false
-        editorToolbar.addSubview(variablesToggle)
+
+        errorButton.target = self
+        errorButton.action = #selector(showErrors)
+
+        let trailingGroup = ErrorBadgeButton.makeToolbarTrailingGroup(
+            errorButton: errorButton, variablesToggle: variablesToggle
+        )
+        editorToolbar.addSubview(trailingGroup)
 
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
@@ -646,10 +667,8 @@ class EditorPaneVC: NSViewController {
             queryIndicator.topAnchor.constraint(equalTo: runStopButton.topAnchor),
             queryIndicator.bottomAnchor.constraint(equalTo: runStopButton.bottomAnchor),
 
-            variablesToggle.widthAnchor.constraint(equalToConstant: 28),
-            variablesToggle.heightAnchor.constraint(equalToConstant: 28),
-            variablesToggle.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
-            variablesToggle.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+            trailingGroup.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
+            trailingGroup.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
         ])
     }
 
@@ -663,6 +682,22 @@ class EditorPaneVC: NSViewController {
         // Remember the choice so new tabs inherit it.
         VariablesPanelPrefs.visibleByDefault = nowVisible
         syncVariablesPanel()
+    }
+
+    /// Push the failure-log state of this pane's active tab onto the badge.
+    /// Called by ContentViewController; the `$tabs` sink cannot do this, because
+    /// its `removeDuplicates` whitelist does not watch the failure log.
+    func setErrorState(total: Int, unread: Int) {
+        errorButton.setState(total: total, unread: unread)
+    }
+
+    /// Whether this pane is showing `tabId` right now.
+    func showsTab(_ tabId: String) -> Bool {
+        lastActiveTabId == tabId
+    }
+
+    @objc private func showErrors() {
+        delegate?.editorPane(self, didRequestShowErrors: paneId)
     }
 
     /// `offset` is how far the pointer has moved since the drag began; dragging
