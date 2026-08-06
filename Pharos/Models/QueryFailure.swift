@@ -24,6 +24,9 @@ struct QueryFailure: Identifiable, Equatable {
     var isRead: Bool = false
 
     /// Where the message points inside `sql`, when it points anywhere.
+    ///
+    /// Recomputed on every read — cache the result before reading it inside a
+    /// redraw or a scroll loop.
     var location: SQLErrorLocation? { SQLErrorLocation.parse(from: message) }
 
     var title: String {
@@ -70,9 +73,14 @@ struct QueryFailureLog: Equatable {
     /// Entries the sheet has never shown. Drives the pulse on the tab button.
     var unreadCount: Int { entries.reduce(0) { $0 + ($1.isRead ? 0 : 1) } }
 
-    /// Index the button opens at: the newest unread entry, or the newest entry
-    /// when the user has read them all.
-    var newestUnreadIndex: Int { entries.firstIndex { !$0.isRead } ?? 0 }
+    /// Index the error button opens at: the newest unread entry, or the newest
+    /// entry when the user has read them all. Nil when the log is empty, so a
+    /// caller cannot use it as an index into nothing — the same convention as
+    /// `indexAfterRemoval`.
+    var newestUnreadIndex: Int? {
+        guard !entries.isEmpty else { return nil }
+        return entries.firstIndex { !$0.isRead } ?? 0
+    }
 
     mutating func append(_ failure: QueryFailure) {
         entries.insert(failure, at: 0)
