@@ -88,7 +88,14 @@ struct SQLErrorLocation: Equatable {
     /// ran. To mark the editor's document instead, use `range(of:in:)`.
     func range(in sql: String) -> NSRange? {
         let ns = sql as NSString
-        guard let start = utf16Offset(in: sql) else { return nil }
+        guard let start = utf16Offset(in: sql), start >= 0 else { return nil }
+
+        // A position one past the last character is PostgreSQL's "at end of input":
+        // it ran out of text while it still needed more. Nothing sits AT that
+        // offset, so mark the last non-whitespace token — for a trailing `WHERE`
+        // with no condition, that points at `WHERE`, which is what must change.
+        if start == ns.length { return lastTokenRange(in: ns) }
+        guard start < ns.length else { return nil }
 
         if tokenLength > 0 {
             return NSRange(location: start, length: min(tokenLength, ns.length - start))
@@ -103,6 +110,34 @@ struct SQLErrorLocation: Equatable {
         return NSRange(location: start, length: max(1, end - start))
     }
 
+    /// The last non-whitespace token in `ns`, for PostgreSQL's "at end of input"
+    /// position — one past the last character, where nothing sits at the offset
+    /// itself. Walks back over trailing whitespace to the last real character,
+    /// then back over word characters to that token's start. A last character
+    /// that is not a word character (a comma, a bracket) is marked on its own.
+    /// Text that holds no non-whitespace character at all gives nil.
+    private func lastTokenRange(in ns: NSString) -> NSRange? {
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        var end = ns.length - 1
+        while end >= 0, let scalar = Unicode.Scalar(ns.character(at: end)),
+              whitespace.contains(scalar) {
+            end -= 1
+        }
+        guard end >= 0 else { return nil }   // nothing but whitespace
+
+        let wordCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_"))
+        var begin = end
+        while begin > 0, let scalar = Unicode.Scalar(ns.character(at: begin - 1)),
+              wordCharacters.contains(scalar) {
+            begin -= 1
+        }
+        // A non-word last character (a comma, a bracket) is marked on its own.
+        if let scalar = Unicode.Scalar(ns.character(at: end)), !wordCharacters.contains(scalar) {
+            return NSRange(location: end, length: 1)
+        }
+        return NSRange(location: begin, length: end - begin + 1)
+    }
+
     /// UTF-16 offset of this 1-based code-point position inside `sql`, or nil when
     /// the position falls outside the text.
     ///
@@ -110,6 +145,12 @@ struct SQLErrorLocation: Equatable {
     /// UTF-16 units, and the two part company at the first character outside the
     /// Basic Multilingual Plane — one emoji in a string literal is enough. The
     /// walk is over `unicodeScalars`, which is the code-point view.
+    ///
+    /// The offset may equal `sql`'s UTF-16 length exactly: PostgreSQL reports a
+    /// position one past the last character for its "at end of input" error,
+    /// where it ran out of text while still expecting more. `range(in:)` gives
+    /// that case its own handling; only a position genuinely past the end (more
+    /// than one past) gives nil here.
     private func utf16Offset(in sql: String) -> Int? {
         guard charPosition >= 1 else { return nil }
         var remaining = charPosition - 1
@@ -120,7 +161,7 @@ struct SQLErrorLocation: Equatable {
             remaining -= 1
         }
         // `remaining > 0` means the position points past the end of the text.
-        guard remaining == 0, offset < (sql as NSString).length else { return nil }
+        guard remaining == 0, offset <= (sql as NSString).length else { return nil }
         return offset
     }
 }

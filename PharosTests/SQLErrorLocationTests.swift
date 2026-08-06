@@ -141,6 +141,50 @@ func runTests() {
     expectTrue(SQLErrorLocation(charPosition: 1, tokenLength: 1).range(of: "ababa", in: "abababa") == nil,
                "an overlapping second match still counts as appearing twice")
 
+    // MARK: end of input
+
+    // PostgreSQL's "at end of input" error reports a position one past the
+    // last character — it ran out of text while it still needed more. Nothing
+    // sits AT that offset, so the range must fall back to the last token.
+
+    // The user's exact report: a trailing WHERE with no condition.
+    // "SELECT\n  *\nFROM\n  conn\nWHERE" is 28 UTF-16 units long (counted by
+    // hand: SELECT 0-5, \n 6, two spaces 7-8, * 9, \n 10, FROM 11-14, \n 15,
+    // two spaces 16-17, conn 18-21, \n 22, WHERE 23-27). PostgreSQL reports
+    // one past the last index, so charPosition is 29. WHERE starts at 23 and
+    // is 5 characters long.
+    let endOfInputSQL = "SELECT\n  *\nFROM\n  conn\nWHERE"
+    let endOfInputMessage = "error returned from database: syntax error at end of input at character 29"
+    expectInt(SQLErrorLocation.parse(from: endOfInputMessage)?.charPosition ?? -1, 29,
+              "parse reads the character position out of an \"at end of input\" message")
+    expectRange(SQLErrorLocation.parse(from: endOfInputMessage)?.range(in: endOfInputSQL),
+                NSRange(location: 23, length: 5),
+                "an end-of-input position with no token to mark falls back to the last token, WHERE")
+
+    // "SELECT * FROM t\n" is 16 characters; the last one is a newline. An
+    // end-of-input position is 17 (one past 16). The newline is whitespace, so
+    // the walk back lands on "t" at index 14, length 1.
+    expectRange(SQLErrorLocation(charPosition: 17, tokenLength: 0).range(in: "SELECT * FROM t\n"),
+                NSRange(location: 14, length: 1),
+                "trailing whitespace after the last token is skipped; the mark lands on the token, not the newline")
+
+    // "SELECT * FROM t," is 16 characters; the last one, a comma, is not a
+    // word character, so it is marked alone rather than pulling in "t" before it.
+    expectRange(SQLErrorLocation(charPosition: 17, tokenLength: 0).range(in: "SELECT * FROM t,"),
+                NSRange(location: 15, length: 1),
+                "a non-word last character is marked on its own, length 1")
+
+    // "   \n  " holds no non-whitespace character at all, so even the
+    // end-of-input fallback has nothing to mark.
+    expectTrue(SQLErrorLocation(charPosition: 7, tokenLength: 0).range(in: "   \n  ") == nil,
+               "a whitespace-only text gives nil even for an end-of-input position")
+
+    // "SELECT" is 6 characters. One past the end (position 7) is the
+    // end-of-input case, handled above; two past (position 8) has nothing to
+    // fall back to — it is genuinely past the end, and must still give nil.
+    expectTrue(SQLErrorLocation(charPosition: 8, tokenLength: 0).range(in: "SELECT") == nil,
+               "a position more than one past the end of the SQL still gives nil")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
