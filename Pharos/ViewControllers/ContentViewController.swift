@@ -94,6 +94,10 @@ class ContentViewController: NSViewController {
 
     private var editorPanes: [EditorPaneVC] = []
 
+    /// Owns the one live query-error sheet. Its `showSheet`/`closeSheet` seams
+    /// are filled in `viewDidLoad`.
+    private let errorPresenter = QueryErrorPresenter()
+
     /// The focused editor pane.
     private var focusedPaneVC: EditorPaneVC? {
         editorPanes.first { $0.paneId == stateManager.focusedPaneId }
@@ -441,6 +445,20 @@ class ContentViewController: NSViewController {
             object: nil
         )
 
+        errorPresenter.showCancelledDialog = { [weak self] in
+            self?.stateManager.settings.query.showCancelledQueryDialog ?? true
+        }
+        errorPresenter.showSheet = { [weak self] sheet in self?.presentAsSheet(sheet) }
+        errorPresenter.closeSheet = { [weak self] sheet in self?.dismiss(sheet) }
+
+        // A click on a failure banner (in-app or system) lands here.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleActivateTabForFailure(_:)),
+            name: QueryNotifier.activateTabNotification,
+            object: nil
+        )
+
         updateVisibility()
     }
 
@@ -622,8 +640,6 @@ class ContentViewController: NSViewController {
             }
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
-        } else if let error = tab.error {
-            resultsVC.showError(error)
         } else {
             resultsVC.clear()
         }
@@ -1324,7 +1340,6 @@ class ContentViewController: NSViewController {
         stateManager.updateTab(id: tabId) { tab in
             tab.runningQueries.append(runningQuery)
             if !effectiveCreateResultTab {
-                tab.error = nil
                 tab.result = nil
                 tab.executeResult = nil
                 tab.resultExecutedAt = nil
@@ -1421,29 +1436,24 @@ class ContentViewController: NSViewController {
             } catch {
                 await MainActor.run {
                     let message = error.localizedDescription
+                    // Read the cancel flag once. It says whether the user asked
+                    // for this, which decides the sheet title and keeps a
+                    // cancellation quiet.
+                    let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
                     self.stateManager.updateTab(id: tabId) { tab in
                         tab.runningQueries.removeAll { $0.id == queryId }
-                        if !effectiveCreateResultTab {
-                            tab.error = message
-                        }
                     }
-                    if self.stateManager.activeTabId == tabId {
-                        self.resultsVC.showError(message)
-                        self.markEditorError(message: message, sql: sql)
-                    }
-
-                    // Suppress notification for user-initiated cancellations.
-                    let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
-                    if !wasCancelled {
-                        // Server-side duration unavailable on error; use Swift-side wall clock.
-                        let elapsedMs = UInt64((CACurrentMediaTime() - startTime) * 1000)
-                        self.fireCompletionNotification(
-                            tabId: tabId,
-                            connectionId: connectionId,
-                            outcome: .error(message: message),
-                            durationMs: elapsedMs
-                        )
-                    }
+                    let failure = QueryFailure(
+                        id: queryId,
+                        sql: sql,
+                        message: message,
+                        kind: wasCancelled ? .cancelled : .error,
+                        tabId: tabId,
+                        tabName: self.stateManager.tabs.first { $0.id == tabId }?.name ?? "Query",
+                        connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
+                        timestamp: Date()
+                    )
+                    self.recordFailure(failure)
                 }
             }
         }
@@ -1914,8 +1924,6 @@ class ContentViewController: NSViewController {
                     resultsVC.showResult(result)
                 } else if let execResult = tab.executeResult {
                     resultsVC.showExecuteResult(execResult)
-                } else if let error = tab.error {
-                    resultsVC.showError(error)
                 } else {
                     resultsVC.clear()
                 }
@@ -2003,15 +2011,110 @@ class ContentViewController: NSViewController {
         stateManager.closeTab(id: id)
     }
 
-    // MARK: - Error Position Parsing
+    // MARK: - Query Failures
 
-    private func markEditorError(message: String, sql: String) {
-        guard let range = message.range(of: #"at character (\d+)"#, options: .regularExpression),
-              let digitRange = message.range(of: #"\d+"#, options: .regularExpression, range: range),
-              let charPos = Int(message[digitRange]) else { return }
+    /// Push the log state of `tabId` to the pane that holds it. No effect when
+    /// that pane shows a different tab — the state arrives later, through
+    /// `didChangeActiveTab`. The failed tab is often not the focused pane's tab,
+    /// which is why this never uses `focusedPaneVC`.
+    private func refreshErrorBadge(forTabId tabId: String) {
+        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+              let paneId = tab.paneId,
+              let pane = editorPanes.first(where: { $0.paneId == paneId }),
+              pane.showsTab(tabId) else { return }
+        pane.setErrorState(total: tab.failureLog.count, unread: tab.failureLog.unreadCount)
+    }
 
-        let tokenLength = QueryEditorVC.parseTokenLength(from: message)
-        focusedPaneVC?.markError(charPosition: charPos, tokenLength: tokenLength)
+    /// Record a failure on its tab, then decide what the user sees. The sheet and
+    /// the editor marker are for the active tab only; a background tab gets the
+    /// pulsing button.
+    private func recordFailure(_ failure: QueryFailure) {
+        stateManager.updateTab(id: failure.tabId) { $0.failureLog.append(failure) }
+
+        if stateManager.activeTabId == failure.tabId {
+            markEditor(with: failure, in: focusedPaneVC)
+            let entries = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.entries ?? []
+            errorPresenter.failureDidArrive(failure, entries: entries, delegate: self)
+        }
+
+        // Always, not only for a background tab: a sheet that opens behind another
+        // app is a sheet the user cannot see, and that case needs the banner most.
+        // `QueryFailureChannel` returns `.none` for the one case that needs
+        // nothing — the active tab with Pharos in front, where the sheet is
+        // already on screen.
+        announceFailure(failure)
+
+        refreshErrorBadge(forTabId: failure.tabId)
+    }
+
+    /// Put the gutter dot and the underline on the faulty text.
+    ///
+    /// The failure carries the substituted segment that ran, and its position
+    /// counts into that segment — not into the document. `range(of:in:)` moves it,
+    /// and gives nil when the move would be a guess (substitution changed the
+    /// text, the user has edited, or the segment is in the document twice). Nil
+    /// marks nothing: a red underline under innocent text is worse than none.
+    private func markEditor(with failure: QueryFailure, in pane: EditorPaneVC?) {
+        guard let pane,
+              let location = failure.location,
+              let range = location.range(of: failure.sql, in: pane.getSQL()) else { return }
+        pane.markError(range: range)
+    }
+
+    /// Temporary alert for a failure the user is not looking at. Nothing goes to
+    /// Notification Center for longer than the banner: the tab's error button is
+    /// the record.
+    private func announceFailure(_ failure: QueryFailure) {
+        // A cancellation is the user's own doing, so it never raises an alert.
+        guard failure.kind == .error else { return }
+
+        let focusedPane = stateManager.panes.first { $0.id == stateManager.focusedPaneId }
+        let channel = QueryFailureChannel.choose(
+            appInactive: !NSApp.isActive,
+            isBackgroundTab: focusedPane?.activeTabId != failure.tabId,
+            notifyWhenAppInactive: stateManager.settings.query.notifyWhenAppInactive,
+            notifyWhenBackgroundTab: stateManager.settings.query.notifyWhenBackgroundTab
+        )
+
+        switch channel {
+        case .none:
+            break
+        case .inAppBanner:
+            let short = failure.message.count > 120
+                ? String(failure.message.prefix(120)) + "…" : failure.message
+            Toast.show(
+                in: view, message: "\(failure.tabName) · \(short)", style: .error, duration: 4.0
+            ) { [weak self] in
+                self?.openFailure(tabId: failure.tabId, failureId: failure.id)
+            }
+        case .systemBanner:
+            QueryNotifier.shared.notifyQueryFailed(
+                failureId: failure.id,
+                tabId: failure.tabId,
+                subheader: failure.subheader,
+                message: failure.message,
+                connectionName: failure.connectionName
+            )
+        }
+    }
+
+    /// Open the sheet on one entry, after a banner click. Goes to the tab first.
+    private func openFailure(tabId: String, failureId: String?) {
+        stateManager.selectTab(id: tabId)
+        // `newestUnreadIndex` is nil for an empty log, so this one guard covers
+        // both "no such tab" and "nothing to show".
+        guard let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+              let fallback = log.newestUnreadIndex else { return }
+        let index = failureId.flatMap { log.index(of: $0) } ?? fallback
+        errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
+    }
+
+    @objc private func handleActivateTabForFailure(_ notification: Notification) {
+        guard let tabId = notification.userInfo?["tabId"] as? String,
+              let failureId = notification.userInfo?["failureId"] as? String else { return }
+        // AppDelegate's observer of the same notification also selects the tab.
+        // selectTab is idempotent, so this does not depend on observer order.
+        openFailure(tabId: tabId, failureId: failureId)
     }
 }
 
@@ -2036,7 +2139,21 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?) {
-        // activeTabId publisher handles results grid update
+        // activeTabId publisher handles results grid update. The error badge is
+        // per pane, so it is refreshed here rather than from that publisher: a
+        // tab change in an unfocused pane does not always move activeTabId.
+        guard let tabId else {
+            pane.setErrorState(total: 0, unread: 0)
+            return
+        }
+        refreshErrorBadge(forTabId: tabId)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestShowErrors paneId: String) {
+        guard let tabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId,
+              let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+              let index = log.newestUnreadIndex else { return }
+        errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
     }
 
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
@@ -3243,5 +3360,72 @@ extension ContentViewController {
 
         let tab = stateManager.createTab(sql: text, name: name)
         stateManager.updateTab(id: tab.id) { $0.sourceURL = url }
+    }
+}
+
+// MARK: - QueryErrorSheetDelegate
+
+extension ContentViewController: QueryErrorSheetDelegate {
+
+    func errorSheet(_ sheet: QueryErrorSheet, didShow failureId: String, tabId: String) {
+        stateManager.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
+        refreshErrorBadge(forTabId: tabId)
+    }
+
+    func errorSheet(_ sheet: QueryErrorSheet, didRequestDismiss failureId: String, tabId: String) {
+        var removedIndex = 0
+        var remaining = 0
+        stateManager.updateTab(id: tabId) { tab in
+            removedIndex = tab.failureLog.index(of: failureId) ?? 0
+            tab.failureLog.remove(id: failureId)
+            remaining = tab.failureLog.count
+        }
+        refreshErrorBadge(forTabId: tabId)
+
+        guard let next = QueryFailureLog.indexAfterRemoval(
+                  removedIndex: removedIndex, remainingCount: remaining
+              ),
+              let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog else {
+            errorPresenter.close()
+            return
+        }
+        errorPresenter.refresh(entries: log.entries, index: next, tabId: tabId)
+    }
+
+    func errorSheetDidRequestDismissAll(_ sheet: QueryErrorSheet, tabId: String) {
+        stateManager.updateTab(id: tabId) { $0.failureLog.removeAll() }
+        refreshErrorBadge(forTabId: tabId)
+        errorPresenter.close()
+    }
+
+    func errorSheet(_ sheet: QueryErrorSheet, didRequestGoToError failure: QueryFailure) {
+        errorPresenter.close()
+        stateManager.selectTab(id: failure.tabId)
+        guard let location = failure.location,
+              let paneId = stateManager.tabs.first(where: { $0.id == failure.tabId })?.paneId,
+              let pane = editorPanes.first(where: { $0.paneId == paneId }) else { return }
+        // The pane loads the tab's text through a Combine sink on the main run
+        // loop, so this must wait one turn or it would read the old text.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.markEditor(with: failure, in: pane)
+            guard let range = location.range(of: failure.sql, in: pane.getSQL()) else {
+                // The sheet cannot know the document text, so its button stays
+                // enabled whenever the message holds a position. Say why nothing
+                // moved, rather than answering the click with silence.
+                Toast.show(
+                    in: self.view,
+                    message: "The editor text has changed since this query ran",
+                    style: .warning,
+                    duration: 3.0
+                )
+                return
+            }
+            pane.revealError(range: range)
+        }
+    }
+
+    func errorSheetDidRequestClose(_ sheet: QueryErrorSheet) {
+        errorPresenter.close()
     }
 }

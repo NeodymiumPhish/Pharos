@@ -327,13 +327,6 @@ class ResultsGridVC: NSViewController {
         statusLabel.stringValue = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
     }
 
-    func showError(_ message: String) {
-        clear()
-        emptyLabel.stringValue = message
-        emptyLabel.textColor = .systemRed
-        emptyLabel.isHidden = false
-    }
-
     func clear() {
         columns = []
         rows = []
