@@ -29,7 +29,6 @@ final class QueryNotifier: NSObject {
     enum Outcome {
         case select(rowCount: Int)
         case statement(rowsAffected: Int)
-        case error(message: String)
     }
 
     private enum AuthState {
@@ -105,6 +104,61 @@ final class QueryNotifier: NSObject {
                 connectionName: connectionName, outcome: outcome,
                 durationMs: durationMs
             )
+        }
+    }
+
+    /// Post a system banner for a failure, then take it out of Notification
+    /// Center once the banner has left the screen.
+    ///
+    /// The caller has already chosen this channel with `QueryFailureChannel`, so
+    /// no focus gate runs here. The minimum-duration gate does not apply to a
+    /// failure: it exists to keep fast successful queries quiet, and a failure
+    /// usually returns in far less than its default 5 s.
+    func notifyQueryFailed(
+        failureId: String,
+        tabId: String,
+        subheader: String,
+        message: String,
+        connectionName: String?
+    ) {
+        requestAuthorizationIfNeeded { [weak self] authorized in
+            guard authorized else { return }
+            self?.postFailure(
+                failureId: failureId, tabId: tabId, subheader: subheader,
+                message: message, connectionName: connectionName
+            )
+        }
+    }
+
+    /// How long the notification stays in Notification Center. Long enough for
+    /// the banner to show and leave, short enough to leave no history: the tab's
+    /// error button is the record the user comes back to.
+    private static let failureNotificationLifetime: TimeInterval = 10
+
+    private func postFailure(
+        failureId: String,
+        tabId: String,
+        subheader: String,
+        message: String,
+        connectionName: String?
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = "\(connectionName?.nonEmpty ?? "Pharos") · Query failed"
+        let truncated = message.count > 200 ? String(message.prefix(200)) + "…" : message
+        content.body = "\(subheader)\n\(truncated)"
+        content.sound = .default
+        content.categoryIdentifier = Self.categoryIdentifier
+        content.threadIdentifier = tabId
+        content.interruptionLevel = .active
+        content.userInfo = ["tabId": tabId, "failureId": failureId]
+
+        let identifier = "query-failed-\(failureId)"
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.failureNotificationLifetime) {
+                UNUserNotificationCenter.current()
+                    .removeDeliveredNotifications(withIdentifiers: [identifier])
+            }
         }
     }
 
@@ -190,8 +244,6 @@ final class QueryNotifier: NSObject {
         switch outcome {
         case .select, .statement:
             return "\(prefix) · Query completed"
-        case .error:
-            return "\(prefix) · Query failed"
         }
     }
 
@@ -201,9 +253,6 @@ final class QueryNotifier: NSObject {
             return "\(tabName) · \(rowCount) rows in \(formatDuration(durationMs))"
         case .statement(let rowsAffected):
             return "\(tabName) · \(rowsAffected) rows affected in \(formatDuration(durationMs))"
-        case .error(let message):
-            let truncated = message.count > 200 ? String(message.prefix(200)) + "…" : message
-            return "\(tabName) · \(truncated)"
         }
     }
 
@@ -235,10 +284,16 @@ extension QueryNotifier: UNUserNotificationCenterDelegate {
             switch response.actionIdentifier {
             case UNNotificationDefaultActionIdentifier:
                 guard let tabId = userInfo["tabId"] as? String else { return }
+                var payload: [String: Any] = ["tabId": tabId]
+                // Present only for a failure banner. ContentViewController uses it
+                // to open the error sheet on that exact entry.
+                if let failureId = userInfo["failureId"] as? String {
+                    payload["failureId"] = failureId
+                }
                 NotificationCenter.default.post(
                     name: Self.activateTabNotification,
                     object: nil,
-                    userInfo: ["tabId": tabId]
+                    userInfo: payload
                 )
             case Self.dismissActionIdentifier:
                 return
