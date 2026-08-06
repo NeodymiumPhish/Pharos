@@ -102,6 +102,45 @@ func runTests() {
     )
     expectTrue(viaParse == viaInit, "both entry points build the same location")
 
+    // MARK: code points versus UTF-16
+
+    // PostgreSQL counts in code points; NSString indexes in UTF-16 units. One
+    // astral character (2 UTF-16 units, 1 code point) before the error point
+    // shifts the two counts apart by one unit per such character.
+
+    // "😀SELECT * FROM users\nWHERE" — the emoji is 1 code point and 2 UTF-16
+    // units. Without it, WHERE starts at code point 20 (0-based); with it,
+    // WHERE starts at code point 21 (0-based), so charPosition is 22 (1-based).
+    // In UTF-16 units the emoji costs 2, so WHERE starts at unit 22.
+    let oneAstral = "\u{1F600}SELECT * FROM users\nWHERE"
+    expectRange(SQLErrorLocation(charPosition: 22, tokenLength: 5).range(in: oneAstral),
+                NSRange(location: 22, length: 5),
+                "one astral character before the token shifts the UTF-16 start by one")
+
+    // Two emojis: code point 22 (0-based) is where WHERE starts, so
+    // charPosition 23. In UTF-16 units, the two emojis cost 4, so WHERE starts
+    // at unit 24 — the shift adds up, one unit per astral character.
+    let twoAstral = "\u{1F600}\u{1F600}SELECT * FROM users\nWHERE"
+    expectRange(SQLErrorLocation(charPosition: 23, tokenLength: 5).range(in: twoAstral),
+                NSRange(location: 24, length: 5),
+                "two astral characters before the token shift the UTF-16 start by two")
+
+    expectTrue(SQLErrorLocation(charPosition: 1, tokenLength: 0).range(in: "") == nil,
+               "an empty SQL string gives nil for any position")
+
+    // "SELECT" is 6 characters; position 6 (1-based) is the last one, 'T'.
+    // With no trailing newline the range is 1 character long and its end is
+    // the end of the text.
+    expectRange(SQLErrorLocation(charPosition: 6, tokenLength: 0).range(in: "SELECT"),
+                NSRange(location: 5, length: 1),
+                "a position on the last character with no trailing newline gives a length-1 range at the end of the text")
+
+    // "ababa" occurs in "abababa" at index 0 AND index 2 — an overlapping
+    // second match that a search starting at the end of the first match would
+    // miss. Either occurrence is a guess, so this must give nil.
+    expectTrue(SQLErrorLocation(charPosition: 1, tokenLength: 1).range(of: "ababa", in: "abababa") == nil,
+               "an overlapping second match still counts as appearing twice")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

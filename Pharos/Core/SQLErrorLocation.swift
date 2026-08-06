@@ -42,6 +42,8 @@ struct SQLErrorLocation: Equatable {
     /// Length of the token in `near "…"`, or 0 when the message names none.
     static func tokenLength(from message: String) -> Int {
         let ns = message as NSString
+        // PostgreSQL puts at most one `near "…"` clause in a message, so the
+        // first match and the last match are the same match.
         guard let match = nearTokenRegex.firstMatch(
             in: message, range: NSRange(location: 0, length: ns.length)
         ), match.numberOfRanges > 1 else { return 0 }
@@ -69,10 +71,10 @@ struct SQLErrorLocation: Equatable {
         let found = ns.range(of: sql)
         guard found.location != NSNotFound else { return nil }
 
-        let afterFirst = NSRange(
-            location: NSMaxRange(found), length: ns.length - NSMaxRange(found)
+        let afterFirstStart = NSRange(
+            location: found.location + 1, length: ns.length - found.location - 1
         )
-        guard ns.range(of: sql, options: [], range: afterFirst).location == NSNotFound else {
+        guard ns.range(of: sql, options: [], range: afterFirstStart).location == NSNotFound else {
             return nil
         }
         return NSRange(location: found.location + local.location, length: local.length)
@@ -81,10 +83,12 @@ struct SQLErrorLocation: Equatable {
     /// The range to mark inside `sql`, or nil when the position falls outside it.
     /// With no token length the range runs to the end of the line, and it never
     /// holds the line ending.
+    ///
+    /// `sql` must be the exact text the position counts into, i.e. the SQL that
+    /// ran. To mark the editor's document instead, use `range(of:in:)`.
     func range(in sql: String) -> NSRange? {
         let ns = sql as NSString
-        let start = charPosition - 1        // PostgreSQL counts from 1
-        guard start >= 0, start < ns.length else { return nil }
+        guard let start = utf16Offset(in: sql) else { return nil }
 
         if tokenLength > 0 {
             return NSRange(location: start, length: min(tokenLength, ns.length - start))
@@ -97,5 +101,26 @@ struct SQLErrorLocation: Equatable {
         // At least one character, so a position that lands on a line ending still
         // marks something. This matches the behaviour of the code being replaced.
         return NSRange(location: start, length: max(1, end - start))
+    }
+
+    /// UTF-16 offset of this 1-based code-point position inside `sql`, or nil when
+    /// the position falls outside the text.
+    ///
+    /// PostgreSQL counts an error position in code points. NSString indexes in
+    /// UTF-16 units, and the two part company at the first character outside the
+    /// Basic Multilingual Plane — one emoji in a string literal is enough. The
+    /// walk is over `unicodeScalars`, which is the code-point view.
+    private func utf16Offset(in sql: String) -> Int? {
+        guard charPosition >= 1 else { return nil }
+        var remaining = charPosition - 1
+        var offset = 0
+        for scalar in sql.unicodeScalars {
+            if remaining == 0 { break }
+            offset += UTF16.width(scalar)
+            remaining -= 1
+        }
+        // `remaining > 0` means the position points past the end of the text.
+        guard remaining == 0, offset < (sql as NSString).length else { return nil }
+        return offset
     }
 }
