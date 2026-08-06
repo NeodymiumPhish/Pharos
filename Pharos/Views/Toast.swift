@@ -28,11 +28,16 @@ enum ToastStyle {
 /// toasts stack upward from the bottom-center of the host.
 enum Toast {
 
+    /// - Parameter onClick: run when the user clicks the toast. A toast with a
+    ///   handler fades out at once on the click; a toast without one ignores
+    ///   clicks. Used by the query-failure banner to open the error sheet.
     static func show(in host: NSView,
                      message: String,
                      style: ToastStyle = .info,
-                     duration: TimeInterval = 2.0) {
+                     duration: TimeInterval = 2.0,
+                     onClick: (() -> Void)? = nil) {
         let toast = ToastView(message: message, style: style)
+        toast.onClick = onClick
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
 
@@ -54,13 +59,7 @@ enum Toast {
         })
 
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            toast.isFadingOut = true
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.25
-                toast.animator().alphaValue = 0
-            }, completionHandler: {
-                toast.removeFromSuperview()
-            })
+            toast.fadeOut()
         }
     }
 }
@@ -68,7 +67,15 @@ enum Toast {
 /// Visual view used by `Toast.show`. Outside callers should use `Toast.show`.
 final class ToastView: NSVisualEffectView {
 
-    fileprivate var isFadingOut = false
+    /// Set once the toast starts to leave, so a later click and the stack offset
+    /// both ignore it. Internal (not fileprivate) so the standalone test reads it.
+    var isFadingOut = false
+
+    /// Run when the user clicks. Nil means the toast ignores clicks.
+    var onClick: (() -> Void)?
+
+    var hasClickHandler: Bool { onClick != nil }
+
     private let style: ToastStyle
 
     init(message: String, style: ToastStyle) {
@@ -127,5 +134,24 @@ final class ToastView: NSVisualEffectView {
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: 32)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onClick, !isFadingOut else { return }
+        onClick()
+        fadeOut()
+    }
+
+    /// Fade out and leave the view tree. Called by the timer in `Toast.show` and
+    /// by a click.
+    func fadeOut() {
+        guard !isFadingOut else { return }
+        isFadingOut = true
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.removeFromSuperview()
+        })
     }
 }
