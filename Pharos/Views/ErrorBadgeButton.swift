@@ -52,6 +52,10 @@ final class ErrorBadgeButton: NSButton {
         title = total > 1 ? "\(total)" : ""
         toolTip = unread > 0 ? "Query Errors (\(total), \(unread) new)" : "Query Errors (\(total))"
         setPulsing(total > 0 && unread > 0)
+        // Unconditional: `setPulsing` returns early when the pulse state does not
+        // change, so a state that only moves between hidden and quiet would
+        // otherwise never get a colour at all.
+        applyTint()
     }
 
     private func setPulsing(_ pulsing: Bool) {
@@ -62,7 +66,6 @@ final class ErrorBadgeButton: NSButton {
         } else {
             pulseSubscription = nil
             pulseAlpha = 1.0
-            applyTint()
         }
     }
 
@@ -72,7 +75,11 @@ final class ErrorBadgeButton: NSButton {
         // Both must be cancelled together, which is why they are wrapped as one.
         let token = PulseClock.shared.observe()
         let sink = PulseClock.shared.value.sink { [weak self] value in
-            guard let self, self.isPulsing else { return }
+            // No `isPulsing` guard here: cancellation is synchronous and this
+            // whole path runs on the main thread, so once `pulseSubscription`
+            // is torn down this sink cannot fire again. A guard here would
+            // silently mask a leaked subscription instead of the test catching it.
+            guard let self else { return }
             self.pulseAlpha = 0.55 + 0.45 * value
             self.applyTint()
         }
@@ -80,7 +87,6 @@ final class ErrorBadgeButton: NSButton {
             sink.cancel()
             token.cancel()
         }
-        applyTint()
     }
 
     private func applyTint() {
@@ -92,6 +98,10 @@ final class ErrorBadgeButton: NSButton {
     /// The right-aligned group at the trailing edge of the editor toolbar. The
     /// error button goes to the left of the variables toggle, and the toggle
     /// keeps the position and the size it had before this button existed.
+    ///
+    /// Call this once per button pair. A second call with the same views would
+    /// activate a duplicate set of constraints and move both views into a
+    /// second stack.
     static func makeToolbarTrailingGroup(
         errorButton: ErrorBadgeButton, variablesToggle: NSButton
     ) -> NSStackView {

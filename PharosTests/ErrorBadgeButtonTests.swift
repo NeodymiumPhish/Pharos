@@ -27,6 +27,17 @@ private func expectClose(_ actual: CGFloat, _ expected: CGFloat, _ name: String,
 }
 
 func runTests() {
+    // MARK: regression — setState must tint even when the pulse state doesn't change
+
+    // `setPulsing` early-returns when the pulse flag doesn't flip, so a button
+    // whose very first call to `setState` lands on "quiet" (not pulsing, same as
+    // its initial `isPulsing == false`) must still get tinted by `setState`
+    // itself, not by a branch inside `setPulsing`.
+    let freshButton = ErrorBadgeButton()
+    freshButton.setState(total: 3, unread: 0)
+    expectTrue(freshButton.contentTintColor != nil,
+               "setState tints the button even on its first call with no pulse-state change")
+
     // MARK: states
 
     let button = ErrorBadgeButton()
