@@ -180,7 +180,11 @@ async fn build_row_identity(
     let table_display = info
         .as_ref()
         .map(|i| i.display.clone())
-        .unwrap_or_else(|| format!("oid {}", primary_oid));
+        // This is user-visible: table_display names the table in the tag
+        // popover. Make a missing catalogue entry read as a fallback rather
+        // than as a table name, and keep it clearly distinct from table_key's
+        // "oid:{n}" form.
+        .unwrap_or_else(|| format!("unknown table (oid {})", primary_oid));
 
     // attnums of the columns that belong to the primary table.
     let present_attnos: Vec<i16> = columns
@@ -1194,7 +1198,12 @@ mod live_query_identity_tests {
 
             // --- Observation, not an assertion: fetch_more_rows --------------
             // It wraps the caller's SQL in `SELECT * FROM (...) AS _pharos_...`,
-            // and a subquery output column may carry no source table. Printed
+    // Measured 2026-08-11: fetch_more_rows wraps the SQL as
+    // `SELECT * FROM (...) AS _pharos_paginated`, and PostgreSQL passes the
+    // source table OIDs straight through a plain SELECT * subquery. So a
+    // later page carries the SAME identity as page 1, and Load More keeps
+    // tags with no extra work. Printed, not asserted: it is a property of
+    // the server, not of our code.
             // so the next task can see the truth; Task 5 does not own the fix.
             let page = super::fetch_more_rows(
                 CONN.to_string(),
