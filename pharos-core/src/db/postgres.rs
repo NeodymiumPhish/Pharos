@@ -984,7 +984,8 @@ pub async fn get_table_key_info(
            AND (ix.indisprimary OR ix.indisunique) \
            AND ix.indisvalid AND ix.indimmediate \
            AND ix.indpred IS NULL AND ix.indexprs IS NULL \
-         GROUP BY ix.indrelid, ix.indexrelid, ix.indisprimary",
+         GROUP BY ix.indrelid, ix.indexrelid, ix.indisprimary \
+         ORDER BY ix.indrelid, ix.indisprimary DESC, key_attnums",
         oid_list
     );
     let index_rows = sqlx::raw_sql(&index_sql).fetch_all(pool).await?;

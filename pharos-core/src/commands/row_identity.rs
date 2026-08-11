@@ -35,10 +35,17 @@ pub fn choose_candidates(candidates: &[KeyCandidate], present_attnos: &[i16]) ->
         chosen.push(pk.clone());
     }
 
+    // Tie-break on the attnums themselves, not just on width. The catalogue
+    // query returns rows in planner order, and `min_by_key` keeps the FIRST of
+    // several equal minima, so width alone would let two unique indexes of the
+    // same width swap places between runs. That is not cosmetic: the chosen
+    // index decides the key a tag is STORED under, so a swap means a tag stops
+    // matching its own row, silently. Lexicographic order on the attnums makes
+    // the same table always yield the same key.
     let narrowest_unique = candidates
         .iter()
         .filter(|c| !c.is_primary && c.all_not_null && complete(c))
-        .min_by_key(|c| c.column_attnums.len());
+        .min_by_key(|c| (c.column_attnums.len(), c.column_attnums.clone()));
     if let Some(u) = narrowest_unique {
         chosen.push(u.clone());
     }
@@ -170,6 +177,32 @@ mod tests {
         let chosen = choose_candidates(&cands, &[2, 3, 4]);
         assert_eq!(chosen.len(), 1);
         assert_eq!(chosen[0].column_attnums, vec![4]);
+    }
+
+    /// The catalogue query has no guaranteed row order, and `min_by_key` keeps
+    /// the first of several equal minima. Two unique indexes of the same width
+    /// must therefore not depend on the order they arrive in: the chosen index
+    /// decides the key a tag is stored under, so a swap between runs would make
+    /// a tag stop matching its own row, with nothing to report.
+    #[test]
+    fn a_width_tie_resolves_the_same_way_whatever_the_row_order() {
+        let a = vec![uniq(&[2], true), uniq(&[5], true)];
+        let b = vec![uniq(&[5], true), uniq(&[2], true)];
+        let pick_a = choose_candidates(&a, &[2, 5]);
+        let pick_b = choose_candidates(&b, &[2, 5]);
+        assert_eq!(pick_a.len(), 1);
+        assert_eq!(pick_a[0].column_attnums, pick_b[0].column_attnums);
+        // And it is the lower attnum, not merely "whichever came first".
+        assert_eq!(pick_a[0].column_attnums, vec![2]);
+    }
+
+    /// The same rule for a compound tie: equal width, so the attnums decide.
+    #[test]
+    fn a_compound_width_tie_also_resolves_by_attnums() {
+        let a = vec![uniq(&[3, 4], true), uniq(&[1, 9], true)];
+        let b = vec![uniq(&[1, 9], true), uniq(&[3, 4], true)];
+        assert_eq!(choose_candidates(&a, &[1, 3, 4, 9])[0].column_attnums, vec![1, 9]);
+        assert_eq!(choose_candidates(&b, &[1, 3, 4, 9])[0].column_attnums, vec![1, 9]);
     }
 
     #[test]
