@@ -1,3 +1,4 @@
+use sqlx::postgres::types::Oid;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::{HashMap, HashSet};
@@ -936,8 +937,12 @@ pub async fn get_table_key_info(
 
     // 1. Display names. A table with no row here was dropped between the query
     //    and this lookup; it simply gets no entry.
+    //    This query MUST run before query 2: query 2 only fills candidates into
+    //    entries this loop created. That is safe rather than merely lucky — a
+    //    table absent from pg_class has no pg_index rows either — but the order
+    //    is a real dependency, so do not reorder the two.
     let name_sql = format!(
-        "SELECT c.oid::text AS oid, n.nspname || '.' || c.relname AS display \
+        "SELECT c.oid AS oid, n.nspname || '.' || c.relname AS display \
          FROM pg_class c \
          JOIN pg_namespace n ON n.oid = c.relnamespace \
          WHERE c.oid IN ({})",
@@ -946,11 +951,9 @@ pub async fn get_table_key_info(
     let mut out: HashMap<u32, TableKeyInfo> = HashMap::new();
     let name_rows = sqlx::raw_sql(&name_sql).fetch_all(pool).await?;
     for row in name_rows {
-        let oid_str: String = row.try_get("oid")?;
+        let oid: Oid = row.try_get("oid")?;
         let display: String = row.try_get("display")?;
-        if let Ok(oid) = oid_str.parse::<u32>() {
-            out.insert(oid, TableKeyInfo { display, candidates: Vec::new() });
-        }
+        out.insert(oid.0, TableKeyInfo { display, candidates: Vec::new() });
     }
 
     // 2. Key indexes.
@@ -962,23 +965,17 @@ pub async fn get_table_key_info(
     //      transaction. It does NOT drop DEFERRABLE INITIALLY IMMEDIATE, which
     //      SET CONSTRAINTS can still defer; accepted, because we read
     //      committed data.
-    //    - `indexprs IS NULL` is load-bearing, and NOT for the obvious reason.
-    //      A pure expression index never reaches the output anyway: its indkey
-    //      entry is 0 and the pg_attribute join matches no row. The guard is
-    //      for a MIXED index such as UNIQUE (n, lower(tag)), indkey "1 0",
-    //      where the join drops only the expression half and keeps the plain
-    //      half — reporting key_attnums = {1}, a false claim that n alone is
-    //      unique. Verified on a live server; do not remove after testing only
-    //      a pure expression index. See scripts/tagtest-schema.sql.
+    //    - `indexprs IS NULL` is load-bearing for a MIXED index, NOT for a pure
+    //      expression index. Do not remove it. The full reasoning lives in the
+    //      failure message of `live_key_info_tests`, which is what you will be
+    //      reading if you break it.
     //    - `unnest(...) WITH ORDINALITY` keeps the key column order, the same
     //      idiom `get_table_indexes` uses above.
-    //    - `indisprimary` and `attnotnull` are real booleans and decode with
-    //      no cast. Only the OID and the int2vector need care.
     let index_sql = format!(
-        "SELECT ix.indrelid::text AS table_oid, \
+        "SELECT ix.indrelid AS table_oid, \
                 ix.indisprimary AS is_primary, \
                 bool_and(a.attnotnull) AS all_not_null, \
-                array_agg(k.attnum ORDER BY k.ord)::text AS key_attnums \
+                array_agg(k.attnum ORDER BY k.ord) AS key_attnums \
          FROM pg_index ix \
          CROSS JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) \
          JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum \
@@ -992,17 +989,21 @@ pub async fn get_table_key_info(
     );
     let index_rows = sqlx::raw_sql(&index_sql).fetch_all(pool).await?;
     for row in index_rows {
-        let oid_str: String = row.try_get("table_oid")?;
+        // Every value decodes with `?`. A decode fault must surface as an
+        // error, never as a plausible-looking key: a SHORT attnum list is not a
+        // missing key but a WRONG one, claiming fewer columns are unique than
+        // really are. `false` for all_not_null is just as harmful, because
+        // `choose_candidates` filters on it and would demote a good key to the
+        // weakest identity tier with nothing reported.
+        let oid: Oid = row.try_get("table_oid")?;
         let is_primary: bool = row.try_get("is_primary")?;
-        let all_not_null: bool = row.try_get("all_not_null").unwrap_or(false);
-        let attnums_str: String = row.try_get("key_attnums")?;
-        let Ok(oid) = oid_str.parse::<u32>() else { continue };
+        let all_not_null: bool = row.try_get("all_not_null")?;
+        let column_attnums: Vec<i16> = row.try_get("key_attnums")?;
 
-        let column_attnums = parse_int_array(&attnums_str);
         if column_attnums.is_empty() {
             continue;
         }
-        if let Some(info) = out.get_mut(&oid) {
+        if let Some(info) = out.get_mut(&oid.0) {
             info.candidates.push(KeyCandidate { column_attnums, is_primary, all_not_null });
         }
     }
@@ -1010,59 +1011,33 @@ pub async fn get_table_key_info(
     Ok(out)
 }
 
-/// Parse a PostgreSQL integer array literal such as "{1,2}" into i16 values.
-/// Used for `indkey` attnums, which arrive as text because an int2vector has no
-/// sqlx decoder.
-fn parse_int_array(text: &str) -> Vec<i16> {
-    text.trim_matches(|c| c == '{' || c == '}')
-        .split(',')
-        .filter(|s| !s.trim().is_empty())
-        .filter_map(|s| s.trim().parse::<i16>().ok())
-        .collect()
-}
-
-#[cfg(test)]
-mod parse_int_array_tests {
-    use super::parse_int_array;
-
-    #[test]
-    fn parses_a_single_column_key() {
-        assert_eq!(parse_int_array("{1}"), vec![1]);
-    }
-    #[test]
-    fn parses_a_compound_key_in_order() {
-        assert_eq!(parse_int_array("{3,1}"), vec![3, 1]);
-    }
-    #[test]
-    fn an_empty_array_is_empty() {
-        assert_eq!(parse_int_array("{}"), Vec::<i16>::new());
-    }
-}
-
 /// Opt-in live test of the catalogue query. `cargo test` skips it; run it with
 ///
 ///   cargo test --release get_table_key_info -- --ignored --nocapture
 ///
-/// It exists because the three `parse_int_array` tests prove string parsing and
-/// NOTHING about the sqlx decode seam, and that seam has already hidden a bug
-/// here: a PostgreSQL internal type can panic or silently yield `None` in a
-/// decode. Only a real connection exercises it.
+/// This is the ONLY test of `get_table_key_info`. The function is pure I/O
+/// against the catalogue, so there is nothing offline left to test: every value
+/// it returns crosses the sqlx decode seam, and that seam has already hidden a
+/// bug in this codebase, where a PostgreSQL internal type panicked or silently
+/// yielded `None`. Only a real connection exercises it.
 ///
 /// Fixture: `scripts/tagtest-schema.sql`.
 #[cfg(test)]
 mod live_key_info_tests {
     use super::get_table_key_info;
     use crate::models::KeyCandidate;
+    use sqlx::postgres::types::Oid;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::Row;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
 
     /// Look up the OIDs of the named `tagtest` tables. An empty map means the
     /// fixture schema is absent.
     async fn tagtest_oids(pool: &sqlx::PgPool) -> HashMap<String, u32> {
-        let sql = "SELECT c.relname AS name, c.oid::text AS oid \
+        let sql = "SELECT c.relname AS name, c.oid AS oid \
                    FROM pg_class c \
                    JOIN pg_namespace n ON n.oid = c.relnamespace \
                    WHERE n.nspname = 'tagtest' AND c.relkind = 'r'";
@@ -1070,10 +1045,8 @@ mod live_key_info_tests {
         let mut map = HashMap::new();
         for row in rows {
             let name: String = row.try_get("name").expect("name decode failed");
-            let oid_str: String = row.try_get("oid").expect("oid decode failed");
-            if let Ok(oid) = oid_str.parse::<u32>() {
-                map.insert(name, oid);
-            }
+            let oid: Oid = row.try_get("oid").expect("oid decode failed");
+            map.insert(name, oid.0);
         }
         map
     }
@@ -1104,6 +1077,8 @@ mod live_key_info_tests {
         rt.block_on(async move {
             let pool = PgPoolOptions::new()
                 .max_connections(1)
+                // Without this a dead host takes the 30s default to fail.
+                .acquire_timeout(Duration::from_secs(5))
                 .connect(&url)
                 .await
                 .unwrap_or_else(|e| {
@@ -1122,7 +1097,15 @@ mod live_key_info_tests {
                 );
                 return;
             }
-            for needed in ["users", "memberships", "include_demo", "nullable_codes", "excluded"] {
+            for needed in [
+                "users",
+                "memberships",
+                "include_demo",
+                "nullable_codes",
+                "excluded",
+                "three_keys",
+                "codes",
+            ] {
                 if !oids.contains_key(needed) {
                     eprintln!(
                         "SKIP: schema `tagtest` is present but table `{}` is missing. \
@@ -1138,10 +1121,20 @@ mod live_key_info_tests {
             let include_oid = oids["include_demo"];
             let nullable_oid = oids["nullable_codes"];
             let excluded_oid = oids["excluded"];
+            let three_keys_oid = oids["three_keys"];
+            let codes_oid = oids["codes"];
 
             let info = get_table_key_info(
                 &pool,
-                &[users_oid, memberships_oid, include_oid, nullable_oid, excluded_oid],
+                &[
+                    users_oid,
+                    memberships_oid,
+                    include_oid,
+                    nullable_oid,
+                    excluded_oid,
+                    three_keys_oid,
+                    codes_oid,
+                ],
             )
             .await
             .expect("get_table_key_info failed");
@@ -1209,10 +1202,47 @@ mod live_key_info_tests {
                 "nullable_codes should have 1 candidate, got {:?}",
                 nullable.candidates
             );
+            let nullable_key = candidate_with(&nullable.candidates, &[1], "nullable_codes");
             assert!(
-                !nullable.candidates[0].all_not_null,
+                !nullable_key.all_not_null,
                 "a unique index on a NULLABLE column must report all_not_null = false"
             );
+
+            // --- three_keys: the FULL candidate set, not a truncated one -----
+            // The only fixture table with more than two candidates. If anyone
+            // adds a cap or a LIMIT to the SQL, every other assertion here
+            // still passes while `choose_candidates` quietly loses the narrowest
+            // unique index — exactly the case the feature exists for, a later
+            // query that drops the primary-key column. Widening happens in the
+            // Rust chooser, never in this function: it returns everything.
+            let three = info.get(&three_keys_oid).expect("no entry for tagtest.three_keys");
+            assert_eq!(
+                three.candidates.len(),
+                3,
+                "three_keys must return ALL 3 candidates; a smaller set means the SQL grew a cap \
+                 or a LIMIT. Got {:?}",
+                three.candidates
+            );
+            let three_pk = candidate_with(&three.candidates, &[1], "three_keys");
+            assert!(three_pk.is_primary, "three_keys {{1}} is the primary key");
+            let three_a = candidate_with(&three.candidates, &[2], "three_keys");
+            assert!(!three_a.is_primary, "three_keys_a is a unique key, not the pk");
+            assert!(three_a.all_not_null, "three_keys.a is NOT NULL");
+            let three_bc = candidate_with(&three.candidates, &[3, 4], "three_keys");
+            assert!(!three_bc.is_primary, "three_keys_bc is a unique key, not the pk");
+            assert!(three_bc.all_not_null, "three_keys.b and .c are NOT NULL");
+
+            // --- codes: a unique key and NO primary key ----------------------
+            let codes = info.get(&codes_oid).expect("no entry for tagtest.codes");
+            assert_eq!(
+                codes.candidates.len(),
+                1,
+                "codes should have 1 candidate, got {:?}",
+                codes.candidates
+            );
+            let codes_key = candidate_with(&codes.candidates, &[1], "codes");
+            assert!(!codes_key.is_primary, "codes has no primary key");
+            assert!(codes_key.all_not_null, "codes.code is NOT NULL");
 
             // --- excluded: the three exclusion guards -----------------------
             // This one assertion defends `indpred IS NULL`, `indexprs IS NULL`
