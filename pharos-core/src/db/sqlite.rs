@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, QueryHistoryEntry, SavedQuery, SslMode, UpdateSavedQuery};
+use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, CreateTagLabel, QueryHistoryEntry, RowTag, RowTagKey, SavedQuery, SslMode, TagLabel, UpdateSavedQuery, UpdateTagLabel, UpsertRowTag};
 
 // ==================== Compression Helpers ====================
 
@@ -886,6 +886,304 @@ pub fn batch_delete_saved_queries(conn: &Connection, ids: &[String]) -> SqliteRe
     let params: Vec<&dyn rusqlite::ToSql> =
         ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
     conn.execute(&sql, params.as_slice())
+}
+
+// ==================== Row Tags ====================
+//
+// Foreign keys are enforced (`rusqlite`'s `bundled` feature compiles SQLite
+// with SQLITE_DEFAULT_FOREIGN_KEYS=1), and both tag foreign keys declare
+// ON DELETE CASCADE. So a delete here is always ONE statement: the database
+// removes the children. A transaction appears only where several statements
+// must be atomic, which is the key-set-aware write and the batch delete.
+
+/// Create a label at the END of the palette.
+pub fn create_tag_label(conn: &Connection, id: &str, label: &CreateTagLabel) -> SqliteResult<TagLabel> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let sort_order: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tag_labels",
+        [],
+        |row| row.get(0),
+    )?;
+
+    conn.execute(
+        r#"
+        INSERT INTO tag_labels (id, name, color_index, sort_order, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        "#,
+        (id, &label.name, label.color_index, sort_order, &now),
+    )?;
+
+    Ok(TagLabel {
+        id: id.to_string(),
+        name: label.name.clone(),
+        color_index: label.color_index,
+        sort_order,
+        created_at: now,
+    })
+}
+
+/// The whole palette, in the order it is shown.
+pub fn load_tag_labels(conn: &Connection) -> SqliteResult<Vec<TagLabel>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color_index, sort_order, created_at FROM tag_labels \
+         ORDER BY sort_order ASC, created_at ASC",
+    )?;
+
+    let labels = stmt.query_map([], |row| {
+        Ok(TagLabel {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            color_index: row.get(2)?,
+            sort_order: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+
+    labels.collect()
+}
+
+fn get_tag_label(conn: &Connection, label_id: &str) -> SqliteResult<Option<TagLabel>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color_index, sort_order, created_at FROM tag_labels WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query([label_id])?;
+
+    if let Some(row) = rows.next()? {
+        Ok(Some(TagLabel {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            color_index: row.get(2)?,
+            sort_order: row.get(3)?,
+            created_at: row.get(4)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Change only the fields the payload gives. Returns None for an unknown id.
+///
+/// COALESCE does the "absent field keeps its value" rule in the statement
+/// itself: an absent `Option` binds as NULL, and none of these three columns
+/// is nullable, so a NULL parameter can only mean "not given".
+pub fn update_tag_label(conn: &Connection, update: &UpdateTagLabel) -> SqliteResult<Option<TagLabel>> {
+    conn.execute(
+        r#"
+        UPDATE tag_labels SET
+            name        = COALESCE(?2, name),
+            color_index = COALESCE(?3, color_index),
+            sort_order  = COALESCE(?4, sort_order)
+        WHERE id = ?1
+        "#,
+        (
+            &update.id,
+            &update.name,
+            update.color_index,
+            update.sort_order,
+        ),
+    )?;
+
+    get_tag_label(conn, &update.id)
+}
+
+/// How many rows carry this label. The caller warns before a delete.
+pub fn count_tags_for_label(conn: &Connection, label_id: &str) -> SqliteResult<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM row_tags WHERE label_id = ?1",
+        [label_id],
+        |row| row.get(0),
+    )
+}
+
+/// Delete a label. ON DELETE CASCADE removes its tags, and the second-level
+/// cascade removes those tags' key rows, so one statement is the whole job.
+pub fn delete_tag_label(conn: &Connection, label_id: &str) -> SqliteResult<bool> {
+    let rows_affected = conn.execute("DELETE FROM tag_labels WHERE id = ?1", [label_id])?;
+    Ok(rows_affected > 0)
+}
+
+/// Write a tag, KEY-SET-AWARE. Two candidate keys can name one physical row,
+/// so a plain insert would let that row collect two tags. In one transaction:
+/// find every tag already reachable through ANY incoming key, delete those
+/// tags (the cascade takes their key rows), then insert this tag and its keys.
+/// That keeps "one label per row" true and makes a re-tag idempotent.
+pub fn upsert_row_tag(conn: &Connection, upsert: &UpsertRowTag) -> SqliteResult<RowTag> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = uuid::Uuid::new_v4().to_string();
+
+    // The unique index spans (connection_id, table_key, identity_kind,
+    // identity_value), so a repeated key in one payload would break the insert.
+    let mut keys: Vec<RowTagKey> = Vec::with_capacity(upsert.keys.len());
+    for key in &upsert.keys {
+        if !keys.contains(key) {
+            keys.push(key.clone());
+        }
+    }
+
+    let tx = conn.unchecked_transaction()?;
+
+    // 1. Every tag that any incoming key already points at.
+    let mut matched: Vec<String> = Vec::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT tag_id FROM row_tag_keys \
+             WHERE connection_id = ?1 AND table_key = ?2 AND identity_kind = ?3 AND identity_value = ?4",
+        )?;
+        for key in &keys {
+            let found = stmt.query_map(
+                (
+                    &upsert.connection_id,
+                    &upsert.table_key,
+                    &key.identity_kind,
+                    &key.identity_value,
+                ),
+                |row| row.get::<_, String>(0),
+            )?;
+            for tag_id in found {
+                let tag_id = tag_id?;
+                if !matched.contains(&tag_id) {
+                    matched.push(tag_id);
+                }
+            }
+        }
+    }
+
+    // 2. Replace them. One statement each: the cascade clears their key rows.
+    for tag_id in &matched {
+        tx.execute("DELETE FROM row_tags WHERE id = ?1", [tag_id])?;
+    }
+
+    // 3. The new tag, then one row per key. The lists are stored as JSON text.
+    let identity_columns = serde_json::to_string(&upsert.identity_columns)
+        .unwrap_or_else(|_| "[]".to_string());
+    let identity_values = serde_json::to_string(&upsert.identity_values)
+        .unwrap_or_else(|_| "[]".to_string());
+
+    tx.execute(
+        r#"
+        INSERT INTO row_tags (id, connection_id, label_id, note, primary_kind, table_key,
+                              table_display, identity_columns, identity_values, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        "#,
+        (
+            &id,
+            &upsert.connection_id,
+            &upsert.label_id,
+            &upsert.note,
+            &upsert.primary_kind,
+            &upsert.table_key,
+            &upsert.table_display,
+            &identity_columns,
+            &identity_values,
+            &now,
+            &now,
+        ),
+    )?;
+
+    for key in &keys {
+        tx.execute(
+            r#"
+            INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            (
+                &id,
+                &upsert.connection_id,
+                &upsert.table_key,
+                &key.identity_kind,
+                &key.identity_value,
+            ),
+        )?;
+    }
+
+    tx.commit()?;
+
+    Ok(RowTag {
+        id,
+        connection_id: upsert.connection_id.clone(),
+        label_id: upsert.label_id.clone(),
+        note: upsert.note.clone(),
+        primary_kind: upsert.primary_kind.clone(),
+        table_key: upsert.table_key.clone(),
+        table_display: upsert.table_display.clone(),
+        identity_columns: upsert.identity_columns.clone(),
+        identity_values: upsert.identity_values.clone(),
+        keys,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+/// Every tag of one connection, each with its key set.
+pub fn load_row_tags(conn: &Connection, connection_id: &str) -> SqliteResult<Vec<RowTag>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, connection_id, label_id, note, primary_kind, table_key, table_display, \
+         identity_columns, identity_values, created_at, updated_at FROM row_tags \
+         WHERE connection_id = ?1 ORDER BY created_at ASC, id ASC",
+    )?;
+
+    let mut tags: Vec<RowTag> = stmt
+        .query_map([connection_id], |row| {
+            let identity_columns: String = row.get(7)?;
+            let identity_values: String = row.get(8)?;
+            Ok(RowTag {
+                id: row.get(0)?,
+                connection_id: row.get(1)?,
+                label_id: row.get(2)?,
+                note: row.get(3)?,
+                primary_kind: row.get(4)?,
+                table_key: row.get(5)?,
+                table_display: row.get(6)?,
+                // Bad JSON gives an empty list, not a failed load: a tag with
+                // an unreadable identity is still worth showing.
+                identity_columns: serde_json::from_str(&identity_columns).unwrap_or_default(),
+                identity_values: serde_json::from_str(&identity_values).unwrap_or_default(),
+                keys: Vec::new(),
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })?
+        .collect::<SqliteResult<Vec<RowTag>>>()?;
+
+    let mut key_stmt = conn.prepare(
+        "SELECT identity_kind, identity_value FROM row_tag_keys WHERE tag_id = ?1 \
+         ORDER BY identity_kind ASC, identity_value ASC",
+    )?;
+    for tag in tags.iter_mut() {
+        tag.keys = key_stmt
+            .query_map([&tag.id], |row| {
+                Ok(RowTagKey {
+                    identity_kind: row.get(0)?,
+                    identity_value: row.get(1)?,
+                })
+            })?
+            .collect::<SqliteResult<Vec<RowTagKey>>>()?;
+    }
+
+    Ok(tags)
+}
+
+/// Delete one tag. The cascade takes its key rows.
+pub fn delete_row_tag(conn: &Connection, tag_id: &str) -> SqliteResult<bool> {
+    let rows_affected = conn.execute("DELETE FROM row_tags WHERE id = ?1", [tag_id])?;
+    Ok(rows_affected > 0)
+}
+
+/// Delete several tags, all or nothing. One statement per tag, and the cascade
+/// takes each one's key rows.
+pub fn delete_row_tags(conn: &Connection, tag_ids: &[String]) -> SqliteResult<usize> {
+    if tag_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    let mut deleted = 0;
+    for tag_id in tag_ids {
+        deleted += tx.execute("DELETE FROM row_tags WHERE id = ?1", [tag_id])?;
+    }
+    tx.commit()?;
+
+    Ok(deleted)
 }
 
 // ==================== App Settings ====================
@@ -2393,7 +2691,8 @@ mod tag_schema_tests {
     use super::*;
 
     /// A database with the full schema, built the way init_database builds it.
-    fn db() -> Connection {
+    /// `pub(super)` so `tag_crud_tests` reuses it instead of making a second copy.
+    pub(super) fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         create_schema(&conn).unwrap();
         conn
@@ -2510,7 +2809,7 @@ mod tag_schema_tests {
         }
     }
 
-    fn count(conn: &Connection, sql: &str) -> i64 {
+    pub(super) fn count(conn: &Connection, sql: &str) -> i64 {
         conn.prepare(sql).unwrap().query_row([], |r| r.get(0)).unwrap()
     }
 
@@ -2565,5 +2864,307 @@ mod tag_schema_tests {
             [],
         )
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tag_crud_tests {
+    use super::tag_schema_tests::{count, db};
+    use super::*;
+
+    fn new_label(conn: &Connection, id: &str, name: &str, color_index: i64) -> TagLabel {
+        create_tag_label(
+            conn,
+            id,
+            &CreateTagLabel { name: name.to_string(), color_index },
+        )
+        .unwrap()
+    }
+
+    fn key(kind: &str, value: &str) -> RowTagKey {
+        RowTagKey { identity_kind: kind.to_string(), identity_value: value.to_string() }
+    }
+
+    /// One tag write for row `id = 42` of `public.users`. `identity_values`
+    /// carries a NULL, because a nullable unique column is the common case.
+    fn payload(connection_id: &str, label_id: &str, keys: Vec<RowTagKey>) -> UpsertRowTag {
+        UpsertRowTag {
+            connection_id: connection_id.to_string(),
+            label_id: label_id.to_string(),
+            note: Some("look at this".to_string()),
+            primary_kind: "pk".to_string(),
+            table_key: "oid:16543".to_string(),
+            table_display: "public.users".to_string(),
+            identity_columns: vec!["id".to_string(), "email".to_string()],
+            identity_values: vec![Some("42".to_string()), None],
+            keys,
+        }
+    }
+
+    #[test]
+    fn a_label_round_trips() {
+        let conn = db();
+        let made = new_label(&conn, "l1", "Bad data", 3);
+
+        let loaded = load_tag_labels(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "l1");
+        assert_eq!(loaded[0].name, "Bad data");
+        assert_eq!(loaded[0].color_index, 3);
+        assert_eq!(loaded[0].created_at, made.created_at);
+    }
+
+    /// A new label goes to the END of the palette, and the load returns the
+    /// palette in that order.
+    #[test]
+    fn sort_order_increments_and_drives_the_load_order() {
+        let conn = db();
+        assert_eq!(new_label(&conn, "l1", "First", 0).sort_order, 0);
+        assert_eq!(new_label(&conn, "l2", "Second", 1).sort_order, 1);
+        assert_eq!(new_label(&conn, "l3", "Third", 2).sort_order, 2);
+
+        let names: Vec<String> =
+            load_tag_labels(&conn).unwrap().into_iter().map(|l| l.name).collect();
+        assert_eq!(names, vec!["First", "Second", "Third"]);
+    }
+
+    #[test]
+    fn update_tag_label_changes_only_the_field_it_is_given() {
+        let conn = db();
+        new_label(&conn, "l1", "Keep me", 0);
+        new_label(&conn, "l2", "Second", 1);
+
+        let updated = update_tag_label(
+            &conn,
+            &UpdateTagLabel {
+                id: "l2".to_string(),
+                name: None,
+                color_index: Some(7),
+                sort_order: None,
+            },
+        )
+        .unwrap()
+        .expect("l2 exists");
+
+        assert_eq!(updated.color_index, 7);
+        assert_eq!(updated.name, "Second", "an absent name must keep the current one");
+        assert_eq!(updated.sort_order, 1, "an absent sort_order must keep the current one");
+
+        let untouched = load_tag_labels(&conn).unwrap();
+        assert_eq!(untouched[0].name, "Keep me");
+        assert_eq!(untouched[0].color_index, 0, "the other label must not move");
+    }
+
+    #[test]
+    fn update_tag_label_returns_none_for_an_unknown_id() {
+        let conn = db();
+        new_label(&conn, "l1", "Real", 0);
+
+        let missing = update_tag_label(
+            &conn,
+            &UpdateTagLabel {
+                id: "nope".to_string(),
+                name: Some("Ghost".to_string()),
+                color_index: None,
+                sort_order: None,
+            },
+        )
+        .unwrap();
+        assert!(missing.is_none());
+        assert_eq!(load_tag_labels(&conn).unwrap().len(), 1, "nothing may be inserted");
+    }
+
+    #[test]
+    fn a_tag_round_trips_with_both_of_its_keys() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+
+        let written = upsert_row_tag(
+            &conn,
+            &payload("c1", "l1", vec![key("pk", "V2:42"), key("unique", "V9:a@b.co.uk")]),
+        )
+        .unwrap();
+        assert!(!written.id.is_empty());
+
+        let loaded = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(loaded.len(), 1);
+        let tag = &loaded[0];
+        assert_eq!(tag.id, written.id);
+        assert_eq!(tag.label_id, "l1");
+        assert_eq!(tag.note.as_deref(), Some("look at this"));
+        assert_eq!(tag.primary_kind, "pk");
+        assert_eq!(tag.table_key, "oid:16543");
+        assert_eq!(tag.table_display, "public.users");
+        assert_eq!(tag.identity_columns, vec!["id".to_string(), "email".to_string()]);
+        assert_eq!(
+            tag.identity_values,
+            vec![Some("42".to_string()), None],
+            "the NULL value must survive the JSON round trip"
+        );
+        assert_eq!(tag.keys.len(), 2, "both candidate keys must be stored and reloaded");
+        assert!(tag.keys.contains(&key("pk", "V2:42")));
+        assert!(tag.keys.contains(&key("unique", "V9:a@b.co.uk")));
+    }
+
+    #[test]
+    fn another_connections_tags_are_not_loaded() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:42")])).unwrap();
+        upsert_row_tag(&conn, &payload("c2", "l1", vec![key("pk", "V2:99")])).unwrap();
+
+        let mine = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(mine.len(), 1, "only connection c1's tag may be returned");
+        assert_eq!(mine[0].connection_id, "c1");
+        assert_eq!(mine[0].keys, vec![key("pk", "V2:42")]);
+    }
+
+    #[test]
+    fn a_second_tag_on_the_same_key_replaces_the_first() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        new_label(&conn, "l2", "Cleared", 1);
+
+        let first = upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:42")])).unwrap();
+        let second = upsert_row_tag(&conn, &payload("c1", "l2", vec![key("pk", "V2:42")])).unwrap();
+        assert_ne!(first.id, second.id);
+
+        let loaded = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(loaded.len(), 1, "one row carries one label");
+        assert_eq!(loaded[0].label_id, "l2", "the second write must win");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 1,
+                   "the replaced tag's key row must go with it");
+    }
+
+    /// The write matches on ANY key it is given, not only the primary one. A
+    /// result that carries the unique key alone must still find, and replace,
+    /// a tag that was made from a result carrying both keys.
+    #[test]
+    fn a_tag_reached_through_its_second_key_is_replaced_not_duplicated() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        new_label(&conn, "l2", "Cleared", 1);
+
+        upsert_row_tag(
+            &conn,
+            &payload("c1", "l1", vec![key("pk", "V2:42"), key("unique", "V9:a@b.co.uk")]),
+        )
+        .unwrap();
+        upsert_row_tag(&conn, &payload("c1", "l2", vec![key("unique", "V9:a@b.co.uk")])).unwrap();
+
+        let loaded = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(loaded.len(), 1, "the unique key alone must match the earlier tag");
+        assert_eq!(loaded[0].label_id, "l2");
+        assert_eq!(loaded[0].keys, vec![key("unique", "V9:a@b.co.uk")],
+                   "the new tag keeps only the key set it was written with");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 1,
+                   "the first tag's pk key row must not survive as an orphan");
+    }
+
+    #[test]
+    fn delete_row_tag_leaves_no_key_rows() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        let doomed = upsert_row_tag(
+            &conn,
+            &payload("c1", "l1", vec![key("pk", "V2:42"), key("unique", "V9:a@b.co.uk")]),
+        )
+        .unwrap();
+        let spared = upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:43")])).unwrap();
+
+        assert!(delete_row_tag(&conn, &doomed.id).unwrap());
+        assert!(!delete_row_tag(&conn, &doomed.id).unwrap(), "a second delete removes nothing");
+
+        let left = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, spared.id);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 1,
+                   "the deleted tag's two key rows must be gone");
+    }
+
+    #[test]
+    fn delete_row_tags_removes_the_whole_batch() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        let a = upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:42")])).unwrap();
+        let b = upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:43")])).unwrap();
+        upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:44")])).unwrap();
+
+        assert_eq!(delete_row_tags(&conn, &[]).unwrap(), 0);
+        assert_eq!(delete_row_tags(&conn, &[a.id, b.id, "ghost".to_string()]).unwrap(), 2);
+
+        assert_eq!(load_row_tags(&conn, "c1").unwrap().len(), 1);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 1);
+    }
+
+    #[test]
+    fn delete_tag_label_takes_its_tags_and_spares_another_labels_tag() {
+        let conn = db();
+        new_label(&conn, "l1", "Suspect", 0);
+        new_label(&conn, "l2", "Cleared", 1);
+        upsert_row_tag(
+            &conn,
+            &payload("c1", "l1", vec![key("pk", "V2:42"), key("unique", "V9:a@b.co.uk")]),
+        )
+        .unwrap();
+        upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:43")])).unwrap();
+        let survivor = upsert_row_tag(&conn, &payload("c1", "l2", vec![key("pk", "V2:44")])).unwrap();
+
+        assert_eq!(count_tags_for_label(&conn, "l1").unwrap(), 2);
+        assert_eq!(count_tags_for_label(&conn, "l2").unwrap(), 1);
+        assert_eq!(count_tags_for_label(&conn, "nope").unwrap(), 0);
+
+        assert!(delete_tag_label(&conn, "l1").unwrap());
+        assert!(!delete_tag_label(&conn, "l1").unwrap(), "a second delete removes nothing");
+
+        let left = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(left.len(), 1, "both of l1's tags must go with the label");
+        assert_eq!(left[0].id, survivor.id);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 1,
+                   "the second-level cascade must clear three key rows and keep one");
+        assert_eq!(load_tag_labels(&conn).unwrap().len(), 1);
+    }
+
+    /// A KNOWN, SELF-HEALING LIMIT, pinned so a later change cannot alter it
+    /// silently. The write matches only on the keys it is handed, so two
+    /// results that expose DIFFERENT candidate keys of one physical row can
+    /// each store their own tag:
+    ///
+    ///   Query A, `SELECT id, name FROM users`, carries the pk candidate only.
+    ///   Tagging row 42 stores a tag with a pk key alone.
+    ///   Query B, `SELECT email, name FROM users`, carries the unique candidate
+    ///   only. Tagging the SAME row finds no pk key to match, so it inserts a
+    ///   second tag.
+    ///
+    /// At write time nothing links the two keys, so this is the honest outcome
+    /// and no code here tries to prevent it. It heals itself: the next write
+    /// from a result that carries BOTH keys matches both tags and collapses
+    /// them. Phase 2's matcher sees both keys at once and can choose a winner.
+    #[test]
+    fn disjoint_key_sets_double_tag_one_row_and_a_combined_write_heals_it() {
+        let conn = db();
+        new_label(&conn, "l1", "From query A", 0);
+        new_label(&conn, "l2", "From query B", 1);
+        new_label(&conn, "l3", "From a full result", 2);
+
+        upsert_row_tag(&conn, &payload("c1", "l1", vec![key("pk", "V2:42")])).unwrap();
+        upsert_row_tag(&conn, &payload("c1", "l2", vec![key("unique", "V9:a@b.co.uk")])).unwrap();
+
+        let both = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(both.len(), 2, "disjoint key sets cannot see each other at write time");
+
+        // A result carrying both candidates matches both tags and collapses them.
+        upsert_row_tag(
+            &conn,
+            &payload("c1", "l3", vec![key("pk", "V2:42"), key("unique", "V9:a@b.co.uk")]),
+        )
+        .unwrap();
+
+        let healed = load_row_tags(&conn, "c1").unwrap();
+        assert_eq!(healed.len(), 1, "the combined write must collapse both tags into one");
+        assert_eq!(healed[0].label_id, "l3");
+        assert_eq!(healed[0].keys.len(), 2);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 2,
+                   "no key row of either replaced tag may survive");
     }
 }
