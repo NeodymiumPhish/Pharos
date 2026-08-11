@@ -122,6 +122,10 @@ mod tests {
         // falls must encode differently.
         let a = encode_key(&[Some("a:b".to_string()), Some("c".to_string())]);
         let b = encode_key(&[Some("a".to_string()), Some("b:c".to_string())]);
+        // Pin the exact output. assert_ne! alone is satisfied by almost any
+        // encoding, including a broken one.
+        assert_eq!(a, "V3:a:bV1:c");
+        assert_eq!(b, "V1:aV3:b:c");
         assert_ne!(a, b);
     }
 
@@ -154,6 +158,10 @@ mod tests {
         let cands = vec![pk(&[1]), uniq(&[2], true), uniq(&[3], true)];
         let chosen = choose_candidates(&cands, &[1, 2, 3]);
         assert_eq!(chosen.len(), 2);
+        // Say WHICH two: the primary key must survive the cap, and the second
+        // slot must hold the first satisfied unique index.
+        assert!(chosen[0].is_primary);
+        assert_eq!(chosen[1].column_attnums, vec![2]);
     }
 
     #[test]
@@ -188,8 +196,11 @@ mod tests {
 
     #[test]
     fn a_tie_goes_to_the_leftmost_table() {
-        let oids = vec![Some(30), Some(40)];
-        assert_eq!(primary_table_oid(&oids), Some(30));
+        // Put the HIGHER oid on the left. With 30 before 40, "leftmost wins"
+        // and "lowest oid wins" give the same answer, so that ordering cannot
+        // tell the two rules apart. Only leftmost gives 40 here.
+        assert_eq!(primary_table_oid(&[Some(40), Some(30)]), Some(40));
+        assert_eq!(primary_table_oid(&[Some(30), Some(40)]), Some(30));
     }
 
     #[test]
@@ -219,5 +230,16 @@ mod tests {
     fn a_missing_column_index_yields_an_empty_key() {
         let row = vec![serde_json::Value::String("42".into())];
         assert_eq!(row_key(&row, &[5]), "");
+    }
+
+    /// Every value crosses the FFI as PostgreSQL text, so a number or a bool
+    /// here means that assumption broke. Refuse to build a key rather than
+    /// guess at its text form: a guess would produce a key that no later query
+    /// can reproduce.
+    #[test]
+    fn a_non_string_value_yields_an_empty_key() {
+        let row = vec![serde_json::json!(42), serde_json::json!(true)];
+        assert_eq!(row_key(&row, &[0]), "");
+        assert_eq!(row_key(&row, &[1]), "");
     }
 }
