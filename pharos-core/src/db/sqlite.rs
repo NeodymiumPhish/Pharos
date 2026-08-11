@@ -160,6 +160,28 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
          PRAGMA busy_timeout=5000;"
     )?;
 
+    create_schema(&conn)?;
+
+    Ok(conn)
+}
+
+/// Create every table and run every migration. Split out of `init_database` so
+/// a test can build the same schema in memory.
+///
+/// NOTE: `PRAGMA foreign_keys` is deliberately NOT set, here or in
+/// `init_database`, but it is nevertheless ON: `rusqlite`'s `bundled` feature
+/// compiles SQLite with `SQLITE_DEFAULT_FOREIGN_KEYS=1`, so every connection
+/// enforces foreign keys from the start. `foreign_keys_are_enforced` in
+/// `tag_schema_tests` pins that fact.
+///
+/// Two consequences for the tag tables below. First, the `ON DELETE CASCADE`
+/// clauses on the older cache tables are live, so this feature must not rely on
+/// the pragma being flipped either way. Second, the tag tables declare plain
+/// `REFERENCES` with no `ON DELETE` action, which means NO ACTION: deleting a
+/// parent that still has children is REJECTED. Inserts must therefore go
+/// `tag_labels` -> `row_tags` -> `row_tag_keys`, and deletes must remove child
+/// rows explicitly, in the reverse order.
+pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // Create tables
     conn.execute_batch(
         r#"
@@ -525,7 +547,68 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
         conn.execute("ALTER TABLE saved_queries ADD COLUMN variables TEXT", [])?;
     }
 
-    Ok(conn)
+    conn.execute_batch(
+        r#"
+        -- Row tags: a re-usable label plus a note, attached to a row identity.
+        -- The label palette is global: tag_labels holds no connection id.
+        CREATE TABLE IF NOT EXISTS tag_labels (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            color_index INTEGER NOT NULL,
+            sort_order  INTEGER NOT NULL,
+            created_at  TEXT NOT NULL
+        );
+
+        -- One row per tag. No ON DELETE CASCADE: every delete removes its child
+        -- rows explicitly, children first.
+        CREATE TABLE IF NOT EXISTS row_tags (
+            id               TEXT PRIMARY KEY,
+            connection_id    TEXT NOT NULL,
+            label_id         TEXT NOT NULL REFERENCES tag_labels(id),
+            note             TEXT,
+            primary_kind     TEXT NOT NULL,
+            table_key        TEXT NOT NULL,
+            table_display    TEXT NOT NULL,
+            identity_columns TEXT NOT NULL,
+            identity_values  TEXT NOT NULL,
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL
+        );
+
+        -- One row per candidate key of the tagged row: up to two for a strong tag,
+        -- exactly one for a fingerprint tag. This is what lets a tag made through a
+        -- primary key match a later result that carries only a unique key.
+        CREATE TABLE IF NOT EXISTS row_tag_keys (
+            tag_id         TEXT NOT NULL REFERENCES row_tags(id),
+            connection_id  TEXT NOT NULL,
+            table_key      TEXT NOT NULL,
+            identity_kind  TEXT NOT NULL,
+            identity_value TEXT NOT NULL
+        );
+
+        -- identity_kind sits inside the unique index. Without it a pk string and a
+        -- fingerprint string for two different rows could collide and replace each
+        -- other.
+        CREATE UNIQUE INDEX IF NOT EXISTS row_tag_keys_identity
+            ON row_tag_keys(connection_id, table_key, identity_kind, identity_value);
+        CREATE INDEX IF NOT EXISTS row_tag_keys_tag ON row_tag_keys(tag_id);
+        CREATE INDEX IF NOT EXISTS idx_row_tags_conn ON row_tags(connection_id);
+        "#,
+    )?;
+
+    // Migration: cache the row identity block beside the cached result rows,
+    // so a reopened workspace restores its tags.
+    let has_row_identity: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'result_row_identity'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_row_identity {
+        conn.execute_batch("ALTER TABLE query_history ADD COLUMN result_row_identity TEXT;")?;
+    }
+
+    Ok(())
 }
 
 /// Save a connection configuration to the database (password stored separately in keychain)
@@ -822,15 +905,17 @@ pub fn save_query_history(
     entry: &QueryHistoryEntry,
     result_columns_json: Option<&str>,
     result_rows_json: Option<&str>,
+    result_row_identity_json: Option<&str>,
 ) -> SqliteResult<()> {
     // Compress result data if present
     let compressed_columns = result_columns_json.and_then(|s| compress_data(s).ok());
     let compressed_rows = result_rows_json.and_then(|s| compress_data(s).ok());
+    let compressed_identity = result_row_identity_json.and_then(|s| compress_data(s).ok());
 
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source, result_row_identity)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
         "#,
         (
             &entry.id,
@@ -846,6 +931,7 @@ pub fn save_query_history(
             &entry.column_count,
             &entry.table_names,
             &entry.source,
+            &compressed_identity.as_deref(),
         ),
     )?;
 
@@ -933,7 +1019,8 @@ pub fn associate_result_to_workspace(
 /// compressed blob size is within WORKSPACE_BUDGET_BYTES. Rows are kept (SQL only).
 pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> SqliteResult<()> {
     let mut stmt = conn.prepare(
-        "SELECT id, COALESCE(LENGTH(result_columns),0) + COALESCE(LENGTH(result_rows),0) AS sz
+        "SELECT id, COALESCE(LENGTH(result_columns),0) + COALESCE(LENGTH(result_rows),0)
+                  + COALESCE(LENGTH(result_row_identity),0) AS sz
          FROM query_history
          WHERE workspace_id = ?1 AND result_columns IS NOT NULL
          ORDER BY result_order ASC, executed_at ASC",
@@ -944,7 +1031,7 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
 
     for id in results_to_demote(&sizes, WORKSPACE_BUDGET_BYTES) {
         conn.execute(
-            "UPDATE query_history SET result_columns = NULL, result_rows = NULL WHERE id = ?1",
+            "UPDATE query_history SET result_columns = NULL, result_rows = NULL, result_row_identity = NULL WHERE id = ?1",
             [&id],
         )?;
     }
@@ -1371,20 +1458,33 @@ pub fn batch_delete_query_history_entries(conn: &Connection, ids: &[String]) -> 
     conn.execute(&sql, params.as_slice())
 }
 
-/// Load cached result data for a specific history entry (decompresses if gzip-compressed)
-pub fn get_query_history_result(conn: &Connection, entry_id: &str) -> SqliteResult<Option<(String, String)>> {
+/// Load cached result data for a specific history entry (decompresses if gzip-compressed).
+/// The third element is the row identity block, absent for an entry saved
+/// before that column existed.
+pub fn get_query_history_result(
+    conn: &Connection,
+    entry_id: &str,
+) -> SqliteResult<Option<(String, String, Option<String>)>> {
     let mut stmt = conn.prepare(
-        "SELECT result_columns, result_rows FROM query_history WHERE id = ?1 AND result_columns IS NOT NULL"
+        "SELECT result_columns, result_rows, result_row_identity FROM query_history WHERE id = ?1 AND result_columns IS NOT NULL"
     )?;
+    let bad_data = |e: String| {
+        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            e,
+        )))
+    };
     let mut rows = stmt.query([entry_id])?;
     if let Some(row) = rows.next()? {
         let columns_raw: Vec<u8> = row.get(0)?;
         let rows_raw: Vec<u8> = row.get(1)?;
-        let columns = decompress_or_passthrough(columns_raw)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
-        let rows_str = decompress_or_passthrough(rows_raw)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?;
-        Ok(Some((columns, rows_str)))
+        let identity_raw: Option<Vec<u8>> = row.get(2)?;
+        let columns = decompress_or_passthrough(columns_raw).map_err(bad_data)?;
+        let rows_str = decompress_or_passthrough(rows_raw).map_err(bad_data)?;
+        let identity = identity_raw
+            .map(|raw| decompress_or_passthrough(raw).map_err(bad_data))
+            .transpose()?;
+        Ok(Some((columns, rows_str, identity)))
     } else {
         Ok(None)
     }
@@ -1521,7 +1621,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("history_blank_filter");
         let conn = init_database(&dir).expect("init_database");
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
-        save_query_history(&conn, &h1, None, None).expect("save h1");
+        save_query_history(&conn, &h1, None, None, None).expect("save h1");
 
         let entries = load_query_history(&conn, None, Some("   "), 50, 0, false)
             .expect("a whitespace-only filter must not error");
@@ -1553,8 +1653,8 @@ mod workspace_roundtrip_tests {
         // 3. Two history rows on distinct connections; only h1 gets a cached blob.
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         let h2 = history_entry("h2", "c2", "other-db", &now_offset(1));
-        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
-        save_query_history(&conn, &h2, None, None).expect("save h2");
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
+        save_query_history(&conn, &h2, None, None, None).expect("save h2");
         associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
         associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
 
@@ -1613,6 +1713,119 @@ mod workspace_roundtrip_tests {
     }
 
     #[test]
+    fn row_identity_block_round_trips() {
+        let dir = temp_db_dir("identity_roundtrip");
+        let conn = init_database(&dir).expect("init_database");
+
+        let identity = r#"{"rows":[{"pk":"V2:42"}],"tableDisplay":"public.t"}"#;
+        let entry = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(
+            &conn,
+            &entry,
+            Some(r#"[{"name":"id"}]"#),
+            Some(r#"[[1]]"#),
+            Some(identity),
+        )
+        .expect("save h1");
+
+        let (_columns, _rows, loaded_identity) = get_query_history_result(&conn, "h1")
+            .expect("get_query_history_result")
+            .expect("entry should have cached results");
+        assert_eq!(loaded_identity.as_deref(), Some(identity));
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_entry_saved_without_an_identity_block_reads_back_none() {
+        let dir = temp_db_dir("identity_absent");
+        let conn = init_database(&dir).expect("init_database");
+
+        let entry = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &entry, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None)
+            .expect("save h1");
+
+        let (_columns, _rows, loaded_identity) = get_query_history_result(&conn, "h1")
+            .expect("get_query_history_result")
+            .expect("entry should have cached results");
+        assert_eq!(loaded_identity, None);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The identity blob must be inside the budget sum AND inside the demotion
+    /// UPDATE. Neither edit has compiler enforcement, so the blob sizes below are
+    /// chosen to fail if either one is missing: the result_columns blobs alone
+    /// total 60MB (under the 100MB budget, so nothing would be demoted if the sum
+    /// ignored the identity column), and the demoted row is then read back to
+    /// prove the identity blob went away with the rest.
+    #[test]
+    fn the_budget_counts_and_clears_the_row_identity_blob() {
+        let dir = temp_db_dir("identity_budget");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws9".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: String::new(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        for (i, id) in ["h6", "h7", "h8"].iter().enumerate() {
+            let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
+            save_query_history(&conn, &entry, Some("[]"), Some("[]"), Some("[]")).expect("save history row");
+            associate_result_to_workspace(&conn, id, "ws9", i as i64, 0, None).expect("associate");
+        }
+
+        // Exact sizes (bypassing gzip): 20MB of columns + 20MB of identity per row.
+        // Columns alone are 60MB, under budget; with identity the total is 120MB,
+        // over the 100MB budget, so the oldest 40MB must be demoted.
+        let blob = |mb: usize| vec![b'a'; mb * 1024 * 1024];
+        for id in ["h6", "h7", "h8"] {
+            conn.execute(
+                "UPDATE query_history SET result_columns = ?1, result_rows = ?2, result_row_identity = ?3 WHERE id = ?4",
+                (blob(20), Vec::<u8>::new(), blob(20), id),
+            )
+            .expect("seed oversized blobs");
+        }
+
+        enforce_workspace_budget(&conn, "ws9").expect("enforce_workspace_budget");
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, result_columns IS NOT NULL, result_row_identity IS NOT NULL
+                 FROM query_history WHERE workspace_id = 'ws9' ORDER BY result_order ASC",
+            )
+            .expect("prepare");
+        let rows: Vec<(String, bool, bool)> = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, bool>(2)?))
+            })
+            .expect("query_map")
+            .collect::<SqliteResult<Vec<_>>>()
+            .expect("collect");
+
+        assert_eq!(
+            rows[0],
+            ("h6".to_string(), false, false),
+            "the identity blob must count towards the budget and be cleared with the demoted result"
+        );
+        assert_eq!(rows[1], ("h7".to_string(), true, true));
+        assert_eq!(rows[2], ("h8".to_string(), true, true));
+
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn enforce_workspace_budget_demotes_oldest_over_budget() {
         let dir = temp_db_dir("workspace_budget");
         let conn = init_database(&dir).expect("init_database");
@@ -1631,7 +1844,7 @@ mod workspace_roundtrip_tests {
 
         for (i, id) in ["h3", "h4", "h5"].iter().enumerate() {
             let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
-            save_query_history(&conn, &entry, Some("[]"), Some("[]")).expect("save history row");
+            save_query_history(&conn, &entry, Some("[]"), Some("[]"), None).expect("save history row");
             associate_result_to_workspace(&conn, id, "ws2", i as i64, 0, None).expect("associate");
         }
 
@@ -1685,7 +1898,7 @@ mod workspace_roundtrip_tests {
         upsert_workspace(&conn, &ws).expect("upsert_workspace");
 
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
-        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
 
         let json = r#"{"viewMode":"chart","chartConfig":{"chartType":"bar"}}"#;
@@ -1735,7 +1948,7 @@ mod workspace_roundtrip_tests {
         upsert_workspace(&conn, &ws).expect("upsert_workspace");
 
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
-        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         associate_result_to_workspace(
             &conn, "h1", "ws1", 0, 0,
             Some("SELECT * FROM users WHERE id = {{id}}"),
@@ -1767,7 +1980,7 @@ mod workspace_roundtrip_tests {
         upsert_workspace(&conn, &ws).expect("upsert_workspace");
 
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
-        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#)).expect("save h1");
+        save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         associate_result_to_workspace(
             &conn, "h1", "ws1", 0, 0,
             Some("SELECT * FROM users WHERE id = {{id}}"),
@@ -1809,8 +2022,8 @@ mod workspace_roundtrip_tests {
         h1.sql = "SELECT * FROM orders WHERE year = 2024".to_string();
         let mut h2 = history_entry("h2", "c1", "prod-db", &now_offset(1));
         h2.sql = "SELECT * FROM customers".to_string();
-        save_query_history(&conn, &h1, None, None).expect("save h1");
-        save_query_history(&conn, &h2, None, None).expect("save h2");
+        save_query_history(&conn, &h1, None, None, None).expect("save h1");
+        save_query_history(&conn, &h2, None, None, None).expect("save h2");
         associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
         associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
         (conn, dir)
@@ -1907,8 +2120,8 @@ mod workspace_roundtrip_tests {
         first.sql = "SELECT * FROM orders".to_string();
         let mut second = history_entry("h_inserted_second", "c1", "prod-db", &now_offset(1));
         second.sql = "SELECT * FROM customers".to_string();
-        save_query_history(&conn, &first, None, None).expect("save first");
-        save_query_history(&conn, &second, None, None).expect("save second");
+        save_query_history(&conn, &first, None, None, None).expect("save first");
+        save_query_history(&conn, &second, None, None, None).expect("save second");
         // Deliberately inverted: the second-inserted row is the first tab.
         associate_result_to_workspace(&conn, "h_inserted_first", "ws1", 1, 0, None)
             .expect("associate first");
@@ -1943,7 +2156,7 @@ mod workspace_roundtrip_tests {
         let (conn, dir) = workspace_with_two_queries("ws_match_orphan");
         let mut orphan = history_entry("h_orphan", "c1", "prod-db", &now_offset(2));
         orphan.sql = "SELECT * FROM orders_archive".to_string();
-        save_query_history(&conn, &orphan, None, None).expect("save orphan");
+        save_query_history(&conn, &orphan, None, None, None).expect("save orphan");
         // Deliberately never associated to a workspace.
 
         let summaries = load_workspaces(&conn, Some("orders"), 50, 0).expect("load_workspaces");
@@ -1980,7 +2193,7 @@ mod workspace_roundtrip_tests {
             upsert_workspace(&conn, &ws).expect("upsert_workspace");
             let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
             h.sql = "SELECT * FROM orders".to_string();
-            save_query_history(&conn, &h, None, None).expect("save history");
+            save_query_history(&conn, &h, None, None, None).expect("save history");
             associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
                 .expect("associate");
         }
@@ -2060,7 +2273,7 @@ mod workspace_roundtrip_tests {
             upsert_workspace(&conn, &ws).expect("upsert_workspace");
             let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
             h.sql = "SELECT * FROM orders".to_string();
-            save_query_history(&conn, &h, None, None).expect("save history");
+            save_query_history(&conn, &h, None, None, None).expect("save history");
             associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
                 .expect("associate");
         }
@@ -2130,8 +2343,8 @@ mod history_source_tests {
 
         let tagged = history_entry("h_tagged", Some("chart-aggregation"));
         let untagged = history_entry("h_untagged", None);
-        save_query_history(&conn, &tagged, None, None).expect("save tagged");
-        save_query_history(&conn, &untagged, None, None).expect("save untagged");
+        save_query_history(&conn, &tagged, None, None, None).expect("save tagged");
+        save_query_history(&conn, &untagged, None, None, None).expect("save untagged");
 
         let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false).expect("load_query_history");
         let loaded_tagged = loaded.iter().find(|e| e.id == "h_tagged").expect("tagged entry present");
@@ -2146,3 +2359,130 @@ mod history_source_tests {
 }
 
 
+
+#[cfg(test)]
+mod tag_schema_tests {
+    use super::*;
+
+    /// A database with the full schema, built the way init_database builds it.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn table_exists(conn: &Connection, name: &str) -> bool {
+        conn.prepare("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1")
+            .unwrap()
+            .query_row([name], |r| r.get::<_, i64>(0))
+            .unwrap()
+            > 0
+    }
+
+    /// `rusqlite` is built with `SQLITE_DEFAULT_FOREIGN_KEYS=1`, so a
+    /// `row_tag_keys` row needs its `row_tags` parent, which needs its
+    /// `tag_labels` parent. Every test that inserts a key calls this first.
+    fn seed_tag_parents(conn: &Connection, tag_ids: &[&str]) {
+        conn.execute(
+            "INSERT INTO tag_labels (id, name, color_index, sort_order, created_at) \
+             VALUES ('l1', 'Suspect', 0, 0, '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        for tag_id in tag_ids {
+            conn.execute(
+                "INSERT INTO row_tags (id, connection_id, label_id, note, primary_kind, table_key, \
+                 table_display, identity_columns, identity_values, created_at, updated_at) \
+                 VALUES (?1, 'c1', 'l1', NULL, 'pk', 'oid:1', 'public.t', '[\"id\"]', '[\"42\"]', \
+                 '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [tag_id],
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn creates_the_three_tag_tables() {
+        let conn = db();
+        assert!(table_exists(&conn, "tag_labels"));
+        assert!(table_exists(&conn, "row_tags"));
+        assert!(table_exists(&conn, "row_tag_keys"));
+    }
+
+    #[test]
+    fn query_history_has_the_row_identity_column() {
+        let conn = db();
+        let count: i64 = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'result_row_identity'")
+            .unwrap()
+            .query_row([], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    /// Task 7 builds its CRUD on top of these tables, and its insert and delete
+    /// order depends on this pragma. It is not set anywhere in this file, so pin
+    /// it here: `rusqlite`'s `bundled` feature turns it on at compile time.
+    #[test]
+    fn foreign_keys_are_enforced() {
+        let conn = db();
+        let on: bool = conn
+            .prepare("PRAGMA foreign_keys")
+            .unwrap()
+            .query_row([], |r| r.get(0))
+            .unwrap();
+        assert!(on, "row_tag_keys inserts depend on their parents existing");
+    }
+
+    /// A parent with children cannot be deleted: the tag tables declare plain
+    /// REFERENCES, so the action is NO ACTION, not CASCADE. Task 7 must delete
+    /// `row_tag_keys` before `row_tags`.
+    #[test]
+    fn a_tag_with_keys_cannot_be_deleted_before_its_keys() {
+        let conn = db();
+        seed_tag_parents(&conn, &["t1"]);
+        conn.execute(
+            "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
+             VALUES ('t1', 'c1', 'oid:1', 'pk', 'V2:42')",
+            [],
+        )
+        .unwrap();
+
+        assert!(
+            conn.execute("DELETE FROM row_tags WHERE id = 't1'", []).is_err(),
+            "no ON DELETE CASCADE, so the child rows must go first"
+        );
+
+        conn.execute("DELETE FROM row_tag_keys WHERE tag_id = 't1'", []).unwrap();
+        conn.execute("DELETE FROM row_tags WHERE id = 't1'", []).unwrap();
+    }
+
+    #[test]
+    fn the_same_key_cannot_be_stored_twice_for_one_connection() {
+        let conn = db();
+        seed_tag_parents(&conn, &["t1", "t2"]);
+        let insert = "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
+                      VALUES (?1, 'c1', 'oid:1', 'pk', 'V2:42')";
+        conn.execute(insert, ["t1"]).unwrap();
+        assert!(conn.execute(insert, ["t2"]).is_err(), "the unique index must reject a duplicate key");
+    }
+
+    #[test]
+    fn a_pk_key_and_a_fingerprint_key_can_share_a_value() {
+        let conn = db();
+        seed_tag_parents(&conn, &["t1", "t2"]);
+        conn.execute(
+            "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
+             VALUES ('t1', 'c1', 'oid:1', 'pk', 'V2:42')",
+            [],
+        )
+        .unwrap();
+        // identity_kind is part of the unique index, so this must succeed.
+        conn.execute(
+            "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
+             VALUES ('t2', 'c1', 'oid:1', 'fingerprint', 'V2:42')",
+            [],
+        )
+        .unwrap();
+    }
+}

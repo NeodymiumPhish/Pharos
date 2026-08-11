@@ -69,7 +69,7 @@ pub async fn get_query_history_result(
         .map_err(|e| format!("Failed to load history result: {}", e))?;
 
     match result {
-        Some((columns_json, rows_json)) => {
+        Some((columns_json, rows_json, _identity_json)) => {
             let columns: serde_json::Value = serde_json::from_str(&columns_json)
                 .map_err(|e| format!("Failed to parse cached columns: {}", e))?;
             let rows: serde_json::Value = serde_json::from_str(&rows_json)

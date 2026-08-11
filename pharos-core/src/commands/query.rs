@@ -375,9 +375,12 @@ pub async fn execute_query(
         let result_data = if !json_rows.is_empty() {
             let columns_json = serde_json::to_string(&columns).unwrap_or_default();
             let rows_json = serde_json::to_string(&json_rows).unwrap_or_default();
+            let identity_json = row_identity
+                .as_ref()
+                .and_then(|id| serde_json::to_string(id).ok());
             // per-result cache cap: 10 MB uncompressed serialized JSON
             if columns_json.len() + rows_json.len() < 10_000_000 {
-                Some((columns_json, rows_json))
+                Some((columns_json, rows_json, identity_json))
             } else {
                 None
             }
@@ -389,8 +392,9 @@ pub async fn execute_query(
             if let Err(e) = sqlite::save_query_history(
                 &db,
                 &entry,
-                result_data.as_ref().map(|(c, _)| c.as_str()),
-                result_data.as_ref().map(|(_, r)| r.as_str()),
+                result_data.as_ref().map(|(c, _, _)| c.as_str()),
+                result_data.as_ref().map(|(_, r, _)| r.as_str()),
+                result_data.as_ref().and_then(|(_, _, i)| i.as_deref()),
             ) {
                 log::warn!("Failed to save query history: {}", e);
             }
@@ -598,7 +602,7 @@ pub async fn execute_statement(
             source: None,
         };
         if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history(&db, &entry, None, None) {
+            if let Err(e) = sqlite::save_query_history(&db, &entry, None, None, None) {
                 log::warn!("Failed to save query history: {}", e);
             }
         }
