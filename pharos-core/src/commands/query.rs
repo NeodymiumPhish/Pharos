@@ -78,6 +78,37 @@ fn format_db_error(e: &sqlx::Error) -> String {
 pub struct ColumnDef {
     pub name: String,
     pub data_type: String,
+    /// The OID of the source table, from PgColumn::relation_id(). None for an
+    /// expression column.
+    #[serde(default)]
+    pub relation_oid: Option<u32>,
+    /// The 1-based attnum in that table, from relation_attribute_no().
+    #[serde(default)]
+    pub relation_attno: Option<i16>,
+}
+
+/// One satisfied key of a result: a kind, the columns it uses, and one key
+/// string per row. An empty key string means the row has no identity in this
+/// set, for example a NULL from an outer join.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeySet {
+    /// "pk" | "unique"
+    pub kind: String,
+    pub key_columns: Vec<String>,
+    pub keys: Vec<String>,
+}
+
+/// The row identity of a result. An empty `candidates` array means the
+/// fingerprint tier: Swift then compares row values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RowIdentity {
+    pub table_key: String,
+    pub table_display: String,
+    /// Every source table in the result, so the weak tier can test the table
+    /// overlap even with no candidate.
+    pub table_keys: Vec<String>,
+    /// At most two entries, strongest first.
+    pub candidates: Vec<KeySet>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +119,126 @@ pub struct QueryResult {
     pub execution_time_ms: u64,
     pub has_more: bool,
     pub history_entry_id: Option<String>,
+    /// None only when no column carries a source table, for example a result
+    /// of pure expressions, or the empty page of fetch_more_rows.
+    pub row_identity: Option<RowIdentity>,
+}
+
+/// Build ColumnDef values from PgColumn metadata, keeping the source table OID
+/// and attnum that PostgreSQL reports for each column.
+fn pg_columns_to_defs(cols: &[sqlx::postgres::PgColumn]) -> Vec<ColumnDef> {
+    cols.iter()
+        .map(|col| ColumnDef {
+            name: col.name().to_string(),
+            data_type: col.type_info().to_string(),
+            // Oid is a newtype over u32, so unwrap the .0.
+            relation_oid: col.relation_id().map(|oid| oid.0),
+            relation_attno: col.relation_attribute_no(),
+        })
+        .collect()
+}
+
+/// Build the row identity block for a result.
+///
+/// Returns None only when no column carries a source table. An empty
+/// `candidates` array is the fingerprint case and still returns a block,
+/// because Swift needs `table_keys` to test the table overlap.
+async fn build_row_identity(
+    pool: &sqlx::PgPool,
+    connection_id: &str,
+    columns: &[ColumnDef],
+    json_rows: &[serde_json::Value],
+    state: &AppState,
+) -> Option<RowIdentity> {
+    let column_oids: Vec<Option<u32>> = columns.iter().map(|c| c.relation_oid).collect();
+    let primary_oid = crate::commands::primary_table_oid(&column_oids)?;
+
+    // Every distinct source table, for the weak tier's overlap test.
+    let mut all_oids: Vec<u32> = Vec::new();
+    for oid in column_oids.iter().flatten() {
+        if !all_oids.contains(oid) {
+            all_oids.push(*oid);
+        }
+    }
+
+    // Fetch only what the cache lacks, then read every entry from the cache.
+    let missing = state.missing_key_cache_oids(connection_id, &all_oids);
+    if !missing.is_empty() {
+        match crate::db::postgres::get_table_key_info(pool, &missing).await {
+            Ok(fetched) => {
+                for (oid, info) in fetched {
+                    state.cache_table_key_info(connection_id, oid, info);
+                }
+            }
+            // A catalogue failure must not fail the query. Without key info the
+            // result falls to the fingerprint tier, which is the honest result.
+            Err(e) => log::warn!("Failed to read table key info: {}", e),
+        }
+    }
+
+    let info = state.get_table_key_info(connection_id, primary_oid);
+    let table_display = info
+        .as_ref()
+        .map(|i| i.display.clone())
+        .unwrap_or_else(|| format!("oid {}", primary_oid));
+
+    // attnums of the columns that belong to the primary table.
+    let present_attnos: Vec<i16> = columns
+        .iter()
+        .filter(|c| c.relation_oid == Some(primary_oid))
+        .filter_map(|c| c.relation_attno)
+        .collect();
+
+    let chosen = info
+        .as_ref()
+        .map(|i| crate::commands::choose_candidates(&i.candidates, &present_attnos))
+        .unwrap_or_default();
+
+    let mut candidates: Vec<KeySet> = Vec::with_capacity(chosen.len());
+    for cand in chosen {
+        // Map each key attnum to its position in the result's column list.
+        let mut indices: Vec<usize> = Vec::with_capacity(cand.column_attnums.len());
+        let mut names: Vec<String> = Vec::with_capacity(cand.column_attnums.len());
+        let mut resolved = true;
+        for attno in &cand.column_attnums {
+            match columns.iter().position(|c| {
+                c.relation_oid == Some(primary_oid) && c.relation_attno == Some(*attno)
+            }) {
+                Some(idx) => {
+                    indices.push(idx);
+                    names.push(columns[idx].name.clone());
+                }
+                None => {
+                    resolved = false;
+                    break;
+                }
+            }
+        }
+        if !resolved {
+            continue;
+        }
+
+        let keys: Vec<String> = json_rows
+            .iter()
+            .map(|row| match row.as_array() {
+                Some(values) => crate::commands::row_key(values, &indices),
+                None => String::new(),
+            })
+            .collect();
+
+        candidates.push(KeySet {
+            kind: if cand.is_primary { "pk".to_string() } else { "unique".to_string() },
+            key_columns: names,
+            keys,
+        });
+    }
+
+    Some(RowIdentity {
+        table_key: format!("oid:{}", primary_oid),
+        table_display,
+        table_keys: all_oids.iter().map(|o| format!("oid:{}", o)).collect(),
+        candidates,
+    })
 }
 
 /// Execute a SQL query and return results
@@ -194,17 +345,11 @@ pub async fn execute_query(
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     if rows.is_empty() {
-        // describe() uses the extended query protocol which non-PG servers
-        // (e.g. ClickHouse) don't support. Fall back to empty columns on failure.
         let columns = match (&mut *conn).describe(sql.as_str()).await {
-            Ok(desc) => desc
-                .columns()
-                .iter()
-                .map(|col| ColumnDef {
-                    name: col.name().to_string(),
-                    data_type: col.type_info().to_string(),
-                })
-                .collect(),
+            Ok(desc) => pg_columns_to_defs(desc.columns()),
+            // describe() uses the extended query protocol, which non-PG
+            // servers (ClickHouse) do not support. A clean empty list here
+            // means a clean None for the identity block.
             Err(_) => vec![],
         };
         return Ok(QueryResult {
@@ -214,19 +359,13 @@ pub async fn execute_query(
             execution_time_ms,
             has_more: false,
             history_entry_id: None,
+            row_identity: None,
         });
     }
 
     // Extract column information from the first row
     let first_row = &rows[0];
-    let columns: Vec<ColumnDef> = first_row
-        .columns()
-        .iter()
-        .map(|col| ColumnDef {
-            name: col.name().to_string(),
-            data_type: col.type_info().to_string(),
-        })
-        .collect();
+    let columns: Vec<ColumnDef> = pg_columns_to_defs(first_row.columns());
 
     // Determine if there are more rows
     let has_more = rows.len() > limit as usize;
@@ -245,6 +384,14 @@ pub async fn execute_query(
             serde_json::Value::Array(values)
         })
         .collect();
+
+    // Return this connection to the pool BEFORE the identity block, which
+    // acquires one of its own for the catalogue read. The pool holds only five
+    // connections, so keeping this one would let five concurrent queries own
+    // every connection while each waits for a sixth.
+    drop(conn);
+
+    let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
 
     // Auto-save to query history with cached results (fire-and-forget)
     let history_id = uuid::Uuid::new_v4().to_string();
@@ -302,6 +449,7 @@ pub async fn execute_query(
         execution_time_ms,
         has_more,
         history_entry_id: Some(history_id),
+        row_identity,
     })
 }
 
@@ -393,18 +541,12 @@ pub async fn fetch_more_rows(
             execution_time_ms,
             has_more: false,
             history_entry_id: None,
+            row_identity: None,
         });
     }
 
     let first_row = &rows[0];
-    let columns: Vec<ColumnDef> = first_row
-        .columns()
-        .iter()
-        .map(|col| ColumnDef {
-            name: col.name().to_string(),
-            data_type: col.type_info().to_string(),
-        })
-        .collect();
+    let columns: Vec<ColumnDef> = pg_columns_to_defs(first_row.columns());
 
     let has_more = rows.len() > limit as usize;
     let row_limit = std::cmp::min(rows.len(), limit as usize);
@@ -422,6 +564,12 @@ pub async fn fetch_more_rows(
         })
         .collect();
 
+    // As in execute_query: release this connection before the catalogue read
+    // acquires one of its own.
+    drop(conn);
+
+    let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
+
     Ok(QueryResult {
         columns,
         rows: json_rows,
@@ -429,6 +577,7 @@ pub async fn fetch_more_rows(
         execution_time_ms,
         has_more,
         history_entry_id: None,
+        row_identity,
     })
 }
 
@@ -789,6 +938,276 @@ fn parse_identifier(s: &str) -> Option<(String, &str)> {
             return None;
         }
         Some((s[..end].to_string(), &s[end..]))
+    }
+}
+
+/// Live test of the row identity wiring.
+///
+///   cargo test --release query_identity -- --ignored --nocapture
+///
+/// This test is MANDATORY, not a nicety. `get_table_key_info` is public in a
+/// public module of a staticlib crate, so rustc assumes an external C caller
+/// and never warns that it is unused. If this file forgot to call it, or
+/// discarded its result, the crate would compile clean, every offline test
+/// would still pass, and every query would silently report no identity — the
+/// weakest tier forever, with nothing anywhere reporting a fault. Only a real
+/// connection proves the wiring.
+///
+/// Fixture: `scripts/tagtest-schema.sql`.
+#[cfg(test)]
+mod live_query_identity_tests {
+    use super::{execute_query, KeySet, QueryResult, RowIdentity};
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::Row;
+    use std::time::Duration;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+    const CONN: &str = "live-identity-test";
+
+    /// The `tagtest` relations present, tables and views alike. Empty means the
+    /// fixture schema is absent.
+    async fn tagtest_relations(pool: &sqlx::PgPool) -> Vec<String> {
+        let sql = "SELECT c.relname AS name \
+                   FROM pg_class c \
+                   JOIN pg_namespace n ON n.oid = c.relnamespace \
+                   WHERE n.nspname = 'tagtest' AND c.relkind IN ('r', 'v')";
+        let rows = sqlx::raw_sql(sql).fetch_all(pool).await.expect("catalogue lookup failed");
+        rows.iter().map(|r| r.try_get::<String, _>("name").expect("name decode")).collect()
+    }
+
+    /// The candidate of the named kind, or a panic showing the whole set. Never
+    /// index by position: an ordering change must fail loudly, not silently
+    /// assert against the wrong key.
+    fn keyset<'a>(id: &'a RowIdentity, kind: &str) -> &'a KeySet {
+        id.candidates.iter().find(|c| c.kind == kind).unwrap_or_else(|| {
+            panic!("no `{}` candidate; got {:?}", kind, id.candidates)
+        })
+    }
+
+    fn show(case: &str, sql: &str, result: &QueryResult) {
+        println!("\n--- {} ------------------------------------------", case);
+        println!("  sql: {}", sql);
+        let cols: Vec<String> = result
+            .columns
+            .iter()
+            .map(|c| {
+                format!(
+                    "{}[oid={:?} attno={:?}]",
+                    c.name, c.relation_oid, c.relation_attno
+                )
+            })
+            .collect();
+        println!("  columns: {}", cols.join(", "));
+        match &result.row_identity {
+            None => println!("  row_identity: None"),
+            Some(id) => {
+                println!("  table_key:     {}", id.table_key);
+                println!("  table_display: {}", id.table_display);
+                println!("  table_keys:    {:?}", id.table_keys);
+                if id.candidates.is_empty() {
+                    println!("  candidates:    [] (fingerprint tier)");
+                }
+                for c in &id.candidates {
+                    println!(
+                        "  candidate {:>6}: columns {:?} keys {:?}",
+                        c.kind, c.key_columns, c.keys
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL with scripts/tagtest-schema.sql loaded"]
+    fn query_identity_comes_back_from_a_live_result() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                // execute_query releases its connection before the catalogue
+                // read, so one would do; two gives headroom if that changes.
+                .max_connections(2)
+                // Without this a dead host takes the 30s default to fail.
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.", url, e)
+                });
+
+            let relations = tagtest_relations(&pool).await;
+            if relations.is_empty() {
+                eprintln!(
+                    "SKIP: schema `tagtest` not found in {}. Load the fixture first: \
+                     psql -d <db> -f scripts/tagtest-schema.sql",
+                    url
+                );
+                return;
+            }
+            for needed in ["users", "memberships", "active_users"] {
+                if !relations.iter().any(|r| r == needed) {
+                    eprintln!(
+                        "SKIP: schema `tagtest` is present but relation `{}` is missing. \
+                         Reload scripts/tagtest-schema.sql",
+                        needed
+                    );
+                    return;
+                }
+            }
+
+            // An in-memory metadata DB has no settings and no history tables.
+            // Both reads are non-fatal by design: the timeout falls back to its
+            // default and the history save logs a warning.
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool(CONN.to_string(), pool.clone());
+
+            let run = |sql: &'static str| {
+                let state = &state;
+                async move {
+                    execute_query(
+                        CONN.to_string(),
+                        sql.to_string(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        state,
+                    )
+                    .await
+                    .unwrap_or_else(|e| panic!("execute_query failed for `{}`: {}", sql, e))
+                }
+            };
+
+            // --- 1. SELECT * — both a primary key and a natural key ----------
+            let sql = "SELECT * FROM tagtest.users ORDER BY id";
+            let r = run(sql).await;
+            show("case 1: SELECT * FROM tagtest.users", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 1: expected an identity block");
+            assert_eq!(id.table_display, "tagtest.users", "case 1 table_display");
+            assert_eq!(id.candidates.len(), 2, "case 1 should have 2 candidates");
+            let pk = keyset(id, "pk");
+            assert_eq!(pk.key_columns, vec!["id"], "case 1 pk columns");
+            assert_eq!(pk.keys, vec!["V1:1", "V1:2", "V1:3"], "case 1 pk keys");
+            let uq = keyset(id, "unique");
+            assert_eq!(uq.key_columns, vec!["email"], "case 1 unique columns");
+            assert_eq!(uq.keys[0], "V6:a@b.co", "case 1 first unique key");
+
+            // --- 2. The primary key is absent; the natural key carries on ----
+            // This is the case the whole feature exists for.
+            let sql = "SELECT name, email FROM tagtest.users ORDER BY email";
+            let r = run(sql).await;
+            show("case 2: no pk column, unique column present", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 2: expected an identity block");
+            assert_eq!(id.candidates.len(), 1, "case 2 should have exactly 1 candidate");
+            let uq = keyset(id, "unique");
+            assert_eq!(uq.key_columns, vec!["email"], "case 2 unique columns");
+
+            // --- 3. No key column at all: the fingerprint tier ---------------
+            let sql = "SELECT name, status FROM tagtest.users";
+            let r = run(sql).await;
+            show("case 3: no key column at all", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 3: a block is still required");
+            assert!(id.candidates.is_empty(), "case 3 must be the fingerprint tier");
+            assert_eq!(id.table_display, "tagtest.users", "case 3 table_display");
+            assert!(
+                id.table_keys.contains(&id.table_key),
+                "case 3 table_keys {:?} must contain the users key {}",
+                id.table_keys,
+                id.table_key
+            );
+
+            // --- 4. An aggregate has no source table -------------------------
+            let sql = "SELECT count(*) FROM tagtest.users";
+            let r = run(sql).await;
+            show("case 4: aggregate", sql, &r);
+            assert!(r.row_identity.is_none(), "case 4 must have no identity block");
+
+            // --- 5. Two source tables ----------------------------------------
+            let sql = "SELECT u.name, m.role FROM tagtest.users u \
+                       LEFT JOIN tagtest.memberships m ON m.user_id = u.id";
+            let r = run(sql).await;
+            show("case 5: two source tables", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 5: expected an identity block");
+            assert_eq!(id.table_keys.len(), 2, "case 5 table_keys {:?}", id.table_keys);
+
+            // --- 6. The NULL sentinel ----------------------------------------
+            // memberships owns 2 of the 3 columns, so it is the primary table.
+            // Cal has no membership, so that row's key values are both NULL and
+            // its key must be the empty "no identity" string.
+            let sql = "SELECT m.user_id, m.team_id, u.name FROM tagtest.users u \
+                       LEFT JOIN tagtest.memberships m ON m.user_id = u.id \
+                       ORDER BY u.id, m.team_id";
+            let r = run(sql).await;
+            show("case 6: outer join NULL sentinel", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 6: expected an identity block");
+            assert_eq!(id.table_display, "tagtest.memberships", "case 6 primary table");
+            let pk = keyset(id, "pk");
+            assert_eq!(pk.key_columns, vec!["user_id", "team_id"], "case 6 pk columns");
+            assert!(
+                pk.keys.iter().any(|k| k.is_empty()),
+                "case 6: the unmatched row must have an EMPTY key; got {:?}",
+                pk.keys
+            );
+            assert!(
+                pk.keys.iter().any(|k| !k.is_empty()),
+                "case 6: the matched rows must have real keys; got {:?}",
+                pk.keys
+            );
+
+            // --- 7. A view: A DESIGN ASSUMPTION, MEASURED AND DISPROVEN ------
+            //
+            // The design assumed a view's columns report the BASE table's OID,
+            // so a view result would carry users' key candidates. Measured
+            // against PostgreSQL on 2026-08-11, that is FALSE: every column of
+            // `tagtest.active_users` reports the VIEW's own OID and the view's
+            // own attnums. A view has no pg_index rows, so the catalogue read
+            // returns a display name and NO candidates.
+            //
+            // The consequence is a real product limit, not a bug here: a result
+            // read through a view falls to the fingerprint tier, so a tag set on
+            // a base-table result does not follow into a view result, and the
+            // reverse. The block is still honest — it names the view and reports
+            // no candidate rather than inventing one.
+            //
+            // This assertion therefore pins the OBSERVED behaviour. It is not a
+            // workaround: if PostgreSQL or sqlx ever started reporting the base
+            // table, this test would fail and the limit could be lifted.
+            let sql = "SELECT id, email FROM tagtest.active_users ORDER BY id";
+            let r = run(sql).await;
+            show("case 7: a view over users", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 7: expected an identity block");
+            assert_eq!(
+                id.table_display, "tagtest.active_users",
+                "case 7: PostgreSQL reports the view's own OID, so the block \
+                 names the view. columns = {:?}",
+                r.columns
+            );
+            assert!(
+                id.candidates.is_empty(),
+                "case 7: a view has no indexes, so no candidate is possible; got {:?}",
+                id.candidates
+            );
+
+            // --- Observation, not an assertion: fetch_more_rows --------------
+            // It wraps the caller's SQL in `SELECT * FROM (...) AS _pharos_...`,
+            // and a subquery output column may carry no source table. Printed
+            // so the next task can see the truth; Task 5 does not own the fix.
+            let page = super::fetch_more_rows(
+                CONN.to_string(),
+                "SELECT * FROM tagtest.users ORDER BY id".to_string(),
+                2,
+                0,
+                None,
+                &state,
+            )
+            .await
+            .expect("fetch_more_rows failed");
+            show("observation: fetch_more_rows page 1", "(wrapped in a subquery)", &page);
+        });
     }
 }
 
