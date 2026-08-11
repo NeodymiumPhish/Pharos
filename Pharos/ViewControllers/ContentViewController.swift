@@ -1888,7 +1888,12 @@ class ContentViewController: NSViewController {
                         rowCount: existingResult.rows.count + moreResult.rows.count,
                         executionTimeMs: existingResult.executionTimeMs,
                         hasMore: moreResult.hasMore,
-                        historyEntryId: existingResult.historyEntryId
+                        historyEntryId: existingResult.historyEntryId,
+                        // Row keys are PER ROW, so a merge must concatenate them.
+                        // Omitting this would take the nil default and drop every
+                        // tag in the grid on the first Load More.
+                        rowIdentity: existingResult.rowIdentity?.appendingPage(
+                            moreResult.rowIdentity, pageRowCount: moreResult.rows.count)
                     )
                     applyMerged(merged)
                     // Only mutate the visible grid if the paginated result is still shown.
@@ -2949,7 +2954,10 @@ extension ContentViewController {
                         rowCount: accumulated.rows.count + more.rows.count,
                         executionTimeMs: accumulated.executionTimeMs,
                         hasMore: more.hasMore,
-                        historyEntryId: accumulated.historyEntryId
+                        historyEntryId: accumulated.historyEntryId,
+                        // Same rule as loadMoreRows: concatenate, never replace.
+                        rowIdentity: accumulated.rowIdentity?.appendingPage(
+                            more.rowIdentity, pageRowCount: more.rows.count)
                     )
                     if more.rows.isEmpty { break }   // guard against a no-progress loop
                 }

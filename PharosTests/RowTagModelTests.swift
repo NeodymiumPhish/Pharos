@@ -286,6 +286,54 @@ func runTests() {
         print("FAIL UpdateTagLabel failed to encode at all")
     }
 
+    // MARK: - appendingPage: the Load More merge
+
+    // Row keys are per row. A merge that replaced the block instead of
+    // concatenating would misalign keys against rows, so row N would take
+    // row M's tag. These pin the concatenation.
+    let page1 = RowIdentity(
+        tableKey: "oid:1", tableDisplay: "public.users", tableKeys: ["oid:1"],
+        candidates: [
+            KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1", "V1:2"]),
+            KeySet(kind: "unique", keyColumns: ["email"], keys: ["V1:a", "V1:b"]),
+        ])
+    let page2 = RowIdentity(
+        tableKey: "oid:1", tableDisplay: "public.users", tableKeys: ["oid:1"],
+        candidates: [
+            KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:3"]),
+            KeySet(kind: "unique", keyColumns: ["email"], keys: ["V1:c"]),
+        ])
+
+    let merged = page1.appendingPage(page2, pageRowCount: 1)
+    expectTrue(merged.candidates.count == 2, "a merge keeps both candidates")
+    expectTrue(merged.candidates[0].keys == ["V1:1", "V1:2", "V1:3"],
+               "pk keys concatenate in row order")
+    expectTrue(merged.candidates[1].keys == ["V1:a", "V1:b", "V1:c"],
+               "unique keys concatenate in row order")
+    expectTrue(merged.tableKey == "oid:1", "the table identity is unchanged by a merge")
+
+    // A later page with NO block: the appended rows get the empty sentinel, so
+    // keys stay aligned with rows instead of falling short.
+    let noBlock = page1.appendingPage(nil, pageRowCount: 2)
+    expectTrue(noBlock.candidates[0].keys == ["V1:1", "V1:2", "", ""],
+               "a page with no identity pads with the no-identity sentinel")
+
+    // A later page missing ONE candidate pads only that one.
+    let partial = RowIdentity(
+        tableKey: "oid:1", tableDisplay: "public.users", tableKeys: ["oid:1"],
+        candidates: [KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:3"])])
+    let half = page1.appendingPage(partial, pageRowCount: 1)
+    expectTrue(half.candidates[0].keys == ["V1:1", "V1:2", "V1:3"], "the matching candidate extends")
+    expectTrue(half.candidates[1].keys == ["V1:a", "V1:b", ""], "the missing candidate pads")
+
+    // Keys must ALWAYS match the row count, whatever the page reports.
+    let overlong = RowIdentity(
+        tableKey: "oid:1", tableDisplay: "public.users", tableKeys: ["oid:1"],
+        candidates: [KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:3", "V1:4", "V1:5"])])
+    let trimmed = page1.appendingPage(overlong, pageRowCount: 1)
+    expectTrue(trimmed.candidates[0].keys.count == 3,
+               "a page reporting more keys than rows is trimmed, not left misaligned")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

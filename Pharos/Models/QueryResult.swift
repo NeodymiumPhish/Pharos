@@ -69,6 +69,37 @@ struct RowIdentity: Codable {
     }
 }
 
+extension RowIdentity {
+    /// Extend this block to cover rows appended by a later page.
+    ///
+    /// `keys` is PER ROW, so a Load More that concatenates rows must concatenate
+    /// keys as well. Taking either block wholesale leaves keys misaligned with
+    /// rows: page 1's block covers only page 1, and page 2's covers only page 2.
+    /// A misalignment is worse than a gap, because row N would take row M's tag.
+    ///
+    /// When the later page carries no block, or carries a candidate this block
+    /// does not have, the new rows get the empty-string sentinel — the same
+    /// marker the core uses for "this row has no identity". That is honest: the
+    /// rows exist, and nothing is known about their keys.
+    func appendingPage(_ page: RowIdentity?, pageRowCount: Int) -> RowIdentity {
+        let extended = candidates.map { mine -> KeySet in
+            let theirs = page?.candidates.first { $0.kind == mine.kind && $0.keyColumns == mine.keyColumns }
+            let tail = theirs?.keys ?? []
+            // Pad or trim so the tail is exactly the number of appended rows.
+            let aligned = tail.count == pageRowCount
+                ? tail
+                : tail.prefix(pageRowCount) + Array(repeating: "", count: max(0, pageRowCount - tail.count))
+            return KeySet(kind: mine.kind, keyColumns: mine.keyColumns, keys: mine.keys + Array(aligned))
+        }
+        return RowIdentity(
+            tableKey: tableKey,
+            tableDisplay: tableDisplay,
+            tableKeys: tableKeys,
+            candidates: extended
+        )
+    }
+}
+
 struct QueryResult: Codable {
     let columns: [ColumnDef]
     let rows: [[AnyCodable]]
@@ -95,12 +126,13 @@ struct QueryResult: Codable {
     /// `rowIdentity` defaults to nil so the existing hand-built results keep
     /// their current call form.
     ///
-    /// WARNING for the grid work: the two Load More merges in
-    /// ContentViewController (`loadMoreRows` and the chart load-all loop) build a
-    /// merged QueryResult from the previous one. Taking this default there DROPS
-    /// the identity block and therefore every tag in the grid. Those sites must
-    /// pass the block they already hold, preferring a non-nil block from the new
-    /// page. See the `rowIdentity` doc comment above.
+    /// WARNING: `rowIdentity` defaults to nil so that existing call sites keep
+    /// compiling, and that default is a trap for any code that MERGES one result
+    /// into another. Row keys are per row, so a merge must concatenate them with
+    /// `RowIdentity.appendingPage(_:pageRowCount:)`; taking the default drops
+    /// every tag, and copying either block wholesale misaligns keys against rows.
+    /// The two Load More merges in ContentViewController (`loadMoreRows` and the
+    /// chart load-all loop) already do this correctly — follow them.
     init(
         columns: [ColumnDef],
         rows: [[AnyCodable]],
