@@ -176,11 +176,11 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
 ///
 /// Two consequences for the tag tables below. First, the `ON DELETE CASCADE`
 /// clauses on the older cache tables are live, so this feature must not rely on
-/// the pragma being flipped either way. Second, the tag tables declare plain
-/// `REFERENCES` with no `ON DELETE` action, which means NO ACTION: deleting a
-/// parent that still has children is REJECTED. Inserts must therefore go
-/// `tag_labels` -> `row_tags` -> `row_tag_keys`, and deletes must remove child
-/// rows explicitly, in the reverse order.
+/// the pragma being flipped either way. Second, the tag tables use
+/// `ON DELETE CASCADE`, so the database removes children itself: deleting a
+/// label removes its tags and their keys in one statement. Inserts must still
+/// go `tag_labels` -> `row_tags` -> `row_tag_keys`, because a child still needs
+/// its parent to exist.
 pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // Create tables
     conn.execute_batch(
@@ -547,6 +547,31 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         conn.execute("ALTER TABLE saved_queries ADD COLUMN variables TEXT", [])?;
     }
 
+    // Migration: the tag tables were first created WITHOUT ON DELETE CASCADE,
+    // under the mistaken belief that SQLite was not enforcing foreign keys. It
+    // is, so recreate them and let the database hold the invariant.
+    //
+    // `CREATE TABLE IF NOT EXISTS` cannot alter an existing table, so a
+    // database made by an intermediate build would silently keep the old shape
+    // and rely on application-ordered deletes forever. Dropping is safe: no
+    // code writes a tag until the CRUD lands, and no user interface exists
+    // until a later phase, so these tables are provably empty. Children drop
+    // first, because foreign keys are enforced.
+    let tag_tables_lack_cascade: bool = conn
+        .prepare(
+            "SELECT COUNT(*) FROM sqlite_master              WHERE type = 'table' AND name = 'row_tag_keys'                AND sql NOT LIKE '%ON DELETE CASCADE%'",
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if tag_tables_lack_cascade {
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS row_tag_keys;
+             DROP TABLE IF EXISTS row_tags;",
+        )?;
+    }
+
     conn.execute_batch(
         r#"
         -- Row tags: a re-usable label plus a note, attached to a row identity.
@@ -559,12 +584,15 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             created_at  TEXT NOT NULL
         );
 
-        -- One row per tag. No ON DELETE CASCADE: every delete removes its child
-        -- rows explicitly, children first.
+        -- ON DELETE CASCADE is real here: foreign keys ARE enforced (see the
+        -- note on create_schema). Deleting a label therefore removes its tags,
+        -- and deleting a tag removes its keys, without the application having
+        -- to sequence three statements correctly. The invariant lives in the
+        -- database, so no future caller can leave an orphan.
         CREATE TABLE IF NOT EXISTS row_tags (
             id               TEXT PRIMARY KEY,
             connection_id    TEXT NOT NULL,
-            label_id         TEXT NOT NULL REFERENCES tag_labels(id),
+            label_id         TEXT NOT NULL REFERENCES tag_labels(id) ON DELETE CASCADE,
             note             TEXT,
             primary_kind     TEXT NOT NULL,
             table_key        TEXT NOT NULL,
@@ -579,7 +607,7 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         -- exactly one for a fingerprint tag. This is what lets a tag made through a
         -- primary key match a later result that carries only a unique key.
         CREATE TABLE IF NOT EXISTS row_tag_keys (
-            tag_id         TEXT NOT NULL REFERENCES row_tags(id),
+            tag_id         TEXT NOT NULL REFERENCES row_tags(id) ON DELETE CASCADE,
             connection_id  TEXT NOT NULL,
             table_key      TEXT NOT NULL,
             identity_kind  TEXT NOT NULL,
@@ -2434,27 +2462,28 @@ mod tag_schema_tests {
         assert!(on, "row_tag_keys inserts depend on their parents existing");
     }
 
-    /// A parent with children cannot be deleted: the tag tables declare plain
-    /// REFERENCES, so the action is NO ACTION, not CASCADE. Task 7 must delete
-    /// `row_tag_keys` before `row_tags`.
+    /// An ORPHAN insert is still rejected. CASCADE governs deletes only: a child
+    /// still requires its parent to exist, so inserts must go
+    /// tag_labels -> row_tags -> row_tag_keys. This is the half of foreign-key
+    /// enforcement that CASCADE does NOT relax.
     #[test]
-    fn a_tag_with_keys_cannot_be_deleted_before_its_keys() {
+    fn a_key_row_cannot_be_inserted_without_its_tag() {
         let conn = db();
-        seed_tag_parents(&conn, &["t1"]);
-        conn.execute(
+        let orphan = conn.execute(
             "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
-             VALUES ('t1', 'c1', 'oid:1', 'pk', 'V2:42')",
+             VALUES ('no-such-tag', 'c1', 'oid:1', 'pk', 'V2:42')",
             [],
-        )
-        .unwrap();
-
-        assert!(
-            conn.execute("DELETE FROM row_tags WHERE id = 't1'", []).is_err(),
-            "no ON DELETE CASCADE, so the child rows must go first"
         );
+        assert!(orphan.is_err(), "a key row needs a real parent tag");
 
-        conn.execute("DELETE FROM row_tag_keys WHERE tag_id = 't1'", []).unwrap();
-        conn.execute("DELETE FROM row_tags WHERE id = 't1'", []).unwrap();
+        let orphan_tag = conn.execute(
+            "INSERT INTO row_tags (id, connection_id, label_id, note, primary_kind, table_key, \
+             table_display, identity_columns, identity_values, created_at, updated_at) \
+             VALUES ('t9', 'c1', 'no-such-label', NULL, 'pk', 'oid:1', 'public.t', '[]', '[]', \
+             '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [],
+        );
+        assert!(orphan_tag.is_err(), "a tag needs a real parent label");
     }
 
     #[test]
@@ -2465,6 +2494,58 @@ mod tag_schema_tests {
                       VALUES (?1, 'c1', 'oid:1', 'pk', 'V2:42')";
         conn.execute(insert, ["t1"]).unwrap();
         assert!(conn.execute(insert, ["t2"]).is_err(), "the unique index must reject a duplicate key");
+    }
+
+    /// A label, two tags, and a key row on each. seed_tag_parents makes the
+    /// label and the tags; the key rows are this module's own concern.
+    fn seed_tagged_rows(conn: &Connection) {
+        seed_tag_parents(conn, &["t1", "t2"]);
+        for (tag, value) in [("t1", "V2:42"), ("t2", "V2:43")] {
+            conn.execute(
+                "INSERT INTO row_tag_keys (tag_id, connection_id, table_key, identity_kind, identity_value) \
+                 VALUES (?1, 'c1', 'oid:1', 'pk', ?2)",
+                [tag, value],
+            )
+            .unwrap();
+        }
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.prepare(sql).unwrap().query_row([], |r| r.get(0)).unwrap()
+    }
+
+    /// Deleting a label must take its tags and their keys with it, in ONE
+    /// statement. This is the invariant Task 7's CRUD would otherwise have to
+    /// sequence by hand, and that a future caller could get wrong.
+    #[test]
+    fn deleting_a_label_cascades_to_its_tags_and_their_keys() {
+        let conn = db();
+        seed_tagged_rows(&conn);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tags"), 2);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 2);
+
+        conn.execute("DELETE FROM tag_labels WHERE id = 'l1'", []).unwrap();
+
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tags"), 0,
+                   "row_tags must be emptied by the cascade");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys"), 0,
+                   "row_tag_keys must be emptied by the second-level cascade");
+    }
+
+    /// Deleting one tag takes its own keys and leaves the other tag alone.
+    #[test]
+    fn deleting_a_tag_cascades_to_only_its_own_keys() {
+        let conn = db();
+        seed_tagged_rows(&conn);
+
+        conn.execute("DELETE FROM row_tags WHERE id = 't1'", []).unwrap();
+
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys WHERE tag_id = 't1'"), 0,
+                   "a deleted tag must leave no key rows");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM row_tag_keys WHERE tag_id = 't2'"), 1,
+                   "the other tag's key must survive");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM tag_labels"), 1,
+                   "the label is the parent and must NOT be removed");
     }
 
     #[test]
