@@ -81,7 +81,9 @@ pub struct UpsertRowTag {
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyCandidate {
     /// The key column `attnum`s, in index order. INCLUDE columns are excluded.
-    pub columns: Vec<i16>,
+    /// Named for its contents: `RowTag.identity_columns` holds column NAMES,
+    /// and both appear together in `build_row_identity` (Task 5).
+    pub column_attnums: Vec<i16>,
     pub is_primary: bool,
     pub all_not_null: bool,
 }
@@ -122,7 +124,7 @@ mod tests {
             primary_kind: "pk".into(),
             table_key: "oid:16543".into(),
             table_display: "public.users".into(),
-            identity_columns: vec!["id".into()],
+            identity_columns: vec!["id".into(), "email".into()],
             identity_values: vec![Some("42".into()), None],
             keys: vec![
                 RowTagKey { identity_kind: "pk".into(), identity_value: "V2:42".into() },
@@ -138,5 +140,35 @@ mod tests {
         let back: RowTag = serde_json::from_str(&json).unwrap();
         assert_eq!(back.keys.len(), 2);
         assert_eq!(back.identity_values[1], None);
+    }
+
+    /// Rust only ever DEserializes this type: Swift writes it. A round trip
+    /// would still pass with `rename_all` removed, because both sides would
+    /// agree with each other and disagree with Swift. So decode a literal
+    /// camelCase document, exactly as Swift sends it.
+    #[test]
+    fn upsert_row_tag_decodes_swift_camel_case() {
+        let json = r#"{"connectionId":"c1","labelId":"l1","note":null,"primaryKind":"pk",
+          "tableKey":"oid:16543","tableDisplay":"public.users",
+          "identityColumns":["id","email"],"identityValues":["42",null],
+          "keys":[{"identityKind":"pk","identityValue":"V2:42"}]}"#;
+        let upsert: UpsertRowTag = serde_json::from_str(json).unwrap();
+        assert_eq!(upsert.connection_id, "c1");
+        assert_eq!(upsert.identity_values[1], None);
+        assert_eq!(upsert.keys.len(), 1);
+    }
+
+    /// Same reasoning for the two label write payloads.
+    #[test]
+    fn label_write_payloads_decode_swift_camel_case() {
+        let create: CreateTagLabel =
+            serde_json::from_str(r#"{"name":"Bad data","colorIndex":3}"#).unwrap();
+        assert_eq!(create.color_index, 3);
+
+        let update: UpdateTagLabel =
+            serde_json::from_str(r#"{"id":"l1","colorIndex":4}"#).unwrap();
+        assert_eq!(update.color_index, Some(4));
+        assert_eq!(update.name, None);
+        assert_eq!(update.sort_order, None);
     }
 }
