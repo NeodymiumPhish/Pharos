@@ -165,10 +165,19 @@ mod tests {
             serde_json::from_str(r#"{"name":"Bad data","colorIndex":3}"#).unwrap();
         assert_eq!(create.color_index, 3);
 
-        let update: UpdateTagLabel =
-            serde_json::from_str(r#"{"id":"l1","colorIndex":4}"#).unwrap();
-        assert_eq!(update.color_index, Some(4));
-        assert_eq!(update.name, None);
-        assert_eq!(update.sort_order, None);
+        // Every optional key present, so every key NAME is proved. A sparse
+        // document cannot do this: an absent key and a mis-cased key both give
+        // None, so a casing break on an optional field is silent where the same
+        // break on a required field is a loud `missing field`.
+        let full: UpdateTagLabel = serde_json::from_str(
+            r#"{"id":"l1","name":"Renamed","colorIndex":4,"sortOrder":7}"#).unwrap();
+        assert_eq!(full.name.as_deref(), Some("Renamed"));
+        assert_eq!(full.color_index, Some(4));
+        assert_eq!(full.sort_order, Some(7));
+
+        // An absent optional still decodes to None, with no #[serde(default)].
+        let sparse: UpdateTagLabel = serde_json::from_str(r#"{"id":"l1"}"#).unwrap();
+        assert_eq!(sparse.name, None);
+        assert_eq!(sparse.sort_order, None);
     }
 }
