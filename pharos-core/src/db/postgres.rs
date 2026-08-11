@@ -1,9 +1,9 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Executor, PgPool, Row, ValueRef};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableKeyInfo, TableType};
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
@@ -913,4 +913,310 @@ pub async fn get_schema_functions(
         .collect();
 
     Ok(functions)
+}
+
+/// Fetch the display name and the key indexes of each table OID.
+///
+/// The OIDs are formatted into the SQL, not bound. `raw_sql` (the simple query
+/// protocol this codebase uses for metadata) accepts no bind parameter. The
+/// OIDs arrive from the server as `u32`, so a formatted integer list is safe;
+/// they never pass through a string escape.
+pub async fn get_table_key_info(
+    pool: &PgPool,
+    oids: &[u32],
+) -> Result<HashMap<u32, TableKeyInfo>, sqlx::Error> {
+    if oids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let oid_list = oids
+        .iter()
+        .map(|o| o.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // 1. Display names. A table with no row here was dropped between the query
+    //    and this lookup; it simply gets no entry.
+    let name_sql = format!(
+        "SELECT c.oid::text AS oid, n.nspname || '.' || c.relname AS display \
+         FROM pg_class c \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE c.oid IN ({})",
+        oid_list
+    );
+    let mut out: HashMap<u32, TableKeyInfo> = HashMap::new();
+    let name_rows = sqlx::raw_sql(&name_sql).fetch_all(pool).await?;
+    for row in name_rows {
+        let oid_str: String = row.try_get("oid")?;
+        let display: String = row.try_get("display")?;
+        if let Ok(oid) = oid_str.parse::<u32>() {
+            out.insert(oid, TableKeyInfo { display, candidates: Vec::new() });
+        }
+    }
+
+    // 2. Key indexes.
+    //    - `k.ord <= ix.indnkeyatts` drops INCLUDE columns: PostgreSQL 11 and
+    //      later put them into indkey AFTER the key columns.
+    //    - `indisvalid` drops a failed CREATE INDEX CONCURRENTLY, which is not
+    //      unique in fact. `indimmediate` drops a DEFERRABLE INITIALLY
+    //      DEFERRED constraint, which permits duplicate rows inside a
+    //      transaction. It does NOT drop DEFERRABLE INITIALLY IMMEDIATE, which
+    //      SET CONSTRAINTS can still defer; accepted, because we read
+    //      committed data.
+    //    - `indexprs IS NULL` is load-bearing, and NOT for the obvious reason.
+    //      A pure expression index never reaches the output anyway: its indkey
+    //      entry is 0 and the pg_attribute join matches no row. The guard is
+    //      for a MIXED index such as UNIQUE (n, lower(tag)), indkey "1 0",
+    //      where the join drops only the expression half and keeps the plain
+    //      half — reporting key_attnums = {1}, a false claim that n alone is
+    //      unique. Verified on a live server; do not remove after testing only
+    //      a pure expression index. See scripts/tagtest-schema.sql.
+    //    - `unnest(...) WITH ORDINALITY` keeps the key column order, the same
+    //      idiom `get_table_indexes` uses above.
+    //    - `indisprimary` and `attnotnull` are real booleans and decode with
+    //      no cast. Only the OID and the int2vector need care.
+    let index_sql = format!(
+        "SELECT ix.indrelid::text AS table_oid, \
+                ix.indisprimary AS is_primary, \
+                bool_and(a.attnotnull) AS all_not_null, \
+                array_agg(k.attnum ORDER BY k.ord)::text AS key_attnums \
+         FROM pg_index ix \
+         CROSS JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) \
+         JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum \
+         WHERE ix.indrelid IN ({}) \
+           AND k.ord <= ix.indnkeyatts \
+           AND (ix.indisprimary OR ix.indisunique) \
+           AND ix.indisvalid AND ix.indimmediate \
+           AND ix.indpred IS NULL AND ix.indexprs IS NULL \
+         GROUP BY ix.indrelid, ix.indexrelid, ix.indisprimary",
+        oid_list
+    );
+    let index_rows = sqlx::raw_sql(&index_sql).fetch_all(pool).await?;
+    for row in index_rows {
+        let oid_str: String = row.try_get("table_oid")?;
+        let is_primary: bool = row.try_get("is_primary")?;
+        let all_not_null: bool = row.try_get("all_not_null").unwrap_or(false);
+        let attnums_str: String = row.try_get("key_attnums")?;
+        let Ok(oid) = oid_str.parse::<u32>() else { continue };
+
+        let column_attnums = parse_int_array(&attnums_str);
+        if column_attnums.is_empty() {
+            continue;
+        }
+        if let Some(info) = out.get_mut(&oid) {
+            info.candidates.push(KeyCandidate { column_attnums, is_primary, all_not_null });
+        }
+    }
+
+    Ok(out)
+}
+
+/// Parse a PostgreSQL integer array literal such as "{1,2}" into i16 values.
+/// Used for `indkey` attnums, which arrive as text because an int2vector has no
+/// sqlx decoder.
+fn parse_int_array(text: &str) -> Vec<i16> {
+    text.trim_matches(|c| c == '{' || c == '}')
+        .split(',')
+        .filter(|s| !s.trim().is_empty())
+        .filter_map(|s| s.trim().parse::<i16>().ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod parse_int_array_tests {
+    use super::parse_int_array;
+
+    #[test]
+    fn parses_a_single_column_key() {
+        assert_eq!(parse_int_array("{1}"), vec![1]);
+    }
+    #[test]
+    fn parses_a_compound_key_in_order() {
+        assert_eq!(parse_int_array("{3,1}"), vec![3, 1]);
+    }
+    #[test]
+    fn an_empty_array_is_empty() {
+        assert_eq!(parse_int_array("{}"), Vec::<i16>::new());
+    }
+}
+
+/// Opt-in live test of the catalogue query. `cargo test` skips it; run it with
+///
+///   cargo test --release get_table_key_info -- --ignored --nocapture
+///
+/// It exists because the three `parse_int_array` tests prove string parsing and
+/// NOTHING about the sqlx decode seam, and that seam has already hidden a bug
+/// here: a PostgreSQL internal type can panic or silently yield `None` in a
+/// decode. Only a real connection exercises it.
+///
+/// Fixture: `scripts/tagtest-schema.sql`.
+#[cfg(test)]
+mod live_key_info_tests {
+    use super::get_table_key_info;
+    use crate::models::KeyCandidate;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::Row;
+    use std::collections::HashMap;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+
+    /// Look up the OIDs of the named `tagtest` tables. An empty map means the
+    /// fixture schema is absent.
+    async fn tagtest_oids(pool: &sqlx::PgPool) -> HashMap<String, u32> {
+        let sql = "SELECT c.relname AS name, c.oid::text AS oid \
+                   FROM pg_class c \
+                   JOIN pg_namespace n ON n.oid = c.relnamespace \
+                   WHERE n.nspname = 'tagtest' AND c.relkind = 'r'";
+        let rows = sqlx::raw_sql(sql).fetch_all(pool).await.expect("catalogue lookup failed");
+        let mut map = HashMap::new();
+        for row in rows {
+            let name: String = row.try_get("name").expect("name decode failed");
+            let oid_str: String = row.try_get("oid").expect("oid decode failed");
+            if let Ok(oid) = oid_str.parse::<u32>() {
+                map.insert(name, oid);
+            }
+        }
+        map
+    }
+
+    /// The candidate whose `column_attnums` match, or a panic naming what the
+    /// table actually returned. A blind `candidates[0]` would hide an ordering
+    /// change; this reports the whole set on failure.
+    fn candidate_with<'a>(
+        candidates: &'a [KeyCandidate],
+        attnums: &[i16],
+        table: &str,
+    ) -> &'a KeyCandidate {
+        candidates
+            .iter()
+            .find(|c| c.column_attnums == attnums)
+            .unwrap_or_else(|| {
+                panic!("{}: no candidate with attnums {:?}; got {:?}", table, attnums, candidates)
+            })
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL with scripts/tagtest-schema.sql loaded"]
+    fn get_table_key_info_reads_the_live_catalogue() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.",
+                        url, e
+                    )
+                });
+
+            let oids = tagtest_oids(&pool).await;
+            if oids.is_empty() {
+                eprintln!(
+                    "SKIP: schema `tagtest` not found in {}. Load the fixture first: \
+                     psql -d <db> -f scripts/tagtest-schema.sql",
+                    url
+                );
+                return;
+            }
+            for needed in ["users", "memberships", "include_demo", "nullable_codes"] {
+                if !oids.contains_key(needed) {
+                    eprintln!(
+                        "SKIP: schema `tagtest` is present but table `{}` is missing. \
+                         Reload scripts/tagtest-schema.sql",
+                        needed
+                    );
+                    return;
+                }
+            }
+
+            let users_oid = oids["users"];
+            let memberships_oid = oids["memberships"];
+            let include_oid = oids["include_demo"];
+            let nullable_oid = oids["nullable_codes"];
+
+            let info = get_table_key_info(
+                &pool,
+                &[users_oid, memberships_oid, include_oid, nullable_oid],
+            )
+            .await
+            .expect("get_table_key_info failed");
+
+            // --- users: a primary key AND a unique key ----------------------
+            let users = info.get(&users_oid).expect("no entry for tagtest.users");
+            assert_eq!(users.display, "tagtest.users", "display name");
+            assert_eq!(
+                users.candidates.len(),
+                2,
+                "users should have 2 candidates, got {:?}",
+                users.candidates
+            );
+            let pk = candidate_with(&users.candidates, &[1], "users");
+            assert!(pk.is_primary, "users {{1}} should be the primary key");
+            assert!(pk.all_not_null, "users.id is NOT NULL");
+            let uq = candidate_with(&users.candidates, &[2], "users");
+            assert!(!uq.is_primary, "users {{2}} is a unique key, not the pk");
+            assert!(uq.all_not_null, "users.email is NOT NULL");
+
+            // --- memberships: a COMPOUND primary key, order matters ---------
+            let memberships =
+                info.get(&memberships_oid).expect("no entry for tagtest.memberships");
+            assert_eq!(
+                memberships.candidates.len(),
+                1,
+                "memberships should have 1 candidate, got {:?}",
+                memberships.candidates
+            );
+            let compound = &memberships.candidates[0];
+            assert!(compound.is_primary, "memberships candidate is the pk");
+            assert_eq!(
+                compound.column_attnums,
+                vec![1, 2],
+                "compound key must keep index order (user_id, team_id)"
+            );
+
+            // --- include_demo: the INCLUDE-column guard ---------------------
+            // Without `k.ord <= ix.indnkeyatts` this reads {1,2} and
+            // all_not_null flips to false, discarding a good key.
+            let include = info.get(&include_oid).expect("no entry for tagtest.include_demo");
+            assert_eq!(
+                include.candidates.len(),
+                1,
+                "include_demo should have 1 candidate, got {:?}",
+                include.candidates
+            );
+            assert_eq!(
+                include.candidates[0].column_attnums,
+                vec![1],
+                "INCLUDE column must not enter the key: {:?}",
+                include.candidates
+            );
+            assert!(
+                include.candidates[0].all_not_null,
+                "include_demo.k is NOT NULL; payload's nullability must not leak in"
+            );
+
+            // --- nullable_codes: reported, but all_not_null = false ---------
+            let nullable =
+                info.get(&nullable_oid).expect("no entry for tagtest.nullable_codes");
+            assert_eq!(
+                nullable.candidates.len(),
+                1,
+                "nullable_codes should have 1 candidate, got {:?}",
+                nullable.candidates
+            );
+            assert!(
+                !nullable.candidates[0].all_not_null,
+                "a unique index on a NULLABLE column must report all_not_null = false"
+            );
+
+            println!("live catalogue read OK:");
+            for (oid, entry) in &info {
+                println!("  {} oid={} candidates={:?}", entry.display, oid, entry.candidates);
+            }
+        });
+    }
 }
