@@ -185,6 +185,7 @@ pub async fn disconnect_postgres(
         pool.close().await;
     }
     state.clear_analyze_denied(&connection_id);
+    state.clear_key_cache(&connection_id);
     Ok(())
 }
 
