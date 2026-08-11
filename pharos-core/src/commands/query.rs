@@ -74,42 +74,10 @@ fn format_db_error(e: &sqlx::Error) -> String {
     e.to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ColumnDef {
-    pub name: String,
-    pub data_type: String,
-    /// The OID of the source table, from PgColumn::relation_id(). None for an
-    /// expression column.
-    #[serde(default)]
-    pub relation_oid: Option<u32>,
-    /// The 1-based attnum in that table, from relation_attribute_no().
-    #[serde(default)]
-    pub relation_attno: Option<i16>,
-}
-
-/// One satisfied key of a result: a kind, the columns it uses, and one key
-/// string per row. An empty key string means the row has no identity in this
-/// set, for example a NULL from an outer join.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeySet {
-    /// "pk" | "unique"
-    pub kind: String,
-    pub key_columns: Vec<String>,
-    pub keys: Vec<String>,
-}
-
-/// The row identity of a result. An empty `candidates` array means the
-/// fingerprint tier: Swift then compares row values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RowIdentity {
-    pub table_key: String,
-    pub table_display: String,
-    /// Every source table in the result, so the weak tier can test the table
-    /// overlap even with no candidate.
-    pub table_keys: Vec<String>,
-    /// At most two entries, strongest first.
-    pub candidates: Vec<KeySet>,
-}
+// ColumnDef, KeySet and RowIdentity live in `row_identity`, beside the pure
+// logic that fills them. A private `use` here is still visible to this module's
+// descendants, so the test module below reaches them through `super::`.
+use super::row_identity::{assemble_row_identity, ColumnDef, RowIdentity};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -119,8 +87,11 @@ pub struct QueryResult {
     pub execution_time_ms: u64,
     pub has_more: bool,
     pub history_entry_id: Option<String>,
-    /// None only when no column carries a source table, for example a result
-    /// of pure expressions, or the empty page of fetch_more_rows.
+    /// The row identity of this result, or None when there is none to report:
+    /// either no column carries a source table (a result of pure expressions),
+    /// or the result has no rows, which leaves no keys to build. A result that
+    /// HAS rows and at least one source table always carries a block, even when
+    /// it holds no key candidate.
     pub row_identity: Option<RowIdentity>,
 }
 
@@ -138,7 +109,9 @@ fn pg_columns_to_defs(cols: &[sqlx::postgres::PgColumn]) -> Vec<ColumnDef> {
         .collect()
 }
 
-/// Build the row identity block for a result.
+/// Fill the key cache for a result's source tables, then hand off to the pure
+/// `assemble_row_identity`. This function owns only the I/O: everything that
+/// decides what the block SAYS is pure and tested offline.
 ///
 /// Returns None only when no column carries a source table. An empty
 /// `candidates` array is the fingerprint case and still returns a block,
@@ -165,84 +138,58 @@ async fn build_row_identity(
     let missing = state.missing_key_cache_oids(connection_id, &all_oids);
     if !missing.is_empty() {
         match crate::db::postgres::get_table_key_info(pool, &missing).await {
-            Ok(fetched) => {
-                for (oid, info) in fetched {
-                    state.cache_table_key_info(connection_id, oid, info);
+            Ok(mut fetched) => {
+                for oid in &missing {
+                    match fetched.remove(oid) {
+                        Some(info) => state.cache_table_key_info(connection_id, *oid, info),
+                        None => {
+                            // The catalogue answered, but this OID was not in
+                            // the answer: the table was dropped between the
+                            // query and this read. Cache a placeholder, or every
+                            // later result from the same table would re-run both
+                            // catalogue queries and find nothing again. An empty
+                            // candidate list is the fingerprint tier, which is
+                            // the honest answer for a table that is gone.
+                            log::info!(
+                                "No catalogue entry for oid {} on connection {}: \
+                                 the table was dropped mid-query. This result \
+                                 falls back to row fingerprints.",
+                                oid,
+                                connection_id
+                            );
+                            state.cache_table_key_info(
+                                connection_id,
+                                *oid,
+                                crate::models::TableKeyInfo {
+                                    display: format!("unknown table (oid {})", oid),
+                                    candidates: Vec::new(),
+                                },
+                            );
+                        }
+                    }
                 }
             }
             // A catalogue failure must not fail the query. Without key info the
             // result falls to the fingerprint tier, which is the honest result.
-            Err(e) => log::warn!("Failed to read table key info: {}", e),
+            // Nothing is cached here on purpose: a failure is usually transient,
+            // so the next result should try again.
+            Err(e) => log::warn!(
+                "Failed to read table key info for connection {} oids {:?}: {}",
+                connection_id,
+                missing,
+                e
+            ),
         }
     }
 
     let info = state.get_table_key_info(connection_id, primary_oid);
-    let table_display = info
-        .as_ref()
-        .map(|i| i.display.clone())
-        // This is user-visible: table_display names the table in the tag
-        // popover. Make a missing catalogue entry read as a fallback rather
-        // than as a table name, and keep it clearly distinct from table_key's
-        // "oid:{n}" form.
-        .unwrap_or_else(|| format!("unknown table (oid {})", primary_oid));
-
-    // attnums of the columns that belong to the primary table.
-    let present_attnos: Vec<i16> = columns
-        .iter()
-        .filter(|c| c.relation_oid == Some(primary_oid))
-        .filter_map(|c| c.relation_attno)
-        .collect();
-
-    let chosen = info
-        .as_ref()
-        .map(|i| crate::commands::choose_candidates(&i.candidates, &present_attnos))
-        .unwrap_or_default();
-
-    let mut candidates: Vec<KeySet> = Vec::with_capacity(chosen.len());
-    for cand in chosen {
-        // Map each key attnum to its position in the result's column list.
-        let mut indices: Vec<usize> = Vec::with_capacity(cand.column_attnums.len());
-        let mut names: Vec<String> = Vec::with_capacity(cand.column_attnums.len());
-        let mut resolved = true;
-        for attno in &cand.column_attnums {
-            match columns.iter().position(|c| {
-                c.relation_oid == Some(primary_oid) && c.relation_attno == Some(*attno)
-            }) {
-                Some(idx) => {
-                    indices.push(idx);
-                    names.push(columns[idx].name.clone());
-                }
-                None => {
-                    resolved = false;
-                    break;
-                }
-            }
-        }
-        if !resolved {
-            continue;
-        }
-
-        let keys: Vec<String> = json_rows
-            .iter()
-            .map(|row| match row.as_array() {
-                Some(values) => crate::commands::row_key(values, &indices),
-                None => String::new(),
-            })
-            .collect();
-
-        candidates.push(KeySet {
-            kind: if cand.is_primary { "pk".to_string() } else { "unique".to_string() },
-            key_columns: names,
-            keys,
-        });
-    }
-
-    Some(RowIdentity {
-        table_key: format!("oid:{}", primary_oid),
-        table_display,
-        table_keys: all_oids.iter().map(|o| format!("oid:{}", o)).collect(),
-        candidates,
-    })
+    Some(assemble_row_identity(
+        columns,
+        json_rows,
+        primary_oid,
+        &all_oids,
+        info.as_ref(),
+    ))
 }
 
 /// Execute a SQL query and return results
@@ -363,6 +310,10 @@ pub async fn execute_query(
             execution_time_ms,
             has_more: false,
             history_entry_id: None,
+            // No identity block, even though describe() may have reported a
+            // source table for every column. An identity exists to match ROWS,
+            // and there are none. Building one here would cost a catalogue read
+            // to produce a block with an empty key list in every candidate.
             row_identity: None,
         });
     }
@@ -390,9 +341,9 @@ pub async fn execute_query(
         .collect();
 
     // Return this connection to the pool BEFORE the identity block, which
-    // acquires one of its own for the catalogue read. The pool holds only five
-    // connections, so keeping this one would let five concurrent queries own
-    // every connection while each waits for a sixth.
+    // acquires one of its own for the catalogue read. The pool is small — see
+    // max_connections in db::postgres — so keeping this one would let enough
+    // concurrent queries hold every connection while each waits for one more.
     drop(conn);
 
     let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
@@ -960,7 +911,8 @@ fn parse_identifier(s: &str) -> Option<(String, &str)> {
 /// Fixture: `scripts/tagtest-schema.sql`.
 #[cfg(test)]
 mod live_query_identity_tests {
-    use super::{execute_query, KeySet, QueryResult, RowIdentity};
+    use super::{execute_query, QueryResult, RowIdentity};
+    use crate::commands::row_identity::KeySet;
     use crate::state::AppState;
     use rusqlite::Connection as SqliteConnection;
     use sqlx::postgres::PgPoolOptions;
@@ -979,6 +931,26 @@ mod live_query_identity_tests {
                    WHERE n.nspname = 'tagtest' AND c.relkind IN ('r', 'v')";
         let rows = sqlx::raw_sql(sql).fetch_all(pool).await.expect("catalogue lookup failed");
         rows.iter().map(|r| r.try_get::<String, _>("name").expect("name decode")).collect()
+    }
+
+    /// The OID of one `tagtest` relation. The block's table_key must carry this
+    /// exact number, so read it from the catalogue rather than trusting the
+    /// block to agree with itself.
+    async fn relation_oid(pool: &sqlx::PgPool, name: &str) -> u32 {
+        let sql = format!(
+            "SELECT c.oid AS oid FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = 'tagtest' AND c.relname = '{}'",
+            name
+        );
+        let row = sqlx::raw_sql(&sql)
+            .fetch_all(pool)
+            .await
+            .expect("oid lookup failed")
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("no tagtest relation named {}", name));
+        row.try_get::<sqlx::postgres::types::Oid, _>("oid").expect("oid decode").0
     }
 
     /// The candidate of the named kind, or a panic showing the whole set. Never
@@ -1026,8 +998,12 @@ mod live_query_identity_tests {
     #[test]
     #[ignore = "needs a live PostgreSQL with scripts/tagtest-schema.sql loaded"]
     fn query_identity_comes_back_from_a_live_result() {
-        let url = std::env::var("PHAROS_TEST_DATABASE_URL")
-            .unwrap_or_else(|_| DEFAULT_URL.to_string());
+        // Remember whether the caller NAMED a database. A missing fixture may
+        // skip on the default URL only. If the caller named one, they meant that
+        // one, and reporting `ok` for a test that never ran is worse than a
+        // failure: it looks like proof.
+        let explicit = std::env::var("PHAROS_TEST_DATABASE_URL").ok();
+        let url = explicit.clone().unwrap_or_else(|| DEFAULT_URL.to_string());
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
 
         rt.block_on(async move {
@@ -1043,25 +1019,46 @@ mod live_query_identity_tests {
                     panic!("cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.", url, e)
                 });
 
+            // Skip, or panic if the caller named the database. Returns true when
+            // the caller should give up.
+            let bail = |reason: String| -> bool {
+                if explicit.is_some() {
+                    panic!(
+                        "{}\nPHAROS_TEST_DATABASE_URL named this database, so this \
+                         is a failure, not a skip.",
+                        reason
+                    );
+                }
+                eprintln!("SKIP: {}", reason);
+                true
+            };
+
             let relations = tagtest_relations(&pool).await;
-            if relations.is_empty() {
-                eprintln!(
-                    "SKIP: schema `tagtest` not found in {}. Load the fixture first: \
+            if relations.is_empty()
+                && bail(format!(
+                    "schema `tagtest` not found in {}. Load the fixture first: \
                      psql -d <db> -f scripts/tagtest-schema.sql",
                     url
-                );
+                ))
+            {
                 return;
             }
             for needed in ["users", "memberships", "active_users"] {
-                if !relations.iter().any(|r| r == needed) {
-                    eprintln!(
-                        "SKIP: schema `tagtest` is present but relation `{}` is missing. \
+                if !relations.iter().any(|r| r == needed)
+                    && bail(format!(
+                        "schema `tagtest` is present but relation `{}` is missing. \
                          Reload scripts/tagtest-schema.sql",
                         needed
-                    );
+                    ))
+                {
                     return;
                 }
             }
+
+            // The real OIDs, so the assertions below can name the exact table
+            // key the block must carry.
+            let users_oid = relation_oid(&pool, "users").await;
+            let memberships_oid = relation_oid(&pool, "memberships").await;
 
             // An in-memory metadata DB has no settings and no history tables.
             // Both reads are non-fatal by design: the timeout falls back to its
@@ -1117,11 +1114,19 @@ mod live_query_identity_tests {
             let id = r.row_identity.as_ref().expect("case 3: a block is still required");
             assert!(id.candidates.is_empty(), "case 3 must be the fingerprint tier");
             assert_eq!(id.table_display, "tagtest.users", "case 3 table_display");
-            assert!(
-                id.table_keys.contains(&id.table_key),
-                "case 3 table_keys {:?} must contain the users key {}",
+            // Check the keys against the catalogue's OID, not against each other.
+            // `table_keys.contains(&table_key)` cannot fail: one function builds
+            // both from one OID list, so it would pass even if every OID were
+            // wrong. A single-table result must report exactly ONE source table.
+            assert_eq!(
+                id.table_key,
+                format!("oid:{}", users_oid),
+                "case 3 table_key must name tagtest.users"
+            );
+            assert_eq!(
                 id.table_keys,
-                id.table_key
+                vec![format!("oid:{}", users_oid)],
+                "case 3: one source table means exactly one entry"
             );
 
             // --- 4. An aggregate has no source table -------------------------
@@ -1136,7 +1141,18 @@ mod live_query_identity_tests {
             let r = run(sql).await;
             show("case 5: two source tables", sql, &r);
             let id = r.row_identity.as_ref().expect("case 5: expected an identity block");
-            assert_eq!(id.table_keys.len(), 2, "case 5 table_keys {:?}", id.table_keys);
+            assert_eq!(
+                id.table_keys,
+                vec![format!("oid:{}", users_oid), format!("oid:{}", memberships_oid)],
+                "case 5: both source tables, in column order"
+            );
+            // Each table owns one column, so this is a tie, and the LEFTMOST
+            // table must win. Asserting the count alone would pass whichever
+            // table won, which is the one thing worth checking here.
+            assert_eq!(
+                id.table_display, "tagtest.users",
+                "case 5: a tie on column count must go to the leftmost table"
+            );
 
             // --- 6. The NULL sentinel ----------------------------------------
             // memberships owns 2 of the 3 columns, so it is the primary table.
@@ -1196,26 +1212,114 @@ mod live_query_identity_tests {
                 id.candidates
             );
 
-            // --- Observation, not an assertion: fetch_more_rows --------------
-            // It wraps the caller's SQL in `SELECT * FROM (...) AS _pharos_...`,
-    // Measured 2026-08-11: fetch_more_rows wraps the SQL as
-    // `SELECT * FROM (...) AS _pharos_paginated`, and PostgreSQL passes the
-    // source table OIDs straight through a plain SELECT * subquery. So a
-    // later page carries the SAME identity as page 1, and Load More keeps
-    // tags with no extra work. Printed, not asserted: it is a property of
-    // the server, not of our code.
-            // so the next task can see the truth; Task 5 does not own the fix.
+            // --- 8. A SELF-JOIN: A MEASURED LIMIT, NOT A DEFECT --------------
+            //
+            // Both aliases of `tagtest.users` report the SAME base table OID and
+            // the SAME attnums. `m.id` therefore satisfies the primary key, and
+            // every row's key is built from m.id, which the join pins to 1. So
+            // all three rows share the key "V1:1".
+            //
+            // That is the same rule a one-to-many join follows, and it is the
+            // designed behaviour: one tag record covers every row holding the
+            // key, and the tagged count counts rows. Duplicate keys are NOT a
+            // fault to reject. Rejecting them would demote every one-to-many
+            // join to the fingerprint tier.
+            let sql = "SELECT m.id, e.name FROM tagtest.users e \
+                       JOIN tagtest.users m ON m.id = 1 ORDER BY e.id";
+            let r = run(sql).await;
+            show("case 8: self-join, single-column key", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 8: expected an identity block");
+            let pk = keyset(id, "pk");
+            assert!(
+                pk.keys.iter().all(|k| k == "V1:1"),
+                "case 8: every key comes from m.id, which the join pins to 1; got {:?}",
+                pk.keys
+            );
+            assert!(pk.keys.len() > 1, "case 8 needs several rows to be meaningful");
+
+            // --- 9. A SELF-JOIN THAT SPLITS A COMPOUND KEY -------------------
+            //
+            // THE KNOWN HAZARD OF THIS DESIGN. Read before changing anything.
+            //
+            // `a.user_id` and `b.team_id` come from two DIFFERENT rows of
+            // memberships, but both columns report the base table's OID and
+            // their own attnums, so `present_attnos` becomes [1, 2] and the
+            // compound primary key looks complete. Each key below is therefore
+            // composed from two different rows, and such a fabricated key can
+            // coincide with a real row's key. A tag saved against it would later
+            // attach to the wrong row.
+            //
+            // NO CODE CAN DETECT THIS. In the protocol's metadata
+            // `SELECT a.user_id, b.team_id FROM memberships a, memberships b` is
+            // byte-identical to `SELECT user_id, team_id FROM memberships`.
+            // PostgreSQL gives no way to tell the aliases apart. A uniqueness
+            // check does not help either: these keys are a cross product, so
+            // they are all distinct. Sniffing the SQL text for a repeated table
+            // name was considered and rejected: it uses a fragile signal to
+            // silently demote legitimate queries.
+            //
+            // So this case PINS the limit rather than fixing it. The assertion
+            // says a candidate IS produced, which is exactly what makes the
+            // hazard real and visible.
+            let sql = "SELECT a.user_id, b.team_id \
+                       FROM tagtest.memberships a, tagtest.memberships b ORDER BY 1, 2";
+            let r = run(sql).await;
+            show("case 9: self-join splitting a compound key", sql, &r);
+            let id = r.row_identity.as_ref().expect("case 9: expected an identity block");
+            assert_eq!(
+                id.table_display, "tagtest.memberships",
+                "case 9: both aliases report the base table"
+            );
+            let pk = keyset(id, "pk");
+            assert_eq!(
+                pk.key_columns,
+                vec!["user_id", "team_id"],
+                "case 9: the compound key looks complete, though its halves come \
+                 from different rows"
+            );
+            assert_eq!(
+                pk.keys.len(),
+                9,
+                "case 9: a 3x3 cross join; these keys are fabricated pairs"
+            );
+
+            // --- 10. A later page keeps the same identity --------------------
+            //
+            // Measured 2026-08-11: fetch_more_rows wraps the SQL as
+            // `SELECT * FROM (...) AS _pharos_paginated`, and PostgreSQL passes
+            // the source table OIDs straight through a plain SELECT * subquery.
+            // So a later page carries the SAME identity as page 1, and Load More
+            // keeps tags with no extra work.
+            //
+            // Asserted, not merely printed, for the same reason case 7 is: it is
+            // a property of the server that this feature depends on, so a change
+            // in it must fail here rather than surface as tags vanishing on
+            // page 2.
             let page = super::fetch_more_rows(
                 CONN.to_string(),
                 "SELECT * FROM tagtest.users ORDER BY id".to_string(),
                 2,
-                0,
+                1,
                 None,
                 &state,
             )
             .await
             .expect("fetch_more_rows failed");
-            show("observation: fetch_more_rows page 1", "(wrapped in a subquery)", &page);
+            show("case 10: fetch_more_rows, offset 1", "(wrapped in a subquery)", &page);
+            let id = page.row_identity.as_ref().expect("case 10: expected an identity block");
+            assert_eq!(
+                id.table_key,
+                format!("oid:{}", users_oid),
+                "case 10: a later page must name the same table as page 1"
+            );
+            let pk = keyset(id, "pk");
+            assert_eq!(pk.key_columns, vec!["id"], "case 10 pk columns");
+            assert!(
+                pk.keys.iter().all(|k| !k.is_empty()),
+                "case 10: every row of a later page must have a real key; got {:?}",
+                pk.keys
+            );
+            assert_eq!(pk.keys, vec!["V1:2", "V1:3"], "case 10: rows 2 and 3, in order");
         });
     }
 }
