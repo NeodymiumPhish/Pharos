@@ -161,7 +161,7 @@ async fn build_row_identity(
                                 connection_id,
                                 *oid,
                                 crate::models::TableKeyInfo {
-                                    display: format!("unknown table (oid {})", oid),
+                                    display: crate::commands::unknown_table_display(*oid),
                                     candidates: Vec::new(),
                                 },
                             );

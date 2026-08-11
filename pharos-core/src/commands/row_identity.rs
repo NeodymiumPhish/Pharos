@@ -67,7 +67,7 @@ pub fn assemble_row_identity(
         // popover. Make a missing catalogue entry read as a fallback rather
         // than as a table name, and keep it clearly distinct from table_key's
         // "oid:{n}" form.
-        .unwrap_or_else(|| format!("unknown table (oid {})", primary_oid));
+        .unwrap_or_else(|| unknown_table_display(primary_oid));
 
     // Where each of the primary table's columns sits in the result. `or_insert`
     // keeps the FIRST position, so a column selected twice always builds the
@@ -198,6 +198,16 @@ pub fn primary_table_oid(column_oids: &[Option<u32>]) -> Option<u32> {
         .map(|(oid, _)| oid)
 }
 
+/// The `table_display` text for a table whose catalogue entry is missing.
+///
+/// One source, because two call sites need the SAME bytes: the assembly's
+/// fallback, and the negative-cache placeholder in `commands::query`. Swift may
+/// come to treat this text as a state, so a drift between the two would be a
+/// silent behaviour split.
+pub fn unknown_table_display(oid: u32) -> String {
+    format!("unknown table (oid {})", oid)
+}
+
 /// Build the key of one row from the given column positions.
 ///
 /// Returns an empty string when any key value is NULL or any position is out of
@@ -284,7 +294,9 @@ mod assemble_tests {
     #[test]
     fn a_missing_catalogue_entry_still_names_the_table() {
         let id = assemble_row_identity(&users_columns(), &[], USERS, &[USERS], None);
-        assert_eq!(id.table_display, "unknown table (oid 609999)");
+        // Compare against the helper, not a literal: the point is that both
+        // call sites agree, not that the wording is any particular string.
+        assert_eq!(id.table_display, unknown_table_display(609999));
         assert_eq!(id.table_key, "oid:609999");
         // No info means no candidate can be judged complete, so this is the
         // fingerprint tier rather than a guess.
