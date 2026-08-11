@@ -46,6 +46,7 @@ mod connection;
 mod lifecycle;
 mod query;
 mod query_history;
+mod row_tag;
 mod saved_queries;
 mod schema;
 mod settings;

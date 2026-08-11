@@ -165,6 +165,54 @@ char *pharos_load_query_history(const char *json);
  char *pharos_batch_delete_query_history(const char *json);
 
 /**
+ * Load every tag label. Returns JSON array. Caller must free.
+ */
+ char *pharos_load_tag_labels(void);
+
+/**
+ * Create a tag label. `json` is JSON-encoded CreateTagLabel. Returns JSON TagLabel.
+ */
+ char *pharos_create_tag_label(const char *json);
+
+/**
+ * Update a tag label. `json` is JSON-encoded UpdateTagLabel. Returns JSON TagLabel or null.
+ */
+ char *pharos_update_tag_label(const char *json);
+
+/**
+ * Count the tags that use a label. Returns the count as a decimal string.
+ * An unknown label id gives "0", not an error.
+ */
+ char *pharos_count_tags_for_label(const char *label_id);
+
+/**
+ * Delete a tag label. Returns "true" or "false".
+ */
+ char *pharos_delete_tag_label(const char *label_id);
+
+/**
+ * Load every row tag of one connection. Returns JSON array. Caller must free.
+ */
+ char *pharos_load_row_tags(const char *connection_id);
+
+/**
+ * Write a row tag. `json` is JSON-encoded UpsertRowTag. Returns JSON RowTag.
+ */
+ char *pharos_upsert_row_tag(const char *json);
+
+/**
+ * Delete one row tag. Returns "true" or "false".
+ */
+ char *pharos_delete_row_tag(const char *tag_id);
+
+/**
+ * Delete many row tags. `json` is a JSON array of ids. Returns the number of
+ * rows actually removed as a decimal string, which can be fewer than the
+ * number of ids sent.
+ */
+ char *pharos_delete_row_tags(const char *json);
+
+/**
  * Load saved queries. Returns JSON array. Caller must free.
  */
  char *pharos_load_saved_queries(void);
