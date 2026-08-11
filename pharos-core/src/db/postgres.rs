@@ -1122,7 +1122,7 @@ mod live_key_info_tests {
                 );
                 return;
             }
-            for needed in ["users", "memberships", "include_demo", "nullable_codes"] {
+            for needed in ["users", "memberships", "include_demo", "nullable_codes", "excluded"] {
                 if !oids.contains_key(needed) {
                     eprintln!(
                         "SKIP: schema `tagtest` is present but table `{}` is missing. \
@@ -1137,10 +1137,11 @@ mod live_key_info_tests {
             let memberships_oid = oids["memberships"];
             let include_oid = oids["include_demo"];
             let nullable_oid = oids["nullable_codes"];
+            let excluded_oid = oids["excluded"];
 
             let info = get_table_key_info(
                 &pool,
-                &[users_oid, memberships_oid, include_oid, nullable_oid],
+                &[users_oid, memberships_oid, include_oid, nullable_oid, excluded_oid],
             )
             .await
             .expect("get_table_key_info failed");
@@ -1211,6 +1212,42 @@ mod live_key_info_tests {
             assert!(
                 !nullable.candidates[0].all_not_null,
                 "a unique index on a NULLABLE column must report all_not_null = false"
+            );
+
+            // --- excluded: the three exclusion guards -----------------------
+            // This one assertion defends `indpred IS NULL`, `indexprs IS NULL`
+            // and `indimmediate` at once. tagtest.excluded carries four unique
+            // indexes, every one of which must be filtered out: partial, pure
+            // expression, MIXED expression, and DEFERRABLE INITIALLY DEFERRED.
+            //
+            // The mixed index is why this matters most. `UNIQUE (n, lower(tag))`
+            // has indkey "1 0". The pg_attribute join drops only the expression
+            // half, so without `indexprs IS NULL` the index is reported as
+            // column_attnums = [1] — a claim that `n` alone is unique, which is
+            // false. A row key built from it would not identify a row, and a
+            // tag would attach to the WRONG row. A pure expression index drops
+            // out by itself (indkey entry 0 matches no pg_attribute row), so
+            // anyone who tests only that case concludes the clause is dead and
+            // deletes it. This assertion is what stops that.
+            //
+            // It also proves an incidental point the fingerprint tier depends
+            // on: a table with NO usable key still gets an entry, with a
+            // correct display, instead of being dropped from the map.
+            let excluded = info.get(&excluded_oid).expect(
+                "tagtest.excluded must still get an entry: a table with no usable key needs a \
+                 display for the fingerprint tier",
+            );
+            assert_eq!(excluded.display, "tagtest.excluded", "display name");
+            assert!(
+                excluded.candidates.is_empty(),
+                "tagtest.excluded must yield no candidates: its indexes are partial, expression, \
+                 mixed-expression and deferred. A non-empty set means an exclusion guard was \
+                 removed. Which attnum leaked names the guard: [1] is column `n`, so either \
+                 `indpred IS NULL` (the partial index) or `indexprs IS NULL` (the MIXED index \
+                 leaking its plain half, falsely claiming `n` alone is unique); [3] is column \
+                 `defcol`, so `indimmediate` (the DEFERRABLE INITIALLY DEFERRED constraint). \
+                 Verified by deleting each guard in turn. Got {:?}",
+                excluded.candidates
             );
 
             println!("live catalogue read OK:");
