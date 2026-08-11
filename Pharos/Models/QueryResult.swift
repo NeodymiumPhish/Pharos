@@ -1,12 +1,71 @@
 import Foundation
 
+// The Rust structs behind ColumnDef, KeySet, RowIdentity and QueryResult carry
+// NO `#[serde(rename_all)]`, so their JSON keys are snake_case and every field
+// whose Swift name differs needs an explicit CodingKeys case. JSONDecoder.pharos
+// applies no key strategy, so a missing case throws at RUN time only.
+// The row TAG models take the opposite rule — see Pharos/Models/RowTag.swift.
+
 struct ColumnDef: Codable {
     let name: String
     let dataType: String
+    /// OID of the source table, or nil for an expression column. Also nil for a
+    /// column decoded from history cached before this field existed, so it must
+    /// stay optional: Swift is the only decoder of that cached JSON.
+    let relationOid: UInt32?
+    /// 1-based attnum in that table, or nil as above.
+    let relationAttno: Int16?
 
     enum CodingKeys: String, CodingKey {
         case name
         case dataType = "data_type"
+        case relationOid = "relation_oid"
+        case relationAttno = "relation_attno"
+    }
+
+    /// The OID pair defaults to nil so the many call sites that build a synthetic
+    /// column (chart/drill test fixtures, pushdown generators) keep the
+    /// two-argument form. A synthetic column genuinely has no source table, so
+    /// nil is the right value there, not a placeholder.
+    init(name: String, dataType: String, relationOid: UInt32? = nil, relationAttno: Int16? = nil) {
+        self.name = name
+        self.dataType = dataType
+        self.relationOid = relationOid
+        self.relationAttno = relationAttno
+    }
+}
+
+/// One satisfied key of a result. `keys` holds one string per row, in row order.
+/// An empty string means the row has no identity in this set, for example a NULL
+/// key value from an outer join.
+struct KeySet: Codable {
+    /// "pk" or "unique"
+    let kind: String
+    let keyColumns: [String]
+    let keys: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case keyColumns = "key_columns"
+        case keys
+    }
+}
+
+/// The row identity of a result. An empty `candidates` array means the
+/// fingerprint tier.
+struct RowIdentity: Codable {
+    let tableKey: String
+    let tableDisplay: String
+    /// Every source table in the result, for the fingerprint overlap test.
+    let tableKeys: [String]
+    /// At most two entries, strongest first.
+    let candidates: [KeySet]
+
+    enum CodingKeys: String, CodingKey {
+        case tableKey = "table_key"
+        case tableDisplay = "table_display"
+        case tableKeys = "table_keys"
+        case candidates
     }
 }
 
@@ -17,6 +76,12 @@ struct QueryResult: Codable {
     let executionTimeMs: UInt64
     let hasMore: Bool
     let historyEntryId: String?
+    /// nil when no column carries a source table, and on the empty page of a
+    /// Load More. A consumer must KEEP the block it already holds when a later
+    /// page carries nil: the empty branch of `fetch_more_rows` returns no
+    /// columns, so it can carry no identity. Replacing a block with nil would
+    /// drop every tag in the grid.
+    let rowIdentity: RowIdentity?
 
     enum CodingKeys: String, CodingKey {
         case columns, rows
@@ -24,6 +89,34 @@ struct QueryResult: Codable {
         case executionTimeMs = "execution_time_ms"
         case hasMore = "has_more"
         case historyEntryId = "history_entry_id"
+        case rowIdentity = "row_identity"
+    }
+
+    /// `rowIdentity` defaults to nil so the existing hand-built results keep
+    /// their current call form.
+    ///
+    /// WARNING for the grid work: the two Load More merges in
+    /// ContentViewController (`loadMoreRows` and the chart load-all loop) build a
+    /// merged QueryResult from the previous one. Taking this default there DROPS
+    /// the identity block and therefore every tag in the grid. Those sites must
+    /// pass the block they already hold, preferring a non-nil block from the new
+    /// page. See the `rowIdentity` doc comment above.
+    init(
+        columns: [ColumnDef],
+        rows: [[AnyCodable]],
+        rowCount: Int,
+        executionTimeMs: UInt64,
+        hasMore: Bool,
+        historyEntryId: String?,
+        rowIdentity: RowIdentity? = nil
+    ) {
+        self.columns = columns
+        self.rows = rows
+        self.rowCount = rowCount
+        self.executionTimeMs = executionTimeMs
+        self.hasMore = hasMore
+        self.historyEntryId = historyEntryId
+        self.rowIdentity = rowIdentity
     }
 }
 

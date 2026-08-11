@@ -37,7 +37,21 @@ struct QueryHistoryFilter: Codable {
     var onlyLegacy: Bool = false
 }
 
+/// The cached result of a history entry, so a reopened workspace restores its grid.
+///
+/// CASING: this one payload mixes both conventions, deliberately. The Rust struct
+/// (`pharos-core/src/commands/query_history.rs`) carries
+/// `#[serde(rename_all = "camelCase")]`, which renames ITS OWN fields — hence the
+/// outer key `rowIdentity`, needing no CodingKeys here. `rename_all` does not
+/// reach inside a nested `serde_json::Value`, so the identity block itself keeps
+/// the snake_case keys that `execute_query` wrote (`table_key`, `key_columns`, …),
+/// which is why `RowIdentity` carries snake_case CodingKeys. Do not unify them.
 struct QueryHistoryResultData: Codable {
     let columns: [ColumnDef]
     let rows: [[AnyCodable]]
+    /// nil for an entry cached before the identity column existed. Those entries
+    /// also carry columns with no `relation_oid` key at all, and Rust never
+    /// re-decodes that cached string — so `ColumnDef`'s OID fields must stay
+    /// optional or older history stops opening.
+    let rowIdentity: RowIdentity?
 }
