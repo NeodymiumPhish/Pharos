@@ -207,6 +207,86 @@ func runTests() {
                                 tagsByIdentity: store([tag("tn", label: "red", kind: "pk", value: "V1:1")]))
     expectEqual(none.count, 0, "no identity block matches nothing in the strong path")
 
+    // MARK: - The weak path
+
+    /// A fingerprint tag over the given columns and values.
+    func fpTag(_ id: String, label: String, columns: [String], values: [String?],
+               tableKey: String = "oid:1") -> RowTag {
+        let value = RowFingerprint.encode(columns: columns, values: values) ?? ""
+        return RowTag(id: id, connectionId: "c", labelId: label, note: nil,
+                      primaryKind: "fingerprint", tableKey: tableKey, tableDisplay: "t",
+                      identityColumns: columns, identityValues: values,
+                      keys: [RowTagKey(identityKind: "fingerprint", identityValue: value)],
+                      createdAt: "", updatedAt: "")
+    }
+
+    let weakId = identity([], tableKey: "oid:1", tableKeys: ["oid:1"])
+
+    // A plain hit: the result holds exactly the stored columns.
+    let hit = TagMatcher.match(
+        identity: weakId, columns: ["id", "name"],
+        rows: [["1", "Ada"], ["2", "Bob"]],
+        tagsByIdentity: store([fpTag("f1", label: "red", columns: ["id", "name"], values: ["2", "Bob"])]))
+    expectLabel(hit, 1, "red", "a fingerprint matches the row holding its values")
+    expectLabel(hit, 0, nil, "the other row stays untagged")
+
+    // Rule 2: EVERY stored column must be present. A narrower result matches
+    // nothing — a partial overlap can match the wrong row.
+    let narrower = TagMatcher.match(
+        identity: weakId, columns: ["name"], rows: [["Ada"], ["Bob"]],
+        tagsByIdentity: store([fpTag("f2", label: "red", columns: ["id", "name"], values: ["2", "Bob"])]))
+    expectEqual(narrower.count, 0, "a result missing a stored column matches nothing")
+
+    // A WIDER result still matches: the stored columns are all present, and the
+    // extra ones are ignored.
+    let wider = TagMatcher.match(
+        identity: weakId, columns: ["id", "name", "status"],
+        rows: [["2", "Bob", "active"]],
+        tagsByIdentity: store([fpTag("f3", label: "blue", columns: ["id", "name"], values: ["2", "Bob"])]))
+    expectLabel(wider, 0, "blue", "a wider result still matches on the stored columns")
+
+    // Rule 3: an ambiguous fingerprint tags nothing. Two identical rows must not
+    // both take the tag, and neither may take it arbitrarily.
+    let ambiguous = TagMatcher.match(
+        identity: weakId, columns: ["status"], rows: [["active"], ["active"]],
+        tagsByIdentity: store([fpTag("f4", label: "red", columns: ["status"], values: ["active"])]))
+    expectEqual(ambiguous.count, 0, "a fingerprint matching two rows tags neither")
+
+    // Rule 1: the table sets must overlap.
+    let otherTableFp = TagMatcher.match(
+        identity: identity([], tableKey: "oid:1", tableKeys: ["oid:1"]),
+        columns: ["id"], rows: [["1"]],
+        tagsByIdentity: store([fpTag("f5", label: "red", columns: ["id"], values: ["1"], tableKey: "oid:777")]))
+    expectEqual(otherTableFp.count, 0, "a fingerprint from another table does not match")
+
+    // A join carries several table keys; a tag on any one of them may match.
+    let joined = TagMatcher.match(
+        identity: identity([], tableKey: "oid:1", tableKeys: ["oid:1", "oid:2"]),
+        columns: ["id"], rows: [["1"]],
+        tagsByIdentity: store([fpTag("f6", label: "green", columns: ["id"], values: ["1"], tableKey: "oid:2")]))
+    expectLabel(joined, 0, "green", "a fingerprint on any table in the result may match")
+
+    // A NULL in the row must encode as N and match a stored NULL.
+    let nullRow = TagMatcher.match(
+        identity: weakId, columns: ["id", "note"], rows: [["1", nil]],
+        tagsByIdentity: store([fpTag("f7", label: "amber", columns: ["id", "note"], values: ["1", nil])]))
+    expectLabel(nullRow, 0, "amber", "a NULL value matches a stored NULL")
+
+    // Two different fingerprint tags in one result each find their own row.
+    let twoTags = TagMatcher.match(
+        identity: weakId, columns: ["id"], rows: [["1"], ["2"]],
+        tagsByIdentity: store([fpTag("f8", label: "red", columns: ["id"], values: ["1"]),
+                               fpTag("f9", label: "blue", columns: ["id"], values: ["2"])]))
+    expectEqual(twoTags.count, 2, "two fingerprint tags find two rows")
+    expectLabel(twoTags, 0, "red", "the first fingerprint finds row 0")
+    expectLabel(twoTags, 1, "blue", "the second fingerprint finds row 1")
+
+    // A strong tag must not be reachable from the weak path, and the reverse.
+    let strongInWeak = TagMatcher.match(
+        identity: weakId, columns: ["id"], rows: [["1"]],
+        tagsByIdentity: store([tag("ts2", label: "red", kind: "pk", value: "V1:1")]))
+    expectEqual(strongInWeak.count, 0, "the weak path does not reach a pk tag")
+
     if failures == 0 {
         print("\nAll TagMatcher tests passed.")
     } else {

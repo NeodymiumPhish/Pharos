@@ -90,13 +90,84 @@ enum TagMatcher {
         return out
     }
 
-    /// Replaced in Task 3. The strong-path tests never reach this.
+    /// The fingerprint tier: the result carries no key, so the whole row is the
+    /// identity.
+    ///
+    /// Three rules make this trustworthy, and all three are necessary:
+    ///
+    ///  1. The tag's table must appear in the result's `tableKeys`. Without this a
+    ///     tag follows a value into an unrelated table.
+    ///  2. The result must hold EVERY column the tag stored. A partial overlap can
+    ///     match exactly one row and still match the WRONG row — a tag made on a
+    ///     `status` value would find the only other row with that status. The
+    ///     full-set rule needs no arbitrary constant.
+    ///  3. A fingerprint that matches more than one row tags none of them. Picking
+    ///     one arbitrarily would put the highlight on a row the user never tagged.
+    ///
+    /// Tags are grouped by their stored column set, so each group builds its own
+    /// canonical string per row and the encoder runs once per row per group rather
+    /// than once per row per tag.
     private static func matchWeak(
         identity: RowIdentity,
         columns: [String],
         rows: [[String?]],
         tagsByIdentity: [String: RowTag]
     ) -> [Int: RowTag] {
-        [:]
+        let present = Set(columns)
+        let resultTables = Set(identity.tableKeys)
+
+        // De-duplicate: a fingerprint tag is indexed under one key, but filtering
+        // the index by value would still visit it once per entry.
+        var eligible: [RowTag] = []
+        var seen = Set<String>()
+        for tag in tagsByIdentity.values
+        where tag.primaryKind == "fingerprint"
+            && resultTables.contains(tag.tableKey)                     // rule 1
+            && Set(tag.identityColumns).isSubset(of: present)           // rule 2
+            && !seen.contains(tag.id) {
+            seen.insert(tag.id)
+            eligible.append(tag)
+        }
+        guard !eligible.isEmpty else { return [:] }
+
+        // Column index per name, so a row's values can be read in the stored order.
+        var indexOf: [String: Int] = [:]
+        for (i, name) in columns.enumerated() where indexOf[name] == nil { indexOf[name] = i }
+
+        var out: [Int: RowTag] = [:]
+        for group in Dictionary(grouping: eligible, by: { $0.identityColumns }) {
+            let groupColumns = group.key
+            let indices = groupColumns.compactMap { indexOf[$0] }
+            // A duplicated column name could leave this short; skip rather than
+            // build a string that means something else. (If a tag's own
+            // `identityColumns` repeats a name, `indexOf` keeps only the FIRST
+            // index for that name, so the built string reads one column's value
+            // twice and will not equal the stored fingerprint, which was built
+            // from two different values. That is a MISSED match, not a wrong
+            // one — the safe direction — so it is left as is.)
+            guard indices.count == groupColumns.count else { continue }
+
+            // The stored key for each tag in this group.
+            var tagByKey: [String: RowTag] = [:]
+            for tag in group.value {
+                guard let key = tag.keys.first(where: { $0.identityKind == "fingerprint" })?.identityValue,
+                      !key.isEmpty else { continue }
+                tagByKey[key] = tag
+            }
+            guard !tagByKey.isEmpty else { continue }
+
+            // Count the rows each key matches, then apply only the unique ones.
+            var rowsByKey: [String: [Int]] = [:]
+            for (rowIndex, row) in rows.enumerated() {
+                let values = indices.map { $0 < row.count ? row[$0] : nil }
+                guard let key = RowFingerprint.encode(columns: groupColumns, values: values),
+                      tagByKey[key] != nil else { continue }
+                rowsByKey[key, default: []].append(rowIndex)
+            }
+            for (key, matched) in rowsByKey where matched.count == 1 { // rule 3
+                if let tag = tagByKey[key] { out[matched[0]] = tag }
+            }
+        }
+        return out
     }
 }
