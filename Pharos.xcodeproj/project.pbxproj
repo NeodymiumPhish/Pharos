@@ -81,6 +81,7 @@
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
+		88CF1F068F30B9D59C8B69C6 /* PharosCore+RowTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
@@ -241,6 +242,7 @@
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
+		A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+RowTags.swift"; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
@@ -512,6 +514,7 @@
 				03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */,
 				683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */,
 				45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */,
+				A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */,
 				97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */,
 				CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */,
 				FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */,
@@ -744,6 +747,7 @@
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,
 				B0EB5E848C3BA0450A2EDF6E /* PharosCore+Query.swift in Sources */,
 				13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */,
+				88CF1F068F30B9D59C8B69C6 /* PharosCore+RowTags.swift in Sources */,
 				BA36078FBC3A5D72C53F70A0 /* PharosCore+SavedQueries.swift in Sources */,
 				452A085D482CF6012AA5CAF9 /* PharosCore+Schema.swift in Sources */,
 				46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */,
