@@ -26,6 +26,7 @@
 		1896442191A1723DA4AC8F11 /* PharosCore+TableOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */; };
 		19877E64248CE46809E223BA /* MetadataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */; };
 		1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */; };
+		1AC6571636390DDAA41BEEDB /* DisplayRowPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */; };
 		1CB48D2E1B11DC3055666BE8 /* SchemaTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */; };
 		1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777B3FE187C2372DED419961 /* DrillMerge.swift */; };
 		1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = F443CAC6284678541D0523EA /* Schema.swift */; };
@@ -189,6 +190,7 @@
 		2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRootView.swift; sourceTree = "<group>"; };
 		30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillTranslator.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
+		364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRowPipeline.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
 		3F1ACA16C38A777BDCF7104A /* VariableListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableListView.swift; sourceTree = "<group>"; };
@@ -514,6 +516,7 @@
 			isa = PBXGroup;
 			children = (
 				028712E3F9210287025ADAE8 /* AppStateManager.swift */,
+				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
 				267FBF59C6FA236284E961CC /* HistoryRowText.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
 				EBB204A7203DFE7F75AE059A /* PharosCore.swift */,
@@ -722,6 +725,7 @@
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
 				26B04812BFD5A8814F0B729A /* DestructiveSQLScanner.swift in Sources */,
+				1AC6571636390DDAA41BEEDB /* DisplayRowPipeline.swift in Sources */,
 				7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */,
 				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,
 				1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */,
