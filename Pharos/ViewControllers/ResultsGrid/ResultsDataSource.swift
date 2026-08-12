@@ -66,6 +66,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
 
+    /// Tags by index into `rows`, from `TagMatcher`. Empty when nothing matched.
+    var tagsByRow: [Int: RowTag] = [:]
+
+    /// Label colours by label id, so a row view needs no store lookup.
+    var labelColors: [String: NSColor] = [:]
+
     // MARK: - Hot-path Caches
 
     /// Map of column identifier (raw) → tableColumn index. Rebuilt when
@@ -299,6 +305,28 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         cell.isSelected = isInSelection && !isFindHighlighted
 
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let identifier = NSUserInterfaceItemIdentifier("TaggedRow")
+        let view = tableView.makeView(withIdentifier: identifier, owner: self) as? TaggedRowView
+            ?? {
+                let fresh = TaggedRowView()
+                fresh.identifier = identifier
+                return fresh
+            }()
+
+        // `row` indexes displayRows, not rows. Mapping through it is what keeps the
+        // highlight on the right row once a filter or a sort is active.
+        guard row < displayRows.count,
+              let tag = tagsByRow[displayRows[row]],
+              let color = labelColors[tag.labelId]
+        else {
+            view.clearTag()
+            return view
+        }
+        view.configure(color: color, isWeak: tag.primaryKind == "fingerprint")
+        return view
     }
 
     // MARK: - Cell Selection Fast Path
