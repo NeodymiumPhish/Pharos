@@ -129,6 +129,24 @@ func runTests() {
         rowCount: 1, columns: [], rows: [], tagsByIdentity: otherTable)
     expectEqual(scoped.count, 0, "a tag on another table does not match")
 
+    // MARK: The KIND is part of the match
+
+    // Two tags on the same table can hold the SAME value string under different
+    // kinds — a pk key and a fingerprint key are both just text, and nothing stops
+    // them coinciding. The kind is in the index key so those are two entries.
+    // Without it they collide, one silently replaces the other, and a strong result
+    // then matches the wrong tag. The SQLite unique index holds the kind for this
+    // same reason; leaving it out of the memory key would bring the collision back.
+    let sameValue = store([
+        tag("tk", label: "frompk", kind: "pk", value: "V1:1"),
+        tag("tf", label: "fromfingerprint", kind: "fingerprint", value: "V1:1"),
+    ])
+    expectEqual(sameValue.count, 2, "two kinds with the same value are two index entries")
+    let kindScoped = TagMatcher.match(
+        identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])]),
+        rowCount: 1, columns: [], rows: [], tagsByIdentity: sameValue)
+    expectLabel(kindScoped, 0, "frompk", "the pk key matches the pk tag, not the fingerprint tag")
+
     // MARK: One key, several rows
 
     // A one-to-many join repeats the key. One tag highlights every such row.
