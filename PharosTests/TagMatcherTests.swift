@@ -137,9 +137,17 @@ func runTests() {
     // The strong path must use `tableKey` (the primary table), NOT `tableKeys`.
     // Task 3's weak path uses `tableKeys` on purpose; a strong key belongs to one
     // table only, so a tag on another table in the result must not match.
+    //
+    // `tableKeys` lists the SECONDARY table first here, deliberately. That is what
+    // makes the check discriminate: with `["oid:1", "oid:2"]` the first element
+    // equals `tableKey`, so swapping `identity.tableKey` for
+    // `identity.tableKeys.first` computes the same key and the test cannot tell the
+    // two apart. Do not reorder this list. `tableKeys` carries no ordering
+    // guarantee — it is every source table in the result — so a secondary-first
+    // result is a real shape, not a contrivance.
     let secondaryTable = TagMatcher.match(
         identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])],
-                           tableKey: "oid:1", tableKeys: ["oid:1", "oid:2"]),
+                           tableKey: "oid:1", tableKeys: ["oid:2", "oid:1"]),
         columns: [], rows: blankRows(1),
         tagsByIdentity: store([tag("t2t", label: "wrong", kind: "pk", value: "V1:1", tableKey: "oid:2")]))
     expectEqual(secondaryTable.count, 0, "a strong tag on a secondary table does not match")
