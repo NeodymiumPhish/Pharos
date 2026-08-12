@@ -96,6 +96,17 @@ func runTests() {
             forceShow: { gated, _ in gated })),
         [0, 2, 3, 4], "stage 4 receives the stage-1 output, so the tag filter still wins")
 
+    // The rule holds even against a closure that IGNORES `gated`. The pipeline
+    // intersects the closure's answer with `gated`, so a stage 4 that hands back the
+    // whole world cannot resurrect a row the tag filter removed. This is the check
+    // that makes the contract enforced rather than documented.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: all, stages: .init(
+            tagFilter: { $0.filter { $0 != 1 } },
+            columnFilters: { $0.filter { $0 == 4 } },
+            forceShow: { _, _ in [0, 1, 2, 3, 4] })),
+        [0, 2, 3, 4], "the pipeline enforces the gated subset, not just documents it")
+
     // MARK: Degenerate inputs
 
     expectRows(DisplayRowPipeline.run(unfiltered: [], stages: .init(
