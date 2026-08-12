@@ -496,9 +496,11 @@ class ResultsGridVC: NSViewController {
 
         let rowNumCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("__rownum__"))
         rowNumCol.title = "#"
-        rowNumCol.width = 40
-        rowNumCol.minWidth = 30
-        rowNumCol.maxWidth = 60
+        // Room for the dot plus the row number. The dot is 6pt at a 5pt inset, so a
+        // four-digit row number still fits at the minimum width.
+        rowNumCol.width = 54
+        rowNumCol.minWidth = 44
+        rowNumCol.maxWidth = 70
         tableView.addTableColumn(rowNumCol)
 
         var types: [String: String] = [:]

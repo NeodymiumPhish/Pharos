@@ -50,6 +50,33 @@ private class ResultCellView: NSTableCellView {
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet { updateTextColor() }
     }
+
+    /// The dot's colour, or nil when the row carries no tag.
+    var tagDotColor: NSColor? {
+        didSet {
+            guard oldValue != tagDotColor else { return }
+            needsDisplay = true
+        }
+    }
+
+    /// Filled for a strong match, hollow for a fingerprint match.
+    var tagDotFilled: Bool = true {
+        didSet {
+            guard oldValue != tagDotFilled else { return }
+            needsDisplay = true
+        }
+    }
+
+    /// The text field's leading constraint, held so the row-number column can make
+    /// room for the dot. The data source builds it once at cell creation; without a
+    /// handle on it the number would draw underneath the dot.
+    weak var textLeadingConstraint: NSLayoutConstraint?
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let tagDotColor else { return }
+        TagDot.draw(color: tagDotColor, filled: tagDotFilled, in: bounds)
+    }
 }
 
 // MARK: - ResultsDataSource
@@ -242,8 +269,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
             cell.textField = textField
+            let leading = textField.leadingAnchor.constraint(
+                equalTo: cell.leadingAnchor, constant: TagDot.textInsetPlain)
+            cell.textLeadingConstraint = leading
             NSLayoutConstraint.activate([
-                textField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+                leading,
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
@@ -255,6 +285,20 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.stringValue = "\(row + 1)"
             cell.textField?.font = rownumFont
             cell.normalTextColor = .tertiaryLabelColor
+
+            // A filled dot is a strong match, a hollow one a fingerprint match. An
+            // untagged row draws nothing: the hover outline in the design is an
+            // affordance for the click target, which is Phase 3.
+            if let look = TagLabelPalette.appearance(
+                row: row, displayRows: displayRows,
+                tagsByRow: tagsByRow, labelColors: labelColors) {
+                cell.tagDotColor = look.color
+                cell.tagDotFilled = !look.isWeak
+                cell.textLeadingConstraint?.constant = TagDot.textInsetWithDot
+            } else {
+                cell.tagDotColor = nil
+                cell.textLeadingConstraint?.constant = TagDot.textInsetPlain
+            }
         } else {
             let rowData = rows[dataRowIdx]
             if let idx = colIndex(from: colIdRaw), idx < rowData.count {
@@ -266,6 +310,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 cell.textField?.font = regularFont
                 cell.normalTextColor = .labelColor
             }
+            cell.tagDotColor = nil
+            cell.textLeadingConstraint?.constant = TagDot.textInsetPlain
         }
 
         // Find + selection state. Compute once, share both branches — the old

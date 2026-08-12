@@ -41,6 +41,7 @@
 		324D23A7854A6B19278960D3 /* SchemaSelectorPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB348FEAF8FBBF5666D1D306 /* SchemaSelectorPopoverVC.swift */; };
 		325C5B2F6705581E09653999 /* ResultsDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D662512D7219078869005EED /* ResultsDataSource.swift */; };
 		32658884EC755D14B18936A7 /* QueryNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */; };
+		32828B5EA3D7B5B53EADB9C3 /* TagDot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2F4FD75890A33FB5425F3BC /* TagDot.swift */; };
 		34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080E74E651B82BE21F196DDC /* ImportDataSheet.swift */; };
 		34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE224A37E3FEC0F67F65D19 /* Settings.swift */; };
 		37C04B0603F88D3D77CAD964 /* ChartTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 264FF44EDD39F675DE642D7B /* ChartTypes.swift */; };
@@ -308,6 +309,7 @@
 		EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGTypeCategory.swift; sourceTree = "<group>"; };
 		F20CF73B17A249738CE23C2A /* RustScalarError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RustScalarError.swift; sourceTree = "<group>"; };
 		F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCopyExport.swift; sourceTree = "<group>"; };
+		F2F4FD75890A33FB5425F3BC /* TagDot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDot.swift; sourceTree = "<group>"; };
 		F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 				5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */,
 				7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */,
 				6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */,
+				F2F4FD75890A33FB5425F3BC /* TagDot.swift */,
 				24970168104D1359837B89EF /* TaggedRowView.swift */,
 			);
 			path = ResultsGrid;
@@ -843,6 +846,7 @@
 				C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */,
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
+				32828B5EA3D7B5B53EADB9C3 /* TagDot.swift in Sources */,
 				B9F2716A1923C0A5DA2CCF36 /* TagLabelPalette.swift in Sources */,
 				3C9C6B8F322833AA97E1F987 /* TagMatcher.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
