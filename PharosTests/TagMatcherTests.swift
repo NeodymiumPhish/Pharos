@@ -272,6 +272,15 @@ func runTests() {
         tagsByIdentity: store([fpTag("f7", label: "amber", columns: ["id", "note"], values: ["1", nil])]))
     expectLabel(nullRow, 0, "amber", "a NULL value matches a stored NULL")
 
+    // A row shorter than the column list is malformed — PostgreSQL results are
+    // rectangular, so this should not happen. The missing cell reads as nil (a
+    // NULL), never as an empty string, which would silently claim a real value.
+    // The strong path has its short-key-array equivalent; this is the weak one.
+    let shortRow = TagMatcher.match(
+        identity: weakId, columns: ["id", "note"], rows: [["1"]],
+        tagsByIdentity: store([fpTag("f10", label: "grey", columns: ["id", "note"], values: ["1", nil])]))
+    expectLabel(shortRow, 0, "grey", "a short row reads its missing cell as NULL, not as empty text")
+
     // Two different fingerprint tags in one result each find their own row.
     let twoTags = TagMatcher.match(
         identity: weakId, columns: ["id"], rows: [["1"], ["2"]],

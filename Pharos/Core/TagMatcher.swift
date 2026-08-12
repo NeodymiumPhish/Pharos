@@ -121,8 +121,7 @@ enum TagMatcher {
         var eligible: [RowTag] = []
         var seen = Set<String>()
         for tag in tagsByIdentity.values
-        where tag.primaryKind == "fingerprint"
-            && resultTables.contains(tag.tableKey)                     // rule 1
+        where resultTables.contains(tag.tableKey)                     // rule 1
             && Set(tag.identityColumns).isSubset(of: present)           // rule 2
             && !seen.contains(tag.id) {
             seen.insert(tag.id)
@@ -145,11 +144,24 @@ enum TagMatcher {
             // twice and will not equal the stored fingerprint, which was built
             // from two different values. That is a MISSED match, not a wrong
             // one — the safe direction — so it is left as is.)
+            //
+            // This guard is what actually ENFORCES rule 2. The subset filter above
+            // is an early-out that avoids grouping ineligible tags; it is not
+            // load-bearing, because `indexOf`'s keys are exactly the result's
+            // columns, so `indices.count == groupColumns.count` is the same test.
+            // Weakening the filter alone therefore changes nothing observable —
+            // that is by design, not an untested branch.
             guard indices.count == groupColumns.count else { continue }
 
             // The stored key for each tag in this group.
             var tagByKey: [String: RowTag] = [:]
             for tag in group.value {
+                // Selecting by kind is correct rather than merely defensive: a tag
+                // may hold several keys and only the fingerprint one belongs here.
+                // A strong key could not be mistaken for a fingerprint anyway — the
+                // core writes strong keys starting "V" or "N" (encode_field in
+                // row_identity.rs), and a fingerprint always starts "K" because it
+                // begins with a column. The two namespaces are disjoint.
                 guard let key = tag.keys.first(where: { $0.identityKind == "fingerprint" })?.identityValue,
                       !key.isEmpty else { continue }
                 tagByKey[key] = tag
