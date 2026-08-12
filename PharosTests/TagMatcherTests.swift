@@ -281,6 +281,26 @@ func runTests() {
         tagsByIdentity: store([fpTag("f10", label: "grey", columns: ["id", "note"], values: ["1", nil])]))
     expectLabel(shortRow, 0, "grey", "a short row reads its missing cell as NULL, not as empty text")
 
+    // Rule 3, the other direction. Two fingerprint tags on the SAME table with
+    // different column sets both match this row: one stored ["id"], one stored
+    // ["id","name"]. Neither is applied. Before this rule the winner depended on
+    // dictionary order and changed between runs of the same query.
+    let twoGroupsOneRow = TagMatcher.match(
+        identity: weakId, columns: ["id", "name"], rows: [["1", "Ada"]],
+        tagsByIdentity: store([fpTag("g1", label: "narrow", columns: ["id"], values: ["1"]),
+                               fpTag("g2", label: "wide", columns: ["id", "name"], values: ["1", "Ada"])]))
+    expectEqual(twoGroupsOneRow.count, 0, "a row claimed by two fingerprint tags takes neither")
+
+    // The same ambiguity across two TABLES. Both tags store ["id"] = "1" and both
+    // encode to the same string, so grouping on columns alone made one silently
+    // replace the other and rule 3 never saw the conflict.
+    let twoTablesOneRow = TagMatcher.match(
+        identity: identity([], tableKey: "oid:1", tableKeys: ["oid:1", "oid:2"]),
+        columns: ["id"], rows: [["1"]],
+        tagsByIdentity: store([fpTag("h1", label: "fromA", columns: ["id"], values: ["1"], tableKey: "oid:1"),
+                               fpTag("h2", label: "fromB", columns: ["id"], values: ["1"], tableKey: "oid:2")]))
+    expectEqual(twoTablesOneRow.count, 0, "a row claimed by tags on two tables takes neither")
+
     // Two different fingerprint tags in one result each find their own row.
     let twoTags = TagMatcher.match(
         identity: weakId, columns: ["id"], rows: [["1"], ["2"]],

@@ -90,6 +90,18 @@ enum TagMatcher {
         return out
     }
 
+    /// The grouping key for the fingerprint tier: a table plus a stored column set.
+    ///
+    /// The table MUST be part of it. Rule 1 admits every table in the result, and two
+    /// tags on different tables can store the same column names with the same values
+    /// — so they encode to the same fingerprint string. Keying the group on columns
+    /// alone let one silently replace the other in `tagByKey`, and rule 3 never saw
+    /// the ambiguity because the two had already collapsed into one entry.
+    private struct FingerprintGroup: Hashable {
+        let tableKey: String
+        let columns: [String]
+    }
+
     /// The fingerprint tier: the result carries no key, so the whole row is the
     /// identity.
     ///
@@ -116,8 +128,11 @@ enum TagMatcher {
         let present = Set(columns)
         let resultTables = Set(identity.tableKeys)
 
-        // De-duplicate: a fingerprint tag is indexed under one key, but filtering
-        // the index by value would still visit it once per entry.
+        // A strong tag holds two keys, so it appears twice in the index now that
+        // eligibility no longer filters on kind. The dedup is precautionary — such a
+        // tag contributes no fingerprint key and is dropped downstream either way —
+        // but it keeps `eligible` a set of distinct tags, which the claim-counting
+        // below reads more simply.
         var eligible: [RowTag] = []
         var seen = Set<String>()
         for tag in tagsByIdentity.values
@@ -133,9 +148,14 @@ enum TagMatcher {
         var indexOf: [String: Int] = [:]
         for (i, name) in columns.enumerated() where indexOf[name] == nil { indexOf[name] = i }
 
-        var out: [Int: RowTag] = [:]
-        for group in Dictionary(grouping: eligible, by: { $0.identityColumns }) {
-            let groupColumns = group.key
+        // Row -> the tags claiming it. Claims are collected across ALL groups before
+        // any is applied, because a row claimed by more than one tag is refused and
+        // that cannot be decided one group at a time.
+        var claims: [Int: [RowTag]] = [:]
+        for group in Dictionary(grouping: eligible, by: {
+            FingerprintGroup(tableKey: $0.tableKey, columns: $0.identityColumns)
+        }) {
+            let groupColumns = group.key.columns
             let indices = groupColumns.compactMap { indexOf[$0] }
             // A duplicated column name could leave this short; skip rather than
             // build a string that means something else. (If a tag's own
@@ -176,9 +196,28 @@ enum TagMatcher {
                       tagByKey[key] != nil else { continue }
                 rowsByKey[key, default: []].append(rowIndex)
             }
-            for (key, matched) in rowsByKey where matched.count == 1 { // rule 3
-                if let tag = tagByKey[key] { out[matched[0]] = tag }
+            for (key, matched) in rowsByKey where matched.count == 1 { // rule 3, one key -> one row
+                if let tag = tagByKey[key] { claims[matched[0], default: []].append(tag) }
             }
+        }
+
+        // Rule 3, the other direction: one row -> one tag. A row that two tags both
+        // claim is ambiguous, and neither is applied.
+        //
+        // Two fingerprint tags can legitimately both match one row — one stored on
+        // `["id"]`, another on `["id","name"]` — because the core's key-set-aware
+        // write only replaces a tag matching the SAME key, and those two have
+        // different fingerprint strings. Picking the narrower or the wider one would
+        // need a ranking rule this design does not have, and picking by group order
+        // makes the label change between runs of the same query. Refusing is the
+        // conservative direction and it matches the rule above.
+        //
+        // Comparing tag IDS, not tags: a strong tag holds two keys, so it appears
+        // twice in the index now that eligibility no longer filters on kind, and the
+        // same tag arriving twice is not ambiguity.
+        var out: [Int: RowTag] = [:]
+        for (row, tags) in claims where Set(tags.map { $0.id }).count == 1 {
+            out[row] = tags[0]
         }
         return out
     }
