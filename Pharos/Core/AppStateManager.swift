@@ -25,20 +25,27 @@ final class AppStateManager: ObservableObject {
 
                 // Load this connection's tags if they are not cached yet. The didSet
                 // is the one choke point every write of activeConnectionId passes
-                // through, and `load` is idempotent, so a tab switch between two
-                // connected connections costs nothing.
+                // through, and `loadIfNeeded` is idempotent, so a tab switch between
+                // two connected connections costs nothing.
                 //
                 // It deliberately does NOT clear the previous connection. This didSet
                 // cannot tell a disconnect from a tab switch — both can set nil — and
                 // discarding an index on a switch would throw away work the user is
                 // about to need again. Clearing belongs at the two events that make an
                 // index genuinely stale: see disconnect and deleteConnection.
+                //
+                // Note for a future reader: an index being present here does NOT mean
+                // the connection is live. Focusing a tab still bound to a connection
+                // that was disconnected or deleted runs this same branch and loads
+                // that connection's index right back — nothing wrong reaches the user,
+                // since the load just reads SQLite, but "index present" must not be
+                // read as "connection live".
                 if let newId = activeConnectionId {
                     // A failure must not block the connection. The user then has a
                     // working database and no tags, which is the pre-Phase-2
                     // behaviour, not a broken state.
                     do {
-                        try TagStore.shared.load(connectionId: newId)
+                        try TagStore.shared.loadIfNeeded(connectionId: newId)
                     } catch {
                         NSLog("Failed to load row tags for \(newId): \(error)")
                     }
@@ -125,9 +132,9 @@ final class AppStateManager: ObservableObject {
         do {
             try PharosCore.deleteConnection(id: id)
             connectionStatuses.removeValue(forKey: id)
-            // The cached index is now stale. Without this, a reconnect would find the
-            // entry already present, `load` would skip as a no-op, and the grid would
-            // show tags from before the disconnect.
+            // Release this connection's index and force a fresh read at the next
+            // activation. Correctness does not depend on it today — Phase 2 has no
+            // write surface, so a reload would rebuild an identical index.
             TagStore.shared.clear(connectionId: id)
             if activeConnectionId == id {
                 activeConnectionId = nil
@@ -192,9 +199,9 @@ final class AppStateManager: ObservableObject {
             do {
                 try await PharosCore.disconnect(connectionId: id)
                 self.connectionStatuses[id] = .disconnected
-                // The cached index is now stale. Without this, a reconnect would find
-                // the entry already present, `load` would skip as a no-op, and the
-                // grid would show tags from before the disconnect.
+                // Release this connection's index and force a fresh read at the next
+                // activation. Correctness does not depend on it today — Phase 2 has no
+                // write surface, so a reload would rebuild an identical index.
                 TagStore.shared.clear(connectionId: id)
                 if self.activeConnectionId == id {
                     self.activeConnectionId = nil

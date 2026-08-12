@@ -17,44 +17,75 @@ final class TagStore {
 
     static let shared = TagStore()
 
-    /// Posted after any change, so every open grid rebuilds its tag map.
+    /// Posted after a change to the cached tags.
+    ///
+    /// `userInfo[connectionIdKey]` names the affected connection. An absent key means
+    /// a global change — Phase 4's palette edits.
+    ///
+    /// Two facts Task 8's observer depends on. `TagStore` is `@MainActor`, so every
+    /// post is a main-thread post. And the post from `reload` runs inside the
+    /// `activeConnectionId` didSet, which is a `@Published` property's didSet — so an
+    /// observer runs on the connection switch's own call stack. Keep the observer
+    /// cheap, and do not write `AppStateManager` state from it.
     static let didChange = Notification.Name("PharosTagStoreDidChange")
+    static let connectionIdKey = "connectionId"
 
     /// Connection id → the index for that connection.
     private(set) var tagsByIdentity: [String: [String: RowTag]] = [:]
 
     /// The label palette. Global: a label carries no connection id.
+    ///
+    /// The cache guard in `loadIfNeeded` is per connection, but this list is not: a
+    /// label created after the last UNCACHED load will not appear here until some
+    /// connection loads for the first time (or `reload` runs). Phase 2 has no write
+    /// surface, so this is latent, not live — Phase 4 adds one, and `reload` is the
+    /// way it keeps this current.
     private(set) var labels: [TagLabel] = []
 
     private init() {}
 
     /// The index for one connection, or empty when nothing is loaded.
+    ///
+    /// An empty result does not distinguish "never loaded" from "loaded and truly has
+    /// no tags" — both read `[:]`. That is fine for a reader that also watches
+    /// `didChange`, which covers a tag arriving late; it would not be fine for a
+    /// caller that treats an empty index as a settled answer.
     func index(for connectionId: String) -> [String: RowTag] {
         tagsByIdentity[connectionId] ?? [:]
     }
 
-    /// Load the palette and one connection's tags. Call on connect.
+    /// Load this connection's tags if they are not cached yet.
     ///
-    /// Both FFI calls happen BEFORE either assignment, on purpose: a failure then
-    /// leaves the previous state untouched rather than half-updated. An emptied
-    /// index would silently mean "nothing is tagged", which reads as data loss.
-    /// Do not reorder these lines.
-    func load(connectionId: String) throws {
-        // Already loaded: a tab switch must cost nothing. This is called from the
-        // activeConnectionId didSet, which fires on tab focus as well as on connect,
-        // so a plain switch between two connected connections must not re-read
-        // SQLite or post a change that makes every grid rebuild its tag map.
+    /// Called from the `activeConnectionId` didSet, which fires on tab focus as well
+    /// as on connect, so a switch between two connected connections must cost
+    /// nothing. Use `reload` after a write.
+    func loadIfNeeded(connectionId: String) throws {
         guard tagsByIdentity[connectionId] == nil else { return }
+        try reload(connectionId: connectionId)
+    }
+
+    /// Read this connection's tags and the palette from SQLite, replacing whatever is
+    /// cached. This is the write path's refresh — Phase 3 calls it after a tag write.
+    ///
+    /// Both FFI calls happen before either assignment, so a failure part-way leaves
+    /// the previous state untouched rather than half-updated.
+    func reload(connectionId: String) throws {
         let loadedLabels = try PharosCore.loadTagLabels()
         let tags = try PharosCore.loadRowTags(connectionId: connectionId)
         labels = loadedLabels
         tagsByIdentity[connectionId] = TagMatcher.index(tags)
-        NotificationCenter.default.post(name: Self.didChange, object: nil)
+        post(connectionId: connectionId)
     }
 
-    /// Drop one connection's tags. Call on disconnect, so a reconnect reloads.
+    /// Drop one connection's tags, so the next activation reads SQLite fresh.
     func clear(connectionId: String) {
-        tagsByIdentity.removeValue(forKey: connectionId)
-        NotificationCenter.default.post(name: Self.didChange, object: nil)
+        guard tagsByIdentity.removeValue(forKey: connectionId) != nil else { return }
+        post(connectionId: connectionId)
+    }
+
+    private func post(connectionId: String?) {
+        NotificationCenter.default.post(
+            name: Self.didChange, object: nil,
+            userInfo: connectionId.map { [Self.connectionIdKey: $0] })
     }
 }

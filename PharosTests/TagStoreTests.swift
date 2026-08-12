@@ -125,7 +125,7 @@ func runMainActorTests() {
     // MARK: Load into the store
 
     attempt("load the connection's tags") {
-        try TagStore.shared.load(connectionId: CONN)
+        try TagStore.shared.loadIfNeeded(connectionId: CONN)
     }
 
     // MARK: Check 2 — one entry per stored key, not per tag
@@ -169,9 +169,14 @@ func runMainActorTests() {
     NotificationCenter.default.removeObserver(token)
 
     // MARK: Check 9 — the ordering guarantee, on a failure that is actually reachable
+    //
+    // This check drops `row_tags` and `row_tag_keys` and never rebuilds them. It
+    // must stay the LAST check in this file — any check added afterward would fail
+    // for the confusing reason that the row-tag tables are simply gone. A new check
+    // belongs before this one.
 
     // An unknown connection id cannot make `loadRowTags` fail — it just returns an
-    // empty list — so it cannot tell `load`'s correct ordering apart from a mutant
+    // empty list — so it cannot tell `reload`'s correct ordering apart from a mutant
     // that assigns `labels` before the second FFI call: both calls share one SQLite
     // connection behind one mutex, so a whole-database failure (a locked file, a
     // poisoned mutex) would hit `loadTagLabels` FIRST and neither implementation
@@ -187,7 +192,7 @@ func runMainActorTests() {
         let orderConn = "conn-tagstore-order"
 
         let l1 = try PharosCore.createTagLabel(CreateTagLabel(name: "OrderCheckL1", colorIndex: 3))
-        try TagStore.shared.load(connectionId: orderConn)
+        try TagStore.shared.loadIfNeeded(connectionId: orderConn)
         expectTrue(TagStore.shared.labels.contains(where: { $0.id == l1.id }),
                    "load before the drop picks up L1")
 
@@ -214,13 +219,14 @@ func runMainActorTests() {
             return
         }
 
-        // Clear the cached entry first, or the idempotency guard added in check 1a
-        // would skip the reload entirely and this would test nothing.
+        // Clear the cached entry first, or `loadIfNeeded`'s cache guard would skip
+        // the reload entirely and this would test nothing. (`reload` has no such
+        // guard, but the point here is to exercise the exact path `didSet` uses.)
         TagStore.shared.clear(connectionId: orderConn)
 
         var threw = false
         do {
-            try TagStore.shared.load(connectionId: orderConn)
+            try TagStore.shared.loadIfNeeded(connectionId: orderConn)
         } catch {
             threw = true
         }
