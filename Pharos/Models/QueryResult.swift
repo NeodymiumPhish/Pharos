@@ -186,6 +186,19 @@ struct AnyCodable: Codable {
         self.value = value
     }
 
+    /// The cell as text, or nil for a SQL NULL.
+    ///
+    /// Every value of a real result crosses the FFI as a JSON string, because the
+    /// core reads PostgreSQL's text format — so `decode(Bool)`, `decode(Int64)` and
+    /// `decode(Double)` in `init(from:)` all fail on it and the value lands in the
+    /// `String` branch. A non-string here is therefore a hand-built fixture (a
+    /// chart or drill test), never a row a user could tag, and nil is the honest
+    /// answer for it rather than a `String(describing:)` that would invent a
+    /// format the fingerprint then depends on.
+    var stringValue: String? {
+        value as? String
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {

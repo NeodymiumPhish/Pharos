@@ -42,6 +42,9 @@ class ResultsGridVC: NSViewController {
     // Data
     var columns: [ColumnDef] = []
     var rows: [[AnyCodable]] = []
+    /// The result's row identity, or nil when the core could not attribute the
+    /// result to a table. Read by `recomputeTagMap()`.
+    var rowIdentity: RowIdentity?
     var hasMore: Bool = false
     var executionTimeMs: UInt64 = 0
     var columnCategories: [PGTypeCategory] = []
@@ -79,6 +82,13 @@ class ResultsGridVC: NSViewController {
 
     // Pin state
     private var isPinned = false
+
+    /// Token for the TagStore observer. The BLOCK form of `addObserver` keeps its
+    /// closure alive until this is removed — unlike the selector form, it is not
+    /// cleaned up when the observer deallocates. A grid is created per result tab,
+    /// so `deinit` must give it back or every closed tab leaves a live block
+    /// reloading a dead table.
+    private var tagStoreObserver: NSObjectProtocol?
 
     // Formatters
     static let rowCountFormatter: NumberFormatter = {
@@ -161,6 +171,38 @@ class ResultsGridVC: NSViewController {
         ])
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // The store changes when a connection loads its tags, and Phase 3 will add
+        // writes. Every open grid rebuilds its map from the new index — filtered to
+        // the affected connection, since `recomputeTagMap()` only ever reflects the
+        // GLOBAL active connection (there is exactly one at a time; see
+        // `AppStateManager.activeConnectionId`). A notification naming some other,
+        // inactive connection changes nothing this grid displays, so skipping it
+        // avoids a wasted row walk and table reload on every open tab whenever an
+        // unrelated connection's tags load or a background reload runs. A
+        // notification with no connection id (a global change, e.g. a future
+        // palette edit) still always rebuilds.
+        tagStoreObserver = NotificationCenter.default.addObserver(
+            forName: TagStore.didChange, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            if let changedId = note.userInfo?[TagStore.connectionIdKey] as? String,
+               changedId != AppStateManager.shared.activeConnectionId {
+                return
+            }
+            self.recomputeTagMap()
+            self.tableView.reloadData()
+        }
+    }
+
+    deinit {
+        if let tagStoreObserver {
+            NotificationCenter.default.removeObserver(tagStoreObserver)
+        }
+    }
+
     /// Called by ContentViewController after setting contentVC and toolbar buttons.
     /// Initializes helpers that depend on toolbar elements.
     func setupHelpers() {
@@ -192,6 +234,7 @@ class ResultsGridVC: NSViewController {
     func showResult(_ result: QueryResult) {
         self.columns = result.columns
         self.rows = result.rows
+        self.rowIdentity = result.rowIdentity
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
 
@@ -208,6 +251,7 @@ class ResultsGridVC: NSViewController {
         cellSelectionController.clear()
 
         rebuildColumns()
+        recomputeTagMap()
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
@@ -304,10 +348,14 @@ class ResultsGridVC: NSViewController {
     func appendRows(from result: QueryResult) {
         let oldCount = rows.count
         rows.append(contentsOf: result.rows)
+        rowIdentity = rowIdentity?.appendingPage(result.rowIdentity, pageRowCount: result.rows.count)
+            ?? result.rowIdentity
         hasMore = result.hasMore
 
         let newIndices = Array(oldCount..<rows.count)
         unfilteredDisplayRows.append(contentsOf: newIndices)
+
+        recomputeTagMap()
 
         if sortController.currentSortColumn != nil {
             sortController.reapplySortIfActive()
@@ -565,6 +613,38 @@ class ResultsGridVC: NSViewController {
     @objc func copy(_ sender: Any?) {
         copyExport.cellSelection = cellSelectionController?.state
         copyExport.copy(sender)
+    }
+
+    // MARK: - Tags
+
+    /// Rebuild the tag map for the loaded result.
+    ///
+    /// Called when a result arrives, when a page is appended, and when the store
+    /// changes. NOT called per row: the matcher walks the rows once and the data
+    /// source then answers each row view from a dictionary.
+    func recomputeTagMap() {
+        guard let connectionId = AppStateManager.shared.activeConnectionId else {
+            dataSource.tagsByRow = [:]
+            return
+        }
+        let index = TagStore.shared.index(for: connectionId)
+        guard !index.isEmpty else {
+            dataSource.tagsByRow = [:]
+            return
+        }
+        // Every cell crosses the FFI as text, so a row is [String?] already.
+        let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
+        dataSource.tagsByRow = TagMatcher.match(
+            identity: rowIdentity,
+            columns: columns.map { $0.name },
+            rows: textRows,
+            tagsByIdentity: index
+        )
+        dataSource.labelColors = Dictionary(
+            uniqueKeysWithValues: TagStore.shared.labels.map {
+                ($0.id, TagLabelPalette.color(at: $0.colorIndex))
+            }
+        )
     }
 
     // MARK: - Helper Coordination

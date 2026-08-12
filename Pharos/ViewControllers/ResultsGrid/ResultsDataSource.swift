@@ -316,16 +316,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 return fresh
             }()
 
-        // `row` indexes displayRows, not rows. Mapping through it is what keeps the
-        // highlight on the right row once a filter or a sort is active.
-        guard row < displayRows.count,
-              let tag = tagsByRow[displayRows[row]],
-              let color = labelColors[tag.labelId]
+        guard let look = TagLabelPalette.appearance(
+            row: row, displayRows: displayRows,
+            tagsByRow: tagsByRow, labelColors: labelColors)
         else {
             view.clearTag()
             return view
         }
-        view.configure(color: color, isWeak: tag.primaryKind == "fingerprint")
+        view.configure(color: look.color, isWeak: look.isWeak)
         return view
     }
 
