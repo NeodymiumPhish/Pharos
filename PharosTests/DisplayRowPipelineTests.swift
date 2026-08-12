@@ -59,11 +59,16 @@ func runTests() {
     // MARK: Phase 3 shape — the stages Phase 2 leaves nil
 
     // Stage 1, the tag funnel, runs FIRST — before the data filters.
+    //
+    // The predicates are prefix/suffix, NOT two value tests. An earlier version used
+    // `{ $0 < 3 }` and `{ $0 % 2 == 0 }`, which COMMUTE — both orders give [0, 2], so
+    // the check could not tell the two apart despite its name. Prefix-then-suffix
+    // gives [1, 2] in the right order and [3, 4] in the wrong one.
     expectRows(
         DisplayRowPipeline.run(unfiltered: all, stages: .init(
-            tagFilter: { $0.filter { $0 < 3 } },
-            columnFilters: { $0.filter { $0 % 2 == 0 } })),
-        [0, 2], "the tag filter runs before the column filters")
+            tagFilter: { Array($0.prefix(3)) },
+            columnFilters: { Array($0.suffix(2)) })),
+        [1, 2], "the tag filter runs before the column filters")
 
     // Stage 4, force-show, re-admits a row that stage 2 or 3 dropped, and keeps
     // the sort order of the unfiltered list rather than appending.
