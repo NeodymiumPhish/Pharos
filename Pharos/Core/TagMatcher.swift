@@ -20,6 +20,14 @@ enum TagMatcher {
     /// holds `(connection, table, kind, value)`, so a key without the kind would
     /// bring that collision back into memory — a `pk` string and a fingerprint
     /// string for two different rows could replace each other.
+    ///
+    /// The separator is a raw `\u{1}`, unlike `RowFingerprint`'s length-prefixed
+    /// fields — safely, because a collision here needs a table key containing
+    /// U+0001 followed by text equal to a valid kind, and this same function both
+    /// builds and reads the index, so a collision could only ever cause a WRONG
+    /// match, never a missed one. A fingerprint has no such luxury: it is stored
+    /// and re-derived on a later query, so a length-prefix escape is load-bearing
+    /// there in a way it is not here.
     static func compositeKey(tableKey: String, kind: String, value: String) -> String {
         "\(tableKey)\u{1}\(kind)\u{1}\(value)"
     }
@@ -28,19 +36,20 @@ enum TagMatcher {
     ///
     /// - Parameters:
     ///   - identity: the result's block, or nil when the result has no source table.
-    ///   - rowCount: the loaded row count. Taken separately because the weak path
-    ///     needs `rows` and the strong path does not.
     ///   - columns: result column names, for the weak path only.
-    ///   - rows: result values as text, for the weak path only.
+    ///   - rows: result values as text. The row COUNT comes from this, so the two
+    ///     paths cannot disagree about how many rows exist; the weak path also
+    ///     reads the values. The strong path reads the count only — its keys are
+    ///     precomputed per row by the core.
     ///   - tagsByIdentity: the store's index.
     static func match(
         identity: RowIdentity?,
-        rowCount: Int,
         columns: [String],
         rows: [[String?]],
         tagsByIdentity: [String: RowTag]
     ) -> [Int: RowTag] {
-        // The common case, and it must cost nothing: nothing is tagged.
+        // The common case: nothing is tagged. This is a smoke check, not a
+        // measured fast path — it never fails on its own either way.
         guard !tagsByIdentity.isEmpty else { return [:] }
         guard let identity else { return [:] }
 
@@ -48,7 +57,7 @@ enum TagMatcher {
             return matchWeak(identity: identity, columns: columns, rows: rows,
                              tagsByIdentity: tagsByIdentity)
         }
-        return matchStrong(identity: identity, rowCount: rowCount,
+        return matchStrong(identity: identity, rowCount: rows.count,
                            tagsByIdentity: tagsByIdentity)
     }
 

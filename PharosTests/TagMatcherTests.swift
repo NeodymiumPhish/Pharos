@@ -46,13 +46,18 @@ func identity(_ candidates: [KeySet], tableKey: String = "oid:1",
     RowIdentity(tableKey: tableKey, tableDisplay: "t", tableKeys: tableKeys, candidates: candidates)
 }
 
+/// `n` rows with no cells. The strong path reads only the row COUNT — its keys are
+/// precomputed — so empty cells say "the values do not matter here".
+func blankRows(_ n: Int) -> [[String?]] { Array(repeating: [], count: n) }
+
 func runTests() {
     // MARK: The cheap exit
 
-    // The common case: nothing is tagged. It must cost one dictionary check.
+    // The common case: nothing is tagged. This is a smoke check on the guard, not
+    // a measured fast path.
     let noTags = TagMatcher.match(
         identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])]),
-        rowCount: 1, columns: [], rows: [], tagsByIdentity: [:])
+        columns: [], rows: blankRows(1), tagsByIdentity: [:])
     expectEqual(noTags.count, 0, "an empty store matches nothing")
 
     // MARK: One candidate
@@ -60,7 +65,7 @@ func runTests() {
     let pk = KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1", "V1:2", "V1:3"])
     let t1 = tag("t1", label: "red", kind: "pk", value: "V1:2")
     let oneCandidate = TagMatcher.match(
-        identity: identity([pk]), rowCount: 3, columns: [], rows: [],
+        identity: identity([pk]), columns: [], rows: blankRows(3),
         tagsByIdentity: store([t1]))
     expectEqual(oneCandidate.count, 1, "one row matches on the primary key")
     expectLabel(oneCandidate, 1, "red", "the matching row is row 1, not row 2")
@@ -78,7 +83,7 @@ func runTests() {
                         createdAt: "", updatedAt: "")
     let uniqueOnly = KeySet(kind: "unique", keyColumns: ["email"], keys: ["V6:a@b.co"])
     let cross = TagMatcher.match(
-        identity: identity([uniqueOnly]), rowCount: 1, columns: [], rows: [],
+        identity: identity([uniqueOnly]), columns: [], rows: blankRows(1),
         tagsByIdentity: store([strong]))
     expectLabel(cross, 0, "blue", "a pk tag is found again through its unique key")
 
@@ -90,14 +95,14 @@ func runTests() {
     let both = store([tag("tp", label: "frompk", kind: "pk", value: "V1:9"),
                       tag("tu", label: "fromunique", kind: "unique", value: "V1:8")])
     let ordered = TagMatcher.match(
-        identity: identity([pkA, uniqueB]), rowCount: 1, columns: [], rows: [],
+        identity: identity([pkA, uniqueB]), columns: [], rows: blankRows(1),
         tagsByIdentity: both)
     expectLabel(ordered, 0, "frompk", "the strongest candidate wins")
 
     // The second candidate is tried when the first gives no hit.
     let onlyUnique = store([tag("tu", label: "fromunique", kind: "unique", value: "V1:8")])
     let fallThrough = TagMatcher.match(
-        identity: identity([pkA, uniqueB]), rowCount: 1, columns: [], rows: [],
+        identity: identity([pkA, uniqueB]), columns: [], rows: blankRows(1),
         tagsByIdentity: onlyUnique)
     expectLabel(fallThrough, 0, "fromunique", "the second candidate is tried after a miss")
 
@@ -108,7 +113,7 @@ func runTests() {
     let withHole = KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1", "", "V1:3"])
     let emptyTag = store([tag("te", label: "ghost", kind: "pk", value: "")])
     let sentinel = TagMatcher.match(
-        identity: identity([withHole]), rowCount: 3, columns: [], rows: [],
+        identity: identity([withHole]), columns: [], rows: blankRows(3),
         tagsByIdentity: emptyTag)
     expectEqual(sentinel.count, 0, "an empty key matches nothing, even against an empty stored key")
 
@@ -116,7 +121,7 @@ func runTests() {
     let holeA = KeySet(kind: "pk", keyColumns: ["id"], keys: [""])
     let holeB = KeySet(kind: "unique", keyColumns: ["email"], keys: ["V1:7"])
     let rescued = TagMatcher.match(
-        identity: identity([holeA, holeB]), rowCount: 1, columns: [], rows: [],
+        identity: identity([holeA, holeB]), columns: [], rows: blankRows(1),
         tagsByIdentity: store([tag("tr", label: "green", kind: "unique", value: "V1:7")]))
     expectLabel(rescued, 0, "green", "a hole in one candidate still matches through the other")
 
@@ -126,8 +131,18 @@ func runTests() {
     let otherTable = store([tag("to", label: "wrong", kind: "pk", value: "V1:1", tableKey: "oid:999")])
     let scoped = TagMatcher.match(
         identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])]),
-        rowCount: 1, columns: [], rows: [], tagsByIdentity: otherTable)
+        columns: [], rows: blankRows(1), tagsByIdentity: otherTable)
     expectEqual(scoped.count, 0, "a tag on another table does not match")
+
+    // The strong path must use `tableKey` (the primary table), NOT `tableKeys`.
+    // Task 3's weak path uses `tableKeys` on purpose; a strong key belongs to one
+    // table only, so a tag on another table in the result must not match.
+    let secondaryTable = TagMatcher.match(
+        identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])],
+                           tableKey: "oid:1", tableKeys: ["oid:1", "oid:2"]),
+        columns: [], rows: blankRows(1),
+        tagsByIdentity: store([tag("t2t", label: "wrong", kind: "pk", value: "V1:1", tableKey: "oid:2")]))
+    expectEqual(secondaryTable.count, 0, "a strong tag on a secondary table does not match")
 
     // MARK: The KIND is part of the match
 
@@ -144,7 +159,7 @@ func runTests() {
     expectEqual(sameValue.count, 2, "two kinds with the same value are two index entries")
     let kindScoped = TagMatcher.match(
         identity: identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])]),
-        rowCount: 1, columns: [], rows: [], tagsByIdentity: sameValue)
+        columns: [], rows: blankRows(1), tagsByIdentity: sameValue)
     expectLabel(kindScoped, 0, "frompk", "the pk key matches the pk tag, not the fingerprint tag")
 
     // MARK: One key, several rows
@@ -152,7 +167,7 @@ func runTests() {
     // A one-to-many join repeats the key. One tag highlights every such row.
     let repeated = KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:5", "V1:5", "V1:6"])
     let many = TagMatcher.match(
-        identity: identity([repeated]), rowCount: 3, columns: [], rows: [],
+        identity: identity([repeated]), columns: [], rows: blankRows(3),
         tagsByIdentity: store([tag("tm", label: "amber", kind: "pk", value: "V1:5")]))
     expectEqual(many.count, 2, "one tag covers every row holding the key")
     expectLabel(many, 0, "amber", "the first repeated row is tagged")
@@ -164,13 +179,23 @@ func runTests() {
     // must degrade to "no tag", never crash.
     let short = KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])
     let ragged = TagMatcher.match(
-        identity: identity([short]), rowCount: 5, columns: [], rows: [],
+        identity: identity([short]), columns: [], rows: blankRows(5),
         tagsByIdentity: store([tag("ts", label: "red", kind: "pk", value: "V1:1")]))
     expectEqual(ragged.count, 1, "a short key array tags only the rows it covers")
 
+    // The bounds guard must `continue`, not `break`: a candidate with a short key
+    // array must not stop the row from trying the next candidate. This mirrors the
+    // empty-key rescue check above.
+    let raggedA = KeySet(kind: "pk", keyColumns: ["id"], keys: [])
+    let fullB = KeySet(kind: "unique", keyColumns: ["email"], keys: ["V1:4"])
+    let raggedRescue = TagMatcher.match(
+        identity: identity([raggedA, fullB]), columns: [], rows: blankRows(1),
+        tagsByIdentity: store([tag("trr", label: "teal", kind: "unique", value: "V1:4")]))
+    expectLabel(raggedRescue, 0, "teal", "a short candidate still lets the next candidate match")
+
     // MARK: No identity block
 
-    let none = TagMatcher.match(identity: nil, rowCount: 3, columns: [], rows: [],
+    let none = TagMatcher.match(identity: nil, columns: [], rows: blankRows(3),
                                 tagsByIdentity: store([tag("tn", label: "red", kind: "pk", value: "V1:1")]))
     expectEqual(none.count, 0, "no identity block matches nothing in the strong path")
 
