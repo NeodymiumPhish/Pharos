@@ -20,19 +20,30 @@ final class TaggedRowView: NSTableRowView {
     static let barWidth: CGFloat = 3
 
     private(set) var tagColor: NSColor?
-    private(set) var isBarDashed = false
+
+    /// A fingerprint match. It draws fainter and dashed, so the two trust levels are
+    /// distinguishable without reading anything.
+    ///
+    /// This is the stored property, and both the wash alpha and the bar style derive
+    /// from it. Do not reverse that: deriving the alpha from `isBarDashed` would link
+    /// the wash to the bar STYLE, so a later reason to dash the bar — a note marker,
+    /// a third trust tier — would silently change the wash too.
+    private(set) var isWeak = false
+
+    /// True when the bar draws dashed. Derived: a weak match is the only reason today.
+    var isBarDashed: Bool { isWeak }
 
     /// 15% for a strong match, 8% for a fingerprint, 0 when untagged.
     var tintAlpha: CGFloat {
         guard tagColor != nil else { return 0 }
-        return isBarDashed ? 0.08 : 0.15
+        return isWeak ? 0.08 : 0.15
     }
 
     /// - Parameter isWeak: a fingerprint match. It draws fainter and dashed, so the
     ///   two trust levels are distinguishable without reading anything.
     func configure(color: NSColor, isWeak: Bool) {
         tagColor = color
-        isBarDashed = isWeak
+        self.isWeak = isWeak
         needsDisplay = true
     }
 
@@ -40,7 +51,7 @@ final class TaggedRowView: NSTableRowView {
     /// tag must lose its paint too.
     func clearTag() {
         tagColor = nil
-        isBarDashed = false
+        isWeak = false
         needsDisplay = true
     }
 

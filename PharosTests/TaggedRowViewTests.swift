@@ -22,7 +22,8 @@ func expectTrue(_ actual: Bool, _ name: String) {
     if actual { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected true") }
 }
 
-/// Render a row view offscreen and read one pixel. Real AppKit drawing, no window.
+/// Render a row view offscreen ONCE into a bitmap that can be sampled
+/// repeatedly. Real AppKit drawing, no window.
 ///
 /// `view.bitmapImageRepForCachingDisplay` + `cacheDisplay` (the obvious first
 /// attempt) does NOT work here: it draws into an alpha-preserving bitmap with
@@ -39,7 +40,7 @@ func expectTrue(_ actual: Bool, _ name: String) {
 /// invoke `drawBackground(in:)` directly — the exact method under test — so
 /// Quartz performs genuine source-over compositing and `colorAt` reports the
 /// true blended colour.
-func pixel(_ view: TaggedRowView, x: Int, y: Int) -> NSColor? {
+func render(_ view: TaggedRowView) -> NSBitmapImageRep? {
     let width = Int(view.bounds.width)
     let height = Int(view.bounds.height)
     guard let rep = NSBitmapImageRep(
@@ -55,7 +56,14 @@ func pixel(_ view: TaggedRowView, x: Int, y: Int) -> NSColor? {
     view.drawBackground(in: view.bounds)
     NSGraphicsContext.restoreGraphicsState()
 
-    return rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
+    return rep
+}
+
+/// Sample one pixel from an already-rendered bitmap. Splitting this from
+/// `render` means a multi-point walk (e.g. the dash-gap scan) renders the view
+/// exactly once instead of once per sampled point.
+func pixel(_ rep: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
+    rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
 }
 
 /// Two colours are "the same" within a small epsilon — offscreen rendering can
@@ -138,10 +146,15 @@ func runTests() {
     let weakForPixels = TaggedRowView(frame: frame)
     weakForPixels.configure(color: .systemRed, isWeak: true)
 
-    if let untaggedMid = pixel(untaggedForPixels, x: midX, y: midY),
-       let strongMid = pixel(strongForPixels, x: midX, y: midY),
-       let weakMid = pixel(weakForPixels, x: midX, y: midY),
-       let strongBar = pixel(strongForPixels, x: barX, y: midY) {
+    // Render each view exactly once — the dash-gap walk below samples 24
+    // points down the same bitmap instead of re-rendering per point.
+    if let untaggedRep = render(untaggedForPixels),
+       let strongRep = render(strongForPixels),
+       let weakRep = render(weakForPixels),
+       let untaggedMid = pixel(untaggedRep, x: midX, y: midY),
+       let strongMid = pixel(strongRep, x: midX, y: midY),
+       let weakMid = pixel(weakRep, x: midX, y: midY),
+       let strongBar = pixel(strongRep, x: barX, y: midY) {
 
         // 1. An untagged row paints no tag: its mid pixel must differ from a
         //    tagged row's mid pixel.
@@ -162,6 +175,28 @@ func runTests() {
         expectTrue(barDistance > strongWashDistance,
                    "the strong bar pixel sits farther from the untagged baseline than the strong wash pixel")
 
+        // 2b. The bar's WIDTH in the output, not just in `barRect`. Reading
+        //     x=1 alone cannot tell a 3pt bar from a 2pt one, because both
+        //     cover it. x=2 must still be full bar colour and x=3 must already
+        //     have fallen back to wash — otherwise a `drawBackground` that
+        //     hardcodes a narrower rect while `barRect` keeps reporting 3
+        //     would pass every other check, this one included at x=1.
+        if let leadingEdge = pixel(strongRep, x: 0, y: midY),
+           let lastBarPixel = pixel(strongRep, x: 2, y: midY),
+           let firstWashPixel = pixel(strongRep, x: 3, y: midY) {
+            let leadingEdgeDistance = distance(leadingEdge, from: untaggedMid)
+            let lastBarDistance = distance(lastBarPixel, from: untaggedMid)
+            let firstWashDistance = distance(firstWashPixel, from: untaggedMid)
+
+            expectClose(lastBarDistance, leadingEdgeDistance,
+                        "x=2's distance from baseline matches x=0's — both still full bar colour")
+            expectClose(firstWashDistance, strongWashDistance,
+                        "x=3's distance from baseline matches the mid-row wash — the bar has already ended")
+        } else {
+            failures += 1
+            print("FAIL could not read the bar's right-edge pixels (x=0, x=2, x=3)")
+        }
+
         // 3. A weak row's wash is fainter than a strong row's: the weak mid
         //    pixel must sit closer to the untagged baseline than the strong
         //    mid pixel does.
@@ -170,12 +205,13 @@ func runTests() {
         expectTrue(weakDelta < strongDelta, "a weak row's wash sits closer to the untagged baseline than a strong row's")
 
         // 4. The dashed bar has gaps; the solid bar does not. Walk the bar
-        //    column down every y of both views.
+        //    column down every y of both views (same rendered bitmap, sampled
+        //    repeatedly — no re-render per y).
         var strongBarColors: [NSColor] = []
         var weakBarColors: [NSColor] = []
         for y in 0..<Int(frame.height) {
-            if let c = pixel(strongForPixels, x: barX, y: y) { strongBarColors.append(c) }
-            if let c = pixel(weakForPixels, x: barX, y: y) { weakBarColors.append(c) }
+            if let c = pixel(strongRep, x: barX, y: y) { strongBarColors.append(c) }
+            if let c = pixel(weakRep, x: barX, y: y) { weakBarColors.append(c) }
         }
         if strongBarColors.count == Int(frame.height) && weakBarColors.count == Int(frame.height) {
             let strongBarUniform = strongBarColors.dropFirst().allSatisfy { closeColor($0, strongBarColors[0]) }
@@ -192,9 +228,8 @@ func runTests() {
         //    must match the untagged baseline.
         let clearedView = TaggedRowView(frame: frame)
         clearedView.configure(color: .systemRed, isWeak: false)
-        _ = pixel(clearedView, x: midX, y: midY) // render once while tagged
         clearedView.clearTag()
-        if let clearedMid = pixel(clearedView, x: midX, y: midY) {
+        if let clearedRep = render(clearedView), let clearedMid = pixel(clearedRep, x: midX, y: midY) {
             expectTrue(closeColor(clearedMid, untaggedMid), "clearTag's mid pixel matches the untagged baseline")
         } else {
             failures += 1
@@ -202,7 +237,7 @@ func runTests() {
         }
     } else {
         failures += 1
-        print("FAIL pixel rendering produced no readable colour — bitmapImageRepForCachingDisplay/cacheDisplay did not work offscreen")
+        print("FAIL pixel rendering produced no readable colour — the offscreen bitmap technique did not work")
     }
 
     if failures == 0 {
