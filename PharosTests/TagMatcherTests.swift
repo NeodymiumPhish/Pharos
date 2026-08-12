@@ -19,6 +19,10 @@ func expectLabel(_ map: [Int: RowTag], _ row: Int, _ labelId: String?, _ name: S
     }
 }
 
+func expectTrue(_ actual: Bool, _ name: String) {
+    if actual { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected true") }
+}
+
 // MARK: - Fixtures
 
 func tag(_ id: String, label: String, kind: String, value: String,
@@ -337,6 +341,27 @@ func runTests() {
         identity: weakId, columns: ["id"], rows: [["1"]],
         tagsByIdentity: store([tag("ts2", label: "red", kind: "pk", value: "V1:1")]))
     expectEqual(strongInWeak.count, 0, "the weak path does not reach a pk tag")
+
+    // MARK: - Which tier reads the row values
+
+    // The grid uses this to skip building a text copy of the result. It must agree
+    // with `match`'s own dispatch, which is why both read the same function.
+    expectTrue(!TagMatcher.needsRowValues(identity([KeySet(kind: "pk", keyColumns: ["id"], keys: ["V1:1"])])),
+               "a keyed result does not need the row values")
+    expectTrue(TagMatcher.needsRowValues(identity([])),
+               "a keyless result needs the row values")
+    expectTrue(!TagMatcher.needsRowValues(nil),
+               "no identity block needs nothing")
+
+    // If a caller trusted a wrong `needsRowValues` and passed empty rows to the weak
+    // path, this is what the user would see: nothing matches, silently. A keyless
+    // result that WOULD hit with real values matches nothing when handed blank ones.
+    let trustedWrong = TagMatcher.match(
+        identity: identity([], tableKey: "oid:1", tableKeys: ["oid:1"]),
+        columns: ["id"], rows: blankRows(1),
+        tagsByIdentity: store([fpTag("wr1", label: "red", columns: ["id"], values: ["1"])]))
+    expectEqual(trustedWrong.count, 0,
+                "empty rows on the weak path silently match nothing, even though real values would have hit")
 
     if failures == 0 {
         print("\nAll TagMatcher tests passed.")

@@ -662,14 +662,14 @@ class ResultsGridVC: NSViewController {
             dataSource.tagsByRow = [:]
             return
         }
-        // Only the fingerprint path reads the VALUES — `matchStrong` takes just the
-        // row count. Building the text copy unconditionally would copy the whole
-        // result on every store change for the common keyed case. A nil identity
-        // needs nothing either: `match` returns an empty map before it reads a row.
-        // The row COUNT must still be right in both branches, since that is what
-        // the strong path reads — `Array(repeating: [], count: rows.count)` keeps
-        // it correct while each row's own array of values stays empty.
-        let needsText = rowIdentity.map { $0.candidates.isEmpty } ?? false
+        // `TagMatcher.needsRowValues` owns this tier decision — see its doc for why
+        // a second copy of the rule here would be dangerous. Building the text copy
+        // unconditionally would copy the whole result on every store change for the
+        // common keyed case. The row COUNT must still be right in both branches,
+        // since that is what the strong path reads — `Array(repeating: [],
+        // count: rows.count)` keeps it correct while each row's own array of
+        // values stays empty.
+        let needsText = TagMatcher.needsRowValues(rowIdentity)
         let textRows: [[String?]] = needsText
             ? rows.map { row in row.map { $0.stringValue } }
             : Array(repeating: [], count: rows.count)

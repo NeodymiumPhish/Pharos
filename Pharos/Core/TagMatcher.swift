@@ -54,6 +54,22 @@ enum TagMatcher {
         return out
     }
 
+    /// True when `match` will read the row VALUES, not merely their count.
+    ///
+    /// The strong path takes only `rows.count` — its keys are precomputed per row by
+    /// the core — so a caller that must build a text copy of the result can skip it
+    /// entirely for a keyed result. A nil identity needs nothing either: `match`
+    /// returns an empty map before it reads a row.
+    ///
+    /// This lives here, not at the call site, because it is the SAME tier decision
+    /// `match` makes below. Two copies would let a change to the tier logic leave a
+    /// caller passing empty rows to a path that needs them, and every tag would
+    /// silently stop matching — no crash, no failing test.
+    static func needsRowValues(_ identity: RowIdentity?) -> Bool {
+        guard let identity else { return false }
+        return identity.candidates.isEmpty
+    }
+
     /// Tags by index into `rows`.
     ///
     /// - Parameters:
@@ -75,7 +91,7 @@ enum TagMatcher {
         guard !tagsByIdentity.isEmpty else { return [:] }
         guard let identity else { return [:] }
 
-        if identity.candidates.isEmpty {
+        if needsRowValues(identity) {
             return matchWeak(identity: identity, columns: columns, rows: rows,
                              tagsByIdentity: tagsByIdentity)
         }
