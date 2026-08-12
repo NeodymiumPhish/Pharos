@@ -32,6 +32,28 @@ enum TagMatcher {
         "\(tableKey)\u{1}\(kind)\u{1}\(value)"
     }
 
+    /// Build the store's index from a connection's tags.
+    ///
+    /// ONE ENTRY PER STORED KEY, not per tag. A strong tag carries both a `pk` and a
+    /// `unique` key and therefore appears twice — that is what lets a tag made
+    /// through one candidate be found again through the other.
+    ///
+    /// This lives on `TagMatcher` rather than on `TagStore` for two reasons. It is
+    /// pure, so the offline harness can test it; and the matcher's own test fixtures
+    /// call it instead of reimplementing it, so the tests and the app can never
+    /// disagree about how the index is keyed.
+    static func index(_ tags: [RowTag]) -> [String: RowTag] {
+        var out: [String: RowTag] = [:]
+        for tag in tags {
+            for key in tag.keys {
+                out[compositeKey(tableKey: tag.tableKey,
+                                 kind: key.identityKind,
+                                 value: key.identityValue)] = tag
+            }
+        }
+        return out
+    }
+
     /// Tags by index into `rows`.
     ///
     /// - Parameters:

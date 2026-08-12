@@ -22,6 +22,31 @@ final class AppStateManager: ObservableObject {
                 }
                 // Restore schema selection for new connection (nil if none saved)
                 activeSchema = activeConnectionId.flatMap { schemaSelections[$0] }
+
+                // Tags are per connection: the old connection's index is dead
+                // weight, and the new one's must be loaded before the first result
+                // arrives.
+                //
+                // This sits in didSet rather than at each call site because
+                // activeConnectionId changes on connect, on disconnect, AND in
+                // deleteConnection — three paths, one guard.
+                //
+                // Two notifications fire on a switch (clear, then load). Each makes
+                // every open grid rebuild its tag map. That is accepted: a switch
+                // clears the results anyway, so the first rebuild sees no rows.
+                if let oldId = oldValue {
+                    TagStore.shared.clear(connectionId: oldId)
+                }
+                if let newId = activeConnectionId {
+                    // A failure must not block the connection. The user then has a
+                    // working database and no tags, which is the pre-Phase-2
+                    // behaviour, not a broken state.
+                    do {
+                        try TagStore.shared.load(connectionId: newId)
+                    } catch {
+                        NSLog("Failed to load row tags for \(newId): \(error)")
+                    }
+                }
             }
         }
     }

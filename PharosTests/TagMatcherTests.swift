@@ -30,16 +30,10 @@ func tag(_ id: String, label: String, kind: String, value: String,
            createdAt: "", updatedAt: "")
 }
 
-/// Index a tag under every key it holds, exactly as TagStore does.
-func store(_ tags: [RowTag]) -> [String: RowTag] {
-    var out: [String: RowTag] = [:]
-    for t in tags {
-        for k in t.keys {
-            out[TagMatcher.compositeKey(tableKey: t.tableKey, kind: k.identityKind, value: k.identityValue)] = t
-        }
-    }
-    return out
-}
+/// Index a tag under every key it holds — by calling the SAME function the app uses,
+/// not a copy of it. A separate implementation here could drift, and then every
+/// assertion in this file would pass while the app matched nothing.
+func store(_ tags: [RowTag]) -> [String: RowTag] { TagMatcher.index(tags) }
 
 func identity(_ candidates: [KeySet], tableKey: String = "oid:1",
               tableKeys: [String] = ["oid:1"]) -> RowIdentity {
