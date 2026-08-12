@@ -84,7 +84,20 @@ func runTests() {
 
         let miss = TagLabelPalette.appearance(row: 0, displayRows: displayRows,
                                                tagsByRow: tagsByRow, labelColors: labelColors)
-        expectNil(miss, "row 0 (display row 5, untagged) misses — indexing tagsByRow directly would wrongly hit")
+        // `tagsByRow[0]` is also absent, so a version indexing by `row` directly
+        // would miss here too — this assertion alone does not distinguish the two
+        // implementations. It exists to pin the "row 0 has no tag" case on its own
+        // terms; row 1 above and row 2 below are what actually discriminate.
+        expectNil(miss, "row 0 (display row 5, untagged) misses")
+
+        // The wrong-hit direction. `displayRows[2]` is 9 and untagged, but `tagsByRow[2]`
+        // holds the tag — so a version indexing by `row` instead of by `displayRows[row]`
+        // returns a tag here. Row 1's hit alone cannot catch that: this is the assertion
+        // that actually proves the mapping goes through `displayRows`, not just that it
+        // is consistent with doing so.
+        let wrongHit = TagLabelPalette.appearance(row: 2, displayRows: displayRows,
+                                                   tagsByRow: tagsByRow, labelColors: labelColors)
+        expectNil(wrongHit, "row 2 (display row 9, untagged) misses even though tagsByRow[2] holds a tag")
     }
 
     // MARK: - 4. appearance returns nil for an out-of-bounds row index

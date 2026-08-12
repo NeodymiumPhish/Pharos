@@ -85,9 +85,11 @@ class ResultsGridVC: NSViewController {
 
     /// Token for the TagStore observer. The BLOCK form of `addObserver` keeps its
     /// closure alive until this is removed — unlike the selector form, it is not
-    /// cleaned up when the observer deallocates. A grid is created per result tab,
-    /// so `deinit` must give it back or every closed tab leaves a live block
-    /// reloading a dead table.
+    /// cleaned up when the observer deallocates. There is one `ResultsGridVC` for
+    /// the app's life (`ContentViewController` owns it), so today `deinit` never
+    /// actually runs and nothing currently leaks. It is kept anyway as insurance:
+    /// if a future refactor makes this VC per-tab or per-pane, the removal is
+    /// already in place rather than something the next change has to remember.
     private var tagStoreObserver: NSObjectProtocol?
 
     // Formatters
@@ -175,15 +177,43 @@ class ResultsGridVC: NSViewController {
         super.viewDidLoad()
 
         // The store changes when a connection loads its tags, and Phase 3 will add
-        // writes. Every open grid rebuilds its map from the new index — filtered to
-        // the affected connection, since `recomputeTagMap()` only ever reflects the
+        // writes. This grid rebuilds its map from the new index — filtered to the
+        // affected connection, since `recomputeTagMap()` only ever reflects the
         // GLOBAL active connection (there is exactly one at a time; see
         // `AppStateManager.activeConnectionId`). A notification naming some other,
         // inactive connection changes nothing this grid displays, so skipping it
-        // avoids a wasted row walk and table reload on every open tab whenever an
-        // unrelated connection's tags load or a background reload runs. A
-        // notification with no connection id (a global change, e.g. a future
-        // palette edit) still always rebuilds.
+        // avoids a wasted row walk and table reload whenever an unrelated
+        // connection's tags load or a background reload runs. There is only one
+        // grid today, so this saves one row walk, not one per tab. A notification
+        // with no connection id (a global change, e.g. a future palette edit)
+        // still always rebuilds.
+        //
+        // The filter is safe only because of two facts checked directly against
+        // `TagStore` and `AppStateManager`, not assumed:
+        //  1. `activeConnectionId`'s `didSet` runs AFTER the new value is stored,
+        //     and `loadIfNeeded` (called from inside that `didSet`) posts the
+        //     change synchronously from there — so by the time this handler reads
+        //     `activeConnectionId`, it already equals the connection the post is
+        //     about.
+        //  2. `addObserver(forName:object:queue:.main)` delivers the block
+        //     SYNCHRONOUSLY when the post itself comes from the main thread, which
+        //     every poster in this codebase does — so no `async` hop can land
+        //     between the post and this handler.
+        //
+        // Two changes would break it, and either is a real risk in a future
+        // refactor rather than a hypothetical:
+        //  - A per-tab or per-pane connection. `recomputeTagMap()` would then need
+        //    a GRID-LOCAL connection id, but this filter compares the GLOBAL one —
+        //    so a notification for the grid's own connection would be silently
+        //    discarded whenever some other connection was globally active.
+        //  - Deferred delivery. This filter's correctness depends on the post
+        //    arriving while `activeConnectionId` still equals the affected id. A
+        //    post from a background thread, or one wrapped in
+        //    `DispatchQueue.main.async`, could arrive after `activeConnectionId`
+        //    had already moved on — e.g. the clear-on-disconnect post racing a
+        //    fast reconnect — and the mismatch would make this handler discard a
+        //    notification it needed, leaving stale tag stripes on screen until the
+        //    next result.
         tagStoreObserver = NotificationCenter.default.addObserver(
             forName: TagStore.didChange, object: nil, queue: .main
         ) { [weak self] note in
@@ -632,8 +662,17 @@ class ResultsGridVC: NSViewController {
             dataSource.tagsByRow = [:]
             return
         }
-        // Every cell crosses the FFI as text, so a row is [String?] already.
-        let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
+        // Only the fingerprint path reads the VALUES — `matchStrong` takes just the
+        // row count. Building the text copy unconditionally would copy the whole
+        // result on every store change for the common keyed case. A nil identity
+        // needs nothing either: `match` returns an empty map before it reads a row.
+        // The row COUNT must still be right in both branches, since that is what
+        // the strong path reads — `Array(repeating: [], count: rows.count)` keeps
+        // it correct while each row's own array of values stays empty.
+        let needsText = rowIdentity.map { $0.candidates.isEmpty } ?? false
+        let textRows: [[String?]] = needsText
+            ? rows.map { row in row.map { $0.stringValue } }
+            : Array(repeating: [], count: rows.count)
         dataSource.tagsByRow = TagMatcher.match(
             identity: rowIdentity,
             columns: columns.map { $0.name },
