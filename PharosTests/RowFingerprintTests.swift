@@ -24,17 +24,13 @@ func runTests() {
     expectEqual(RowFingerprint.field("✓"), "V3:✓", "a three-byte character counts as three")
 
     expectEqual(RowFingerprint.column("id"), "K2:id", "a column name is length-prefixed too")
+    expectEqual(RowFingerprint.column("é"), "K2:é", "a column name counts bytes too")
 
-    // The separator problem this encoding exists to solve: a value holding the
-    // text of another field must not produce the same string as two fields.
-    let forged = RowFingerprint.encode(columns: ["a"], values: ["K1:b"])
-    let honest = RowFingerprint.encode(columns: ["a", "b"], values: ["", ""])
-    if forged != nil && forged == honest {
-        failures += 1
-        print("FAIL a value cannot forge a second field")
-    } else {
-        print("PASS a value cannot forge a second field")
-    }
+    // Without the length prefixes these two rows are the same text. With them they differ.
+    expectEqual(RowFingerprint.encode(columns: ["a"], values: ["xK1:bV1:y"]),
+                "K1:aV9:xK1:bV1:y", "a value cannot forge a second field")
+    expectEqual(RowFingerprint.encode(columns: ["a", "b"], values: ["x", "y"]),
+                "K1:aV1:xK1:bV1:y", "the honest two-field row")
 
     // Columns sort by name, so the same row gives the same string whatever order
     // the result presented its columns in.
@@ -64,6 +60,32 @@ func runTests() {
     // A zero-column row has no identity worth comparing.
     expectEqual(RowFingerprint.encode(columns: [], values: []), nil,
                 "a row with no columns gives nil")
+
+    // PostgreSQL freely returns two columns with the same name (an unaliased
+    // join on `id`, for example). The comparator must still be total: the pair
+    // keeps a stable, deterministic order (by original position).
+    expectEqual(
+        RowFingerprint.encode(columns: ["id", "id"], values: ["1", "2"]),
+        "K2:idV1:1K2:idV1:2",
+        "two same-named columns keep result order"
+    )
+    // and swapping only the VALUES (not the tie-break) must give a different string —
+    // proof the comparator is not secretly keying off the value to break the tie.
+    expectEqual(
+        RowFingerprint.encode(columns: ["id", "id"], values: ["2", "1"]),
+        "K2:idV1:2K2:idV1:1",
+        "swapping only the values of same-named columns changes the string"
+    )
+
+    // The empty string is the "no identity" sentinel for the strong tiers. Any
+    // non-empty column list yields at least "K0:", so `encode` must never
+    // collapse into that sentinel by accident.
+    if RowFingerprint.encode(columns: ["a"], values: [""]) == "" {
+        failures += 1
+        print("FAIL encode must never return the empty-string sentinel")
+    } else {
+        print("PASS encode must never return the empty-string sentinel")
+    }
 
     if failures == 0 {
         print("\nAll RowFingerprint tests passed.")
