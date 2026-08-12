@@ -31,12 +31,19 @@ enum TagDot {
     /// Draw the dot. `filled` means a strong match; hollow means a fingerprint match,
     /// shown as the weaker claim it is.
     static func draw(color: NSColor, filled: Bool, in bounds: NSRect) {
+        // The half-point inset keeps the stroke inside the dot's rect rather than
+        // straddling its edge. Untestable here: a half-point shift is sub-pixel and
+        // whole-pixel sampling cannot see it.
         let path = NSBezierPath(ovalIn: rect(in: bounds).insetBy(dx: 0.5, dy: 0.5))
         if filled {
             color.setFill()
             path.fill()
         } else {
             color.setStroke()
+            // The rim's THICKNESS is untested: the default line width is 1.0, so a
+            // deleted `lineWidth` still paints a rim and every pixel check passes.
+            // 1.0 against 1.5 is a cosmetic difference, not a correctness one, so
+            // this is recorded rather than pinned.
             path.lineWidth = 1.5
             path.stroke()
         }

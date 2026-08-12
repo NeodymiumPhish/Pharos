@@ -310,6 +310,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 cell.textField?.font = regularFont
                 cell.normalTextColor = .labelColor
             }
+            // Unreachable today: the reuse identifier is per column
+            // ("ResultCell_\(colIdRaw)"), so a row-number cell is never handed back
+            // for a data column. Kept because `ResultCellView` is shared as a type
+            // across every pool — if the identifier scheme were ever simplified to
+            // one pool, data columns would start showing dots silently, and these
+            // two lines are what stops that.
             cell.tagDotColor = nil
             cell.textLeadingConstraint?.constant = TagDot.textInsetPlain
         }
