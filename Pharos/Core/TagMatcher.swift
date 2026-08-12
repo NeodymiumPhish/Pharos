@@ -97,6 +97,14 @@ enum TagMatcher {
     /// — so they encode to the same fingerprint string. Keying the group on columns
     /// alone let one silently replace the other in `tagByKey`, and rule 3 never saw
     /// the ambiguity because the two had already collapsed into one entry.
+    ///
+    /// `columns` is sorted for this key so that tags storing `["a","b"]` and
+    /// `["b","a"]` land in the SAME group. They encode to the same row string
+    /// either way — `RowFingerprint.encode` canonicalises internally — so keeping
+    /// them in separate groups would run the encoder twice per row for nothing,
+    /// which undercuts the reason for grouping at all. Because of that same
+    /// canonicalisation, this sorted order is never fed to the encoder directly;
+    /// see the comment where `groupColumns` is read in `matchWeak`.
     private struct FingerprintGroup: Hashable {
         let tableKey: String
         let columns: [String]
@@ -113,12 +121,23 @@ enum TagMatcher {
     ///     match exactly one row and still match the WRONG row — a tag made on a
     ///     `status` value would find the only other row with that status. The
     ///     full-set rule needs no arbitrary constant.
-    ///  3. A fingerprint that matches more than one row tags none of them. Picking
-    ///     one arbitrarily would put the highlight on a row the user never tagged.
+    ///  3. A fingerprint that matches more than one row tags none of them, and the
+    ///     mirror case: a row that more than one fingerprint tag claims tags neither.
+    ///     Picking a winner either way would put a highlight on a row, or under a
+    ///     label, the user did not choose.
     ///
-    /// Tags are grouped by their stored column set, so each group builds its own
-    /// canonical string per row and the encoder runs once per row per group rather
-    /// than once per row per tag.
+    ///     The two halves of rule 3 compose in order, not independently: a
+    ///     fingerprint disqualified by the first half is removed from contention
+    ///     before the second half ever runs, so it does not poison a row it
+    ///     touched — it just stops competing for it. A vaguer tag (say, on
+    ///     `status` alone) that matches two rows is dropped by the first half; a
+    ///     more specific tag that uniquely matches one of those same rows still
+    ///     claims it, because by the time the second half runs, the vaguer tag
+    ///     never made a claim there at all.
+    ///
+    /// Tags are grouped by their table and stored column set, so each group builds
+    /// its own canonical string per row and the encoder runs once per row per group
+    /// rather than once per row per tag.
     private static func matchWeak(
         identity: RowIdentity,
         columns: [String],
@@ -128,20 +147,7 @@ enum TagMatcher {
         let present = Set(columns)
         let resultTables = Set(identity.tableKeys)
 
-        // A strong tag holds two keys, so it appears twice in the index now that
-        // eligibility no longer filters on kind. The dedup is precautionary — such a
-        // tag contributes no fingerprint key and is dropped downstream either way —
-        // but it keeps `eligible` a set of distinct tags, which the claim-counting
-        // below reads more simply.
-        var eligible: [RowTag] = []
-        var seen = Set<String>()
-        for tag in tagsByIdentity.values
-        where resultTables.contains(tag.tableKey)                     // rule 1
-            && Set(tag.identityColumns).isSubset(of: present)           // rule 2
-            && !seen.contains(tag.id) {
-            seen.insert(tag.id)
-            eligible.append(tag)
-        }
+        let eligible = eligibleTags(in: tagsByIdentity, presentColumns: present, resultTables: resultTables)
         guard !eligible.isEmpty else { return [:] }
 
         // Column index per name, so a row's values can be read in the stored order.
@@ -149,75 +155,139 @@ enum TagMatcher {
         for (i, name) in columns.enumerated() where indexOf[name] == nil { indexOf[name] = i }
 
         // Row -> the tags claiming it. Claims are collected across ALL groups before
-        // any is applied, because a row claimed by more than one tag is refused and
-        // that cannot be decided one group at a time.
-        var claims: [Int: [RowTag]] = [:]
+        // any is applied (rule 3's second half, below), because a row claimed by
+        // more than one tag is refused and that cannot be decided one group at a
+        // time.
+        var claimsByRow: [Int: [RowTag]] = [:]
         for group in Dictionary(grouping: eligible, by: {
-            FingerprintGroup(tableKey: $0.tableKey, columns: $0.identityColumns)
+            FingerprintGroup(tableKey: $0.tableKey, columns: $0.identityColumns.sorted())
         }) {
-            let groupColumns = group.key.columns
+            // Any tag in this group encodes to the same row string as any other,
+            // by construction of the group key above — so it does not matter WHICH
+            // tag's stored order is used here; `group.value` is non-empty because
+            // `Dictionary(grouping:by:)` never creates an empty bucket.
+            let groupColumns = group.value[0].identityColumns
             let indices = groupColumns.compactMap { indexOf[$0] }
-            // A duplicated column name could leave this short; skip rather than
-            // build a string that means something else. (If a tag's own
-            // `identityColumns` repeats a name, `indexOf` keeps only the FIRST
-            // index for that name, so the built string reads one column's value
-            // twice and will not equal the stored fingerprint, which was built
-            // from two different values. That is a MISSED match, not a wrong
-            // one — the safe direction — so it is left as is.)
+            // `indices` is short only when a column is ABSENT from the result —
+            // never from a duplicated name, which still yields one index per
+            // occurrence (mapped to the SAME index, since `indexOf` keeps only the
+            // first). If a tag's own `identityColumns` repeats a name, the built
+            // string reads one column's value twice and will not equal the stored
+            // fingerprint, which was built from two different values. That is a
+            // MISSED match, not a wrong one — the safe direction — so it is left
+            // as is.
             //
-            // This guard is what actually ENFORCES rule 2. The subset filter above
-            // is an early-out that avoids grouping ineligible tags; it is not
-            // load-bearing, because `indexOf`'s keys are exactly the result's
-            // columns, so `indices.count == groupColumns.count` is the same test.
-            // Weakening the filter alone therefore changes nothing observable —
-            // that is by design, not an untested branch.
+            // This guard is what actually ENFORCES rule 2. The subset filter in
+            // `eligibleTags` is an early-out that avoids grouping ineligible tags;
+            // it is not load-bearing, because `indexOf`'s keys are exactly the
+            // result's columns, so `indices.count == groupColumns.count` is the
+            // same test. Weakening that filter alone therefore changes nothing
+            // observable — that is by design, not an untested branch.
             guard indices.count == groupColumns.count else { continue }
 
-            // The stored key for each tag in this group.
-            var tagByKey: [String: RowTag] = [:]
-            for tag in group.value {
-                // Selecting by kind is correct rather than merely defensive: a tag
-                // may hold several keys and only the fingerprint one belongs here.
-                // A strong key could not be mistaken for a fingerprint anyway — the
-                // core writes strong keys starting "V" or "N" (encode_field in
-                // row_identity.rs), and a fingerprint always starts "K" because it
-                // begins with a column. The two namespaces are disjoint.
-                guard let key = tag.keys.first(where: { $0.identityKind == "fingerprint" })?.identityValue,
-                      !key.isEmpty else { continue }
-                tagByKey[key] = tag
-            }
-            guard !tagByKey.isEmpty else { continue }
-
-            // Count the rows each key matches, then apply only the unique ones.
-            var rowsByKey: [String: [Int]] = [:]
-            for (rowIndex, row) in rows.enumerated() {
-                let values = indices.map { $0 < row.count ? row[$0] : nil }
-                guard let key = RowFingerprint.encode(columns: groupColumns, values: values),
-                      tagByKey[key] != nil else { continue }
-                rowsByKey[key, default: []].append(rowIndex)
-            }
-            for (key, matched) in rowsByKey where matched.count == 1 { // rule 3, one key -> one row
-                if let tag = tagByKey[key] { claims[matched[0], default: []].append(tag) }
+            for (row, tag) in claims(groupColumns: groupColumns, indices: indices,
+                                     tags: group.value, rows: rows) {
+                claimsByRow[row, default: []].append(tag)
             }
         }
 
-        // Rule 3, the other direction: one row -> one tag. A row that two tags both
-        // claim is ambiguous, and neither is applied.
+        // Rule 3's second half: one row -> one tag. A row that two tags both claim
+        // is ambiguous, and neither is applied.
         //
-        // Two fingerprint tags can legitimately both match one row — one stored on
-        // `["id"]`, another on `["id","name"]` — because the core's key-set-aware
-        // write only replaces a tag matching the SAME key, and those two have
-        // different fingerprint strings. Picking the narrower or the wider one would
-        // need a ranking rule this design does not have, and picking by group order
-        // makes the label change between runs of the same query. Refusing is the
-        // conservative direction and it matches the rule above.
+        // Two fingerprint tags CAN legitimately both survive to this point and
+        // claim the same row — one stored on `["id"]`, another on `["id","name"]`
+        // — because the core's key-set-aware write only replaces a tag matching
+        // the SAME key, and those two have different fingerprint strings. Picking
+        // the narrower or the wider one would need a ranking rule this design does
+        // not have, and picking by group order would make the label change between
+        // runs of the same query. Refusing is the conservative direction, and it
+        // matches the first half of rule 3 above.
         //
-        // Comparing tag IDS, not tags: a strong tag holds two keys, so it appears
-        // twice in the index now that eligibility no longer filters on kind, and the
-        // same tag arriving twice is not ambiguity.
+        // Comparing tag IDs, not tags directly: `RowTag` is not `Hashable`, so
+        // `Set(tags)` would not compile. The id-set is not what MAKES a duplicate
+        // arrival safe, though — a duplicate cannot happen here regardless of it. A
+        // tag lands in exactly one group (`identityColumns` is fixed per tag), and
+        // `claims` keys its lookup by that tag's one fingerprint string, so a
+        // single tag contributes at most one claim per row. `Set(...).count == 1`
+        // is simply "are all of this row's claims the same tag" — the id is only
+        // the `Hashable` stand-in `RowTag` itself does not provide.
         var out: [Int: RowTag] = [:]
-        for (row, tags) in claims where Set(tags.map { $0.id }).count == 1 {
+        for (row, tags) in claimsByRow where Set(tags.map { $0.id }).count == 1 {
             out[row] = tags[0]
+        }
+        return out
+    }
+
+    /// Rules 1 and 2's early-out, plus distinctness: a strong tag holds two keys,
+    /// so it appears twice in `tagsByIdentity.values` now that eligibility no
+    /// longer filters on kind, and keying by `tag.id` collapses that back to one.
+    /// The dedup is precautionary — a strong tag contributes no fingerprint key and
+    /// is dropped downstream either way — but it keeps the result a set of
+    /// distinct tags, which the claim-counting in `matchWeak` reads more simply.
+    ///
+    /// Keyed by `tag.id` rather than a separate `seen` set alongside `append`: it
+    /// says "distinct by id" directly, and avoids a `where` clause reading a set
+    /// that the loop body mutates.
+    private static func eligibleTags(
+        in tagsByIdentity: [String: RowTag],
+        presentColumns: Set<String>,
+        resultTables: Set<String>
+    ) -> [RowTag] {
+        var byId: [String: RowTag] = [:]
+        for tag in tagsByIdentity.values
+        where resultTables.contains(tag.tableKey)                          // rule 1
+            && tag.identityColumns.allSatisfy(presentColumns.contains) {   // rule 2 early-out; see matchWeak's `indices` guard for what actually enforces it
+            byId[tag.id] = tag
+        }
+        return Array(byId.values)
+    }
+
+    /// Rule 3's first half, for one fingerprint group: a stored key matching
+    /// exactly one row claims it. Returns each claim as `(row, tag)`; the caller
+    /// collects claims across every group before applying the second half.
+    private static func claims(
+        groupColumns: [String],
+        indices: [Int],
+        tags: [RowTag],
+        rows: [[String?]]
+    ) -> [(row: Int, tag: RowTag)] {
+        // The stored key for each tag in this group.
+        var tagByKey: [String: RowTag] = [:]
+        for tag in tags {
+            // Selecting by kind is correct rather than merely defensive: a tag may
+            // hold several keys and only the fingerprint one belongs here. A strong
+            // key could not be mistaken for a fingerprint anyway — the core writes
+            // strong keys starting "V" or "N" (encode_field in row_identity.rs),
+            // and a fingerprint always starts "K" because it begins with a column.
+            // The two namespaces are disjoint.
+            guard let key = tag.keys.first(where: { $0.identityKind == "fingerprint" })?.identityValue
+            else { continue }
+            // Unreachable here: `RowFingerprint.encode` never returns "" for a
+            // non-empty column list, since the string it builds always starts with
+            // a `K` field. Kept for symmetry with the strong path's empty-key
+            // sentinel, which IS load-bearing there.
+            guard !key.isEmpty else { continue }
+            // `tagByKey[key] = tag` is last-write-wins, but two DIFFERENT tags
+            // never actually reach here holding the same key: one group means one
+            // `tableKey`, and the kind is fixed at "fingerprint", so two tags
+            // sharing a fingerprint string would also share a `compositeKey` — and
+            // the store index already holds only one tag per composite key, so
+            // this never overwrites a different tag in practice.
+            tagByKey[key] = tag
+        }
+        guard !tagByKey.isEmpty else { return [] }
+
+        // Count the rows each key matches, then keep only the unique ones.
+        var rowsByKey: [String: [Int]] = [:]
+        for (rowIndex, row) in rows.enumerated() {
+            let values = indices.map { $0 < row.count ? row[$0] : nil }
+            guard let key = RowFingerprint.encode(columns: groupColumns, values: values),
+                  tagByKey[key] != nil else { continue }
+            rowsByKey[key, default: []].append(rowIndex)
+        }
+        var out: [(row: Int, tag: RowTag)] = []
+        for (key, matched) in rowsByKey where matched.count == 1 { // rule 3, one key -> one row
+            if let tag = tagByKey[key] { out.append((matched[0], tag)) }
         }
         return out
     }

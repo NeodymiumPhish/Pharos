@@ -276,6 +276,10 @@ func runTests() {
     // rectangular, so this should not happen. The missing cell reads as nil (a
     // NULL), never as an empty string, which would silently claim a real value.
     // The strong path has its short-key-array equivalent; this is the weak one.
+    //
+    // The fixture's second stored value is a NULL, so the row's missing cell must
+    // encode as `N` for the match to land. A fallback of `""` would encode `V0:`
+    // and the match would fail — which is what makes this check discriminate.
     let shortRow = TagMatcher.match(
         identity: weakId, columns: ["id", "note"], rows: [["1"]],
         tagsByIdentity: store([fpTag("f10", label: "grey", columns: ["id", "note"], values: ["1", nil])]))
@@ -300,6 +304,30 @@ func runTests() {
         tagsByIdentity: store([fpTag("h1", label: "fromA", columns: ["id"], values: ["1"], tableKey: "oid:1"),
                                fpTag("h2", label: "fromB", columns: ["id"], values: ["1"], tableKey: "oid:2")]))
     expectEqual(twoTablesOneRow.count, 0, "a row claimed by tags on two tables takes neither")
+
+    // Two tags in DIFFERENT groups each land on their own row. The cross-group
+    // refusal is per ROW: a second group must not silence a row it never claimed.
+    // Without this check, an implementation that refuses ANY multi-group result
+    // passes the whole suite.
+    let twoGroupsTwoRows = TagMatcher.match(
+        identity: weakId, columns: ["id", "name"],
+        rows: [["1", "Ada"], ["2", "Bob"]],
+        tagsByIdentity: store([fpTag("k1", label: "narrow", columns: ["id"], values: ["1"]),
+                               fpTag("k2", label: "wide", columns: ["id", "name"], values: ["2", "Bob"])]))
+    expectEqual(twoGroupsTwoRows.count, 2, "two groups each claim their own row")
+    expectLabel(twoGroupsTwoRows, 0, "narrow", "the narrow group claims row 0")
+    expectLabel(twoGroupsTwoRows, 1, "wide", "the wide group claims row 1")
+
+    // The two directions compose in order: an ambiguous fingerprint is removed from
+    // contention by direction A, so it does not block a more specific tag from
+    // claiming a row they both matched. The vaguer tag disqualified itself.
+    let ambiguousThenSpecific = TagMatcher.match(
+        identity: weakId, columns: ["status", "id"],
+        rows: [["active", "1"], ["active", "2"]],
+        tagsByIdentity: store([fpTag("m1", label: "vague", columns: ["status"], values: ["active"]),
+                               fpTag("m2", label: "specific", columns: ["status", "id"], values: ["active", "1"])]))
+    expectLabel(ambiguousThenSpecific, 0, "specific", "an ambiguous tag does not block a specific one")
+    expectLabel(ambiguousThenSpecific, 1, nil, "the row only the ambiguous tag matched stays untagged")
 
     // Two different fingerprint tags in one result each find their own row.
     let twoTags = TagMatcher.match(
