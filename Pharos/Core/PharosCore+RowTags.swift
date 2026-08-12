@@ -8,9 +8,9 @@ import CPharosCore
 //
 // The FFI carries JSON in both directions and uses ONE channel for success and
 // failure: a failed call returns the object {"error": "..."} in place of the
-// result. The JSON-returning wrappers below therefore reject an error object
-// while decoding, and the three scalar-returning ones route through
-// `scalarResult`, which detects it and throws — see the comment on that helper.
+// result. The wrappers below therefore go through `jsonResult` or `scalarResult`
+// in PharosCore.swift, which detect that object and throw. Those two helpers
+// started here and now serve every single-channel wrapper in the app.
 //
 // Payloads encode with JSONEncoder.pharos, which applies NO key strategy. The
 // tag models in Pharos/Models/RowTag.swift are already camelCase to match the
@@ -104,69 +104,10 @@ extension PharosCore {
     /// The count can be less than `ids.count`: an id that no longer exists is
     /// skipped, not an error.
     static func deleteRowTags(ids: [String]) throws -> Int {
-        let json = String(decoding: try JSONEncoder.pharos.encode(ids), as: UTF8.self)
-        let text = try scalarResult { json.withCString { pharos_delete_row_tags($0) } }
+        let text = try scalarResult(input: ids) { pharos_delete_row_tags($0) }
         guard let count = Int(text) else {
             throw PharosCoreError.rustError("Unexpected delete count result: \(text)")
         }
         return count
-    }
-
-    // MARK: - Private FFI Helpers
-
-    /// The core's message when `text` is the failure object {"error": "..."},
-    /// otherwise nil.
-    ///
-    /// Both helpers below share this one check so that the error channel is read
-    /// the same way for a scalar return and a JSON return.
-    private static func rustErrorMessage(in text: String) -> String? {
-        guard text.hasPrefix("{"),
-              let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return object["error"] as? String
-    }
-
-    /// Read a C-string return that is a SCALAR, not JSON, and throw when the core
-    /// returned an error object instead.
-    ///
-    /// The FFI uses one channel for both: success gives `true`, `false` or a
-    /// decimal, and failure gives `{"error": "..."}`. Testing the success text
-    /// alone (`== "true"`) silently turns a failure into a negative answer, which
-    /// is how the existing wrappers behave and why this helper exists. Every
-    /// scalar wrapper above goes through here so that the check cannot be
-    /// forgotten at one call site.
-    private static func scalarResult(
-        _ ffi: () -> UnsafeMutablePointer<CChar>?
-    ) throws -> String {
-        guard let ptr = ffi() else { throw PharosCoreError.nullResult }
-        defer { pharos_free_string(ptr) }
-        let text = String(cString: ptr)
-        if let message = rustErrorMessage(in: text) {
-            throw PharosCoreError.rustError(message)
-        }
-        return text
-    }
-
-    /// Call an FFI function that takes a plain C-string and returns JSON, and
-    /// decode the result.
-    ///
-    /// `callSync` covers "nothing in" and "JSON in"; this covers the third
-    /// shape. The error object is checked before the decode so that a real
-    /// failure reports the core's own message instead of a decoding complaint.
-    private static func jsonResult<T: Decodable>(
-        _ ffi: () -> UnsafeMutablePointer<CChar>?
-    ) throws -> T {
-        guard let ptr = ffi() else { throw PharosCoreError.nullResult }
-        defer { pharos_free_string(ptr) }
-        let json = String(cString: ptr)
-        if let message = rustErrorMessage(in: json) {
-            throw PharosCoreError.rustError(message)
-        }
-        do {
-            return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
-        } catch {
-            throw PharosCoreError.decodingError(json, error)
-        }
     }
 }

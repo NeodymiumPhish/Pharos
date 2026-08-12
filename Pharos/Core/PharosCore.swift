@@ -113,7 +113,7 @@ extension JSONEncoder {
 extension PharosCore {
 
     /// Call a sync FFI function that returns a JSON C-string, decode the result.
-    /// Handles null checks, freeing, and JSON error detection.
+    /// Handles null checks, freeing, the core's error object, and decode failures.
     static func callSync<T: Decodable>(_ ffi: () -> UnsafeMutablePointer<CChar>?) throws -> T {
         guard let ptr = ffi() else { throw PharosCoreError.nullResult }
         defer { pharos_free_string(ptr) }
@@ -135,6 +135,15 @@ extension PharosCore {
     /// `Data(bytesNoCopy:)` is safe here because the FFI pointer outlives the
     /// synchronous decode and is freed by the caller's `defer`.
     private static func decodeNoCopy<T: Decodable>(_ ptr: UnsafeMutablePointer<CChar>) throws -> T {
+        // Read the failure side of the channel first, or a real core failure would
+        // be reported as a decode complaint that quotes `{"error": ...}` instead
+        // of naming the locked database. The byte test comes first so that a
+        // successful load — which may carry a large result set — never pays the
+        // full-string allocation this function exists to avoid.
+        if RustScalarError.beginsWithErrorKey(ptr),
+           let message = RustScalarError.message(in: String(cString: ptr)) {
+            throw PharosCoreError.rustError(message)
+        }
         let length = strlen(ptr)
         let data = Data(bytesNoCopy: UnsafeMutableRawPointer(ptr),
                         count: length,
@@ -144,6 +153,77 @@ extension PharosCore {
         } catch {
             // Allocate the descriptive string only on the error path.
             throw PharosCoreError.decodingError(String(cString: ptr), error)
+        }
+    }
+
+    // MARK: - Single-Channel Returns
+    //
+    // The three helpers below serve the FFI functions that do NOT use the
+    // NULL-on-success convention of `callSyncVoid`. They return ONE C-string for
+    // both outcomes: the result, or the object `{"error": "..."}`. `callSync`
+    // above is on the same convention and checks the same way, through
+    // `RustScalarError`; these three exist for the return shapes it does not
+    // cover — a scalar, and a plain C-string argument.
+    //
+    // The async FFI needs none of this. `callback_err` in
+    // pharos-core/src/ffi/mod.rs delivers a failure through its own argument, so
+    // `withAsyncCallback` reads a separate error channel.
+
+    /// Read a single-channel return: free the C-string, and throw when it holds the
+    /// core's error object instead of a result.
+    ///
+    /// This is the ONE place that reads the failure side of the channel. NULL gives
+    /// nil, because each wrapper decides for itself what NULL means — "no such
+    /// workspace" for one, an unexpected empty return for another. Every wrapper
+    /// on this convention starts here, so the check cannot be forgotten at one
+    /// call site.
+    static func checkedText(
+        _ ffi: () -> UnsafeMutablePointer<CChar>?
+    ) throws -> String? {
+        guard let ptr = ffi() else { return nil }
+        defer { pharos_free_string(ptr) }
+        let text = String(cString: ptr)
+        if let message = RustScalarError.message(in: text) {
+            throw PharosCoreError.rustError(message)
+        }
+        return text
+    }
+
+    /// Call a sync FFI function whose return is a SCALAR, not JSON.
+    ///
+    /// Success gives `true`, `false` or a decimal. Testing the success text alone
+    /// (`== "true"`) silently turns a failure into a negative answer — a locked
+    /// database then reads as "nothing was deleted".
+    static func scalarResult(
+        _ ffi: () -> UnsafeMutablePointer<CChar>?
+    ) throws -> String {
+        guard let text = try checkedText(ffi) else { throw PharosCoreError.nullResult }
+        return text
+    }
+
+    /// Scalar return, JSON-encoded input. Same contract as `scalarResult(_:)`.
+    static func scalarResult<A: Encodable>(
+        input: A,
+        _ ffi: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+    ) throws -> String {
+        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(input), as: UTF8.self)
+        return try scalarResult { jsonStr.withCString { ffi($0) } }
+    }
+
+    /// Call a sync FFI function that takes a plain C-string and returns JSON, and
+    /// decode the result.
+    ///
+    /// `callSync` covers "nothing in" and "JSON in"; this covers the third shape.
+    /// The error object is checked before the decode so that a real failure reports
+    /// the core's own message instead of a decoding complaint.
+    static func jsonResult<T: Decodable>(
+        _ ffi: () -> UnsafeMutablePointer<CChar>?
+    ) throws -> T {
+        guard let json = try checkedText(ffi) else { throw PharosCoreError.nullResult }
+        do {
+            return try JSONDecoder.pharos.decode(T.self, from: Data(json.utf8))
+        } catch {
+            throw PharosCoreError.decodingError(json, error)
         }
     }
 
