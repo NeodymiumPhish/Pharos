@@ -50,19 +50,23 @@ enum DisplayRowPipeline {
         var findFilter: (([Int]) -> [Int])?
         /// Re-admits tagged rows that stages 2 or 3 dropped.
         ///
-        /// Called with `(gated, kept)` where `gated` is the stage-1 output — NOT
-        /// the raw unfiltered list. Handing it the raw list would let it re-admit
-        /// a row the tag filter had excluded, which breaks the rule that the tag
-        /// filter wins.
+        /// Called with `(gated, kept)` where `gated` is the stage-1 output, NOT the
+        /// raw unfiltered list.
         ///
-        /// The closure may return any set of row indices — it does not have to be a
-        /// subset of `gated`, and it does not have to preserve `gated`'s order. `run`
-        /// intersects the result with `gated` and keeps `gated`'s order itself, so the
-        /// tag-filter-wins rule cannot be broken by a caller, only documented against.
-        /// A closure that returns a wrong superset (for example one that reads
-        /// `unfilteredDisplayRows` from its enclosing scope instead of using its
-        /// `gated` argument) is trimmed back silently rather than failing loudly —
-        /// intentional, because the trimmed result is the correct one.
+        /// It may return ANY set of row indices. The pipeline keeps only those also
+        /// in `gated`, in `gated`'s order. That makes the tag-filter-wins rule hold
+        /// STRUCTURALLY: the result is a subset of `gated` whatever the closure
+        /// returns, so no caller can resurrect a row stage 1 removed.
+        ///
+        /// `gated` is therefore passed for MEANING, not for safety. A closure
+        /// computes over its first argument and must see the list it may admit from.
+        /// Given the raw list it would nominate rows that are then trimmed, and any
+        /// shape-dependent logic — "the last two", "the first N" — would mean
+        /// something different. A membership-style closure cannot tell the two apart;
+        /// a shape-sensitive one can, and the test below pins that.
+        ///
+        /// A closure returning a wrong superset is trimmed silently rather than
+        /// failing loudly. That is the right direction: the trimmed result is correct.
         var forceShow: (([Int], [Int]) -> [Int])?
 
         init(tagFilter: (([Int]) -> [Int])? = nil,

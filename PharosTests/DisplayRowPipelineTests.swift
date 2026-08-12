@@ -107,6 +107,18 @@ func runTests() {
             forceShow: { _, _ in [0, 1, 2, 3, 4] })),
         [0, 2, 3, 4], "the pipeline enforces the gated subset, not just documents it")
 
+    // Stage 4's first argument is `gated`, and a SHAPE-sensitive closure is the only
+    // kind that can prove it. A membership-style closure cannot: the final
+    // intersection trims the extra rows either way, so `gated` and `unfiltered` give
+    // the same answer. This closure takes the last two of what it is offered, and the
+    // two lists have different tails.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: all, stages: .init(
+            tagFilter: { $0.filter { $0 < 3 } },
+            columnFilters: { _ in [] },
+            forceShow: { candidates, _ in Array(candidates.suffix(2)) })),
+        [1, 2], "stage 4's first argument is the gated list, not the raw one")
+
     // MARK: Degenerate inputs
 
     expectRows(DisplayRowPipeline.run(unfiltered: [], stages: .init(
