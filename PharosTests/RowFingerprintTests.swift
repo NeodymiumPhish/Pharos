@@ -80,12 +80,8 @@ func runTests() {
     // The empty string is the "no identity" sentinel for the strong tiers. Any
     // non-empty column list yields at least "K0:", so `encode` must never
     // collapse into that sentinel by accident.
-    if RowFingerprint.encode(columns: ["a"], values: [""]) == "" {
-        failures += 1
-        print("FAIL encode must never return the empty-string sentinel")
-    } else {
-        print("PASS encode must never return the empty-string sentinel")
-    }
+    expectEqual(RowFingerprint.encode(columns: ["a"], values: [""]), "K1:aV0:",
+                "an empty value still yields a non-empty string, never the sentinel")
 
     if failures == 0 {
         print("\nAll RowFingerprint tests passed.")

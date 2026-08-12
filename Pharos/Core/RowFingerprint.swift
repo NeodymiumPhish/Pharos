@@ -57,9 +57,9 @@ enum RowFingerprint {
     /// two names differently under a different collation, which would make a
     /// stored fingerprint stop matching itself.
     ///
-    /// PostgreSQL freely returns duplicate column names — a join of two tables
-    /// that both have an `id` column gives two columns both named `id`, and
-    /// that is exactly the keyless shape this tier exists to serve. For a pair
+    /// PostgreSQL freely returns duplicate column names, and this can happen in
+    /// a result that falls to this tier — a read through a view, or a join that
+    /// does not select all of the primary table's key columns. For a pair
     /// of equal names, `lexicographicallyPrecedes` is false in both directions,
     /// so a comparator built only from it is PARTIAL, and `sorted(by:)` is not
     /// guaranteed stable — the order of those two columns would be an
