@@ -8,12 +8,18 @@ extension PharosCore {
     /// Format SQL with PostgreSQL conventions (uppercase keywords, 2-space indent).
     /// The FFI call itself is synchronous (sqlformat is CPU-only, no IO), but it can
     /// chew tens of ms on large queries — wrap it so callers can keep the UI responsive.
+    /// This does not throw: the caller wants formatted text or the text it gave.
+    /// The error check is still necessary, because the `ffi_sync!` macro turns a
+    /// panic into `{"error": ...}` — without it, formatting would replace the
+    /// user's query with that object.
     static func formatSQL(_ sql: String) async -> String {
         // Hop off the main actor for the FFI call.
         await Task.detached(priority: .userInitiated) {
             guard let result = sql.withCString({ pharos_format_sql($0) }) else { return sql }
             defer { pharos_free_string(result) }
-            return String(cString: result)
+            let text = String(cString: result)
+            guard RustScalarError.message(in: text) == nil else { return sql }
+            return text
         }.value
     }
 

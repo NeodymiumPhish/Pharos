@@ -10,27 +10,24 @@ extension PharosCore {
         try callSync(input: filter) { pharos_load_query_history($0) }
     }
 
-    /// Delete a query history entry.
+    /// Delete a query history entry. Returns true when a row was removed, false
+    /// when no entry had that id.
+    ///
+    /// A core failure throws. It used to read as `false`, which the caller showed
+    /// as "the row is still there" with no reason given.
     static func deleteQueryHistoryEntry(id: String) throws -> Bool {
-        guard let ptr = id.withCString({ pharos_delete_query_history_entry($0) }) else {
-            throw PharosCoreError.nullResult
-        }
-        defer { pharos_free_string(ptr) }
-        return String(cString: ptr) == "true"
+        try scalarResult { id.withCString { pharos_delete_query_history_entry($0) } } == "true"
     }
 
     /// Get cached result data for a history entry.
+    ///
+    /// This cannot use `jsonResult`: a decode failure here means an old cached
+    /// format, which must give nil rather than throw. Only the error object
+    /// throws.
     static func getQueryHistoryResult(id: String) throws -> QueryHistoryResultData? {
-        guard let ptr = id.withCString({ pharos_get_query_history_result($0) }) else {
-            return nil // NULL = no cached results
-        }
-        defer { pharos_free_string(ptr) }
-        let json = String(cString: ptr)
-        if let errorData = json.data(using: .utf8),
-           let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
-           let errorMsg = errorDict["error"] as? String {
-            throw PharosCoreError.rustError(errorMsg)
-        }
+        // NULL = no cached results.
+        guard let json = try checkedText({ id.withCString { pharos_get_query_history_result($0) } })
+        else { return nil }
         do {
             return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
         } catch {
@@ -40,21 +37,14 @@ extension PharosCore {
         }
     }
 
-    /// Batch delete query history entries.
+    /// Batch delete query history entries and return how many were removed.
+    ///
+    /// The count can be less than `ids.count`: an id that no longer exists is
+    /// skipped, not an error.
     static func batchDeleteQueryHistory(ids: [String]) throws -> Int {
-        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(ids), as: UTF8.self)
-        guard let ptr = jsonStr.withCString({ pharos_batch_delete_query_history($0) }) else {
-            throw PharosCoreError.nullResult
-        }
-        defer { pharos_free_string(ptr) }
-        let result = String(cString: ptr)
-        if let errorData = result.data(using: .utf8),
-           let errorDict = try? JSONSerialization.jsonObject(with: errorData) as? [String: Any],
-           let errorMsg = errorDict["error"] as? String {
-            throw PharosCoreError.rustError(errorMsg)
-        }
-        guard let count = Int(result) else {
-            throw PharosCoreError.rustError("Unexpected result: \(result)")
+        let text = try scalarResult(input: ids) { pharos_batch_delete_query_history($0) }
+        guard let count = Int(text) else {
+            throw PharosCoreError.rustError("Unexpected delete count result: \(text)")
         }
         return count
     }

@@ -284,6 +284,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 self?.reload(connectionId: self?.connectionFilter)
             } catch {
                 NSLog("Failed to batch delete history entries: \(error)")
+                self?.showDeleteFailure(error)
             }
         }
     }
@@ -430,7 +431,26 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             reload(connectionId: connectionFilter)
         } catch {
             NSLog("Failed to delete history entry: \(error)")
+            showDeleteFailure(error)
         }
+    }
+
+    /// Tell the user that a delete did not happen.
+    ///
+    /// The core reports a failure — a locked database, a SQLite error — through
+    /// the FFI's error channel, and the wrapper throws it. Without this the row
+    /// simply stayed in the list and the reason reached the log only.
+    ///
+    /// The toast hosts on this view controller's own view, not on the window's
+    /// content view: that content view is the NSSplitView, and a direct subview
+    /// there would be taken for a pane.
+    private func showDeleteFailure(_ error: Error) {
+        Toast.show(
+            in: view,
+            message: "Delete failed — \(error.localizedDescription)",
+            style: .error,
+            duration: 4.0
+        )
     }
 
     /// Context-menu action used when more than one row is selected — routes

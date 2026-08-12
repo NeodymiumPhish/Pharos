@@ -267,6 +267,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to batch delete saved queries: \(error)")
+                self?.showDeleteFailure(error)
             }
         }
     }
@@ -581,6 +582,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 NSLog("Failed to delete saved query: \(error)")
+                showDeleteFailure(error)
             }
 
         case .folder(let name):
@@ -602,12 +604,38 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 guard response == .alertFirstButtonReturn else { return }
                 let ids = node.children.compactMap { $0.queryId }
                 if !ids.isEmpty {
-                    _ = try? PharosCore.batchDeleteSavedQueries(ids: ids)
+                    // This used to be `try?`, which discarded the reason. The
+                    // reload below then removed a folder whose queries were still
+                    // in the database.
+                    do {
+                        _ = try PharosCore.batchDeleteSavedQueries(ids: ids)
+                    } catch {
+                        NSLog("Failed to delete folder queries: \(error)")
+                        self?.showDeleteFailure(error)
+                    }
                 }
                 self?.reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             }
         }
+    }
+
+    /// Tell the user that a delete did not happen.
+    ///
+    /// The core reports a failure — a locked database, a SQLite error — through
+    /// the FFI's error channel, and the wrapper throws it. Without this the query
+    /// simply stayed in the list and the reason reached the log only.
+    ///
+    /// The toast hosts on this view controller's own view, not on the window's
+    /// content view: that content view is the NSSplitView, and a direct subview
+    /// there would be taken for a pane.
+    private func showDeleteFailure(_ error: Error) {
+        Toast.show(
+            in: view,
+            message: "Delete failed — \(error.localizedDescription)",
+            style: .error,
+            duration: 4.0
+        )
     }
 
     /// Context menu action for batch deleting multiple selected queries.

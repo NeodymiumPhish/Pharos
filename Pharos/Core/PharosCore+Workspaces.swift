@@ -2,12 +2,18 @@ import Foundation
 import CPharosCore
 
 // MARK: - Workspaces
+//
+// The workspace FFI answers a bare "true"/"false" — or the new id, for a
+// duplicate — on success, and the object {"error": ...} on failure. That is the
+// single-channel convention, not the NULL-on-success one of `callSyncVoid`, so
+// these wrappers go through `scalarResult` in PharosCore.swift. This file used to
+// carry its own private copy of that check.
 
 extension PharosCore {
 
     /// Create or refresh a workspace snapshot.
     static func upsertWorkspace(_ w: WorkspaceUpsert) throws {
-        _ = try callBoolResult(input: w) { pharos_upsert_workspace($0) }
+        _ = try scalarResult(input: w) { pharos_upsert_workspace($0) }
     }
 
     struct ResultAssociation: Codable {
@@ -20,7 +26,7 @@ extension PharosCore {
 
     /// Associate a produced result (by its history id) with a workspace.
     static func associateResult(_ a: ResultAssociation) throws {
-        _ = try callBoolResult(input: a) { pharos_associate_result($0) }
+        _ = try scalarResult(input: a) { pharos_associate_result($0) }
     }
 
     struct WorkspaceFilter: Codable {
@@ -36,92 +42,57 @@ extension PharosCore {
 
     /// Load a full workspace (editor text, variables, ordered result metadata).
     /// Returns nil if the workspace no longer exists.
+    ///
+    /// This cannot use `jsonResult`, which throws on a NULL return. Here NULL is
+    /// the "no such workspace" answer and must give nil.
     static func loadWorkspace(id: String) throws -> WorkspaceDetail? {
-        guard let ptr = id.withCString({ pharos_load_workspace($0) }) else { return nil }
-        defer { pharos_free_string(ptr) }
-        let json = String(cString: ptr)
-        try throwIfError(json)
-        return try JSONDecoder.pharos.decode(WorkspaceDetail.self, from: Data(json.utf8))
+        guard let json = try checkedText({ id.withCString { pharos_load_workspace($0) } })
+        else { return nil }
+        do {
+            return try JSONDecoder.pharos.decode(WorkspaceDetail.self, from: Data(json.utf8))
+        } catch {
+            throw PharosCoreError.decodingError(json, error)
+        }
     }
 
     struct RenamePayload: Codable { let id: String; let name: String }
 
     @discardableResult
     static func renameWorkspace(id: String, name: String) throws -> Bool {
-        try callBoolResult(input: RenamePayload(id: id, name: name)) { pharos_rename_workspace($0) }
+        try scalarResult(input: RenamePayload(id: id, name: name)) { pharos_rename_workspace($0) } == "true"
     }
 
     /// Duplicate a workspace (deep copy). Returns the new workspace id, or nil if not found.
+    ///
+    /// The success return is the new id — a scalar, not JSON — and NULL is the
+    /// "not found" answer, which is exactly what `checkedText` gives.
     static func duplicateWorkspace(id: String) throws -> String? {
-        guard let ptr = id.withCString({ pharos_duplicate_workspace($0) }) else { return nil }
-        defer { pharos_free_string(ptr) }
-        let s = String(cString: ptr)
-        try throwIfError(s)
-        return s
+        try checkedText { id.withCString { pharos_duplicate_workspace($0) } }
     }
 
     @discardableResult
     static func deleteWorkspace(id: String) throws -> Bool {
-        try callBoolString(arg: id) { pharos_delete_workspace($0) }
+        try scalarResult { id.withCString { pharos_delete_workspace($0) } } == "true"
     }
 
     @discardableResult
     static func deleteWorkspaceResult(id: String) throws -> Bool {
-        try callBoolString(arg: id) { pharos_delete_workspace_result($0) }
+        try scalarResult { id.withCString { pharos_delete_workspace_result($0) } } == "true"
     }
 
     struct UpdateResultMetaPayload: Codable { let resultId: String; let customLabel: String?; let colorIndex: Int? }
 
     @discardableResult
     static func updateResultMeta(resultId: String, customLabel: String? = nil, colorIndex: Int? = nil) throws -> Bool {
-        try callBoolResult(input: UpdateResultMetaPayload(resultId: resultId, customLabel: customLabel, colorIndex: colorIndex)) {
-            pharos_update_result_meta($0)
-        }
+        let payload = UpdateResultMetaPayload(resultId: resultId, customLabel: customLabel, colorIndex: colorIndex)
+        return try scalarResult(input: payload) { pharos_update_result_meta($0) } == "true"
     }
 
     struct UpdateResultChartStatePayload: Codable { let resultId: String; let json: String }
 
     @discardableResult
     static func updateResultChartState(resultId: String, json: String) throws -> Bool {
-        try callBoolResult(input: UpdateResultChartStatePayload(resultId: resultId, json: json)) {
-            pharos_update_result_chart_state($0)
-        }
-    }
-}
-
-// MARK: - Bool/error FFI helpers
-//
-// The workspace FFI returns a bare "true"/"false" on success or a `{"error": ...}`
-// JSON object on failure — so the shared `callSyncVoid` (which treats any non-NULL
-// return as an error) does not fit. These mirror the manual error-dict handling
-// used in PharosCore+QueryHistory.swift.
-
-private extension PharosCore {
-    /// Throw if `json` is a Rust `{"error": "..."}` payload; otherwise return.
-    static func throwIfError(_ json: String) throws {
-        if let data = json.data(using: .utf8),
-           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let msg = dict["error"] as? String {
-            throw PharosCoreError.rustError(msg)
-        }
-    }
-
-    /// JSON-in; expects a bare "true"/"false" or error JSON out.
-    static func callBoolResult<T: Encodable>(input: T, _ call: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?) throws -> Bool {
-        let jsonStr = String(decoding: try JSONEncoder.pharos.encode(input), as: UTF8.self)
-        guard let ptr = jsonStr.withCString({ call($0) }) else { throw PharosCoreError.nullResult }
-        defer { pharos_free_string(ptr) }
-        let s = String(cString: ptr)
-        try throwIfError(s)
-        return s == "true"
-    }
-
-    /// String-arg in; expects a bare "true"/"false" or error JSON out.
-    static func callBoolString(arg: String, _ call: (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?) throws -> Bool {
-        guard let ptr = arg.withCString({ call($0) }) else { throw PharosCoreError.nullResult }
-        defer { pharos_free_string(ptr) }
-        let s = String(cString: ptr)
-        try throwIfError(s)
-        return s == "true"
+        let payload = UpdateResultChartStatePayload(resultId: resultId, json: json)
+        return try scalarResult(input: payload) { pharos_update_result_chart_state($0) } == "true"
     }
 }
