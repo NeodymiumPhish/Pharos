@@ -168,6 +168,70 @@ func runMainActorTests() {
     expectEqual(notificationCount, 2, "didChange fires once on load and once on clear")
     NotificationCenter.default.removeObserver(token)
 
+    // MARK: Check 9 — the ordering guarantee, on a failure that is actually reachable
+
+    // An unknown connection id cannot make `loadRowTags` fail — it just returns an
+    // empty list — so it cannot tell `load`'s correct ordering apart from a mutant
+    // that assigns `labels` before the second FFI call: both calls share one SQLite
+    // connection behind one mutex, so a whole-database failure (a locked file, a
+    // poisoned mutex) would hit `loadTagLabels` FIRST and neither implementation
+    // would reach the second assignment either way.
+    //
+    // What discriminates is a failure specific to the row-tag tables while
+    // `tag_labels` stays readable. Dropping `row_tags` and `row_tag_keys` from
+    // OUTSIDE the FFI, with the `sqlite3` CLI against the same file, does exactly
+    // that: `loadTagLabels` still succeeds and `loadRowTags` throws. Corrupting the
+    // file instead would break `loadTagLabels` too, and this check would prove
+    // nothing — see the paragraph above.
+    attempt("check 9 setup") {
+        let orderConn = "conn-tagstore-order"
+
+        let l1 = try PharosCore.createTagLabel(CreateTagLabel(name: "OrderCheckL1", colorIndex: 3))
+        try TagStore.shared.load(connectionId: orderConn)
+        expectTrue(TagStore.shared.labels.contains(where: { $0.id == l1.id }),
+                   "load before the drop picks up L1")
+
+        // Created AFTER the last successful load and never loaded. It must not
+        // appear in `labels` until a load actually succeeds again.
+        let l2 = try PharosCore.createTagLabel(CreateTagLabel(name: "OrderCheckL2", colorIndex: 4))
+
+        let dbPath = (dir as NSString).appendingPathComponent("pharos.db")
+        let sqlite3Path = "/usr/bin/sqlite3"
+        guard FileManager.default.isExecutableFile(atPath: sqlite3Path) else {
+            fail("check 9 setup", "\(sqlite3Path) is not present or not executable; cannot drop the row-tag tables")
+            return
+        }
+        let drop = Process()
+        drop.executableURL = URL(fileURLWithPath: sqlite3Path)
+        drop.arguments = [dbPath, "DROP TABLE row_tag_keys; DROP TABLE row_tags;"]
+        let stderrPipe = Pipe()
+        drop.standardError = stderrPipe
+        try drop.run()
+        drop.waitUntilExit()
+        guard drop.terminationStatus == 0 else {
+            let stderrText = String(decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            fail("check 9 setup", "sqlite3 DROP TABLE exited \(drop.terminationStatus): \(stderrText)")
+            return
+        }
+
+        // Clear the cached entry first, or the idempotency guard added in check 1a
+        // would skip the reload entirely and this would test nothing.
+        TagStore.shared.clear(connectionId: orderConn)
+
+        var threw = false
+        do {
+            try TagStore.shared.load(connectionId: orderConn)
+        } catch {
+            threw = true
+        }
+        expectTrue(threw, "load throws once the row-tag tables are gone")
+
+        expectTrue(TagStore.shared.labels.contains(where: { $0.id == l1.id }),
+                   "labels still holds L1 after the failed reload")
+        expectTrue(!TagStore.shared.labels.contains(where: { $0.id == l2.id }),
+                   "labels does NOT hold L2 — the failed second call must not let the first assignment through")
+    }
+
     pharos_shutdown()
 
     if failures == 0 {

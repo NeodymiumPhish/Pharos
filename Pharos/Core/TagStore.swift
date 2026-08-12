@@ -40,6 +40,11 @@ final class TagStore {
     /// index would silently mean "nothing is tagged", which reads as data loss.
     /// Do not reorder these lines.
     func load(connectionId: String) throws {
+        // Already loaded: a tab switch must cost nothing. This is called from the
+        // activeConnectionId didSet, which fires on tab focus as well as on connect,
+        // so a plain switch between two connected connections must not re-read
+        // SQLite or post a change that makes every grid rebuild its tag map.
+        guard tagsByIdentity[connectionId] == nil else { return }
         let loadedLabels = try PharosCore.loadTagLabels()
         let tags = try PharosCore.loadRowTags(connectionId: connectionId)
         labels = loadedLabels
