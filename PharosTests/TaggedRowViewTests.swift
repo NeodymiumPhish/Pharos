@@ -33,13 +33,14 @@ func expectTrue(_ actual: Bool, _ name: String) {
 /// regardless of alpha, so a 15% red wash and a 100% red bar come back with
 /// IDENTICAL red/green/blue components (only their alpha differs), and a
 /// same-channel comparison like "the bar's red is higher than the wash's red"
-/// can never see a difference. Confirmed empirically before writing the real
-/// assertions below — see the task report for the numbers.
+/// can never see a difference.
 ///
 /// The fix: paint a real (opaque, white) backdrop into the bitmap first, then
 /// invoke `drawBackground(in:)` directly — the exact method under test — so
 /// Quartz performs genuine source-over compositing and `colorAt` reports the
-/// true blended colour.
+/// true blended colour. This has a second benefit: over an opaque backdrop
+/// the sampled alpha is exactly 1.0, so premultiplied 8-bit storage cannot
+/// distort the sample either.
 func render(_ view: TaggedRowView) -> NSBitmapImageRep? {
     let width = Int(view.bounds.width)
     let height = Int(view.bounds.height)
@@ -66,23 +67,50 @@ func pixel(_ rep: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
     rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
 }
 
-/// Two colours are "the same" within a small epsilon — offscreen rendering can
-/// carry a hair of rounding noise even for a flat fill.
-func closeColor(_ a: NSColor, _ b: NSColor) -> Bool {
-    abs(a.redComponent - b.redComponent) < 0.02
-        && abs(a.greenComponent - b.greenComponent) < 0.02
-        && abs(a.blueComponent - b.blueComponent) < 0.02
+/// The ONE colour-equality comparator, used everywhere two pixels are checked
+/// for being "the same colour". 0.01 per channel: the real 8-bit quantization
+/// bound is 1/255 ≈ 0.004, so 0.01 leaves headroom for offscreen-rendering
+/// noise without being loose enough to hide a real difference. (Previously
+/// this repo had three competing epsilons here — 0.001, 0.01 on a summed
+/// distance, 0.02 per channel — which is worse than any one of them: three
+/// different units for "the same" is not a stricter check, just a confusing
+/// one.)
+func sameColor(_ a: NSColor, _ b: NSColor) -> Bool {
+    abs(a.redComponent - b.redComponent) < 0.01
+        && abs(a.greenComponent - b.greenComponent) < 0.01
+        && abs(a.blueComponent - b.blueComponent) < 0.01
 }
 
 /// How far a colour sits from a reference (e.g. the untagged baseline), summed
 /// across channels. A saturated hue like `.systemRed` keeps its red channel at
 /// 1.0 whether it is a faint wash or a solid bar — the difference only shows up
 /// in the OTHER channels — so "more saturated" has to be judged by total
-/// distance from the baseline, not by any one fixed channel.
+/// distance from the baseline, not by any one fixed channel. This is for
+/// ORDERING two pixels against each other (farther / closer); it is not a
+/// colour-equality comparator — use `sameColor` for that.
 func distance(_ a: NSColor, from b: NSColor) -> CGFloat {
     abs(a.redComponent - b.redComponent)
         + abs(a.greenComponent - b.greenComponent)
         + abs(a.blueComponent - b.blueComponent)
+}
+
+/// α·C + (1−α)·white, computed from the RESOLVED colour so an appearance
+/// change cannot stale the expectation. Over an opaque white backdrop the
+/// blend is exact — this is what pins the label COLOUR and the exact alpha.
+/// A distance-from-baseline check proves neither: drawing in the wrong
+/// colour, or tinting at 0.30/0.60 instead of 0.08/0.15, passes every
+/// distance assertion in this file unchanged. Measured error against the
+/// real render is ~0.001–0.002 per channel, so the 0.01 epsilon in
+/// `sameColor` is comfortable.
+func expectedBlend(_ c: NSColor, alpha: CGFloat) -> NSColor {
+    let resolved = c.usingColorSpace(.deviceRGB) ?? c
+    let white: CGFloat = 1.0
+    return NSColor(
+        deviceRed: alpha * resolved.redComponent + (1 - alpha) * white,
+        green: alpha * resolved.greenComponent + (1 - alpha) * white,
+        blue: alpha * resolved.blueComponent + (1 - alpha) * white,
+        alpha: 1.0
+    )
 }
 
 func runTests() {
@@ -156,12 +184,33 @@ func runTests() {
        let weakMid = pixel(weakRep, x: midX, y: midY),
        let strongBar = pixel(strongRep, x: barX, y: midY) {
 
-        // 1. An untagged row paints no tag: its mid pixel must differ from a
-        //    tagged row's mid pixel.
-        let untaggedVsStrongDiffers = abs(untaggedMid.redComponent - strongMid.redComponent) > 0.001
-            || abs(untaggedMid.greenComponent - strongMid.greenComponent) > 0.001
-            || abs(untaggedMid.blueComponent - strongMid.blueComponent) > 0.001
-        expectTrue(untaggedVsStrongDiffers, "an untagged row's mid pixel differs from a strong row's")
+        // 1. The exact blend. This is what pins the label COLOUR and the exact
+        //    alpha — every other check here works by ORDERING or DIFFERENCE,
+        //    which a drawBackground that ignores tagColor entirely, or tints
+        //    at 0.30/0.60 instead of 0.08/0.15, can pass by accident. Compare
+        //    against the RESOLVED colour, never a hardcoded triple.
+        let resolvedRed = NSColor.systemRed.usingColorSpace(.deviceRGB) ?? .systemRed
+        expectTrue(sameColor(strongMid, expectedBlend(resolvedRed, alpha: 0.15)),
+                   "the strong wash pixel is exactly a 15% blend of the resolved colour over white")
+        expectTrue(sameColor(weakMid, expectedBlend(resolvedRed, alpha: 0.08)),
+                   "the weak wash pixel is exactly an 8% blend of the resolved colour over white")
+        expectTrue(sameColor(strongBar, resolvedRed),
+                   "the bar pixel is the resolved colour at full strength, not just A colour")
+
+        // 1b. A SECOND colour, so nothing here can pass by having special-cased
+        //     red. `.systemGreen` deliberately, not `.systemBlue`, so this
+        //     cannot coincidentally match a `drawBackground` that hardcodes
+        //     some other fixed colour.
+        let greenForPixels = TaggedRowView(frame: frame)
+        greenForPixels.configure(color: .systemGreen, isWeak: false)
+        if let greenRep = render(greenForPixels), let greenMid = pixel(greenRep, x: midX, y: midY) {
+            let resolvedGreen = NSColor.systemGreen.usingColorSpace(.deviceRGB) ?? .systemGreen
+            expectTrue(sameColor(greenMid, expectedBlend(resolvedGreen, alpha: 0.15)),
+                       "a green tag blends its OWN resolved colour, not a colour fixed in the drawing code")
+        } else {
+            failures += 1
+            print("FAIL could not render the green-tag view")
+        }
 
         // 2. The bar is more saturated than the wash: the bar-column pixel
         //    must sit farther from the untagged baseline than the mid-row wash
@@ -184,14 +233,10 @@ func runTests() {
         if let leadingEdge = pixel(strongRep, x: 0, y: midY),
            let lastBarPixel = pixel(strongRep, x: 2, y: midY),
            let firstWashPixel = pixel(strongRep, x: 3, y: midY) {
-            let leadingEdgeDistance = distance(leadingEdge, from: untaggedMid)
-            let lastBarDistance = distance(lastBarPixel, from: untaggedMid)
-            let firstWashDistance = distance(firstWashPixel, from: untaggedMid)
-
-            expectClose(lastBarDistance, leadingEdgeDistance,
-                        "x=2's distance from baseline matches x=0's — both still full bar colour")
-            expectClose(firstWashDistance, strongWashDistance,
-                        "x=3's distance from baseline matches the mid-row wash — the bar has already ended")
+            expectTrue(sameColor(lastBarPixel, leadingEdge),
+                       "x=2 matches x=0 — both still full bar colour")
+            expectTrue(sameColor(firstWashPixel, strongMid),
+                       "x=3 has already fallen back to the wash colour")
         } else {
             failures += 1
             print("FAIL could not read the bar's right-edge pixels (x=0, x=2, x=3)")
@@ -214,14 +259,41 @@ func runTests() {
             if let c = pixel(weakRep, x: barX, y: y) { weakBarColors.append(c) }
         }
         if strongBarColors.count == Int(frame.height) && weakBarColors.count == Int(frame.height) {
-            let strongBarUniform = strongBarColors.dropFirst().allSatisfy { closeColor($0, strongBarColors[0]) }
+            let strongBarUniform = strongBarColors.dropFirst().allSatisfy { sameColor($0, strongBarColors[0]) }
             expectTrue(strongBarUniform, "the strong (solid) bar column is uniform top to bottom")
 
-            let weakBarHasGap = weakBarColors.contains { !closeColor($0, weakBarColors[0]) }
+            let weakBarHasGap = weakBarColors.contains { !sameColor($0, weakBarColors[0]) }
             expectTrue(weakBarHasGap, "the weak (dashed) bar column has at least one differing pixel — a dash gap")
         } else {
             failures += 1
             print("FAIL could not read every y of the bar column for the dash-gap check")
+        }
+
+        // 4b. The dashed bar's WIDTH, by column, not a single point — a 1pt
+        //     line (missing `lineWidth`) or an off-centre line (drawn at
+        //     `midX + 1` instead of `midX`) both still cover x=1 and would
+        //     slip past every check above. Verified ground truth for this
+        //     implementation, dash pattern [4,3] over a 24pt row: 15 of 24
+        //     rows painted at x=0, x=1, x=2, and 0 of 24 at x=3. A 1pt line
+        //     leaves x=0 and x=2 clean; a `midX + 1` line leaves x=0 clean
+        //     and paints x=3.
+        let weakBarFullColor = resolvedRed // dash "on" segments stroke at full colour, same as the solid bar
+        func paintedRowCount(in rep: NSBitmapImageRep, x: Int) -> Int? {
+            var count = 0
+            for y in 0..<Int(frame.height) {
+                guard let c = pixel(rep, x: x, y: y) else { return nil }
+                if sameColor(c, weakBarFullColor) { count += 1 }
+            }
+            return count
+        }
+        let expectedPaintedCounts = [0: 15, 1: 15, 2: 15, 3: 0]
+        for (x, expected) in expectedPaintedCounts.sorted(by: { $0.key < $1.key }) {
+            if let actual = paintedRowCount(in: weakRep, x: x) {
+                expectEqual(actual, expected, "the dashed bar paints \(expected) of 24 rows at x=\(x)")
+            } else {
+                failures += 1
+                print("FAIL could not read column x=\(x) for the dash-width check")
+            }
         }
 
         // 5. clearTag really stops the drawing: after clearing, the mid pixel
@@ -230,7 +302,7 @@ func runTests() {
         clearedView.configure(color: .systemRed, isWeak: false)
         clearedView.clearTag()
         if let clearedRep = render(clearedView), let clearedMid = pixel(clearedRep, x: midX, y: midY) {
-            expectTrue(closeColor(clearedMid, untaggedMid), "clearTag's mid pixel matches the untagged baseline")
+            expectTrue(sameColor(clearedMid, untaggedMid), "clearTag's mid pixel matches the untagged baseline")
         } else {
             failures += 1
             print("FAIL cleared view produced no readable pixel")
@@ -239,6 +311,33 @@ func runTests() {
         failures += 1
         print("FAIL pixel rendering produced no readable colour — the offscreen bitmap technique did not work")
     }
+
+    // MARK: - needsDisplay (reuse correctness)
+    //
+    // `render` above calls `drawBackground(in:)` directly, bypassing the real
+    // entry point: `NSTableView` recycles row views and relies on
+    // `needsDisplay = true` to get them repainted. A `configure`/`clearTag`
+    // that forgot to invalidate would still pass every pixel check above,
+    // because `render` never goes through invalidation at all — this is the
+    // highest-risk reuse bug in the class, and the only way to see it is to
+    // ask the real property. `needsDisplay` reads back false outside a
+    // window — AppKit discards the invalidation when there's nothing to
+    // display — but true inside a window, even an offscreen, never-shown one.
+    // Same pattern as PharosTests/ToastClickTests.swift,
+    // VariableRowLayoutTests.swift, and ErrorBadgeButtonTests.swift.
+    let hostWindow = NSWindow(
+        contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let hostedView = TaggedRowView(frame: frame)
+    hostWindow.contentView = hostedView
+
+    hostedView.needsDisplay = false
+    hostedView.configure(color: .systemRed, isWeak: false)
+    expectTrue(hostedView.needsDisplay, "configure requests a redraw when hosted in a window")
+
+    hostedView.needsDisplay = false
+    hostedView.clearTag()
+    expectTrue(hostedView.needsDisplay, "clearTag requests a redraw when hosted in a window")
 
     if failures == 0 {
         print("\nAll TaggedRowView tests passed.")

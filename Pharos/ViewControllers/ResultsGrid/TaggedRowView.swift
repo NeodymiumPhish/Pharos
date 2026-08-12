@@ -5,10 +5,20 @@ import AppKit
 /// The row background for a tagged row: a wash of the label colour, plus a bar at
 /// the leading edge.
 ///
-/// It sits BELOW the cells on purpose. The find highlight and the cell selection
-/// paint cell backgrounds, so they still win where they overlap, and the existing
-/// precedence chain does not change. The wash stays visible at the row edges,
-/// which is enough to read.
+/// It sits BELOW the cells on purpose, and that z-order is the whole of what is
+/// guaranteed:
+/// - Cell selection truly WINS where it overlaps the wash: `selectedContentBackgroundColor`
+///   (`ResultsDataSource.swift` around line 109) is opaque, so it fully replaces the wash
+///   underneath, not just for cells it does not cover.
+/// - The find highlight does NOT win, it BLENDS: both find colours are translucent
+///   (`systemYellow.withAlphaComponent(0.4)` and `0.15`, `ResultsDataSource.swift:107-108`),
+///   so a find match on a tagged row shows the wash showing through the yellow, not a clean
+///   yellow. That is an acceptable read, not a precedence win.
+/// - `super.drawBackground` is not a no-op in the real app: `ResultsGridVC.swift:98` sets
+///   `usesAlternatingRowBackgroundColors = true`, so odd/even rows already get an opaque
+///   stripe before the wash is drawn on top. The harness cannot see this — a bare
+///   `TaggedRowView` outside a real table paints no alternating stripe — so do not expect a
+///   headless pixel test to catch a regression here.
 ///
 /// Geometry is exposed through `barRect(in:)` and `tintAlpha` so a headless
 /// harness can assert it — see `scripts/test-tagged-row-view.sh`. Nothing here
@@ -39,8 +49,7 @@ final class TaggedRowView: NSTableRowView {
         return isWeak ? 0.08 : 0.15
     }
 
-    /// - Parameter isWeak: a fingerprint match. It draws fainter and dashed, so the
-    ///   two trust levels are distinguishable without reading anything.
+    /// - Parameter isWeak: see the `isWeak` property doc.
     func configure(color: NSColor, isWeak: Bool) {
         tagColor = color
         self.isWeak = isWeak
@@ -56,6 +65,11 @@ final class TaggedRowView: NSTableRowView {
     }
 
     /// The leading bar, or `.zero` when the row carries no tag.
+    ///
+    /// - Parameter bounds: in production this is always `self.bounds` — it is a
+    ///   parameter rather than reading `bounds` directly only so a headless test
+    ///   can ask "what would the bar be on a 60pt row?" without actually resizing
+    ///   the view. It is a test seam, not general flexibility.
     func barRect(in bounds: NSRect) -> NSRect {
         guard tagColor != nil else { return .zero }
         return NSRect(x: bounds.minX, y: bounds.minY,
@@ -70,6 +84,9 @@ final class TaggedRowView: NSTableRowView {
         bounds.fill()
 
         let bar = barRect(in: bounds)
+        // Belt-and-braces: `barRect` only ever returns `.zero` when `tagColor`
+        // is nil, and the guard above has already handled that case, so this
+        // can never actually fire today.
         guard !bar.isEmpty else { return }
         if isBarDashed {
             let path = NSBezierPath()
