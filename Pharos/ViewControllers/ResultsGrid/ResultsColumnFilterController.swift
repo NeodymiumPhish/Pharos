@@ -109,7 +109,15 @@ class ResultsColumnFilterController {
 
         // Every active filter except the column being edited (so all of this
         // column's values stay selectable even when it already has a filter).
-        let otherFilters = activeFilters.filter { $0.key != colId }
+        //
+        // The tag funnel does not cascade into a data column's value list: the
+        // funnel is stage 1 of the display pipeline, not a per-column filter,
+        // and its rows are not resolvable here (no column index). Excluding it
+        // explicitly keeps that decision visible instead of riding on
+        // colIndex(from:) returning nil.
+        let otherFilters = activeFilters.filter {
+            $0.key != colId && !TagFunnel.isTagFilter(columnId: $0.key)
+        }
 
         var tallies: [String: Tally] = [:]
 
