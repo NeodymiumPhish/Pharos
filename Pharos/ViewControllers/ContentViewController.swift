@@ -75,6 +75,7 @@ class ContentViewController: NSViewController {
     let resetSortButton = NSButton()
     let resetFiltersButton = NSButton()
     let clearSelectionButton = NSButton()
+    let tagButton = NSButton()
     let pinButton = NSButton()
     let findToolbarButton = NSButton()
     let copyButton = NSButton()
@@ -880,6 +881,11 @@ class ContentViewController: NSViewController {
         clearSelectionButton.target = resultsVC
         clearSelectionButton.action = #selector(ResultsGridVC.clearCellSelection)
 
+        configureToolbarButtonAppearance(tagButton, symbol: "tag", tooltip: "Show tagged rows even when a filter hides them")
+        tagButton.isHidden = true
+        tagButton.target = resultsVC
+        tagButton.action = #selector(ResultsGridVC.toggleForceShowTags)
+
         // -- Grid/Chart toggle (front of the action bar) --
 
         chartToggle.selectedSegment = 0
@@ -918,7 +924,7 @@ class ContentViewController: NSViewController {
         chartFilterButton.setContentHuggingPriority(.required, for: .horizontal)
         chartFilterButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let actionStack = NSStackView(views: [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton, findToolbarButton, resetSortButton, resetFiltersButton, clearSelectionButton])
+        let actionStack = NSStackView(views: [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton, findToolbarButton, tagButton, resetSortButton, resetFiltersButton, clearSelectionButton])
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)

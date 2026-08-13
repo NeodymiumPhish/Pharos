@@ -32,6 +32,7 @@ class ResultsGridVC: NSViewController {
     var resetSortButton: NSButton { contentVC?.resetSortButton ?? NSButton() }
     var resetFiltersButton: NSButton { contentVC?.resetFiltersButton ?? NSButton() }
     var clearSelectionButton: NSButton { contentVC?.clearSelectionButton ?? NSButton() }
+    var tagButton: NSButton { contentVC?.tagButton ?? NSButton() }
     var pinButton: NSButton { contentVC?.pinButton ?? NSButton() }
     var copyButton: NSButton { contentVC?.copyButton ?? NSButton() }
     var exportButton: NSButton { contentVC?.exportButton ?? NSButton() }
@@ -634,19 +635,23 @@ class ResultsGridVC: NSViewController {
         let filterSuffix = filterCount > 0
             ? " \u{2022} \(filterCount) filter\(filterCount == 1 ? "" : "s")"
             : ""
+        let tagCount = tagsByRow.count
+        let tagSuffix = tagCount > 0
+            ? " \u{2022} \(formatRowCount(tagCount)) tagged"
+            : ""
 
         let findVisible = findController.isFindVisible
         let findMatchCount = findController.findMatches.count
-        if (findVisible || filterCount > 0) && displayRows.count < rows.count {
+        if (findVisible || filterCount > 0 || forceShowTags) && displayRows.count < rows.count {
             let visibleCount = formatRowCount(displayRows.count)
             let total = formatRowCount(rows.count)
-            statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(filterSuffix)\(moreStr)"
+            statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
         } else if findVisible && findMatchCount > 0 {
             let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(filterSuffix)\(moreStr)"
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(filterSuffix)\(tagSuffix)\(moreStr)"
         } else {
             let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(filterSuffix)\(moreStr)"
+            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
         }
     }
 
@@ -773,6 +778,7 @@ class ResultsGridVC: NSViewController {
                 ($0.id, TagLabelPalette.color(at: $0.colorIndex))
             }
         )
+        syncTagButton()
     }
 
     // MARK: - Helper Coordination
@@ -834,6 +840,27 @@ class ResultsGridVC: NSViewController {
     /// is active (toggled in `cellSelectionDidChange`).
     @objc func clearCellSelection() {
         cellSelectionController.clear()
+    }
+
+    // MARK: - Force-Show Tagged Rows
+
+    @objc func toggleForceShowTags() {
+        forceShowTags.toggle()
+        syncTagButton()
+        recomputeDisplayRows()
+    }
+
+    /// Visibility and polarity. Hidden while nothing is tagged; filled + tinted
+    /// while the toggle is on. Reapplies `configureToolbarButtonAppearance`'s
+    /// point-size-13/medium symbol configuration on every swap so the glyph
+    /// stays the same size as its toolbar siblings instead of falling back to
+    /// the system default.
+    func syncTagButton() {
+        tagButton.isHidden = tagsByRow.isEmpty
+        let symbol = forceShowTags ? "tag.fill" : "tag"
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        tagButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Force-show tagged rows")?.withSymbolConfiguration(config)
+        tagButton.contentTintColor = forceShowTags ? .controlAccentColor : nil
     }
 
     // MARK: - Auto-Fit Column
