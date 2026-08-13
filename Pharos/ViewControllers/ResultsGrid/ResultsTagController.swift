@@ -30,7 +30,12 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
 
         let tagItem = menu.addItem(withTitle: "Tag Row", action: nil, keyEquivalent: "")
         tagItem.tag = Self.tagSubmenuTag
-        tagItem.submenu = NSMenu()
+        let submenu = NSMenu()
+        // One enablement regime for both menus: the parent is manual, so the
+        // submenu is too — otherwise a future NSMenuItemValidation conformance
+        // would silently start gating the label items.
+        submenu.autoenablesItems = false
+        tagItem.submenu = submenu
 
         let remove = menu.addItem(withTitle: "Remove Tag", action: #selector(removeTagAction), keyEquivalent: "")
         remove.tag = Self.removeTag
@@ -44,6 +49,7 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     // MARK: NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        // Copy section first: it must refresh even if the grid is gone.
         copyExport.updateCopyItems(in: menu)
         guard let grid else { return }
 
