@@ -101,6 +101,15 @@ final class TagStore {
         set { UserDefaults.standard.set(newValue, forKey: Self.lastUsedLabelKey) }
     }
 
+    /// The label ⌘L will actually use: the stored id when it still names a
+    /// label, else the first label, else nil. The one resolution both the
+    /// validator's title and the action must share — a raw read can name a
+    /// deleted label and make the two disagree.
+    var effectiveLastLabelId: String? {
+        lastUsedLabelId.flatMap { id in labels.first { $0.id == id }?.id }
+            ?? labels.first?.id
+    }
+
     /// Write one tag and refresh that connection's index. The write is
     /// key-set-aware in the core (it replaces any tag matching ANY key), so
     /// the reload — not a hand-applied delta — is what keeps this cache honest.

@@ -3456,19 +3456,18 @@ extension ContentViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
-            // on every event-loop pass, arbitrarily long after the last
-            // click, and `tagTargetDataRows()` starts from
-            // `tableView.clickedRow`, which `ResultsTableView.mouseDown`
+            // on menu-open and key-equivalent resolution, which can happen
+            // long after the last click, and `tagTargetDataRows()` starts
+            // from `tableView.clickedRow`, which `ResultsTableView.mouseDown`
             // never resets (it never calls `super.mouseDown`, the one path
             // that clears clickedRow after a plain left-click — verified
             // empirically). The title here must match what ⌘L actually acts
             // on, so it uses the same selection-only resolution as
             // `tagWithLastLabel`.
             let targets = resultsVC.selectedDataRows()
-            let canTag = resultsVC.hasTagTargets
+            let canTag = resultsVC.rowIdentity != nil && !targets.isEmpty
             // Retitle to match what ⌘L will do.
-            if canTag, let labelId = TagStore.shared.lastUsedLabelId,
-               !targets.isEmpty,
+            if canTag, let labelId = TagStore.shared.effectiveLastLabelId,
                targets.allSatisfy({ resultsVC.tagsByRow[$0]?.labelId == labelId }) {
                 menuItem.title = targets.count > 1 ? "Untag Rows" : "Untag Row"
             } else {

@@ -823,16 +823,6 @@ class ResultsGridVC: NSViewController {
         return selection
     }
 
-    /// Can a tag action run at all? Menu validation asks this.
-    ///
-    /// Deliberately `selectedDataRows()`, not `tagTargetDataRows()` — see that
-    /// method's doc comment. Menu validation runs on every event-loop pass,
-    /// long after any click, so it must not trust a possibly-stale
-    /// `clickedRow`.
-    var hasTagTargets: Bool {
-        rowIdentity != nil && !selectedDataRows().isEmpty
-    }
-
     /// Put `labelId` on every target row, or — when every target already
     /// carries it — remove it from all of them. The ⌘L rule.
     func toggleTag(labelId: String, on targets: [Int]) {
@@ -913,9 +903,7 @@ class ResultsGridVC: NSViewController {
             }
             return
         }
-        let labelId = store.lastUsedLabelId
-            .flatMap { id in store.labels.first { $0.id == id }?.id }
-            ?? store.labels[0].id
+        guard let labelId = store.effectiveLastLabelId else { NSSound.beep(); return }
         toggleTag(labelId: labelId, on: targets)
     }
 
