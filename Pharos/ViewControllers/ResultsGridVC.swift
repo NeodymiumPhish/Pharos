@@ -538,9 +538,15 @@ class ResultsGridVC: NSViewController {
         recomputeColumnFilteredRows()
     }
 
-    /// Recomputes columnFilteredDisplayRows from unfilteredDisplayRows, then cascades to find.
-    func recomputeColumnFilteredRows() {
-        columnFilteredDisplayRows = columnFilterController.applyFilters(inputDisplayRows: unfilteredDisplayRows)
+    /// Apply a stage-2 result and finish the cascade. The ONE copy of this tail —
+    /// `recomputeDisplayRows` and `columnFilterControllerDidUpdate` both end here.
+    ///
+    /// Find stays push-based: `ResultsFindController` reports through
+    /// `findControllerDidUpdateResults` rather than returning a list, so when find is
+    /// visible this hands off and that callback finishes the job. Find is therefore
+    /// still stage 3, downstream of the column filters, exactly as before.
+    func applyColumnFiltered(_ newFiltered: [Int]) {
+        columnFilteredDisplayRows = newFiltered
         if findController.isFindVisible {
             findController.findFieldChanged(findField)
         } else {
@@ -549,6 +555,30 @@ class ResultsGridVC: NSViewController {
             tableView.reloadData()
         }
         updateStatusBarText()
+    }
+
+    /// The single place that rebuilds `displayRows` from `unfilteredDisplayRows`.
+    ///
+    /// The composition lives in `DisplayRowPipeline`, which is tested offline (13
+    /// assertions) — the stage ORDER is the part worth pinning, and it cannot be
+    /// tested through a view controller. Stages 1 and 4 (the tag funnel and the
+    /// force-show merge) are Phase 3 features and are nil here, so this reduces to
+    /// exactly what the hand-wired cascade did: apply the column filters, then let
+    /// find run downstream.
+    func recomputeDisplayRows() {
+        applyColumnFiltered(
+            DisplayRowPipeline.run(
+                unfiltered: unfilteredDisplayRows,
+                stages: .init(columnFilters: { [weak self] rows in
+                    guard let self else { return rows }
+                    return self.columnFilterController.applyFilters(inputDisplayRows: rows)
+                })))
+    }
+
+    /// Kept as the name the rest of the class already calls. The composition now
+    /// lives in `recomputeDisplayRows()`.
+    func recomputeColumnFilteredRows() {
+        recomputeDisplayRows()
     }
 
     // MARK: - Status Bar

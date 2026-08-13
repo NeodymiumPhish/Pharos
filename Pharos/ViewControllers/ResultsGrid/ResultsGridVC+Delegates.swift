@@ -85,15 +85,9 @@ extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
     var filterableColumnCategories: [PGTypeCategory] { columnCategories }
 
     func columnFilterControllerDidUpdate(columnFilteredDisplayRows newFiltered: [Int]) {
-        columnFilteredDisplayRows = newFiltered
-        if findController.isFindVisible {
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = columnFilteredDisplayRows
-            pushDataToHelpers()
-            tableView.reloadData()
-        }
-        updateStatusBarText()
+        // The controller has ALREADY applied its filters, so running stage 2 again
+        // would filter twice. Take its answer straight to the shared tail.
+        applyColumnFiltered(newFiltered)
     }
 }
 
