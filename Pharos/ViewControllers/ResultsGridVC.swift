@@ -830,7 +830,8 @@ class ResultsGridVC: NSViewController {
             var lastFailure: TagComposer.Failure?
             // Each upsert posts didChange synchronously and the grid observer mutates
             // tagsByRow/displayRows mid-loop. Safe: the loop iterates a captured [Int]
-            // and reads only rows and the precomputed 'existing'.
+            // and reads rows, the precomputed 'existing', and tagsByRow[row] — the
+            // per-write recompute keeps that map accurate, so the fresh read is safe.
             for row in targets {
                 guard row < rows.count else { continue }
                 let values = rows[row].map { $0.stringValue }
