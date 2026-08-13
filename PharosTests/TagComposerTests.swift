@@ -95,6 +95,14 @@ func runTests() {
                              identity: identity([ghost]))) == .malformedRow,
            "a key column missing from the result refuses")
 
+    expect(failureOf(compose(row: -1, columns: ["id"], values: ["1"],
+                             identity: identity([pk]))) == .malformedRow,
+           "a negative row index refuses instead of trapping")
+
+    expect(failureOf(compose(row: 0, columns: ["id"], values: [],
+                             identity: identity([pk]))) == .malformedRow,
+           "a strong row with too few values refuses")
+
     // The note passes through.
     if case .success(let up) = TagComposer.upsert(
         row: 0, columns: ["id"], rowValues: ["1"],

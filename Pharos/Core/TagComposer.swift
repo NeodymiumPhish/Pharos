@@ -32,6 +32,8 @@ enum TagComposer {
         labelId: String,
         note: String?
     ) -> Result<UpsertRowTag, Failure> {
+        // NSTableView.clickedRow is -1 outside the rows; degrade, never trap.
+        guard row >= 0 else { return .failure(.malformedRow) }
         guard let identity else { return .failure(.noSourceTable) }
 
         if identity.candidates.isEmpty {
@@ -68,6 +70,9 @@ enum TagComposer {
         // columns, so a miss here is a malformed block.
         var values: [String?] = []
         for name in primary.keyColumns {
+            // PostgreSQL can return duplicate column names; firstIndex may then
+            // read the wrong column's value. Display-only blast radius: matching
+            // uses the verbatim keys, and identityColumns/Values are display data.
             guard let idx = columns.firstIndex(of: name), idx < rowValues.count else {
                 return .failure(.malformedRow)
             }
