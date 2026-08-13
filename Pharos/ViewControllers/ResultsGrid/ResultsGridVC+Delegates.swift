@@ -83,12 +83,6 @@ extension ResultsGridVC: ResultsCopyExportDelegate {
 extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
     var filterableRows: [[AnyCodable]] { rows }
     var filterableColumnCategories: [PGTypeCategory] { columnCategories }
-
-    func columnFilterControllerDidUpdate(columnFilteredDisplayRows newFiltered: [Int]) {
-        // The controller has ALREADY applied its filters, so running stage 2 again
-        // would filter twice. Take its answer straight to the shared tail.
-        applyColumnFiltered(newFiltered)
-    }
 }
 
 // MARK: - ColumnFilterPopoverDelegate

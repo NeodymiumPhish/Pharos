@@ -441,6 +441,8 @@ class ResultsGridVC: NSViewController {
         columns = []
         rows = []
         rowIdentity = nil
+        // Rows are gone; a stale map would leak into the status text and stage gates.
+        applyTagMap([:])
         displayRows = []
         unfilteredDisplayRows = []
         columnFilteredDisplayRows = []
@@ -568,7 +570,7 @@ class ResultsGridVC: NSViewController {
     }
 
     /// Apply a stage-2 result and finish the cascade. The ONE copy of this tail —
-    /// `recomputeDisplayRows` and `columnFilterControllerDidUpdate` both end here.
+    /// `recomputeDisplayRows` ends here.
     ///
     /// Find stays push-based: `ResultsFindController` reports through
     /// `findControllerDidUpdateResults` rather than returning a list, so when find is
@@ -588,12 +590,13 @@ class ResultsGridVC: NSViewController {
 
     /// The single place that rebuilds `displayRows` from `unfilteredDisplayRows`.
     ///
-    /// The composition lives in `DisplayRowPipeline`, which is tested offline (13
-    /// assertions) — the stage ORDER is the part worth pinning, and it cannot be
-    /// tested through a view controller. Stages 1 and 4 (the tag funnel and the
-    /// force-show merge) are Phase 3 features and are nil here, so this reduces to
-    /// exactly what the hand-wired cascade did: apply the column filters, then let
-    /// find run downstream.
+    /// The composition lives in `DisplayRowPipeline`, which is tested offline —
+    /// the stage ORDER is the part worth pinning, and it cannot be tested through
+    /// a view controller. Stage 1 (the tag funnel), stage 2 (the column filters),
+    /// and stage 4 (the force-show merge) are all wired here; find remains stage 3,
+    /// applied downstream by `applyColumnFiltered`. Stage 4 runs before find in
+    /// this wiring — see the inline comment on the `forceShow` closure below for
+    /// why (scope decision 2).
     func recomputeDisplayRows() {
         applyColumnFiltered(
             DisplayRowPipeline.run(

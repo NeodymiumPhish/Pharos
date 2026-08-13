@@ -42,9 +42,11 @@ enum DisplayRowPipeline {
         ///     }
         ///
         /// `precomputed` was derived from the UNGATED list, so returning it verbatim
-        /// re-admits rows the tag filter removed. This matters in Phase 3 for
-        /// `columnFilterControllerDidUpdate`, which already holds the stage-2 output
-        /// and must not run the engine twice.
+        /// re-admits rows the tag filter removed. A caller once existed that reused a
+        /// precomputed column-filter result this way (`columnFilterControllerDidUpdate`);
+        /// it bypassed stages 1 and 4 and was removed along with its caller. If a reuse
+        /// path is ever reintroduced, it must intersect with the stage input as shown
+        /// above, never substitute for it.
         var columnFilters: (([Int]) -> [Int])?
         /// The find filter.
         var findFilter: (([Int]) -> [Int])?

@@ -152,6 +152,22 @@ func runTests() {
             forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: []))),
         [2], "no tagged rows changes nothing")
 
+    // A tagged index that is not in the unfiltered list at all must not appear:
+    // the factory draws only from the gated list.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: [0, 1, 2], stages: .init(
+            columnFilters: { $0.filter { $0 == 2 } },
+            forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: [1, 99]))),
+        [1, 2], "a tagged row outside the input cannot be admitted")
+
+    // Stage order 3-before-4: force-show re-admits a tagged row that the find
+    // filter dropped, which is only possible when stage 4 runs after stage 3.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: [0, 1, 2, 3], stages: .init(
+            findFilter: { $0.filter { $0 == 3 } },
+            forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: [0]))),
+        [0, 3], "force-show runs after the find stage and re-admits its drops")
+
     if failures == 0 {
         print("\nAll DisplayRowPipeline tests passed.")
     } else {

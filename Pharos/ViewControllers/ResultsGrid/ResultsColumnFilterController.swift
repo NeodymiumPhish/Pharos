@@ -5,7 +5,6 @@ import AppKit
 protocol ResultsColumnFilterControllerDelegate: AnyObject {
     var filterableRows: [[AnyCodable]] { get }
     var filterableColumnCategories: [PGTypeCategory] { get }
-    func columnFilterControllerDidUpdate(columnFilteredDisplayRows: [Int])
 }
 
 // MARK: - ResultsColumnFilterController
