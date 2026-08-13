@@ -739,12 +739,21 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Tags
 
+    /// Rows above which the weak (fingerprint) match leaves the main thread.
+    /// The strong path is a dictionary walk and never needs this.
+    static let weakMatchAsyncThreshold = 5_000
+
+    /// Monotonic stamp for async tag-map results. Bumped by EVERY recompute,
+    /// so a stale background result can never overwrite a newer map.
+    private var tagMapGeneration = 0
+
     /// Rebuild the tag map for the loaded result.
     ///
     /// Called when a result arrives, when a page is appended, and when the store
     /// changes. NOT called per row: the matcher walks the rows once and the data
     /// source then answers each row view from a dictionary.
     func recomputeTagMap() {
+        tagMapGeneration += 1
         guard let connectionId = AppStateManager.shared.activeConnectionId else {
             applyTagMap([:])
             return
@@ -762,12 +771,40 @@ class ResultsGridVC: NSViewController {
         // count: rows.count)` keeps it correct while each row's own array of
         // values stays empty.
         let needsText = TagMatcher.needsRowValues(rowIdentity)
+        let columnNames = columns.map { $0.name }
+
+        if needsText && rows.count > Self.weakMatchAsyncThreshold {
+            // The text copy happens on the main thread (`rows` is main-actor
+            // state); only the matching itself leaves it. `TagMatcher`,
+            // `RowTag`, `RowIdentity` and the index dictionary are value
+            // types/immutable structs — safe to carry across the queue hop.
+            let generation = tagMapGeneration
+            let identity = rowIdentity
+            let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let map = TagMatcher.match(identity: identity, columns: columnNames,
+                                           rows: textRows, tagsByIdentity: index)
+                DispatchQueue.main.async {
+                    // `DispatchQueue.main.async`'s closure is `@Sendable`, so the
+                    // compiler cannot see that `queue: .main`-equivalent dispatch
+                    // already guarantees main-actor execution — same reasoning as
+                    // the `TagStore.didChange` observer above.
+                    MainActor.assumeIsolated {
+                        guard let self, self.tagMapGeneration == generation else { return }
+                        self.applyTagMap(map)
+                        self.tableView.reloadData()
+                    }
+                }
+            }
+            return
+        }
+
         let textRows: [[String?]] = needsText
             ? rows.map { row in row.map { $0.stringValue } }
             : Array(repeating: [], count: rows.count)
         applyTagMap(TagMatcher.match(
             identity: rowIdentity,
-            columns: columns.map { $0.name },
+            columns: columnNames,
             rows: textRows,
             tagsByIdentity: index
         ))
