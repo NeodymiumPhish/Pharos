@@ -496,8 +496,11 @@ class ResultsGridVC: NSViewController {
 
         let rowNumCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("__rownum__"))
         rowNumCol.title = "#"
-        // Room for the dot plus the row number. The dot is 6pt at a 5pt inset, so a
-        // four-digit row number still fits at the minimum width.
+        // Room for the dot plus the row number. The dot is 6pt at a 5pt inset, so the
+        // text starts at 15pt. At the DEFAULT 54pt width that leaves 33pt, which holds
+        // a four-digit row number (measured: "9999" is 27.97pt in the row-number font).
+        // At the 44pt minimum only three digits fit — acceptable, because the user has
+        // to drag the column down to reach it, and the old 30pt minimum was worse.
         rowNumCol.width = 54
         rowNumCol.minWidth = 44
         rowNumCol.maxWidth = 70

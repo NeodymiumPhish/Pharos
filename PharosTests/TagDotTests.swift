@@ -119,20 +119,54 @@ func runTests() {
     expectTrue(sameColor(hollowMid, white), "a hollow dot leaves its centre white")
     expectTrue(!sameColor(hollowMid, filledMid), "a hollow dot's centre differs from a filled dot's centre")
 
-    // 3. Nothing is painted outside the dot's rect, in the row-number zone.
-    if let filledFar = pixel(filledRep, x: farX, y: centerY) {
-        expectTrue(sameColor(filledFar, white), "nothing is painted to the right of the dot, where the row number sits")
-    } else {
-        failures += 1
-        print("FAIL could not read the far-right pixel")
+    // 3. Nothing is painted outside the dot's rect. A single point (the
+    //    row-number zone to the right) cannot prove confinement — a mutant that
+    //    painted a second mark elsewhere in the cell would still pass it. Scan a
+    //    full row above the dot, a full row below, and a full column to its
+    //    right, and require every sample to stay at the white baseline.
+    var exteriorClean = true
+    var exteriorFailureDetail: String?
+    let aboveY = Int(dotRect.minY) - 2
+    let belowY = Int(dotRect.maxY) + 2
+    if aboveY >= 0 {
+        for x in 0..<Int(frame.width) {
+            guard let c = pixel(filledRep, x: x, y: aboveY) else { continue }
+            if !sameColor(c, white) {
+                exteriorClean = false
+                exteriorFailureDetail = "row above the dot (y=\(aboveY)) at x=\(x)"
+                break
+            }
+        }
     }
+    if exteriorClean, belowY < Int(frame.height) {
+        for x in 0..<Int(frame.width) {
+            guard let c = pixel(filledRep, x: x, y: belowY) else { continue }
+            if !sameColor(c, white) {
+                exteriorClean = false
+                exteriorFailureDetail = "row below the dot (y=\(belowY)) at x=\(x)"
+                break
+            }
+        }
+    }
+    if exteriorClean {
+        for x in farX..<Int(frame.width) {
+            for y in 0..<Int(frame.height) {
+                guard let c = pixel(filledRep, x: x, y: y) else { continue }
+                if !sameColor(c, white) {
+                    exteriorClean = false
+                    exteriorFailureDetail = "column to the right of the dot (x=\(x)) at y=\(y)"
+                    break
+                }
+            }
+            if !exteriorClean { break }
+        }
+    }
+    if let detail = exteriorFailureDetail {
+        print("  detail: \(detail)")
+    }
+    expectTrue(exteriorClean, "nothing is painted outside the dot's rect — row above, row below, and column to the right of it all stay white")
 
-    // 4. Filled vs hollow of the SAME colour produce different centre pixels
-    //    (already shown above at #2, restated as its own explicit assertion
-    //    per the task's checklist).
-    expectTrue(!sameColor(filledMid, hollowMid), "filled and hollow dots of the same colour differ at the centre")
-
-    // 5. The colour argument actually reaches the drawing — render with a
+    // 4. The colour argument actually reaches the drawing — render with a
     //    second colour and confirm the centre pixel moves. Without this, a
     //    `draw` that ignored `color` entirely would pass everything above.
     if let blueRep = render(color: .systemBlue, filled: true, in: frame),
@@ -145,7 +179,7 @@ func runTests() {
         print("FAIL could not render the blue filled dot")
     }
 
-    // 6. The hollow dot's rim IS painted (unlike its centre) — this is the
+    // 5. The hollow dot's rim IS painted (unlike its centre) — this is the
     //    entire distinction between the two states.
     let rimX = centerX
     let rimY = Int(dotRect.minY) // top edge of the dot's bounding box
