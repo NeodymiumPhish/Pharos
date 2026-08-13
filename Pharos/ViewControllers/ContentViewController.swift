@@ -977,8 +977,10 @@ class ContentViewController: NSViewController {
         button.action = action
     }
 
+    static let toolbarSymbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+
     private func configureToolbarButtonAppearance(_ button: NSButton, symbol: String, tooltip: String) {
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let config = ContentViewController.toolbarSymbolConfiguration
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?.withSymbolConfiguration(config)
         button.bezelStyle = .recessed
         button.isBordered = false

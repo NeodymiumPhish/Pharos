@@ -51,7 +51,9 @@ class ResultsGridVC: NSViewController {
     /// text read this one.
     var tagsByRow: [Int: RowTag] = [:]
     /// The force-show toggle: tagged rows survive the data filters (stages 2
-    /// and 3-as-wired). Transient, per grid, by scope decision.
+    /// and 3-as-wired). Transient, per grid, by scope decision. The flag
+    /// latches while the button is hidden, so a newly-tagged row can bring it
+    /// back with force-show still on; the stage gate makes the latch harmless.
     var forceShowTags = false
     var hasMore: Bool = false
     var executionTimeMs: UInt64 = 0
@@ -249,6 +251,7 @@ class ResultsGridVC: NSViewController {
                     self.recomputeDisplayRows()
                 } else {
                     self.tableView.reloadData()
+                    self.updateStatusBarText()
                 }
             }
         }
@@ -858,9 +861,10 @@ class ResultsGridVC: NSViewController {
     func syncTagButton() {
         tagButton.isHidden = tagsByRow.isEmpty
         let symbol = forceShowTags ? "tag.fill" : "tag"
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let config = ContentViewController.toolbarSymbolConfiguration
         tagButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Force-show tagged rows")?.withSymbolConfiguration(config)
-        tagButton.contentTintColor = forceShowTags ? .controlAccentColor : nil
+        tagButton.contentTintColor = forceShowTags ? .controlAccentColor : .secondaryLabelColor
+        tagButton.setAccessibilityValue(forceShowTags ? "on" : "off")
     }
 
     // MARK: - Auto-Fit Column
