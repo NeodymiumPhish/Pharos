@@ -234,8 +234,9 @@ class FilterableHeaderView: NSTableHeaderView {
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
             // The `#` column gets the funnel icon (its filter is the tag
-            // funnel) but still no name, no type row and no sort arrow — those
-            // guards stay (:219, :253).
+            // funnel) but still no name, no type row and no sort arrow — the
+            // header-text guard (name/type loop above) and the sort-arrow
+            // guard (sort arrow loop below) both stay in place.
 
             let headerRect = self.headerRect(ofColumn: colIndex)
 

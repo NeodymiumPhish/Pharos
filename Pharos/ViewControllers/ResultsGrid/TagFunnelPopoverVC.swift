@@ -32,7 +32,10 @@ final class TagFunnelPopoverVC: NSViewController {
     ///     no funnel filter is active.
     init(labels: [TagLabel], existing: Set<String>?) {
         var names: [String] = []
-        var ids: [String: String] = [:]
+        // Seed the reserved row's name FIRST, so a label literally named
+        // "Untagged" flows through the dedup loop and becomes "Untagged (2)"
+        // instead of colliding with the sentinel row.
+        var ids: [String: String] = ["Untagged": TagFunnel.untaggedValue]
         for label in labels {
             // Two labels can share a name; suffix the duplicate so both rows
             // stay selectable.
@@ -43,7 +46,6 @@ final class TagFunnelPopoverVC: NSViewController {
             ids[name] = label.id
         }
         names.append("Untagged")
-        ids["Untagged"] = TagFunnel.untaggedValue
         displayNames = names
         idForName = ids
         if let existing {
@@ -58,8 +60,8 @@ final class TagFunnelPopoverVC: NSViewController {
 
     override func loadView() {
         // NOTE: FilterValueListView carries its own required-priority height
-        // constraint (`FilterPopoverSizing.defaultListHeight`, :54 in that
-        // file). Pinning both its top AND bottom edges to a fixed-frame root
+        // constraint (its `FilterPopoverSizing.defaultListHeight` constraint).
+        // Pinning both its top AND bottom edges to a fixed-frame root
         // (the plan's literal 220x260 `NSView(frame:)`) double-constrains its
         // height and produces an Auto Layout conflict at runtime. Instead the
         // root here has NO fixed frame: it is content-sized bottom-up —
