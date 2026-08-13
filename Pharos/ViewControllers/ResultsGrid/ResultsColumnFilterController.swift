@@ -16,6 +16,10 @@ class ResultsColumnFilterController {
 
     weak var delegate: ResultsColumnFilterControllerDelegate?
 
+    /// DATA-row index → label id, for the tag funnel. Set by the grid; nil
+    /// means "treat every row as untagged".
+    var rowTagLabelId: ((Int) -> String?)?
+
     var hasActiveFilters: Bool { !activeFilters.isEmpty }
     var activeFilterCount: Int { activeFilters.count }
 
@@ -39,9 +43,23 @@ class ResultsColumnFilterController {
 
     // MARK: - Apply Filters
 
-    /// Filters `inputDisplayRows` using all active filters. Returns filtered indices.
+    /// Stage 2: every filter EXCEPT the tag funnel. The funnel is stage 1 —
+    /// see `applyTagFilter` — so force-show cannot resurrect what it hides.
     func applyFilters(inputDisplayRows: [Int]) -> [Int] {
-        matchingRows(activeFilters, inputDisplayRows: inputDisplayRows)
+        matchingRows(activeFilters.filter { !TagFunnel.isTagFilter(columnId: $0.key) },
+                     inputDisplayRows: inputDisplayRows)
+    }
+
+    /// Stage 1: only the tag funnel. Input and output are DATA row indices,
+    /// like every other stage.
+    func applyTagFilter(inputDisplayRows: [Int]) -> [Int] {
+        guard let filter = activeFilters[TagFunnel.columnId],
+              filter.op == .isAnyOf, let values = filter.values, !values.isEmpty
+        else { return inputDisplayRows }
+        let allowed = Set(values)
+        return inputDisplayRows.filter {
+            TagFunnel.passes(labelId: rowTagLabelId?($0), allowed: allowed)
+        }
     }
 
     /// Non-mutating: the subset of `inputDisplayRows` passing an explicit filter

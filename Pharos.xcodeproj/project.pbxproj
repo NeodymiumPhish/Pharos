@@ -61,6 +61,7 @@
 		49FB38D5C5582642FC4B7EDE /* ChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16679621777BEB58D425E66E /* ChartData.swift */; };
 		4A357200F99BA35BECB62716 /* ChartAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DEC3690225F794408E62D29 /* ChartAggregator.swift */; };
 		4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267FBF59C6FA236284E961CC /* HistoryRowText.swift */; };
+		4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */; };
 		4D90F8707E017504E6C2E8AB /* ChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B56879294F48E8251CB80 /* ChartView.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
@@ -179,6 +180,7 @@
 		1154372FFE011857B1F28F1B /* ChartSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSorter.swift; sourceTree = "<group>"; };
 		116E4CCC67DA783A2FCCFFEC /* VariableRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableRowView.swift; sourceTree = "<group>"; };
 		16679621777BEB58D425E66E /* ChartData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartData.swift; sourceTree = "<group>"; };
+		17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFunnel.swift; sourceTree = "<group>"; };
 		1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableDetailVC.swift; sourceTree = "<group>"; };
 		1DEE8A90621927B4A546E936 /* ResultsFindController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsFindController.swift; sourceTree = "<group>"; };
 		1FF46A86728427E2E94E47B8 /* QueryErrorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryErrorSheet.swift; sourceTree = "<group>"; };
@@ -547,6 +549,7 @@
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
 				7F30DD806851F14679B37FDD /* TagComposer.swift */,
+				17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */,
 				CE99F85EC1C3F1E143DE1F06 /* TagLabelPalette.swift */,
 				978F570696A0310BB365ECBB /* TagMatcher.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
@@ -847,6 +850,7 @@
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				D0C9348F9AA2C6335ED32336 /* TagComposer.swift in Sources */,
+				4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */,
 				B9F2716A1923C0A5DA2CCF36 /* TagLabelPalette.swift in Sources */,
 				3C9C6B8F322833AA97E1F987 /* TagMatcher.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
