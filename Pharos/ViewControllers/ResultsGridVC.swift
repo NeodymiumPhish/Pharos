@@ -828,13 +828,19 @@ class ResultsGridVC: NSViewController {
             let columnNames = columns.map { $0.name }
             var applied = 0
             var lastFailure: TagComposer.Failure?
+            // Each upsert posts didChange synchronously and the grid observer mutates
+            // tagsByRow/displayRows mid-loop. Safe: the loop iterates a captured [Int]
+            // and reads only rows and the precomputed 'existing'.
             for row in targets {
                 guard row < rows.count else { continue }
                 let values = rows[row].map { $0.stringValue }
                 switch TagComposer.upsert(row: row, columns: columnNames,
                                           rowValues: values, identity: rowIdentity,
                                           connectionId: connectionId,
-                                          labelId: labelId, note: nil) {
+                                          labelId: labelId,
+                                          // The upsert replaces the whole tag; carry the row's
+                                          // existing note or Phase 4's notes UI loses data.
+                                          note: tagsByRow[row]?.note) {
                 case .success(let upsert):
                     try TagStore.shared.upsertTag(upsert)
                     applied += 1
@@ -842,7 +848,9 @@ class ResultsGridVC: NSViewController {
                     lastFailure = reason
                 }
             }
-            TagStore.shared.lastUsedLabelId = labelId
+            if applied > 0 {
+                TagStore.shared.lastUsedLabelId = labelId
+            }
             if applied == 0, let lastFailure {
                 presentTagFailure(lastFailure)
             }
