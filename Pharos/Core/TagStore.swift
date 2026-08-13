@@ -88,4 +88,44 @@ final class TagStore {
             name: Self.didChange, object: nil,
             userInfo: connectionId.map { [Self.connectionIdKey: $0] })
     }
+
+    // MARK: - Mutations
+
+    /// UserDefaults key for the last label ⌘L applies.
+    static let lastUsedLabelKey = "PharosLastTagLabel"
+
+    var lastUsedLabelId: String? {
+        get { UserDefaults.standard.string(forKey: Self.lastUsedLabelKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.lastUsedLabelKey) }
+    }
+
+    /// Write one tag and refresh that connection's index. The write is
+    /// key-set-aware in the core (it replaces any tag matching ANY key), so
+    /// the reload — not a hand-applied delta — is what keeps this cache honest.
+    @discardableResult
+    func upsertTag(_ upsert: UpsertRowTag) throws -> RowTag {
+        let saved = try PharosCore.upsertRowTag(upsert)
+        try reload(connectionId: upsert.connectionId)
+        return saved
+    }
+
+    /// Delete tags by id and refresh. An id that no longer exists is skipped
+    /// by the core, not an error.
+    func removeTags(ids: [String], connectionId: String) throws {
+        guard !ids.isEmpty else { return }
+        _ = try PharosCore.deleteRowTags(ids: ids)
+        try reload(connectionId: connectionId)
+    }
+
+    /// Create a label with the next palette colour. Posts a GLOBAL change
+    /// (no connection id), because the palette serves every connection.
+    @discardableResult
+    func createLabel(name: String) throws -> TagLabel {
+        let label = try PharosCore.createTagLabel(
+            CreateTagLabel(name: name,
+                           colorIndex: labels.count % TagLabelPalette.colors.count))
+        labels = try PharosCore.loadTagLabels()
+        post(connectionId: nil)
+        return label
+    }
 }

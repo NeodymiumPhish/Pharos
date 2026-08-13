@@ -174,6 +174,57 @@ func writePhase() {
         expectEqual(try PharosCore.deleteRowTags(ids: ["no-such-tag", "nor-this"]), 0,
                     "a bulk delete of unknown ids counts zero")
     }
+
+    // MARK: - Store mutations (Phase 3): compose -> upsert -> index
+    //
+    // `TagStore` is `@MainActor`. This binary is single-threaded and this is its
+    // one and only (main) thread, so `MainActor.assumeIsolated` is safe here — see
+    // the same note in PharosTests/TagStoreTests.swift.
+    MainActor.assumeIsolated {
+        let store = TagStore.shared
+
+        var storeLabel: TagLabel?
+        attempt("create a label through the store") {
+            storeLabel = try store.createLabel(name: "StoreCheck")
+        }
+        guard let storeLabel else {
+            fail("store mutations", "no label to tag with; the rest of the block cannot run")
+            return
+        }
+        expectTrue(store.labels.contains { $0.id == storeLabel.id }, "createLabel refreshes labels")
+
+        let storeIdentity = RowIdentity(tableKey: "oid:777", tableDisplay: "t.store",
+                                        tableKeys: ["oid:777"],
+                                        candidates: [KeySet(kind: "pk", keyColumns: ["id"],
+                                                            keys: ["V1:9"])])
+        guard case .success(let upsert) = TagComposer.upsert(
+            row: 0, columns: ["id", "v"], rowValues: ["9", "x"],
+            identity: storeIdentity, connectionId: "conn-store", labelId: storeLabel.id, note: "n"
+        ) else {
+            fail("store mutations", "TagComposer.upsert did not compose the fixture row")
+            return
+        }
+
+        var storeTagId: String?
+        attempt("upsertTag writes through the store") {
+            storeTagId = try store.upsertTag(upsert).id
+        }
+        guard let storeTagId else {
+            fail("store mutations", "no saved tag id; the rest of the block cannot run")
+            return
+        }
+        let storeIndex = store.index(for: "conn-store")
+        let storeKey = TagMatcher.compositeKey(tableKey: "oid:777", kind: "pk", value: "V1:9")
+        expectEqual(storeIndex[storeKey]?.id, storeTagId, "upsertTag lands in the index under its key")
+
+        attempt("removeTags deletes through the store") {
+            try store.removeTags(ids: [storeTagId], connectionId: "conn-store")
+        }
+        expectTrue(store.index(for: "conn-store").isEmpty, "removeTags empties the index")
+
+        // The "StoreCheck" label is left behind on purpose: the read phase counts
+        // and deletes it, the same way it tears down "Check".
+    }
 }
 
 // MARK: - Phase two: read, in a new process
@@ -181,11 +232,15 @@ func writePhase() {
 /// Prove the tag survived the process exit, then prove the cascade.
 func readPhase() {
     var label: TagLabel?
+    // The write phase's store-mutation block (Phase 3) left "StoreCheck" behind
+    // on purpose, so the palette now holds two labels, not one.
+    var storeCheckLabel: TagLabel?
     attempt("the label survived the restart") {
         let labels = try PharosCore.loadTagLabels()
-        expectEqual(labels.count, 1, "the label survived the restart")
+        expectEqual(labels.count, 2, "both labels survived the restart")
         expectEqual(labels.first?.name, "Check", "the label kept its name across the restart")
         label = labels.first
+        storeCheckLabel = labels.first { $0.name == "StoreCheck" }
     }
 
     attempt("the tag survived the restart") {
@@ -205,6 +260,17 @@ func readPhase() {
     attempt("the surviving label still counts its tag") {
         expectEqual(try PharosCore.countTags(forLabel: label.id), 1,
                     "the surviving label still counts its tag")
+    }
+
+    // Clean up the store-mutation label the write phase left behind, the same
+    // way "Check" is cleaned up below — so the final count comes back to zero.
+    guard let storeCheckLabel else {
+        fail("read phase", "the StoreCheck label from the write phase is missing")
+        return
+    }
+    attempt("deleting the store-check label answers true") {
+        expectTrue(try PharosCore.deleteTagLabel(id: storeCheckLabel.id),
+                   "deleting the store-check label answers true")
     }
 
     // Deleting a label is a CASCADE: the tag and its key rows go too. This is the

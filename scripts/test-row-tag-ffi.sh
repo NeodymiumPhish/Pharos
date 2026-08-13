@@ -24,6 +24,12 @@ swiftc -o "$BIN" \
   Pharos/Core/PharosCore.swift \
   Pharos/Core/PharosCore+RowTags.swift \
   Pharos/Models/RowTag.swift \
+  Pharos/Models/QueryResult.swift \
+  Pharos/Core/RowFingerprint.swift \
+  Pharos/Core/TagComposer.swift \
+  Pharos/Core/TagMatcher.swift \
+  Pharos/Core/TagLabelPalette.swift \
+  Pharos/Core/TagStore.swift \
   PharosTests/RowTagFFILiveTests.swift \
   PharosTests/main.swift
 
