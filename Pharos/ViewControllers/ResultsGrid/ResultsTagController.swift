@@ -60,6 +60,10 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         if let tagItem = menu.item(withTag: Self.tagSubmenuTag), let sub = tagItem.submenu {
             tagItem.isEnabled = canTag
             tagItem.title = targets.count > 1 ? "Tag Rows" : "Tag Row"
+            // Scope decision 1: a disabled item must say why.
+            tagItem.toolTip = grid.rowIdentity == nil
+                ? "This result has no source table."
+                : nil
             sub.removeAllItems()
             for label in TagStore.shared.labels {
                 let item = sub.addItem(withTitle: label.name, action: #selector(tagWithLabel(_:)), keyEquivalent: "")

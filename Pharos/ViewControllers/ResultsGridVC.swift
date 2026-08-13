@@ -894,10 +894,17 @@ class ResultsGridVC: NSViewController {
             let columnNames = columns.map { $0.name }
             var applied = 0
             var lastFailure: TagComposer.Failure?
-            // Each upsert posts didChange synchronously and the grid observer mutates
-            // tagsByRow/displayRows mid-loop. Safe: the loop iterates a captured [Int]
-            // and reads rows, the precomputed 'existing', and tagsByRow[row] — the
-            // per-write recompute keeps that map accurate, so the fresh read is safe.
+            // The upsert replaces the whole tag; carry each row's existing note
+            // or Phase 4's notes UI loses data. Captured BEFORE the loop: each
+            // upsert posts didChange synchronously and the observer's recompute
+            // can BLANK tagsByRow mid-loop on the async weak path (>5,000 rows),
+            // so a mid-loop read of tagsByRow is not reliable.
+            let noteByRow: [Int: String] = Dictionary(
+                uniqueKeysWithValues: targets.compactMap { row in
+                    tagsByRow[row]?.note.map { (row, $0) }
+                })
+            // The loop itself is safe against the observer: it iterates a
+            // captured [Int] and reads only rows, 'existing', and 'noteByRow'.
             for row in targets {
                 guard row < rows.count else { continue }
                 let values = rows[row].map { $0.stringValue }
@@ -905,9 +912,7 @@ class ResultsGridVC: NSViewController {
                                           rowValues: values, identity: rowIdentity,
                                           connectionId: connectionId,
                                           labelId: labelId,
-                                          // The upsert replaces the whole tag; carry the row's
-                                          // existing note or Phase 4's notes UI loses data.
-                                          note: tagsByRow[row]?.note) {
+                                          note: noteByRow[row]) {
                 case .success(let upsert):
                     try TagStore.shared.upsertTag(upsert)
                     applied += 1

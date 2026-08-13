@@ -3473,6 +3473,10 @@ extension ContentViewController: NSMenuItemValidation {
             } else {
                 menuItem.title = targets.count > 1 ? "Tag Rows" : "Tag Row"
             }
+            // Scope decision 1: a disabled item must say why.
+            menuItem.toolTip = resultsVC.rowIdentity == nil
+                ? "This result has no source table."
+                : nil
             return canTag
         }
         return true

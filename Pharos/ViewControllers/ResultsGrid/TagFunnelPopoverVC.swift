@@ -30,6 +30,11 @@ final class TagFunnelPopoverVC: NSViewController {
     ///   - labels: the labels present in the result, display order.
     ///   - existing: the active funnel filter's values (label ids), nil when
     ///     no funnel filter is active.
+    ///
+    /// Known narrowing: the checklist holds only labels PRESENT in the current
+    /// result, so an existing filter value for an absent label gets no row and
+    /// Apply rewrites the filter without it. Accepted for Phase 3 — the user
+    /// sees exactly what they can select, and Clear always recovers.
     init(labels: [TagLabel], existing: Set<String>?) {
         var names: [String] = []
         // Seed the reserved row's name FIRST, so a label literally named
