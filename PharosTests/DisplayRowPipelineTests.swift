@@ -126,6 +126,32 @@ func runTests() {
     expectRows(DisplayRowPipeline.run(unfiltered: all, stages: .init(
         columnFilters: { _ in [] })), [], "a stage may remove everything")
 
+    // MARK: - forceShowAdmitting (Phase 3)
+
+    // The factory re-admits tagged rows the data stages dropped, in the gated
+    // list's order.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: [0, 1, 2, 3, 4], stages: .init(
+            columnFilters: { $0.filter { $0 == 4 } },
+            forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: [1, 3]))),
+        [1, 3, 4], "forceShowAdmitting re-admits dropped tagged rows in sort order")
+
+    // The tag filter still wins: a tagged row stage 1 removed stays gone,
+    // because run() intersects with the gated list.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: [0, 1, 2, 3, 4], stages: .init(
+            tagFilter: { $0.filter { $0 != 1 } },
+            columnFilters: { $0.filter { $0 == 4 } },
+            forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: [1, 3]))),
+        [3, 4], "the tag filter beats forceShowAdmitting")
+
+    // No tagged rows: the factory is the identity on kept rows.
+    expectRows(
+        DisplayRowPipeline.run(unfiltered: [0, 1, 2], stages: .init(
+            columnFilters: { $0.filter { $0 > 1 } },
+            forceShow: DisplayRowPipeline.forceShowAdmitting(taggedRows: []))),
+        [2], "no tagged rows changes nothing")
+
     if failures == 0 {
         print("\nAll DisplayRowPipeline tests passed.")
     } else {

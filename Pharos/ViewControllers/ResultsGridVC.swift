@@ -45,6 +45,13 @@ class ResultsGridVC: NSViewController {
     /// The result's row identity, or nil when the core could not attribute the
     /// result to a table. Read by `recomputeTagMap()`.
     var rowIdentity: RowIdentity?
+    /// Tags by DATA row index, from `TagMatcher`. The grid owns it; the data
+    /// source holds a copy for row views. The stage closures and the status
+    /// text read this one.
+    var tagsByRow: [Int: RowTag] = [:]
+    /// The force-show toggle: tagged rows survive the data filters (stages 2
+    /// and 3-as-wired). Transient, per grid, by scope decision.
+    var forceShowTags = false
     var hasMore: Bool = false
     var executionTimeMs: UInt64 = 0
     var columnCategories: [PGTypeCategory] = []
@@ -235,7 +242,13 @@ class ResultsGridVC: NSViewController {
                     return
                 }
                 self.recomputeTagMap()
-                self.tableView.reloadData()
+                if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
+                    || self.forceShowTags {
+                    // A tag change can change which rows are VISIBLE.
+                    self.recomputeDisplayRows()
+                } else {
+                    self.tableView.reloadData()
+                }
             }
         }
     }
@@ -257,6 +270,12 @@ class ResultsGridVC: NSViewController {
         copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
         exportButton.target = copyExport
         exportButton.action = #selector(ResultsCopyExport.showExportMenu)
+
+        // columnFilterController.delegate is wired in loadView(); this closure is
+        // grouped with the rest of setupHelpers()'s post-construction wiring instead.
+        columnFilterController.rowTagLabelId = { [weak self] dataRow in
+            self?.tagsByRow[dataRow]?.labelId
+        }
 
         findController = ResultsFindController(
             tableView: tableView, findBar: findControlsStack, findField: findField,
@@ -421,6 +440,7 @@ class ResultsGridVC: NSViewController {
     func clear() {
         columns = []
         rows = []
+        rowIdentity = nil
         displayRows = []
         unfilteredDisplayRows = []
         columnFilteredDisplayRows = []
@@ -578,10 +598,22 @@ class ResultsGridVC: NSViewController {
         applyColumnFiltered(
             DisplayRowPipeline.run(
                 unfiltered: unfilteredDisplayRows,
-                stages: .init(columnFilters: { [weak self] rows in
-                    guard let self else { return rows }
-                    return self.columnFilterController.applyFilters(inputDisplayRows: rows)
-                })))
+                stages: .init(
+                    tagFilter: { [weak self] rows in
+                        guard let self else { return rows }
+                        return self.columnFilterController.applyTagFilter(inputDisplayRows: rows)
+                    },
+                    columnFilters: { [weak self] rows in
+                        guard let self else { return rows }
+                        return self.columnFilterController.applyFilters(inputDisplayRows: rows)
+                    },
+                    // Stage 4 runs BEFORE find in this wiring (scope decision 2):
+                    // find's match set and navigation are display-indexed against
+                    // its own input, so inserting rows after find would break
+                    // both. Find therefore sees the merged list.
+                    forceShow: (forceShowTags && !tagsByRow.isEmpty)
+                        ? DisplayRowPipeline.forceShowAdmitting(taggedRows: Set(tagsByRow.keys))
+                        : nil)))
     }
 
     /// Kept as the name the rest of the class already calls. The composition now
@@ -701,12 +733,12 @@ class ResultsGridVC: NSViewController {
     /// source then answers each row view from a dictionary.
     func recomputeTagMap() {
         guard let connectionId = AppStateManager.shared.activeConnectionId else {
-            dataSource.tagsByRow = [:]
+            applyTagMap([:])
             return
         }
         let index = TagStore.shared.index(for: connectionId)
         guard !index.isEmpty else {
-            dataSource.tagsByRow = [:]
+            applyTagMap([:])
             return
         }
         // `TagMatcher.needsRowValues` owns this tier decision — see its doc for why
@@ -720,12 +752,19 @@ class ResultsGridVC: NSViewController {
         let textRows: [[String?]] = needsText
             ? rows.map { row in row.map { $0.stringValue } }
             : Array(repeating: [], count: rows.count)
-        dataSource.tagsByRow = TagMatcher.match(
+        applyTagMap(TagMatcher.match(
             identity: rowIdentity,
             columns: columns.map { $0.name },
             rows: textRows,
             tagsByIdentity: index
-        )
+        ))
+    }
+
+    /// The single landing point for a computed tag map. Task 10 adds a second,
+    /// asynchronous caller.
+    func applyTagMap(_ map: [Int: RowTag]) {
+        tagsByRow = map
+        dataSource.tagsByRow = map
         dataSource.labelColors = Dictionary(
             uniqueKeysWithValues: TagStore.shared.labels.map {
                 ($0.id, TagLabelPalette.color(at: $0.colorIndex))

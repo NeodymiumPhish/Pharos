@@ -97,4 +97,14 @@ enum DisplayRowPipeline {
         }
         return kept
     }
+
+    /// The Phase 3 stage-4 closure: keep what the data stages kept, plus every
+    /// tagged row. `run()` intersects the result with the stage-1 output, so
+    /// the tag filter wins structurally — this closure does not need to know.
+    static func forceShowAdmitting(taggedRows: Set<Int>) -> ([Int], [Int]) -> [Int] {
+        { gated, kept in
+            let keptSet = Set(kept)
+            return gated.filter { keptSet.contains($0) || taggedRows.contains($0) }
+        }
+    }
 }
