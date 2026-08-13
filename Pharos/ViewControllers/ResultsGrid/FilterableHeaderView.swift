@@ -169,8 +169,16 @@ class FilterableHeaderView: NSTableHeaderView {
 
         let column = tableView.tableColumns[colIndex]
 
-        // Skip row-number column
+        // The `#` column's ONLY affordance is the funnel icon; clicks
+        // elsewhere in its header keep today's pass-to-super (no sort, no
+        // resize-drag distinction needed — the funnel intercepts first).
         guard column.identifier.rawValue != "__rownum__" else {
+            let headerRect = self.headerRect(ofColumn: colIndex)
+            let iconRect = filterIconRect(inHeaderRect: headerRect)
+            if iconRect.contains(point) {
+                filterDelegate?.headerView(self, didClickFilterForColumn: column, at: iconRect)
+                return
+            }
             super.mouseDown(with: event)
             return
         }
@@ -225,7 +233,9 @@ class FilterableHeaderView: NSTableHeaderView {
 
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
-            guard colId != "__rownum__" else { continue }
+            // The `#` column gets the funnel icon (its filter is the tag
+            // funnel) but still no name, no type row and no sort arrow — those
+            // guards stay (:219, :253).
 
             let headerRect = self.headerRect(ofColumn: colIndex)
 

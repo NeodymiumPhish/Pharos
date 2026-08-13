@@ -108,6 +108,20 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
 
     func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect) {
         let colId = column.identifier.rawValue
+        if TagFunnel.isTagFilter(columnId: colId) {
+            // The labels PRESENT in the result, in palette order.
+            let presentIds = Set(tagsByRow.values.map { $0.labelId })
+            let present = TagStore.shared.labels.filter { presentIds.contains($0.id) }
+            let existing = columnFilterController.filter(forColumn: colId)
+                .flatMap { $0.values.map(Set.init) }
+            let popoverVC = TagFunnelPopoverVC(labels: present, existing: existing)
+            popoverVC.delegate = self
+            let popover = NSPopover()
+            popover.contentViewController = popoverVC
+            popover.behavior = .transient
+            popover.show(relativeTo: rect, of: headerView, preferredEdge: .maxY)
+            return
+        }
         guard let idx = colIndex(from: colId), idx < columns.count else { return }
         let category = columnCategories[idx]
         let rawDataType = columns[idx].dataType
@@ -142,5 +156,26 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
         popover.behavior = .transient
         popoverVC.hostPopover = popover
         popover.show(relativeTo: rect, of: headerView, preferredEdge: .maxY)
+    }
+}
+
+// MARK: - TagFunnelPopoverDelegate
+
+extension ResultsGridVC: TagFunnelPopoverDelegate {
+    func tagFunnelPopover(_ popover: TagFunnelPopoverVC, didApply values: Set<String>?) {
+        // Defense in depth alongside the popover's own `!checked.isEmpty`
+        // guard on Apply: a filter with an empty `values` array must never
+        // reach `activeFilters` — it would count toward "N filters" while
+        // matching nothing (the engine ignores it, but the reset button and
+        // filter count would lie about there being an active funnel).
+        if let values, !values.isEmpty {
+            columnFilterController.setFilter(
+                ColumnFilter(columnName: TagFunnel.columnId, op: .isAnyOf, value: "",
+                             value2: nil, values: Array(values), dataType: "tag"),
+                forColumn: TagFunnel.columnId)
+        } else {
+            columnFilterController.clearFilter(forColumn: TagFunnel.columnId)
+        }
+        refreshColumnFilters()
     }
 }
