@@ -778,6 +778,13 @@ class ResultsGridVC: NSViewController {
             // state); only the matching itself leaves it. `TagMatcher`,
             // `RowTag`, `RowIdentity` and the index dictionary are value
             // types/immutable structs — safe to carry across the queue hop.
+            // Superseded matches run to completion on the concurrent global
+            // queue — bounded at current page sizes; a serial queue or a
+            // cancellable Task is the upgrade path if result sizes grow.
+            // The previous result's map is keyed by its own row indices;
+            // showing it on new rows draws stripes on the wrong rows. Blank
+            // is honest during the match.
+            applyTagMap([:])
             let generation = tagMapGeneration
             let identity = rowIdentity
             let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
@@ -792,7 +799,14 @@ class ResultsGridVC: NSViewController {
                     MainActor.assumeIsolated {
                         guard let self, self.tagMapGeneration == generation else { return }
                         self.applyTagMap(map)
-                        self.tableView.reloadData()
+                        if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
+                            || self.forceShowTags {
+                            // Tags decide visibility here; the map just changed.
+                            self.recomputeDisplayRows()
+                        } else {
+                            self.tableView.reloadData()
+                            self.updateStatusBarText()
+                        }
                     }
                 }
             }
@@ -813,6 +827,10 @@ class ResultsGridVC: NSViewController {
     /// The single landing point for a computed tag map. Task 10 adds a second,
     /// asynchronous caller.
     func applyTagMap(_ map: [Int: RowTag]) {
+        // Any landed map supersedes an in-flight match: a stale async result
+        // must fail its generation check even when the landing came from
+        // clear() or a sync path.
+        tagMapGeneration += 1
         tagsByRow = map
         dataSource.tagsByRow = map
         dataSource.labelColors = Dictionary(
