@@ -238,8 +238,9 @@ func readPhase() {
     attempt("the label survived the restart") {
         let labels = try PharosCore.loadTagLabels()
         expectEqual(labels.count, 2, "both labels survived the restart")
-        expectEqual(labels.first?.name, "Check", "the label kept its name across the restart")
-        label = labels.first
+        let checkLabel = labels.first { $0.name == "Check" }
+        expectEqual(checkLabel?.name, "Check", "the label kept its name across the restart")
+        label = checkLabel
         storeCheckLabel = labels.first { $0.name == "StoreCheck" }
     }
 

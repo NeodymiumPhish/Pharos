@@ -94,6 +94,8 @@ final class TagStore {
     /// UserDefaults key for the last label ⌘L applies.
     static let lastUsedLabelKey = "PharosLastTagLabel"
 
+    /// The id can name a label that no longer exists; consumers must validate
+    /// it against `labels` before use.
     var lastUsedLabelId: String? {
         get { UserDefaults.standard.string(forKey: Self.lastUsedLabelKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.lastUsedLabelKey) }
@@ -102,10 +104,12 @@ final class TagStore {
     /// Write one tag and refresh that connection's index. The write is
     /// key-set-aware in the core (it replaces any tag matching ANY key), so
     /// the reload — not a hand-applied delta — is what keeps this cache honest.
+    /// Each write reloads and reposts; a large multi-row apply pays one reload
+    /// per row — batch FFI is the fix if that ever matters, not a cache delta.
     @discardableResult
     func upsertTag(_ upsert: UpsertRowTag) throws -> RowTag {
         let saved = try PharosCore.upsertRowTag(upsert)
-        try reload(connectionId: upsert.connectionId)
+        try reloadOrEvict(connectionId: upsert.connectionId)
         return saved
     }
 
@@ -114,7 +118,19 @@ final class TagStore {
     func removeTags(ids: [String], connectionId: String) throws {
         guard !ids.isEmpty else { return }
         _ = try PharosCore.deleteRowTags(ids: ids)
-        try reload(connectionId: connectionId)
+        try reloadOrEvict(connectionId: connectionId)
+    }
+
+    /// Reload after a committed write. On failure, evict the connection's
+    /// cache entry so `loadIfNeeded` reads SQLite fresh next time — a stale
+    /// index would silently show pre-write tags with no self-repair path.
+    private func reloadOrEvict(connectionId: String) throws {
+        do { try reload(connectionId: connectionId) }
+        catch {
+            tagsByIdentity.removeValue(forKey: connectionId)
+            post(connectionId: connectionId)
+            throw error
+        }
     }
 
     /// Create a label with the next palette colour. Posts a GLOBAL change
