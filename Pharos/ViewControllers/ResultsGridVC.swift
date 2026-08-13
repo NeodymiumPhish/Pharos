@@ -217,13 +217,21 @@ class ResultsGridVC: NSViewController {
         tagStoreObserver = NotificationCenter.default.addObserver(
             forName: TagStore.didChange, object: nil, queue: .main
         ) { [weak self] note in
-            guard let self else { return }
-            if let changedId = note.userInfo?[TagStore.connectionIdKey] as? String,
-               changedId != AppStateManager.shared.activeConnectionId {
-                return
+            // `addObserver`'s block is `@Sendable`, so the compiler cannot see that
+            // `queue: .main` already guarantees main-actor execution — every
+            // `@MainActor` member touched below would otherwise warn, and those
+            // warnings become ERRORS in the Swift 6 language mode. Asserting the
+            // isolation is correct here and is the pattern `TagStore`'s own hook in
+            // `AppStateManager` uses for the same reason.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let changedId = note.userInfo?[TagStore.connectionIdKey] as? String,
+                   changedId != AppStateManager.shared.activeConnectionId {
+                    return
+                }
+                self.recomputeTagMap()
+                self.tableView.reloadData()
             }
-            self.recomputeTagMap()
-            self.tableView.reloadData()
         }
     }
 
