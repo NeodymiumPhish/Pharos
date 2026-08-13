@@ -799,6 +799,20 @@ class ResultsGridVC: NSViewController {
 
     /// The rows a tag action applies to: the clicked row when the click landed
     /// outside the selection, else the selection. (The SavedQueries menu rule.)
+    ///
+    /// Only safe to call synchronously from inside the right-click that just
+    /// set `tableView.clickedRow` (i.e. `ResultsTagController`'s context menu,
+    /// which reads it from `menuNeedsUpdate` during that same click). It is
+    /// NOT safe for anything that can run later, such as a keyboard shortcut:
+    /// `ResultsTableView.mouseDown` never calls `super.mouseDown` (it replaces
+    /// row selection with cell selection), and `super.mouseDown` is the one
+    /// path that resets `clickedRow` to -1 after a plain left-click. Verified
+    /// empirically — a synthetic right-click followed by a synthetic
+    /// selection-only left-click left `clickedRow` pinned at the old value,
+    /// while a stock `NSTableView` reset it to -1 on the same sequence. So a
+    /// stale `clickedRow` from an old right-click can silently outlive a later
+    /// selection change. Use `selectedDataRows()` for anything that isn't the
+    /// context menu itself.
     func tagTargetDataRows() -> [Int] {
         let selection = selectedDataRows()
         let clicked = tableView.clickedRow
@@ -810,8 +824,13 @@ class ResultsGridVC: NSViewController {
     }
 
     /// Can a tag action run at all? Menu validation asks this.
+    ///
+    /// Deliberately `selectedDataRows()`, not `tagTargetDataRows()` — see that
+    /// method's doc comment. Menu validation runs on every event-loop pass,
+    /// long after any click, so it must not trust a possibly-stale
+    /// `clickedRow`.
     var hasTagTargets: Bool {
-        rowIdentity != nil && !tagTargetDataRows().isEmpty
+        rowIdentity != nil && !selectedDataRows().isEmpty
     }
 
     /// Put `labelId` on every target row, or — when every target already
@@ -879,8 +898,13 @@ class ResultsGridVC: NSViewController {
     /// ⌘L: the last-used label on the targets; a second ⌘L removes it. With no
     /// label in the palette, prompt for the first one (the Phase 4 panel
     /// replaces this prompt).
+    ///
+    /// Deliberately `selectedDataRows()`, not `tagTargetDataRows()` — see that
+    /// method's doc comment. This fires from the main menu / keyboard, which
+    /// can happen long after the last click, so it must not trust a possibly-
+    /// stale `clickedRow`.
     @objc func tagWithLastLabel(_ sender: Any?) {
-        let targets = tagTargetDataRows()
+        let targets = selectedDataRows()
         guard !targets.isEmpty, rowIdentity != nil else { NSSound.beep(); return }
         let store = TagStore.shared
         if store.labels.isEmpty {

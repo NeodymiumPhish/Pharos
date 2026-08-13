@@ -71,6 +71,9 @@ enum MainMenu {
         let filterItem = editMenu.addItem(withTitle: "Filter Results…", action: #selector(ContentViewController.showFilter), keyEquivalent: "f")
         filterItem.keyEquivalentModifierMask = [.command, .shift]
 
+        let tagRowItem = editMenu.addItem(withTitle: "Tag Row", action: #selector(ContentViewController.menuTagRow(_:)), keyEquivalent: "l")
+        tagRowItem.keyEquivalentModifierMask = [.command]
+
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 

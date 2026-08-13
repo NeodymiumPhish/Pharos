@@ -3264,6 +3264,10 @@ extension ContentViewController {
         resultsVC.showFilter()
     }
 
+    @objc func menuTagRow(_ sender: Any?) {
+        resultsVC.tagWithLastLabel(sender)
+    }
+
     @objc func menuFormatSQL(_: Any?) {
         focusedPaneVC?.formatSQL()
     }
@@ -3440,5 +3444,38 @@ extension ContentViewController: QueryErrorSheetDelegate {
 
     func errorSheetDidRequestClose(_ sheet: QueryErrorSheet) {
         errorPresenter.close()
+    }
+}
+
+// MARK: - NSMenuItemValidation
+
+extension ContentViewController: NSMenuItemValidation {
+    /// The first validation conformance in the app. Only the tag item is
+    /// gated; every other menu item keeps its always-enabled behaviour, so the
+    /// default MUST stay `true`.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(menuTagRow(_:)) {
+            // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
+            // on every event-loop pass, arbitrarily long after the last
+            // click, and `tagTargetDataRows()` starts from
+            // `tableView.clickedRow`, which `ResultsTableView.mouseDown`
+            // never resets (it never calls `super.mouseDown`, the one path
+            // that clears clickedRow after a plain left-click — verified
+            // empirically). The title here must match what ⌘L actually acts
+            // on, so it uses the same selection-only resolution as
+            // `tagWithLastLabel`.
+            let targets = resultsVC.selectedDataRows()
+            let canTag = resultsVC.hasTagTargets
+            // Retitle to match what ⌘L will do.
+            if canTag, let labelId = TagStore.shared.lastUsedLabelId,
+               !targets.isEmpty,
+               targets.allSatisfy({ resultsVC.tagsByRow[$0]?.labelId == labelId }) {
+                menuItem.title = targets.count > 1 ? "Untag Rows" : "Untag Row"
+            } else {
+                menuItem.title = targets.count > 1 ? "Tag Rows" : "Tag Row"
+            }
+            return canTag
+        }
+        return true
     }
 }
