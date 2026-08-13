@@ -18,7 +18,7 @@ protocol ResultsCopyExportDelegate: AnyObject {
 
 // MARK: - ResultsCopyExport
 
-class ResultsCopyExport: NSObject, NSMenuDelegate {
+class ResultsCopyExport: NSObject {
     private let tableView: NSTableView
     private let copyButton: NSButton
     private let exportButton: NSButton
@@ -520,10 +520,10 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         UserDefaults.standard.set(includeHeaders, forKey: Self.includeHeadersKey)
     }
 
-    func buildContextMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.delegate = self
-
+    /// The copy section: items 10 (headers toggle) and 1-5 (formats). The menu
+    /// is owned by `ResultsTagController` since Phase 3; this class only
+    /// supplies and updates its own items.
+    func addCopyItems(to menu: NSMenu) {
         let headers = menu.addItem(withTitle: "Include Headers", action: #selector(toggleIncludeHeaders), keyEquivalent: "")
         headers.tag = 10
         headers.target = self
@@ -545,13 +545,10 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
         let sqlWith = menu.addItem(withTitle: "Copy as SQL WITH", action: #selector(copyAsSQLWith), keyEquivalent: "")
         sqlWith.tag = 5
         sqlWith.target = self
-
-        return menu
     }
 
-    // MARK: - NSMenuDelegate
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
+    /// The per-open refresh the old menuNeedsUpdate did.
+    func updateCopyItems(in menu: NSMenu) {
         let prefix = hasSelection ? "Copy selection" : "Copy"
         for item in menu.items {
             switch item.tag {
@@ -563,6 +560,7 @@ class ResultsCopyExport: NSObject, NSMenuDelegate {
             case 10: item.state = includeHeaders ? .on : .off
             default: break
             }
+            if item.tag >= 1 && item.tag <= 10 { item.isEnabled = true }
         }
     }
 }

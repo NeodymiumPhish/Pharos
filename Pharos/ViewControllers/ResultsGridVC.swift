@@ -19,6 +19,7 @@ class ResultsGridVC: NSViewController {
     // Helpers
     var dataSource: ResultsDataSource!
     var copyExport: ResultsCopyExport!
+    var tagController: ResultsTagController!
     var findController: ResultsFindController!
     var sortController: ResultsSortController!
     var columnFilterController: ResultsColumnFilterController!
@@ -268,7 +269,8 @@ class ResultsGridVC: NSViewController {
     func setupHelpers() {
         copyExport = ResultsCopyExport(tableView: tableView, copyButton: copyButton, exportButton: exportButton)
         copyExport.delegate = self
-        tableView.menu = copyExport.buildContextMenu()
+        tagController = ResultsTagController(grid: self, copyExport: copyExport)
+        tableView.menu = tagController.buildContextMenu()
 
         copyButton.target = copyExport
         copyButton.action = #selector(ResultsCopyExport.showCopyMenu)
