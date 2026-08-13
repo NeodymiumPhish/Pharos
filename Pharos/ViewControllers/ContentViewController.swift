@@ -2230,13 +2230,10 @@ extension ContentViewController {
 
         do {
             guard let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) else { return }
-            let result = QueryResult(
-                columns: resultData.columns,
-                rows: resultData.rows,
-                rowCount: resultData.rows.count,
-                executionTimeMs: UInt64(entry.executionTimeMs),
-                hasMore: false,
-                historyEntryId: entry.id
+            let result = QueryResult.fromHistory(
+                resultData,
+                historyEntryId: entry.id,
+                executionTimeMs: UInt64(entry.executionTimeMs)
             )
 
             // Store the history result in its own ResultTab carrying the
@@ -2348,10 +2345,10 @@ extension ContentViewController {
                     rt.resultViewMode = state.viewMode
                 }
                 if meta.hasResults, let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
-                    rt.queryResult = QueryResult(
-                        columns: data.columns, rows: data.rows,
-                        rowCount: data.rows.count, executionTimeMs: UInt64(meta.executionTimeMs),
-                        hasMore: false, historyEntryId: meta.id
+                    rt.queryResult = QueryResult.fromHistory(
+                        data,
+                        historyEntryId: meta.id,
+                        executionTimeMs: UInt64(meta.executionTimeMs)
                     )
                 }
                 restored.append(rt)

@@ -152,6 +152,30 @@ struct QueryResult: Codable {
     }
 }
 
+extension QueryResult {
+    /// Build a result from a stored history payload.
+    ///
+    /// This exists so no caller has to remember `rowIdentity`. `init` defaults that
+    /// parameter to nil, so a history-restore path that omits it silently drops every
+    /// tag on the reopened result — no crash, no warning. Two call sites did exactly
+    /// that. Route every future history restore through here.
+    static func fromHistory(
+        _ data: QueryHistoryResultData,
+        historyEntryId: String,
+        executionTimeMs: UInt64
+    ) -> QueryResult {
+        QueryResult(
+            columns: data.columns,
+            rows: data.rows,
+            rowCount: data.rows.count,
+            executionTimeMs: executionTimeMs,
+            hasMore: false,
+            historyEntryId: historyEntryId,
+            rowIdentity: data.rowIdentity
+        )
+    }
+}
+
 struct ExecuteResult: Codable {
     let rowsAffected: UInt64
     let executionTimeMs: UInt64

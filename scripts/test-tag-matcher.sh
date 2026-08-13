@@ -8,6 +8,7 @@ swiftc -o /tmp/tag-matcher-tests \
   Pharos/Core/TagMatcher.swift \
   Pharos/Models/RowTag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/QueryHistory.swift \
   PharosTests/TagMatcherTests.swift \
   PharosTests/main.swift
 /tmp/tag-matcher-tests

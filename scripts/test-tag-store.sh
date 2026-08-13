@@ -29,6 +29,7 @@ swiftc -o "$BIN" \
   Pharos/Core/TagStore.swift \
   Pharos/Models/RowTag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/QueryHistory.swift \
   PharosTests/TagStoreTests.swift \
   PharosTests/main.swift
 
