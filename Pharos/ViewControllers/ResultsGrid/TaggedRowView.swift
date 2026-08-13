@@ -27,7 +27,13 @@ final class TaggedRowView: NSTableRowView {
 
     /// The bar width. Fixed, not a fraction of the row: a taller row must not get
     /// a fatter bar.
-    static let barWidth: CGFloat = 3
+    ///
+    /// It is also the width of the grid's leading gutter. `ResultsGridVC` sets
+    /// `tableView.style = .fullWidth` so no framework padding sits to the left of
+    /// it, and the row-number cell's 6pt text inset leaves a 2pt gap after it. The
+    /// bar is therefore the only thing in that space, which is why it can carry the
+    /// tag on its own and the row-number dot was removed.
+    static let barWidth: CGFloat = 4
 
     private(set) var tagColor: NSColor?
 
@@ -76,12 +82,30 @@ final class TaggedRowView: NSTableRowView {
                       width: Self.barWidth, height: bounds.height)
     }
 
+    /// The WASH only. It belongs under the selection, which is why it lives here.
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         guard let tagColor else { return }
-
         tagColor.withAlphaComponent(tintAlpha).setFill()
         bounds.fill()
+    }
+
+    /// The BAR, painted after `super.draw` and therefore ABOVE the selection.
+    ///
+    /// `NSTableRowView.draw(_:)` calls `drawBackground`, then `drawSelection`, then
+    /// the separator. Drawing the bar in `drawBackground` — where it used to live —
+    /// left it underneath an opaque selection fill. It survived only because the
+    /// table's `.inset` style insets the selection past the leading edge, and that
+    /// accident disappears with `.fullWidth`, where the selection spans the whole row.
+    ///
+    /// Since the bar is now the ONLY marker on a tagged row — the row-number dot was
+    /// removed — losing it on a selected row would mean losing the tag entirely. The
+    /// dot survived selection because it was drawn in a cell, above the row view;
+    /// this gives the bar the same guarantee by construction rather than by luck.
+    /// `scripts/test-tagged-row-view.sh` pins it with `isSelected` set.
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let tagColor else { return }
 
         let bar = barRect(in: bounds)
         // Belt-and-braces: `barRect` only ever returns `.zero` when `tagColor`

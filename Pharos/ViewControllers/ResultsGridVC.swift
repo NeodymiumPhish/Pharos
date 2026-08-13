@@ -115,6 +115,11 @@ class ResultsGridVC: NSViewController {
         tableView.rowHeight = 22
         tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
         tableView.gridColor = .separatorColor
+        // `.automatic` resolves to `.inset` on macOS 11+, which adds leading padding
+        // nobody chose — it is what the row-number dot was invented to live beside.
+        // `.fullWidth` removes it, so the row's leading edge is the tag bar's home
+        // and the gutter is exactly the bar's width.
+        tableView.style = .fullWidth
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
 
@@ -504,17 +509,13 @@ class ResultsGridVC: NSViewController {
 
         let rowNumCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("__rownum__"))
         rowNumCol.title = "#"
-        // Room for the dot plus the row number. The dot's space (15pt) is reserved
-        // for every row-number cell, tagged or not — deciding the inset per row made
-        // the column ragged and made a number jump 9pt sideways the moment a tag
-        // appeared or vanished. At the DEFAULT 54pt width that leaves 33pt after the
-        // 15pt inset, which holds a four-digit row number (measured: "9999" is
-        // 27.97pt in the row-number font). At the 44pt minimum only three digits fit
-        // — acceptable, because the user has to drag the column down to reach it,
-        // and the old 30pt minimum was worse.
-        rowNumCol.width = 54
-        rowNumCol.minWidth = 44
-        rowNumCol.maxWidth = 70
+        // At 40pt with a 6pt inset each side the text gets 28pt, and "9999" measures
+        // 27.97pt in the row-number font, so four digits just fit at the default
+        // width. The tag marker is the row view's bar, in the gutter to the left of
+        // this column, so it needs no room here.
+        rowNumCol.width = 40
+        rowNumCol.minWidth = 30
+        rowNumCol.maxWidth = 60
         tableView.addTableColumn(rowNumCol)
 
         var types: [String: String] = [:]

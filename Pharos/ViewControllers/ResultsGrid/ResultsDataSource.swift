@@ -52,36 +52,6 @@ private class ResultCellView: NSTableCellView {
     }
 }
 
-/// A row-number cell, which is the only cell that draws a tag dot.
-///
-/// The dot lives on a subclass so the `draw(_:)` override does not land on every
-/// cell in the grid. A layer-backed `NSView` with no `draw` override needs no
-/// bitmap backing store; adding one to `ResultCellView` would have made AppKit
-/// rasterize contents for every visible cell of every column, not just the
-/// row-number column that actually needs it.
-private final class RowNumberCellView: ResultCellView {
-    /// The dot's colour, or nil when the row carries no tag.
-    var tagDotColor: NSColor? {
-        didSet {
-            guard oldValue != tagDotColor else { return }
-            needsDisplay = true
-        }
-    }
-
-    /// Filled for a strong match, hollow for a fingerprint match.
-    var tagDotFilled: Bool = true {
-        didSet {
-            guard oldValue != tagDotFilled else { return }
-            needsDisplay = true
-        }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard let tagDotColor else { return }
-        TagDot.draw(color: tagDotColor, filled: tagDotFilled, in: bounds)
-    }
-}
 
 // MARK: - ResultsDataSource
 
@@ -261,7 +231,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? ResultCellView {
             cell = existing
         } else {
-            cell = colIdRaw == "__rownum__" ? RowNumberCellView() : ResultCellView()
+            cell = ResultCellView()
             cell.identifier = cellId
             cell.wantsLayer = true
             let textField = NSTextField(labelWithString: "")
@@ -276,13 +246,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             NSLayoutConstraint.activate([
                 textField.leadingAnchor.constraint(
                     equalTo: cell.leadingAnchor,
-                    // Reserve the dot's space for every row-number cell, tagged or
-                    // not. Setting it per row made the column ragged and made a
-                    // number jump 9pt sideways the moment a tag appeared. The inset
-                    // varies by COLUMN, not by row, and the reuse pool is already
-                    // per column, so this is decided once here and never touched
-                    // again.
-                    constant: colIdRaw == "__rownum__" ? TagDot.textInsetWithDot : TagDot.textInsetPlain),
+                    // One inset for every column. The tag marker is the row view's
+                    // 4pt bar, which sits in the grid's leading gutter and needs no
+                    // room inside the cell — so nothing here varies per row or per
+                    // column, and the row numbers cannot go ragged.
+                    constant: 6),
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
@@ -295,19 +263,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.textField?.font = rownumFont
             cell.normalTextColor = .tertiaryLabelColor
 
-            // A filled dot is a strong match, a hollow one a fingerprint match. An
-            // untagged row draws nothing: the hover outline in the design is an
-            // affordance for the click target, which is Phase 3.
-            if let rowNumCell = cell as? RowNumberCellView {
-                if let look = TagLabelPalette.appearance(
-                    row: row, displayRows: displayRows,
-                    tagsByRow: tagsByRow, labelColors: labelColors) {
-                    rowNumCell.tagDotColor = look.color
-                    rowNumCell.tagDotFilled = TagDot.filled(forWeakMatch: look.isWeak)
-                } else {
-                    rowNumCell.tagDotColor = nil
-                }
-            }
         } else {
             let rowData = rows[dataRowIdx]
             if let idx = colIndex(from: colIdRaw), idx < rowData.count {

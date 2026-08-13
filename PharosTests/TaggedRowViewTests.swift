@@ -41,7 +41,7 @@ func expectTrue(_ actual: Bool, _ name: String) {
 /// true blended colour. This has a second benefit: over an opaque backdrop
 /// the sampled alpha is exactly 1.0, so premultiplied 8-bit storage cannot
 /// distort the sample either.
-func render(_ view: TaggedRowView) -> NSBitmapImageRep? {
+func render(_ view: TaggedRowView, selected: Bool = false) -> NSBitmapImageRep? {
     let width = Int(view.bounds.width)
     let height = Int(view.bounds.height)
     guard let rep = NSBitmapImageRep(
@@ -54,7 +54,13 @@ func render(_ view: TaggedRowView) -> NSBitmapImageRep? {
     NSGraphicsContext.current = context
     NSColor.white.setFill()
     NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)).fill()
-    view.drawBackground(in: view.bounds)
+    // `draw(_:)` is the REAL entry point, and it is what AppKit calls. It runs
+    // drawBackground (the wash), then drawSelection, then our bar on top. Calling
+    // drawBackground alone would miss the bar entirely now that it moved above the
+    // selection, and would silently pass every bar assertion by never drawing one.
+    view.selectionHighlightStyle = .regular
+    view.isSelected = selected
+    view.draw(view.bounds)
     NSGraphicsContext.restoreGraphicsState()
 
     return rep
@@ -126,7 +132,7 @@ func runTests() {
     let strong = TaggedRowView(frame: frame)
     strong.configure(color: .systemRed, isWeak: false)
     expectClose(strong.tintAlpha, 0.15, "a strong match tints at 15%")
-    expectClose(strong.barRect(in: frame).width, 3, "the bar is 3pt wide")
+    expectClose(strong.barRect(in: frame).width, 4, "the bar is 4pt wide")
     expectClose(strong.barRect(in: frame).minX, 0, "the bar sits at the leading edge")
     expectClose(strong.barRect(in: frame).height, frame.height, "the bar spans the row height")
     expectEqual(strong.isBarDashed, false, "a strong match draws a solid bar")
@@ -137,7 +143,7 @@ func runTests() {
     weak.configure(color: .systemRed, isWeak: true)
     expectClose(weak.tintAlpha, 0.08, "a weak match tints at 8%")
     expectEqual(weak.isBarDashed, true, "a weak match draws a dashed bar")
-    expectClose(weak.barRect(in: frame).width, 3, "the weak bar is the same width")
+    expectClose(weak.barRect(in: frame).width, 4, "the weak bar is the same width")
 
     // Reuse: NSTableView recycles row views, so configuring one twice must not
     // leave the first tag's state behind.
@@ -153,7 +159,7 @@ func runTests() {
 
     // The bar must not scale with the row. A tall row still gets 3pt.
     let tall = NSRect(x: 0, y: 0, width: 400, height: 60)
-    expectClose(strong.barRect(in: tall).width, 3, "the bar stays 3pt on a taller row")
+    expectClose(strong.barRect(in: tall).width, 4, "the bar stays 4pt on a taller row")
     expectClose(strong.barRect(in: tall).height, 60, "the bar still spans the row")
 
     // MARK: - Pixel assertions
@@ -225,21 +231,21 @@ func runTests() {
                    "the strong bar pixel sits farther from the untagged baseline than the strong wash pixel")
 
         // 2b. The bar's WIDTH in the output, not just in `barRect`. Reading
-        //     x=1 alone cannot tell a 3pt bar from a 2pt one, because both
-        //     cover it. x=2 must still be full bar colour and x=3 must already
+        //     x=1 alone cannot tell a 4pt bar from a 2pt one, because both
+        //     cover it. x=3 must still be full bar colour and x=4 must already
         //     have fallen back to wash — otherwise a `drawBackground` that
-        //     hardcodes a narrower rect while `barRect` keeps reporting 3
+        //     hardcodes a narrower rect while `barRect` keeps reporting 4
         //     would pass every other check, this one included at x=1.
         if let leadingEdge = pixel(strongRep, x: 0, y: midY),
-           let lastBarPixel = pixel(strongRep, x: 2, y: midY),
-           let firstWashPixel = pixel(strongRep, x: 3, y: midY) {
+           let lastBarPixel = pixel(strongRep, x: 3, y: midY),
+           let firstWashPixel = pixel(strongRep, x: 4, y: midY) {
             expectTrue(sameColor(lastBarPixel, leadingEdge),
-                       "x=2 matches x=0 — both still full bar colour")
+                       "x=3 matches x=0 — both still full bar colour")
             expectTrue(sameColor(firstWashPixel, strongMid),
-                       "x=3 has already fallen back to the wash colour")
+                       "x=4 has already fallen back to the wash colour")
         } else {
             failures += 1
-            print("FAIL could not read the bar's right-edge pixels (x=0, x=2, x=3)")
+            print("FAIL could not read the bar's right-edge pixels (x=0, x=3, x=4)")
         }
 
         // 3. A weak row's wash is fainter than a strong row's: the weak mid
@@ -273,10 +279,10 @@ func runTests() {
         //     line (missing `lineWidth`) or an off-centre line (drawn at
         //     `midX + 1` instead of `midX`) both still cover x=1 and would
         //     slip past every check above. Verified ground truth for this
-        //     implementation, dash pattern [4,3] over a 24pt row: 15 of 24
-        //     rows painted at x=0, x=1, x=2, and 0 of 24 at x=3. A 1pt line
-        //     leaves x=0 and x=2 clean; a `midX + 1` line leaves x=0 clean
-        //     and paints x=3.
+        //     implementation, dash pattern [4,3] over a 24pt row with a 4pt
+        //     bar: 15 of 24 rows painted at x=0..3, and 0 of 24 at x=4 —
+        //     measured, not assumed. A 1pt line leaves x=0 and x=3 clean; an
+        //     off-centre line leaves x=0 clean and paints x=4.
         let weakBarFullColor = resolvedRed // dash "on" segments stroke at full colour, same as the solid bar
         func paintedRowCount(in rep: NSBitmapImageRep, x: Int) -> Int? {
             var count = 0
@@ -286,7 +292,7 @@ func runTests() {
             }
             return count
         }
-        let expectedPaintedCounts = [0: 15, 1: 15, 2: 15, 3: 0]
+        let expectedPaintedCounts = [0: 15, 1: 15, 2: 15, 3: 15, 4: 0]
         for (x, expected) in expectedPaintedCounts.sorted(by: { $0.key < $1.key }) {
             if let actual = paintedRowCount(in: weakRep, x: x) {
                 expectEqual(actual, expected, "the dashed bar paints \(expected) of 24 rows at x=\(x)")
@@ -294,6 +300,24 @@ func runTests() {
                 failures += 1
                 print("FAIL could not read column x=\(x) for the dash-width check")
             }
+        }
+
+        // 4c. The bar survives SELECTION. This is why the bar is painted in
+        //     `draw(_:)` after `super` rather than in `drawBackground`:
+        //     `NSTableRowView` paints selection AFTER the background, so a bar
+        //     drawn there sits underneath an opaque selection fill. It used to
+        //     survive only because the table's `.inset` style insets the
+        //     selection past the leading edge — an accident that disappeared
+        //     when the table moved to `.fullWidth`. Since the bar is now the
+        //     ONLY marker on a tagged row, losing it on a selected row would
+        //     lose the tag altogether.
+        if let selectedRep = render(strong, selected: true),
+           let selectedBar = pixel(selectedRep, x: barX, y: midY) {
+            expectTrue(sameColor(selectedBar, resolvedRed),
+                       "the bar is still the full label colour on a SELECTED row")
+        } else {
+            failures += 1
+            print("FAIL could not render a selected row for the bar-survives-selection check")
         }
 
         // 5. clearTag really stops the drawing: after clearing, the mid pixel
