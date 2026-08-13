@@ -784,6 +784,133 @@ class ResultsGridVC: NSViewController {
         syncTagButton()
     }
 
+    // MARK: - Tagging
+
+    /// The current selection as DATA row indices. Selection APIs speak display
+    /// indices; the tag map speaks data indices.
+    func selectedDataRows() -> [Int] {
+        guard let state = cellSelectionController?.state else { return [] }
+        return state.selectedRowIndices().compactMap {
+            $0 < displayRows.count ? displayRows[$0] : nil
+        }
+    }
+
+    /// The rows a tag action applies to: the clicked row when the click landed
+    /// outside the selection, else the selection. (The SavedQueries menu rule.)
+    func tagTargetDataRows() -> [Int] {
+        let selection = selectedDataRows()
+        let clicked = tableView.clickedRow
+        if clicked >= 0, clicked < displayRows.count {
+            let selectedDisplay = cellSelectionController?.state.selectedRowIndices() ?? IndexSet()
+            if !selectedDisplay.contains(clicked) { return [displayRows[clicked]] }
+        }
+        return selection
+    }
+
+    /// Can a tag action run at all? Menu validation asks this.
+    var hasTagTargets: Bool {
+        rowIdentity != nil && !tagTargetDataRows().isEmpty
+    }
+
+    /// Put `labelId` on every target row, or — when every target already
+    /// carries it — remove it from all of them. The ⌘L rule.
+    func toggleTag(labelId: String, on targets: [Int]) {
+        guard let connectionId = AppStateManager.shared.activeConnectionId else { return }
+        let existing = targets.compactMap { tagsByRow[$0] }
+        let allCarryIt = existing.count == targets.count
+            && existing.allSatisfy { $0.labelId == labelId }
+        do {
+            if allCarryIt {
+                try TagStore.shared.removeTags(ids: existing.map { $0.id },
+                                               connectionId: connectionId)
+                return
+            }
+            let columnNames = columns.map { $0.name }
+            var applied = 0
+            var lastFailure: TagComposer.Failure?
+            for row in targets {
+                guard row < rows.count else { continue }
+                let values = rows[row].map { $0.stringValue }
+                switch TagComposer.upsert(row: row, columns: columnNames,
+                                          rowValues: values, identity: rowIdentity,
+                                          connectionId: connectionId,
+                                          labelId: labelId, note: nil) {
+                case .success(let upsert):
+                    try TagStore.shared.upsertTag(upsert)
+                    applied += 1
+                case .failure(let reason):
+                    lastFailure = reason
+                }
+            }
+            TagStore.shared.lastUsedLabelId = labelId
+            if applied == 0, let lastFailure {
+                presentTagFailure(lastFailure)
+            }
+        } catch {
+            NSLog("Tag write failed: \(error)")
+            NSSound.beep()
+        }
+    }
+
+    private func presentTagFailure(_ failure: TagComposer.Failure) {
+        let alert = NSAlert()
+        alert.messageText = "Cannot tag this row"
+        switch failure {
+        case .noKeyValue: alert.informativeText = "This row has no key value."
+        case .noSourceTable: alert.informativeText = "This result has no source table."
+        case .malformedRow: alert.informativeText = "This row's identity is malformed."
+        }
+        alert.addButton(withTitle: "OK")
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window)
+    }
+
+    /// ⌘L: the last-used label on the targets; a second ⌘L removes it. With no
+    /// label in the palette, prompt for the first one (the Phase 4 panel
+    /// replaces this prompt).
+    @objc func tagWithLastLabel(_ sender: Any?) {
+        let targets = tagTargetDataRows()
+        guard !targets.isEmpty, rowIdentity != nil else { NSSound.beep(); return }
+        let store = TagStore.shared
+        if store.labels.isEmpty {
+            promptForNewLabel { [weak self] label in
+                self?.toggleTag(labelId: label.id, on: targets)
+            }
+            return
+        }
+        let labelId = store.lastUsedLabelId
+            .flatMap { id in store.labels.first { $0.id == id }?.id }
+            ?? store.labels[0].id
+        toggleTag(labelId: labelId, on: targets)
+    }
+
+    /// House-pattern name prompt (the renameTab shape). Runs `onCreate` with
+    /// the new label on success.
+    func promptForNewLabel(onCreate: @escaping (TagLabel) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "New Tag Label"
+        alert.informativeText = "Enter a name for the label:"
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        alert.accessoryView = field
+        guard let window = view.window else { return }
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { return }
+            do {
+                let label = try TagStore.shared.createLabel(name: name)
+                TagStore.shared.lastUsedLabelId = label.id
+                onCreate(label)
+            } catch {
+                NSLog("Label create failed: \(error)")
+                NSSound.beep()
+            }
+        }
+    }
+
     // MARK: - Helper Coordination
 
     func pushDataToHelpers() {
