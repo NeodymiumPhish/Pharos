@@ -50,7 +50,16 @@ private class ResultCellView: NSTableCellView {
     override var backgroundStyle: NSView.BackgroundStyle {
         didSet { updateTextColor() }
     }
+}
 
+/// A row-number cell, which is the only cell that draws a tag dot.
+///
+/// The dot lives on a subclass so the `draw(_:)` override does not land on every
+/// cell in the grid. A layer-backed `NSView` with no `draw` override needs no
+/// bitmap backing store; adding one to `ResultCellView` would have made AppKit
+/// rasterize contents for every visible cell of every column, not just the
+/// row-number column that actually needs it.
+private final class RowNumberCellView: ResultCellView {
     /// The dot's colour, or nil when the row carries no tag.
     var tagDotColor: NSColor? {
         didSet {
@@ -66,11 +75,6 @@ private class ResultCellView: NSTableCellView {
             needsDisplay = true
         }
     }
-
-    /// The text field's leading constraint, held so the row-number column can make
-    /// room for the dot. The data source builds it once at cell creation; without a
-    /// handle on it the number would draw underneath the dot.
-    weak var textLeadingConstraint: NSLayoutConstraint?
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -257,7 +261,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? ResultCellView {
             cell = existing
         } else {
-            cell = ResultCellView()
+            cell = colIdRaw == "__rownum__" ? RowNumberCellView() : ResultCellView()
             cell.identifier = cellId
             cell.wantsLayer = true
             let textField = NSTextField(labelWithString: "")
@@ -269,11 +273,16 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
             cell.textField = textField
-            let leading = textField.leadingAnchor.constraint(
-                equalTo: cell.leadingAnchor, constant: TagDot.textInsetPlain)
-            cell.textLeadingConstraint = leading
             NSLayoutConstraint.activate([
-                leading,
+                textField.leadingAnchor.constraint(
+                    equalTo: cell.leadingAnchor,
+                    // Reserve the dot's space for every row-number cell, tagged or
+                    // not. Setting it per row made the column ragged and made a
+                    // number jump 9pt sideways the moment a tag appeared. The inset
+                    // varies by COLUMN, not by row, and the reuse pool is already
+                    // per column, so this is decided once here and never touched
+                    // again.
+                    constant: colIdRaw == "__rownum__" ? TagDot.textInsetWithDot : TagDot.textInsetPlain),
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
@@ -289,15 +298,15 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             // A filled dot is a strong match, a hollow one a fingerprint match. An
             // untagged row draws nothing: the hover outline in the design is an
             // affordance for the click target, which is Phase 3.
-            if let look = TagLabelPalette.appearance(
-                row: row, displayRows: displayRows,
-                tagsByRow: tagsByRow, labelColors: labelColors) {
-                cell.tagDotColor = look.color
-                cell.tagDotFilled = !look.isWeak
-                cell.textLeadingConstraint?.constant = TagDot.textInsetWithDot
-            } else {
-                cell.tagDotColor = nil
-                cell.textLeadingConstraint?.constant = TagDot.textInsetPlain
+            if let rowNumCell = cell as? RowNumberCellView {
+                if let look = TagLabelPalette.appearance(
+                    row: row, displayRows: displayRows,
+                    tagsByRow: tagsByRow, labelColors: labelColors) {
+                    rowNumCell.tagDotColor = look.color
+                    rowNumCell.tagDotFilled = TagDot.filled(forWeakMatch: look.isWeak)
+                } else {
+                    rowNumCell.tagDotColor = nil
+                }
             }
         } else {
             let rowData = rows[dataRowIdx]
@@ -310,14 +319,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 cell.textField?.font = regularFont
                 cell.normalTextColor = .labelColor
             }
-            // Unreachable today: the reuse identifier is per column
-            // ("ResultCell_\(colIdRaw)"), so a row-number cell is never handed back
-            // for a data column. Kept because `ResultCellView` is shared as a type
-            // across every pool — if the identifier scheme were ever simplified to
-            // one pool, data columns would start showing dots silently, and these
-            // two lines are what stops that.
-            cell.tagDotColor = nil
-            cell.textLeadingConstraint?.constant = TagDot.textInsetPlain
         }
 
         // Find + selection state. Compute once, share both branches — the old

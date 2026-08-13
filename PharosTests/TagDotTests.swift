@@ -65,30 +65,74 @@ func sameColor(_ a: NSColor, _ b: NSColor) -> Bool {
         && abs(a.blueComponent - b.blueComponent) < 0.01
 }
 
+/// Returns a human-readable location of the first non-white pixel found in `rep`
+/// OUTSIDE a small margin around `dotRect`, or nil if nothing out there is
+/// painted. Scans the FULL bitmap, not a handful of sample points — a stray mark
+/// anywhere in the cell must be caught, whichever render it turns up in.
+///
+/// The margin is not the confinement boundary under test; it exists because a
+/// 1.5pt stroke centred on the dot's inset path legitimately spans a fraction of
+/// a point past the dot's nominal rect (see the comment in `TagDot.draw`), and
+/// anti-aliasing softens the true edge further. Anything painted beyond the
+/// margin is a defect, not geometry — 2pt comfortably clears both effects while
+/// staying tight enough to catch a stray mark or a second dot nearby.
+func firstNonWhite(in rep: NSBitmapImageRep, around dotRect: NSRect, margin: CGFloat, white: NSColor) -> String? {
+    let excluded = dotRect.insetBy(dx: -margin, dy: -margin)
+    for y in 0..<rep.pixelsHigh {
+        for x in 0..<rep.pixelsWide {
+            let point = NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
+            if excluded.contains(point) { continue }
+            guard let c = pixel(rep, x: x, y: y), !sameColor(c, white) else { continue }
+            return "(\(x), \(y))"
+        }
+    }
+    return nil
+}
+
 func runTests() {
     // MARK: - Geometry
 
     let shortRow = NSRect(x: 0, y: 0, width: 54, height: 24)
     let tallRow = NSRect(x: 0, y: 0, width: 54, height: 60)
+    // The row height that actually ships — ResultsGridVC.swift:115 sets
+    // tableView.rowHeight = 22. (22 − 6) / 2 is a different number than either
+    // of the two round-number heights above, so it is its own check, not
+    // implied by them.
+    let productionRow = NSRect(x: 0, y: 0, width: 54, height: 22)
 
     let shortRect = TagDot.rect(in: shortRow)
     expectClose(shortRect.width, 6, "the dot is 6pt wide")
     expectClose(shortRect.height, 6, "the dot is 6pt tall")
-    expectClose(shortRect.minX, TagDot.leading, "the dot's minX equals the leading inset")
     expectClose(shortRect.midY, shortRow.height / 2, "the dot is vertically centred in a 24pt row")
 
     let tallRect = TagDot.rect(in: tallRow)
     expectClose(tallRect.midY, tallRow.height / 2, "the dot is vertically centred in a 60pt row")
-
     // The dot must not scale with row height.
     expectClose(tallRect.width, 6, "the dot does not widen on a taller row")
     expectClose(tallRect.height, 6, "the dot does not grow taller on a taller row")
-    expectEqual(tallRect.width, shortRect.width, "the dot's width matches across row heights")
-    expectEqual(tallRect.height, shortRect.height, "the dot's height matches across row heights")
 
-    // Text inset ordering.
-    expectTrue(TagDot.textInsetWithDot > TagDot.textInsetPlain + TagDot.diameter - 0.01,
-               "textInsetWithDot clears textInsetPlain by at least the dot's diameter")
+    let productionRect = TagDot.rect(in: productionRow)
+    expectClose(productionRect.midY, productionRow.height / 2, "the dot is vertically centred in a 22pt row — the production row height")
+    expectClose(productionRect.width, 6, "the dot stays 6pt wide at the production row height")
+    expectClose(productionRect.height, 6, "the dot stays 6pt tall at the production row height")
+
+    // Pin every constant except `diameter` (already pinned indirectly, above,
+    // via the derived rect's width) to a literal. Comparing a derived value
+    // back against the constant that produced it — e.g. `shortRect.minX` against
+    // `TagDot.leading` — is a tautology that can never fail; these compare
+    // against fixed numbers instead.
+    expectClose(TagDot.leading, 5, "leading is 5pt")
+    expectClose(TagDot.textInsetPlain, 6, "textInsetPlain is 6pt")
+    expectClose(TagDot.textInsetWithDot, 15, "textInsetWithDot is 15pt")
+
+    // MARK: - Polarity
+
+    // The feature's one decision, pinned at the one function that makes it. A
+    // fingerprint match (isWeak: true) is HOLLOW; inverting this passes every
+    // other check in the repository, which is exactly why it gets its own name
+    // and its own pin rather than living as `!isWeak` at each call site.
+    expectEqual(TagDot.filled(forWeakMatch: false), true, "a strong match (isWeak: false) is filled")
+    expectEqual(TagDot.filled(forWeakMatch: true), false, "a fingerprint match (isWeak: true) is hollow")
 
     // MARK: - Pixels
 
@@ -96,8 +140,6 @@ func runTests() {
     let dotRect = TagDot.rect(in: frame)
     let centerX = Int(dotRect.midX)
     let centerY = Int(dotRect.midY)
-    // A point to the right of the dot, in the zone where the row number sits.
-    let farX = Int(dotRect.maxX) + 10
 
     guard let filledRep = render(color: .systemRed, filled: true, in: frame),
           let hollowRep = render(color: .systemRed, filled: false, in: frame),
@@ -119,52 +161,20 @@ func runTests() {
     expectTrue(sameColor(hollowMid, white), "a hollow dot leaves its centre white")
     expectTrue(!sameColor(hollowMid, filledMid), "a hollow dot's centre differs from a filled dot's centre")
 
-    // 3. Nothing is painted outside the dot's rect. A single point (the
-    //    row-number zone to the right) cannot prove confinement — a mutant that
-    //    painted a second mark elsewhere in the cell would still pass it. Scan a
-    //    full row above the dot, a full row below, and a full column to its
-    //    right, and require every sample to stay at the white baseline.
-    var exteriorClean = true
-    var exteriorFailureDetail: String?
-    let aboveY = Int(dotRect.minY) - 2
-    let belowY = Int(dotRect.maxY) + 2
-    if aboveY >= 0 {
-        for x in 0..<Int(frame.width) {
-            guard let c = pixel(filledRep, x: x, y: aboveY) else { continue }
-            if !sameColor(c, white) {
-                exteriorClean = false
-                exteriorFailureDetail = "row above the dot (y=\(aboveY)) at x=\(x)"
-                break
-            }
-        }
-    }
-    if exteriorClean, belowY < Int(frame.height) {
-        for x in 0..<Int(frame.width) {
-            guard let c = pixel(filledRep, x: x, y: belowY) else { continue }
-            if !sameColor(c, white) {
-                exteriorClean = false
-                exteriorFailureDetail = "row below the dot (y=\(belowY)) at x=\(x)"
-                break
-            }
-        }
-    }
-    if exteriorClean {
-        for x in farX..<Int(frame.width) {
-            for y in 0..<Int(frame.height) {
-                guard let c = pixel(filledRep, x: x, y: y) else { continue }
-                if !sameColor(c, white) {
-                    exteriorClean = false
-                    exteriorFailureDetail = "column to the right of the dot (x=\(x)) at y=\(y)"
-                    break
-                }
-            }
-            if !exteriorClean { break }
-        }
-    }
-    if let detail = exteriorFailureDetail {
-        print("  detail: \(detail)")
-    }
-    expectTrue(exteriorClean, "nothing is painted outside the dot's rect — row above, row below, and column to the right of it all stay white")
+    // 3. Nothing is painted outside a small margin around the dot — swept pixel
+    //    by pixel across the FULL bitmap, on BOTH the filled and the hollow
+    //    render. A single sampled point cannot prove confinement: a stray mark
+    //    anywhere else in the cell, or a second dot drawn only in the hollow
+    //    branch, would both slip past a point sample unnoticed.
+    let filledStray = firstNonWhite(in: filledRep, around: dotRect, margin: 2, white: white)
+    if let filledStray { print("  detail: \(filledStray)") }
+    expectTrue(filledStray == nil,
+               "nothing is painted outside a 2pt margin around the dot in the filled render, swept pixel by pixel across the full bitmap")
+
+    let hollowStray = firstNonWhite(in: hollowRep, around: dotRect, margin: 2, white: white)
+    if let hollowStray { print("  detail: \(hollowStray)") }
+    expectTrue(hollowStray == nil,
+               "nothing is painted outside a 2pt margin around the dot in the hollow render, swept pixel by pixel across the full bitmap")
 
     // 4. The colour argument actually reaches the drawing — render with a
     //    second colour and confirm the centre pixel moves. Without this, a
@@ -188,6 +198,21 @@ func runTests() {
     } else {
         failures += 1
         print("FAIL could not read the hollow dot's rim pixel")
+    }
+
+    // 6. The hollow rim is EXACTLY the resolved colour, not merely "not white".
+    //    A stroke drawn in the wrong colour (e.g. black) or at reduced alpha
+    //    (e.g. 30%) both still satisfy "not white" and would pass check 5
+    //    unchanged. Sample the rim at its waist — the left edge, at the dot's
+    //    vertical centre — which is fully covered at the real lineWidth (1.5).
+    let waistX = Int(dotRect.minX)
+    let waistY = centerY
+    if let hollowWaist = pixel(hollowRep, x: waistX, y: waistY) {
+        expectTrue(sameColor(hollowWaist, resolvedRed),
+                   "a hollow dot's rim at the waist is exactly the resolved colour, not merely non-white")
+    } else {
+        failures += 1
+        print("FAIL could not read the hollow dot's waist pixel")
     }
 
     printSummary()
