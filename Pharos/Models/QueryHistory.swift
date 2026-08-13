@@ -55,3 +55,34 @@ struct QueryHistoryResultData: Codable {
     /// optional or older history stops opening.
     let rowIdentity: RowIdentity?
 }
+
+// MARK: - Building a result from history
+
+// This extension lives HERE, not in QueryResult.swift, so the general result model
+// keeps no dependency on a history payload. The direction matters: history knows how
+// to make a QueryResult, not the other way round. Putting it in QueryResult.swift
+// forced fifteen standalone harnesses that compile that file to also compile this one.
+
+extension QueryResult {
+    /// Build a result from a stored history payload.
+    ///
+    /// This exists so no caller has to remember `rowIdentity`. `init` defaults that
+    /// parameter to nil, so a history-restore path that omits it silently drops every
+    /// tag on the reopened result — no crash, no warning. Two call sites did exactly
+    /// that. Route every future history restore through here.
+    static func fromHistory(
+        _ data: QueryHistoryResultData,
+        historyEntryId: String,
+        executionTimeMs: UInt64
+    ) -> QueryResult {
+        QueryResult(
+            columns: data.columns,
+            rows: data.rows,
+            rowCount: data.rows.count,
+            executionTimeMs: executionTimeMs,
+            hasMore: false,
+            historyEntryId: historyEntryId,
+            rowIdentity: data.rowIdentity
+        )
+    }
+}
