@@ -50,6 +50,7 @@
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
 		3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */; };
 		3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */; };
+		44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */; };
 		45243992B54979AB0FC28073 /* QueryErrorPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */; };
 		452A085D482CF6012AA5CAF9 /* PharosCore+Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */; };
 		4544AA18681DE8297EE4419C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9154BC81016709ADD201F2C /* main.swift */; };
@@ -102,6 +103,7 @@
 		9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */; };
 		9B9F6D8FA3841680CC02ED11 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
+		9D2681720A71CCE84786DE54 /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F2105483936AE6C2C9AEB8 /* Tag.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
 		A120CA2AA04F952185155B87 /* QueryDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */; };
@@ -202,6 +204,7 @@
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
 		364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRowPipeline.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
+		3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Tags.swift"; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
 		3F1ACA16C38A777BDCF7104A /* VariableListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableListView.swift; sourceTree = "<group>"; };
 		4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryProgressIndicator.swift; sourceTree = "<group>"; };
@@ -245,6 +248,7 @@
 		7F30DD806851F14679B37FDD /* TagComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagComposer.swift; sourceTree = "<group>"; };
 		819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
 		83C254B3E566A636E1216FE4 /* CrashLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLogger.swift; sourceTree = "<group>"; };
+		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
 		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
@@ -460,6 +464,7 @@
 				B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */,
 				4EE224A37E3FEC0F67F65D19 /* Settings.swift */,
 				DB718C65F3D74705409121A4 /* TableDDL.swift */,
+				85F2105483936AE6C2C9AEB8 /* Tag.swift */,
 				7E1A79C0687366CE6000F5A3 /* Workspace.swift */,
 				7B5097981FC69AAC4ABA405B /* Charts */,
 			);
@@ -546,6 +551,7 @@
 				FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */,
 				984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */,
 				0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */,
+				3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */,
 				B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */,
 				FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */,
 				BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */,
@@ -787,6 +793,7 @@
 				46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */,
 				83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */,
 				1896442191A1723DA4AC8F11 /* PharosCore+TableOps.swift in Sources */,
+				44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */,
 				3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */,
 				2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */,
 				9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */,
@@ -856,6 +863,7 @@
 				C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */,
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
+				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
 				D0C9348F9AA2C6335ED32336 /* TagComposer.swift in Sources */,
 				4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */,
 				5ABA3626F534BBF9CA43D33A /* TagFunnelPopoverVC.swift in Sources */,
