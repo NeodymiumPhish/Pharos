@@ -33,7 +33,7 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         add.tag = Self.addTag
         add.target = self
 
-        let remove = menu.addItem(withTitle: "Remove From Tag",
+        let remove = menu.addItem(withTitle: "Remove From Tag\u{2026}",
                                   action: #selector(removeTagAction), keyEquivalent: "")
         remove.tag = Self.removeTag
         remove.target = self
@@ -85,7 +85,7 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
 
     @objc private func removeTagAction() {
         guard let grid else { return }
-        grid.removeFromTags(on: grid.tagTargetDataRows())
+        grid.presentTagRemovalSheet(on: grid.tagTargetDataRows())
     }
 
     @objc private func manageTagsAction() {

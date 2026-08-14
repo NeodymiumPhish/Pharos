@@ -116,3 +116,20 @@ final class TagStore {
         }
     }
 }
+
+// MARK: - TagTupleRemoving
+
+/// `TagRemovalSheet` commits through this one capability rather than through
+/// the whole store, so its standalone harness can compile the sheet without
+/// this `@MainActor`, FFI-bound class. The conformance lives here so that a
+/// change to `removeTuples(ids:)` fails the APP BUILD — a test double declared
+/// on the far side could drift from reality in silence.
+/// `@preconcurrency`: the protocol is deliberately nonisolated (the harness
+/// conforms to it without `@MainActor`), and a plain conformance from this
+/// `@MainActor` class warns that it "crosses into main actor-isolated code" —
+/// an error in the Swift 6 language mode. The attribute is the sanctioned
+/// spelling for this exact case: it keeps the compile-time signature check
+/// that makes this conformance worth having, and adds a runtime main-thread
+/// check in place of the static one. Every caller is a view-controller action,
+/// so every call is already on the main thread.
+extension TagStore: @preconcurrency TagTupleRemoving {}

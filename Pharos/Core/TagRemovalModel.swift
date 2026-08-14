@@ -2,31 +2,30 @@ import Foundation
 
 // MARK: - TagRemovalModel
 
-/// One captured value inside a tuple the removal sheet lists, kept structured
-/// beside `TagRemovalTuple.title` so the view renders one token per value.
-/// `title` joins values with "  +  ", a separator a captured display string
-/// can legally contain — two structurally different tuples can produce a
-/// byte-identical joined title. Only `values` can tell them apart, which is
-/// why the view must render from it rather than parsing `title`.
+/// One captured value inside a tuple the removal sheet lists, kept as a
+/// structured, un-mergeable token.
+///
+/// There is deliberately no joined-string form of a tuple anywhere in this
+/// model. Any separator a join could use is a string a captured value may
+/// legally contain, so two structurally different tuples could produce the
+/// same joined line — and on a delete confirmation, one tuple that can
+/// impersonate another is the whole game. Rendering goes through
+/// `TagRemovalModel.valueText(for:)`, one token per value.
 struct TagRemovalValue: Equatable {
     let column: String
     let display: String
 }
 
 /// One tuple the removal sheet offers for deletion.
+///
+/// No `isMultiValue` flag: whether a tuple goes as a whole is read from
+/// `values.count` at the point of use. A stored flag can disagree with the
+/// values it describes — a one-value tuple carrying the "removed together"
+/// caption, say — and derived state that can lie about a deletion is worth
+/// nothing.
 struct TagRemovalTuple: Equatable {
     let tupleId: String
-    /// "md5: D41D8C" or "ip: 10.2.3.4  +  subject: CN=evil" — disclosure text
-    /// only. Captured column names as provenance, captured display text as
-    /// the value. Do not parse this back into values; read `values` instead.
-    let title: String
-    /// The same values `title` joins, kept as structured, un-mergeable
-    /// tokens — see the type's doc comment for why `title` alone is not
-    /// enough to identify a tuple.
     let values: [TagRemovalValue]
-    /// A multi-value tuple is removed or kept WHOLE: un-picking one value
-    /// would leave a tuple that matches MORE rows than before, not fewer.
-    let isMultiValue: Bool
 }
 
 /// One tag's block in the removal sheet.
@@ -76,16 +75,12 @@ enum TagRemovalModel {
                 // load (see `TagTupleMatcher.buildIndex`). A blank row on a
                 // delete confirmation is the worst possible disclosure.
                 .filter { ids.contains($0.id) && !$0.values.isEmpty }
-                .map { tuple -> TagRemovalTuple in
-                    let values = tuple.values.map {
-                        TagRemovalValue(column: $0.column, display: $0.display)
-                    }
-                    let title = tuple.values
-                        .map { "\($0.column): \($0.display)" }
-                        .joined(separator: "  +  ")
-                    return TagRemovalTuple(
-                        tupleId: tuple.id, title: title, values: values,
-                        isMultiValue: tuple.values.count > 1)
+                .map { tuple in
+                    TagRemovalTuple(
+                        tupleId: tuple.id,
+                        values: tuple.values.map {
+                            TagRemovalValue(column: $0.column, display: $0.display)
+                        })
                 }
             guard !tuples.isEmpty else { return nil }
             return TagRemovalGroup(
@@ -110,5 +105,93 @@ enum TagRemovalModel {
     static func footer(for groups: [TagRemovalGroup]) -> String {
         footer(tupleCount: groups.reduce(0) { $0 + $1.tuples.count },
                tagCount: groups.count)
+    }
+
+    /// One value as the sheet must show it: escaped, never blank.
+    struct ValueText: Equatable {
+        let text: String
+        /// The value or its column had nothing printable, so `text` carries a
+        /// stand-in word rather than captured data. The sheet styles it apart
+        /// so a placeholder can never be mistaken for a value.
+        let isPlaceholder: Bool
+    }
+
+    /// Scalars that must never reach a delete confirmation as themselves.
+    ///
+    /// This app captures hostile data by design — the values in a tag came out
+    /// of somebody's dataset — and a removal is permanent and global. Three
+    /// families, all of which have been measured rendering wrong:
+    ///
+    /// - **Bidi controls.** `host: safe\u{202E}gpj.exe` DISPLAYS as
+    ///   `safe\u{202E}gpj.exe` reversed — the user reads one filename and
+    ///   deletes another. This is the one that turns disclosure into a lie.
+    /// - **Zero-width and unusual spaces.** `10.0.0.1`, `10.0.0.1\u{200B}`,
+    ///   `10.0.0\u{A0}.1` and `10.0.0.1 ` otherwise render as four identical
+    ///   rows, and the user cannot tell which checkbox to untick.
+    /// - **C0 controls.** A newline inside one value would split it across
+    ///   lines and read as two separate values.
+    private static func mustEscape(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x00...0x1F, 0x7F: return true          // C0 controls and DEL
+        case 0x200E, 0x200F, 0x061C: return true     // LRM, RLM, ALM
+        case 0x202A...0x202E: return true            // the embedding/override set
+        case 0x2066...0x2069: return true            // the isolate set
+        case 0x200B...0x200D, 0x2060, 0xFEFF: return true  // zero-width, BOM
+        case 0x00A0, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true  // spaces
+        default: return false
+        }
+    }
+
+    /// Render text so that what is read is what would be deleted.
+    ///
+    /// Offending scalars become `<U+XXXX>`. Leading and trailing PLAIN spaces
+    /// are marked too, though a space is legal mid-value: at the edge of a row
+    /// it is invisible, and "which of these two rows has the trailing space?"
+    /// is exactly the question a user must be able to answer before ticking a
+    /// box.
+    static func escaped(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        var lead = 0
+        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
+        var trail = scalars.count
+        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
+
+        var out = ""
+        for (index, scalar) in scalars.enumerated() {
+            if index < lead || index >= trail || mustEscape(scalar) {
+                out += String(format: "<U+%04X>", scalar.value)
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
+    }
+
+    /// The line the sheet shows for one value: "ip: 10.0.0.1".
+    ///
+    /// An empty column or display gets a stand-in word. `TagDraft` fills
+    /// `display` from the raw cell and an empty text cell is not NULL, so it
+    /// passes the NULL guard and arrives here as "" — which would otherwise
+    /// draw a checkbox beside a bare colon, or beside nothing at all. A blank
+    /// row on a delete confirmation is the worst possible disclosure.
+    static func valueText(for value: TagRemovalValue) -> ValueText {
+        let column = escaped(value.column)
+        let display = escaped(value.display)
+        return ValueText(
+            text: "\(column.isEmpty ? "(no column)" : column): "
+                + "\(display.isEmpty ? "(empty)" : display)",
+            isPlaceholder: column.isEmpty || display.isEmpty)
+    }
+
+    /// The ids a removal commits, taken from the SAME groups the footer counts
+    /// and the sheet lists — so the payload sent to the store cannot name a
+    /// tuple the user did not see ticked.
+    ///
+    /// Pure and here rather than inside the sheet for the reason
+    /// `footer(for:)` is: the commit's payload is the one part of a
+    /// destructive action a test must be able to read without a store, a
+    /// Keychain or a window.
+    static func checkedTupleIds(in groups: [TagRemovalGroup]) -> [String] {
+        groups.flatMap { $0.tuples.map(\.tupleId) }
     }
 }

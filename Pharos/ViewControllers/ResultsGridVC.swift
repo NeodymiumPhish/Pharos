@@ -875,24 +875,20 @@ class ResultsGridVC: NSViewController {
         presentAsSheet(TagManageSheet(preselect: preselect))
     }
 
-    /// "Remove From Tag": drop the tuples this row completes.
-    ///
-    /// Only SOLID matches are removed. A dashed row holds fragments of several
-    /// tuples and completes none of them, so there is no one tuple the analyst
-    /// can be said to be removing — the menu item disables rather than guess.
-    ///
-    /// A tuple is the finding, not the row, so removing it stops the tag
-    /// matching that value EVERYWHERE. That is the model, not a side effect.
-    func removeFromTags(on targets: [Int]) {
-        let ids = Array(Set(targets.flatMap { row in
-            matchesByRow[row]?.flatMap { $0.solidTupleIds } ?? []
-        }))
-        guard !ids.isEmpty else { return }
-        do { try TagStore.shared.removeTuples(ids: ids) }
-        catch {
-            NSLog("Tag value removal failed: \(error)")
-            NSSound.beep()
-        }
+    /// "Remove From Tag…": open the removal confirmation sheet on the tuples
+    /// the target rows complete. The sheet — not this method — deletes;
+    /// see `TagRemovalSheet` for the disclosure rules.
+    func presentTagRemovalSheet(on targets: [Int]) {
+        guard view.window != nil else { NSSound.beep(); return }
+        let groups = TagRemovalModel.groups(
+            targetRows: targets,
+            matchesByRow: matchesByRow,
+            tags: TagStore.shared.tags)
+        // An empty result means every target row is dashed-only, or the tuples
+        // went while the menu was open: there is nothing to disclose and the
+        // footer would read "Removes 0 tuples from 0 tags."
+        guard !groups.isEmpty else { NSSound.beep(); return }
+        presentAsSheet(TagRemovalSheet(groups: groups, remover: TagStore.shared))
     }
 
     // MARK: - Helper Coordination

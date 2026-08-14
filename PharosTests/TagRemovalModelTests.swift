@@ -97,7 +97,7 @@ func runTests() {
         expectTrue(groups.isEmpty, "a dashed-only row completes no tuple, so there is nothing to list")
     }
 
-    // MARK: - 3. Titles show values with their captured column names
+    // MARK: - 3. Values arrive as structured tokens with their captured columns
 
     do {
         let groups = TagRemovalModel.groups(
@@ -105,13 +105,10 @@ func runTests() {
             matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])]],
             tags: [tagA])
         let tuples = groups[0].tuples
-        expectEqual(tuples[0].title, "md5: D41D8C", "a single-value tuple titles as column: display")
-        expectEqual(tuples[0].isMultiValue, false, "one value is not multi-value")
         expectEqual(tuples[0].values, [TagRemovalValue(column: "md5", display: "D41D8C")],
                     "a single-value tuple carries exactly one structured value")
-        expectEqual(tuples[1].title, "ip: 10.2.3.4  +  subject: CN=evil",
-                    "a multi-value tuple joins its values with the + separator")
-        expectEqual(tuples[1].isMultiValue, true, "two values mark the tuple multi-value")
+        expectEqual(TagRemovalModel.valueText(for: tuples[0].values[0]).text, "md5: D41D8C",
+                    "a value renders as column: display")
         expectEqual(tuples[1].values,
                     [TagRemovalValue(column: "ip", display: "10.2.3.4"),
                      TagRemovalValue(column: "subject", display: "CN=evil")],
@@ -160,16 +157,23 @@ func runTests() {
             matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u2", "u4"], solidTupleIds: ["u2", "u4"])]],
             tags: [tagA])
         let byId = Dictionary(uniqueKeysWithValues: groups[0].tuples.map { ($0.tupleId, $0) })
-        expectEqual(byId["u2"]!.title, byId["u4"]!.title,
-                    "a genuine 2-value tuple and a 1-value tuple whose display embeds the separator DO collide on title text")
+        // The collision the model must survive: joined into one line these two
+        // tuples are byte-identical, and only their VALUES tell them apart.
+        // Nothing in the model produces that joined form any more — this
+        // builds it here, in the test, purely to prove the trap is real.
+        let joined = { (t: TagRemovalTuple) in
+            t.values.map { "\($0.column): \($0.display)" }.joined(separator: "  +  ")
+        }
+        expectEqual(joined(byId["u2"]!), joined(byId["u4"]!),
+                    "a genuine 2-value tuple and a 1-value tuple whose display embeds the separator WOULD collide if joined")
         expectEqual(byId["u2"]!.values.count, 2, "the real multi-value tuple carries two structured values")
         expectEqual(byId["u4"]!.values.count, 1,
                     "a single value containing the separator text still yields exactly ONE structured value, not two")
         expectEqual(byId["u4"]!.values, [TagRemovalValue(column: "ip", display: "10.2.3.4  +  subject: CN=evil")],
                     "the embedded separator is not re-parsed; the display string survives whole")
-        expectEqual(byId["u2"]!.isMultiValue, true, "u2 is genuinely multi-value")
-        expectEqual(byId["u4"]!.isMultiValue, false,
-                    "u4 is NOT multi-value even though its title reads like u2's — values, not title, decides")
+        expectEqual(byId["u2"]!.values.count > 1, true, "u2 goes as a whole: it has two values")
+        expectEqual(byId["u4"]!.values.count > 1, false,
+                    "u4 does NOT, even though joined it reads like u2 — values, not text, decide")
     }
 
     // MARK: - 8. A tuple with no captured values never reaches the sheet
@@ -180,7 +184,7 @@ func runTests() {
             matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "e1"], solidTupleIds: ["u1", "e1"])]],
             tags: [tagA])
         expectEqual(groups[0].tuples.map(\.tupleId), ["u1"],
-                    "a tuple with an empty values array is filtered out — a blank title is the worst possible disclosure")
+                    "a tuple with an empty values array is filtered out — a blank row is the worst possible disclosure")
     }
 
     // MARK: - 9. targetRows is the CLICKED/SELECTED subset, not every row the result holds
@@ -229,6 +233,93 @@ func runTests() {
                                      solidTupleIds: ["gone1", "gone2"])]],
             tags: [tagA])
         expectTrue(groups.isEmpty, "a tag whose every named tuple is stale contributes NO group, not an empty one")
+    }
+
+    // MARK: - 12. checkedTupleIds: the commit's payload, in list order
+
+    do {
+        let groups = TagRemovalModel.groups(
+            targetRows: [0],
+            matchesByRow: [0: [match("tA", .solid,
+                                     matchedTupleIds: ["u1", "u2"],
+                                     solidTupleIds: ["u1", "u2"]),
+                               match("tB", .solid,
+                                     matchedTupleIds: ["v1"],
+                                     solidTupleIds: ["v1"])]],
+            tags: [tagA, tagB])
+        // Order matters and is the LIST's order: the sheet shows the tuples in
+        // this sequence, and a payload in some other order cannot be read back
+        // against what the analyst ticked.
+        expectEqual(TagRemovalModel.checkedTupleIds(in: groups), ["u1", "u2", "v1"],
+                    "the payload is every tuple of every group, in the order the sheet lists them")
+        expectEqual(TagRemovalModel.checkedTupleIds(in: []), [],
+                    "no groups means an empty payload, never a deletion")
+        // The sheet hands in the CHECKED subset; the payload must follow it
+        // down, not fall back to anything wider.
+        let narrowed = [TagRemovalGroup(tagId: groups[0].tagId, tagName: groups[0].tagName,
+                                        colorIndex: groups[0].colorIndex,
+                                        tuples: [groups[0].tuples[1]])]
+        expectEqual(TagRemovalModel.checkedTupleIds(in: narrowed), ["u2"],
+                    "a narrowed group yields only the tuples it still holds")
+    }
+
+    // MARK: - 13. Escaping: what is read must be what would be deleted
+
+    do {
+        // The bidi override is the one that turns disclosure into a lie: raw,
+        // this string DISPLAYS as "safe" followed by "exe.jpg" reversed out of
+        // "gpj.exe", so the user reads one filename and deletes another.
+        expectEqual(TagRemovalModel.escaped("safe\u{202E}gpj.exe"),
+                    "safe<U+202E>gpj.exe",
+                    "a right-to-left override is shown, not obeyed")
+        expectEqual(TagRemovalModel.escaped("\u{200B}\u{200D}\u{FEFF}"),
+                    "<U+200B><U+200D><U+FEFF>",
+                    "zero-width characters cannot hide inside a value")
+        expectEqual(TagRemovalModel.escaped("10.0.0\u{A0}.1"), "10.0.0<U+00A0>.1",
+                    "a non-breaking space is not a space")
+        expectEqual(TagRemovalModel.escaped("a\nb\tc"), "a<U+000A>b<U+0009>c",
+                    "a newline cannot split one value into what reads as two")
+
+        // Four values that otherwise render as four identical rows. The user
+        // has to know WHICH box to untick, so no two may render alike.
+        let lookalikes = ["10.0.0.1", "10.0.0.1\u{200B}", "10.0.0\u{A0}.1", "10.0.0.1 "]
+            .map(TagRemovalModel.escaped)
+        expectEqual(Set(lookalikes).count, 4,
+                    "four look-alike values render four distinguishable ways")
+
+        expectEqual(TagRemovalModel.escaped("10.0.0.1 "), "10.0.0.1<U+0020>",
+                    "a trailing space is marked — at the end of a row it is invisible")
+        expectEqual(TagRemovalModel.escaped(" 10.0.0.1"), "<U+0020>10.0.0.1",
+                    "and so is a leading one")
+        expectEqual(TagRemovalModel.escaped("CN=evil corp, O=x"), "CN=evil corp, O=x",
+                    "an ordinary interior space is left alone — this is not a mangler")
+        expectEqual(TagRemovalModel.escaped("café ☕ 日本"), "café ☕ 日本",
+                    "ordinary non-ASCII text survives untouched")
+    }
+
+    // MARK: - 14. No value ever renders blank
+
+    do {
+        // Reachable: TagDraft fills `display` from the raw cell, and an empty
+        // text cell is not NULL, so it passes the NULL guard and arrives as "".
+        let empty = TagRemovalModel.valueText(for: TagRemovalValue(column: "ip", display: ""))
+        expectEqual(empty.text, "ip: (empty)", "an empty display says so")
+        expectEqual(empty.isPlaceholder, true, "and is marked as a placeholder, to be styled apart")
+
+        let spaces = TagRemovalModel.valueText(for: TagRemovalValue(column: "md5", display: "   "))
+        expectEqual(spaces.text, "md5: <U+0020><U+0020><U+0020>",
+                    "whitespace is shown as what it is, not as a blank row")
+        expectEqual(spaces.isPlaceholder, false,
+                    "it is real captured data, so it is not styled as a stand-in")
+
+        let nothing = TagRemovalModel.valueText(for: TagRemovalValue(column: "", display: ""))
+        expectEqual(nothing.text, "(no column): (empty)",
+                    "the worst case — a checkbox beside a bare colon — reads as words")
+        expectEqual(nothing.isPlaceholder, true, "and is marked")
+
+        let ordinary = TagRemovalModel.valueText(
+            for: TagRemovalValue(column: "ip", display: "10.0.0.1"))
+        expectEqual(ordinary.isPlaceholder, false, "a real value is not a placeholder")
     }
 
     if failures == 0 {
