@@ -9,7 +9,7 @@ pub async fn load_tags(state: &AppState) -> Result<Vec<Tag>, String> {
     sqlite::load_tags(&db).map_err(|e| format!("Failed to load tags: {}", e))
 }
 
-/// The id is minted here, matching `create_tag_label` and `create_saved_query`.
+/// The id is minted here, matching `create_saved_query`.
 pub async fn create_tag(state: &AppState, create: CreateTag) -> Result<Tag, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
