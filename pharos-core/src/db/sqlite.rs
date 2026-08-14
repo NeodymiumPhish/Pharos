@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AppSettings, ConnectionConfig, CreateSavedQuery, CreateTagLabel, QueryHistoryEntry, RowTag, RowTagKey, SavedQuery, SslMode, TagLabel, UpdateSavedQuery, UpdateTagLabel, UpsertRowTag};
+use crate::models::{AddTagTuples, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, CreateTagLabel, NewTagTuple, QueryHistoryEntry, RowTag, RowTagKey, SavedQuery, SslMode, Tag, TagLabel, TagTuple, UpdateSavedQuery, UpdateTag, UpdateTagLabel, UpsertRowTag};
 
 // ==================== Compression Helpers ====================
 
@@ -1225,6 +1225,195 @@ pub fn delete_row_tags(conn: &Connection, tag_ids: &[String]) -> SqliteResult<us
     }
     tx.commit()?;
 
+    Ok(deleted)
+}
+
+// ==================== Unified Tags ====================
+
+/// Insert one tuple. `INSERT OR IGNORE` is what makes a re-tag a no-op: the
+/// unique index on (tag_id, tuple_key) refuses the repeat and the statement
+/// reports 0 rows instead of failing the whole write.
+fn insert_tag_tuple(
+    conn: &Connection,
+    tag_id: &str,
+    tuple: &NewTagTuple,
+    now: &str,
+) -> SqliteResult<usize> {
+    let values_json = serde_json::to_string(&tuple.values).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO tag_tuples
+            (id, tag_id, tuple_values, tuple_key, origin_connection, origin_table, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+        (
+            uuid::Uuid::new_v4().to_string(),
+            tag_id,
+            values_json,
+            &tuple.tuple_key,
+            &tuple.origin_connection,
+            &tuple.origin_table,
+            now,
+        ),
+    )
+}
+
+/// Create a tag and its first tuples in one transaction, then read it back so
+/// the caller gets the stored ids and timestamps rather than its own payload.
+pub fn create_tag(conn: &Connection, id: &str, create: &CreateTag) -> SqliteResult<Tag> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        r#"
+        INSERT INTO tags (id, name, color_index, note, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        "#,
+        (id, &create.name, create.color_index, &create.note, &now),
+    )?;
+    for tuple in &create.tuples {
+        insert_tag_tuple(&tx, id, tuple, &now)?;
+    }
+    tx.commit()?;
+
+    get_tag(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+}
+
+/// Append tuples to an existing tag. Returns how many were actually inserted,
+/// which is fewer than sent when a tuple was already there.
+pub fn add_tag_tuples(conn: &Connection, payload: &AddTagTuples) -> SqliteResult<usize> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.unchecked_transaction()?;
+    let mut inserted = 0;
+    for tuple in &payload.tuples {
+        inserted += insert_tag_tuple(&tx, &payload.tag_id, tuple, &now)?;
+    }
+    tx.execute("UPDATE tags SET updated_at = ?2 WHERE id = ?1", (&payload.tag_id, &now))?;
+    tx.commit()?;
+    Ok(inserted)
+}
+
+fn read_tag_tuples(conn: &Connection, tag_id: &str) -> SqliteResult<Vec<TagTuple>> {
+    // Tie-break on `rowid`, not `id`: a multi-tuple create or add stamps every
+    // tuple with the SAME `created_at`, so an `id ASC` tie-break would order
+    // ties by a random UUID instead of insertion order. `rowid` is SQLite's
+    // implicit monotonic counter (the table has no INTEGER PRIMARY KEY and
+    // isn't WITHOUT ROWID), so it recovers insertion order exactly.
+    let mut stmt = conn.prepare(
+        "SELECT id, tuple_values, tuple_key, origin_connection, origin_table, created_at \
+         FROM tag_tuples WHERE tag_id = ?1 ORDER BY created_at ASC, rowid ASC",
+    )?;
+    // Bound, not chained: `stmt.query_map(...)?.collect()` fails borrowck
+    // (E0597) because the `?` desugars to a temporary that holds the
+    // `MappedRows` borrow of `stmt`, and that temporary is dropped at the end
+    // of the tail expression — after `stmt` itself has already gone out of
+    // scope. Binding `tuples` first ends the borrow before `stmt` drops.
+    let tuples = stmt
+        .query_map([tag_id], |row| {
+            let values: String = row.get(1)?;
+            Ok(TagTuple {
+                id: row.get(0)?,
+                // Bad JSON gives an empty list, not a failed load. An empty
+                // tuple is inert in the matcher, so a corrupt row costs its
+                // own match, never the whole tag.
+                values: serde_json::from_str(&values).unwrap_or_default(),
+                tuple_key: row.get(2)?,
+                origin_connection: row.get(3)?,
+                origin_table: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?
+        .collect();
+    tuples
+}
+
+fn get_tag(conn: &Connection, tag_id: &str) -> SqliteResult<Option<Tag>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color_index, note, created_at, updated_at FROM tags WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query([tag_id])?;
+    let Some(row) = rows.next()? else { return Ok(None) };
+    let id: String = row.get(0)?;
+    Ok(Some(Tag {
+        tuples: read_tag_tuples(conn, &id)?,
+        id,
+        name: row.get(1)?,
+        color_index: row.get(2)?,
+        note: row.get(3)?,
+        created_at: row.get(4)?,
+        updated_at: row.get(5)?,
+    }))
+}
+
+/// Every tag with its tuples. Tags are GLOBAL — no connection filter, which is
+/// the point of the model: an entity is the same entity in every dataset.
+pub fn load_tags(conn: &Connection) -> SqliteResult<Vec<Tag>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color_index, note, created_at, updated_at FROM tags \
+         ORDER BY created_at ASC, id ASC",
+    )?;
+    let heads: Vec<(String, String, i64, Option<String>, String, String)> = stmt
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+
+    heads
+        .into_iter()
+        .map(|(id, name, color_index, note, created_at, updated_at)| {
+            Ok(Tag {
+                tuples: read_tag_tuples(conn, &id)?,
+                id,
+                name,
+                color_index,
+                note,
+                created_at,
+                updated_at,
+            })
+        })
+        .collect()
+}
+
+/// Change only the fields the payload gives; COALESCE does the "absent field
+/// keeps its value" rule in the statement itself.
+pub fn update_tag(conn: &Connection, update: &UpdateTag) -> SqliteResult<Option<Tag>> {
+    conn.execute(
+        r#"
+        UPDATE tags SET
+            name        = COALESCE(?2, name),
+            color_index = COALESCE(?3, color_index),
+            note        = COALESCE(?4, note),
+            updated_at  = ?5
+        WHERE id = ?1
+        "#,
+        (
+            &update.id,
+            &update.name,
+            update.color_index,
+            &update.note,
+            chrono::Utc::now().to_rfc3339(),
+        ),
+    )?;
+    get_tag(conn, &update.id)
+}
+
+/// Delete a tag. ON DELETE CASCADE takes its tuples, so one statement is the
+/// whole job.
+pub fn delete_tag(conn: &Connection, tag_id: &str) -> SqliteResult<bool> {
+    Ok(conn.execute("DELETE FROM tags WHERE id = ?1", [tag_id])? > 0)
+}
+
+/// Delete individual tuples — the "Remove From Tag" path. A tag that loses
+/// every tuple SURVIVES: it is still a named case the analyst may grow again.
+pub fn delete_tag_tuples(conn: &Connection, tuple_ids: &[String]) -> SqliteResult<usize> {
+    if tuple_ids.is_empty() {
+        return Ok(0);
+    }
+    let tx = conn.unchecked_transaction()?;
+    let mut deleted = 0;
+    for id in tuple_ids {
+        deleted += tx.execute("DELETE FROM tag_tuples WHERE id = ?1", [id])?;
+    }
+    tx.commit()?;
     Ok(deleted)
 }
 
@@ -2958,6 +3147,77 @@ mod tag_schema_tests {
             .query_row("SELECT COUNT(*) FROM tag_tuples WHERE tag_id = 't1'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(orphans, 0, "tag delete must cascade to its tuples");
+    }
+
+    fn sample_tuple(key: &str, value: &str) -> crate::models::NewTagTuple {
+        crate::models::NewTagTuple {
+            values: vec![crate::models::TaggedValue {
+                column: "md5".into(),
+                family: "text".into(),
+                value: value.into(),
+                display: value.to_uppercase(),
+            }],
+            tuple_key: key.into(),
+            origin_connection: "c1".into(),
+            origin_table: "public.certs".into(),
+        }
+    }
+
+    #[test]
+    fn tag_crud_round_trip() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+
+        let created = create_tag(
+            &conn,
+            "tag-1",
+            &crate::models::CreateTag {
+                name: "Suspect infra".into(),
+                color_index: 2,
+                note: Some("may sprint".into()),
+                tuples: vec![sample_tuple("k1", "d41d8c"), sample_tuple("k2", "aabbcc")],
+            },
+        )
+        .unwrap();
+        assert_eq!(created.tuples.len(), 2);
+
+        // Add-to-existing, with one repeat: the unique index absorbs it.
+        let added = add_tag_tuples(
+            &conn,
+            &crate::models::AddTagTuples {
+                tag_id: "tag-1".into(),
+                tuples: vec![sample_tuple("k2", "aabbcc"), sample_tuple("k3", "ddeeff")],
+            },
+        )
+        .unwrap();
+        assert_eq!(added, 1, "the repeated tuple_key must not insert twice");
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].tuples.len(), 3);
+        assert_eq!(loaded[0].tuples[0].values[0].display, "D41D8C");
+
+        let renamed = update_tag(
+            &conn,
+            &crate::models::UpdateTag {
+                id: "tag-1".into(),
+                name: Some("Renamed".into()),
+                color_index: None,
+                note: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(renamed.name, "Renamed");
+        assert_eq!(renamed.color_index, 2, "an absent field keeps its value");
+
+        let ids: Vec<String> = loaded[0].tuples.iter().take(2).map(|t| t.id.clone()).collect();
+        assert_eq!(delete_tag_tuples(&conn, &ids).unwrap(), 2);
+        assert_eq!(load_tags(&conn).unwrap()[0].tuples.len(), 1);
+
+        assert!(delete_tag(&conn, "tag-1").unwrap());
+        assert!(load_tags(&conn).unwrap().is_empty());
+        assert!(!delete_tag(&conn, "tag-1").unwrap(), "unknown id is false, not an error");
     }
 }
 
