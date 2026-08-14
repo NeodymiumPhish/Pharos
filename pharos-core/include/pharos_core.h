@@ -387,6 +387,38 @@ void pharos_import_csv(const char *connection_id,
                        void *context);
 
 /**
+ * Load every tag with its tuples. Returns a JSON array. Caller must free.
+ */
+ char *pharos_load_tags(void);
+
+/**
+ * Create a tag. `json` is a JSON-encoded CreateTag. Returns the stored Tag.
+ */
+ char *pharos_create_tag(const char *json);
+
+/**
+ * Append tuples to a tag. `json` is a JSON-encoded AddTagTuples. Returns the
+ * number inserted as a decimal string, which can be fewer than sent.
+ */
+ char *pharos_add_tag_tuples(const char *json);
+
+/**
+ * Update a tag. `json` is a JSON-encoded UpdateTag. Returns the Tag or null.
+ */
+ char *pharos_update_tag(const char *json);
+
+/**
+ * Delete a tag and, by cascade, its tuples. Returns "true" or "false".
+ */
+ char *pharos_delete_tag(const char *tag_id);
+
+/**
+ * Delete individual tuples. `json` is a JSON array of ids. Returns the number
+ * removed as a decimal string.
+ */
+ char *pharos_delete_tag_tuples(const char *json);
+
+/**
  * Upsert a workspace. `json` = WorkspaceUpsert. Returns "true" or error JSON.
  */
  char *pharos_upsert_workspace(const char *json);

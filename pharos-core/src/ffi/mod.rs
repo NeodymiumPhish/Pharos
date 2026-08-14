@@ -52,6 +52,7 @@ mod schema;
 mod settings;
 mod table_metadata;
 mod table_ops;
+mod tag;
 mod workspace;
 
 // ---------------------------------------------------------------------------
