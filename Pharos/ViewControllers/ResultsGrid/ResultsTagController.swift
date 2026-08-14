@@ -12,9 +12,10 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     private weak var grid: ResultsGridVC?
     private let copyExport: ResultsCopyExport
 
-    /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag".
+    /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag", 22 = "Manage Tags…".
     private static let addTag = 20
     private static let removeTag = 21
+    private static let manageTags = 22
 
     init(grid: ResultsGridVC, copyExport: ResultsCopyExport) {
         self.grid = grid
@@ -36,6 +37,11 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
                                   action: #selector(removeTagAction), keyEquivalent: "")
         remove.tag = Self.removeTag
         remove.target = self
+
+        let manage = menu.addItem(withTitle: "Manage Tags…",
+                                  action: #selector(manageTagsAction), keyEquivalent: "")
+        manage.tag = Self.manageTags
+        manage.target = self
 
         menu.addItem(.separator())
         copyExport.addCopyItems(to: menu)
@@ -64,6 +70,10 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
             }
             remove.isEnabled = removable
         }
+        if let manage = menu.item(withTag: Self.manageTags) {
+            // Needs a tag to manage, not a row: enabled off-selection too.
+            manage.isEnabled = !TagStore.shared.tags.isEmpty
+        }
     }
 
     // MARK: Actions
@@ -76,5 +86,10 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     @objc private func removeTagAction() {
         guard let grid else { return }
         grid.removeFromTags(on: grid.tagTargetDataRows())
+    }
+
+    @objc private func manageTagsAction() {
+        guard let grid else { return }
+        grid.presentTagManageSheet(preselect: nil)
     }
 }

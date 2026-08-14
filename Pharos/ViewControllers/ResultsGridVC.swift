@@ -856,6 +856,16 @@ class ResultsGridVC: NSViewController {
         presentAsSheet(sheet)
     }
 
+    /// "Manage Tags…": rename, recolour, note, delete. `preselect` lands the
+    /// sheet on a specific tag (the Inspector's per-tag Edit button).
+    func presentTagManageSheet(preselect: String?) {
+        guard view.window != nil, !TagStore.shared.tags.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        presentAsSheet(TagManageSheet(preselect: preselect))
+    }
+
     /// "Remove From Tag": drop the tuples this row completes.
     ///
     /// Only SOLID matches are removed. A dashed row holds fragments of several

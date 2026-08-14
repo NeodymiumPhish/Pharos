@@ -313,6 +313,48 @@ func runTests() {
     expectTrue(TagPalette.cellTintAlpha > 0.15 && TagPalette.cellTintAlpha < 0.4,
                "cellTintAlpha is above the 0.15 wash and below the 0.4 current find match")
 
+    // MARK: - 10. normalizedColorIndex: a stored index can be anything
+
+    expectEqual(TagPalette.normalizedColorIndex(0), 0, "an in-range index is itself")
+    expectEqual(TagPalette.normalizedColorIndex(TagPalette.colors.count - 1),
+                TagPalette.colors.count - 1, "the last palette index is itself")
+    expectEqual(TagPalette.normalizedColorIndex(TagPalette.colors.count), 0,
+                "an index one past the palette wraps to the first colour")
+    // A plain `%` returns a NEGATIVE remainder here and would trap on subscript.
+    expectEqual(TagPalette.normalizedColorIndex(-1), TagPalette.colors.count - 1,
+                "a NEGATIVE stored index wraps to the LAST colour, it does not trap")
+    expectEqual(TagPalette.normalizedColorIndex(-TagPalette.colors.count), 0,
+                "a negative multiple of the palette size wraps to the first colour")
+
+    // MARK: - 11. selectionAfterRemoval: the manage sheet's post-delete selection
+    //
+    // The rule the sheet used to get from `NSTableView` clipping an
+    // out-of-range selection during `reloadData()` — which AppKit does not
+    // promise. Made explicit here so it can be asserted at all.
+
+    expectNil(TagPalette.selectionAfterRemoval(removedRow: 0, newCount: 0),
+              "removing the ONLY tag selects nothing")
+    expectNil(TagPalette.selectionAfterRemoval(removedRow: 3, newCount: 0),
+              "an emptied list selects nothing whichever row went")
+
+    expectEqual(TagPalette.selectionAfterRemoval(removedRow: 0, newCount: 2), 0,
+                "removing the FIRST of three lands on the tag that was second")
+    expectEqual(TagPalette.selectionAfterRemoval(removedRow: 1, newCount: 3), 1,
+                "removing a MIDDLE tag lands on the one that followed it")
+
+    // The case the old clipping-dependent code got inconsistent: it jumped to
+    // the FIRST tag when the LAST was deleted, so deleting down a list bounced
+    // back to the top on the final step.
+    expectEqual(TagPalette.selectionAfterRemoval(removedRow: 3, newCount: 3), 2,
+                "removing the LAST tag falls back one, to the NEW last — not to the first")
+    expectEqual(TagPalette.selectionAfterRemoval(removedRow: 1, newCount: 1), 0,
+                "removing the last of two lands on the survivor")
+
+    // `tableView.selectedRow` is -1 when nothing is selected, and the delete
+    // path reads it before the write. It must not become a negative index.
+    expectEqual(TagPalette.selectionAfterRemoval(removedRow: -1, newCount: 2), 0,
+                "a NO-SELECTION row index (-1) resolves to the first tag, never a negative")
+
     if failures == 0 {
         print("\nAll TagAppearance tests passed.")
     } else {

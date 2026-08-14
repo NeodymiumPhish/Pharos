@@ -3268,6 +3268,10 @@ extension ContentViewController {
         resultsVC.presentTagSheet(sender)
     }
 
+    @objc func menuManageTags(_ sender: Any?) {
+        resultsVC.presentTagManageSheet(preselect: nil)
+    }
+
     @objc func menuFormatSQL(_: Any?) {
         focusedPaneVC?.formatSQL()
     }
@@ -3470,6 +3474,13 @@ extension ContentViewController: NSMenuItemValidation {
             // values only, so every result is taggable.
             menuItem.toolTip = nil
             return !targets.isEmpty
+        }
+        if menuItem.action == #selector(menuManageTags(_:)) {
+            // BOTH conditions `presentTagManageSheet` enforces, not just the
+            // store one: a sheet needs a window to hang from, so testing the
+            // tag list alone would enable the item into a beep.
+            return resultsVC.isViewLoaded && resultsVC.view.window != nil
+                && !TagStore.shared.tags.isEmpty
         }
         return true
     }

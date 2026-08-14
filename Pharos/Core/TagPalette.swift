@@ -32,9 +32,20 @@ enum TagPalette {
         .systemGreen, .systemBlue, .systemPurple,
     ]
 
+    /// Wrap a stored index into the palette's range, or nil when there is no
+    /// palette to wrap into.
+    ///
+    /// The one place the wrap-around lives. The value comes from the database,
+    /// so it can be anything — including negative, which is why this is not a
+    /// plain `%`.
+    static func normalizedColorIndex(_ index: Int) -> Int? {
+        guard !colors.isEmpty else { return nil }
+        return ((index % colors.count) + colors.count) % colors.count
+    }
+
     static func color(at index: Int) -> NSColor {
-        guard !colors.isEmpty else { return .systemGray }
-        return colors[((index % colors.count) + colors.count) % colors.count]
+        guard let normalized = normalizedColorIndex(index) else { return .systemGray }
+        return colors[normalized]
     }
 
     /// One vertical band of the leading bar.
@@ -57,6 +68,53 @@ enum TagPalette {
     /// the cell. Precedence and loudness disagree there by choice — do not
     /// read this number as "find always looks stronger than a tint".
     static let cellTintAlpha: CGFloat = 0.2
+
+    private static let swatchSize = NSSize(width: 12, height: 12)
+
+    /// One dot per palette entry, drawn once.
+    ///
+    /// A `static let` rather than a mutable cache: the domain is the palette,
+    /// which never changes at run time, so the whole set can be built on first
+    /// touch and handed out for ever after. `TagManageSheet` asks for one per
+    /// row draw, and drawing an `NSImage` per draw is the kind of allocation a
+    /// scrolling list should never make.
+    private static let swatches: [NSImage] = colors.indices.map { index in
+        NSImage(size: swatchSize, flipped: false) { rect in
+            colors[index].setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+    }
+
+    /// A 12pt colour dot for popups, segmented controls, and list rows.
+    static func swatch(colorIndex: Int) -> NSImage {
+        guard let normalized = normalizedColorIndex(colorIndex) else {
+            return NSImage(size: swatchSize)
+        }
+        return swatches[normalized]
+    }
+
+    // MARK: - Selection repair
+
+    /// Which row a list should select after the row at `removedRow` is gone,
+    /// or nil when nothing is left to select.
+    ///
+    /// The rule is "stay put": the next item slides into the removed row's
+    /// index and inherits the selection, and removing the LAST item falls back
+    /// one to the new last. Deleting down a list therefore walks steadily
+    /// downwards instead of jumping to the top on the final item.
+    ///
+    /// Pure, and here rather than in the sheet, because the alternative was to
+    /// lean on `NSTableView` clipping an out-of-range selection during
+    /// `reloadData()` — behaviour AppKit does not promise. If it ever stopped
+    /// clipping, the sheet would show a drawn selection with empty disabled
+    /// fields and no way to tell why. An explicit rule cannot rot that way, and
+    /// this is the only part of the manage sheet a harness can reach.
+    static func selectionAfterRemoval(removedRow: Int, newCount: Int) -> Int? {
+        guard newCount > 0 else { return nil }
+        guard removedRow > 0 else { return 0 }
+        return min(removedRow, newCount - 1)
+    }
 
     // MARK: - Per-row primitives
     //

@@ -74,6 +74,10 @@ enum MainMenu {
         let tagRowItem = editMenu.addItem(withTitle: "Add Tag…", action: #selector(ContentViewController.menuTagRow(_:)), keyEquivalent: "l")
         tagRowItem.keyEquivalentModifierMask = [.command]
 
+        editMenu.addItem(withTitle: "Manage Tags…",
+                         action: #selector(ContentViewController.menuManageTags(_:)),
+                         keyEquivalent: "")
+
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 

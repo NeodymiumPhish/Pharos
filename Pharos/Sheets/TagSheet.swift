@@ -74,7 +74,7 @@ final class TagSheet: NSViewController {
         for tag in context.existingTags {
             tagPopup.addItem(withTitle: tag.name)
             tagPopup.lastItem?.representedObject = tag.id
-            tagPopup.lastItem?.image = Self.swatch(colorIndex: tag.colorIndex)
+            tagPopup.lastItem?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
         }
         tagPopup.target = self
         tagPopup.action = #selector(tagChoiceChanged)
@@ -86,7 +86,7 @@ final class TagSheet: NSViewController {
         colorControl.segmentCount = TagPalette.colors.count
         colorControl.trackingMode = .selectOne
         for index in TagPalette.colors.indices {
-            colorControl.setImage(Self.swatch(colorIndex: index), forSegment: index)
+            colorControl.setImage(TagPalette.swatch(colorIndex: index), forSegment: index)
             colorControl.setWidth(30, forSegment: index)
         }
         colorControl.selectedSegment = context.existingTags.count % TagPalette.colors.count
@@ -294,8 +294,11 @@ final class TagSheet: NSViewController {
                 try TagStore.shared.addTuples(
                     AddTagTuples(tagId: targetTagId, tuples: tuples))
             } else {
-                let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
-                let note = noteField.stringValue.trimmingCharacters(in: .whitespaces)
+                // `.whitespacesAndNewlines`, not `.whitespaces`: pasted text
+                // carries a trailing newline, which `.whitespaces` leaves in
+                // place. `TagManageSheet` trims the same way.
+                let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let note = noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 try TagStore.shared.createTag(CreateTag(
                     name: name.isEmpty ? "Untitled tag" : name,
                     colorIndex: max(0, colorControl.selectedSegment),
@@ -311,16 +314,6 @@ final class TagSheet: NSViewController {
             alert.addButton(withTitle: "OK")
             guard let window = view.window else { return }
             alert.beginSheetModal(for: window)
-        }
-    }
-
-    /// A 12 pt colour dot for the popup and the colour control.
-    private static func swatch(colorIndex: Int) -> NSImage {
-        let size = NSSize(width: 12, height: 12)
-        return NSImage(size: size, flipped: false) { rect in
-            TagPalette.color(at: colorIndex).setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            return true
         }
     }
 }
