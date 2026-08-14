@@ -305,6 +305,43 @@ func runTests() {
                     "a solid match shows the FIRST solid tuple, not the one with most present values")
     }
 
+    // MARK: - 17. The delete confirmation inflects the noun AND the verb
+
+    do {
+        let many = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 3)
+        expectEqual(many.body,
+                    "Its 3 tuples stop matching in every result, "
+                    + "on every connection — not only here.",
+                    "many tuples take a plural noun AND a plural verb")
+        // The bug this pins: inflecting the noun alone gives "Its 1 tuple
+        // stop matching". Both halves must move together.
+        let one = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 1)
+        expectEqual(one.body,
+                    "Its 1 tuple stops matching in every result, "
+                    + "on every connection — not only here.",
+                    "one tuple takes a singular noun AND a singular verb")
+        let none = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 0)
+        expectEqual(none.body,
+                    "Its 0 tuples stop matching in every result, "
+                    + "on every connection — not only here.",
+                    "zero tuples take the plural, not the singular")
+        expectEqual(one.title, "Delete tag \u{201C}Suspect infra\u{201D}?",
+                    "the title names the tag in curly quotes")
+    }
+
+    // MARK: - 18. The state word mirrors isPartial
+
+    do {
+        func entry(isPartial: Bool) -> TagInspectorEntry {
+            TagInspectorEntry(tagId: "t1", name: "n", colorIndex: 0, note: nil,
+                              isPartial: isPartial, values: [], isCrossTuple: false)
+        }
+        expectEqual(entry(isPartial: false).stateWord, "solid",
+                    "a complete match reads solid")
+        expectEqual(entry(isPartial: true).stateWord, "dashed",
+                    "a partial match reads dashed")
+    }
+
     if failures == 0 {
         print("\nAll TagInspectorModel tests passed.")
     } else {

@@ -65,6 +65,14 @@ class ResultsGridVC: NSViewController {
     /// latches while the button is hidden, so a newly-tagged row can bring it
     /// back with force-show still on; the stage gate makes the latch harmless.
     var forceShowTags = false
+    /// Fires after EVERY tag-map landing, because every landing goes through
+    /// `applyTagMap`: a store change, an async match result, `clear()` wiping
+    /// the map on each new query, and the blank placeholder the async path
+    /// lands before its real result. The last two carry an empty map, so a
+    /// listener that rebuilds shared UI must decide for itself whether a
+    /// blank map is worth acting on. ContentViewController uses this to
+    /// refresh the Inspector's Tags section in place.
+    var onTagMapChanged: (() -> Void)?
     var hasMore: Bool = false
     var executionTimeMs: UInt64 = 0
     var columnCategories: [PGTypeCategory] = []
@@ -788,6 +796,7 @@ class ResultsGridVC: NSViewController {
         dataSource.tintByRow = state.tintByRow
         dataSource.tagTints = state.tints
         syncTagButton()
+        onTagMapChanged?()
     }
 
     // MARK: - Tagging

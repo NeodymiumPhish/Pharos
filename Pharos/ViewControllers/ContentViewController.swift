@@ -282,6 +282,21 @@ class ContentViewController: NSViewController {
             self?.scheduleInspectorUpdate(selectedIndices: selectedIndices)
         }
 
+        resultsVC.onTagMapChanged = { [weak self] in
+            guard let self,
+                  let splitVC = self.parent as? PharosSplitViewController,
+                  // The Inspector is SHARED: the schema browser and the SQL
+                  // view write to it too, and `clear()` alone lands a blank
+                  // map on every query. Without this test the refresh would
+                  // replace a table's detail with "No Selection" and leave no
+                  // trace of why.
+                  splitVC.inspectorVC.isShowingRowDetail
+            else { return }
+            self.updateInspector(selectedIndices: self.lastInspectorIndices)
+        }
+
+        wireInspectorTagControls()
+
         // Wire up expand editor / results (handled by action bar buttons directly)
 
         // Observe state
@@ -707,6 +722,14 @@ class ContentViewController: NSViewController {
     /// tick so a fast cell-drag results in a single inspector rebuild at rest.
     private var pendingInspectorWorkItem: DispatchWorkItem?
 
+    /// The last selection handed to `updateInspector` — recorded on entry, so
+    /// it holds selections that the guards below then rejected as well as the
+    /// ones that reached the pane. A tag-map change replays it to refresh the
+    /// Tags section without waiting for a new selection tick; that replay
+    /// tests what the Inspector currently SHOWS before it runs, because this
+    /// value says nothing about that.
+    private var lastInspectorIndices = IndexSet()
+
     private func scheduleInspectorUpdate(selectedIndices: IndexSet) {
         pendingInspectorWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -717,6 +740,7 @@ class ContentViewController: NSViewController {
     }
 
     private func updateInspector(selectedIndices: IndexSet) {
+        lastInspectorIndices = selectedIndices
         guard let splitVC = parent as? PharosSplitViewController else { return }
 
         if selectedIndices.isEmpty {
@@ -730,12 +754,19 @@ class ContentViewController: NSViewController {
             let dataIndex = resultsVC.displayRows[displayIndex]
             guard dataIndex < resultsVC.rows.count else { return }
             let rowData = resultsVC.rows[dataIndex]
+            let entries = TagInspectorModel.entries(
+                matches: resultsVC.matchesByRow[dataIndex] ?? [],
+                tags: TagStore.shared.tags,
+                columns: resultsVC.columns,
+                rowText: rowData.map { $0.stringValue })
             splitVC.inspectorVC.showRowDetail(
                 columns: resultsVC.columns,
                 row: rowData,
                 rowNumber: displayIndex + 1,
+                dataRow: dataIndex,
                 totalRows: resultsVC.displayRows.count,
-                columnCategories: resultsVC.columnCategories
+                columnCategories: resultsVC.columnCategories,
+                tagEntries: entries
             )
         } else {
             let dataIndices = selectedIndices.compactMap { idx -> Int? in
@@ -753,6 +784,86 @@ class ContentViewController: NSViewController {
                 columnCategories: resultsVC.columnCategories
             )
         }
+    }
+
+    /// Wires the Inspector's per-tag controls once, at setup. `addTagSection`
+    /// reads these closures while it builds a row's buttons, so wiring them
+    /// per selection would leave that ordering to chance.
+    private func wireInspectorTagControls() {
+        guard let inspectorVC = (parent as? PharosSplitViewController)?.inspectorVC else {
+            // The buttons would simply never render. That is exactly the kind
+            // of silent read-layer failure this phase keeps producing, so it
+            // gets a line in the log rather than nothing at all.
+            NSLog("Inspector tag controls not wired: no split view controller parent yet.")
+            return
+        }
+        inspectorVC.onEditTag = { [weak self] tagId in
+            guard let self else { return }
+            // The store can lose the tag between the repaint and the click.
+            guard TagStore.shared.tag(id: tagId) != nil else {
+                NSSound.beep()
+                return
+            }
+            self.resultsVC.presentTagManageSheet(preselect: tagId)
+        }
+        inspectorVC.onDeleteTag = { [weak self] tagId in
+            self?.confirmDeleteTag(id: tagId)
+        }
+    }
+
+    /// The Inspector's per-tag "Remove Tag…": deletes the whole TAG after a
+    /// count-bearing confirmation. Tuple-level removal is the removal sheet's
+    /// job, reached from the grid.
+    private func confirmDeleteTag(id: String) {
+        guard let tag = TagStore.shared.tag(id: id), let window = view.window else {
+            // Either the tag went away since this section was drawn, or there
+            // is no window to hang the confirmation on. Both leave the click
+            // with nothing to do, and silence would read as a dead button.
+            NSSound.beep()
+            return
+        }
+        let text = TagInspectorModel.deleteConfirmation(
+            name: tag.name, tupleCount: tag.tuples.count)
+        let alert = NSAlert()
+        alert.messageText = text.title
+        alert.informativeText = text.body
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Delete Tag")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        // Cancel takes Return, not Delete. The delete is global and permanent
+        // — ON DELETE CASCADE takes every tuple — and `TagManageSheet` and
+        // `TagRemovalSheet` both give Return to Cancel for the same action.
+        // The Inspector must not be the one surface where the habitual key
+        // destroys a tag.
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\r"
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            do { try TagStore.shared.deleteTag(id: id) }
+            catch {
+                NSLog("Tag delete failed: \(error)")
+                // Deferred by a turn: this runs inside the confirmation
+                // alert's completion handler, and AppKit tears a sheet down
+                // ASYNCHRONOUSLY, so presenting in the same turn can be
+                // dropped (tasks/lessons.md, 2026-08-06). Without the alert
+                // the analyst confirms a destructive action, the tag stays on
+                // screen, and nothing says why.
+                DispatchQueue.main.async {
+                    self?.presentTagError(
+                        title: "Could not delete the tag", message: "\(error)")
+                }
+            }
+        }
+    }
+
+    private func presentTagError(title: String, message: String) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
     }
 
     // MARK: - Action Bar Setup

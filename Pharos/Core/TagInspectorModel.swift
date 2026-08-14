@@ -29,11 +29,35 @@ struct TagInspectorEntry: Equatable {
     /// tuple A = {x, y} and tuple B = {x, z}, a row holding only x already
     /// makes both tuples contributors, even though a single value matched.
     let isCrossTuple: Bool
+
+    /// The one word shown beside the tag name. It mirrors the bar's two
+    /// styles, so the Inspector and the grid never name a state differently.
+    var stateWord: String { isPartial ? "dashed" : "solid" }
 }
 
 /// Pure builder for the Inspector's Tags section. No AppKit, no store —
 /// everything arrives as parameters so a standalone harness can pin it.
 enum TagInspectorModel {
+
+    /// The whole-tag delete confirmation. One producer serves both surfaces
+    /// that offer the action — the Inspector's per-tag "Remove Tag…" and the
+    /// manage sheet's "Delete Tag…" — so the two can never drift apart, and
+    /// the wording is pinned by the standalone suite instead of by eye.
+    ///
+    /// Both the noun AND the verb inflect. Inflecting only the noun reads
+    /// "Its 1 tuple stop matching", which is why this is a function and not
+    /// an interpolated string at each call site.
+    static func deleteConfirmation(
+        name: String, tupleCount: Int
+    ) -> (title: String, body: String) {
+        let subject = tupleCount == 1
+            ? "Its 1 tuple stops"
+            : "Its \(tupleCount) tuples stop"
+        return (
+            title: "Delete tag \u{201C}\(name)\u{201D}?",
+            body: "\(subject) matching in every result, on every connection — not only here."
+        )
+    }
 
     /// Entries in the matcher's order (strongest first). A match is skipped
     /// when its tag id is unknown (a delete landing mid-repaint) or when

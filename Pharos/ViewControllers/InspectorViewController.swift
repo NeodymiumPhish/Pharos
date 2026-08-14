@@ -8,6 +8,19 @@ class InspectorViewController: NSViewController {
     private var scrollView = NSScrollView()
     private var stackView = NSStackView()
     private var currentRowNumber: Int?
+    private var currentDataRow: Int?
+    private var currentTagEntries: [TagInspectorEntry] = []
+
+    /// True only while row detail is on screen. This pane is SHARED — the
+    /// schema browser and the SQL view write to it too — so anything that
+    /// wants to refresh row detail in place must ask this first, or it
+    /// silently replaces whatever else the analyst was reading.
+    var isShowingRowDetail: Bool { currentRowNumber != nil }
+
+    /// Per-tag controls, wired by ContentViewController. Buttons only render
+    /// when the closure is set.
+    var onEditTag: ((String) -> Void)?
+    var onDeleteTag: ((String) -> Void)?
 
     override func loadView() {
         let container = NSView()
@@ -65,8 +78,18 @@ class InspectorViewController: NSViewController {
 
     // MARK: - Public API
 
-    func showNoSelection() {
+    /// Forgets the row-detail identity. Every entry point that puts something
+    /// OTHER than row detail on screen calls it, so `isShowingRowDetail` reads
+    /// false and the next `showRowDetail` cannot dedup against a view that is
+    /// no longer there.
+    private func clearRowDetailIdentity() {
         currentRowNumber = nil
+        currentDataRow = nil
+        currentTagEntries = []
+    }
+
+    func showNoSelection() {
+        clearRowDetailIdentity()
         scrollView.isHidden = true
         noSelectionLabel.stringValue = "No Selection"
         noSelectionLabel.isHidden = false
@@ -76,12 +99,23 @@ class InspectorViewController: NSViewController {
         columns: [ColumnDef],
         row: [AnyCodable],
         rowNumber: Int,
+        dataRow: Int,
         totalRows: Int,
-        columnCategories: [PGTypeCategory]
+        columnCategories: [PGTypeCategory],
+        tagEntries: [TagInspectorEntry] = []
     ) {
-        // Skip rebuild if same row
-        if currentRowNumber == rowNumber { return }
+        // Skip the rebuild only when the whole identity is unchanged.
+        // `rowNumber` is a DISPLAY position, and a sort or a filter change
+        // hands the same position to a different record, so `dataRow` — the
+        // record itself — joins it; without that, two untagged rows compare
+        // equal and the pane keeps the previous row's values. `tagEntries`
+        // joins it too, because a tag edit must repaint this section while
+        // the selection stays put, which a row-only guard swallowed.
+        if currentRowNumber == rowNumber && currentDataRow == dataRow
+            && currentTagEntries == tagEntries { return }
         currentRowNumber = rowNumber
+        currentDataRow = dataRow
+        currentTagEntries = tagEntries
 
         noSelectionLabel.isHidden = true
         scrollView.isHidden = false
@@ -113,6 +147,9 @@ class InspectorViewController: NSViewController {
         stackView.addArrangedSubview(separator)
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        // Tags section — above the columns; the finding comes before the data.
+        addTagSection(tagEntries)
 
         // Column key-value pairs
         for (index, colDef) in columns.enumerated() {
@@ -228,7 +265,7 @@ class InspectorViewController: NSViewController {
         selectionCount: Int,
         columnCategories: [PGTypeCategory]
     ) {
-        currentRowNumber = nil
+        clearRowDetailIdentity()
         noSelectionLabel.isHidden = true
         scrollView.isHidden = false
 
@@ -362,7 +399,7 @@ class InspectorViewController: NSViewController {
     /// `showRowDetail`/`showAggregation` (title on the left, an identifying
     /// value on the right).
     private func beginDetailSection(title: String, subtitle: String) {
-        currentRowNumber = nil
+        clearRowDetailIdentity()
         noSelectionLabel.isHidden = true
         scrollView.isHidden = false
 
@@ -425,6 +462,157 @@ class InspectorViewController: NSViewController {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.heightAnchor.constraint(equalToConstant: 6).isActive = true
         stackView.addArrangedSubview(spacer)
+    }
+
+    // MARK: - Tags Section
+
+    /// The Tags section: one block per matching tag — swatch + name + state,
+    /// the note, the displayed tuple's values with match marks, the
+    /// cross-tuple explanation, and the per-tag controls — then a separator
+    /// to hand back to the column list. Renders nothing for an untagged row.
+    private func addTagSection(_ entries: [TagInspectorEntry]) {
+        guard !entries.isEmpty else { return }
+        for entry in entries {
+            addTagHeader(entry)
+            if let note = entry.note { addTagNote(note) }
+            // A solid entry can still show a dash: when the recorded tuple was
+            // deleted, `TagInspectorModel` falls through to the closest
+            // remaining one rather than let the entry vanish under the bar.
+            for value in entry.values { addTagValueRow(value) }
+            if entry.isCrossTuple {
+                addDetailNote("Partial: matched values come from different tagged rows.")
+            }
+            addTagButtons(tagId: entry.tagId)
+            addTagSpacer()
+        }
+
+        let divider = NSBox()
+        divider.boxType = .separator
+        stackView.addArrangedSubview(divider)
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// Swatch, tag name, and the state word pinned to the right edge — the
+    /// same leading-label/trailing-label shape the other headers in this file
+    /// use, and it needs the same `.fill` distribution to get it.
+    private func addTagHeader(_ entry: TagInspectorEntry) {
+        let dot = NSImageView(image: TagPalette.swatch(colorIndex: entry.colorIndex))
+        // The other `TagPalette.swatch` callers hand the image to a control
+        // that sizes itself to it. A bare image view has no such rule, so it
+        // is pinned to the swatch's own size instead of stretching in the row.
+        dot.imageScaling = .scaleNone
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            dot.widthAnchor.constraint(equalToConstant: 12),
+            dot.heightAnchor.constraint(equalToConstant: 12),
+        ])
+
+        let nameLabel = NSTextField(labelWithString: entry.name)
+        nameLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let stateLabel = NSTextField(labelWithString: entry.stateWord)
+        stateLabel.font = .systemFont(ofSize: 11)
+        stateLabel.textColor = .tertiaryLabelColor
+        stateLabel.alignment = .right
+        stateLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let header = NSStackView(views: [dot, nameLabel, stateLabel])
+        header.orientation = .horizontal
+        header.distribution = .fill
+        header.spacing = 6
+        stackView.addArrangedSubview(header)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// The tag's note, wrapped. A note is free text, so it can hold one
+    /// unbroken token — a URL, a path, a hash — with no word break to wrap at.
+    /// Lowering the compression resistance lets it shrink against the width
+    /// constraint instead of breaking it.
+    private func addTagNote(_ note: String) {
+        let noteLabel = NSTextField(labelWithString: note)
+        noteLabel.font = .systemFont(ofSize: 11)
+        noteLabel.textColor = .secondaryLabelColor
+        noteLabel.maximumNumberOfLines = 0
+        noteLabel.lineBreakMode = .byWordWrapping
+        noteLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        stackView.addArrangedSubview(noteLabel)
+        noteLabel.translatesAutoresizingMaskIntoConstraints = false
+        noteLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// One captured value: a match mark, the column it was captured from, and
+    /// the value itself.
+    private func addTagValueRow(_ value: TagInspectorValue) {
+        let mark = NSTextField(labelWithString: value.isMatched ? "\u{2713}" : "\u{2014}")
+        mark.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        mark.textColor = value.isMatched ? .systemGreen : .tertiaryLabelColor
+
+        let columnLabel = NSTextField(labelWithString: value.column)
+        columnLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        columnLabel.textColor = .secondaryLabelColor
+
+        let displayLabel = NSTextField(labelWithString: value.display)
+        displayLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        displayLabel.textColor = value.isMatched ? .labelColor : .tertiaryLabelColor
+        displayLabel.lineBreakMode = .byTruncatingMiddle
+        displayLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let valueRow = NSStackView(views: [mark, columnLabel, displayLabel])
+        valueRow.orientation = .horizontal
+        valueRow.distribution = .fill
+        valueRow.spacing = 6
+        stackView.addArrangedSubview(valueRow)
+        valueRow.translatesAutoresizingMaskIntoConstraints = false
+        valueRow.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// The per-tag controls. Each button carries its tag id, so one
+    /// target-action pair serves any number of entries.
+    private func addTagButtons(tagId: String) {
+        guard onEditTag != nil || onDeleteTag != nil else { return }
+        var buttons: [NSView] = []
+        if onEditTag != nil {
+            buttons.append(tagButton(title: "Edit…", tagId: tagId,
+                                     action: #selector(editTagClicked(_:))))
+        }
+        if onDeleteTag != nil {
+            buttons.append(tagButton(title: "Remove Tag…", tagId: tagId,
+                                     action: #selector(deleteTagClicked(_:))))
+        }
+        let buttonRow = NSStackView(views: buttons)
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 8
+        stackView.addArrangedSubview(buttonRow)
+    }
+
+    private func tagButton(title: String, tagId: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.controlSize = .small
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 11)
+        button.identifier = NSUserInterfaceItemIdentifier(tagId)
+        return button
+    }
+
+    private func addTagSpacer() {
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        stackView.addArrangedSubview(spacer)
+    }
+
+    /// The tag id rides on the button's `identifier` — one target-action pair
+    /// for any number of entries, no associated objects.
+    @objc private func editTagClicked(_ sender: NSButton) {
+        if let id = sender.identifier?.rawValue { onEditTag?(id) }
+    }
+
+    @objc private func deleteTagClicked(_ sender: NSButton) {
+        if let id = sender.identifier?.rawValue { onDeleteTag?(id) }
     }
 
     private func makeFieldLabel(_ text: String) -> NSTextField {

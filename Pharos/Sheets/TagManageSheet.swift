@@ -269,12 +269,13 @@ final class TagManageSheet: NSViewController,
         // Read the row BEFORE the write: afterwards the list has re-sorted
         // itself around the gap and this index no longer names the tag.
         let removedRow = tableView.selectedRow
-        let count = tag.tuples.count
+        // Shared with the Inspector's per-tag "Remove Tag…", which offers the
+        // same destructive action: one wording, one plural rule, one test.
+        let text = TagInspectorModel.deleteConfirmation(
+            name: tag.name, tupleCount: tag.tuples.count)
         let alert = NSAlert()
-        alert.messageText = "Delete tag \u{201C}\(tag.name)\u{201D}?"
-        alert.informativeText =
-            "Its \(count) tuple\(count == 1 ? "" : "s") stop matching in every result, "
-            + "on every connection — not only here."
+        alert.messageText = text.title
+        alert.informativeText = text.body
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Delete Tag")
         alert.addButton(withTitle: "Cancel")
