@@ -30,6 +30,21 @@ private func match(_ tagId: String, _ state: TagMatchState,
                 matchedTupleIds: ["u1"], solidTupleIds: state == .solid ? ["u1"] : [])
 }
 
+/// Minimal tag fixture. The colour index picks a palette entry the assertions
+/// can name; timestamps and tuples are filler the palette never reads.
+private func tag(_ id: String, _ name: String, colorIndex: Int) -> Tag {
+    Tag(id: id, name: name, colorIndex: colorIndex, note: nil,
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+        tuples: [])
+}
+
+// Palette indices: 0 red, 1 orange, 2 yellow, 3 green, 4 blue, 5 purple.
+private let redTag = tag("red-tag", "Reds", colorIndex: 0)
+private let greenTag = tag("green-tag", "Greens", colorIndex: 3)
+private let blueTag = tag("blue-tag", "Blues", colorIndex: 4)
+private let purpleTag = tag("purple-tag", "Purples", colorIndex: 5)
+private let allTags = [redTag, greenTag, blueTag, purpleTag]
+
 private let colors = ["red-tag": NSColor.systemRed, "blue-tag": NSColor.systemBlue,
                       "green-tag": NSColor.systemGreen, "purple-tag": NSColor.systemPurple]
 private let names = ["red-tag": "Reds", "blue-tag": "Blues", "green-tag": "Greens",
@@ -53,68 +68,64 @@ func runTests() {
                 TagPalette.colors[TagPalette.colors.count - 1],
                 "a negative index wraps to the last entry, not a trap")
 
-    // MARK: - 2. segments map through displayRows, not the raw row index
+    // MARK: - 2. The display → data crossing: dataRow and tintTag
+    //
+    // Everything `bake` returns is keyed by DATA row; every grid caller holds
+    // a DISPLAY row. Reversed, the grid paints the right colour on the wrong
+    // row as soon as a filter or a sort is active, and nothing crashes. These
+    // are the assertions that discriminate the two directions.
 
     do {
         let displayRows = [5, 2, 9]
-        let matchesByRow: [Int: [TagRowMatch]] = [2: [match("red-tag", .solid)]] // DATA row 2
 
-        let hit = TagPalette.segments(row: 1, displayRows: displayRows,
-                                      matchesByRow: matchesByRow, tagColors: colors)
-        expectEqual(hit.count, 1, "row 1 (display row 2, the matched data row) hits")
-        expectEqual(hit.first?.color, NSColor.systemRed, "the hit carries the tag's colour")
-        expectEqual(hit.first?.isPartial, false, "a solid match is not partial")
+        expectEqual(TagPalette.dataRow(displayRow: 1, displayRows: displayRows), 2,
+                    "display row 1 maps to DATA row 2")
+        expectEqual(TagPalette.dataRow(displayRow: 0, displayRows: displayRows), 5,
+                    "display row 0 maps to DATA row 5")
+        expectNil(TagPalette.dataRow(displayRow: -1, displayRows: displayRows),
+                  "a negative display row maps to nil rather than trapping")
+        expectNil(TagPalette.dataRow(displayRow: displayRows.count, displayRows: displayRows),
+                  "a display row one past the end maps to nil rather than trapping")
+        expectNil(TagPalette.dataRow(displayRow: 0, displayRows: []),
+                  "no display rows at all, no data row")
 
-        // `matchesByRow[0]` is also absent, so a version indexing by `row`
-        // directly would miss here too — this assertion alone does not
-        // distinguish the two implementations. It exists to pin the "row 0
-        // has no tag" case on its own terms; the hit above and the
-        // wrong-hit-direction check below are what actually discriminate.
-        expectTrue(TagPalette.segments(row: 0, displayRows: displayRows,
-                                       matchesByRow: matchesByRow, tagColors: colors).isEmpty,
-                   "row 0 (display row 5, untagged) misses")
+        // DATA row 2 is tinted; it is shown at DISPLAY row 1.
+        let tintByRow: [Int: [Int: String]] = [2: [1: "red-tag", 3: "blue-tag"]]
 
-        // The wrong-hit direction: matchesByRow[2] holds a match, but display
-        // row 2 shows DATA row 9, which is untagged. A version indexing by
-        // `row` instead of `displayRows[row]` returns a segment here.
-        expectTrue(TagPalette.segments(row: 2, displayRows: displayRows,
-                                       matchesByRow: matchesByRow, tagColors: colors).isEmpty,
-                   "row 2 (display row 9, untagged) misses even though matchesByRow[2] holds a match")
+        expectEqual(TagPalette.tintTag(row: 1, displayRows: displayRows,
+                                       tintByRow: tintByRow, column: 1),
+                    "red-tag",
+                    "display row 1 (DATA row 2) finds its tint")
+        expectEqual(TagPalette.tintTag(row: 1, displayRows: displayRows,
+                                       tintByRow: tintByRow, column: 3),
+                    "blue-tag",
+                    "a second tinted column on the same row keeps its own tag")
+
+        // The wrong-hit direction: `tintByRow[2]` holds tints, but DISPLAY row
+        // 2 shows DATA row 9, which matched nothing. A version indexing by
+        // `row` instead of `displayRows[row]` tints this cell.
+        expectNil(TagPalette.tintTag(row: 2, displayRows: displayRows,
+                                     tintByRow: tintByRow, column: 1),
+                  "display row 2 (DATA row 9, untagged) gets no tint even though tintByRow[2] is populated")
+        expectNil(TagPalette.tintTag(row: 0, displayRows: displayRows,
+                                     tintByRow: tintByRow, column: 1),
+                  "display row 0 (DATA row 5) has no entry at all")
+        expectNil(TagPalette.tintTag(row: 1, displayRows: displayRows,
+                                     tintByRow: tintByRow, column: 0),
+                  "an unmatched column on a tinted row has no tint")
+        expectNil(TagPalette.tintTag(row: -1, displayRows: displayRows,
+                                     tintByRow: tintByRow, column: 1),
+                  "a negative row returns nil rather than trapping")
+        expectNil(TagPalette.tintTag(row: displayRows.count, displayRows: displayRows,
+                                     tintByRow: tintByRow, column: 1),
+                  "a row past the end returns nil rather than trapping")
     }
 
-    // MARK: - 3. tooltip maps through displayRows too, and never traps on an out-of-range row
-
-    do {
-        // Reuses section 2's fixture: DATA row 2 (display row 1) is the only
-        // tagged row; DATA row 9 (display row 2) is untagged despite
-        // `matchesByRow[2]` holding a match for a DIFFERENT data row.
-        let displayRows = [5, 2, 9]
-        let matchesByRow: [Int: [TagRowMatch]] = [2: [match("red-tag", .solid)]]
-
-        expectEqual(TagPalette.tooltip(row: 1, displayRows: displayRows,
-                                       matchesByRow: matchesByRow, tagNames: names),
-                    "Reds — solid",
-                    "row 1 (display row 2, the matched data row) gets the red line")
-        expectNil(TagPalette.tooltip(row: 2, displayRows: displayRows,
-                                     matchesByRow: matchesByRow, tagNames: names),
-                  "row 2 (display row 9, untagged) has no tooltip even though matchesByRow[2] holds a match")
-
-        // `displayRows` can be momentarily stale against the table during a
-        // reload — an unguarded subscript here would trap, not just miss.
-        expectNil(TagPalette.tooltip(row: -1, displayRows: displayRows,
-                                     matchesByRow: matchesByRow, tagNames: names),
-                  "a negative row index returns nil rather than trapping")
-        expectNil(TagPalette.tooltip(row: displayRows.count, displayRows: displayRows,
-                                     matchesByRow: matchesByRow, tagNames: names),
-                  "a row index at displayRows.count (one past the end) returns nil rather than trapping")
-    }
-
-    // MARK: - 4. Segment order and states follow the matcher's order, never re-sorted
+    // MARK: - 3. Segment order and states follow the matcher's order, never re-sorted
 
     do {
         let segs = TagPalette.segments(
-            row: 0, displayRows: [7],
-            matchesByRow: [7: [match("blue-tag", .solid), match("red-tag", .dashed)]],
+            matches: [match("blue-tag", .solid), match("red-tag", .dashed)],
             tagColors: colors)
         expectEqual(segs, [TagPalette.Segment(color: .systemBlue, isPartial: false),
                            TagPalette.Segment(color: .systemRed, isPartial: true)],
@@ -126,28 +137,25 @@ func runTests() {
         // first" sort inside `segments` would silently reorder this and
         // still pass the solid-then-dashed fixture above.
         let segs = TagPalette.segments(
-            row: 0, displayRows: [7],
-            matchesByRow: [7: [match("red-tag", .dashed), match("blue-tag", .solid)]],
+            matches: [match("red-tag", .dashed), match("blue-tag", .solid)],
             tagColors: colors)
         expectEqual(segs, [TagPalette.Segment(color: .systemRed, isPartial: true),
                            TagPalette.Segment(color: .systemBlue, isPartial: false)],
                    "the palette must not re-sort: dashed-first-in-the-matcher stays first")
     }
 
-    // MARK: - 5. Segments cap at three, filtering before capping; the tooltip carries the full list
+    // MARK: - 4. Segments cap at three, filtering before capping; the tooltip carries the full list
 
     do {
         let four = [match("blue-tag", .solid), match("green-tag", .solid),
                     match("purple-tag", .dashed), match("red-tag", .dashed)]
-        let segs = TagPalette.segments(row: 0, displayRows: [0],
-                                       matchesByRow: [0: four], tagColors: colors)
+        let segs = TagPalette.segments(matches: four, tagColors: colors)
         expectEqual(segs.count, TagPalette.maxSegments, "four matches draw maxSegments segments")
         expectEqual(segs.map(\.color), [NSColor.systemBlue, .systemGreen, .systemPurple],
                     "the cap keeps the FIRST three, in order")
 
-        let tip = TagPalette.tooltip(row: 0, displayRows: [0],
-                                     matchesByRow: [0: four], tagNames: names)
-        expectEqual(tip, "Blues — solid\nGreens — solid\nPurples — dashed\nReds — dashed",
+        expectEqual(TagPalette.tooltip(matches: four, tagNames: names),
+                    "Blues — solid\nGreens — solid\nPurples — dashed\nReds — dashed",
                     "the tooltip lists all four with their states")
     }
 
@@ -160,65 +168,43 @@ func runTests() {
         let matches: [TagRowMatch] = [match("ghost-tag", .solid), match("blue-tag", .solid),
                                       match("green-tag", .dashed), match("purple-tag", .dashed),
                                       match("red-tag", .dashed)]
-        let segs = TagPalette.segments(row: 0, displayRows: [0],
-                                       matchesByRow: [0: matches], tagColors: colors)
-        expectEqual(segs.count, TagPalette.maxSegments,
+        expectEqual(TagPalette.segments(matches: matches, tagColors: colors).count,
+                    TagPalette.maxSegments,
                     "the colourless tag is filtered out before the cap, so three coloured bands survive")
     }
 
-    // MARK: - 6. A tag with no colour entry is skipped, not fatal to the row
+    // MARK: - 5. A tag with no colour or no name is skipped, not fatal to the row
 
     do {
         let segs = TagPalette.segments(
-            row: 0, displayRows: [0],
-            matchesByRow: [0: [match("ghost-tag", .solid), match("red-tag", .dashed)]],
+            matches: [match("ghost-tag", .solid), match("red-tag", .dashed)],
             tagColors: colors)
         expectEqual(segs.count, 1, "the colourless tag is skipped; the coloured one survives")
         expectEqual(segs.first?.color, NSColor.systemRed, "the surviving segment is the coloured tag's")
-    }
 
-    // MARK: - 7. Edge rows and empty inputs
-
-    do {
-        let matchesByRow: [Int: [TagRowMatch]] = [0: [match("blue-tag", .solid)]]
-        expectTrue(TagPalette.segments(row: -1, displayRows: [0],
-                                       matchesByRow: matchesByRow, tagColors: colors).isEmpty,
-                   "a negative row index returns no segments")
-        expectTrue(TagPalette.segments(row: 1, displayRows: [0],
-                                       matchesByRow: matchesByRow, tagColors: colors).isEmpty,
-                   "a row index past displayRows returns no segments")
-        expectTrue(TagPalette.segments(row: 0, displayRows: [7],
-                                       matchesByRow: [7: []], tagColors: colors).isEmpty,
-                   "an empty match list draws nothing")
-        expectNil(TagPalette.tooltip(row: 0, displayRows: [7],
-                                     matchesByRow: [7: []], tagNames: names),
-                  "an empty match list has no tooltip")
-        expectNil(TagPalette.tooltip(row: 0, displayRows: [7],
-                                     matchesByRow: [:], tagNames: names),
-                  "an unmatched row has no tooltip")
-    }
-
-    // MARK: - 8. tooltip skips a tag that is no longer in the store
-
-    do {
-        // `tagNames` and `tagColors` are built together from the same
-        // `TagStore.shared.tags` in one `applyTagMap`, so a name missing here
-        // is the same condition `segments` already treats as "this tag is
-        // gone" — the tooltip must agree, not fall back to a placeholder name.
-        expectNil(TagPalette.tooltip(row: 0, displayRows: [0],
-                                     matchesByRow: [0: [match("ghost-tag", .dashed)]],
-                                     tagNames: names),
+        // `tagNames` and `tagColors` are built together from the same tag list
+        // in one `bake`, so a name missing here is the same condition
+        // `segments` already treats as "this tag is gone" — the tooltip must
+        // agree, not fall back to a placeholder name.
+        expectNil(TagPalette.tooltip(matches: [match("ghost-tag", .dashed)], tagNames: names),
                   "a match whose tag has no name is dropped, and dropping the only match leaves no tooltip")
-
-        expectEqual(TagPalette.tooltip(row: 0, displayRows: [0],
-                                       matchesByRow: [0: [match("ghost-tag", .dashed),
-                                                          match("red-tag", .solid)]],
+        expectEqual(TagPalette.tooltip(matches: [match("ghost-tag", .dashed),
+                                                 match("red-tag", .solid)],
                                        tagNames: names),
                     "Reds — solid",
                     "a nameless tag's line is dropped; a real tag beside it still gets its line")
     }
 
-    // MARK: - 9. The cell-tint map: the strongest match claims a contested column
+    // MARK: - 6. Empty inputs
+
+    expectTrue(TagPalette.segments(matches: [], tagColors: colors).isEmpty,
+               "an empty match list draws nothing")
+    expectNil(TagPalette.tooltip(matches: [], tagNames: names),
+              "an empty match list has no tooltip")
+    expectTrue(TagPalette.tintTagByColumn(matches: []).isEmpty,
+               "no matches, no tints")
+
+    // MARK: - 7. The cell-tint map: the strongest match claims a contested column
 
     do {
         let tints = TagPalette.tintTagByColumn(matches: [
@@ -231,13 +217,101 @@ func runTests() {
         expectNil(tints[0], "an unmatched column has no tint")
     }
 
-    expectTrue(TagPalette.tintTagByColumn(matches: []).isEmpty,
-               "no matches, no tints")
+    // MARK: - 8. bake: ONE survivor rule for bands, tooltip and tints
+    //
+    // The whole reason `bake` exists. A tag deleted while its result is on
+    // screen must leave all three outputs in the same repaint — the split
+    // rules this replaced could show a band for a tag whose matched cell had
+    // already lost its tint.
 
-    // MARK: - 10. The tint alpha sits between the wash and the find highlight
+    do {
+        let map: [Int: [TagRowMatch]] = [
+            7: [match("ghost-tag", .solid, columns: [0, 1]),
+                match("red-tag", .dashed, columns: [1, 2])],
+        ]
+        let state = TagPalette.bake(tags: [redTag, blueTag], matchesByRow: map)
+
+        expectEqual(state.segmentsByRow[7]?.count, 1, "the dead tag draws no band")
+        expectEqual(state.segmentsByRow[7]?.first?.color, NSColor.systemRed,
+                    "the surviving band is the live tag's colour")
+        expectEqual(state.segmentsByRow[7]?.first?.isPartial, true,
+                    "the surviving band carries its dashed state")
+        expectEqual(state.tooltipByRow[7], "Reds — dashed",
+                    "the dead tag gets no tooltip line")
+        expectNil(state.tintByRow[7]?[0],
+                  "the dead tag's own column stays untinted")
+        expectEqual(state.tintByRow[7]?[1], "red-tag",
+                    "the column the dead tag matched FIRST tints in the live tag, not in the dead one")
+        expectEqual(state.tintByRow[7]?[2], "red-tag",
+                    "the live tag keeps its uncontested column")
+        expectNil(state.tints["ghost-tag"], "a dead tag has no tint colour")
+        expectTrue(state.tints["red-tag"] != nil, "a live tag has a tint colour")
+        expectTrue(state.tints["red-tag"].map { abs($0.alpha - TagPalette.cellTintAlpha) < 0.0001 } ?? false,
+                   "the baked tint carries cellTintAlpha")
+    }
+
+    do {
+        // Every match on the row is dead: the row leaves all three outputs
+        // together, rather than lingering in one of them.
+        let state = TagPalette.bake(tags: [redTag],
+                                    matchesByRow: [4: [match("ghost-tag", .solid)]])
+        expectNil(state.segmentsByRow[4], "an all-dead row has no bands")
+        expectNil(state.tooltipByRow[4], "an all-dead row has no tooltip")
+        expectNil(state.tintByRow[4], "an all-dead row has no tints")
+    }
+
+    do {
+        // The contested column, through bake: strongest SURVIVING match wins.
+        let state = TagPalette.bake(
+            tags: allTags,
+            matchesByRow: [3: [match("blue-tag", .solid, columns: [1, 3]),
+                               match("red-tag", .dashed, columns: [3, 4])]])
+        expectEqual(state.tintByRow[3]?[3], "blue-tag",
+                    "bake gives the contested column to the strongest match")
+        expectEqual(state.tintByRow[3]?[4], "red-tag",
+                    "bake leaves the weaker tag its uncontested column")
+    }
+
+    do {
+        // The overflow disclosure: more tags than bands, all of them named.
+        let state = TagPalette.bake(
+            tags: allTags,
+            matchesByRow: [0: [match("blue-tag", .solid), match("green-tag", .solid),
+                               match("purple-tag", .dashed), match("red-tag", .dashed)]])
+        expectEqual(state.segmentsByRow[0]?.count, TagPalette.maxSegments,
+                    "four matching tags still draw only maxSegments bands")
+        expectEqual(state.tooltipByRow[0],
+                    "Blues — solid\nGreens — solid\nPurples — dashed\nReds — dashed",
+                    "the tooltip lists MORE tags than the bar can draw — that is the overflow disclosure")
+    }
+
+    do {
+        let state = TagPalette.bake(tags: allTags, matchesByRow: [:])
+        expectTrue(state.segmentsByRow.isEmpty, "an empty map bakes no bands")
+        expectTrue(state.tooltipByRow.isEmpty, "an empty map bakes no tooltips")
+        expectTrue(state.tintByRow.isEmpty, "an empty map bakes no tints")
+        expectEqual(state.tints.count, allTags.count,
+                    "the per-tag tint colours do not depend on the map")
+    }
+
+    do {
+        // Tag ids come from the database. `Dictionary(uniqueKeysWithValues:)`
+        // would TRAP the whole app on a duplicate; first-wins must not.
+        let dupes = [redTag, tag("red-tag", "Reds again", colorIndex: 4)]
+        let state = TagPalette.bake(tags: dupes,
+                                    matchesByRow: [1: [match("red-tag", .solid)]])
+        expectEqual(state.segmentsByRow[1]?.count, 1,
+                    "a duplicate tag id does not trap")
+        expectEqual(state.segmentsByRow[1]?.first?.color, NSColor.systemRed,
+                    "the FIRST duplicate's colour wins")
+        expectEqual(state.tooltipByRow[1], "Reds — solid",
+                    "the FIRST duplicate's name wins")
+    }
+
+    // MARK: - 9. The tint alpha sits between the wash and the CURRENT find match
 
     expectTrue(TagPalette.cellTintAlpha > 0.15 && TagPalette.cellTintAlpha < 0.4,
-               "cellTintAlpha is above the 0.15 wash and below the 0.4 find highlight")
+               "cellTintAlpha is above the 0.15 wash and below the 0.4 current find match")
 
     if failures == 0 {
         print("\nAll TagAppearance tests passed.")

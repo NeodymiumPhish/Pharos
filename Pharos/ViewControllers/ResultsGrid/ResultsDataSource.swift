@@ -67,12 +67,27 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
 
-    /// Matching tags by index into `rows`, from `TagTupleMatcher`, strongest
-    /// first. Empty when nothing matched.
-    var matchesByRow: [Int: [TagRowMatch]] = [:]
+    // MARK: - Baked Tag Render State
+    //
+    // All four are pushed by `ResultsGridVC.applyTagMap` from ONE
+    // `TagPalette.bake`, and all three row-keyed ones are keyed by DATA row
+    // index. Nothing here is derived per row or per cell: the render paths do
+    // dictionary lookups and nothing else, the same rule the cached
+    // find/selection backgrounds below already follow.
 
-    /// Tag colours by tag id, so a row view needs no store lookup.
-    var tagColors: [String: NSColor] = [:]
+    /// data row → the bar's bands, strongest first, already capped.
+    var segmentsByRow: [Int: [(color: NSColor, isPartial: Bool)]] = [:]
+
+    /// data row → the row's tooltip, listing every matching tag UNCAPPED.
+    var tooltipByRow: [Int: String] = [:]
+
+    /// data row → (data column index → tag id) for matched-cell tints.
+    var tintByRow: [Int: [Int: String]] = [:]
+
+    /// Matched-cell tint per tag id, pre-baked as CGColor at
+    /// `TagPalette.cellTintAlpha` so the per-cell render path never allocates
+    /// a colour — same reasoning as the cached find/selection backgrounds.
+    var tagTints: [String: CGColor] = [:]
 
     // MARK: - Hot-path Caches
 
@@ -80,6 +95,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// `columns` changes. Replaces a per-cell O(N) scan via
     /// `tableView.column(withIdentifier:)` in viewFor.
     private var columnIdToIndex: [String: Int] = [:]
+
+    /// Map of column identifier (raw) → DATA column index, i.e. what
+    /// `colIndex(from:)` parses out of a "col_N" identifier. Rebuilt beside
+    /// `columnIdToIndex` and for the same reason: the tint path would
+    /// otherwise re-parse that string for every visible cell on realize and
+    /// for every dirty cell of every drag frame. `__rownum__` has no entry.
+    private var colIdToDataIndex: [String: Int] = [:]
 
     /// Cached display strings + fonts so the per-cell render path doesn't
     /// re-read `AppStateManager.shared.settings` and rebuild fonts on every
@@ -125,6 +147,24 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         cachedSelectionBg = cg
     }
 
+    /// The tag tint for one visible cell, or nil. Row is a DISPLAY index;
+    /// colId is the table column's raw identifier. Shared by the realize path
+    /// (`viewFor`) and the drag fast path
+    /// (`updateVisibleCellSelectionAppearance`) so the two cannot disagree.
+    ///
+    /// Dictionary lookups only. It runs for every visible cell on realize AND
+    /// for every dirty cell of every drag frame, so `colIdToDataIndex` stands
+    /// in for a `colIndex(from:)` string parse per cell. The row-number column
+    /// needs no guard of its own: only "col_N" identifiers are in that dict.
+    private func tagTintBackground(displayRow: Int, colId: String) -> CGColor? {
+        guard let columnIndex = colIdToDataIndex[colId],
+              let tagId = TagPalette.tintTag(
+                row: displayRow, displayRows: displayRows,
+                tintByRow: tintByRow, column: columnIndex)
+        else { return nil }
+        return tagTints[tagId]
+    }
+
     private func rebuildColumnIndex() {
         // Note: this is keyed by column NAME, but viewFor receives the
         // tableColumn whose identifier is also the column name. The dict's
@@ -133,10 +173,16 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // live tableColumns rather than `columns` so the indexing matches
         // what viewFor needs.
         var map: [String: Int] = [:]
+        var dataMap: [String: Int] = [:]
         for (i, col) in tableView.tableColumns.enumerated() {
-            map[col.identifier.rawValue] = i
+            let raw = col.identifier.rawValue
+            map[raw] = i
+            // Only "col_N" identifiers parse, so `__rownum__` is left out and
+            // the tint path can never resolve a data column for it.
+            if let dataIndex = colIndex(from: raw) { dataMap[raw] = dataIndex }
         }
         columnIdToIndex = map
+        colIdToDataIndex = dataMap
     }
 
     /// Signature of the AppSettings fields that actually drive grid cell
@@ -247,10 +293,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             NSLayoutConstraint.activate([
                 textField.leadingAnchor.constraint(
                     equalTo: cell.leadingAnchor,
-                    // One inset for every column. The tag marker is the row view's
-                    // 4pt bar, which sits in the grid's leading gutter and needs no
-                    // room inside the cell — so nothing here varies per row or per
-                    // column, and the row numbers cannot go ragged.
+                    // One inset for every column. A tag puts no TEXT in a cell:
+                    // its bar is the row view's 4pt band in the grid's leading
+                    // gutter, and a matched cell's tint is a background. Neither
+                    // needs room, so nothing here varies per row or per column,
+                    // and the row numbers cannot go ragged.
                     constant: 6),
                 textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -277,6 +324,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             }
         }
 
+        // The row's tag tooltip goes on the CELL, not on the row view: the
+        // cells cover the row view, and AppKit shows the tooltip of the view
+        // under the pointer. Assigned unconditionally — nil for an untagged
+        // row — so a recycled cell cannot keep a previous row's tag list, the
+        // same rule as the background assignment below.
+        cell.toolTip = tooltipByRow[dataRowIdx]
+
         // Find + selection state. Compute once, share both branches — the old
         // path recomputed isFindHighlighted (and the contains-checks behind it)
         // in two places per cell render.
@@ -292,14 +346,18 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let isInSelection = cellSelection?.contains(CellPosition(row: row, column: cellColumnIndex)) ?? false
 
         // Background precedence: current find match > other find match >
-        // selection > clear. Assigned exactly once. CGColors are cached on the
-        // data source so scroll/realize doesn't re-allocate per cell.
+        // selection > tag tint > clear. Assigned exactly once. CGColors are
+        // cached on the data source so scroll/realize doesn't re-allocate per
+        // cell. The tag tint sits UNDER find and selection by spec: "find
+        // highlight and cell selection stay above tints".
         if isCurrentMatch {
             cell.layer?.backgroundColor = Self.findCurrentBg
         } else if isOtherMatch {
             cell.layer?.backgroundColor = Self.findOtherBg
         } else if isInSelection {
             cell.layer?.backgroundColor = cachedSelectionBg
+        } else if let tint = tagTintBackground(displayRow: row, colId: colIdRaw) {
+            cell.layer?.backgroundColor = tint
         } else {
             cell.layer?.backgroundColor = nil
         }
@@ -325,14 +383,16 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 return fresh
             }()
 
-        guard let look = TagPalette.appearance(
-            row: row, displayRows: displayRows,
-            matchesByRow: matchesByRow, tagColors: tagColors)
+        // A lookup, not a computation: the bands were baked when the tag map
+        // landed. The row's tooltip is NOT set here — it belongs on the cells,
+        // which cover this view; see `viewFor`.
+        guard let dataRow = TagPalette.dataRow(displayRow: row, displayRows: displayRows),
+              let bands = segmentsByRow[dataRow]
         else {
             view.clearTag()
             return view
         }
-        view.configure(color: look.color, isPartial: look.isPartial)
+        view.configure(segments: bands)
         return view
     }
 
@@ -404,8 +464,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                             || (currentMatchRow == row && currentMatchColId == colId))
 
                     let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIdx)) ?? false
+                    // Deselect must fall back to the TAG TINT, not to clear —
+                    // this path writes cells `viewFor` already painted, and a
+                    // bare nil here erases a matched cell's tint during a
+                    // drag-select.
                     if !isFindHighlighted {
-                        cell.layer?.backgroundColor = isInSelection ? cachedSelectionBg : nil
+                        cell.layer?.backgroundColor = isInSelection
+                            ? cachedSelectionBg
+                            : tagTintBackground(displayRow: row, colId: colId)
                     }
                     cell.isSelected = isInSelection && !isFindHighlighted
                 }

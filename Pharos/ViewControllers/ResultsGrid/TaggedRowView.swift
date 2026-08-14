@@ -13,8 +13,12 @@ import AppKit
 /// - The BAR draws in `draw(_:)` after `super`, ABOVE the selection.
 ///   `NSTableRowView.draw(_:)` runs drawBackground, then drawSelection, then
 ///   the separator; a bar drawn in drawBackground sits underneath an opaque
-///   selection fill under the table's `.fullWidth` style. The bar is the only
-///   marker on a tagged row, so it must survive selection by construction.
+///   selection fill under the table's `.fullWidth` style. A tagged row carries
+///   three markers — this wash, this bar, and a matched cell's tint — but the
+///   bar is the only one that SURVIVES a selection: the wash draws below it
+///   here, and the tint sits below it in the data source's precedence chain by
+///   design. So the bar must clear the selection by construction, or a
+///   selected tagged row would show nothing at all.
 /// - `super.drawBackground` is not a no-op in the real app:
 ///   `usesAlternatingRowBackgroundColors = true` paints an opaque stripe under
 ///   the wash. A bare `TaggedRowView` outside a real table paints no stripe,
@@ -29,8 +33,8 @@ final class TaggedRowView: NSTableRowView {
 
     /// The bar width. Fixed, not a fraction of the row: a taller row must not
     /// get a fatter bar. It is also the width of the grid's leading gutter —
-    /// see the Phase 4 comment history for why the bar can carry the tag on
-    /// its own.
+    /// see the Phase 4 comment history for why the bar can carry the tag with
+    /// no cell inset.
     static let barWidth: CGFloat = 4
 
     /// The dash pattern for a partial band's centre line, shared with Phase 4.
@@ -62,12 +66,6 @@ final class TaggedRowView: NSTableRowView {
     func configure(segments: [(color: NSColor, isPartial: Bool)]) {
         self.segments = segments
         needsDisplay = true
-    }
-
-    /// Phase 4's single-tag entry point. TEMPORARY shim: Task 3 moves the
-    /// caller to `configure(segments:)` and deletes this.
-    func configure(color: NSColor, isPartial: Bool) {
-        configure(segments: [(color: color, isPartial: isPartial)])
     }
 
     /// Reset for reuse. `NSTableView` recycles row views, so a row that loses

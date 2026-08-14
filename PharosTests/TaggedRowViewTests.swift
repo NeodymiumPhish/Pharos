@@ -360,13 +360,6 @@ func runTests() {
         print("FAIL could not render a selected row for the isSelected check")
     }
 
-    // MARK: - The Phase 4 single-tag shim still works (deleted in Task 3)
-
-    let shim = TaggedRowView(frame: frame)
-    shim.configure(color: .systemRed, isPartial: true)
-    expectEqual(shim.segments.count, 1, "the shim configures one segment")
-    expectClose(shim.tintAlpha, 0.08, "the shim carries isPartial through")
-
     // MARK: - needsDisplay (reuse correctness) — needs a window, see Phase 4 comment
     //
     // A freshly hosted view's `needsDisplay` starts `true`, and that initial

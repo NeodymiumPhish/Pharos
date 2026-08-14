@@ -779,12 +779,14 @@ class ResultsGridVC: NSViewController {
         // clear() or a sync path.
         tagMapGeneration += 1
         matchesByRow = map
-        dataSource.matchesByRow = map
-        dataSource.tagColors = Dictionary(
-            uniqueKeysWithValues: TagStore.shared.tags.map {
-                ($0.id, TagPalette.color(at: $0.colorIndex))
-            }
-        )
+        // Bands, tooltips and tints are baked HERE, once, and the data source
+        // only looks them up. One bake also means one survivor rule: a deleted
+        // tag leaves all three together.
+        let state = TagPalette.bake(tags: TagStore.shared.tags, matchesByRow: map)
+        dataSource.segmentsByRow = state.segmentsByRow
+        dataSource.tooltipByRow = state.tooltipByRow
+        dataSource.tintByRow = state.tintByRow
+        dataSource.tagTints = state.tints
         syncTagButton()
     }
 
