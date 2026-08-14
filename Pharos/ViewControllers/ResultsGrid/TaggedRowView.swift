@@ -2,128 +2,147 @@ import AppKit
 
 // MARK: - TaggedRowView
 
-/// The row background for a tagged row: a wash of the tag colour, plus a bar at
-/// the leading edge.
+/// The row background for a tagged row: a wash of the strongest tag's colour,
+/// plus a bar at the leading edge — one vertical band per matching tag,
+/// strongest first, capped upstream at `TagPalette.maxSegments`.
 ///
-/// It sits BELOW the cells on purpose, and that z-order is the whole of what is
-/// guaranteed:
-/// - Cell selection truly WINS where it overlaps the wash: `selectedContentBackgroundColor`
-///   (`ResultsDataSource.swift` around line 109) is opaque, so it fully replaces the wash
-///   underneath, not just for cells it does not cover.
-/// - The find highlight does NOT win, it BLENDS: both find colours are translucent
-///   (`systemYellow.withAlphaComponent(0.4)` and `0.15`, `ResultsDataSource.swift:107-108`),
-///   so a find match on a tagged row shows the wash showing through the yellow, not a clean
-///   yellow. That is an acceptable read, not a precedence win.
-/// - `super.drawBackground` is not a no-op in the real app: `ResultsGridVC.swift:98` sets
-///   `usesAlternatingRowBackgroundColors = true`, so odd/even rows already get an opaque
-///   stripe before the wash is drawn on top. The harness cannot see this — a bare
-///   `TaggedRowView` outside a real table paints no alternating stripe — so do not expect a
-///   headless pixel test to catch a regression here.
+/// Z-order guarantees (unchanged from Phase 4):
+/// - The WASH draws in `drawBackground(in:)`, below the cells and below the
+///   selection. Cell selection truly WINS where it overlaps the wash:
+///   `selectedContentBackgroundColor` (`ResultsDataSource.swift`) is opaque.
+/// - The BAR draws in `draw(_:)` after `super`, ABOVE the selection.
+///   `NSTableRowView.draw(_:)` runs drawBackground, then drawSelection, then
+///   the separator; a bar drawn in drawBackground sits underneath an opaque
+///   selection fill under the table's `.fullWidth` style. The bar is the only
+///   marker on a tagged row, so it must survive selection by construction.
+/// - `super.drawBackground` is not a no-op in the real app:
+///   `usesAlternatingRowBackgroundColors = true` paints an opaque stripe under
+///   the wash. A bare `TaggedRowView` outside a real table paints no stripe,
+///   so headless pixel tests cannot see a regression there.
 ///
-/// Geometry is exposed through `barRect(in:)` and `tintAlpha` so a headless
-/// harness can assert it — see `scripts/test-tagged-row-view.sh`. Nothing here
-/// reads the store: `ResultsDataSource` configures each row view.
+/// Geometry is exposed through `barRect(in:)`, `segmentRects(in:)` and
+/// `tintAlpha` so a headless harness can assert it — see
+/// `scripts/test-tagged-row-view.sh`. Nothing here reads the store or any
+/// tag type: `ResultsDataSource` configures each row view with plain values,
+/// which is what keeps this file compiling standalone in its harness.
 final class TaggedRowView: NSTableRowView {
 
-    /// The bar width. Fixed, not a fraction of the row: a taller row must not get
-    /// a fatter bar.
-    ///
-    /// It is also the width of the grid's leading gutter. `ResultsGridVC` sets
-    /// `tableView.style = .fullWidth` so no framework padding sits to the left of
-    /// it, and the row-number cell's 6pt text inset leaves a 2pt gap after it. The
-    /// bar is therefore the only thing in that space, which is why it can carry the
-    /// tag on its own and the row-number dot was removed.
+    /// The bar width. Fixed, not a fraction of the row: a taller row must not
+    /// get a fatter bar. It is also the width of the grid's leading gutter —
+    /// see the Phase 4 comment history for why the bar can carry the tag on
+    /// its own.
     static let barWidth: CGFloat = 4
 
-    private(set) var tagColor: NSColor?
+    /// The dash pattern for a partial band's centre line, shared with Phase 4.
+    /// A `static let` rather than a literal built inside `draw(_:)`, so the
+    /// rhythm lives in exactly one named place instead of being re-typed
+    /// wherever a partial band draws.
+    static let dashPattern: [CGFloat] = [4, 3]
 
-    /// A PARTIAL match: some of the tag's values are present in this row, but no
-    /// single tuple is complete. It draws fainter and dashed, so the two states
-    /// are distinguishable without reading anything.
-    ///
-    /// This is the stored property, and both the wash alpha and the bar style
-    /// derive from it. Do not reverse that: deriving the alpha from
-    /// `isBarDashed` would link the wash to the bar STYLE, so a later reason to
-    /// dash the bar would silently change the wash too.
-    private(set) var isPartial = false
+    /// The bands, strongest first. Empty when the row is untagged.
+    private(set) var segments: [(color: NSColor, isPartial: Bool)] = []
 
-    /// True when the bar draws dashed. Derived: a partial match is the only reason today.
-    var isBarDashed: Bool { isPartial }
+    /// The wash derives from the FIRST band only — the strongest match owns
+    /// the row-level paint, exactly as Phase 4's single tag did. Segments
+    /// beyond the first only affect the bar.
+    var isPartial: Bool { segments.first?.isPartial ?? false }
 
-    /// 15% for a solid match, 8% for a partial one, 0 when untagged.
+    /// 15% for a solid strongest match, 8% for a partial one, 0 when untagged.
+    /// This file keeps zero non-AppKit dependencies (plan scope decision 12),
+    /// so this literal cannot become a shared CONSTANT with anything in
+    /// `TagPalette`. The actual duplicate to watch is prose, not a constant:
+    /// `TagPalette.cellTintAlpha`'s doc comment ("Above the 0.15 row wash…",
+    /// `TagPalette.swift`) hardcodes this same 0.15 in words. Change the
+    /// number here, and go check that comment too.
     var tintAlpha: CGFloat {
-        guard tagColor != nil else { return 0 }
-        return isPartial ? 0.08 : 0.15
+        guard let first = segments.first else { return 0 }
+        return first.isPartial ? 0.08 : 0.15
     }
 
-    /// - Parameter isPartial: see the `isPartial` property doc.
+    func configure(segments: [(color: NSColor, isPartial: Bool)]) {
+        self.segments = segments
+        needsDisplay = true
+    }
+
+    /// Phase 4's single-tag entry point. TEMPORARY shim: Task 3 moves the
+    /// caller to `configure(segments:)` and deletes this.
     func configure(color: NSColor, isPartial: Bool) {
-        tagColor = color
-        self.isPartial = isPartial
-        needsDisplay = true
+        configure(segments: [(color: color, isPartial: isPartial)])
     }
 
-    /// Reset for reuse. `NSTableView` recycles row views, so a row that loses its
-    /// tag must lose its paint too.
+    /// Reset for reuse. `NSTableView` recycles row views, so a row that loses
+    /// its tags must lose its paint too. Equivalent to `configure(segments: [])`
+    /// — kept as the intention-revealing name for the reuse path, which is
+    /// what `ResultsDataSource` actually calls.
     func clearTag() {
-        tagColor = nil
-        isPartial = false
+        segments = []
         needsDisplay = true
     }
 
-    /// The leading bar, or `.zero` when the row carries no tag.
+    /// The whole leading bar, or `.zero` when the row carries no tag. The
+    /// single source of the bar's geometry: `segmentRects(in:)` slices THIS
+    /// rect into bands rather than recomputing x, width or height on its
+    /// own, so there is one place — not two — that can drift from the bar
+    /// `draw(_:)` actually paints.
     ///
-    /// - Parameter bounds: in production this is always `self.bounds` — it is a
-    ///   parameter rather than reading `bounds` directly only so a headless test
-    ///   can ask "what would the bar be on a 60pt row?" without actually resizing
-    ///   the view. It is a test seam, not general flexibility.
+    /// `bounds` is a parameter only as a test seam — production always passes
+    /// `self.bounds`.
     func barRect(in bounds: NSRect) -> NSRect {
-        guard tagColor != nil else { return .zero }
+        guard !segments.isEmpty else { return .zero }
         return NSRect(x: bounds.minX, y: bounds.minY,
                       width: Self.barWidth, height: bounds.height)
+    }
+
+    /// Equal vertical bands sliced from `barRect`, FIRST band at the VISUAL
+    /// top — `bar.minY`, since `NSTableRowView` is flipped. See the fact-pin
+    /// assertion in `TaggedRowViewTests` for why that assumption is safe to
+    /// bake in here rather than branch on `isFlipped`.
+    ///
+    /// The LAST band takes the remainder rather than another equal
+    /// `bandHeight`. This is defensive, not visible: on a height that does
+    /// not divide evenly, summing equal `bandHeight`s can miss `bar.maxY` by
+    /// an exact-arithmetic drift on the order of 1e-15pt — far below one
+    /// pixel — but taking the remainder makes the far edge land exactly on
+    /// `bar.maxY`, bit for bit, for free.
+    func segmentRects(in bounds: NSRect) -> [NSRect] {
+        let bar = barRect(in: bounds)
+        guard !segments.isEmpty else { return [] }
+        let bandHeight = bar.height / CGFloat(segments.count)
+        return segments.indices.map { index in
+            let y = bar.minY + CGFloat(index) * bandHeight
+            let height = index == segments.count - 1 ? bar.maxY - y : bandHeight
+            return NSRect(x: bar.minX, y: y, width: bar.width, height: height)
+        }
     }
 
     /// The WASH only. It belongs under the selection, which is why it lives here.
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
-        guard let tagColor else { return }
-        tagColor.withAlphaComponent(tintAlpha).setFill()
+        guard let first = segments.first else { return }
+        first.color.withAlphaComponent(tintAlpha).setFill()
         bounds.fill()
     }
 
-    /// The BAR, painted after `super.draw` and therefore ABOVE the selection.
-    ///
-    /// `NSTableRowView.draw(_:)` calls `drawBackground`, then `drawSelection`, then
-    /// the separator. Drawing the bar in `drawBackground` — where it used to live —
-    /// left it underneath an opaque selection fill. It survived only because the
-    /// table's `.inset` style insets the selection past the leading edge, and that
-    /// accident disappears with `.fullWidth`, where the selection spans the whole row.
-    ///
-    /// Since the bar is now the ONLY marker on a tagged row — the row-number dot was
-    /// removed — losing it on a selected row would mean losing the tag entirely. The
-    /// dot survived selection because it was drawn in a cell, above the row view;
-    /// this gives the bar the same guarantee by construction rather than by luck.
-    /// `scripts/test-tagged-row-view.sh` pins it with `isSelected` set.
+    /// The BAR's bands, painted after `super.draw` and therefore ABOVE the
+    /// selection. A solid band fills its rect; a partial band strokes a
+    /// dashed centre line at `Self.dashPattern`, the Phase 4 dash pattern per
+    /// band.
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let tagColor else { return }
-
-        let bar = barRect(in: bounds)
-        // Belt-and-braces: `barRect` only ever returns `.zero` when `tagColor`
-        // is nil, and the guard above has already handled that case, so this
-        // can never actually fire today.
-        guard !bar.isEmpty else { return }
-        if isBarDashed {
-            let path = NSBezierPath()
-            path.move(to: NSPoint(x: bar.midX, y: bar.minY))
-            path.line(to: NSPoint(x: bar.midX, y: bar.maxY))
-            path.lineWidth = Self.barWidth
-            path.setLineDash([4, 3], count: 2, phase: 0)
-            tagColor.setStroke()
-            path.stroke()
-        } else {
-            tagColor.setFill()
-            bar.fill()
+        guard !segments.isEmpty else { return }
+        for (segment, rect) in zip(segments, segmentRects(in: bounds)) {
+            if segment.isPartial {
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: rect.midX, y: rect.minY))
+                path.line(to: NSPoint(x: rect.midX, y: rect.maxY))
+                path.lineWidth = Self.barWidth
+                path.setLineDash(Self.dashPattern, count: Self.dashPattern.count, phase: 0)
+                segment.color.setStroke()
+                path.stroke()
+            } else {
+                segment.color.setFill()
+                rect.fill()
+            }
         }
     }
 }

@@ -1,4 +1,6 @@
-// Standalone test runner for TaggedRowView. Real AppKit, no window needed.
+// Standalone test runner for TaggedRowView. Real AppKit; most checks need no
+// window — the needsDisplay block near the end hosts one on purpose, since
+// that flag only behaves once a view actually has one (see its comment there).
 // Compiled with the implementation by scripts/test-tagged-row-view.sh.
 import AppKit
 
@@ -23,25 +25,24 @@ func expectTrue(_ actual: Bool, _ name: String) {
 }
 
 /// Render a row view offscreen ONCE into a bitmap that can be sampled
-/// repeatedly. Real AppKit drawing, no window.
+/// repeatedly. Real AppKit drawing, no window. See the Phase 4 test file's
+/// long comment for why cacheDisplay does NOT work here (no backdrop to
+/// blend against): paint an opaque white backdrop, then call `draw(_:)`,
+/// the real entry point.
 ///
-/// `view.bitmapImageRepForCachingDisplay` + `cacheDisplay` (the obvious first
-/// attempt) does NOT work here: it draws into an alpha-preserving bitmap with
-/// nothing underneath, so a partially-transparent fill is stored as its full
-/// RGB plus a separate alpha channel — there is no backdrop for it to actually
-/// blend against. `colorAt` then returns that unblended RGB unchanged
-/// regardless of alpha, so a 15% red wash and a 100% red bar come back with
-/// IDENTICAL red/green/blue components (only their alpha differs), and a
-/// same-channel comparison like "the bar's red is higher than the wash's red"
-/// can never see a difference.
-///
-/// The fix: paint a real (opaque, white) backdrop into the bitmap first, then
-/// invoke `drawBackground(in:)` directly — the exact method under test — so
-/// Quartz performs genuine source-over compositing and `colorAt` reports the
-/// true blended colour. This has a second benefit: over an opaque backdrop
-/// the sampled alpha is exactly 1.0, so premultiplied 8-bit storage cannot
-/// distort the sample either.
-func render(_ view: TaggedRowView, selected: Bool = false) -> NSBitmapImageRep? {
+/// - Parameter calibrateAt: when set, paints a single black pixel at this
+///   VIEW-space y, in the column `bounds.maxX - 1` (a column the 4pt bar
+///   never touches). A caller can then locate which BITMAP row corresponds
+///   to that view-space y by searching for the mark, instead of assuming a
+///   flip direction. See the calibration-mark test below for why that
+///   distinction matters here. Painted AFTER `view.draw(_:)`, not before:
+///   the wash's `bounds.fill()` in `drawBackground(in:)` spans the FULL
+///   width and is TRANSLUCENT, so a mark painted first — at any x — does
+///   not get overwritten, it gets BLENDED under the wash (a black mark
+///   reads back as roughly (0.149, 0.031, 0.035) at the 15% red wash), which
+///   is no longer pure black either — the search below fails all the same,
+///   just not for the reason "overwritten" would suggest.
+func render(_ view: TaggedRowView, selected: Bool = false, calibrateAt calibrationY: CGFloat? = nil) -> NSBitmapImageRep? {
     let width = Int(view.bounds.width)
     let height = Int(view.bounds.height)
     guard let rep = NSBitmapImageRep(
@@ -54,312 +55,351 @@ func render(_ view: TaggedRowView, selected: Bool = false) -> NSBitmapImageRep? 
     NSGraphicsContext.current = context
     NSColor.white.setFill()
     NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)).fill()
-    // `draw(_:)` is the REAL entry point, and it is what AppKit calls. It runs
-    // drawBackground (the wash), then drawSelection, then our bar on top. Calling
-    // drawBackground alone would miss the bar entirely now that it moved above the
-    // selection, and would silently pass every bar assertion by never drawing one.
     view.selectionHighlightStyle = .regular
     view.isSelected = selected
     view.draw(view.bounds)
+    if let calibrationY {
+        NSColor.black.setFill()
+        NSRect(x: view.bounds.maxX - 1, y: calibrationY, width: 1, height: 1).fill()
+    }
     NSGraphicsContext.restoreGraphicsState()
 
     return rep
 }
 
-/// Sample one pixel from an already-rendered bitmap. Splitting this from
-/// `render` means a multi-point walk (e.g. the dash-gap scan) renders the view
-/// exactly once instead of once per sampled point.
 func pixel(_ rep: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
     rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
 }
 
-/// The ONE colour-equality comparator, used everywhere two pixels are checked
-/// for being "the same colour". 0.01 per channel: the real 8-bit quantization
-/// bound is 1/255 ≈ 0.004, so 0.01 leaves headroom for offscreen-rendering
-/// noise without being loose enough to hide a real difference. (Previously
-/// this repo had three competing epsilons here — 0.001, 0.01 on a summed
-/// distance, 0.02 per channel — which is worse than any one of them: three
-/// different units for "the same" is not a stricter check, just a confusing
-/// one.)
+/// The ONE colour-equality comparator. 0.01 per channel — see Phase 4's
+/// comment on the epsilon.
 func sameColor(_ a: NSColor, _ b: NSColor) -> Bool {
     abs(a.redComponent - b.redComponent) < 0.01
         && abs(a.greenComponent - b.greenComponent) < 0.01
         && abs(a.blueComponent - b.blueComponent) < 0.01
 }
 
-/// How far a colour sits from a reference (e.g. the untagged baseline), summed
-/// across channels. A saturated hue like `.systemRed` keeps its red channel at
-/// 1.0 whether it is a faint wash or a solid bar — the difference only shows up
-/// in the OTHER channels — so "more saturated" has to be judged by total
-/// distance from the baseline, not by any one fixed channel. This is for
-/// ORDERING two pixels against each other (farther / closer); it is not a
-/// colour-equality comparator — use `sameColor` for that.
-func distance(_ a: NSColor, from b: NSColor) -> CGFloat {
-    abs(a.redComponent - b.redComponent)
-        + abs(a.greenComponent - b.greenComponent)
-        + abs(a.blueComponent - b.blueComponent)
-}
-
-/// α·C + (1−α)·white, computed from the RESOLVED colour so an appearance
-/// change cannot stale the expectation. Over an opaque white backdrop the
-/// blend is exact — this is what pins the label COLOUR and the exact alpha.
-/// A distance-from-baseline check proves neither: drawing in the wrong
-/// colour, or tinting at 0.30/0.60 instead of 0.08/0.15, passes every
-/// distance assertion in this file unchanged. Measured error against the
-/// real render is ~0.001–0.002 per channel, so the 0.01 epsilon in
-/// `sameColor` is comfortable.
+/// α·C + (1−α)·white, from the RESOLVED colour.
 func expectedBlend(_ c: NSColor, alpha: CGFloat) -> NSColor {
     let resolved = c.usingColorSpace(.deviceRGB) ?? c
-    let white: CGFloat = 1.0
     return NSColor(
-        deviceRed: alpha * resolved.redComponent + (1 - alpha) * white,
-        green: alpha * resolved.greenComponent + (1 - alpha) * white,
-        blue: alpha * resolved.blueComponent + (1 - alpha) * white,
+        deviceRed: alpha * resolved.redComponent + (1 - alpha),
+        green: alpha * resolved.greenComponent + (1 - alpha),
+        blue: alpha * resolved.blueComponent + (1 - alpha),
         alpha: 1.0
     )
 }
 
 func runTests() {
     let frame = NSRect(x: 0, y: 0, width: 400, height: 24)
+    let resolvedRed = NSColor.systemRed.usingColorSpace(.deviceRGB) ?? .systemRed
+    let resolvedBlue = NSColor.systemBlue.usingColorSpace(.deviceRGB) ?? .systemBlue
+    let resolvedBlack = NSColor.black.usingColorSpace(.deviceRGB) ?? .black
 
-    // An untagged row draws nothing, so the grid looks exactly as it did before.
+    // MARK: - Untagged
+
     let plain = TaggedRowView(frame: frame)
-    expectEqual(plain.tagColor == nil, true, "an untagged row holds no colour")
+    expectTrue(plain.segments.isEmpty, "an untagged row holds no segments")
     expectEqual(plain.barRect(in: frame), .zero, "an untagged row draws no bar")
+    expectTrue(plain.segmentRects(in: frame).isEmpty, "an untagged row has no segment rects")
     expectClose(plain.tintAlpha, 0, "an untagged row has no tint")
 
-    // A solid match: 15% tint, a 3pt solid bar at the leading edge.
+    // MARK: - One solid segment behaves exactly like Phase 4
+
     let strong = TaggedRowView(frame: frame)
-    strong.configure(color: .systemRed, isPartial: false)
+    strong.configure(segments: [(color: .systemRed, isPartial: false)])
     expectClose(strong.tintAlpha, 0.15, "a solid match tints at 15%")
     expectClose(strong.barRect(in: frame).width, 4, "the bar is 4pt wide")
     expectClose(strong.barRect(in: frame).minX, 0, "the bar sits at the leading edge")
     expectClose(strong.barRect(in: frame).height, frame.height, "the bar spans the row height")
-    expectEqual(strong.isBarDashed, false, "a solid match draws an unbroken bar")
+    expectEqual(strong.segmentRects(in: frame).count, 1, "one segment, one rect")
+    expectEqual(strong.segmentRects(in: frame)[0], strong.barRect(in: frame),
+                "a single segment's rect IS the bar rect")
+    expectEqual(strong.isPartial, false, "a solid first segment is not partial")
 
-    // A partial match: 8% tint and a dashed bar, so the two states are told apart
-    // without reading anything.
     let partial = TaggedRowView(frame: frame)
-    partial.configure(color: .systemRed, isPartial: true)
+    partial.configure(segments: [(color: .systemRed, isPartial: true)])
     expectClose(partial.tintAlpha, 0.08, "a partial match tints at 8%")
-    expectEqual(partial.isBarDashed, true, "a partial match draws a dashed bar")
-    expectClose(partial.barRect(in: frame).width, 4, "the partial bar is the same width")
+    expectEqual(partial.isPartial, true, "a dashed first segment is partial")
 
-    // Reuse: NSTableView recycles row views, so configuring one twice must not
-    // leave the first tag's state behind.
+    // MARK: - Segment geometry: equal bands, first at the visual top
+
+    // FACT PIN: NSTableRowView is flipped — band 0 at minY is the visual top;
+    // the drawing code depends on this. If AppKit ever changes it, this
+    // assertion fails and whoever sees it reintroduces an `isFlipped` branch
+    // in `segmentRects(in:)` deliberately, instead of it silently drawing
+    // bands upside down in the real table.
+    expectTrue(TaggedRowView(frame: frame).isFlipped,
+               "NSTableRowView is flipped — band 0 at minY is the visual top; the drawing code depends on this")
+
+    let two = TaggedRowView(frame: frame)
+    two.configure(segments: [(color: .systemRed, isPartial: false),
+                             (color: .systemBlue, isPartial: false)])
+    do {
+        let rects = two.segmentRects(in: frame)
+        expectEqual(rects.count, 2, "two segments, two rects")
+        expectClose(rects[0].height, 12, "two segments split the 24pt row into 12pt bands")
+        expectClose(rects[1].height, 12, "the second band is the same height")
+        expectClose(rects[0].width, 4, "bands keep the 4pt bar width")
+        expectClose(rects[0].minY, frame.minY, "the FIRST segment takes the visual top band (bounds.minY)")
+        expectTrue(!rects[0].intersects(rects[1]), "the two bands do not overlap")
+        expectClose(rects[0].height + rects[1].height, frame.height,
+                    "the bands cover the full row height")
+    }
+
+    let three = TaggedRowView(frame: frame)
+    three.configure(segments: [(color: .systemRed, isPartial: false),
+                               (color: .systemBlue, isPartial: true),
+                               (color: .systemGreen, isPartial: false)])
+    expectEqual(three.segmentRects(in: frame).count, 3, "three segments, three rects")
+    expectClose(three.segmentRects(in: frame)[1].height, 8, "three segments make 8pt bands")
+
+    // A non-zero frame origin: every other frame in this file starts at
+    // (0, 0), so replacing `bar.minY + offset` with plain `offset`, or
+    // `bar.minX` with a hardcoded `0`, would still pass every check above.
+    let offsetFrame = NSRect(x: 7, y: 5, width: 400, height: 24)
+    let offsetView = TaggedRowView(frame: offsetFrame)
+    offsetView.configure(segments: [(color: .systemRed, isPartial: false),
+                                    (color: .systemBlue, isPartial: false)])
+    let offsetRects = offsetView.segmentRects(in: offsetFrame)
+    expectClose(offsetRects[0].minX, 7, "segmentRects uses the frame's actual minX, not a hardcoded 0")
+    expectClose(offsetRects[0].minY, 5, "the FIRST band starts at the frame's actual minY, not a hardcoded 0")
+    expectClose(offsetRects[1].minY, 17, "the second band still starts one band height further down the bar")
+
+    // A height where the drift is actually REPRESENTABLE: 20 / 3 does NOT
+    // work here — 2×6.666... + 6.666... rounds to exactly 20.0 bit for bit,
+    // so summing three equal bandHeights and taking the remainder produce
+    // IDENTICAL output and this could never fail either way. 24.05 / 3 =
+    // 8.016666...; three of those sum to 24.050000000000004 (not 24.05),
+    // so this DOES distinguish the remainder branch from equal bandHeights.
+    let unevenFrame = NSRect(x: 0, y: 0, width: 400, height: 24.05)
+    let uneven = TaggedRowView(frame: unevenFrame)
+    uneven.configure(segments: [(color: .systemRed, isPartial: false),
+                                (color: .systemBlue, isPartial: false),
+                                (color: .systemGreen, isPartial: false)])
+    expectEqual(uneven.segmentRects(in: unevenFrame).last!.maxY, unevenFrame.maxY,
+                "the LAST band's far edge lands EXACTLY on the row's far edge (24.05/3 does NOT round-trip)")
+
+    // MARK: - The wash comes from the FIRST segment only
+
+    if let rep = render(two), let mid = pixel(rep, x: 200, y: 12) {
+        expectTrue(sameColor(mid, expectedBlend(resolvedRed, alpha: 0.15)),
+                   "the wash is the FIRST segment's colour at 15%, unaffected by the second segment")
+    } else {
+        failures += 1
+        print("FAIL could not render the two-segment view for the wash check")
+    }
+
+    // A partial FIRST segment drops the wash to 8% even when a solid segment follows.
+    let partialFirst = TaggedRowView(frame: frame)
+    partialFirst.configure(segments: [(color: .systemRed, isPartial: true),
+                                      (color: .systemBlue, isPartial: false)])
+    expectClose(partialFirst.tintAlpha, 0.08, "a partial FIRST segment washes at 8%")
+
+    // MARK: - WHICH colour lands in which band (not just that both appear)
+    //
+    // Counting reds/blues below (next section) proves both colours are
+    // painted and contiguous, but not WHICH one sits in the visual top band
+    // — reversing `zip(segments, segmentRects(in:))` in `draw(_:)` would put
+    // the wrong colour on top and still pass a pure count. Do not assume
+    // which bitmap row corresponds to bounds.minY either way: measure it
+    // with a calibration mark in a column the bar never touches.
+    if let rep = render(two, calibrateAt: frame.minY) {
+        var calibrationRow: Int?
+        for y in 0..<Int(frame.height) {
+            if let c = pixel(rep, x: Int(frame.maxX) - 1, y: y), sameColor(c, resolvedBlack) {
+                calibrationRow = y
+                break
+            }
+        }
+        if let calibrationRow, let c = pixel(rep, x: 1, y: calibrationRow) {
+            expectTrue(sameColor(c, resolvedRed),
+                       "the FIRST segment's colour paints the band at bounds.minY (the visual top), located via the calibration mark")
+        } else {
+            failures += 1
+            print("FAIL could not locate the calibration mark to determine which bitmap row is bounds.minY")
+        }
+    } else {
+        failures += 1
+        print("FAIL could not render the two-segment view for the calibration check")
+    }
+
+    // MARK: - Both band colours actually reach the pixels, each contiguous
+
+    if let rep = render(two) {
+        var reds = 0, blues = 0, other = 0
+        var transitions = 0
+        var previous: String?
+        for y in 0..<Int(frame.height) {
+            guard let c = pixel(rep, x: 1, y: y) else { continue }
+            let label: String
+            if sameColor(c, resolvedRed) { label = "red"; reds += 1 }
+            else if sameColor(c, resolvedBlue) { label = "blue"; blues += 1 }
+            else { label = "other"; other += 1 }
+            if let previous, previous != label { transitions += 1 }
+            previous = label
+        }
+        expectEqual(reds, 12, "the red band paints exactly half the bar column")
+        expectEqual(blues, 12, "the blue band paints exactly the other half")
+        expectEqual(other, 0, "no bar-column pixel is anything but the two band colours")
+        expectEqual(transitions, 1, "the two bands are contiguous — exactly one colour change down the column")
+    } else {
+        failures += 1
+        print("FAIL could not render the two-segment view for the band-pixel check")
+    }
+
+    // MARK: - A dashed band has gaps; a solid band does not
+
+    let mixed = TaggedRowView(frame: frame)
+    mixed.configure(segments: [(color: .systemRed, isPartial: false),
+                               (color: .systemRed, isPartial: true)])
+    if let rep = render(mixed) {
+        // Split the column into its two 12pt halves by y-position, then
+        // check each half's uniformity. Splitting by y-position is fine —
+        // the two bands ARE contiguous 12pt halves, pinned above. What this
+        // does NOT claim is WHICH half is band 0; that is the calibration-
+        // mark test's job, above.
+        var bandA: [NSColor] = [], bandB: [NSColor] = []
+        for y in 0..<Int(frame.height) {
+            guard let c = pixel(rep, x: 1, y: y) else { continue }
+            if y < 12 { bandA.append(c) } else { bandB.append(c) }
+        }
+        let aUniformRed = bandA.allSatisfy { sameColor($0, resolvedRed) }
+        let bUniformRed = bandB.allSatisfy { sameColor($0, resolvedRed) }
+        expectTrue(aUniformRed != bUniformRed,
+                   "exactly one half of the bar column is uniform red (the solid band); the other has dash gaps")
+    } else {
+        failures += 1
+        print("FAIL could not render the mixed solid/dashed view")
+    }
+
+    // MARK: - The dash RHYTHM itself is pinned, not just "some gaps exist"
+    //
+    // The check above is satisfied by ANY alternating pattern — swapping
+    // `Self.dashPattern` from [4, 3] to [3, 4] still leaves a dashed band
+    // with gaps and a solid one without, so it passes there unchanged.
+    // Count the exact number of "on" pixels down a full-height dashed band:
+    // for [4, 3] over this 24pt row the cycle is on 4 / off 3 / on 4 / off 3
+    // / on 4 / off 3 / on 3 (the partial final cycle) = 15 "on" rows of 24.
+    // [3, 4] instead gives on 3 / off 4 ×3 plus a partial on 3 = 12 "on"
+    // rows — a different, checkable number.
+    if let rep = render(partial) {
+        var onCount = 0
+        for y in 0..<Int(frame.height) {
+            if let c = pixel(rep, x: 1, y: y), sameColor(c, resolvedRed) { onCount += 1 }
+        }
+        expectEqual(onCount, 15,
+                    "the dash rhythm paints exactly 15 of 24 rows \"on\" — [4, 3], not [3, 4] or any other pattern")
+    } else {
+        failures += 1
+        print("FAIL could not render the partial view for the dash-rhythm check")
+    }
+
+    // MARK: - The bar's painted WIDTH is a true 4pt, both solid and dashed
+    //
+    // Every pixel check above samples only x=1, which cannot tell a 4pt bar
+    // from a narrower one — both cover x=1. x=3 must still be the full band
+    // colour; x=4 must already be wash-only, for a solid band AND for a
+    // dash's "on" segment. This is what catches a hardcoded `lineWidth = 2`
+    // (or any other narrower draw width) that a single-column sample cannot.
+
+    if let rep = render(strong), let atThree = pixel(rep, x: 3, y: 12), let atFour = pixel(rep, x: 4, y: 12) {
+        expectTrue(sameColor(atThree, resolvedRed),
+                   "a solid band still paints x=3 — the bar is a true 4pt, not narrower")
+        expectTrue(sameColor(atFour, expectedBlend(resolvedRed, alpha: 0.15)),
+                   "x=4 has already fallen back to the wash — the solid band does not overrun 4pt")
+    } else {
+        failures += 1
+        print("FAIL could not render the strong view for the solid-band width check")
+    }
+
+    if let rep = render(partial), let atThreeOn = pixel(rep, x: 3, y: 1), let atFourOn = pixel(rep, x: 4, y: 1) {
+        expectTrue(sameColor(atThreeOn, resolvedRed),
+                   "a dashed band's ON segment still paints x=3 — lineWidth is a true 4pt")
+        expectTrue(sameColor(atFourOn, expectedBlend(resolvedRed, alpha: 0.08)),
+                   "x=4 has already fallen back to the wash even on a dash's ON segment")
+    } else {
+        failures += 1
+        print("FAIL could not render the partial view for the dashed-band width check")
+    }
+
+    // MARK: - Reuse: reconfiguring replaces the bands entirely
+
     let reused = TaggedRowView(frame: frame)
-    reused.configure(color: .systemBlue, isPartial: true)
-    reused.configure(color: .systemGreen, isPartial: false)
-    expectClose(reused.tintAlpha, 0.15, "reuse takes the second tag's alpha")
-    expectEqual(reused.isBarDashed, false, "reuse clears the dashed bar")
+    reused.configure(segments: [(color: .systemBlue, isPartial: true),
+                                (color: .systemGreen, isPartial: false)])
+    reused.configure(segments: [(color: .systemGreen, isPartial: false)])
+    expectEqual(reused.segments.count, 1, "reuse takes the second configuration's band count")
+    expectClose(reused.tintAlpha, 0.15, "reuse takes the second configuration's alpha")
+    expectClose(reused.segmentRects(in: frame)[0].height, frame.height,
+                "the surviving band spans the full row again")
     reused.clearTag()
-    expectEqual(reused.tagColor == nil, true, "clearing removes the colour")
+    expectTrue(reused.segments.isEmpty, "clearing removes the bands")
     expectClose(reused.tintAlpha, 0, "clearing removes the tint")
     expectEqual(reused.barRect(in: frame), .zero, "clearing removes the bar")
 
-    // The bar must not scale with the row. A tall row still gets 3pt.
+    // MARK: - The bar must not scale with the row
+
     let tall = NSRect(x: 0, y: 0, width: 400, height: 60)
     expectClose(strong.barRect(in: tall).width, 4, "the bar stays 4pt on a taller row")
     expectClose(strong.barRect(in: tall).height, 60, "the bar still spans the row")
 
-    // MARK: - Pixel assertions
+    // MARK: - isSelected does not change the bar's own drawing
     //
-    // Everything above tests the geometry ACCESSORS. None of it proves that
-    // `drawBackground(in:)` actually reads them — `tintAlpha`, `barRect`, and
-    // `isBarDashed` could all be ignored by the drawing code and every check
-    // above would still pass. Render each view into an offscreen bitmap and
-    // read pixels back so the drawing itself is on trial.
+    // LIMIT: a bare NSTableRowView outside a real table paints NO opaque
+    // selection fill, so this cannot see a z-order regression. Moving the
+    // bands into drawBackground(in:) still passes here. That the bar sits
+    // ABOVE the table's selection fill is Task 10's manual check.
 
-    let midX = 200
-    let midY = 12
-    let barX = 1
-
-    let untaggedForPixels = TaggedRowView(frame: frame)
-    let strongForPixels = TaggedRowView(frame: frame)
-    strongForPixels.configure(color: .systemRed, isPartial: false)
-    let partialForPixels = TaggedRowView(frame: frame)
-    partialForPixels.configure(color: .systemRed, isPartial: true)
-
-    // Render each view exactly once — the dash-gap walk below samples 24
-    // points down the same bitmap instead of re-rendering per point.
-    if let untaggedRep = render(untaggedForPixels),
-       let strongRep = render(strongForPixels),
-       let partialRep = render(partialForPixels),
-       let untaggedMid = pixel(untaggedRep, x: midX, y: midY),
-       let strongMid = pixel(strongRep, x: midX, y: midY),
-       let partialMid = pixel(partialRep, x: midX, y: midY),
-       let strongBar = pixel(strongRep, x: barX, y: midY) {
-
-        // 1. The exact blend. This is what pins the label COLOUR and the exact
-        //    alpha — every other check here works by ORDERING or DIFFERENCE,
-        //    which a drawBackground that ignores tagColor entirely, or tints
-        //    at 0.30/0.60 instead of 0.08/0.15, can pass by accident. Compare
-        //    against the RESOLVED colour, never a hardcoded triple.
-        let resolvedRed = NSColor.systemRed.usingColorSpace(.deviceRGB) ?? .systemRed
-        expectTrue(sameColor(strongMid, expectedBlend(resolvedRed, alpha: 0.15)),
-                   "the strong wash pixel is exactly a 15% blend of the resolved colour over white")
-        expectTrue(sameColor(partialMid, expectedBlend(resolvedRed, alpha: 0.08)),
-                   "the partial wash pixel is exactly an 8% blend of the resolved colour over white")
-        expectTrue(sameColor(strongBar, resolvedRed),
-                   "the bar pixel is the resolved colour at full strength, not just A colour")
-
-        // 1b. A SECOND colour, so nothing here can pass by having special-cased
-        //     red. `.systemGreen` deliberately, not `.systemBlue`, so this
-        //     cannot coincidentally match a `drawBackground` that hardcodes
-        //     some other fixed colour.
-        let greenForPixels = TaggedRowView(frame: frame)
-        greenForPixels.configure(color: .systemGreen, isPartial: false)
-        if let greenRep = render(greenForPixels), let greenMid = pixel(greenRep, x: midX, y: midY) {
-            let resolvedGreen = NSColor.systemGreen.usingColorSpace(.deviceRGB) ?? .systemGreen
-            expectTrue(sameColor(greenMid, expectedBlend(resolvedGreen, alpha: 0.15)),
-                       "a green tag blends its OWN resolved colour, not a colour fixed in the drawing code")
-        } else {
-            failures += 1
-            print("FAIL could not render the green-tag view")
-        }
-
-        // 2. The bar is more saturated than the wash: the bar-column pixel
-        //    must sit farther from the untagged baseline than the mid-row wash
-        //    pixel does. (Not a raw red-component comparison — `.systemRed`
-        //    already has red = 1.0 at every alpha over a white backdrop, so
-        //    that single channel cannot tell a 15% wash from a 100% bar apart.
-        //    Total distance from the baseline can, because it is the green/
-        //    blue channels that move.)
-        let barDistance = distance(strongBar, from: untaggedMid)
-        let strongWashDistance = distance(strongMid, from: untaggedMid)
-        expectTrue(barDistance > strongWashDistance,
-                   "the strong bar pixel sits farther from the untagged baseline than the strong wash pixel")
-
-        // 2b. The bar's WIDTH in the output, not just in `barRect`. Reading
-        //     x=1 alone cannot tell a 4pt bar from a 2pt one, because both
-        //     cover it. x=3 must still be full bar colour and x=4 must already
-        //     have fallen back to wash — otherwise a `drawBackground` that
-        //     hardcodes a narrower rect while `barRect` keeps reporting 4
-        //     would pass every other check, this one included at x=1.
-        if let leadingEdge = pixel(strongRep, x: 0, y: midY),
-           let lastBarPixel = pixel(strongRep, x: 3, y: midY),
-           let firstWashPixel = pixel(strongRep, x: 4, y: midY) {
-            expectTrue(sameColor(lastBarPixel, leadingEdge),
-                       "x=3 matches x=0 — both still full bar colour")
-            expectTrue(sameColor(firstWashPixel, strongMid),
-                       "x=4 has already fallen back to the wash colour")
-        } else {
-            failures += 1
-            print("FAIL could not read the bar's right-edge pixels (x=0, x=3, x=4)")
-        }
-
-        // 3. A partial row's wash is fainter than a solid row's: the partial mid
-        //    pixel must sit closer to the untagged baseline than the strong
-        //    mid pixel does.
-        let partialDelta = distance(partialMid, from: untaggedMid)
-        let strongDelta = distance(strongMid, from: untaggedMid)
-        expectTrue(partialDelta < strongDelta, "a partial row's wash sits closer to the untagged baseline than a strong row's")
-
-        // 4. The dashed bar has gaps; the solid bar does not. Walk the bar
-        //    column down every y of both views (same rendered bitmap, sampled
-        //    repeatedly — no re-render per y).
-        var strongBarColors: [NSColor] = []
-        var partialBarColors: [NSColor] = []
-        for y in 0..<Int(frame.height) {
-            if let c = pixel(strongRep, x: barX, y: y) { strongBarColors.append(c) }
-            if let c = pixel(partialRep, x: barX, y: y) { partialBarColors.append(c) }
-        }
-        if strongBarColors.count == Int(frame.height) && partialBarColors.count == Int(frame.height) {
-            let strongBarUniform = strongBarColors.dropFirst().allSatisfy { sameColor($0, strongBarColors[0]) }
-            expectTrue(strongBarUniform, "the strong (solid) bar column is uniform top to bottom")
-
-            let partialBarHasGap = partialBarColors.contains { !sameColor($0, partialBarColors[0]) }
-            expectTrue(partialBarHasGap, "the partial (dashed) bar column has at least one differing pixel — a dash gap")
-        } else {
-            failures += 1
-            print("FAIL could not read every y of the bar column for the dash-gap check")
-        }
-
-        // 4b. The dashed bar's WIDTH, by column, not a single point — a 1pt
-        //     line (missing `lineWidth`) or an off-centre line (drawn at
-        //     `midX + 1` instead of `midX`) both still cover x=1 and would
-        //     slip past every check above. Verified ground truth for this
-        //     implementation, dash pattern [4,3] over a 24pt row with a 4pt
-        //     bar: 15 of 24 rows painted at x=0..3, and 0 of 24 at x=4 —
-        //     measured, not assumed. A 1pt line leaves x=0 and x=3 clean; an
-        //     off-centre line leaves x=0 clean and paints x=4.
-        let partialBarFullColor = resolvedRed // dash "on" segments stroke at full colour, same as the solid bar
-        func paintedRowCount(in rep: NSBitmapImageRep, x: Int) -> Int? {
-            var count = 0
-            for y in 0..<Int(frame.height) {
-                guard let c = pixel(rep, x: x, y: y) else { return nil }
-                if sameColor(c, partialBarFullColor) { count += 1 }
-            }
-            return count
-        }
-        let expectedPaintedCounts = [0: 15, 1: 15, 2: 15, 3: 15, 4: 0]
-        for (x, expected) in expectedPaintedCounts.sorted(by: { $0.key < $1.key }) {
-            if let actual = paintedRowCount(in: partialRep, x: x) {
-                expectEqual(actual, expected, "the dashed bar paints \(expected) of 24 rows at x=\(x)")
-            } else {
-                failures += 1
-                print("FAIL could not read column x=\(x) for the dash-width check")
-            }
-        }
-
-        // 4c. The bar survives SELECTION. This is why the bar is painted in
-        //     `draw(_:)` after `super` rather than in `drawBackground`:
-        //     `NSTableRowView` paints selection AFTER the background, so a bar
-        //     drawn there sits underneath an opaque selection fill. It used to
-        //     survive only because the table's `.inset` style insets the
-        //     selection past the leading edge — an accident that disappeared
-        //     when the table moved to `.fullWidth`. Since the bar is now the
-        //     ONLY marker on a tagged row, losing it on a selected row would
-        //     lose the tag altogether.
-        if let selectedRep = render(strong, selected: true),
-           let selectedBar = pixel(selectedRep, x: barX, y: midY) {
-            expectTrue(sameColor(selectedBar, resolvedRed),
-                       "the bar is still the full label colour on a SELECTED row")
-        } else {
-            failures += 1
-            print("FAIL could not render a selected row for the bar-survives-selection check")
-        }
-
-        // 5. clearTag really stops the drawing: after clearing, the mid pixel
-        //    must match the untagged baseline.
-        let clearedView = TaggedRowView(frame: frame)
-        clearedView.configure(color: .systemRed, isPartial: false)
-        clearedView.clearTag()
-        if let clearedRep = render(clearedView), let clearedMid = pixel(clearedRep, x: midX, y: midY) {
-            expectTrue(sameColor(clearedMid, untaggedMid), "clearTag's mid pixel matches the untagged baseline")
-        } else {
-            failures += 1
-            print("FAIL cleared view produced no readable pixel")
-        }
+    if let selectedRep = render(strong, selected: true),
+       let selectedBar = pixel(selectedRep, x: 1, y: 12) {
+        expectTrue(sameColor(selectedBar, resolvedRed),
+                   "isSelected = true does not change the bar's colour (z-order NOT covered — see LIMIT above)")
     } else {
         failures += 1
-        print("FAIL pixel rendering produced no readable colour — the offscreen bitmap technique did not work")
+        print("FAIL could not render a selected row for the isSelected check")
     }
 
-    // MARK: - needsDisplay (reuse correctness)
+    // MARK: - The Phase 4 single-tag shim still works (deleted in Task 3)
+
+    let shim = TaggedRowView(frame: frame)
+    shim.configure(color: .systemRed, isPartial: true)
+    expectEqual(shim.segments.count, 1, "the shim configures one segment")
+    expectClose(shim.tintAlpha, 0.08, "the shim carries isPartial through")
+
+    // MARK: - needsDisplay (reuse correctness) — needs a window, see Phase 4 comment
     //
-    // `render` above calls `drawBackground(in:)` directly, bypassing the real
-    // entry point: `NSTableView` recycles row views and relies on
-    // `needsDisplay = true` to get them repainted. A `configure`/`clearTag`
-    // that forgot to invalidate would still pass every pixel check above,
-    // because `render` never goes through invalidation at all — this is the
-    // highest-risk reuse bug in the class, and the only way to see it is to
-    // ask the real property. `needsDisplay` reads back false outside a
-    // window — AppKit discards the invalidation when there's nothing to
-    // display — but true inside a window, even an offscreen, never-shown one.
-    // Same pattern as PharosTests/ToastClickTests.swift,
-    // VariableRowLayoutTests.swift, and ErrorBadgeButtonTests.swift.
+    // A freshly hosted view's `needsDisplay` starts `true`, and that initial
+    // invalidation does NOT clear on its own: setting `needsDisplay = false`
+    // right after hosting and reading it back immediately still returns
+    // `true`. That made the two checks below pass with `needsDisplay = true`
+    // deleted from `configure`/`clearTag` entirely — caught during Task 2
+    // review, and NOT fixed by spinning the run loop: in this offscreen,
+    // never-ordered-front window, AppKit reconciles after the first run-loop
+    // turn that the window can never actually flush, and from then on it
+    // discards every invalidation, `true` ones included — so a "spin, then
+    // assert the flag cleared" precondition made the postcondition fail even
+    // for CORRECT code. `displayIfNeeded()` sidesteps this: it forces a real,
+    // synchronous display pass through the same code path the window server
+    // would use, with no dependency on wall-clock timing or screen presence.
+    // Calling it settles the flag to `false` deterministically; asserting
+    // THAT is the precondition that makes each postcondition non-vacuous.
+
     let hostWindow = NSWindow(
         contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false
     )
     let hostedView = TaggedRowView(frame: frame)
     hostWindow.contentView = hostedView
 
-    hostedView.needsDisplay = false
-    hostedView.configure(color: .systemRed, isPartial: false)
+    hostedView.displayIfNeeded()
+    expectEqual(hostedView.needsDisplay, false,
+                "PRECONDITION: needsDisplay is settled (false) after a real display pass")
+    hostedView.configure(segments: [(color: .systemRed, isPartial: false)])
     expectTrue(hostedView.needsDisplay, "configure requests a redraw when hosted in a window")
 
-    hostedView.needsDisplay = false
+    hostedView.displayIfNeeded()
+    expectEqual(hostedView.needsDisplay, false,
+                "PRECONDITION: needsDisplay is settled again before the clearTag check")
     hostedView.clearTag()
     expectTrue(hostedView.needsDisplay, "clearTag requests a redraw when hosted in a window")
 
