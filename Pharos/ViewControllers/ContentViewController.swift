@@ -3565,9 +3565,9 @@ extension ContentViewController: QueryErrorSheetDelegate {
 // MARK: - NSMenuItemValidation
 
 extension ContentViewController: NSMenuItemValidation {
-    /// The first validation conformance in the app. Only the tag item is
-    /// gated; every other menu item keeps its always-enabled behaviour, so the
-    /// default MUST stay `true`.
+    /// The first validation conformance in the app. Only the two tag items are
+    /// gated — `menuTagRow` and `menuManageTags`; every other menu item keeps
+    /// its always-enabled behaviour, so the default MUST stay `true`.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs

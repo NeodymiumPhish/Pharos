@@ -51,8 +51,13 @@ class ResultsGridVC: NSViewController {
     /// never reads a row key — matching is on cell values alone.
     var rowIdentity: RowIdentity?
     /// Matching tags by DATA row index, from `TagTupleMatcher`, strongest
-    /// first. The grid owns it; the data source holds a copy for row views. The
-    /// stage closures and the status text read this one.
+    /// first. The grid is the ONLY owner: the data source keeps no copy of it.
+    /// `applyTagMap` bakes this map once, through `TagPalette.bake`, into the
+    /// four render dictionaries the data source does hold — `segmentsByRow`,
+    /// `tooltipByRow`, `tintByRow` and `tagTints`. Anything that needs to paint
+    /// reads those; the raw matches here are for the stage closures, the status
+    /// text, the Inspector and the removal sheet. Keeping one bake is what
+    /// makes band, tooltip and tint appear and disappear in a single repaint.
     var matchesByRow: [Int: [TagRowMatch]] = [:]
     /// The force-show toggle: tagged rows survive the data filters (stages 2
     /// and 3-as-wired). Transient, per grid, by scope decision. The flag

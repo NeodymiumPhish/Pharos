@@ -14,12 +14,13 @@ import AppKit
 /// action that silently widens a tag is the worst outcome available.
 ///
 /// Every tuple is rendered from `TagRemovalTuple.values`, one wrapping label
-/// per value, and never from `title`: `title` joins values with "  +  ", a
-/// separator a captured display string can legally contain, so two
-/// structurally different tuples can print the same joined line. A checkbox
-/// title would also be a single truncating line, and a captured value can be
-/// kilobytes long and hold newlines — a user must never be able to approve a
-/// deletion having seen only its first line.
+/// per value. There is deliberately no joined-string form of a tuple anywhere
+/// in the model to render instead: any separator (" + ", say) is one a
+/// captured display string can legally contain, so two structurally different
+/// tuples could print the same joined line. A checkbox title would also be a
+/// single truncating line, and a captured value can be kilobytes long and hold
+/// newlines — a user must never be able to approve a deletion having seen only
+/// its first line.
 ///
 /// Cancel is the default button, by spec.
 final class TagRemovalSheet: NSViewController {
