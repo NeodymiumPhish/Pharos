@@ -45,12 +45,21 @@ class ResultsGridVC: NSViewController {
     var columns: [ColumnDef] = []
     var rows: [[AnyCodable]] = []
     /// The result's row identity, or nil when the core could not attribute the
-    /// result to a table. Read by `recomputeTagMap()`.
+    /// result to a table.
+    ///
+    /// The block travels with the result rather than being consumed here: it is
+    /// cached with a history entry and handed back by the history and workspace
+    /// restore, so a reopened grid carries the same block it had. `Load More`
+    /// extends it in step with the appended rows.
+    ///
+    /// The tag path reads `tableDisplay` ONLY, as provenance for a tuple's
+    /// origin. It never decides whether a row can be tagged, and the matcher
+    /// never reads a row key — matching is on cell values alone.
     var rowIdentity: RowIdentity?
-    /// Tags by DATA row index, from `TagMatcher`. The grid owns it; the data
-    /// source holds a copy for row views. The stage closures and the status
-    /// text read this one.
-    var tagsByRow: [Int: RowTag] = [:]
+    /// Matching tags by DATA row index, from `TagTupleMatcher`, strongest
+    /// first. The grid owns it; the data source holds a copy for row views. The
+    /// stage closures and the status text read this one.
+    var matchesByRow: [Int: [TagRowMatch]] = [:]
     /// The force-show toggle: tagged rows survive the data filters (stages 2
     /// and 3-as-wired). Transient, per grid, by scope decision. The flag
     /// latches while the button is hidden, so a newly-tagged row can bring it
@@ -192,47 +201,13 @@ class ResultsGridVC: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // The store changes when a connection loads its tags, and Phase 3 will add
-        // writes. This grid rebuilds its map from the new index — filtered to the
-        // affected connection, since `recomputeTagMap()` only ever reflects the
-        // GLOBAL active connection (there is exactly one at a time; see
-        // `AppStateManager.activeConnectionId`). A notification naming some other,
-        // inactive connection changes nothing this grid displays, so skipping it
-        // avoids a wasted row walk and table reload whenever an unrelated
-        // connection's tags load or a background reload runs. There is only one
-        // grid today, so this saves one row walk, not one per tab. A notification
-        // with no connection id (a global change, e.g. a future palette edit)
-        // still always rebuilds.
-        //
-        // The filter is safe only because of two facts checked directly against
-        // `TagStore` and `AppStateManager`, not assumed:
-        //  1. `activeConnectionId`'s `didSet` runs AFTER the new value is stored,
-        //     and `loadIfNeeded` (called from inside that `didSet`) posts the
-        //     change synchronously from there — so by the time this handler reads
-        //     `activeConnectionId`, it already equals the connection the post is
-        //     about.
-        //  2. `addObserver(forName:object:queue:.main)` delivers the block
-        //     SYNCHRONOUSLY when the post itself comes from the main thread, which
-        //     every poster in this codebase does — so no `async` hop can land
-        //     between the post and this handler.
-        //
-        // Two changes would break it, and either is a real risk in a future
-        // refactor rather than a hypothetical:
-        //  - A per-tab or per-pane connection. `recomputeTagMap()` would then need
-        //    a GRID-LOCAL connection id, but this filter compares the GLOBAL one —
-        //    so a notification for the grid's own connection would be silently
-        //    discarded whenever some other connection was globally active.
-        //  - Deferred delivery. This filter's correctness depends on the post
-        //    arriving while `activeConnectionId` still equals the affected id. A
-        //    post from a background thread, or one wrapped in
-        //    `DispatchQueue.main.async`, could arrive after `activeConnectionId`
-        //    had already moved on — e.g. the clear-on-disconnect post racing a
-        //    fast reconnect — and the mismatch would make this handler discard a
-        //    notification it needed, leaving stale tag stripes on screen until the
-        //    next result.
+        // Tags are global, so every post is for this grid: there is no
+        // connection to filter on any more. The observer stays cheap and must
+        // not write `AppStateManager` state — `TagStore` is `@MainActor` and
+        // posts synchronously, so this can run on a caller's own stack.
         tagStoreObserver = NotificationCenter.default.addObserver(
             forName: TagStore.didChange, object: nil, queue: .main
-        ) { [weak self] note in
+        ) { [weak self] _ in
             // `addObserver`'s block is `@Sendable`, so the compiler cannot see that
             // `queue: .main` already guarantees main-actor execution — every
             // `@MainActor` member touched below would otherwise warn, and those
@@ -241,10 +216,6 @@ class ResultsGridVC: NSViewController {
             // `AppStateManager` uses for the same reason.
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if let changedId = note.userInfo?[TagStore.connectionIdKey] as? String,
-                   changedId != AppStateManager.shared.activeConnectionId {
-                    return
-                }
                 self.recomputeTagMap()
                 if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
                     || self.forceShowTags {
@@ -279,8 +250,8 @@ class ResultsGridVC: NSViewController {
 
         // columnFilterController.delegate is wired in loadView(); this closure is
         // grouped with the rest of setupHelpers()'s post-construction wiring instead.
-        columnFilterController.rowTagLabelId = { [weak self] dataRow in
-            self?.tagsByRow[dataRow]?.labelId
+        columnFilterController.rowTagIds = { [weak self] dataRow in
+            self?.matchesByRow[dataRow]?.map { $0.tagId } ?? []
         }
 
         findController = ResultsFindController(
@@ -620,8 +591,8 @@ class ResultsGridVC: NSViewController {
                     // find's match set and navigation are display-indexed against
                     // its own input, so inserting rows after find would break
                     // both. Find therefore sees the merged list.
-                    forceShow: (forceShowTags && !tagsByRow.isEmpty)
-                        ? DisplayRowPipeline.forceShowAdmitting(taggedRows: Set(tagsByRow.keys))
+                    forceShow: (forceShowTags && !matchesByRow.isEmpty)
+                        ? DisplayRowPipeline.forceShowAdmitting(taggedRows: Set(matchesByRow.keys))
                         : nil)))
     }
 
@@ -640,7 +611,7 @@ class ResultsGridVC: NSViewController {
         let filterSuffix = filterCount > 0
             ? " \u{2022} \(filterCount) filter\(filterCount == 1 ? "" : "s")"
             : ""
-        let tagCount = tagsByRow.count
+        let tagCount = matchesByRow.count
         let tagSuffix = tagCount > 0
             ? " \u{2022} \(formatRowCount(tagCount)) tagged"
             : ""
@@ -739,9 +710,10 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Tags
 
-    /// Rows above which the weak (fingerprint) match leaves the main thread.
-    /// The strong path is a dictionary walk and never needs this.
-    static let weakMatchAsyncThreshold = 5_000
+    /// Rows above which matching leaves the main thread. The tuple matcher
+    /// always reads the row VALUES — there is no key-only path any more — so
+    /// this now gates every result, not just an unkeyed one.
+    static let matchAsyncThreshold = 5_000
 
     /// Monotonic stamp for async tag-map results. Bumped by EVERY recompute,
     /// so a stale background result can never overwrite a newer map.
@@ -754,88 +726,63 @@ class ResultsGridVC: NSViewController {
     /// source then answers each row view from a dictionary.
     func recomputeTagMap() {
         tagMapGeneration += 1
-        guard let connectionId = AppStateManager.shared.activeConnectionId else {
-            applyTagMap([:])
-            return
-        }
-        let index = TagStore.shared.index(for: connectionId)
+        let index = TagStore.shared.tagIndex
         guard !index.isEmpty else {
             applyTagMap([:])
             return
         }
-        // `TagMatcher.needsRowValues` owns this tier decision — see its doc for why
-        // a second copy of the rule here would be dangerous. Building the text copy
-        // unconditionally would copy the whole result on every store change for the
-        // common keyed case. The row COUNT must still be right in both branches,
-        // since that is what the strong path reads — `Array(repeating: [],
-        // count: rows.count)` keeps it correct while each row's own array of
-        // values stays empty.
-        let needsText = TagMatcher.needsRowValues(rowIdentity)
-        let columnNames = columns.map { $0.name }
+        // Every value crosses the FFI as text, so the matcher takes a text copy
+        // of the result. It is built on the main thread — `rows` is main-actor
+        // state — and only the matching itself leaves.
+        let columnDefs = columns
+        let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
 
-        if needsText && rows.count > Self.weakMatchAsyncThreshold {
-            // The text copy happens on the main thread (`rows` is main-actor
-            // state); only the matching itself leaves it. `TagMatcher`,
-            // `RowTag`, `RowIdentity` and the index dictionary are value
-            // types/immutable structs — safe to carry across the queue hop.
-            // Superseded matches run to completion on the concurrent global
-            // queue — bounded at current page sizes; a serial queue or a
-            // cancellable Task is the upgrade path if result sizes grow.
-            // The previous result's map is keyed by its own row indices;
-            // showing it on new rows draws stripes on the wrong rows. Blank
-            // is honest during the match.
-            applyTagMap([:])
-            let generation = tagMapGeneration
-            let identity = rowIdentity
-            let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let map = TagMatcher.match(identity: identity, columns: columnNames,
-                                           rows: textRows, tagsByIdentity: index)
-                DispatchQueue.main.async {
-                    // `DispatchQueue.main.async`'s closure is `@Sendable`, so the
-                    // compiler cannot see that `queue: .main`-equivalent dispatch
-                    // already guarantees main-actor execution — same reasoning as
-                    // the `TagStore.didChange` observer above.
-                    MainActor.assumeIsolated {
-                        guard let self, self.tagMapGeneration == generation else { return }
-                        self.applyTagMap(map)
-                        if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
-                            || self.forceShowTags {
-                            // Tags decide visibility here; the map just changed.
-                            self.recomputeDisplayRows()
-                        } else {
-                            self.tableView.reloadData()
-                            self.updateStatusBarText()
-                        }
-                    }
-                }
-            }
+        guard rows.count > Self.matchAsyncThreshold else {
+            applyTagMap(TagTupleMatcher.match(columns: columnDefs, rows: textRows, index: index))
             return
         }
 
-        let textRows: [[String?]] = needsText
-            ? rows.map { row in row.map { $0.stringValue } }
-            : Array(repeating: [], count: rows.count)
-        applyTagMap(TagMatcher.match(
-            identity: rowIdentity,
-            columns: columnNames,
-            rows: textRows,
-            tagsByIdentity: index
-        ))
+        // The previous result's map is keyed by its own row indices; showing it
+        // on new rows draws stripes on the wrong rows. Blank is honest during
+        // the match. Superseded matches run to completion on the concurrent
+        // global queue — bounded at current page sizes; a serial queue or a
+        // cancellable Task is the upgrade path if result sizes grow.
+        applyTagMap([:])
+        let generation = tagMapGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let map = TagTupleMatcher.match(columns: columnDefs, rows: textRows, index: index)
+            DispatchQueue.main.async {
+                // `DispatchQueue.main.async`'s closure is `@Sendable`, so the
+                // compiler cannot see that main-queue dispatch already
+                // guarantees main-actor execution — same reasoning as the
+                // `TagStore.didChange` observer above.
+                MainActor.assumeIsolated {
+                    guard let self, self.tagMapGeneration == generation else { return }
+                    self.applyTagMap(map)
+                    if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
+                        || self.forceShowTags {
+                        // Tags decide visibility here; the map just changed.
+                        self.recomputeDisplayRows()
+                    } else {
+                        self.tableView.reloadData()
+                        self.updateStatusBarText()
+                    }
+                }
+            }
+        }
     }
 
-    /// The single landing point for a computed tag map. Task 10 adds a second,
-    /// asynchronous caller.
-    func applyTagMap(_ map: [Int: RowTag]) {
+    /// The single landing point for a computed tag map, sync or async.
+    func applyTagMap(_ map: [Int: [TagRowMatch]]) {
         // Any landed map supersedes an in-flight match: a stale async result
         // must fail its generation check even when the landing came from
         // clear() or a sync path.
         tagMapGeneration += 1
-        tagsByRow = map
-        dataSource.tagsByRow = map
-        dataSource.labelColors = Dictionary(
-            uniqueKeysWithValues: TagStore.shared.labels.map {
-                ($0.id, TagLabelPalette.color(at: $0.colorIndex))
+        matchesByRow = map
+        dataSource.matchesByRow = map
+        dataSource.tagColors = Dictionary(
+            uniqueKeysWithValues: TagStore.shared.tags.map {
+                ($0.id, TagPalette.color(at: $0.colorIndex))
             }
         )
         syncTagButton()
@@ -878,119 +825,52 @@ class ResultsGridVC: NSViewController {
         return selection
     }
 
-    /// Put `labelId` on every target row, or — when every target already
-    /// carries it — remove it from all of them. The ⌘L rule.
-    func toggleTag(labelId: String, on targets: [Int]) {
-        guard let connectionId = AppStateManager.shared.activeConnectionId else { return }
-        let existing = targets.compactMap { tagsByRow[$0] }
-        let allCarryIt = existing.count == targets.count
-            && existing.allSatisfy { $0.labelId == labelId }
-        do {
-            if allCarryIt {
-                try TagStore.shared.removeTags(ids: existing.map { $0.id },
-                                               connectionId: connectionId)
-                return
-            }
-            let columnNames = columns.map { $0.name }
-            var applied = 0
-            var lastFailure: TagComposer.Failure?
-            // The upsert replaces the whole tag; carry each row's existing note
-            // or Phase 4's notes UI loses data. Captured BEFORE the loop: each
-            // upsert posts didChange synchronously and the observer's recompute
-            // can BLANK tagsByRow mid-loop on the async weak path (>5,000 rows),
-            // so a mid-loop read of tagsByRow is not reliable.
-            let noteByRow: [Int: String] = Dictionary(
-                uniqueKeysWithValues: targets.compactMap { row in
-                    tagsByRow[row]?.note.map { (row, $0) }
-                })
-            // The loop itself is safe against the observer: it iterates a
-            // captured [Int] and reads only rows, 'existing', and 'noteByRow'.
-            for row in targets {
-                guard row < rows.count else { continue }
-                let values = rows[row].map { $0.stringValue }
-                switch TagComposer.upsert(row: row, columns: columnNames,
-                                          rowValues: values, identity: rowIdentity,
-                                          connectionId: connectionId,
-                                          labelId: labelId,
-                                          note: noteByRow[row]) {
-                case .success(let upsert):
-                    try TagStore.shared.upsertTag(upsert)
-                    applied += 1
-                case .failure(let reason):
-                    lastFailure = reason
-                }
-            }
-            if applied > 0 {
-                TagStore.shared.lastUsedLabelId = labelId
-            }
-            if applied == 0, let lastFailure {
-                presentTagFailure(lastFailure)
-            }
-        } catch {
-            NSLog("Tag write failed: \(error)")
-            NSSound.beep()
-        }
-    }
-
-    private func presentTagFailure(_ failure: TagComposer.Failure) {
-        let alert = NSAlert()
-        alert.messageText = "Cannot tag this row"
-        switch failure {
-        case .noKeyValue: alert.informativeText = "This row has no key value."
-        case .noSourceTable: alert.informativeText = "This result has no source table."
-        case .malformedRow: alert.informativeText = "This row's identity is malformed."
-        }
-        alert.addButton(withTitle: "OK")
-        guard let window = view.window else { return }
-        alert.beginSheetModal(for: window)
-    }
-
-    /// ⌘L: the last-used label on the targets; a second ⌘L removes it. With no
-    /// label in the palette, prompt for the first one (the Phase 4 panel
-    /// replaces this prompt).
+    /// ⌘L and the context menu's "Add Tag…": open the modal on the target rows.
     ///
     /// Deliberately `selectedDataRows()`, not `tagTargetDataRows()` — see that
-    /// method's doc comment. This fires from the main menu / keyboard, which
-    /// can happen long after the last click, so it must not trust a possibly-
-    /// stale `clickedRow`.
-    @objc func tagWithLastLabel(_ sender: Any?) {
-        let targets = selectedDataRows()
-        guard !targets.isEmpty, rowIdentity != nil else { NSSound.beep(); return }
-        let store = TagStore.shared
-        if store.labels.isEmpty {
-            promptForNewLabel { [weak self] label in
-                self?.toggleTag(labelId: label.id, on: targets)
-            }
-            return
-        }
-        guard let labelId = store.effectiveLastLabelId else { NSSound.beep(); return }
-        toggleTag(labelId: labelId, on: targets)
+    /// method's doc comment. This can fire from the main menu long after the
+    /// last click, and `clickedRow` is not reset by this table's `mouseDown`.
+    ///
+    /// There is no quick-tag path any more: breadth needs the live count in
+    /// front of the analyst, which is the whole reason the modal exists.
+    @objc func presentTagSheet(_ sender: Any?) {
+        presentTagSheet(on: selectedDataRows())
     }
 
-    /// House-pattern name prompt (the renameTab shape). Runs `onCreate` with
-    /// the new label on success.
-    func promptForNewLabel(onCreate: @escaping (TagLabel) -> Void) {
-        let alert = NSAlert()
-        alert.messageText = "New Tag Label"
-        alert.informativeText = "Enter a name for the label:"
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        alert.accessoryView = field
-        guard let window = view.window else { return }
-        alert.window.initialFirstResponder = field
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
-            let name = field.stringValue.trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { return }
-            do {
-                let label = try TagStore.shared.createLabel(name: name)
-                TagStore.shared.lastUsedLabelId = label.id
-                onCreate(label)
-            } catch {
-                NSLog("Label create failed: \(error)")
-                NSSound.beep()
-            }
+    func presentTagSheet(on targets: [Int]) {
+        // A sheet needs a window to hang from; a grid off screen just beeps.
+        guard !targets.isEmpty, view.window != nil else { NSSound.beep(); return }
+        let sheet = TagSheet(context: TagSheet.Context(
+            columns: columns,
+            selectedRows: targets.compactMap { row in
+                row < rows.count ? rows[row].map { $0.stringValue } : nil
+            },
+            loadedRows: rows.map { row in row.map { $0.stringValue } },
+            originConnection: AppStateManager.shared.activeConnectionId ?? "",
+            // Provenance only. A result with no source table is still taggable —
+            // the "no source table" refusal retired with row identity.
+            originTable: rowIdentity?.tableDisplay ?? "",
+            existingTags: TagStore.shared.tags))
+        presentAsSheet(sheet)
+    }
+
+    /// "Remove From Tag": drop the tuples this row completes.
+    ///
+    /// Only SOLID matches are removed. A dashed row holds fragments of several
+    /// tuples and completes none of them, so there is no one tuple the analyst
+    /// can be said to be removing — the menu item disables rather than guess.
+    ///
+    /// A tuple is the finding, not the row, so removing it stops the tag
+    /// matching that value EVERYWHERE. That is the model, not a side effect.
+    func removeFromTags(on targets: [Int]) {
+        let ids = Array(Set(targets.flatMap { row in
+            matchesByRow[row]?.flatMap { $0.solidTupleIds } ?? []
+        }))
+        guard !ids.isEmpty else { return }
+        do { try TagStore.shared.removeTuples(ids: ids) }
+        catch {
+            NSLog("Tag value removal failed: \(error)")
+            NSSound.beep()
         }
     }
 
@@ -1069,7 +949,7 @@ class ResultsGridVC: NSViewController {
     /// stays the same size as its toolbar siblings instead of falling back to
     /// the system default.
     func syncTagButton() {
-        tagButton.isHidden = tagsByRow.isEmpty
+        tagButton.isHidden = matchesByRow.isEmpty
         let symbol = forceShowTags ? "tag.fill" : "tag"
         let config = ContentViewController.toolbarSymbolConfiguration
         tagButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Force-show tagged rows")?.withSymbolConfiguration(config)

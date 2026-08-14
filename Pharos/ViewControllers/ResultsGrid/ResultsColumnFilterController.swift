@@ -15,9 +15,8 @@ class ResultsColumnFilterController {
 
     weak var delegate: ResultsColumnFilterControllerDelegate?
 
-    /// DATA-row index → label id, for the tag funnel. Set by the grid; nil
-    /// means "treat every row as untagged".
-    var rowTagLabelId: ((Int) -> String?)?
+    /// Every tag matching a DATA row, or an empty list. Set by the grid.
+    var rowTagIds: ((Int) -> [String])?
 
     var hasActiveFilters: Bool { !activeFilters.isEmpty }
     var activeFilterCount: Int { activeFilters.count }
@@ -57,7 +56,7 @@ class ResultsColumnFilterController {
         else { return inputDisplayRows }
         let allowed = Set(values)
         return inputDisplayRows.filter {
-            TagFunnel.passes(labelId: rowTagLabelId?($0), allowed: allowed)
+            TagFunnel.passes(tagIds: rowTagIds?($0) ?? [], allowed: allowed)
         }
     }
 

@@ -1,4 +1,4 @@
-// Standalone test runner for TagLabelPalette. Pure AppKit + Foundation, no FFI.
+// Standalone test runner for TagPalette. Pure AppKit + Foundation, no FFI.
 // Compiled with the implementation by scripts/test-tag-appearance.sh.
 import AppKit
 
@@ -26,146 +26,125 @@ func expectNotNil<T>(_ actual: T?, _ name: String) {
     if actual != nil { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected non-nil") }
 }
 
-/// Minimal RowTag fixture. Only `labelId` and `primaryKind` vary per test —
+/// Minimal match fixture. Only the tag id and the state vary per test —
 /// everything else is filler that `appearance` never reads.
-func makeTag(labelId: String = "label-1", primaryKind: String = "pk") -> RowTag {
-    RowTag(
-        id: "tag-1",
-        connectionId: "conn-1",
-        labelId: labelId,
-        note: nil,
-        primaryKind: primaryKind,
-        tableKey: "oid:1",
-        tableDisplay: "public.t",
-        identityColumns: ["id"],
-        identityValues: ["1"],
-        keys: [RowTagKey(identityKind: primaryKind, identityValue: "1")],
-        createdAt: "2026-01-01T00:00:00Z",
-        updatedAt: "2026-01-01T00:00:00Z"
-    )
+private func match(_ tagId: String, _ state: TagMatchState) -> TagRowMatch {
+    TagRowMatch(tagId: tagId, state: state, matchedColumns: [0],
+                matchedTupleIds: ["u1"], solidTupleIds: state == .solid ? ["u1"] : [])
 }
+
+private let colors = ["red-tag": NSColor.systemRed, "blue-tag": NSColor.systemBlue]
 
 func runTests() {
 
     // MARK: - 1. color(at:) returns the right palette entry
 
-    expectEqual(TagLabelPalette.color(at: 0), TagLabelPalette.colors[0], "color(at: 0) is the first palette entry")
-    let lastIndex = TagLabelPalette.colors.count - 1
-    expectEqual(TagLabelPalette.color(at: lastIndex), TagLabelPalette.colors[lastIndex],
+    expectEqual(TagPalette.color(at: 0), TagPalette.colors[0], "color(at: 0) is the first palette entry")
+    let lastIndex = TagPalette.colors.count - 1
+    expectEqual(TagPalette.color(at: lastIndex), TagPalette.colors[lastIndex],
                 "color(at: last) is the last palette entry")
 
     // MARK: - 2. Out-of-range indices wrap rather than trapping
 
-    expectEqual(TagLabelPalette.color(at: TagLabelPalette.colors.count),
-                TagLabelPalette.colors[0],
+    expectEqual(TagPalette.color(at: TagPalette.colors.count),
+                TagPalette.colors[0],
                 "an index one past the end wraps to the first entry")
-    expectEqual(TagLabelPalette.color(at: TagLabelPalette.colors.count * 3 + 2),
-                TagLabelPalette.colors[2],
+    expectEqual(TagPalette.color(at: TagPalette.colors.count * 3 + 2),
+                TagPalette.colors[2],
                 "a large out-of-range index wraps via modulo")
-    expectEqual(TagLabelPalette.color(at: -1),
-                TagLabelPalette.colors[TagLabelPalette.colors.count - 1],
+    expectEqual(TagPalette.color(at: -1),
+                TagPalette.colors[TagPalette.colors.count - 1],
                 "a negative index wraps to the last entry, not a trap")
-    expectEqual(TagLabelPalette.color(at: -TagLabelPalette.colors.count - 1),
-                TagLabelPalette.colors[TagLabelPalette.colors.count - 1],
+    expectEqual(TagPalette.color(at: -TagPalette.colors.count - 1),
+                TagPalette.colors[TagPalette.colors.count - 1],
                 "a large negative index still wraps correctly")
 
     // MARK: - 3. appearance maps through displayRows, not raw row index
 
     do {
         let displayRows = [5, 2, 9]
-        let tag = makeTag(labelId: "label-1")
-        let tagsByRow: [Int: RowTag] = [2: tag] // tag is on DATA row 2
-        let labelColors: [String: NSColor] = ["label-1": .systemRed]
+        let matchesByRow: [Int: [TagRowMatch]] = [2: [match("red-tag", .solid)]] // DATA row 2
 
-        let hit = TagLabelPalette.appearance(row: 1, displayRows: displayRows,
-                                              tagsByRow: tagsByRow, labelColors: labelColors)
-        expectNotNil(hit, "row 1 (display row 2, the tagged data row) hits")
+        let hit = TagPalette.appearance(row: 1, displayRows: displayRows,
+                                        matchesByRow: matchesByRow, tagColors: colors)
+        expectNotNil(hit, "row 1 (display row 2, the matched data row) hits")
         if let hit { expectEqual(hit.color, NSColor.systemRed, "the hit reports the tag's colour") }
 
-        let miss = TagLabelPalette.appearance(row: 0, displayRows: displayRows,
-                                               tagsByRow: tagsByRow, labelColors: labelColors)
-        // `tagsByRow[0]` is also absent, so a version indexing by `row` directly
+        let miss = TagPalette.appearance(row: 0, displayRows: displayRows,
+                                         matchesByRow: matchesByRow, tagColors: colors)
+        // `matchesByRow[0]` is also absent, so a version indexing by `row` directly
         // would miss here too — this assertion alone does not distinguish the two
         // implementations. It exists to pin the "row 0 has no tag" case on its own
         // terms; row 1 above and row 2 below are what actually discriminate.
         expectNil(miss, "row 0 (display row 5, untagged) misses")
 
-        // The wrong-hit direction. `displayRows[2]` is 9 and untagged, but `tagsByRow[2]`
-        // holds the tag — so a version indexing by `row` instead of by `displayRows[row]`
-        // returns a tag here. Row 1's hit alone cannot catch that: this is the assertion
-        // that actually proves the mapping goes through `displayRows`, not just that it
-        // is consistent with doing so.
-        let wrongHit = TagLabelPalette.appearance(row: 2, displayRows: displayRows,
-                                                   tagsByRow: tagsByRow, labelColors: labelColors)
-        expectNil(wrongHit, "row 2 (display row 9, untagged) misses even though tagsByRow[2] holds a tag")
+        // The wrong-hit direction. `displayRows[2]` is 9 and untagged, but
+        // `matchesByRow[2]` holds a match — so a version indexing by `row` instead
+        // of by `displayRows[row]` returns a tag here. Row 1's hit alone cannot
+        // catch that: this is the assertion that actually proves the mapping goes
+        // through `displayRows`, not just that it is consistent with doing so.
+        let wrongHit = TagPalette.appearance(row: 2, displayRows: displayRows,
+                                             matchesByRow: matchesByRow, tagColors: colors)
+        expectNil(wrongHit, "row 2 (display row 9, untagged) misses even though matchesByRow[2] holds a match")
     }
 
     // MARK: - 4. appearance returns nil for an out-of-bounds row index
 
     do {
         let displayRows = [0, 1, 2]
-        let tag = makeTag()
-        let tagsByRow: [Int: RowTag] = [0: tag, 1: tag, 2: tag]
-        let labelColors: [String: NSColor] = ["label-1": .systemBlue]
+        let matchesByRow: [Int: [TagRowMatch]] = [
+            0: [match("blue-tag", .solid)],
+            1: [match("blue-tag", .solid)],
+            2: [match("blue-tag", .solid)],
+        ]
 
-        expectNil(TagLabelPalette.appearance(row: -1, displayRows: displayRows,
-                                              tagsByRow: tagsByRow, labelColors: labelColors),
+        expectNil(TagPalette.appearance(row: -1, displayRows: displayRows,
+                                        matchesByRow: matchesByRow, tagColors: colors),
                   "a negative row index returns nil")
-        expectNil(TagLabelPalette.appearance(row: displayRows.count, displayRows: displayRows,
-                                              tagsByRow: tagsByRow, labelColors: labelColors),
+        expectNil(TagPalette.appearance(row: displayRows.count, displayRows: displayRows,
+                                        matchesByRow: matchesByRow, tagColors: colors),
                   "a row index at displayRows.count (one past the end) returns nil")
-        expectNil(TagLabelPalette.appearance(row: displayRows.count + 5, displayRows: displayRows,
-                                              tagsByRow: tagsByRow, labelColors: labelColors),
+        expectNil(TagPalette.appearance(row: displayRows.count + 5, displayRows: displayRows,
+                                        matchesByRow: matchesByRow, tagColors: colors),
                   "a row index well past the end returns nil")
     }
 
-    // MARK: - 5. appearance returns nil when the label has no colour
+    // MARK: - 5. appearance returns nil when the tag has no colour
 
     do {
         let displayRows = [0]
-        let tag = makeTag(labelId: "label-unknown")
-        let tagsByRow: [Int: RowTag] = [0: tag]
-        let labelColors: [String: NSColor] = ["label-1": .systemGreen] // does not contain "label-unknown"
+        let matchesByRow: [Int: [TagRowMatch]] = [0: [match("green-tag", .solid)]]
 
-        expectNil(TagLabelPalette.appearance(row: 0, displayRows: displayRows,
-                                              tagsByRow: tagsByRow, labelColors: labelColors),
-                  "a tag whose labelId has no entry in labelColors misses")
+        expectNil(TagPalette.appearance(row: 0, displayRows: displayRows,
+                                        matchesByRow: matchesByRow, tagColors: colors),
+                  "a match whose tagId has no entry in tagColors misses")
     }
 
-    // MARK: - 6. isWeak is true only for primaryKind == "fingerprint"
+    // MARK: - 6. solid paints an unbroken bar; dashed paints a partial one
 
-    do {
-        let displayRows = [0]
-        let labelColors: [String: NSColor] = ["label-1": .systemPurple]
+    // A solid match paints an unbroken bar; a partial one dashes.
+    expectEqual(TagPalette.appearance(row: 0, displayRows: [7],
+                                      matchesByRow: [7: [match("red-tag", .solid)]],
+                                      tagColors: colors)?.isPartial,
+                false, "a solid match is not partial")
+    expectEqual(TagPalette.appearance(row: 0, displayRows: [7],
+                                      matchesByRow: [7: [match("red-tag", .dashed)]],
+                                      tagColors: colors)?.isPartial,
+                true, "a dashed match is partial")
 
-        for kind in ["pk", "unique"] {
-            let tagsByRow: [Int: RowTag] = [0: makeTag(primaryKind: kind)]
-            let result = TagLabelPalette.appearance(row: 0, displayRows: displayRows,
-                                                     tagsByRow: tagsByRow, labelColors: labelColors)
-            expectNotNil(result, "a \"\(kind)\" tag still produces an appearance")
-            if let result { expectTrue(!result.isWeak, "primaryKind \"\(kind)\" is NOT weak") }
-        }
+    // Phase 4 paints the STRONGEST match only, and the matcher has already put it
+    // first — the appearance rule must not re-sort or pick by dictionary order.
+    expectEqual(TagPalette.appearance(row: 0, displayRows: [7],
+                                      matchesByRow: [7: [match("blue-tag", .solid),
+                                                         match("red-tag", .dashed)]],
+                                      tagColors: colors)?.color,
+                NSColor.systemBlue, "the first match owns the bar")
 
-        let fingerprintTagsByRow: [Int: RowTag] = [0: makeTag(primaryKind: "fingerprint")]
-        let fingerprintResult = TagLabelPalette.appearance(row: 0, displayRows: displayRows,
-                                                            tagsByRow: fingerprintTagsByRow, labelColors: labelColors)
-        expectNotNil(fingerprintResult, "a \"fingerprint\" tag produces an appearance")
-        if let fingerprintResult { expectTrue(fingerprintResult.isWeak, "primaryKind \"fingerprint\" IS weak") }
+    // MARK: - 7. An empty match list is not a match
 
-        // Rust stores primaryKind verbatim and never validates it — record what
-        // an unexpected value actually does: it falls through to the non-weak
-        // (strong) styling, since the check is a positive match on
-        // "fingerprint" rather than a negative match on the known strong kinds.
-        let unexpectedTagsByRow: [Int: RowTag] = [0: makeTag(primaryKind: "fp")]
-        let unexpectedResult = TagLabelPalette.appearance(row: 0, displayRows: displayRows,
-                                                           tagsByRow: unexpectedTagsByRow, labelColors: labelColors)
-        expectNotNil(unexpectedResult, "an unexpected primaryKind still produces an appearance")
-        if let unexpectedResult {
-            expectTrue(!unexpectedResult.isWeak,
-                       "an unrecognised primaryKind (\"fp\") is treated as strong (not weak), since only an exact " +
-                       "\"fingerprint\" match sets isWeak")
-        }
-    }
+    expectNil(TagPalette.appearance(row: 0, displayRows: [7],
+                                    matchesByRow: [7: []], tagColors: colors),
+              "a row with an empty match list paints nothing")
 
     if failures == 0 {
         print("\nAll TagAppearance tests passed.")

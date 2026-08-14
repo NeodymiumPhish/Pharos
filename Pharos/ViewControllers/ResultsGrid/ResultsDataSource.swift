@@ -67,11 +67,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
 
-    /// Tags by index into `rows`, from `TagMatcher`. Empty when nothing matched.
-    var tagsByRow: [Int: RowTag] = [:]
+    /// Matching tags by index into `rows`, from `TagTupleMatcher`, strongest
+    /// first. Empty when nothing matched.
+    var matchesByRow: [Int: [TagRowMatch]] = [:]
 
-    /// Label colours by label id, so a row view needs no store lookup.
-    var labelColors: [String: NSColor] = [:]
+    /// Tag colours by tag id, so a row view needs no store lookup.
+    var tagColors: [String: NSColor] = [:]
 
     // MARK: - Hot-path Caches
 
@@ -324,14 +325,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 return fresh
             }()
 
-        guard let look = TagLabelPalette.appearance(
+        guard let look = TagPalette.appearance(
             row: row, displayRows: displayRows,
-            tagsByRow: tagsByRow, labelColors: labelColors)
+            matchesByRow: matchesByRow, tagColors: tagColors)
         else {
             view.clearTag()
             return view
         }
-        view.configure(color: look.color, isWeak: look.isWeak)
+        view.configure(color: look.color, isPartial: look.isPartial)
         return view
     }
 

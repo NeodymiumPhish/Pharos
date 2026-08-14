@@ -6,11 +6,11 @@ protocol TagFunnelPopoverDelegate: AnyObject {
 
 // MARK: - TagFunnelPopoverVC
 
-/// The `#` funnel: a label checklist plus "Untagged". Reuses
+/// The `#` funnel: a tag checklist plus "Untagged". Reuses
 /// `FilterValueListView` so it looks like the column filter checklist, without
-/// the operator UI that means nothing for labels.
+/// the operator UI that means nothing for tags.
 ///
-/// Values are LABEL IDS (stable across rename); "Untagged" is
+/// Values are TAG IDS (stable across rename); "Untagged" is
 /// `TagFunnel.untaggedValue`. Applying with everything checked clears the
 /// filter — the same rule the column popover has.
 final class TagFunnelPopoverVC: NSViewController {
@@ -27,28 +27,28 @@ final class TagFunnelPopoverVC: NSViewController {
     private let checkedNames: Set<String>
 
     /// - Parameters:
-    ///   - labels: the labels present in the result, display order.
-    ///   - existing: the active funnel filter's values (label ids), nil when
+    ///   - tags: the tags present in the result, display order.
+    ///   - existing: the active funnel filter's values (tag ids), nil when
     ///     no funnel filter is active.
     ///
-    /// Known narrowing: the checklist holds only labels PRESENT in the current
-    /// result, so an existing filter value for an absent label gets no row and
-    /// Apply rewrites the filter without it. Accepted for Phase 3 — the user
+    /// Known narrowing: the checklist holds only tags PRESENT in the current
+    /// result, so an existing filter value for an absent tag gets no row and
+    /// Apply rewrites the filter without it. Accepted for Phase 4 — the user
     /// sees exactly what they can select, and Clear always recovers.
-    init(labels: [TagLabel], existing: Set<String>?) {
+    init(tags: [Tag], existing: Set<String>?) {
         var names: [String] = []
-        // Seed the reserved row's name FIRST, so a label literally named
+        // Seed the reserved row's name FIRST, so a tag literally named
         // "Untagged" flows through the dedup loop and becomes "Untagged (2)"
         // instead of colliding with the sentinel row.
         var ids: [String: String] = ["Untagged": TagFunnel.untaggedValue]
-        for label in labels {
-            // Two labels can share a name; suffix the duplicate so both rows
+        for tag in tags {
+            // Two tags can share a name; suffix the duplicate so both rows
             // stay selectable.
-            var name = label.name
+            var name = tag.name
             var n = 2
-            while ids[name] != nil { name = "\(label.name) (\(n))"; n += 1 }
+            while ids[name] != nil { name = "\(tag.name) (\(n))"; n += 1 }
             names.append(name)
-            ids[name] = label.id
+            ids[name] = tag.id
         }
         names.append("Untagged")
         displayNames = names

@@ -2,12 +2,19 @@ import Foundation
 
 // MARK: - RowFingerprint
 
-/// The canonical compare string for the fingerprint tier.
+/// The field grammar every canonical compare string is built from.
 ///
-/// A fingerprint tag stores every column of a row, and matching it means
-/// comparing strings exactly — Pharos does not hash. A plain join on a separator
-/// would let a value forge a field boundary, because a result value can hold any
-/// text. Every field is therefore length-prefixed, which makes the string
+/// `TupleKey` is the only production caller, and it uses `column(_:)` and
+/// `field(_:)` ONLY. `encode(columns:values:)` has no production caller at all
+/// since the row-identity tag model retired — `PharosTests/RowFingerprintTests.swift`
+/// is the only thing that calls it. It stays because the grammar it demonstrates
+/// is still live and its tie-breaking rules are still the reference; keeping or
+/// dropping it is a deliberate decision for a later reader, not an oversight.
+///
+/// A key of this kind pins whole values, and matching it means comparing
+/// strings exactly — Pharos does not hash. A plain join on a separator would let
+/// a value forge a field boundary, because a result value can hold any text.
+/// Every field is therefore length-prefixed, which makes the string
 /// self-delimiting and needs no separator and no escape:
 ///
 ///     field(NULL)  = "N"
@@ -15,17 +22,16 @@ import Foundation
 ///     column(name) = "K" <byte count of the name> ":" <the name>
 ///     fingerprint  = column(n1) field(v1) column(n2) field(v2) …
 ///
-/// Swift is the ONLY producer of a fingerprint. Rust produces the `pk` and
-/// `unique` keys and Swift stores those verbatim, never rebuilding one. So the
-/// two languages never have to agree on a byte here, and there is deliberately
-/// no cross-language test vector for the fingerprint AS A WHOLE — it would test
-/// a path that cannot exist. The field grammar itself is a different matter: it
-/// has two independent implementations. `field(_:)` below reproduces
-/// `encode_field` in `pharos-core/src/commands/row_identity.rs` byte for byte —
-/// same `"N"`, same `"V<len>:<value>"`, and Rust's `len()` on a `&str` is also
-/// the UTF-8 byte count. A change to one grammar without the other will not
-/// show up as a compile error on either side, only as a fingerprint that stops
-/// matching itself — keep them in lockstep on purpose.
+/// Swift is the only producer of every key built with this grammar. So the two
+/// languages never have to agree on a byte here, and there is deliberately no
+/// cross-language test vector for a whole key — it would test a path that
+/// cannot exist. The field grammar itself is a different matter: it has two
+/// independent implementations. `field(_:)` below reproduces `encode_field` in
+/// `pharos-core/src/commands/row_identity.rs` byte for byte — same `"N"`, same
+/// `"V<len>:<value>"`, and Rust's `len()` on a `&str` is also the UTF-8 byte
+/// count. A change to one grammar without the other will not show up as a
+/// compile error on either side, only as a key that stops matching itself —
+/// keep them in lockstep on purpose.
 enum RowFingerprint {
 
     /// One value, or a SQL NULL.
@@ -41,8 +47,7 @@ enum RowFingerprint {
         return "V\(value.utf8.count):\(value)"
     }
 
-    /// One column name. A fingerprint pins its names into the string; a strong
-    /// key does not, because its key columns come from the catalogue.
+    /// One column name, for a key that pins its names into the string.
     ///
     /// Same byte-count rule as `field(_:)`, for the same reason: a non-ASCII
     /// column name counted in characters would under-report its own length.
@@ -55,16 +60,15 @@ enum RowFingerprint {
     /// Columns sort by their UTF-8 bytes, not by `String.<`. Byte order is the
     /// same everywhere; `String.<` is Unicode-aware and could in principle order
     /// two names differently under a different collation, which would make a
-    /// stored fingerprint stop matching itself.
+    /// stored key stop matching itself.
     ///
-    /// PostgreSQL freely returns duplicate column names, and this can happen in
-    /// a result that falls to this tier — a read through a view, or a join that
-    /// does not select all of the primary table's key columns. For a pair
+    /// PostgreSQL freely returns duplicate column names — a read through a
+    /// view, or a join that selects the same name twice. For a pair
     /// of equal names, `lexicographicallyPrecedes` is false in both directions,
     /// so a comparator built only from it is PARTIAL, and `sorted(by:)` is not
     /// guaranteed stable — the order of those two columns would be an
     /// unspecified implementation detail that could change under a stdlib
-    /// update. A fingerprint is stored and re-derived on a later query, so an
+    /// update. A key is stored and re-derived on a later query, so an
     /// unstable order would make it silently stop matching itself one day.
     /// Tie-breaking on ORIGINAL POSITION makes the ordering total and
     /// deterministic. Tie-breaking on the VALUE instead would be worse than the

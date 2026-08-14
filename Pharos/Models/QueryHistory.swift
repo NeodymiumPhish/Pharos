@@ -67,9 +67,13 @@ extension QueryResult {
     /// Build a result from a stored history payload.
     ///
     /// This exists so no caller has to remember `rowIdentity`. `init` defaults that
-    /// parameter to nil, so a history-restore path that omits it silently drops every
-    /// tag on the reopened result — no crash, no warning. Two call sites did exactly
-    /// that. Route every future history restore through here.
+    /// parameter to nil, so a history-restore path that omits it silently drops the
+    /// identity block the entry was cached WITH — no crash, no warning, and the
+    /// reopened result then disagrees with the one that was stored. Two call sites
+    /// did exactly that. Route every future history restore through here.
+    ///
+    /// This costs provenance, not tags: a tag is matched on cell values, so a
+    /// restored result shows the same tags with or without the block.
     static func fromHistory(
         _ data: QueryHistoryResultData,
         historyEntryId: String,

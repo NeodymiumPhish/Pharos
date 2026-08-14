@@ -3265,7 +3265,7 @@ extension ContentViewController {
     }
 
     @objc func menuTagRow(_ sender: Any?) {
-        resultsVC.tagWithLastLabel(sender)
+        resultsVC.presentTagSheet(sender)
     }
 
     @objc func menuFormatSQL(_: Any?) {
@@ -3456,28 +3456,20 @@ extension ContentViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
-            // on menu-open and key-equivalent resolution, which can happen
-            // long after the last click, and `tagTargetDataRows()` starts
-            // from `tableView.clickedRow`, which `ResultsTableView.mouseDown`
-            // never resets (it never calls `super.mouseDown`, the one path
-            // that clears clickedRow after a plain left-click — verified
-            // empirically). The title here must match what ⌘L actually acts
-            // on, so it uses the same selection-only resolution as
-            // `tagWithLastLabel`.
+            // on menu-open and key-equivalent resolution, which can happen long
+            // after the last click, and `tagTargetDataRows()` starts from
+            // `tableView.clickedRow`, which `ResultsTableView.mouseDown` never
+            // resets (it never calls `super.mouseDown`, the one path that
+            // clears clickedRow after a plain left-click — verified
+            // empirically). The title must match what ⌘L actually acts on.
             let targets = resultsVC.selectedDataRows()
-            let canTag = resultsVC.rowIdentity != nil && !targets.isEmpty
-            // Retitle to match what ⌘L will do.
-            if canTag, let labelId = TagStore.shared.effectiveLastLabelId,
-               targets.allSatisfy({ resultsVC.tagsByRow[$0]?.labelId == labelId }) {
-                menuItem.title = targets.count > 1 ? "Untag Rows" : "Untag Row"
-            } else {
-                menuItem.title = targets.count > 1 ? "Tag Rows" : "Tag Row"
-            }
-            // Scope decision 1: a disabled item must say why.
-            menuItem.toolTip = resultsVC.rowIdentity == nil
-                ? "This result has no source table."
-                : nil
-            return canTag
+            menuItem.title = targets.count > 1
+                ? "Add Tag to \(targets.count) Rows…"
+                : "Add Tag…"
+            // No source-table condition any more: matching needs columns and
+            // values only, so every result is taggable.
+            menuItem.toolTip = nil
+            return !targets.isEmpty
         }
         return true
     }

@@ -4,7 +4,7 @@ import Foundation
 // NO `#[serde(rename_all)]`, so their JSON keys are snake_case and every field
 // whose Swift name differs needs an explicit CodingKeys case. JSONDecoder.pharos
 // applies no key strategy, so a missing case throws at RUN time only.
-// The row TAG models take the opposite rule — see Pharos/Models/RowTag.swift.
+// The TAG models take the opposite rule — see Pharos/Models/Tag.swift.
 
 struct ColumnDef: Codable {
     let name: String
@@ -75,7 +75,12 @@ extension RowIdentity {
     /// `keys` is PER ROW, so a Load More that concatenates rows must concatenate
     /// keys as well. Taking either block wholesale leaves keys misaligned with
     /// rows: page 1's block covers only page 1, and page 2's covers only page 2.
-    /// A misalignment is worse than a gap, because row N would take row M's tag.
+    ///
+    /// A misalignment is worse than a gap. Nothing in the grid reads these keys
+    /// today — tags match on cell values — but the block is CACHED with the
+    /// history entry and handed back on a restore. So a block that claims row
+    /// N's key for row M is stored, survives a reopen, and is what any future
+    /// reader would trust. A gap is at least honest about what is unknown.
     ///
     /// When the later page carries no block, or carries a candidate this block
     /// does not have, the new rows get the empty-string sentinel — the same
@@ -110,8 +115,10 @@ struct QueryResult: Codable {
     /// nil when no column carries a source table, and on the empty page of a
     /// Load More. A consumer must KEEP the block it already holds when a later
     /// page carries nil: the empty branch of `fetch_more_rows` returns no
-    /// columns, so it can carry no identity. Replacing a block with nil would
-    /// drop every tag in the grid.
+    /// columns, so it can carry no identity. Replacing a block with nil throws
+    /// away the result's provenance for good — the block is cached with the
+    /// history entry, so the loss survives a reopen and cannot be recovered
+    /// without running the query again.
     let rowIdentity: RowIdentity?
 
     enum CodingKeys: String, CodingKey {
@@ -129,8 +136,15 @@ struct QueryResult: Codable {
     /// WARNING: `rowIdentity` defaults to nil so that existing call sites keep
     /// compiling, and that default is a trap for any code that MERGES one result
     /// into another. Row keys are per row, so a merge must concatenate them with
-    /// `RowIdentity.appendingPage(_:pageRowCount:)`; taking the default drops
-    /// every tag, and copying either block wholesale misaligns keys against rows.
+    /// `RowIdentity.appendingPage(_:pageRowCount:)`; taking the default silently
+    /// discards the block, and copying either block wholesale misaligns keys
+    /// against rows.
+    ///
+    /// What that costs is fidelity, not tags: the merged result is what gets
+    /// cached and restored, so a dropped or misaligned block makes a reopened
+    /// grid disagree with the one the analyst left. Matching is unaffected —
+    /// tags are found by cell value and never by a row key.
+    ///
     /// The two Load More merges in ContentViewController (`loadMoreRows` and the
     /// chart load-all loop) already do this correctly — follow them.
     init(

@@ -109,12 +109,12 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
     func headerView(_ headerView: FilterableHeaderView, didClickFilterForColumn column: NSTableColumn, at rect: NSRect) {
         let colId = column.identifier.rawValue
         if TagFunnel.isTagFilter(columnId: colId) {
-            // The labels PRESENT in the result, in palette order.
-            let presentIds = Set(tagsByRow.values.map { $0.labelId })
-            let present = TagStore.shared.labels.filter { presentIds.contains($0.id) }
+            // The tags PRESENT in the result, in store order.
+            let presentIds = Set(matchesByRow.values.flatMap { $0.map { $0.tagId } })
+            let present = TagStore.shared.tags.filter { presentIds.contains($0.id) }
             let existing = columnFilterController.filter(forColumn: colId)
                 .flatMap { $0.values.map(Set.init) }
-            let popoverVC = TagFunnelPopoverVC(labels: present, existing: existing)
+            let popoverVC = TagFunnelPopoverVC(tags: present, existing: existing)
             popoverVC.delegate = self
             let popover = NSPopover()
             popover.contentViewController = popoverVC

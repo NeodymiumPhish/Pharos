@@ -20,9 +20,14 @@ enum TagFunnel {
 
     static func isTagFilter(columnId id: String) -> Bool { id == columnId }
 
-    /// Does a row pass? `labelId` is nil for an untagged row.
-    static func passes(labelId: String?, allowed: Set<String>) -> Bool {
-        guard let labelId else { return allowed.contains(untaggedValue) }
-        return allowed.contains(labelId)
+    /// Does a row pass? `tagIds` is every tag matching that row, solid or
+    /// dashed; an empty list means untagged.
+    ///
+    /// ANY is the rule, not ALL: a row carrying two tags is shown when either
+    /// one is checked, because the funnel answers "show me this case", and a
+    /// row belonging to two cases belongs to both.
+    static func passes(tagIds: [String], allowed: Set<String>) -> Bool {
+        guard !tagIds.isEmpty else { return allowed.contains(untaggedValue) }
+        return tagIds.contains { allowed.contains($0) }
     }
 }

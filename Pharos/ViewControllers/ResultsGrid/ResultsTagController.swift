@@ -12,9 +12,8 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     private weak var grid: ResultsGridVC?
     private let copyExport: ResultsCopyExport
 
-    /// Item tags: 20 = "Tag Row" submenu holder, 21 = "Remove Tag",
-    /// 30+ = label items inside the submenu (30 + palette index).
-    private static let tagSubmenuTag = 20
+    /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag".
+    private static let addTag = 20
     private static let removeTag = 21
 
     init(grid: ResultsGridVC, copyExport: ResultsCopyExport) {
@@ -28,16 +27,13 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
-        let tagItem = menu.addItem(withTitle: "Tag Row", action: nil, keyEquivalent: "")
-        tagItem.tag = Self.tagSubmenuTag
-        let submenu = NSMenu()
-        // One enablement regime for both menus: the parent is manual, so the
-        // submenu is too — otherwise a future NSMenuItemValidation conformance
-        // would silently start gating the label items.
-        submenu.autoenablesItems = false
-        tagItem.submenu = submenu
+        let add = menu.addItem(withTitle: "Add Tag…", action: #selector(addTagAction),
+                               keyEquivalent: "")
+        add.tag = Self.addTag
+        add.target = self
 
-        let remove = menu.addItem(withTitle: "Remove Tag", action: #selector(removeTagAction), keyEquivalent: "")
+        let remove = menu.addItem(withTitle: "Remove From Tag",
+                                  action: #selector(removeTagAction), keyEquivalent: "")
         remove.tag = Self.removeTag
         remove.target = self
 
@@ -54,66 +50,31 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         guard let grid else { return }
 
         let targets = grid.tagTargetDataRows()
-        let canTag = grid.rowIdentity != nil && !targets.isEmpty
-        let existing = targets.compactMap { grid.tagsByRow[$0] }
-
-        if let tagItem = menu.item(withTag: Self.tagSubmenuTag), let sub = tagItem.submenu {
-            tagItem.isEnabled = canTag
-            tagItem.title = targets.count > 1 ? "Tag Rows" : "Tag Row"
-            // Scope decision 1: a disabled item must say why.
-            tagItem.toolTip = grid.rowIdentity == nil
-                ? "This result has no source table."
-                : nil
-            sub.removeAllItems()
-            for label in TagStore.shared.labels {
-                let item = sub.addItem(withTitle: label.name, action: #selector(tagWithLabel(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = label.id
-                item.image = swatch(for: label)
-                // A tick when every target already carries this label.
-                let carriesIt = !targets.isEmpty && targets.allSatisfy { grid.tagsByRow[$0]?.labelId == label.id }
-                item.state = carriesIt ? .on : .off
-            }
-            if !TagStore.shared.labels.isEmpty { sub.addItem(.separator()) }
-            let newLabel = sub.addItem(withTitle: "New Label…", action: #selector(newLabelAction), keyEquivalent: "")
-            newLabel.target = self
+        if let add = menu.item(withTag: Self.addTag) {
+            // Any row can be tagged: matching needs columns and values only, so
+            // a result with no source table is no longer refused.
+            add.isEnabled = !targets.isEmpty
+            add.title = targets.count > 1 ? "Add Tag to \(targets.count) Rows…" : "Add Tag…"
         }
         if let remove = menu.item(withTag: Self.removeTag) {
-            remove.isEnabled = !existing.isEmpty
-            remove.title = existing.count > 1 ? "Remove Tags" : "Remove Tag"
+            // Only a row that COMPLETES a tuple can have one removed; a partial
+            // match names no single tuple to drop.
+            let removable = targets.contains { row in
+                grid.matchesByRow[row]?.contains { !$0.solidTupleIds.isEmpty } ?? false
+            }
+            remove.isEnabled = removable
         }
     }
 
     // MARK: Actions
 
-    @objc private func tagWithLabel(_ sender: NSMenuItem) {
-        guard let grid, let labelId = sender.representedObject as? String else { return }
-        grid.toggleTag(labelId: labelId, on: grid.tagTargetDataRows())
-    }
-
-    @objc private func newLabelAction() {
+    @objc private func addTagAction() {
         guard let grid else { return }
-        let targets = grid.tagTargetDataRows()
-        grid.promptForNewLabel { label in
-            grid.toggleTag(labelId: label.id, on: targets)
-        }
+        grid.presentTagSheet(on: grid.tagTargetDataRows())
     }
 
     @objc private func removeTagAction() {
-        guard let grid,
-              let connectionId = AppStateManager.shared.activeConnectionId else { return }
-        let ids = grid.tagTargetDataRows().compactMap { grid.tagsByRow[$0]?.id }
-        do { try TagStore.shared.removeTags(ids: ids, connectionId: connectionId) }
-        catch { NSLog("Tag remove failed: \(error)"); NSSound.beep() }
-    }
-
-    /// A 10 pt colour dot for the label's menu item.
-    private func swatch(for label: TagLabel) -> NSImage {
-        let size = NSSize(width: 10, height: 10)
-        return NSImage(size: size, flipped: false) { rect in
-            TagLabelPalette.color(at: label.colorIndex).setFill()
-            NSBezierPath(ovalIn: rect).fill()
-            return true
-        }
+        guard let grid else { return }
+        grid.removeFromTags(on: grid.tagTargetDataRows())
     }
 }

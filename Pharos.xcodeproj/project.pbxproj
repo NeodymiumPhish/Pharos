@@ -15,7 +15,6 @@
 		09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93588EE0C42422561A35483 /* RowFingerprint.swift */; };
 		0BA418AD455AB1B24F34B671 /* ColumnClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */; };
 		0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */; };
-		0D265DF0D86E3CD080688473 /* RowTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BBF7B270B294E256AC9E6D /* RowTag.swift */; };
 		0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
@@ -49,7 +48,6 @@
 		37C04B0603F88D3D77CAD964 /* ChartTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 264FF44EDD39F675DE642D7B /* ChartTypes.swift */; };
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
-		3C9C6B8F322833AA97E1F987 /* TagMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978F570696A0310BB365ECBB /* TagMatcher.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
 		3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */; };
 		3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */; };
@@ -92,7 +90,6 @@
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
-		88CF1F068F30B9D59C8B69C6 /* PharosCore+RowTags.swift in Sources */ = {isa = PBXBuildFile; fileRef = A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
@@ -125,7 +122,6 @@
 		B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */; };
 		B8E72C9FAD4576270DF0AA9B /* CIDRRange.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */; };
 		B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A11259CEF977B988D8D542B /* TagPalette.swift */; };
-		B9F2716A1923C0A5DA2CCF36 /* TagLabelPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE99F85EC1C3F1E143DE1F06 /* TagLabelPalette.swift */; };
 		BA36078FBC3A5D72C53F70A0 /* PharosCore+SavedQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */; };
 		BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */; };
 		BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */; };
@@ -139,7 +135,6 @@
 		CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */; };
 		CFB0EA3E1B5BC908735FBF2D /* VariableValueTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */; };
 		CFB3EFEA0CF91443AA21DC63 /* VariableRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116E4CCC67DA783A2FCCFFEC /* VariableRowView.swift */; };
-		D0C9348F9AA2C6335ED32336 /* TagComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F30DD806851F14679B37FDD /* TagComposer.swift */; };
 		D4D24BD1BE5A3489DC84D9FE /* TaggedRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24970168104D1359837B89EF /* TaggedRowView.swift */; };
 		D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */; };
 		D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */; };
@@ -227,7 +222,6 @@
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
-		57BBF7B270B294E256AC9E6D /* RowTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowTag.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
 		58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaPopUpButton.swift; sourceTree = "<group>"; };
 		5A6B56879294F48E8251CB80 /* ChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartView.swift; sourceTree = "<group>"; };
@@ -254,7 +248,6 @@
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
 		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
-		7F30DD806851F14679B37FDD /* TagComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagComposer.swift; sourceTree = "<group>"; };
 		819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
 		83C254B3E566A636E1216FE4 /* CrashLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLogger.swift; sourceTree = "<group>"; };
 		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
@@ -262,7 +255,6 @@
 		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
-		978F570696A0310BB365ECBB /* TagMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagMatcher.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
 		984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableMetadata.swift"; sourceTree = "<group>"; };
@@ -277,7 +269,6 @@
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
-		A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+RowTags.swift"; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
@@ -303,7 +294,6 @@
 		CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBadgeButton.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
 		CDED3E898043241B00FE18D7 /* ResizeGripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeGripView.swift; sourceTree = "<group>"; };
-		CE99F85EC1C3F1E143DE1F06 /* TagLabelPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagLabelPalette.swift; sourceTree = "<group>"; };
 		CEADE04C5F358D12DBAEFF53 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartExporter.swift; sourceTree = "<group>"; };
 		CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CIDRRange.swift; sourceTree = "<group>"; };
@@ -472,7 +462,6 @@
 				0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */,
 				233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */,
 				73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */,
-				57BBF7B270B294E256AC9E6D /* RowTag.swift */,
 				74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */,
 				F443CAC6284678541D0523EA /* Schema.swift */,
 				B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */,
@@ -561,7 +550,6 @@
 				03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */,
 				683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */,
 				45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */,
-				A647225801F3B6C1B49688D4 /* PharosCore+RowTags.swift */,
 				97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */,
 				CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */,
 				FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */,
@@ -576,11 +564,8 @@
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
-				7F30DD806851F14679B37FDD /* TagComposer.swift */,
 				8870AA5A4E803E6824897E6C /* TagDraft.swift */,
 				17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */,
-				CE99F85EC1C3F1E143DE1F06 /* TagLabelPalette.swift */,
-				978F570696A0310BB365ECBB /* TagMatcher.swift */,
 				2A11259CEF977B988D8D542B /* TagPalette.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
 				9FB533E644963CBF6C99A9AF /* TagTupleMatcher.swift */,
@@ -809,7 +794,6 @@
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,
 				B0EB5E848C3BA0450A2EDF6E /* PharosCore+Query.swift in Sources */,
 				13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */,
-				88CF1F068F30B9D59C8B69C6 /* PharosCore+RowTags.swift in Sources */,
 				BA36078FBC3A5D72C53F70A0 /* PharosCore+SavedQueries.swift in Sources */,
 				452A085D482CF6012AA5CAF9 /* PharosCore+Schema.swift in Sources */,
 				46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */,
@@ -852,7 +836,6 @@
 				A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */,
 				96F8B81C319801D4E045CF43 /* ResultsTagController.swift in Sources */,
 				09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */,
-				0D265DF0D86E3CD080688473 /* RowTag.swift in Sources */,
 				BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */,
 				168A481957ED3B4BE106A90E /* RustScalarError.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
@@ -886,12 +869,9 @@
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
-				D0C9348F9AA2C6335ED32336 /* TagComposer.swift in Sources */,
 				237A68781035A34B9C7EF7DD /* TagDraft.swift in Sources */,
 				4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */,
 				5ABA3626F534BBF9CA43D33A /* TagFunnelPopoverVC.swift in Sources */,
-				B9F2716A1923C0A5DA2CCF36 /* TagLabelPalette.swift in Sources */,
-				3C9C6B8F322833AA97E1F987 /* TagMatcher.swift in Sources */,
 				B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */,
 				32EEF868E2B364546F9D3380 /* TagSheet.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,

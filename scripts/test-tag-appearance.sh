@@ -1,10 +1,15 @@
 #!/bin/bash
-# Standalone test runner for TagLabelPalette. Pure AppKit + Foundation, headless.
+# Standalone test runner for TagPalette. Pure AppKit + Foundation, headless.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-appearance-tests \
-  Pharos/Core/TagLabelPalette.swift \
-  Pharos/Models/RowTag.swift \
+  Pharos/Core/TagPalette.swift \
+  Pharos/Core/TagTupleMatcher.swift \
+  Pharos/Core/TagValueNormalizer.swift \
+  Pharos/Core/CIDRRange.swift \
+  Pharos/Core/RowFingerprint.swift \
+  Pharos/Models/Tag.swift \
+  Pharos/Models/QueryResult.swift \
   PharosTests/TagAppearanceTests.swift \
   PharosTests/main.swift
 /tmp/tag-appearance-tests

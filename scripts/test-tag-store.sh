@@ -1,14 +1,7 @@
 #!/bin/bash
-# Integration runner for TagStore — Task 6 of the tag row phase 2 plan.
-#
-# Like test-row-tag-ffi.sh, this links the real Rust staticlib and writes a real
-# SQLite file. It needs no PostgreSQL: row tags are local. Unlike that suite, ONE
-# process is enough here — this is not testing persistence across a restart, it is
-# testing that TagStore builds the right in-memory index from what the FFI hands
-# back.
-#
-# The store lives in a mktemp -d that is removed on exit, so this never touches
-# the user's own Application Support database.
+# Live runner for TagStore: the real staticlib, a real SQLite file, no
+# PostgreSQL. Two processes over one directory, so the second proves the write
+# survived a restart.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,12 +16,14 @@ swiftc -o "$BIN" \
   -lz -liconv -lm -lresolv \
   Pharos/Core/RustScalarError.swift \
   Pharos/Core/PharosCore.swift \
-  Pharos/Core/PharosCore+RowTags.swift \
+  Pharos/Core/PharosCore+Tags.swift \
   Pharos/Core/RowFingerprint.swift \
-  Pharos/Core/TagMatcher.swift \
-  Pharos/Core/TagLabelPalette.swift \
+  Pharos/Core/CIDRRange.swift \
+  Pharos/Core/TagValueNormalizer.swift \
+  Pharos/Core/TupleKey.swift \
+  Pharos/Core/TagTupleMatcher.swift \
   Pharos/Core/TagStore.swift \
-  Pharos/Models/RowTag.swift \
+  Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagStoreTests.swift \
   PharosTests/main.swift
@@ -36,4 +31,6 @@ swiftc -o "$BIN" \
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
-"$BIN" "$DIR"
+"$BIN" write "$DIR"
+echo
+"$BIN" read "$DIR"

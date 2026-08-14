@@ -2,7 +2,7 @@ import AppKit
 
 // MARK: - TaggedRowView
 
-/// The row background for a tagged row: a wash of the label colour, plus a bar at
+/// The row background for a tagged row: a wash of the tag colour, plus a bar at
 /// the leading edge.
 ///
 /// It sits BELOW the cells on purpose, and that z-order is the whole of what is
@@ -37,28 +37,29 @@ final class TaggedRowView: NSTableRowView {
 
     private(set) var tagColor: NSColor?
 
-    /// A fingerprint match. It draws fainter and dashed, so the two trust levels are
-    /// distinguishable without reading anything.
+    /// A PARTIAL match: some of the tag's values are present in this row, but no
+    /// single tuple is complete. It draws fainter and dashed, so the two states
+    /// are distinguishable without reading anything.
     ///
-    /// This is the stored property, and both the wash alpha and the bar style derive
-    /// from it. Do not reverse that: deriving the alpha from `isBarDashed` would link
-    /// the wash to the bar STYLE, so a later reason to dash the bar — a note marker,
-    /// a third trust tier — would silently change the wash too.
-    private(set) var isWeak = false
+    /// This is the stored property, and both the wash alpha and the bar style
+    /// derive from it. Do not reverse that: deriving the alpha from
+    /// `isBarDashed` would link the wash to the bar STYLE, so a later reason to
+    /// dash the bar would silently change the wash too.
+    private(set) var isPartial = false
 
-    /// True when the bar draws dashed. Derived: a weak match is the only reason today.
-    var isBarDashed: Bool { isWeak }
+    /// True when the bar draws dashed. Derived: a partial match is the only reason today.
+    var isBarDashed: Bool { isPartial }
 
-    /// 15% for a strong match, 8% for a fingerprint, 0 when untagged.
+    /// 15% for a solid match, 8% for a partial one, 0 when untagged.
     var tintAlpha: CGFloat {
         guard tagColor != nil else { return 0 }
-        return isWeak ? 0.08 : 0.15
+        return isPartial ? 0.08 : 0.15
     }
 
-    /// - Parameter isWeak: see the `isWeak` property doc.
-    func configure(color: NSColor, isWeak: Bool) {
+    /// - Parameter isPartial: see the `isPartial` property doc.
+    func configure(color: NSColor, isPartial: Bool) {
         tagColor = color
-        self.isWeak = isWeak
+        self.isPartial = isPartial
         needsDisplay = true
     }
 
@@ -66,7 +67,7 @@ final class TaggedRowView: NSTableRowView {
     /// tag must lose its paint too.
     func clearTag() {
         tagColor = nil
-        isWeak = false
+        isPartial = false
         needsDisplay = true
     }
 

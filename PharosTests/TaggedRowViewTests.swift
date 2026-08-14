@@ -128,28 +128,28 @@ func runTests() {
     expectEqual(plain.barRect(in: frame), .zero, "an untagged row draws no bar")
     expectClose(plain.tintAlpha, 0, "an untagged row has no tint")
 
-    // A strong match: 15% tint, a 3pt solid bar at the leading edge.
+    // A solid match: 15% tint, a 3pt solid bar at the leading edge.
     let strong = TaggedRowView(frame: frame)
-    strong.configure(color: .systemRed, isWeak: false)
-    expectClose(strong.tintAlpha, 0.15, "a strong match tints at 15%")
+    strong.configure(color: .systemRed, isPartial: false)
+    expectClose(strong.tintAlpha, 0.15, "a solid match tints at 15%")
     expectClose(strong.barRect(in: frame).width, 4, "the bar is 4pt wide")
     expectClose(strong.barRect(in: frame).minX, 0, "the bar sits at the leading edge")
     expectClose(strong.barRect(in: frame).height, frame.height, "the bar spans the row height")
-    expectEqual(strong.isBarDashed, false, "a strong match draws a solid bar")
+    expectEqual(strong.isBarDashed, false, "a solid match draws an unbroken bar")
 
-    // A weak match: 8% tint and a dashed bar, so the two tiers are told apart
+    // A partial match: 8% tint and a dashed bar, so the two states are told apart
     // without reading anything.
-    let weak = TaggedRowView(frame: frame)
-    weak.configure(color: .systemRed, isWeak: true)
-    expectClose(weak.tintAlpha, 0.08, "a weak match tints at 8%")
-    expectEqual(weak.isBarDashed, true, "a weak match draws a dashed bar")
-    expectClose(weak.barRect(in: frame).width, 4, "the weak bar is the same width")
+    let partial = TaggedRowView(frame: frame)
+    partial.configure(color: .systemRed, isPartial: true)
+    expectClose(partial.tintAlpha, 0.08, "a partial match tints at 8%")
+    expectEqual(partial.isBarDashed, true, "a partial match draws a dashed bar")
+    expectClose(partial.barRect(in: frame).width, 4, "the partial bar is the same width")
 
     // Reuse: NSTableView recycles row views, so configuring one twice must not
     // leave the first tag's state behind.
     let reused = TaggedRowView(frame: frame)
-    reused.configure(color: .systemBlue, isWeak: true)
-    reused.configure(color: .systemGreen, isWeak: false)
+    reused.configure(color: .systemBlue, isPartial: true)
+    reused.configure(color: .systemGreen, isPartial: false)
     expectClose(reused.tintAlpha, 0.15, "reuse takes the second tag's alpha")
     expectEqual(reused.isBarDashed, false, "reuse clears the dashed bar")
     reused.clearTag()
@@ -176,18 +176,18 @@ func runTests() {
 
     let untaggedForPixels = TaggedRowView(frame: frame)
     let strongForPixels = TaggedRowView(frame: frame)
-    strongForPixels.configure(color: .systemRed, isWeak: false)
-    let weakForPixels = TaggedRowView(frame: frame)
-    weakForPixels.configure(color: .systemRed, isWeak: true)
+    strongForPixels.configure(color: .systemRed, isPartial: false)
+    let partialForPixels = TaggedRowView(frame: frame)
+    partialForPixels.configure(color: .systemRed, isPartial: true)
 
     // Render each view exactly once — the dash-gap walk below samples 24
     // points down the same bitmap instead of re-rendering per point.
     if let untaggedRep = render(untaggedForPixels),
        let strongRep = render(strongForPixels),
-       let weakRep = render(weakForPixels),
+       let partialRep = render(partialForPixels),
        let untaggedMid = pixel(untaggedRep, x: midX, y: midY),
        let strongMid = pixel(strongRep, x: midX, y: midY),
-       let weakMid = pixel(weakRep, x: midX, y: midY),
+       let partialMid = pixel(partialRep, x: midX, y: midY),
        let strongBar = pixel(strongRep, x: barX, y: midY) {
 
         // 1. The exact blend. This is what pins the label COLOUR and the exact
@@ -198,8 +198,8 @@ func runTests() {
         let resolvedRed = NSColor.systemRed.usingColorSpace(.deviceRGB) ?? .systemRed
         expectTrue(sameColor(strongMid, expectedBlend(resolvedRed, alpha: 0.15)),
                    "the strong wash pixel is exactly a 15% blend of the resolved colour over white")
-        expectTrue(sameColor(weakMid, expectedBlend(resolvedRed, alpha: 0.08)),
-                   "the weak wash pixel is exactly an 8% blend of the resolved colour over white")
+        expectTrue(sameColor(partialMid, expectedBlend(resolvedRed, alpha: 0.08)),
+                   "the partial wash pixel is exactly an 8% blend of the resolved colour over white")
         expectTrue(sameColor(strongBar, resolvedRed),
                    "the bar pixel is the resolved colour at full strength, not just A colour")
 
@@ -208,7 +208,7 @@ func runTests() {
         //     cannot coincidentally match a `drawBackground` that hardcodes
         //     some other fixed colour.
         let greenForPixels = TaggedRowView(frame: frame)
-        greenForPixels.configure(color: .systemGreen, isWeak: false)
+        greenForPixels.configure(color: .systemGreen, isPartial: false)
         if let greenRep = render(greenForPixels), let greenMid = pixel(greenRep, x: midX, y: midY) {
             let resolvedGreen = NSColor.systemGreen.usingColorSpace(.deviceRGB) ?? .systemGreen
             expectTrue(sameColor(greenMid, expectedBlend(resolvedGreen, alpha: 0.15)),
@@ -248,28 +248,28 @@ func runTests() {
             print("FAIL could not read the bar's right-edge pixels (x=0, x=3, x=4)")
         }
 
-        // 3. A weak row's wash is fainter than a strong row's: the weak mid
+        // 3. A partial row's wash is fainter than a solid row's: the partial mid
         //    pixel must sit closer to the untagged baseline than the strong
         //    mid pixel does.
-        let weakDelta = distance(weakMid, from: untaggedMid)
+        let partialDelta = distance(partialMid, from: untaggedMid)
         let strongDelta = distance(strongMid, from: untaggedMid)
-        expectTrue(weakDelta < strongDelta, "a weak row's wash sits closer to the untagged baseline than a strong row's")
+        expectTrue(partialDelta < strongDelta, "a partial row's wash sits closer to the untagged baseline than a strong row's")
 
         // 4. The dashed bar has gaps; the solid bar does not. Walk the bar
         //    column down every y of both views (same rendered bitmap, sampled
         //    repeatedly — no re-render per y).
         var strongBarColors: [NSColor] = []
-        var weakBarColors: [NSColor] = []
+        var partialBarColors: [NSColor] = []
         for y in 0..<Int(frame.height) {
             if let c = pixel(strongRep, x: barX, y: y) { strongBarColors.append(c) }
-            if let c = pixel(weakRep, x: barX, y: y) { weakBarColors.append(c) }
+            if let c = pixel(partialRep, x: barX, y: y) { partialBarColors.append(c) }
         }
-        if strongBarColors.count == Int(frame.height) && weakBarColors.count == Int(frame.height) {
+        if strongBarColors.count == Int(frame.height) && partialBarColors.count == Int(frame.height) {
             let strongBarUniform = strongBarColors.dropFirst().allSatisfy { sameColor($0, strongBarColors[0]) }
             expectTrue(strongBarUniform, "the strong (solid) bar column is uniform top to bottom")
 
-            let weakBarHasGap = weakBarColors.contains { !sameColor($0, weakBarColors[0]) }
-            expectTrue(weakBarHasGap, "the weak (dashed) bar column has at least one differing pixel — a dash gap")
+            let partialBarHasGap = partialBarColors.contains { !sameColor($0, partialBarColors[0]) }
+            expectTrue(partialBarHasGap, "the partial (dashed) bar column has at least one differing pixel — a dash gap")
         } else {
             failures += 1
             print("FAIL could not read every y of the bar column for the dash-gap check")
@@ -283,18 +283,18 @@ func runTests() {
         //     bar: 15 of 24 rows painted at x=0..3, and 0 of 24 at x=4 —
         //     measured, not assumed. A 1pt line leaves x=0 and x=3 clean; an
         //     off-centre line leaves x=0 clean and paints x=4.
-        let weakBarFullColor = resolvedRed // dash "on" segments stroke at full colour, same as the solid bar
+        let partialBarFullColor = resolvedRed // dash "on" segments stroke at full colour, same as the solid bar
         func paintedRowCount(in rep: NSBitmapImageRep, x: Int) -> Int? {
             var count = 0
             for y in 0..<Int(frame.height) {
                 guard let c = pixel(rep, x: x, y: y) else { return nil }
-                if sameColor(c, weakBarFullColor) { count += 1 }
+                if sameColor(c, partialBarFullColor) { count += 1 }
             }
             return count
         }
         let expectedPaintedCounts = [0: 15, 1: 15, 2: 15, 3: 15, 4: 0]
         for (x, expected) in expectedPaintedCounts.sorted(by: { $0.key < $1.key }) {
-            if let actual = paintedRowCount(in: weakRep, x: x) {
+            if let actual = paintedRowCount(in: partialRep, x: x) {
                 expectEqual(actual, expected, "the dashed bar paints \(expected) of 24 rows at x=\(x)")
             } else {
                 failures += 1
@@ -323,7 +323,7 @@ func runTests() {
         // 5. clearTag really stops the drawing: after clearing, the mid pixel
         //    must match the untagged baseline.
         let clearedView = TaggedRowView(frame: frame)
-        clearedView.configure(color: .systemRed, isWeak: false)
+        clearedView.configure(color: .systemRed, isPartial: false)
         clearedView.clearTag()
         if let clearedRep = render(clearedView), let clearedMid = pixel(clearedRep, x: midX, y: midY) {
             expectTrue(sameColor(clearedMid, untaggedMid), "clearTag's mid pixel matches the untagged baseline")
@@ -356,7 +356,7 @@ func runTests() {
     hostWindow.contentView = hostedView
 
     hostedView.needsDisplay = false
-    hostedView.configure(color: .systemRed, isWeak: false)
+    hostedView.configure(color: .systemRed, isPartial: false)
     expectTrue(hostedView.needsDisplay, "configure requests a redraw when hosted in a window")
 
     hostedView.needsDisplay = false

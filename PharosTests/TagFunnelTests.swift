@@ -8,20 +8,31 @@ func expect(_ ok: Bool, _ name: String) {
 }
 
 func runTests() {
-    let red = "label-red"
+    let red = "tag-red"
 
-    expect(TagFunnel.passes(labelId: red, allowed: [red]),
-           "a row with an allowed label passes")
-    expect(!TagFunnel.passes(labelId: "label-blue", allowed: [red]),
-           "a row with another label is hidden")
-    expect(!TagFunnel.passes(labelId: nil, allowed: [red]),
-           "an untagged row is hidden when only labels are allowed")
-    expect(TagFunnel.passes(labelId: nil, allowed: [TagFunnel.untaggedValue]),
+    expect(TagFunnel.passes(tagIds: [red], allowed: [red]),
+           "a row with an allowed tag passes")
+    expect(!TagFunnel.passes(tagIds: ["tag-blue"], allowed: [red]),
+           "a row with another tag is hidden")
+    expect(!TagFunnel.passes(tagIds: [], allowed: [red]),
+           "an untagged row is hidden when only tags are allowed")
+    expect(TagFunnel.passes(tagIds: [], allowed: [TagFunnel.untaggedValue]),
            "Untagged admits the untagged row")
-    expect(!TagFunnel.passes(labelId: red, allowed: [TagFunnel.untaggedValue]),
+    expect(!TagFunnel.passes(tagIds: [red], allowed: [TagFunnel.untaggedValue]),
            "Untagged alone hides every tagged row — even with force-show on, by design")
-    expect(TagFunnel.passes(labelId: red, allowed: [red, TagFunnel.untaggedValue]),
+    expect(TagFunnel.passes(tagIds: [red], allowed: [red, TagFunnel.untaggedValue]),
            "a mixed selection admits both")
+
+    // A row belongs to two cases. ANY checked tag shows it, because the funnel
+    // answers "show me this case", and this row is in both.
+    expect(TagFunnel.passes(tagIds: ["a", "b"], allowed: ["b"]),
+           "the second tag alone admits the row")
+    expect(!TagFunnel.passes(tagIds: ["a", "b"], allowed: ["c"]),
+           "no checked tag, no row")
+    expect(!TagFunnel.passes(tagIds: ["a", "b"], allowed: [TagFunnel.untaggedValue]),
+           "a tagged row is not Untagged, whatever it carries")
+    expect(TagFunnel.passes(tagIds: [], allowed: [TagFunnel.untaggedValue]),
+           "no tag at any state means Untagged")
 
     expect(TagFunnel.isTagFilter(columnId: "__rownum__"), "the reserved id is recognised")
     expect(!TagFunnel.isTagFilter(columnId: "col_0"), "a data column is not")
