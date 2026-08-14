@@ -79,6 +79,7 @@
 		685684742A13BC19F782590E /* EditorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A00A6C3C037EC51D40B003 /* EditorPane.swift */; };
 		69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */; };
 		6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AC102665AFB681E295853B /* FilterCheckRowView.swift */; };
+		6D36D71452C10B76F0579C71 /* TagRemovalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */; };
 		7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */; };
 		75791F1BEBAD2E5780C43995 /* ValueCoercion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC541A0819881910AFFC872F /* ValueCoercion.swift */; };
 		75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */; };
@@ -278,6 +279,7 @@
 		AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillSqlTranslator.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
 		B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSyntaxHighlighter.swift; sourceTree = "<group>"; };
+		B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRemovalModel.swift; sourceTree = "<group>"; };
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
 		B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Workspaces.swift"; sourceTree = "<group>"; };
@@ -573,6 +575,7 @@
 				17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */,
 				61756089841C329775F79CBB /* TagInspectorModel.swift */,
 				2A11259CEF977B988D8D542B /* TagPalette.swift */,
+				B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
 				9FB533E644963CBF6C99A9AF /* TagTupleMatcher.swift */,
 				1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */,
@@ -881,6 +884,7 @@
 				8C84EF40E4447DEAF3262BEE /* TagInspectorModel.swift in Sources */,
 				63752FE4D9E9EB235ED88219 /* TagManageSheet.swift in Sources */,
 				B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */,
+				6D36D71452C10B76F0579C71 /* TagRemovalModel.swift in Sources */,
 				32EEF868E2B364546F9D3380 /* TagSheet.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
 				E1A8F622DD0C0F83A06D99BA /* TagTupleMatcher.swift in Sources */,
