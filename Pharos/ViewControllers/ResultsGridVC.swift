@@ -1,12 +1,6 @@
 import AppKit
 import Combine
 
-/// Parses the 0-based column index from a "col_N" identifier string.
-func colIndex(from identifier: String) -> Int? {
-    guard identifier.hasPrefix("col_") else { return nil }
-    return Int(identifier.dropFirst(4))
-}
-
 // MARK: - ResultsGridVC
 
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
@@ -795,6 +789,7 @@ class ResultsGridVC: NSViewController {
         dataSource.tooltipByRow = state.tooltipByRow
         dataSource.tintByRow = state.tintByRow
         dataSource.tagTints = state.tints
+        copyExport.taggedRows = Set(map.keys)
         syncTagButton()
         onTagMapChanged?()
     }
@@ -904,6 +899,7 @@ class ResultsGridVC: NSViewController {
         copyExport.displayRows = displayRows
         copyExport.columnCategories = columnCategories
         copyExport.cellSelection = cellSelectionController?.state
+        copyExport.taggedRows = Set(matchesByRow.keys)
     }
 
     func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {

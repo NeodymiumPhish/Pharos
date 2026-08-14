@@ -32,6 +32,14 @@ class ResultsCopyExport: NSObject {
     /// Cell selection state, pushed by the VC. When set, copy/export uses the cell range.
     var cellSelection: CellSelectionState?
 
+    /// DATA row indices matching at least one tag, pushed by the VC with each
+    /// tag-map landing.
+    var taggedRows: Set<Int> = []
+
+    /// "Tagged rows only": per-grid and transient by design — a sticky global
+    /// toggle would silently filter copies long after the analyst forgot it.
+    private var taggedOnly = false
+
     /// Whether to include column headers in copy/export output.
     private var includeHeaders = true
     private static let includeHeadersKey = "PharosCopyIncludeHeaders"
@@ -54,9 +62,20 @@ class ResultsCopyExport: NSObject {
 
     // MARK: - Data Gathering
 
-    /// Gathers data from the selected cell range. Returns nil if no cell range is active.
-    private func gatherCellRangeData() -> CopyData? {
-        guard let selection = cellSelection, let range = selection.selectedRange else { return nil }
+    /// What a cell range yielded. `scopedOut` exists so `gatherData()` can tell
+    /// "there is no cell range" apart from "the tagged filter emptied the one
+    /// there is" — the second must NOT fall through to the row path, or asking
+    /// for the tagged rows of a chosen block would silently copy the tagged
+    /// rows of the whole visible result instead: the opposite of narrowing.
+    private enum CellRangeGather {
+        case none
+        case scopedOut
+        case data(CopyData)
+    }
+
+    /// Gathers data from the selected cell range.
+    private func gatherCellRangeData() -> CellRangeGather {
+        guard let selection = cellSelection, let range = selection.selectedRange else { return .none }
 
         let tableCols = tableView.tableColumns
         let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
@@ -64,7 +83,7 @@ class ResultsCopyExport: NSObject {
             let id = tableCols[idx].identifier.rawValue
             return id == "__rownum__" ? nil : id
         }
-        guard !selectedColIds.isEmpty else { return nil }
+        guard !selectedColIds.isEmpty else { return .none }
 
         let resolved = selectedColIds.compactMap { id -> (name: String, index: Int)? in
             guard let idx = colIndex(from: id), idx < self.columns.count else { return nil }
@@ -74,10 +93,16 @@ class ResultsCopyExport: NSObject {
         let indices = resolved.map(\.index)
 
         var rowData: [[String]] = []
+        var droppedByScope = false
         for row in range.topLeft.row...range.bottomRight.row {
             guard row >= 0, row < displayRows.count else { continue }
             let dataIdx = displayRows[row]
             guard dataIdx < rows.count else { continue }
+            guard TagCopyScope.include(dataRow: dataIdx, taggedOnly: taggedOnly,
+                                       taggedRows: taggedRows) else {
+                droppedByScope = true
+                continue
+            }
             let data = rows[dataIdx]
             let values = indices.map { idx in
                 idx < data.count ? data[idx].displayString : ""
@@ -85,15 +110,27 @@ class ResultsCopyExport: NSObject {
             rowData.append(values)
         }
 
-        guard !rowData.isEmpty else { return nil }
-        return CopyData(columnNames: displayNames, columnIndices: indices, rows: rowData, includeHeaders: includeHeaders)
+        // An out-of-bounds range still reports `.none` and keeps its old
+        // fall-through; only the scope may end the action here.
+        guard !rowData.isEmpty else { return droppedByScope ? .scopedOut : .none }
+        return .data(CopyData(columnNames: displayNames, columnIndices: indices,
+                              rows: rowData, includeHeaders: includeHeaders))
     }
 
     /// Gathers data for copy/export. Uses selected rows if any, otherwise all displayed rows.
     func gatherData() -> CopyData? {
         // If a cell range is selected, use that instead of row-based selection
-        if let cellRangeData = gatherCellRangeData() {
+        switch gatherCellRangeData() {
+        case .data(let cellRangeData):
             return cellRangeData
+        case .scopedOut:
+            // Terminal, and audible: ⌘C and the context menu show no caption,
+            // so a silent nil would be indistinguishable from a copy that
+            // worked, and the analyst would paste whatever was there before.
+            NSSound.beep()
+            return nil
+        case .none:
+            break
         }
 
         let selectedRows = tableView.selectedRowIndexes
@@ -115,7 +152,9 @@ class ResultsCopyExport: NSObject {
 
         if !selectedRows.isEmpty {
             for row in selectedRows {
-                guard row < displayRows.count else { continue }
+                guard row < displayRows.count,
+                      TagCopyScope.include(dataRow: displayRows[row], taggedOnly: taggedOnly,
+                                           taggedRows: taggedRows) else { continue }
                 let data = rows[displayRows[row]]
                 let values = indices.map { idx in
                     idx < data.count ? data[idx].displayString : ""
@@ -124,6 +163,8 @@ class ResultsCopyExport: NSObject {
             }
         } else {
             for row in 0..<displayRows.count {
+                guard TagCopyScope.include(dataRow: displayRows[row], taggedOnly: taggedOnly,
+                                           taggedRows: taggedRows) else { continue }
                 let data = rows[displayRows[row]]
                 let values = indices.map { idx in
                     idx < data.count ? data[idx].displayString : ""
@@ -157,8 +198,17 @@ class ResultsCopyExport: NSObject {
             }.count
             let lo = max(0, range.topLeft.row)
             let hi = min(displayRows.count - 1, range.bottomRight.row)
-            let rowCount = hi >= lo ? hi - lo + 1 : 0
-            if colCount > 0 && rowCount > 0 {
+            var rowCount = 0
+            if hi >= lo {
+                for row in lo...hi where TagCopyScope.include(
+                    dataRow: displayRows[row], taggedOnly: taggedOnly,
+                    taggedRows: taggedRows) { rowCount += 1 }
+            }
+            // A scope-emptied range is terminal in gatherData(), so the caption
+            // must report zero rows rather than describing the whole visible
+            // set the copy will now refuse to produce.
+            let scopedOut = hi >= lo && rowCount == 0 && taggedOnly && !taggedRows.isEmpty
+            if colCount > 0 && (rowCount > 0 || scopedOut) {
                 return (colCount, rowCount, true)
             }
         }
@@ -173,21 +223,38 @@ class ResultsCopyExport: NSObject {
         // Row selection.
         let selectedRows = tableView.selectedRowIndexes
         if !selectedRows.isEmpty {
-            let rowCount = selectedRows.filter { $0 < displayRows.count }.count
+            let rowCount = selectedRows.filter {
+                $0 < displayRows.count && TagCopyScope.include(
+                    dataRow: displayRows[$0], taggedOnly: taggedOnly,
+                    taggedRows: taggedRows)
+            }.count
             return (allColCount, rowCount, true)
         }
 
         // Whole result set.
-        return (allColCount, displayRows.count, false)
+        let visibleCount = displayRows.filter {
+            TagCopyScope.include(dataRow: $0, taggedOnly: taggedOnly,
+                                 taggedRows: taggedRows)
+        }.count
+        return (allColCount, visibleCount, false)
     }
 
     /// Human-readable caption for the copy/export popover, e.g.
-    /// "Selected: 3 columns × 25 rows" or "All 5 columns × 1,240 rows".
-    private func summaryCaption() -> String {
+    /// "Selected: 3 columns × 25 rows", "All 5 columns × 1,240 rows",
+    /// "Tagged: 5 columns × 12 rows" or "Tagged selection: 3 columns × 4 rows".
+    ///
+    /// Internal rather than private so `scripts/test-tag-copy-export.sh` can
+    /// assert the prefix: this string is the only thing that tells the analyst
+    /// their copy was narrowed to tagged rows, and it must not claim a scope
+    /// that `TagCopyScope.include` is not actually applying.
+    func summaryCaption() -> String {
         let s = selectionSummary()
         let cols = Self.countLabel(s.columns, singular: "column", plural: "columns")
         let rows = Self.countLabel(s.rows, singular: "row", plural: "rows")
-        let prefix = s.isSelection ? "Selected:" : "All"
+        let scoped = taggedOnly && !taggedRows.isEmpty
+        let prefix = s.isSelection
+            ? (scoped ? "Tagged selection:" : "Selected:")
+            : (scoped ? "Tagged:" : "All")
         return "\(prefix) \(cols) × \(rows)"
     }
 
@@ -381,10 +448,18 @@ class ResultsCopyExport: NSObject {
         showPopover(from: exportButton, items: items)
     }
 
-    private func showPopover(from button: NSButton, items: [(String, Selector)]) {
-        let vc = CopyExportPopoverVC(
-            summary: summaryCaption(),
+    /// Builds the popover's view controller.
+    ///
+    /// Internal rather than private so `scripts/test-tag-copy-export.sh` can
+    /// press the real checkbox: which state reaches the popover, and which
+    /// callback each box is wired to, is exactly what an ordinary copy-paste
+    /// fault gets wrong — and the popover carries the five format buttons, so
+    /// a wrong wiring here copies the wrong rows.
+    func makePopoverVC(items: [(String, Selector)]) -> CopyExportPopoverVC {
+        CopyExportPopoverVC(
+            onSummary: { [weak self] in self?.summaryCaption() ?? "" },
             includeHeaders: includeHeaders,
+            taggedOnly: taggedRows.isEmpty ? nil : taggedOnly,
             items: items,
             target: self,
             onToggleHeaders: { [weak self] newValue in
@@ -392,14 +467,19 @@ class ResultsCopyExport: NSObject {
                 self.includeHeaders = newValue
                 UserDefaults.standard.set(newValue, forKey: Self.includeHeadersKey)
             },
+            onToggleTagged: { [weak self] newValue in
+                self?.taggedOnly = newValue
+            },
             onAction: { [weak self] in
                 self?.activePopover?.close()
                 self?.activePopover = nil
             }
         )
+    }
 
+    private func showPopover(from button: NSButton, items: [(String, Selector)]) {
         let popover = NSPopover()
-        popover.contentViewController = vc
+        popover.contentViewController = makePopoverVC(items: items)
         popover.behavior = .transient
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         activePopover = popover
@@ -520,13 +600,26 @@ class ResultsCopyExport: NSObject {
         UserDefaults.standard.set(includeHeaders, forKey: Self.includeHeadersKey)
     }
 
-    /// The copy section: items 10 (headers toggle) and 1-5 (formats). The menu
-    /// is owned by `ResultsTagController` since Phase 3; this class only
-    /// supplies and updates its own items.
+    @objc private func toggleTaggedOnly() {
+        taggedOnly.toggle()
+    }
+
+    /// The copy section: items 10 (headers toggle), 11 (tagged-rows scope) and
+    /// 1-5 (formats). Item 11 sits outside the 1-10 blanket enable below
+    /// because it is the one item that must stay DISABLED — an untagged result
+    /// has nothing to scope to.
+    ///
+    /// The menu is owned by `ResultsTagController` since Phase 3; this class
+    /// only supplies and updates its own items.
     func addCopyItems(to menu: NSMenu) {
         let headers = menu.addItem(withTitle: "Include Headers", action: #selector(toggleIncludeHeaders), keyEquivalent: "")
         headers.tag = 10
         headers.target = self
+
+        let tagged = menu.addItem(withTitle: "Tagged Rows Only",
+                                  action: #selector(toggleTaggedOnly), keyEquivalent: "")
+        tagged.tag = 11
+        tagged.target = self
 
         menu.addItem(.separator())
 
@@ -558,6 +651,9 @@ class ResultsCopyExport: NSObject {
             case 4: item.title = "\(prefix) as SQL INSERT"
             case 5: item.title = "\(prefix) as SQL WITH"
             case 10: item.state = includeHeaders ? .on : .off
+            case 11:
+                item.state = taggedOnly ? .on : .off
+                item.isEnabled = !taggedRows.isEmpty
             default: break
             }
             if item.tag >= 1 && item.tag <= 10 { item.isEnabled = true }
@@ -571,22 +667,37 @@ class ResultsCopyExport: NSObject {
 /// and a list of format buttons, styled like Xcode's debug area popovers.
 class CopyExportPopoverVC: NSViewController {
 
-    private let summary: String
+    /// Recomputed, never a captured string: ticking "Tagged Rows Only" changes
+    /// the counts, and the five format buttons sit in this same popover — so a
+    /// caption frozen at open time would promise 1,240 rows next to a button
+    /// that copies 12. `includeHeaders` does not move the counts, which is why
+    /// it never exposed this.
+    private let onSummary: () -> String
     private let initialIncludeHeaders: Bool
+    /// nil hides the row (no tag map to scope on).
+    private let initialTaggedOnly: Bool?
     private let items: [(String, Selector)]
     private weak var actionTarget: AnyObject?
     private let onToggleHeaders: (Bool) -> Void
+    private let onToggleTagged: (Bool) -> Void
     private let onAction: () -> Void
 
+    private var summaryLabel: NSTextField!
     private var headerCheckbox: NSButton!
+    private var taggedCheckbox: NSButton?
 
-    init(summary: String, includeHeaders: Bool, items: [(String, Selector)], target: AnyObject,
-         onToggleHeaders: @escaping (Bool) -> Void, onAction: @escaping () -> Void) {
-        self.summary = summary
+    init(onSummary: @escaping () -> String, includeHeaders: Bool, taggedOnly: Bool?,
+         items: [(String, Selector)], target: AnyObject,
+         onToggleHeaders: @escaping (Bool) -> Void,
+         onToggleTagged: @escaping (Bool) -> Void,
+         onAction: @escaping () -> Void) {
+        self.onSummary = onSummary
         self.initialIncludeHeaders = includeHeaders
+        self.initialTaggedOnly = taggedOnly
         self.items = items
         self.actionTarget = target
         self.onToggleHeaders = onToggleHeaders
+        self.onToggleTagged = onToggleTagged
         self.onAction = onAction
         super.init(nibName: nil, bundle: nil)
     }
@@ -597,7 +708,7 @@ class CopyExportPopoverVC: NSViewController {
         let container = NSView()
 
         // Summary caption: how many columns × rows this action will produce.
-        let summaryLabel = NSTextField(labelWithString: summary)
+        summaryLabel = NSTextField(labelWithString: onSummary())
         summaryLabel.font = .systemFont(ofSize: 11)
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.lineBreakMode = .byTruncatingTail
@@ -608,6 +719,16 @@ class CopyExportPopoverVC: NSViewController {
         headerCheckbox.state = initialIncludeHeaders ? .on : .off
         headerCheckbox.font = .systemFont(ofSize: 13)
         headerCheckbox.translatesAutoresizingMaskIntoConstraints = false
+
+        // Tagged-scope checkbox row — only when the grid has a tag map.
+        if let initialTaggedOnly {
+            let box = NSButton(checkboxWithTitle: "Tagged Rows Only", target: self,
+                               action: #selector(taggedToggled))
+            box.state = initialTaggedOnly ? .on : .off
+            box.font = .systemFont(ofSize: 13)
+            box.translatesAutoresizingMaskIntoConstraints = false
+            taggedCheckbox = box
+        }
 
         // Separator
         let separator = NSBox()
@@ -629,7 +750,10 @@ class CopyExportPopoverVC: NSViewController {
         }
 
         // Main vertical stack
-        let mainStack = NSStackView(views: [summaryLabel, headerCheckbox, separator, buttonStack])
+        var stackedViews: [NSView] = [summaryLabel, headerCheckbox]
+        if let taggedCheckbox { stackedViews.append(taggedCheckbox) }
+        stackedViews.append(contentsOf: [separator, buttonStack])
+        let mainStack = NSStackView(views: stackedViews)
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
         mainStack.spacing = 8
@@ -676,6 +800,13 @@ class CopyExportPopoverVC: NSViewController {
 
     @objc private func headerToggled() {
         onToggleHeaders(headerCheckbox.state == .on)
+    }
+
+    @objc private func taggedToggled() {
+        guard let taggedCheckbox else { return }
+        onToggleTagged(taggedCheckbox.state == .on)
+        // The scope just changed the row count the buttons below would produce.
+        summaryLabel.stringValue = onSummary()
     }
 
     @objc private func formatButtonClicked(_ sender: NSButton) {
