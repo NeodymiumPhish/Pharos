@@ -624,6 +624,48 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         "#,
     )?;
 
+    // Unified tags (design 2026-08-13). A tag is a named indicator set; each
+    // tagged row contributes one TUPLE of normalized values. Matching consults
+    // families and values only — `origin_*` and each value's `column` are
+    // provenance for the Inspector, never match input.
+    //
+    // ON DELETE CASCADE is live here for the same reason it is on the tables
+    // above: foreign keys ARE enforced (see the note on create_schema), so the
+    // database removes a tag's tuples itself.
+    //
+    // `tuple_values`, not `values`: VALUES is an SQLite keyword and a column of
+    // that name is a syntax error. The JSON field on the wire is still `values`.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS tags (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            color_index INTEGER NOT NULL,
+            note        TEXT,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS tag_tuples (
+            id                TEXT PRIMARY KEY,
+            tag_id            TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            -- JSON array of {column, family, value, display}. `value` is the
+            -- normalized form the matcher compares; `display` is the captured text.
+            tuple_values      TEXT NOT NULL,
+            -- Canonical string of the (family, value) pairs, sorted. The
+            -- duplicate key: re-tagging one row into one tag is a no-op.
+            tuple_key         TEXT NOT NULL,
+            origin_connection TEXT NOT NULL,
+            origin_table      TEXT NOT NULL,
+            created_at        TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS tag_tuples_identity
+            ON tag_tuples(tag_id, tuple_key);
+        CREATE INDEX IF NOT EXISTS tag_tuples_tag ON tag_tuples(tag_id);
+        "#,
+    )?;
+
     // Migration: cache the row identity block beside the cached result rows,
     // so a reopened workspace restores its tags.
     let has_row_identity: bool = conn
@@ -2864,6 +2906,58 @@ mod tag_schema_tests {
             [],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn tag_tuple_tables_exist_with_cascade_and_unique_key() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO tags (id, name, color_index, note, created_at, updated_at) \
+             VALUES ('t1', 'Suspect infra', 2, 'may sprint', ?1, ?1)",
+            [&now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tag_tuples (id, tag_id, tuple_values, tuple_key, origin_connection, \
+             origin_table, created_at) VALUES ('u1', 't1', '[]', 'K4:textV3:abc', 'c1', \
+             'public.flows', ?1)",
+            [&now],
+        )
+        .unwrap();
+
+        // The unique index absorbs a re-tag of the same row into the same tag.
+        let duplicate = conn.execute(
+            "INSERT INTO tag_tuples (id, tag_id, tuple_values, tuple_key, origin_connection, \
+             origin_table, created_at) VALUES ('u2', 't1', '[]', 'K4:textV3:abc', 'c1', \
+             'public.flows', ?1)",
+            [&now],
+        );
+        assert!(duplicate.is_err(), "duplicate tuple_key must be refused");
+
+        // A tuple of a DIFFERENT tag may hold the same key.
+        conn.execute(
+            "INSERT INTO tags (id, name, color_index, note, created_at, updated_at) \
+             VALUES ('t2', 'Watchlist', 4, NULL, ?1, ?1)",
+            [&now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tag_tuples (id, tag_id, tuple_values, tuple_key, origin_connection, \
+             origin_table, created_at) VALUES ('u3', 't2', '[]', 'K4:textV3:abc', 'c1', \
+             'public.flows', ?1)",
+            [&now],
+        )
+        .unwrap();
+
+        // The cascade is the database's job, not the caller's.
+        conn.execute("DELETE FROM tags WHERE id = 't1'", []).unwrap();
+        let orphans: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tag_tuples WHERE tag_id = 't1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphans, 0, "tag delete must cascade to its tuples");
     }
 }
 
