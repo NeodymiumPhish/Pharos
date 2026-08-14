@@ -1,20 +1,5 @@
 import AppKit
 
-// MARK: - TagTupleRemoving
-
-/// The one store capability this sheet needs.
-///
-/// Declared here rather than on `TagStore` so `scripts/test-tag-removal-sheet.sh`
-/// can compile the sheet without the store: `TagStore` is `@MainActor` (which
-/// `PharosTests/main.swift` cannot call into from nonisolated top-level scope)
-/// and it reaches the Keychain through the FFI, which would hang a headless
-/// run. `TagStore` conforms in `TagStore.swift`, so a change to
-/// `removeTuples(ids:)`'s shape breaks the APP BUILD rather than quietly
-/// leaving a test double behind.
-protocol TagTupleRemoving {
-    func removeTuples(ids: [String]) throws
-}
-
 // MARK: - TagRemovalSheet
 
 /// The removal confirmation sheet. Phase 4's "Remove From Tag" was a bare

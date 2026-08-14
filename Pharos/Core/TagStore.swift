@@ -123,7 +123,10 @@ final class TagStore {
 /// the whole store, so its standalone harness can compile the sheet without
 /// this `@MainActor`, FFI-bound class. The conformance lives here so that a
 /// change to `removeTuples(ids:)` fails the APP BUILD — a test double declared
-/// on the far side could drift from reality in silence.
+/// on the far side could drift from reality in silence. The protocol itself is
+/// in `TagTupleRemoving.swift`, which depends on nothing: both this file's
+/// suite and the sheet's suite compile it, and neither can compile the other's
+/// side.
 /// `@preconcurrency`: the protocol is deliberately nonisolated (the harness
 /// conforms to it without `@MainActor`), and a plain conformance from this
 /// `@MainActor` class warns that it "crosses into main actor-isolated code" —

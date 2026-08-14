@@ -95,6 +95,7 @@
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
+		8A56B300D3A83597D3BB7223 /* TagTupleRemoving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FF961FC4C83A0BF0EFFCAFE /* TagTupleRemoving.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
@@ -228,6 +229,7 @@
 		4C25DF8F9813C90CA3567012 /* ChartConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartConfig.swift; sourceTree = "<group>"; };
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
+		4FF961FC4C83A0BF0EFFCAFE /* TagTupleRemoving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTupleRemoving.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
@@ -587,6 +589,7 @@
 				B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
 				9FB533E644963CBF6C99A9AF /* TagTupleMatcher.swift */,
+				4FF961FC4C83A0BF0EFFCAFE /* TagTupleRemoving.swift */,
 				1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */,
 				BFE5B4EF09AF5B61C35AAFA5 /* TupleKey.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
@@ -900,6 +903,7 @@
 				32EEF868E2B364546F9D3380 /* TagSheet.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
 				E1A8F622DD0C0F83A06D99BA /* TagTupleMatcher.swift in Sources */,
+				8A56B300D3A83597D3BB7223 /* TagTupleRemoving.swift in Sources */,
 				2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */,
 				D4D24BD1BE5A3489DC84D9FE /* TaggedRowView.swift in Sources */,
 				78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */,

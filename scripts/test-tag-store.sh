@@ -22,6 +22,7 @@ swiftc -o "$BIN" \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/TupleKey.swift \
   Pharos/Core/TagTupleMatcher.swift \
+  Pharos/Core/TagTupleRemoving.swift \
   Pharos/Core/TagStore.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
