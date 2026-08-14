@@ -1,0 +1,107 @@
+import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
+
+// MARK: - CIDRRange
+
+/// An IPv4 or IPv6 address with an optional prefix length.
+///
+/// Its ONE job is canonical text for the address family of the tag normalizer:
+/// two spellings of one address must produce one string, so that a tagged
+/// `2001:0DB8::0001` matches a probed `2001:db8::1`.
+///
+/// It does NOT answer containment. The superseded value-tag design matched an
+/// address predicate by CIDR membership; the unified model matches by a hash
+/// probe on `(family, normalized value)`, and a hash cannot answer "is this
+/// address inside that prefix". A `10.2.3.0/24` tag matches the literal value
+/// `10.2.3.0/24`, not the hosts inside it. Adding containment back means adding
+/// a second, linear matching path — a design decision, not an implementation
+/// one.
+///
+/// `inet_pton` does the parsing: it is the same code the operating system uses,
+/// it rejects every malformed spelling (`10.2.3.999`, `10.2.3.4.5`), and it
+/// costs nothing to depend on here. Foundation and Darwin only, so the
+/// standalone harness compiles this file on its own.
+struct CIDRRange: Equatable {
+
+    /// 4 bytes for IPv4, 16 for IPv6, in network order.
+    let bytes: [UInt8]
+    /// 0…32 for IPv4, 0…128 for IPv6. Defaults to the full width.
+    let prefixLength: Int
+
+    var isIPv6: Bool { bytes.count == 16 }
+
+    /// Private so `parse` is the ONLY constructor. The whole type rests on
+    /// `bytes` being exactly 4 or 16 wide — `canonicalText` hands that array
+    /// straight to `inet_ntop`, which reads the width the family says, not the
+    /// width the array has. A synthesised memberwise init is internal, so any
+    /// file in the target could otherwise build a 3-byte value and make
+    /// `inet_ntop` read past the end of its storage.
+    private init(bytes: [UInt8], prefixLength: Int) {
+        self.bytes = bytes
+        self.prefixLength = prefixLength
+    }
+
+    /// Parse `10.2.3.4`, `10.2.3.0/24`, `2001:db8::1` or `2001:db8::/32`.
+    /// Returns nil for anything else — never a partial parse, never a trap.
+    static func parse(_ text: String) -> CIDRRange? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let parts = trimmed.split(separator: "/", maxSplits: 1,
+                                  omittingEmptySubsequences: false)
+        let addressText = String(parts[0])
+
+        var v4 = [UInt8](repeating: 0, count: 4)
+        var v6 = [UInt8](repeating: 0, count: 16)
+        let bytes: [UInt8]
+        if addressText.withCString({ inet_pton(AF_INET, $0, &v4) }) == 1 {
+            bytes = v4
+        } else if addressText.withCString({ inet_pton(AF_INET6, $0, &v6) }) == 1 {
+            bytes = v6
+        } else {
+            return nil
+        }
+
+        let width = bytes.count * 8
+        var prefix = width
+        if parts.count == 2 {
+            // A prefix that is absent is "the whole address"; a prefix that is
+            // PRESENT and unreadable is a malformed value, and a malformed
+            // value must never match — silently treating it as /32 would let a
+            // typo match a real host.
+            guard let given = Int(parts[1]), given >= 0, given <= width else { return nil }
+            prefix = given
+        }
+        return CIDRRange(bytes: bytes, prefixLength: prefix)
+    }
+
+    /// The one spelling this address compares by: `inet_ntop`'s form, with a
+    /// full-width prefix omitted.
+    var canonicalText: String {
+        var out = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        let family = isIPv6 ? AF_INET6 : AF_INET
+        let text: String = bytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress,
+                  let converted = inet_ntop(family, base, &out,
+                                            socklen_t(INET6_ADDRSTRLEN))
+            else {
+                // Dead with the private init above: `bytes` is always 4 or 16 wide
+                // and the family always matches it, so `inet_ntop` cannot fail.
+                // Kept anyway, because trapping here would crash the app on a
+                // database value. Hex, NOT a dotted join: every real `inet_ntop`
+                // spelling holds a "." or a ":", so this can never collide with a
+                // genuine address, and two different corrupt values still differ.
+                return bytes.map { String(format: "%02x", $0) }.joined()
+            }
+            return String(cString: converted)
+        }
+        return prefixLength == bytes.count * 8 ? text : "\(text)/\(prefixLength)"
+    }
+
+    /// The canonical text of `text`, or nil when it is not an address.
+    static func canonical(_ text: String) -> String? {
+        parse(text)?.canonicalText
+    }
+}
