@@ -313,7 +313,14 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
         } else {
             let rowData = rows[dataRowIdx]
-            if let idx = colIndex(from: colIdRaw), idx < rowData.count {
+            // Cache lookup, not a `colIndex(from:)` string parse: this runs for
+            // every visible non-rownum cell on realize and on every scroll tick.
+            // Identical result — `colIdToDataIndex` is built by running the same
+            // parse over the live `tableView.tableColumns`, and AppKit only ever
+            // passes a column that is in that array. Both branches of this `if`
+            // are unreachable for `__rownum__`: the enclosing `else` already
+            // excluded it, and it has no cache entry either way.
+            if let idx = colIdToDataIndex[colIdRaw], idx < rowData.count {
                 let category = idx < columnCategories.count ? columnCategories[idx] : .string
                 let value = rowData[idx]
                 styleCell(cell, value: value, category: category)
