@@ -19,6 +19,7 @@ swiftc -o /tmp/tag-removal-sheet-tests \
   Pharos/Core/TagTupleMatcher.swift \
   Pharos/Core/TagPalette.swift \
   Pharos/Core/TagRemovalModel.swift \
+  Pharos/Core/TagMatchDisclosure.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagTupleRemoving.swift \
   Pharos/Models/Tag.swift \

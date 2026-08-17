@@ -106,11 +106,16 @@ final class TagRemovalSheet: NSViewController {
                 // value while the screen showed the escaped one would put the
                 // two disclosures out of step.
                 box.setAccessibilityLabel(
-                    tuple.values.map { TagRemovalModel.valueText(for: $0).text }
-                        .joined(separator: ", "))
+                    tuple.values.flatMap { value -> [String] in
+                        // The disclosure is spoken too. A screen reader that
+                        // read only the captured text would understate the
+                        // deletion exactly as this sheet used to.
+                        [TagRemovalModel.valueText(for: value).text]
+                            + [TagRemovalModel.matchDisclosure(for: value)?.text].compactMap { $0 }
+                    }.joined(separator: ", "))
                 entries.append((groupIndex: groupIndex, tupleIndex: tupleIndex, box: box))
 
-                var valueViews: [NSView] = tuple.values.map { value in
+                var valueViews: [NSView] = tuple.values.flatMap { value -> [NSView] in
                     let rendered = TagRemovalModel.valueText(for: value)
                     let label = NSTextField(wrappingLabelWithString: rendered.text)
                     label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -127,7 +132,10 @@ final class TagRemovalSheet: NSViewController {
                     // up makes AppKit reserve too little height and clip the
                     // last lines. `scripts/test-tag-removal-sheet.sh` measures
                     // both, on a spaced value and on an unbroken token.
-                    return label
+                    guard let reach = TagRemovalModel.matchDisclosure(for: value) else {
+                        return [label]
+                    }
+                    return [label, Self.reachLabel(reach)]
                 }
                 if tuple.values.count > 1 {
                     // The atomicity must be VISIBLE, not guessed at: this is
@@ -221,6 +229,38 @@ final class TagRemovalSheet: NSViewController {
         ])
         view = root
         refresh()
+    }
+
+    /// The second line under a value: the form matching actually compares,
+    /// shown only where it differs from the captured text.
+    ///
+    /// Indented by a PARAGRAPH STYLE rather than by nesting the label inside an
+    /// inset container. The value labels carry no `preferredMaxLayoutWidth` and
+    /// take their wrap bound from the constraint chain (see the value label
+    /// above), which `scripts/test-tag-removal-sheet.sh` measures to the point;
+    /// a head indent stays out of that chain entirely. It also carries the
+    /// continuation lines of a long form, which a leading pad string would not.
+    ///
+    /// Smaller and dimmer than the value: this line is the app explaining, not
+    /// captured data, and the reader must not have to work out which of the two
+    /// came out of the database. A placeholder form goes dimmer still, the same
+    /// rule the value label applies — the alarm in "matches as (empty)" is
+    /// carried by the words, which is what gets read.
+    private static func reachLabel(_ reach: TagMatchDisclosure.Line) -> NSTextField {
+        let indent = NSMutableParagraphStyle()
+        indent.firstLineHeadIndent = 14
+        indent.headIndent = 14
+        indent.lineBreakMode = .byWordWrapping
+        let label = NSTextField(wrappingLabelWithString: reach.text)
+        label.attributedStringValue = NSAttributedString(
+            string: reach.text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10),
+                .foregroundColor: reach.isPlaceholder
+                    ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor,
+                .paragraphStyle: indent,
+            ])
+        return label
     }
 
     // MARK: State

@@ -105,13 +105,14 @@ func runTests() {
             matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])]],
             tags: [tagA])
         let tuples = groups[0].tuples
-        expectEqual(tuples[0].values, [TagRemovalValue(column: "md5", display: "D41D8C")],
+        expectEqual(tuples[0].values,
+                    [TagRemovalValue(column: "md5", display: "D41D8C", normalized: "d41d8c")],
                     "a single-value tuple carries exactly one structured value")
         expectEqual(TagRemovalModel.valueText(for: tuples[0].values[0]).text, "md5: D41D8C",
                     "a value renders as column: display")
         expectEqual(tuples[1].values,
-                    [TagRemovalValue(column: "ip", display: "10.2.3.4"),
-                     TagRemovalValue(column: "subject", display: "CN=evil")],
+                    [TagRemovalValue(column: "ip", display: "10.2.3.4", normalized: "10.2.3.4"),
+                     TagRemovalValue(column: "subject", display: "CN=evil", normalized: "cn=evil")],
                     "a multi-value tuple carries each value as its OWN structured element")
     }
 
@@ -169,7 +170,9 @@ func runTests() {
         expectEqual(byId["u2"]!.values.count, 2, "the real multi-value tuple carries two structured values")
         expectEqual(byId["u4"]!.values.count, 1,
                     "a single value containing the separator text still yields exactly ONE structured value, not two")
-        expectEqual(byId["u4"]!.values, [TagRemovalValue(column: "ip", display: "10.2.3.4  +  subject: CN=evil")],
+        expectEqual(byId["u4"]!.values,
+                    [TagRemovalValue(column: "ip", display: "10.2.3.4  +  subject: CN=evil",
+                                     normalized: "10.2.3.4  +  subject: cn=evil")],
                     "the embedded separator is not re-parsed; the display string survives whole")
         expectEqual(byId["u2"]!.values.count > 1, true, "u2 goes as a whole: it has two values")
         expectEqual(byId["u4"]!.values.count > 1, false,
@@ -302,7 +305,8 @@ func runTests() {
     do {
         // Reachable: TagDraft fills `display` from the raw cell, and an empty
         // text cell is not NULL, so it passes the NULL guard and arrives as "".
-        let empty = TagRemovalModel.valueText(for: TagRemovalValue(column: "ip", display: ""))
+        let empty = TagRemovalModel.valueText(
+            for: TagRemovalValue(column: "ip", display: "", normalized: ""))
         expectEqual(empty.text, "ip: (empty)", "an empty display says so")
         expectEqual(empty.isPlaceholder, true, "and is marked as a placeholder, to be styled apart")
 
@@ -311,20 +315,89 @@ func runTests() {
         // token per pad space mangles an ordinary grid cell. A RUN of the same
         // escaped scalar therefore carries its count. A single edge space is
         // still a bare `<U+0020>` — see the trailing-space case above.
-        let spaces = TagRemovalModel.valueText(for: TagRemovalValue(column: "md5", display: "   "))
+        let spaces = TagRemovalModel.valueText(
+            for: TagRemovalValue(column: "md5", display: "   ", normalized: ""))
         expectEqual(spaces.text, "md5: <U+0020\u{00D7}3>",
                     "whitespace is shown as what it is, and says how much of it there is")
         expectEqual(spaces.isPlaceholder, false,
                     "it is real captured data, so it is not styled as a stand-in")
 
-        let nothing = TagRemovalModel.valueText(for: TagRemovalValue(column: "", display: ""))
+        let nothing = TagRemovalModel.valueText(
+            for: TagRemovalValue(column: "", display: "", normalized: ""))
         expectEqual(nothing.text, "(no column): (empty)",
                     "the worst case — a checkbox beside a bare colon — reads as words")
         expectEqual(nothing.isPlaceholder, true, "and is marked")
 
         let ordinary = TagRemovalModel.valueText(
-            for: TagRemovalValue(column: "ip", display: "10.0.0.1"))
+            for: TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1"))
         expectEqual(ordinary.isPlaceholder, false, "a real value is not a placeholder")
+    }
+
+    // MARK: - 15. The sheet discloses its REACH, not only what was captured
+
+    do {
+        // The whole point of the extra line. Every case here is one the sheet
+        // used to understate: what it showed matched strictly more than it said.
+        let reason = "matching compares this form, so other spellings can match too"
+
+        expectEqual(
+            TagRemovalModel.matchDisclosure(
+                for: TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1")),
+            nil,
+            "captured text that IS the matching form adds no second line — noise on every row would bury the ones that matter")
+
+        expectEqual(
+            TagRemovalModel.matchDisclosure(
+                for: TagRemovalValue(column: "cc", display: "US", normalized: "us"))?.text,
+            "matches as \u{201C}us\u{201D} — \(reason)",
+            "a case-only difference is disclosed: the sheet used to say US while us was what stopped matching")
+
+        // The char(20) case, and the reason `display` is not trimmed at
+        // capture: eighteen pad spaces are part of what the cell held.
+        let padded = TagRemovalValue(column: "cc", display: "US" + String(repeating: " ", count: 18),
+                                     normalized: "us")
+        expectEqual(TagRemovalModel.valueText(for: padded).text,
+                    "cc: US<U+0020\u{00D7}18>",
+                    "the captured text keeps its padding — that is the provenance")
+        expectEqual(TagRemovalModel.matchDisclosure(for: padded)?.text,
+                    "matches as \u{201C}us\u{201D} — \(reason)",
+                    "and the reach beside it: a plain text cell holding `us` matches this tuple")
+        expectEqual(TagRemovalModel.matchDisclosure(for: padded)?.isPlaceholder, false,
+                    "a real matching form is not a stand-in")
+
+        expectEqual(
+            TagRemovalModel.matchDisclosure(
+                for: TagRemovalValue(column: "amount", display: "0012.500", normalized: "12.5"))?.text,
+            "matches as \u{201C}12.5\u{201D} — \(reason)",
+            "a numeric canonicalisation is disclosed the same way, with no family-specific claim to get wrong")
+
+        // The loudest thing this line can say, so it says it in words rather
+        // than in a pair of empty quotes that would read as a rendering fault.
+        let blank = TagRemovalValue(column: "note", display: "   ", normalized: "")
+        expectEqual(TagRemovalModel.matchDisclosure(for: blank)?.text,
+                    "matches as (empty) — \(reason)",
+                    "an all-whitespace value matches every blank cell, and must not disclose that as nothing at all")
+        expectEqual(TagRemovalModel.matchDisclosure(for: blank)?.isPlaceholder, true,
+                    "the stand-in word is marked, so it can be styled apart from captured data")
+
+        // The matching form is somebody else's data too: unescaped, a bidi
+        // override in it would misrender exactly as it would in `display`.
+        expectEqual(
+            TagRemovalModel.matchDisclosure(
+                for: TagRemovalValue(column: "f", display: "SAFE\u{202E}GPJ.EXE",
+                                     normalized: "safe\u{202E}gpj.exe"))?.text,
+            "matches as \u{201C}safe<U+202E>gpj.exe\u{201D} — \(reason)",
+            "the matching form is escaped too — it can lie the same way the captured text could")
+
+        // A tuple where only ONE value's reach differs: the other must stay
+        // silent, or the signal is lost in the noise again.
+        let mixed = TagRemovalTuple(tupleId: "u9", values: [
+            TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1"),
+            TagRemovalValue(column: "cc", display: "US", normalized: "us"),
+        ])
+        expectEqual(mixed.values.map { TagRemovalModel.matchDisclosure(for: $0)?.text },
+                    [nil, "matches as \u{201C}us\u{201D} — \(reason)"],
+                    "in a multi-value tuple only the value whose reach differs gets a line")
     }
 
     if failures == 0 {

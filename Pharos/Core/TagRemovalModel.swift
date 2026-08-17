@@ -14,6 +14,11 @@ import Foundation
 struct TagRemovalValue: Equatable {
     let column: String
     let display: String
+    /// The normalized form matching actually compares. Carried beside the
+    /// captured text rather than in place of it: `display` plus its column is
+    /// the provenance that makes a tuple auditable, and `normalized` is the
+    /// reach. `TagMatchDisclosure` decides when the second is worth saying.
+    let normalized: String
 }
 
 /// One tuple the removal sheet offers for deletion.
@@ -79,7 +84,8 @@ enum TagRemovalModel {
                     TagRemovalTuple(
                         tupleId: tuple.id,
                         values: tuple.values.map {
-                            TagRemovalValue(column: $0.column, display: $0.display)
+                            TagRemovalValue(column: $0.column, display: $0.display,
+                                            normalized: $0.value)
                         })
                 }
             guard !tuples.isEmpty else { return nil }
@@ -142,6 +148,16 @@ enum TagRemovalModel {
             text: "\(column.isEmpty ? "(no column)" : column): "
                 + "\(display.isEmpty ? "(empty)" : display)",
             isPlaceholder: column.isEmpty || display.isEmpty)
+    }
+
+    /// The second line under a value, when the form matching compares differs
+    /// from the text captured — nil when they agree.
+    ///
+    /// Beside `valueText`, not folded into it: the sheet renders one wrapping
+    /// label per value and a merged string would make the reach look like part
+    /// of the captured data.
+    static func matchDisclosure(for value: TagRemovalValue) -> TagMatchDisclosure.Line? {
+        TagMatchDisclosure.line(display: value.display, normalized: value.normalized)
     }
 
     /// The ids a removal commits, taken from the SAME groups the footer counts

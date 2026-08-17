@@ -342,6 +342,63 @@ func runTests() {
                     "a partial match reads dashed")
     }
 
+    // MARK: - 19. A value discloses its REACH when that differs from its text
+
+    do {
+        // Same rule and same wording as the removal sheet, by construction:
+        // one producer serves both, so the Inspector cannot describe a tuple's
+        // reach differently from the sheet that deletes it.
+        let reason = "matching compares this form, so other spellings can match too"
+
+        // `cc` is a char(20): PostgreSQL pads it, `TagDraft` keeps the padding
+        // in `display`, and `us` is what matching compares — including against
+        // a plain `text` column holding lowercase `us` with no padding at all.
+        let padded = "US" + String(repeating: " ", count: 18)
+        let t = tag("t1", "Padded", tuples: [
+            tuple("u1", [
+                value("md5", "text", "d41d8c"),                     // text IS the form
+                value("cc", "text", "us", display: padded),         // padding AND case
+            ]),
+        ])
+        let entries = TagInspectorModel.entries(
+            matches: [match("t1", .solid, matchedTupleIds: ["u1"], solidTupleIds: ["u1"])],
+            tags: [t], columns: [col("md5", "text"), col("cc", "bpchar")],
+            rowText: ["d41d8c", padded])
+        let values = entries.first?.values ?? []
+        expectEqual(values.count, 2, "both captured values reach the Inspector")
+        expectEqual(values.first(where: { $0.column == "cc" })?.display, padded,
+                    "the captured text keeps its padding — provenance is what makes a tuple auditable")
+        expectEqual(values.first(where: { $0.column == "md5" })?.matchDisclosure, nil,
+                    "a value whose text IS the matching form adds no second line")
+        expectEqual(values.first(where: { $0.column == "cc" })?.matchDisclosure?.text,
+                    "matches as \u{201C}us\u{201D} — \(reason)",
+                    "the padded, upper-case value discloses the form that actually stops matching")
+        expectEqual(values.first(where: { $0.column == "cc" })?.matchDisclosure?.isPlaceholder, false,
+                    "a real matching form is not a stand-in")
+
+        // Every remaining case is pinned on the value itself: `entries` only
+        // copies `TaggedValue.value` across, and routing each through a fresh
+        // tag/match/row fixture would test the copy five more times, not the rule.
+        func disclosure(_ display: String, _ normalized: String) -> TagMatchDisclosure.Line? {
+            TagInspectorValue(column: "c", display: display, normalized: normalized,
+                              isMatched: true).matchDisclosure
+        }
+        expectEqual(disclosure("us", "us"), nil,
+                    "an identical pair stays silent — a line on every row would bury the ones that matter")
+        expectEqual(disclosure("US", "us")?.text, "matches as \u{201C}us\u{201D} — \(reason)",
+                    "a case-only difference is disclosed, quietly though it reads")
+        expectEqual(disclosure("0012.500", "12.5")?.text,
+                    "matches as \u{201C}12.5\u{201D} — \(reason)",
+                    "a numeric canonicalisation gets the same sentence, with no per-family claim to get wrong")
+        expectEqual(disclosure("   ", "")?.text, "matches as (empty) — \(reason)",
+                    "an all-whitespace value matches every blank cell, so it says so in words")
+        expectEqual(disclosure("   ", "")?.isPlaceholder, true,
+                    "the stand-in word is marked, so the view can style it apart from captured data")
+        expectEqual(disclosure("SAFE\u{202E}GPJ.EXE", "safe\u{202E}gpj.exe")?.text,
+                    "matches as \u{201C}safe<U+202E>gpj.exe\u{201D} — \(reason)",
+                    "the matching form is escaped too — unescaped it could misrender exactly as the captured text could")
+    }
+
     if failures == 0 {
         print("\nAll TagInspectorModel tests passed.")
     } else {

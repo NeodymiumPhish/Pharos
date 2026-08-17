@@ -130,8 +130,14 @@ private func listLines(_ root: NSView) -> [String] {
 
 // MARK: - Fixtures
 
-private func value(_ column: String, _ display: String) -> TagRemovalValue {
-    TagRemovalValue(column: column, display: display)
+/// `normalized` defaults to the captured text, so an unqualified fixture is a
+/// value whose reach is exactly what it shows and which therefore draws no
+/// second line. The cases where the two DIFFER pass it explicitly — the
+/// default must never be able to hide a missing disclosure.
+private func value(_ column: String, _ display: String,
+                   normalized: String? = nil) -> TagRemovalValue {
+    TagRemovalValue(column: column, display: display,
+                    normalized: normalized ?? display)
 }
 
 private func tuple(_ id: String, _ values: [TagRemovalValue]) -> TagRemovalTuple {
@@ -489,6 +495,88 @@ func runTests() {
     let real = labels(nasty.view).first { $0.stringValue == "ip: 10.0.0.1<U+0020>" }
     expectTrue(placeholder?.textColor != real?.textColor,
                "the placeholder does not read as a captured value")
+
+    // MARK: the sheet draws the REACH of a value whose text understates it
+
+    // `cc` is a char(20): PostgreSQL pads it, capture keeps the padding, and
+    // `us` is what actually stops matching — including in a plain `text` column
+    // holding lowercase `us` with no padding at all.
+    let reason = "matching compares this form, so other spellings can match too"
+    let padded = "US" + String(repeating: " ", count: 18)
+    let reach = TagRemovalSheet(
+        groups: [
+            TagRemovalGroup(tagId: "t9", tagName: "Case Reach", colorIndex: 2, tuples: [
+                tuple("u14", [value("cc", padded, normalized: "us"),
+                              value("ip", "10.0.0.1")]),
+                tuple("u15", [value("note", "   ", normalized: "")]),
+            ]),
+        ],
+        remover: RecordingRemover())
+    _ = host(reach)
+    let reachLines = listLines(reach.view)
+    expectTrue(reachLines.contains("cc: US<U+0020\u{00D7}18>"),
+               "the captured text keeps its padding — that provenance is what makes the tuple auditable")
+    expectTrue(reachLines.contains("matches as \u{201C}us\u{201D} — \(reason)"),
+               "and the form that actually stops matching is disclosed beside it, on its own label")
+    expectInt(reachLines.filter { $0.hasPrefix("matches as") }.count, 2,
+              "one line for the padded value and one for the blank one — and NONE for ip: 10.0.0.1, whose text is already the matching form")
+    expectTrue(reachLines.contains("matches as (empty) — \(reason)"),
+               "an all-whitespace value matches every blank cell, and says so in words rather than in empty quotes")
+    // The reach is a separate label, never merged into the value's: a captured
+    // value can legally contain any separator this could have used.
+    expectTrue(!reachLines.contains(where: { $0.hasPrefix("cc: ") && $0.contains("matches as") }),
+               "the reach is never appended to the value label")
+    // Read from `attributedStringValue`, which is what the reach label actually
+    // DRAWS. `NSTextField.font` and `.textColor` report the field's own
+    // defaults and go on reporting them after an attributed string is set, so
+    // asserting on those would pass whatever the reader ends up seeing.
+    func drawn(_ label: NSTextField) -> (font: NSFont?, color: NSColor?, indent: CGFloat) {
+        let attrs = label.attributedStringValue.length == 0
+            ? [:] : label.attributedStringValue.attributes(at: 0, effectiveRange: nil)
+        return (attrs[.font] as? NSFont, attrs[.foregroundColor] as? NSColor,
+                (attrs[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0)
+    }
+    if let reachLabel = labels(reach.view).first(where: { $0.stringValue.hasPrefix("matches as \u{201C}us") }),
+       let blankReach = labels(reach.view).first(where: { $0.stringValue.hasPrefix("matches as (empty)") }),
+       let valueLabel = labels(reach.view).first(where: { $0.stringValue.hasPrefix("cc: ") }) {
+        // Not `maximumNumberOfLines != 1`, which was tried and is too weak to
+        // catch the real failure: a plain `labelWithString` label has
+        // `cell.wraps == false`, and neither that property nor the paragraph
+        // style's `.byWordWrapping` turns wrapping back on — the label just
+        // measures one line tall and the sentence is cut mid-clause. Only the
+        // HEIGHT sees that. (It was measured happening in the Inspector's copy
+        // of this recipe.)
+        let needed = ceil(reachLabel.attributedStringValue.boundingRect(
+            with: NSSize(width: reachLabel.frame.width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
+        expectTrue(reachLabel.frame.height + 0.5 >= needed,
+                   "every line of the reach is drawn at its own width (\(Int(reachLabel.frame.height)) vs needs \(Int(needed))) — a cut sentence would understate again")
+        expectTrue(reachLabel.cell?.wraps == true,
+                   "the reach label wraps rather than truncating")
+        let (reachFont, reachColor, reachIndent) = drawn(reachLabel)
+        let (valueFont, valueColor, _) = drawn(valueLabel)
+        expectTrue(reachFont != valueFont,
+                   "the app's explanation is drawn in a different font from the captured data it explains")
+        expectTrue(reachColor != valueColor,
+                   "and in a different colour, so the reader never has to work out which line came out of the database")
+        expectTrue(reachIndent > 0,
+                   "the reach is indented under the value it belongs to — in a multi-value tuple it must not read as the next value's")
+        expectTrue(drawn(blankReach).color != reachColor,
+                   "the (empty) stand-in is styled apart from a real matching form, the same rule the value labels apply")
+    } else {
+        failures += 1
+        print("FAIL the reach sheet is missing its value label, its reach label, or its (empty) reach label")
+    }
+    // The screen reader hears what the screen shows, disclosure included.
+    let reachBoxes = checkboxes(reach.view)
+    if reachBoxes.count == 2 {
+        expectString(reachBoxes[0].accessibilityLabel() ?? "",
+                     "cc: US<U+0020\u{00D7}18>, matches as \u{201C}us\u{201D} — \(reason), ip: 10.0.0.1",
+                     "the checkbox is spoken from exactly the text that is shown")
+    } else {
+        failures += 1
+        print("FAIL the reach sheet has \(reachBoxes.count) checkboxes, not 2")
+    }
 
     // MARK: a long tag name truncates instead of sizing the sheet
 

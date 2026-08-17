@@ -478,7 +478,12 @@ class InspectorViewController: NSViewController {
             // A solid entry can still show a dash: when the recorded tuple was
             // deleted, `TagInspectorModel` falls through to the closest
             // remaining one rather than let the entry vanish under the bar.
-            for value in entry.values { addTagValueRow(value) }
+            for value in entry.values {
+                addTagValueRow(value)
+                // Under the value, not beside it: the reach can be longer than
+                // the value and this panel is narrow.
+                if let reach = value.matchDisclosure { addTagReachRow(reach) }
+            }
             if entry.isCrossTuple {
                 addDetailNote("Partial: matched values come from different tagged rows.")
             }
@@ -579,6 +584,51 @@ class InspectorViewController: NSViewController {
         stackView.addArrangedSubview(valueRow)
         valueRow.translatesAutoresizingMaskIntoConstraints = false
         valueRow.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+    }
+
+    /// The reach of the value above: the form matching actually compares, drawn
+    /// only where it differs from the captured text. A `char(20)` holding `US`
+    /// is captured with eighteen pad spaces and matches a plain `text` cell
+    /// holding `us`, so the captured text alone understates the tag.
+    ///
+    /// Wrapped, not truncated, unlike the value row above it. A value is one
+    /// token and a middle-truncated one still shows both its ends; this is a
+    /// sentence, and cutting its middle takes out the verb.
+    ///
+    /// Already escaped when it arrives: the wording and the escaping both
+    /// belong to `TagMatchDisclosure`, so this section and the removal sheet
+    /// cannot state the same value's reach differently. Do NOT escape again
+    /// here — the `<U+XXXX>` tokens would be escaped a second time.
+    private func addTagReachRow(_ reach: TagMatchDisclosure.Line) {
+        let indent = NSMutableParagraphStyle()
+        indent.firstLineHeadIndent = 18
+        indent.headIndent = 18
+        indent.lineBreakMode = .byWordWrapping
+        // `wrappingLabelWithString`, NOT `labelWithString`. A plain label's cell
+        // has `wraps == false`, and neither `maximumNumberOfLines = 0` nor the
+        // paragraph style's `.byWordWrapping` turns it back on: the sentence
+        // measured 13pt tall against the 24pt it needed at inspector width, so
+        // the reach was cut off mid-clause — the very understatement this row
+        // exists to fix. (`addTagNote` above reaches the same state the other
+        // way, by setting `lineBreakMode` on the field.)
+        let label = NSTextField(wrappingLabelWithString: reach.text)
+        label.attributedStringValue = NSAttributedString(
+            string: reach.text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10),
+                // A stand-in word is not captured data, the same rule the value
+                // row and the removal sheet apply.
+                .foregroundColor: reach.isPlaceholder
+                    ? NSColor.tertiaryLabelColor : NSColor.secondaryLabelColor,
+                .paragraphStyle: indent,
+            ])
+        // Free text with no length limit, and a normalized form can be one
+        // unbroken token with nothing to wrap at — the same reason `addTagNote`
+        // lowers this.
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        stackView.addArrangedSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
     }
 
     /// The per-tag controls. Each button carries its tag id, so one

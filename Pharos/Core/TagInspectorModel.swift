@@ -8,8 +8,24 @@ struct TagInspectorValue: Equatable {
     let column: String
     /// The value as captured.
     let display: String
+    /// The normalized form matching actually compares. Kept beside `display`
+    /// rather than replacing it: the captured text and its column are the
+    /// provenance, this is the reach.
+    let normalized: String
     /// True when the selected row holds this (family, normalized value).
     let isMatched: Bool
+
+    /// The extra line disclosing the reach, or nil when the captured text IS
+    /// the form matching compares.
+    ///
+    /// Already escaped, unlike `column` and `display`, which this section's
+    /// view escapes as it draws them. The wording belongs to the model — the
+    /// removal sheet must not describe the same value differently — and the
+    /// escaping travels with the wording because the matching form is
+    /// somebody else's data too.
+    var matchDisclosure: TagMatchDisclosure.Line? {
+        TagMatchDisclosure.line(display: display, normalized: normalized)
+    }
 }
 
 /// One matching tag's Inspector entry.
@@ -83,6 +99,7 @@ enum TagInspectorModel {
                 TagInspectorValue(
                     column: value.column,
                     display: value.display,
+                    normalized: value.value,
                     isMatched: present.contains(
                         TagValueKey(family: value.family, value: value.value)))
             }
