@@ -72,7 +72,10 @@ final class TagSheet: NSViewController {
 
         tagPopup.addItem(withTitle: "New tag")
         for tag in context.existingTags {
-            tagPopup.addItem(withTitle: tag.name)
+            // Escaped for DISPLAY only. The tag this popup selects is carried by
+            // `representedObject` (the id) on the next line, never by the title,
+            // so escaping cannot pick the wrong tag.
+            tagPopup.addItem(withTitle: DisplayEscape.escaped(tag.name))
             tagPopup.lastItem?.representedObject = tag.id
             tagPopup.lastItem?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
         }
@@ -175,8 +178,13 @@ final class TagSheet: NSViewController {
     /// capture.
     private func buildColumnRows() {
         for (index, column) in context.columns.enumerated() {
-            let box = NSButton(checkboxWithTitle: column.name, target: self,
-                               action: #selector(columnToggled))
+            // The column name is data: a SELECT alias comes straight from the
+            // query, and this checkbox is what the analyst reads to decide which
+            // column a tag captures from. Escaped for DISPLAY only — the column
+            // this box selects is carried by `box.tag` (the index) below, so the
+            // capture cannot follow the rendered title.
+            let box = NSButton(checkboxWithTitle: DisplayEscape.escaped(column.name),
+                               target: self, action: #selector(columnToggled))
             box.tag = index
             checkboxes.append(box)
 

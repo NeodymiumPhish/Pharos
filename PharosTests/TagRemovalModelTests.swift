@@ -306,9 +306,14 @@ func runTests() {
         expectEqual(empty.text, "ip: (empty)", "an empty display says so")
         expectEqual(empty.isPlaceholder, true, "and is marked as a placeholder, to be styled apart")
 
+        // The count suffix arrived with `DisplayEscape`, which the result grid
+        // now shares: PostgreSQL returns `character(n)` space-padded, and one
+        // token per pad space mangles an ordinary grid cell. A RUN of the same
+        // escaped scalar therefore carries its count. A single edge space is
+        // still a bare `<U+0020>` — see the trailing-space case above.
         let spaces = TagRemovalModel.valueText(for: TagRemovalValue(column: "md5", display: "   "))
-        expectEqual(spaces.text, "md5: <U+0020><U+0020><U+0020>",
-                    "whitespace is shown as what it is, not as a blank row")
+        expectEqual(spaces.text, "md5: <U+0020\u{00D7}3>",
+                    "whitespace is shown as what it is, and says how much of it there is")
         expectEqual(spaces.isPlaceholder, false,
                     "it is real captured data, so it is not styled as a stand-in")
 

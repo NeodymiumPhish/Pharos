@@ -19,6 +19,20 @@ protocol ResultsFindControllerDelegate: AnyObject {
 
 // MARK: - ResultsFindController
 
+/// Find and filter match against RAW values, never the escaped display text.
+///
+/// The grid escapes hostile scalars for DISPLAY only (`ResultCellText.rendered`
+/// → `DisplayEscape`). Searching the escaped form would answer a different
+/// question than the user asked — typing `10.0.0.1` would miss a cell drawn as
+/// `10.0.0.1<U+0020>`, and typing `U+0020` would match every padded cell. So the
+/// scan below reads `AnyCodable.displayString` off the model.
+///
+/// The escaping cannot shift a highlight, because this controller does not
+/// compute character ranges: a match is a whole CELL (`CellAddress`), and
+/// `ResultsDataSource` paints that cell's background. There is no offset into
+/// the cell's text anywhere in the find path, so display length and raw length
+/// never have to agree. Anything added here that DOES index into cell text must
+/// index the raw string and convert, or this stops being true.
 class ResultsFindController: NSObject, NSSearchFieldDelegate {
 
     // Find bar UI references (received at init)

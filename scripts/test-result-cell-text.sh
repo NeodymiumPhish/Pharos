@@ -5,6 +5,7 @@ swiftc -o /tmp/result-cell-text-tests \
   Pharos/Models/QueryResult.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/ViewControllers/ResultsGrid/ResultCellText.swift \
+  Pharos/Core/DisplayEscape.swift \
   PharosTests/ResultCellTextTests.swift \
   PharosTests/main.swift
 /tmp/result-cell-text-tests

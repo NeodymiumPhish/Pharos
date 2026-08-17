@@ -508,7 +508,9 @@ class InspectorViewController: NSViewController {
             dot.heightAnchor.constraint(equalToConstant: 12),
         ])
 
-        let nameLabel = NSTextField(labelWithString: entry.name)
+        // The name is single-line and identifies which tag the buttons below
+        // act on, so it is escaped. The NOTE is not — see `addTagNote`.
+        let nameLabel = NSTextField(labelWithString: DisplayEscape.escaped(entry.name))
         nameLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -532,6 +534,12 @@ class InspectorViewController: NSViewController {
     /// unbroken token — a URL, a path, a hash — with no word break to wrap at.
     /// Lowering the compression resistance lets it shrink against the width
     /// constraint instead of breaking it.
+    ///
+    /// Deliberately NOT run through `DisplayEscape`, unlike every other label in
+    /// this section. A note is prose the ANALYST typed into `TagSheet`, not
+    /// captured data, it is the one label here that is legitimately multi-line
+    /// (`maximumNumberOfLines = 0`), and escaping would turn its own paragraph
+    /// breaks into `<U+000A>`. It also names no value and gates no deletion.
     private func addTagNote(_ note: String) {
         let noteLabel = NSTextField(labelWithString: note)
         noteLabel.font = .systemFont(ofSize: 11)
@@ -551,11 +559,14 @@ class InspectorViewController: NSViewController {
         mark.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         mark.textColor = value.isMatched ? .systemGreen : .tertiaryLabelColor
 
-        let columnLabel = NSTextField(labelWithString: value.column)
+        // Escaped, like the row-detail values above and the removal sheet that
+        // deletes these same tuples: a captured value is somebody else's data,
+        // and this row is what the analyst reads before pressing "Remove Tag…".
+        let columnLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.column))
         columnLabel.font = .systemFont(ofSize: 11, weight: .medium)
         columnLabel.textColor = .secondaryLabelColor
 
-        let displayLabel = NSTextField(labelWithString: value.display)
+        let displayLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.display))
         displayLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         displayLabel.textColor = value.isMatched ? .labelColor : .tertiaryLabelColor
         displayLabel.lineBreakMode = .byTruncatingMiddle
@@ -664,7 +675,9 @@ class InspectorViewController: NSViewController {
     private func makeKeyLabel(name: String, dataType: String) -> NSTextField {
         let label = NSTextField(labelWithString: "")
         let attrStr = NSMutableAttributedString(
-            string: name,
+            // A column name is data too — it can be a SELECT alias straight out
+            // of the query, so it gets the same treatment as the value beside it.
+            string: DisplayEscape.escaped(name),
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .medium),
                 .foregroundColor: NSColor.secondaryLabelColor,
@@ -719,8 +732,15 @@ class InspectorViewController: NSViewController {
             return label
         }
 
-        // Type-aware coloring matching ResultsDataSource
-        label.stringValue = value.displayString
+        // Type-aware coloring matching ResultsDataSource.
+        //
+        // DISPLAY is escaped, COPY is raw — the two are assigned from different
+        // sources on purpose and must not be collapsed back into one. A bidi
+        // override would otherwise make this pane read as a filename the row
+        // does not hold; an escaped copy would paste a corrupt indicator into
+        // whatever the analyst pastes it into.
+        label.stringValue = DisplayEscape.escaped(value.displayString)
+        label.copyableValue = value.displayString
 
         switch category {
         case .numeric:
@@ -729,10 +749,13 @@ class InspectorViewController: NSViewController {
             let str = value.displayString.lowercased()
             let boolDisplay = AppStateManager.shared.settings.boolDisplay
             if str == "t" || str == "true" {
+                // The bool words are app-owned, so display and copy agree here.
                 label.stringValue = boolDisplay.trueString
+                label.copyableValue = boolDisplay.trueString
                 label.textColor = .systemGreen
             } else if str == "f" || str == "false" {
                 label.stringValue = boolDisplay.falseString
+                label.copyableValue = boolDisplay.falseString
                 label.textColor = .systemRed
             } else {
                 label.textColor = .labelColor
@@ -747,7 +770,6 @@ class InspectorViewController: NSViewController {
             label.textColor = .labelColor
         }
 
-        label.copyableValue = label.stringValue
         return label
     }
 
@@ -865,6 +887,12 @@ class InspectorViewController: NSViewController {
 // MARK: - CopyableValueLabel
 
 private class CopyableValueLabel: NSTextField {
+    /// The RAW value, for the pasteboard. Deliberately not the same string as
+    /// `stringValue`, which its setter escapes for display: an analyst pastes
+    /// indicators out of this pane into other systems, so the copy must be the
+    /// bytes the database returned, not the `<U+XXXX>` rendering of them.
+    /// The one place it is READ for display — the context-menu title — escapes
+    /// it at that point instead.
     var copyableValue: String = ""
     private var savedAttributedString: NSAttributedString?
     private var restoreTimer: Timer?
@@ -887,9 +915,14 @@ private class CopyableValueLabel: NSTextField {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
-        let display = copyableValue.count > 50
+        // Truncate the RAW value first, then escape — escaping first and cutting
+        // at 50 would slice a `<U+202E>` token in half and print the debris.
+        // The menu title is display, so it is escaped; `copyValue` still puts
+        // the raw `copyableValue` on the pasteboard.
+        let clipped = copyableValue.count > 50
             ? String(copyableValue.prefix(50)) + "\u{2026}"
             : copyableValue
+        let display = DisplayEscape.escaped(clipped)
         let item = NSMenuItem(title: "Copy \"\(display)\"", action: #selector(copyValue), keyEquivalent: "")
         item.target = self
         menu.addItem(item)

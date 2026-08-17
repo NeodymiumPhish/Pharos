@@ -201,6 +201,10 @@ final class TagManageSheet: NSViewController,
 
     private func populateFields() {
         if let tag = selectedTag {
+            // RAW, not escaped: `saveChanges` reads this field back and writes
+            // it to the store, so an escaped value would be saved as its token
+            // text the first time the analyst pressed Save. The read-only list
+            // row in `viewFor` is where the escaping belongs.
             nameField.stringValue = tag.name
             colorControl.selectedSegment = TagPalette.normalizedColorIndex(tag.colorIndex) ?? -1
             noteField.stringValue = tag.note ?? ""
@@ -360,8 +364,13 @@ final class TagManageSheet: NSViewController,
             }()
         cell.imageView?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
         let count = tag.tuples.count
+        // DISPLAY only. This list row is what the analyst reads before pressing
+        // Delete, so a bidi override in a name must not reorder it. The EDITABLE
+        // `nameField` in `populateFields` is deliberately NOT escaped: that field
+        // is read back by `saveChanges`, so escaping it would write the token
+        // text into the store on any save.
         cell.textField?.stringValue =
-            "\(tag.name) — \(count) tuple\(count == 1 ? "" : "s")"
+            "\(DisplayEscape.escaped(tag.name)) — \(count) tuple\(count == 1 ? "" : "s")"
         return cell
     }
 

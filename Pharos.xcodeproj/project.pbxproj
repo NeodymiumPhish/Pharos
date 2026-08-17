@@ -71,6 +71,7 @@
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C25DF8F9813C90CA3567012 /* ChartConfig.swift */; };
+		54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
 		586DA9FCB49C8ACCD9C59F0D /* ChartExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */; };
 		587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */; };
@@ -265,6 +266,7 @@
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
 		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
+		935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayEscape.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
@@ -560,6 +562,7 @@
 			children = (
 				028712E3F9210287025ADAE8 /* AppStateManager.swift */,
 				CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */,
+				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
 				267FBF59C6FA236284E961CC /* HistoryRowText.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
@@ -781,6 +784,7 @@
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
 				26B04812BFD5A8814F0B729A /* DestructiveSQLScanner.swift in Sources */,
+				54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */,
 				1AC6571636390DDAA41BEEDB /* DisplayRowPipeline.swift in Sources */,
 				7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */,
 				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,

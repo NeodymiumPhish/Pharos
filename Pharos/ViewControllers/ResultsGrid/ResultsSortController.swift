@@ -11,6 +11,12 @@ protocol ResultsSortControllerDelegate: AnyObject {
 
 // MARK: - ResultsSortController
 
+/// Sorting compares RAW values, never the escaped display text.
+///
+/// The grid escapes hostile scalars for DISPLAY only (`ResultCellText.rendered`
+/// → `DisplayEscape`). Comparing the escaped form would order by the token
+/// spelling — every value with a leading space would collate under `<`, not
+/// under the space — so the comparisons below read `AnyCodable` off the model.
 class ResultsSortController: NSObject {
 
     enum SortDirection {

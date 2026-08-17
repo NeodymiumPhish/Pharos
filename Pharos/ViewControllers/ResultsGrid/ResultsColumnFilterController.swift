@@ -9,6 +9,15 @@ protocol ResultsColumnFilterControllerDelegate: AnyObject {
 
 // MARK: - ResultsColumnFilterController
 
+/// Column filters evaluate RAW values, never the escaped display text.
+///
+/// The grid escapes hostile scalars for DISPLAY only (`ResultCellText.rendered`
+/// → `DisplayEscape`). `distinctValues` below therefore keys its checklist by
+/// the raw `displayString`, and `FilterValueListView` keys its CHECKED SET by
+/// that same raw string — so the value-picker's own labels are still drawn
+/// unescaped today. That is a known remaining display surface, listed apart
+/// from this change because escaping it means escaping the LABEL only while the
+/// key stays raw, which is a separate edit with its own way to go wrong.
 class ResultsColumnFilterController {
 
     private(set) var activeFilters: [String: ColumnFilter] = [:]

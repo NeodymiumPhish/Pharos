@@ -18,6 +18,17 @@ protocol ResultsCopyExportDelegate: AnyObject {
 
 // MARK: - ResultsCopyExport
 
+/// Copy and export carry RAW BYTES, never the escaped display text.
+///
+/// The grid escapes hostile scalars for DISPLAY (`ResultCellText.rendered` →
+/// `DisplayEscape`) so a bidi override cannot make a cell read as a filename the
+/// data does not hold. That transform must stop at the label. This class reads
+/// `AnyCodable.displayString` straight off the model instead, because an
+/// analyst pastes indicators out of here into other systems, and an indicator
+/// that arrived as `10.0.0.1<U+0020>` is a corrupt indicator — the copy would
+/// silently no longer be the thing that was on screen.
+///
+/// So: nothing in this file may call `ResultCellText` or `DisplayEscape`.
 class ResultsCopyExport: NSObject {
     private let tableView: NSTableView
     private let copyButton: NSButton

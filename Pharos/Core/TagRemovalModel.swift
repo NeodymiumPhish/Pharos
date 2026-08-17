@@ -116,55 +116,16 @@ enum TagRemovalModel {
         let isPlaceholder: Bool
     }
 
-    /// Scalars that must never reach a delete confirmation as themselves.
-    ///
-    /// This app captures hostile data by design — the values in a tag came out
-    /// of somebody's dataset — and a removal is permanent and global. Three
-    /// families, all of which have been measured rendering wrong:
-    ///
-    /// - **Bidi controls.** `host: safe\u{202E}gpj.exe` DISPLAYS as
-    ///   `safe\u{202E}gpj.exe` reversed — the user reads one filename and
-    ///   deletes another. This is the one that turns disclosure into a lie.
-    /// - **Zero-width and unusual spaces.** `10.0.0.1`, `10.0.0.1\u{200B}`,
-    ///   `10.0.0\u{A0}.1` and `10.0.0.1 ` otherwise render as four identical
-    ///   rows, and the user cannot tell which checkbox to untick.
-    /// - **C0 controls.** A newline inside one value would split it across
-    ///   lines and read as two separate values.
-    private static func mustEscape(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x00...0x1F, 0x7F: return true          // C0 controls and DEL
-        case 0x200E, 0x200F, 0x061C: return true     // LRM, RLM, ALM
-        case 0x202A...0x202E: return true            // the embedding/override set
-        case 0x2066...0x2069: return true            // the isolate set
-        case 0x200B...0x200D, 0x2060, 0xFEFF: return true  // zero-width, BOM
-        case 0x00A0, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true  // spaces
-        default: return false
-        }
-    }
-
     /// Render text so that what is read is what would be deleted.
     ///
-    /// Offending scalars become `<U+XXXX>`. Leading and trailing PLAIN spaces
-    /// are marked too, though a space is legal mid-value: at the edge of a row
-    /// it is invisible, and "which of these two rows has the trailing space?"
-    /// is exactly the question a user must be able to answer before ticking a
-    /// box.
+    /// The rule lives in `DisplayEscape` because this sheet is no longer its
+    /// only reader — the result grid, the Inspector and the tag sheets escape
+    /// the same way, and a delete confirmation that disagreed with the grid
+    /// behind it about what a value LOOKS like would be its own defect.
+    /// Kept as a named member here so the sheet and its suite read as one
+    /// model rather than reaching across for a formatting call.
     static func escaped(_ text: String) -> String {
-        let scalars = Array(text.unicodeScalars)
-        var lead = 0
-        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
-        var trail = scalars.count
-        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
-
-        var out = ""
-        for (index, scalar) in scalars.enumerated() {
-            if index < lead || index >= trail || mustEscape(scalar) {
-                out += String(format: "<U+%04X>", scalar.value)
-            } else {
-                out.unicodeScalars.append(scalar)
-            }
-        }
-        return out
+        DisplayEscape.escaped(text)
     }
 
     /// The line the sheet shows for one value: "ip: 10.0.0.1".
