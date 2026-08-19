@@ -7,6 +7,7 @@ swiftc -o /tmp/query-error-presenter-tests \
   Pharos/Models/QueryFailure.swift \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
+  Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Sheets/QueryErrorSheet.swift \
   Pharos/Core/QueryErrorPresenter.swift \
   PharosTests/QueryErrorPresenterTests.swift \

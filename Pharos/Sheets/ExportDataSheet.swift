@@ -106,8 +106,14 @@ class ExportDataSheet: NSViewController {
         // Column section (header + scroll view)
         let columnSection = NSStackView(views: [columnsHeader, columnScrollView])
         columnSection.orientation = .vertical
-        columnSection.alignment = .width
+        // `.leading` plus the width pin, not `.width`, which an NSStackView
+        // rejects outright — see NSStackView+SpanFullWidth.swift. Both rows here
+        // must span: the header's spacer is what carries All/None to the
+        // trailing edge, and the scroll view holds the column list. They happen
+        // to fill today, so nothing looked wrong; that is what made it latent.
+        columnSection.alignment = .leading
         columnSection.spacing = 4
+        columnSection.spanArrangedSubviewsFullWidth()
         columnSection.translatesAutoresizingMaskIntoConstraints = false
 
         // Form grid

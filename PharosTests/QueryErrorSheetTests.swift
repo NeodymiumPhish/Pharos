@@ -55,6 +55,19 @@ private func failure(
     )
 }
 
+/// The sheet's root vertical stack, which `loadView` keeps to itself. Found by
+/// walking rather than exposed, so the production code owes the harness nothing.
+private func rootStack(of sheet: QueryErrorSheet) -> NSStackView? {
+    func walk(_ view: NSView) -> NSStackView? {
+        for sub in view.subviews {
+            if let stack = sub as? NSStackView, stack.orientation == .vertical { return stack }
+            if let found = walk(sub) { return found }
+        }
+        return nil
+    }
+    return walk(sheet.view)
+}
+
 /// Hosting the view is what makes Auto Layout run; an unhosted view keeps
 /// whatever frame its initializer gave it.
 private func host(_ sheet: QueryErrorSheet) -> NSWindow {
@@ -81,6 +94,27 @@ func runTests() {
     expectString(sheet.titleLabel.stringValue, "Query Failed", "the title names the failure kind")
     expectTrue(sheet.subheaderLabel.stringValue.hasPrefix("Query 1 · localhost · "),
                "the sub-header holds the tab, the connection and the time")
+
+    // MARK: every row starts at the same leading edge
+    //
+    // The sub-header is the row that gives this away: it is the only arranged
+    // subview narrower than its content allows, so it is the one that drifted
+    // to the trailing edge while the stack asked for the alignment NSStackView
+    // rejects. Measured on alignment rects, not frames — an NSTextField label's
+    // frame overhangs its alignment rect by 2pt each side, so the frame of a
+    // correctly-placed label reads x=-2.
+    if let root = rootStack(of: sheet) {
+        expectTrue(root.alignment == .leading,
+                   "the root stack asks for an alignment NSStackView accepts")
+        let rects = root.arrangedSubviews.map { $0.alignmentRect(forFrame: $0.frame) }
+        expectTrue(rects.allSatisfy { $0.minX == 0 },
+                   "every root row starts at the stack's leading edge")
+        expectTrue(rects.allSatisfy { $0.width == root.frame.width },
+                   "every root row spans the stack's full width")
+    } else {
+        failures += 1
+        print("FAIL the root stack is reachable from the sheet's view")
+    }
 
     expectTrue(!sheet.errorTextView.isEditable, "the error text cannot be edited")
     expectTrue(sheet.errorTextView.isSelectable, "the error text can be selected, so it can be copied")

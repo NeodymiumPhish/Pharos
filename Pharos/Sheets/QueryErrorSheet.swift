@@ -159,10 +159,15 @@ final class QueryErrorSheet: NSViewController {
 
         let root = NSStackView(views: [header, subheaderLabel, sqlScroll, errorScroll, buttonRow])
         root.orientation = .vertical
-        // `.fill` does not exist on NSStackView.alignment; `.width` is what
-        // stretches subviews across a vertical stack.
-        root.alignment = .width
+        // `.leading` plus the width pin, not `.width`: an NSStackView rejects
+        // `.width` outright (the property reads back as `.notAnAttribute`), and
+        // the subheader then drifted to the trailing edge under the weak edge
+        // constraints AppKit adds on its own. See NSStackView+SpanFullWidth.swift.
+        // Called here, after every arranged subview is in place, because the pin
+        // only reaches the subviews present when it runs.
+        root.alignment = .leading
         root.spacing = 10
+        root.spanArrangedSubviewsFullWidth()
         root.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(root)
 
