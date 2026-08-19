@@ -126,25 +126,62 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     // NSColor.withAlphaComponent + .cgColor allocations that were showing up
     // in Instruments during scroll. `selectedContentBackgroundColor` is
     // appearance-dependent (light vs. dark), so refresh the cgColor whenever
-    // effectiveAppearance flips. The yellow tints are static accent overlays
-    // and don't need to track appearance.
-    private static let findCurrentBg: CGColor = NSColor.systemYellow.withAlphaComponent(0.4).cgColor
-    private static let findOtherBg: CGColor = NSColor.systemYellow.withAlphaComponent(0.15).cgColor
+    // effectiveAppearance flips. The yellow find fills are static accent
+    // overlays and don't need to track appearance; the find BORDER does,
+    // because `FindMatchDecoration.borderColor` shades the hue toward the
+    // opposite of the ground it draws on.
+    private static let findCurrentBg: CGColor = findFill(.current)
+    private static let findOtherBg: CGColor = findFill(.other)
+
+    /// One find fill, baked once at class-init. Force-unwraps the alpha
+    /// because both call sites pass a matched state, and `fillAlpha` only
+    /// returns nil for `.none`.
+    private static func findFill(_ state: FindMatchDecoration.State) -> CGColor {
+        FindMatchDecoration.hue
+            .withAlphaComponent(FindMatchDecoration.fillAlpha(state)!).cgColor
+    }
+
     private var cachedSelectionBg: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+    private var cachedFindBorder: CGColor = FindMatchDecoration.borderColor(isDark: false).cgColor
     private var cachedAppearanceName: NSAppearance.Name?
 
-    /// Refresh the selection-bg cgColor when the effective appearance changes.
+    /// Refresh the appearance-dependent cgColors — the selection background
+    /// and the find border — when the effective appearance changes.
     /// Called from viewFor and updateVisibleCellSelectionAppearance — both run
     /// after AppKit has resolved effectiveAppearance on the table view.
-    private func refreshSelectionBgIfNeeded() {
+    private func refreshAppearanceColorsIfNeeded() {
         let name = tableView.effectiveAppearance.name
         guard name != cachedAppearanceName else { return }
         cachedAppearanceName = name
-        var cg: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+        let isDark = tableView.effectiveAppearance
+            .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        var selection: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+        var border: CGColor = FindMatchDecoration.borderColor(isDark: isDark).cgColor
         tableView.effectiveAppearance.performAsCurrentDrawingAppearance {
-            cg = NSColor.selectedContentBackgroundColor.cgColor
+            selection = NSColor.selectedContentBackgroundColor.cgColor
+            border = FindMatchDecoration.borderColor(isDark: isDark).cgColor
         }
-        cachedSelectionBg = cg
+        cachedSelectionBg = selection
+        cachedFindBorder = border
+    }
+
+    /// Paint (or clear) one cell's find border. Shared by the realize path
+    /// (`viewFor`) and the drag fast path
+    /// (`updateVisibleCellSelectionAppearance`), for the same reason
+    /// `tagTintBackground` is shared: a border owned by only one of the two
+    /// write sites is one edit away from disagreeing with the other.
+    ///
+    /// Assigned UNCONDITIONALLY, including the zero width for a non-match.
+    /// `NSTableView` recycles cell views, so a cell that scrolls out of a
+    /// match and back in as an ordinary cell would otherwise keep the
+    /// outline and smear find onto a row that never matched.
+    ///
+    /// No allocation: the width is a switch over an enum and the colour is the
+    /// cached cgColor.
+    private func applyFindBorder(_ state: FindMatchDecoration.State, to cell: NSTableCellView) {
+        let width = FindMatchDecoration.borderWidth(state)
+        cell.layer?.borderWidth = width
+        cell.layer?.borderColor = width > 0 ? cachedFindBorder : nil
     }
 
     /// The tag tint for one visible cell, or nil. Row is a DISPLAY index;
@@ -269,7 +306,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let colId = tableColumn?.identifier, row < displayRows.count else { return nil }
-        refreshSelectionBgIfNeeded()
+        refreshAppearanceColorsIfNeeded()
         let colIdRaw = colId.rawValue
 
         let cellId = NSUserInterfaceItemIdentifier("ResultCell_\(colIdRaw)")
@@ -357,6 +394,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // cached on the data source so scroll/realize doesn't re-allocate per
         // cell. The tag tint sits UNDER find and selection by spec: "find
         // highlight and cell selection stay above tints".
+        let findState = FindMatchDecoration.state(isCurrent: isCurrentMatch, isOther: isOtherMatch)
         if isCurrentMatch {
             cell.layer?.backgroundColor = Self.findCurrentBg
         } else if isOtherMatch {
@@ -369,9 +407,10 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             cell.layer?.backgroundColor = nil
         }
 
-        // Clear stale borders from recycled cells
-        cell.layer?.borderWidth = 0
-        cell.layer?.borderColor = nil
+        // The border is what tells a find result apart from a tag's matched-cell
+        // tint, which is a fill and only a fill. Assigned for every cell, so a
+        // recycled one cannot keep an outline it no longer earns.
+        applyFindBorder(findState, to: cell)
 
         // Always assign so a recycled cell can't carry stale selected-state
         // into a non-selected slot. Find-match cells suppress the white text
@@ -417,7 +456,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     func updateVisibleCellSelectionAppearance() {
         let visibleRows = tableView.rows(in: tableView.visibleRect)
         guard visibleRows.length > 0 else { return }
-        refreshSelectionBgIfNeeded()
+        refreshAppearanceColorsIfNeeded()
 
         let visRowLo = visibleRows.location
         let visRowHi = visibleRows.location + visibleRows.length - 1
@@ -466,9 +505,17 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 for colIdx in d.colLo...d.colHi {
                     guard let cell = tableView.view(atColumn: colIdx, row: row, makeIfNecessary: false) as? ResultCellView else { continue }
                     let colId = tableView.tableColumns[colIdx].identifier.rawValue
-                    let isFindHighlighted = isFindVisible && !findMatchSet.isEmpty
-                        && (findMatchSet.contains(CellAddress(row: row, colId: colId))
-                            || (currentMatchRow == row && currentMatchColId == colId))
+                    // Split current from other the same way `viewFor` does, so
+                    // the two write sites can hand `applyFindBorder` the same
+                    // state for the same cell. `isFindHighlighted` alone would
+                    // not say which border a match earns.
+                    let isCurrentMatch = isFindVisible
+                        && currentMatchRow == row && currentMatchColId == colId
+                    let isOtherMatch = isFindVisible && !findMatchSet.isEmpty && !isCurrentMatch
+                        && findMatchSet.contains(CellAddress(row: row, colId: colId))
+                    let findState = FindMatchDecoration.state(
+                        isCurrent: isCurrentMatch, isOther: isOtherMatch)
+                    let isFindHighlighted = findState != .none
 
                     let isInSelection = cellSelection?.contains(CellPosition(row: row, column: colIdx)) ?? false
                     // Deselect must fall back to the TAG TINT, not to clear —
@@ -480,6 +527,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                             ? cachedSelectionBg
                             : tagTintBackground(displayRow: row, colId: colId)
                     }
+                    // Re-asserts what `viewFor` already set: find state cannot
+                    // change while a drag is in flight. It runs here anyway so
+                    // the border has ONE owner across both write sites, the
+                    // same rule the tint background follows.
+                    applyFindBorder(findState, to: cell)
                     cell.isSelected = isInSelection && !isFindHighlighted
                 }
             }

@@ -310,8 +310,21 @@ func runTests() {
 
     // MARK: - 9. The tint alpha sits between the wash and the CURRENT find match
 
-    expectTrue(TagPalette.cellTintAlpha > 0.15 && TagPalette.cellTintAlpha < 0.4,
-               "cellTintAlpha is above the 0.15 wash and below the 0.4 current find match")
+    // Read from `FindMatchDecoration`, not from a literal: this pairing used to
+    // name find's numbers in prose, which meant changing find silently
+    // falsified the assertion instead of failing it.
+    expectTrue(TagPalette.cellTintAlpha > 0.15,
+               "cellTintAlpha is above the 0.15 row wash")
+    expectTrue(FindMatchDecoration.fillAlpha(.current).map { TagPalette.cellTintAlpha < $0 } ?? false,
+               "cellTintAlpha is below the CURRENT find match's fill")
+    // The one that is NOT a strict ordering, and is documented as such on
+    // `cellTintAlpha`: a non-current find match is a LIGHTER fill than a tag
+    // tint even though it wins the precedence chain. Its border is what
+    // identifies it, so a tint must never draw one.
+    expectTrue(FindMatchDecoration.fillAlpha(.other).map { $0 < TagPalette.cellTintAlpha } ?? false,
+               "a non-current find match's fill is LIGHTER than a matched-cell tint")
+    expectEqual(FindMatchDecoration.borderWidth(.none), 0,
+                "the no-match border width is 0 — a tag tint is a fill and only a fill")
 
     // MARK: - 10. normalizedColorIndex: a stored index can be anything
 

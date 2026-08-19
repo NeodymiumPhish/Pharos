@@ -86,6 +86,7 @@
 		69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */; };
 		6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AC102665AFB681E295853B /* FilterCheckRowView.swift */; };
 		6D36D71452C10B76F0579C71 /* TagRemovalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */; };
+		7164A803D0AD86BA86C620D0 /* FindMatchDecoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */; };
 		7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */; };
 		75791F1BEBAD2E5780C43995 /* ValueCoercion.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC541A0819881910AFFC872F /* ValueCoercion.swift */; };
 		75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */; };
@@ -238,6 +239,7 @@
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
 		4FF961FC4C83A0BF0EFFCAFE /* TagTupleRemoving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTupleRemoving.swift; sourceTree = "<group>"; };
+		52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMatchDecoration.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
@@ -375,6 +377,7 @@
 				BC4F8A28C3069363F3EFDD21 /* FilterValueCount.swift */,
 				D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */,
 				36EE0E6CA75016ED53876601 /* FilterValueSort.swift */,
+				52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */,
 				CDED3E898043241B00FE18D7 /* ResizeGripView.swift */,
 				D712C9854028F854DE9E6E46 /* ResultCellText.swift */,
 				06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */,
@@ -820,6 +823,7 @@
 				E491BC10BA527CA04AD618BF /* FilterValueListView.swift in Sources */,
 				F2C880B8BDC0D89AB3380A47 /* FilterValueSort.swift in Sources */,
 				E95A1BECEE9799B577E51E26 /* FilterableHeaderView.swift in Sources */,
+				7164A803D0AD86BA86C620D0 /* FindMatchDecoration.swift in Sources */,
 				EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */,
 				AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */,
 				0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */,

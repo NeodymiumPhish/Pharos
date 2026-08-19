@@ -59,14 +59,17 @@ enum TagPalette {
     static let maxSegments = 3
 
     /// Matched-cell tint alpha. Above the 0.15 row wash so a matched cell
-    /// reads against the wash, and below the 0.4 CURRENT find match so the
-    /// match the user is looking at is also the loudest thing on screen.
+    /// reads against the wash, and below the CURRENT find match's 0.3 so the
+    /// match the user is looking at is also the loudest fill on screen.
     ///
     /// It is NOT below every find state: an OTHER (non-current) find match
-    /// paints at 0.15, which is weaker on screen than this tint even though
-    /// find wins the precedence chain in `ResultsDataSource.viewFor` and takes
-    /// the cell. Precedence and loudness disagree there by choice — do not
-    /// read this number as "find always looks stronger than a tint".
+    /// paints at 0.1, weaker on screen than this tint even though find wins
+    /// the precedence chain in `ResultsDataSource.viewFor` and takes the cell.
+    /// Precedence and loudness disagree there by choice — a non-current find
+    /// match is told apart by its BORDER, not by its fill, and a tag tint
+    /// never draws one. See `FindMatchDecoration`, which owns both find
+    /// numbers; `TagAppearanceTests` asserts this ordering against them rather
+    /// than against a literal, so the prose here cannot quietly rot.
     static let cellTintAlpha: CGFloat = 0.2
 
     private static let swatchSize = NSSize(width: 12, height: 12)
