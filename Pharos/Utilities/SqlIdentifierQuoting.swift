@@ -10,7 +10,11 @@ import Foundation
 /// harnesses (see `scripts/test-sql-identifier-quoting.sh`) must link the
 /// REAL production function — pure Foundation, no AppKit.
 func quotedSqlIdentifier(_ name: String) -> String {
-    "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    // `.literal` matches by code unit, not by grapheme cluster. Without it a
+    // `"` fused to a following combining mark (e.g. U+0022 U+0301) is one
+    // grapheme and is NOT doubled, so the hostile quote survives and the
+    // identifier still breaks out. `.literal` doubles every raw `"`.
+    "\"" + name.replacingOccurrences(of: "\"", with: "\"\"", options: .literal) + "\""
 }
 
 /// Quotes a schema-qualified table/view name: `"schema"."table"` with both

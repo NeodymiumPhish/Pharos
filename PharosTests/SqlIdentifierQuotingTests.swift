@@ -33,6 +33,14 @@ func runTests() {
         "qualified name doubles quotes in schema and table"
     )
 
+    // A quote fused to a combining mark is still ONE grapheme; grapheme-aware
+    // replacement would leave it undoubled and the identifier would break out.
+    // The quote must be doubled and the combining mark preserved after it.
+    expect(
+        quotedSqlIdentifier("a\"\u{0301}; DROP TABLE x; --") == "\"a\"\"\u{0301}; DROP TABLE x; --\"",
+        "quote fused to combining mark is doubled — no breakout"
+    )
+
     // Empty string still yields a quoted empty identifier, no crash.
     expect(quotedSqlIdentifier("") == "\"\"", "empty string yields quoted empty identifier")
 
