@@ -101,9 +101,17 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         noteField.placeholderString = "Note (optional)"
 
         columnStack.orientation = .vertical
-        columnStack.alignment = .width
+        // `.leading` plus the span below, never `.width`: an NSStackView
+        // silently discards `.width` as an alignment, which leaves each row's
+        // width to the solver and pushes any row narrower than the stack to the
+        // right. These rows fill the stack today only because of what they
+        // happen to contain — see `NSStackView.spanArrangedSubviewsFullWidth`.
+        columnStack.alignment = .leading
         columnStack.spacing = 4
         buildColumnRows()
+        // After `buildColumnRows`: the span constrains the rows that exist when
+        // it runs.
+        columnStack.spanArrangedSubviewsFullWidth()
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -135,8 +143,13 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
             NSStackView(views: [cancel, createButton]),
         ])
         form.orientation = .vertical
-        form.alignment = .width
+        // The same rule as `columnStack` above, for the same reason: the label
+        // rows, the colour control and the button row must all start at one
+        // leading edge and take the form's full width, and `.width` would
+        // guarantee neither.
+        form.alignment = .leading
         form.spacing = 10
+        form.spanArrangedSubviewsFullWidth()
         form.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(form)
         NSLayoutConstraint.activate([

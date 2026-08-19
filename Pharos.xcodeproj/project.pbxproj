@@ -115,6 +115,7 @@
 		9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */; };
 		9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AC310E071D54672B86BAFE /* InspectorOwnership.swift */; };
 		9B9F6D8FA3841680CC02ED11 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */; };
+		9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9D2681720A71CCE84786DE54 /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F2105483936AE6C2C9AEB8 /* Tag.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
@@ -358,6 +359,7 @@
 		FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Settings.swift"; sourceTree = "<group>"; };
 		FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTextField+FormLabel.swift"; sourceTree = "<group>"; };
 		FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPaletteEditor.swift; sourceTree = "<group>"; };
+		FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSStackView+SpanFullWidth.swift"; sourceTree = "<group>"; };
 		FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseClock.swift; sourceTree = "<group>"; };
 		FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnFilter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -659,6 +661,7 @@
 			isa = PBXGroup;
 			children = (
 				CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */,
+				FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */,
 				FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */,
 				B4D44F99F466A0B8DCBDAA9F /* NSTextField+TagName.swift */,
 				EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */,
@@ -828,6 +831,7 @@
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
 				BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */,
 				19877E64248CE46809E223BA /* MetadataCache.swift in Sources */,
+				9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */,
 				069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */,
 				CB64CBC4B858DCD5DAE12E4D /* NSTextField+TagName.swift in Sources */,
 				98ABDB227EE8B96889F26C62 /* NotificationCoalescer.swift in Sources */,

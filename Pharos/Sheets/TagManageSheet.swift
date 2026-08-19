@@ -102,8 +102,15 @@ final class TagManageSheet: NSViewController,
             buttonRow,
         ])
         form.orientation = .vertical
-        form.alignment = .width
+        // `.leading` plus the span below, never `.width`: an NSStackView
+        // silently discards `.width` as an alignment, leaving each row's width
+        // to the solver and pushing any row narrower than the form to the
+        // right. The tag list, the field rows and the button row fill the form
+        // today only because of what they happen to contain — see
+        // `NSStackView.spanArrangedSubviewsFullWidth`.
+        form.alignment = .leading
         form.spacing = 10
+        form.spanArrangedSubviewsFullWidth()
         form.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(form)
         // Added after `form`, so it draws OVER the empty table rather than
