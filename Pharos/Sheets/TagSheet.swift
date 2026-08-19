@@ -8,7 +8,7 @@ import AppKit
 /// The model layer is `TagDraft` and the count is the real `TagTupleMatcher`,
 /// so what the footer promises and what SQLite receives cannot drift apart.
 /// This class owns layout and event wiring only.
-final class TagSheet: NSViewController {
+final class TagSheet: NSViewController, NSTextFieldDelegate {
 
     /// Everything the sheet needs from the grid, resolved before it opens.
     struct Context {
@@ -83,6 +83,10 @@ final class TagSheet: NSViewController {
         tagPopup.action = #selector(tagChoiceChanged)
 
         nameField.placeholderString = "Case name"
+        // Delegate for `controlTextDidChange` below: a name is sanitised as it
+        // is typed or pasted, so the field never holds one that reads as
+        // something else.
+        nameField.delegate = self
 
         // A segmented control rather than six buttons: one control, one
         // selectedSegment, and the keyboard reaches it for free.
@@ -223,6 +227,25 @@ final class TagSheet: NSViewController {
 
     @objc private func columnToggled() { refresh() }
 
+    /// A tag name is sanitised AS IT CHANGES, not at save.
+    ///
+    /// The name is a label this app then draws in its own voice — the grid row
+    /// tooltip, the Inspector, the removal sheet's group header, the delete
+    /// confirmation — so a bidi override in it makes every one of those read as
+    /// something the tag is not. Cleaning it here rather than on the way to the
+    /// store is what lets the analyst SEE the name they are committing to;
+    /// storing a name the field never displayed would be its own kind of lie.
+    ///
+    /// The note is deliberately left alone. It gates nothing and names no
+    /// value, it has one display site which is the Inspector, and that label
+    /// legitimately holds prose across several lines — the sanitiser folds a
+    /// newline to a space, which would destroy a paragraph break an analyst
+    /// meant. Its exposure is a display concern, not an input one.
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === nameField else { return }
+        nameField.sanitizeAsTagName()
+    }
+
     @objc private func tagChoiceChanged() {
         targetTagId = tagPopup.selectedItem?.representedObject as? String
         // "Add to existing" disables the identity fields: the tuples join a tag
@@ -304,8 +327,18 @@ final class TagSheet: NSViewController {
             } else {
                 // `.whitespacesAndNewlines`, not `.whitespaces`: pasted text
                 // carries a trailing newline, which `.whitespaces` leaves in
-                // place. `TagManageSheet` trims the same way.
-                let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                // place. That is the note's case — the NAME reaches this line
+                // with its newlines already folded to spaces — and both are
+                // trimmed the one way. `TagManageSheet` trims the same way.
+                //
+                // Sanitised again here, after `controlTextDidChange` has
+                // already done it per keystroke: this is the only line that
+                // reaches the store, so a future path that sets the field
+                // without an edit notification cannot get a deceptive name
+                // past it. Sanitising BEFORE trimming matters — an unusual
+                // space folds to a plain one, which the trim then takes.
+                let name = TagNameSanitizer.sanitized(nameField.stringValue)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 let note = noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 try TagStore.shared.createTag(CreateTag(
                     name: name.isEmpty ? "Untitled tag" : name,

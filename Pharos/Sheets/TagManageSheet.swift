@@ -63,7 +63,8 @@ final class TagManageSheet: NSViewController,
 
         nameField.placeholderString = "Case name"
         // Delegate, not target/action: `controlTextDidChange` fires per
-        // keystroke, so Save enables the moment the name becomes non-empty.
+        // keystroke, so the name is sanitised as it is typed and Save enables
+        // the moment the name becomes non-empty.
         nameField.delegate = self
         noteField.placeholderString = "Note (optional)"
 
@@ -201,11 +202,17 @@ final class TagManageSheet: NSViewController,
 
     private func populateFields() {
         if let tag = selectedTag {
-            // RAW, not escaped: `saveChanges` reads this field back and writes
-            // it to the store, so an escaped value would be saved as its token
-            // text the first time the analyst pressed Save. The read-only list
-            // row in `viewFor` is where the escaping belongs.
-            nameField.stringValue = tag.name
+            // SANITISED, not escaped: `saveChanges` reads this field back and
+            // writes it to the store, so an escaped value would be saved as
+            // its token text the first time the analyst pressed Save. The
+            // read-only list row in `viewFor` is where the escaping belongs.
+            //
+            // A tag stored before the name rule existed can still hold a bidi
+            // override, and this field is where it would be read and re-saved.
+            // Cleaning it on the way IN means the field and the store agree
+            // about everything except the characters that were only ever there
+            // to deceive — and any later Save takes them out of the store too.
+            nameField.stringValue = TagNameSanitizer.sanitized(tag.name)
             colorControl.selectedSegment = TagPalette.normalizedColorIndex(tag.colorIndex) ?? -1
             noteField.stringValue = tag.note ?? ""
         } else {
@@ -226,13 +233,32 @@ final class TagManageSheet: NSViewController,
             && !nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    func controlTextDidChange(_ obj: Notification) { updateSaveButton() }
+    /// Sanitise the name AS IT CHANGES, then re-read it for the Save button.
+    ///
+    /// In that order: a name of nothing but bidi overrides sanitises away to
+    /// an empty string, and Save must be disabled for it exactly as it is for
+    /// a name the analyst cleared by hand.
+    ///
+    /// The rename path needs this as much as the Add Tag sheet does — it is
+    /// the other place a tag name is authored, and a rename is where a tag
+    /// that already carries trust can be given a name that reads as something
+    /// else. The note is deliberately not sanitised; see `TagSheet`.
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === nameField { nameField.sanitizeAsTagName() }
+        updateSaveButton()
+    }
 
     // MARK: Actions
 
     @objc private func saveChanges() {
         guard let tag = selectedTag else { return }
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Sanitised again on the only line that reaches the store, after
+        // `controlTextDidChange` has already done it per keystroke, so a path
+        // that sets the field without raising an edit notification cannot get
+        // a deceptive name past it. Before the trim: an unusual space folds to
+        // a plain one, which the trim then takes.
+        let name = TagNameSanitizer.sanitized(nameField.stringValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
         // Send the colour only when the user actually moved the control.
@@ -364,11 +390,12 @@ final class TagManageSheet: NSViewController,
             }()
         cell.imageView?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
         let count = tag.tuples.count
-        // DISPLAY only. This list row is what the analyst reads before pressing
-        // Delete, so a bidi override in a name must not reorder it. The EDITABLE
-        // `nameField` in `populateFields` is deliberately NOT escaped: that field
-        // is read back by `saveChanges`, so escaping it would write the token
-        // text into the store on any save.
+        // DISPLAY only, and still needed after the name rule: a tag stored
+        // before it exists can hold a bidi override, and this list row is what
+        // the analyst reads before pressing Delete. The EDITABLE `nameField` in
+        // `populateFields` is deliberately NOT escaped but SANITISED — that
+        // field is read back by `saveChanges`, so escaping it would write the
+        // token text into the store on any save.
         cell.textField?.stringValue =
             "\(DisplayEscape.escaped(tag.name)) — \(count) tuple\(count == 1 ? "" : "s")"
         return cell
