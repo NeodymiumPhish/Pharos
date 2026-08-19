@@ -17,6 +17,10 @@ class InspectorViewController: NSViewController {
     /// silently replaces whatever else the analyst was reading.
     var isShowingRowDetail: Bool { currentRowNumber != nil }
 
+    /// Which surface put the current content on screen. Every write below
+    /// names itself; `withdraw(_:)` reads it. See `InspectorOwnership`.
+    private(set) var owner: InspectorOwner = .none
+
     /// Per-tag controls, wired by ContentViewController. Buttons only render
     /// when the closure is set.
     var onEditTag: ((String) -> Void)?
@@ -88,11 +92,28 @@ class InspectorViewController: NSViewController {
         currentTagEntries = []
     }
 
+    /// Blanks the pane unconditionally and leaves it unowned. For a writer
+    /// acting on a DIRECT user action on its own surface — the schema browser
+    /// when a schema node, which has no detail to show, is clicked.
+    /// A writer whose content merely went away wants `withdraw(_:)` instead.
     func showNoSelection() {
         clearRowDetailIdentity()
+        owner = .none
         scrollView.isHidden = true
         noSelectionLabel.stringValue = "No Selection"
         noSelectionLabel.isHidden = false
+    }
+
+    /// Takes `writer`'s content off the pane — but only while `writer` still
+    /// owns what is on screen.
+    ///
+    /// The results area empties its selection for reasons the user never asked
+    /// for: loading a new result set rebuilds the grid and clears it, and a
+    /// re-sort invalidates it. That is not grounds to destroy a table detail
+    /// the analyst is reading, so a non-owner's withdrawal is a no-op here.
+    func withdraw(_ writer: InspectorOwner) {
+        guard InspectorOwnership.allowsWithdrawal(currentOwner: owner, writer: writer) else { return }
+        showNoSelection()
     }
 
     func showRowDetail(
@@ -111,6 +132,11 @@ class InspectorViewController: NSViewController {
         // equal and the pane keeps the previous row's values. `tagEntries`
         // joins it too, because a tag edit must repaint this section while
         // the selection stays put, which a row-only guard swallowed.
+        //
+        // Ownership is claimed BEFORE the guard, not after: the pane is either
+        // already showing this exact row detail (so it is already ours) or it
+        // is about to be rebuilt below.
+        owner = .results
         if currentRowNumber == rowNumber && currentDataRow == dataRow
             && currentTagEntries == tagEntries { return }
         currentRowNumber = rowNumber
@@ -176,7 +202,7 @@ class InspectorViewController: NSViewController {
     /// Also used for a selected `.partitionGroup` node — it shares the same
     /// parent `TableInfo`, so its detail is identical.
     func showPartitionedTableDetail(_ info: TableInfo) {
-        beginDetailSection(title: "Partitioned Table", subtitle: info.name)
+        beginDetailSection(title: "Partitioned Table", subtitle: info.name, owner: .schemaBrowser)
 
         addDetailField("Strategy", info.partitionStrategy?.badgeLabel ?? "\u{2014}")
         addDetailField("Partition key", PartitionDisplay.keyColumns(fromPartKeyDef: info.partitionKey) ?? "\u{2014}")
@@ -188,7 +214,7 @@ class InspectorViewController: NSViewController {
     /// Shows detail for a selected partition (`TableInfo.isPartition`).
     /// `parentName` is the enclosing partitioned table's name, when known.
     func showPartitionDetail(_ info: TableInfo, parentName: String?) {
-        beginDetailSection(title: "Partition", subtitle: info.name)
+        beginDetailSection(title: "Partition", subtitle: info.name, owner: .schemaBrowser)
 
         addDetailField("Parent", parentName ?? "\u{2014}")
         let bound = PartitionDisplay.boundSummary(info.partitionBound)
@@ -212,7 +238,7 @@ class InspectorViewController: NSViewController {
         case .partitionedTable: category = "Partitioned Table"
         case .table: category = "Table"
         }
-        beginDetailSection(title: category, subtitle: info.name)
+        beginDetailSection(title: category, subtitle: info.name, owner: .schemaBrowser)
 
         addDetailField("Schema", info.schemaName)
         addDetailField("Rows", formatRowCount(info.rowCountEstimate))
@@ -224,7 +250,7 @@ class InspectorViewController: NSViewController {
     /// Shows detail for a selected column. `parentName` is the enclosing
     /// table/partition name, when known.
     func showColumnDetail(_ info: ColumnInfo, parentName: String?) {
-        beginDetailSection(title: "Column", subtitle: info.name)
+        beginDetailSection(title: "Column", subtitle: info.name, owner: .schemaBrowser)
 
         if let parentName {
             addDetailField("Table", parentName)
@@ -241,7 +267,7 @@ class InspectorViewController: NSViewController {
     /// text with the same syntax coloring as the query editor — used when a
     /// workspace-history preview row is selected.
     func showSQL(_ sql: String, title: String = "Query") {
-        beginDetailSection(title: title, subtitle: "")
+        beginDetailSection(title: title, subtitle: "", owner: .sqlView)
 
         let label = makeFieldValueLabel(sql, color: .labelColor)
         label.attributedStringValue = SQLSyntaxHighlighter.attributedString(
@@ -266,6 +292,7 @@ class InspectorViewController: NSViewController {
         columnCategories: [PGTypeCategory]
     ) {
         clearRowDetailIdentity()
+        owner = .results
         noSelectionLabel.isHidden = true
         scrollView.isHidden = false
 
@@ -398,8 +425,12 @@ class InspectorViewController: NSViewController {
     /// followed by a separator — the same header/separator shape used by
     /// `showRowDetail`/`showAggregation` (title on the left, an identifying
     /// value on the right).
-    private func beginDetailSection(title: String, subtitle: String) {
+    /// `owner` is required rather than defaulted: every caller of this shared
+    /// header must say which surface the content belongs to, or `withdraw(_:)`
+    /// cannot tell whose it is.
+    private func beginDetailSection(title: String, subtitle: String, owner: InspectorOwner) {
         clearRowDetailIdentity()
+        self.owner = owner
         noSelectionLabel.isHidden = true
         scrollView.isHidden = false
 

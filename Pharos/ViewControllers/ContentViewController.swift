@@ -744,7 +744,11 @@ class ContentViewController: NSViewController {
         guard let splitVC = parent as? PharosSplitViewController else { return }
 
         if selectedIndices.isEmpty {
-            splitVC.inspectorVC.showNoSelection()
+            // WITHDRAW, not blank: an empty grid selection is not always a
+            // user act. Loading a new result set rebuilds the grid and clears
+            // its selection, and a re-sort invalidates it — neither is grounds
+            // to wipe a schema-browser table detail off the shared pane.
+            splitVC.inspectorVC.withdraw(.results)
             return
         }
 
@@ -2871,10 +2875,10 @@ extension ContentViewController {
         guard let splitVC = parent as? PharosSplitViewController else { return }
         guard !keys.isEmpty, !activeChartUsesServerMode(),
               let fc = resultsVC.columnFilterController else {
-            splitVC.inspectorVC.showNoSelection(); return
+            splitVC.inspectorVC.withdraw(.results); return
         }
         let applied = DrillTranslator.filters(for: keys, columns: resultsVC.columns)
-        guard !applied.isEmpty else { splitVC.inspectorVC.showNoSelection(); return }
+        guard !applied.isEmpty else { splitVC.inspectorVC.withdraw(.results); return }
         var filters: [String: ColumnFilter] = [:]
         for a in applied { filters[a.columnId] = a.filter }
         let matchIdx = fc.matchingRows(filters, inputDisplayRows: Array(0..<resultsVC.rows.count))
