@@ -21,7 +21,7 @@ enum SqlPushdownGenerator {
     }
 
     // MARK: helpers
-    static func quoteIdent(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+    static func quoteIdent(_ s: String) -> String { quotedSqlIdentifier(s) }
 
     private static func isSingleSelect(_ sql: String) -> Bool {
         let segs = SQLSegmentParser.parse(sql).filter { !$0.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

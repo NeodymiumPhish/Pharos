@@ -6,6 +6,7 @@ swiftc -o /tmp/drill-sql-tests \
   Pharos/Models/Charts/ChartTypes.swift \
   Pharos/Models/Charts/DrillKey.swift \
   Pharos/Utilities/BlanksSentinel.swift \
+  Pharos/Utilities/SqlIdentifierQuoting.swift \
   Pharos/Models/Charts/DrillSqlTranslator.swift \
   PharosTests/DrillSqlTranslatorTests.swift \
   PharosTests/main.swift

@@ -32,7 +32,7 @@ enum DrillSqlTranslator {
     }
 
     private static func ident(_ ref: ColumnRef) -> String {
-        "\"" + ref.name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        quotedSqlIdentifier(ref.name)
     }
 
     private static func bounds(_ lo: Double, _ hi: Double, _ kind: RangeKind) -> (String, String) {

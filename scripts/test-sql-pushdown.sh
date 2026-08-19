@@ -10,6 +10,7 @@ swiftc -o /tmp/sql-pushdown-tests \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Models/Charts/PushdownQuery.swift \
+  Pharos/Utilities/SqlIdentifierQuoting.swift \
   Pharos/Models/Charts/SqlPushdownGenerator.swift \
   PharosTests/SqlPushdownGeneratorTests.swift \
   PharosTests/main.swift

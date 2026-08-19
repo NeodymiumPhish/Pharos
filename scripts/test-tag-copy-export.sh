@@ -18,6 +18,7 @@ swiftc -o /tmp/tag-copy-export-tests \
   Pharos/Models/QueryResult.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
+  Pharos/Utilities/SqlIdentifierQuoting.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsCellSelection.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsCopyExport.swift \
   PharosTests/TagCopyExportTests.swift \

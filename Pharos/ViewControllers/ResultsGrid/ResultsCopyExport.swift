@@ -414,7 +414,9 @@ class ResultsCopyExport: NSObject {
 
     static func csvEscape(_ s: String) -> String {
         if s.contains(",") || s.contains("\"") || s.contains("\n") {
-            return "\"\(s.replacingOccurrences(of: "\"", with: "\"\""))\""
+            // CSV quoting doubles embedded quotes exactly like SQL identifier
+            // quoting does, so reuse the shared helper for the quoted form.
+            return quotedSqlIdentifier(s)
         }
         return s
     }

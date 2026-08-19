@@ -92,7 +92,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     @objc private func contextViewAllContents(_: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
-        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\""
+        let sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName))"
         NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
             userInfo: ["sql": sql, "resultName": tableName])
     }
@@ -101,7 +101,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
         let limit = sender.tag
-        let sql = "SELECT * FROM \"\(schemaName)\".\"\(tableName)\" LIMIT \(limit)"
+        let sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName)) LIMIT \(limit)"
         NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
             userInfo: ["sql": sql, "resultName": "\(tableName) (\(formatLimit(limit)))"])
     }
@@ -117,7 +117,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     @objc private func contextPasteToEditor(_: Any?) {
         guard let node = clickedNode(), let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
-        let qualifiedName = "\"\(schemaName)\".\"\(tableName)\""
+        let qualifiedName = quotedQualifiedName(schema: schemaName, table: tableName)
         NotificationCenter.default.post(name: .insertTextInEditor, object: nil, userInfo: ["text": qualifiedName])
     }
 
@@ -239,7 +239,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         let execute: () -> Void = { [weak self] in
             Task {
                 do {
-                    let sql = "TRUNCATE TABLE \"\(schemaName)\".\"\(tableName)\""
+                    let sql = "TRUNCATE TABLE \(quotedQualifiedName(schema: schemaName, table: tableName))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
                         self?.showInfoAlert(title: "Table Truncated", message: "\"\(tableName)\" has been truncated.")
@@ -281,7 +281,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         let execute: () -> Void = { [weak self] in
             Task {
                 do {
-                    let sql = "DROP \(objectType) \"\(schemaName)\".\"\(tableName)\""
+                    let sql = "DROP \(objectType) \(quotedQualifiedName(schema: schemaName, table: tableName))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
                         self?.showInfoAlert(title: "\(isView ? "View" : "Table") Dropped", message: "\"\(tableName)\" has been dropped.")

@@ -182,6 +182,7 @@
 		F99D927EF0A26C46170180A9 /* QueryEditorVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */; };
 		FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E4096E1BBB69FB83745F0B /* BlanksSentinel.swift */; };
 		FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D712C9854028F854DE9E6E46 /* ResultCellText.swift */; };
+		FBD8A06F677E3473D376A411 /* SqlIdentifierQuoting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */; };
 		FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */; };
 /* End PBXBuildFile section */
 
@@ -244,6 +245,7 @@
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
 		58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaPopUpButton.swift; sourceTree = "<group>"; };
+		58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlIdentifierQuoting.swift; sourceTree = "<group>"; };
 		5A6B56879294F48E8251CB80 /* ChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartView.swift; sourceTree = "<group>"; };
 		5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPaneVC.swift; sourceTree = "<group>"; };
 		5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorViewController.swift; sourceTree = "<group>"; };
@@ -422,6 +424,7 @@
 				A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */,
 				EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */,
 				EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */,
+				58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -917,6 +920,7 @@
 				34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */,
 				DE41561080C5F343F5CE6BA4 /* SettingsSheet.swift in Sources */,
 				ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */,
+				FBD8A06F677E3473D376A411 /* SqlIdentifierQuoting.swift in Sources */,
 				C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */,
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
