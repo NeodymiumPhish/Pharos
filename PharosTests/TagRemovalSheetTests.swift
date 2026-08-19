@@ -119,6 +119,28 @@ private func headers(_ root: NSView) -> [NSTextField] {
         .compactMap { $0.views.last as? NSTextField }
 }
 
+/// The tuple ROWS, in list order: the list's own arranged subviews that hold a
+/// checkbox. Not "every stack in the list" — the group header and each tuple's
+/// inner value stack would join that set, and their edges are not the ones
+/// being measured.
+private func rows(_ root: NSView) -> [NSStackView] {
+    guard let scroll = descendants(root).compactMap({ $0 as? NSScrollView }).first,
+          let document = scroll.documentView as? NSStackView else { return [] }
+    return document.arrangedSubviews
+        .compactMap { $0 as? NSStackView }
+        .filter { row in descendants(row).contains { $0 is NSButton } }
+}
+
+/// Where a view's content is DRAWN, in `container`'s coordinates.
+///
+/// The frame alone would not answer the question this suite asks: an
+/// NSTextField's frame overhangs its text by its alignment-rect inset, so a
+/// label and a checkbox that line up on screen report different `frame.minX`.
+/// Adding the inset back gives the edge a reader actually sees.
+private func drawnLeading(_ view: NSView, in container: NSView) -> CGFloat {
+    view.convert(view.bounds, to: container).minX + view.alignmentRectInsets.left
+}
+
 /// Every label the LIST holds, in the order the list holds them — headers,
 /// value lines and captions alike. Order is disclosure here: a header names
 /// the tuples that follow it.
@@ -465,6 +487,87 @@ func runTests() {
     let document = listScroll.documentView?.frame.height ?? 0
     expectTrue(listScroll.contentSize.height >= document,
                "a three-tuple list is shown whole, not through a slot (\(Int(listScroll.contentSize.height)) of \(Int(document)))")
+
+    // MARK: every row starts at the same leading edge
+
+    // A reader compares this list DOWN a column: the checkboxes say which
+    // tuples go, and the value labels say what they are. Rows that start at
+    // different places break that reading, and the way they broke was not
+    // uniform — `NSStackView` silently discards `.width` as a vertical
+    // alignment, which left each row's width to the solver, so rows with
+    // identical content drifted by different amounts and the misalignment
+    // looked like a repeating cycle. Seven tuples, and the multi-value ones
+    // NOT on a fixed stride, so neither a content-driven nor an index-driven
+    // cycle can hide inside the fixture.
+    let mixed = (0..<7).map { index -> TagRemovalTuple in
+        var values = [value("ip", "10.0.0.\(index)")]
+        if index == 1 || index == 2 || index == 5 {
+            values.append(value("subject", "CN=evil-\(index)"))
+        }
+        if index == 2 { values.append(value("sha256", "d41d8cd98f00b204e9800998ecf8427e")) }
+        return tuple("m\(index)", values)
+    }
+    let column = TagRemovalSheet(
+        groups: [TagRemovalGroup(tagId: "t9", tagName: "Case Theta",
+                                 colorIndex: 2, tuples: mixed)],
+        remover: RecordingRemover())
+    _ = host(column)
+    column.view.layoutSubtreeIfNeeded()
+    let columnRows = rows(column.view)
+    expectInt(columnRows.count, 7, "all seven tuples are rows in the list")
+    guard let list = descendants(column.view).compactMap({ $0 as? NSScrollView })
+        .first?.documentView, columnRows.count == 7 else {
+        print("\n\(failures) FAILURE(S) — cannot measure \(columnRows.count) rows")
+        exit(1)
+    }
+
+    let rowEdges = columnRows.map { drawnLeading($0, in: list) }
+    expectTrue((rowEdges.max() ?? 0) - (rowEdges.min() ?? 0) < 0.5,
+               "every tuple row starts at one leading edge (spread \(rowEdges.map { Int($0) }))")
+    expectTrue(columnRows.allSatisfy { abs($0.frame.width - list.frame.width) < 0.5 },
+               "and spans the list rather than hugging its content (widths \(columnRows.map { Int($0.frame.width) }) of \(Int(list.frame.width)))")
+
+    // The checkbox is the control the hand goes to, so its edge is the one a
+    // misalignment is felt through.
+    let boxEdges = columnRows.map { row in
+        descendants(row).compactMap { $0 as? NSButton }
+            .map { drawnLeading($0, in: list) }.min() ?? -1
+    }
+    expectTrue((boxEdges.max() ?? 0) - (boxEdges.min() ?? 0) < 0.5,
+               "every checkbox sits at one leading edge (\(boxEdges.map { Int($0) }))")
+
+    // And the values themselves, single-value tuples and multi-value tuples
+    // alike: a value indented past its neighbours reads as belonging to
+    // something else.
+    let valueEdges = columnRows.flatMap { row in
+        descendants(row).compactMap { $0 as? NSTextField }
+            .map { drawnLeading($0, in: list) }
+    }
+    // 11 values across the seven tuples, plus the "removed together" caption
+    // each of the three multi-value tuples carries. A fixture that quietly
+    // stopped mixing would pass the edge assertions on rows that are all the
+    // same shape, so the shape is pinned here.
+    expectInt(valueEdges.count, 14, "every value and caption of every tuple is measured")
+    expectTrue((valueEdges.max() ?? 0) - (valueEdges.min() ?? 0) < 0.5,
+               "every value label sits at one leading edge (\(valueEdges.map { Int($0) }))")
+    expectTrue((boxEdges.min() ?? 0) < (valueEdges.min() ?? 0),
+               "with the values nested to the right of the checkbox that governs them")
+
+    // The same rule one level up. The title, the list, the footer and the
+    // button row are arranged subviews of one vertical stack that was aligned
+    // the same broken way, and the title drifted right of the list it names —
+    // a heading that does not sit above its own content.
+    guard let formStack = column.view.subviews.compactMap({ $0 as? NSStackView }).first
+    else {
+        failures += 1
+        print("FAIL the sheet has no form stack to measure")
+        print("\n\(failures) FAILURE(S)")
+        exit(1)
+    }
+    let formEdges = formStack.arrangedSubviews.map { drawnLeading($0, in: formStack) }
+    expectInt(formEdges.count, 4, "title, list, footer and buttons are the form's four rows")
+    expectTrue((formEdges.max() ?? 0) - (formEdges.min() ?? 0) < 0.5,
+               "the title, the list and the footer share the form's leading edge (\(formEdges.map { Int($0) }))")
 
     // MARK: a value that would otherwise render blank, and one that lies
 

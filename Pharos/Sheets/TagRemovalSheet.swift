@@ -63,13 +63,9 @@ final class TagRemovalSheet: NSViewController {
 
         let listStack = NSStackView()
         listStack.orientation = .vertical
-        // `.width` so each row spans the list rather than hugging its own
-        // content. (NSStackView has no `.fill`.) Like the scroll view's width
-        // constraint below, this is a structural guarantee rather than
-        // something currently load-bearing: with `.leading` the frames measure
-        // the same today, because the wrap bound comes from the clip-view pins
-        // either way.
-        listStack.alignment = .width
+        // `.leading` pins where a row STARTS; `spanFullWidth` below is what
+        // makes it span. See that helper for why `.width` cannot do either.
+        listStack.alignment = .leading
         listStack.spacing = 4
 
         for (groupIndex, group) in groups.enumerated() {
@@ -168,6 +164,7 @@ final class TagRemovalSheet: NSViewController {
             gap.heightAnchor.constraint(equalToConstant: 6).isActive = true
             listStack.addArrangedSubview(gap)
         }
+        Self.spanFullWidth(listStack)
 
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
@@ -194,8 +191,18 @@ final class TagRemovalSheet: NSViewController {
 
         let form = NSStackView(views: [title, scrollView, footerLabel, buttonRow])
         form.orientation = .vertical
-        form.alignment = .width
+        form.alignment = .leading
         form.spacing = 10
+        // The list's width is pinned to the form's HERE, along with the title,
+        // the footer and the button row. It must not be left to depend on what
+        // the list CONTAINS: the first version of this sheet gave its value
+        // labels a fixed narrow wrap bound, and the scroll view collapsed with
+        // them to 160pt inside a 440pt form, disclosing every value in a third
+        // of the sheet. That bound is gone, so — measured, by removing this
+        // line — the alignment above already holds these four rows at the
+        // leading edge on its own today. This is here so that the full width
+        // is a guarantee rather than a coincidence.
+        Self.spanFullWidth(form)
         form.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(form)
         let clip = scrollView.contentView
@@ -210,16 +217,6 @@ final class TagRemovalSheet: NSViewController {
             form.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
             form.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
             scrollView.heightAnchor.constraint(equalToConstant: 260),
-            // The list's width is pinned to the form's, so it cannot depend
-            // on what the list CONTAINS. The form stack's `.width` alignment
-            // alone does not guarantee that: it yields to content pressure,
-            // and it yielded — the first version of this sheet gave its value
-            // labels a fixed narrow wrap bound, and the scroll view collapsed
-            // with them to 160pt inside a 440pt form, disclosing every value
-            // in a third of the sheet. That bound is gone, so this constraint
-            // no longer has anything to resist today; it is here so that the
-            // full width is a guarantee rather than a coincidence.
-            scrollView.widthAnchor.constraint(equalTo: form.widthAnchor),
             // Top/leading/trailing only: pinning the bottom too would cap the
             // list at the clip's height, and a list taller than the sheet is
             // the normal case here — it must scroll, not compress.
@@ -229,6 +226,31 @@ final class TagRemovalSheet: NSViewController {
         ])
         view = root
         refresh()
+    }
+
+    /// Hold every arranged subview of a VERTICAL `stack` at the stack's own
+    /// width, so each starts at the same leading edge and none hugs its
+    /// content.
+    ///
+    /// This is the job `alignment = .width` reads as doing, and does not do. A
+    /// vertical NSStackView refuses `.width`: assign it and the property reads
+    /// back as `.notAnAttribute` — no alignment at all. Each arranged subview
+    /// was then left with only the two weak edge constraints AppKit adds
+    /// regardless, `Edge.Min.Leading` at priority 250 and `Edge.Min.Trailing`
+    /// at 260. Trailing wins by those ten points, so every subview narrower
+    /// than the stack was pushed to the RIGHT — and nothing constrained its
+    /// width, so how wide it ended up was the solver's choice. Rows with
+    /// identical content landed differently, which is why the drift read as a
+    /// repeating cycle rather than as one broken row, and why on a sheet whose
+    /// whole job is disclosure the checkboxes stopped lining up under their
+    /// group header.
+    ///
+    /// `scripts/test-tag-removal-sheet.sh` measures the leading edge of every
+    /// checkbox and every value label across a mixed group for this.
+    private static func spanFullWidth(_ stack: NSStackView) {
+        for child in stack.arrangedSubviews {
+            child.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
     }
 
     /// The second line under a value: the form matching actually compares,
