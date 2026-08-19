@@ -24,6 +24,7 @@ swiftc -o /tmp/query-variables-panel-tests \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \
   Pharos/Models/QueryVariable.swift \
+  Pharos/Views/NSStackView+SpanFullWidth.swift \
   PharosTests/QueryVariablesPanelTests.swift \
   "$TMPMAIN"
 /tmp/query-variables-panel-tests

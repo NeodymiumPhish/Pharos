@@ -425,16 +425,35 @@ private func testListLayoutUnambiguous() {
     }
 }
 
-/// `.width` is the only NSStackView alignment that stretches arranged
-/// subviews on a vertical stack — this is exactly what silently failed for
-/// the old panel's empty-state label, so it is worth pinning for rows too.
+/// No NSStackView alignment stretches arranged subviews on a vertical stack:
+/// `.width` reads like the one that does, and is rejected — assign it and the
+/// property comes back `.notAnAttribute`. What holds these rows open is the
+/// explicit width pin `setVariables` adds to each row as it builds it, which
+/// is why this is measured rather than assumed. It is exactly the stretch that
+/// silently failed for the old panel's empty-state label.
+///
+/// The leading edge is measured alongside the width, because the two fail
+/// separately: with no alignment at all a row is pushed toward the TRAILING
+/// edge (AppKit's own trailing edge constraint outranks its leading one by ten
+/// points), so a row could be the right width in the wrong place.
 private func testRowsAreFullWidth() {
     for width: CGFloat in [180, 300, 600] {
         let (_, _, list) = makeHostedList(width: width)
         list.setVariables(makeVariables(5), referenced: [])
         list.layoutSubtreeIfNeeded()
+        expectTrue(
+            rowsStackView(in: list).alignment == .leading,
+            "the rows stack asks for an alignment NSStackView accepts at \(Int(width))pt")
         for (i, row) in rowViews(in: list).enumerated() {
             expectClose(row.frame.width, width, "row \(i) full width at \(Int(width))pt")
+            expectClose(row.frame.minX, 0, "row \(i) starts at the leading edge at \(Int(width))pt")
+        }
+        // The hairlines between the rows too: a hairline that hugged instead
+        // would stop short of the trailing edge and read as a ragged list.
+        for (i, line) in rowsStackView(in: list).arrangedSubviews.enumerated()
+        where !(line is VariableRowView) {
+            expectClose(line.frame.width, width, "separator \(i) full width at \(Int(width))pt")
+            expectClose(line.frame.minX, 0, "separator \(i) starts at the leading edge at \(Int(width))pt")
         }
     }
 }

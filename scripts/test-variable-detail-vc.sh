@@ -19,6 +19,7 @@ swiftc -o /tmp/variable-detail-vc-tests \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \
   Pharos/Models/QueryVariable.swift \
+  Pharos/Views/NSStackView+SpanFullWidth.swift \
   PharosTests/VariableDetailVCTests.swift \
   "$TMPMAIN"
 /tmp/variable-detail-vc-tests

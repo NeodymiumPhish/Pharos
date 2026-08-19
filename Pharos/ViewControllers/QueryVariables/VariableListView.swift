@@ -75,14 +75,14 @@ final class VariableListView: NSView {
             row.onClick = { [weak self] in self?.onSelect?(id) }
             row.onDelete = { [weak self] in self?.onDelete?(id) }
             rowsStack.addArrangedSubview(row)
-            // Belt and braces, not a workaround: `.width` alignment on a vertical
-            // stack does stretch arranged subviews (measured — a row with only
-            // internal constraints comes out at the stack's full width, with and
-            // without odd-sized siblings). This states the row width where it
-            // matters instead of leaving it to the stack's alignment machinery,
-            // and the layout harness asserts it, because a row that quietly failed
-            // to stretch would put every chevron and type caption in the wrong
-            // place with nothing else complaining.
+            // This pin, not the stack's alignment, is what holds a row open.
+            // The alignment cannot: NSStackView has no alignment that means
+            // "stretch" (`.width` is rejected, not honoured), and the shared
+            // span helper only reaches arranged subviews that exist when it is
+            // called — these do not. The layout harness asserts the resulting
+            // width, because a row that quietly failed to stretch would put
+            // every chevron and type caption in the wrong place with nothing
+            // else complaining.
             row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
             let hairline = Self.hairline()
             rowsStack.addArrangedSubview(hairline)
@@ -126,13 +126,15 @@ final class VariableListView: NSView {
         headerSeparator.wantsLayer = true
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        // `.fill` is not a valid NSStackView alignment; `.width` is the
-        // correct one for a vertical stack, and does reliably stretch
-        // arranged subviews (measured — see the note at the explicit width
-        // pins below, which are belt-and-braces, not a workaround for a real
-        // deficiency here).
+        // `.leading`, not `.width`: an NSStackView rejects `.width` and the
+        // property reads back as `.notAnAttribute` — no alignment at all. See
+        // NSStackView+SpanFullWidth.swift. The shared span helper is not what
+        // holds the rows open here, because the rows arrive in `setVariables`
+        // long after this runs and the helper only reaches what is already
+        // there; each row is pinned as it is added instead. `.leading` is
+        // still worth setting: it is what governs anything the pins miss.
         rowsStack.orientation = .vertical
-        rowsStack.alignment = .width
+        rowsStack.alignment = .leading
         rowsStack.spacing = 0
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
 

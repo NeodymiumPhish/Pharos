@@ -306,8 +306,17 @@ final class VariableDetailVC: NSViewController {
             duplicationLabel, editorContainer, captionLabel, valueChoiceContainer, collisionNoticeContainer,
         ])
         body.orientation = .vertical
-        body.alignment = .width
+        // `.leading` plus the width pin, not `.width`: an NSStackView rejects
+        // `.width` and the property reads back as `.notAnAttribute` — see
+        // NSStackView+SpanFullWidth.swift. Under that, `captionLabel` was the
+        // one row narrow enough to show it, and sat flush against the trailing
+        // edge, moving as the value's length changed the caption's text. Every
+        // row here wants the full width: `duplicationLabel` wraps to two lines,
+        // `collisionNoticeContainer` centres its notice on the panel, and the
+        // caption is leading-aligned like every other label here.
+        body.alignment = .leading
         body.spacing = 5
+        body.spanArrangedSubviewsFullWidth()
         body.translatesAutoresizingMaskIntoConstraints = false
         editorContainer.setContentHuggingPriority(.defaultLow, for: .vertical)
         // Same reason, same mechanism: a plain, size-less wrapper absorbs

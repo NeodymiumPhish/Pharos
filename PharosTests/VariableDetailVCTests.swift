@@ -164,7 +164,10 @@ private func bodyStack(in vc: VariableDetailVC) -> NSStackView {
 }
 
 /// `body`'s arranged subviews are always `[duplicationLabel, editorContainer,
-/// captionLabel]`, in that fixed order — positional lookup is safe here.
+/// captionLabel, valueChoiceContainer, collisionNoticeContainer]`, in that
+/// fixed order — positional lookup is safe here. Only the first three are
+/// looked up positionally below; the two containers were appended after them
+/// precisely so these indices would not move.
 private func duplicationLabel(in vc: VariableDetailVC) -> NSTextField {
     bodyStack(in: vc).arrangedSubviews[0] as! NSTextField
 }
@@ -452,6 +455,45 @@ private func testTabAndBacktabBehavior() {
     expectTrue(
         name.currentEditor() != nil,
         "insertBacktab hands focus specifically to the name field (it has an active field editor)")
+}
+
+/// Every row of `body` starts at one leading edge and spans the panel.
+///
+/// The caption is what this is really guarding. `body` asked for
+/// `alignment = .width`, which NSStackView rejects outright, and the caption —
+/// the only row narrow enough to reveal it — was then pushed hard against the
+/// trailing edge and moved as the value's length changed the caption's text,
+/// while everything above it started at the leading edge. The panel's own rule
+/// is stated beside `collisionNoticeLabel`: that notice is centred "unlike
+/// every other label in the panel", so the caption belongs at the leading edge.
+private func testBodyRowsShareOneLeadingEdge() {
+    // Two very different caption texts, because the drift moved WITH the text:
+    // a single value could not have told a fixed offset from a floating one.
+    for variable in [shortValueVariable(), longValueVariable()] {
+        let (_, _, vc) = makeHostedDetail(width: 240, variable: variable)
+        vc.view.layoutSubtreeIfNeeded()
+        let body = bodyStack(in: vc)
+
+        expectTrue(body.alignment == .leading,
+                   "body asks for an alignment NSStackView accepts")
+
+        // Alignment rects, not frames: an NSTextField label's frame overhangs
+        // its alignment rect by 2pt each side, so a correctly-placed label
+        // reads x=-2 as a frame and x=0 as an alignment rect.
+        for (index, row) in body.arrangedSubviews.enumerated() {
+            let rect = row.alignmentRect(forFrame: row.frame)
+            expectTrue(abs(rect.minX) < 0.5,
+                       "body row \(index) starts at the leading edge (\(Int(rect.minX)))")
+            expectTrue(abs(rect.width - body.frame.width) < 0.5,
+                       "body row \(index) spans the panel (\(Int(rect.width)) of \(Int(body.frame.width)))")
+        }
+
+        // Named separately from the sweep: this is the row that was wrong, and
+        // a future edit that reorders `body` must not quietly stop testing it.
+        let caption = captionLabel(in: vc)
+        expectTrue(abs(caption.alignmentRect(forFrame: caption.frame).minX) < 0.5,
+                   "the size caption starts at the leading edge, not against the trailing one")
+    }
 }
 
 /// The editor container must fill the remaining height between the header
@@ -1889,6 +1931,7 @@ func runTests() {
     testValueTextViewDelegateWiringReactsToRealNotification()
     testValueEditKeepsInsertionPointAfterPanelRoundTrip()
     testTabAndBacktabBehavior()
+    testBodyRowsShareOneLeadingEdge()
     testEditorContainerFillsRemainingHeight()
     testGutterMetricsWidths()
     testGutterNumbersEveryVisibleLine()

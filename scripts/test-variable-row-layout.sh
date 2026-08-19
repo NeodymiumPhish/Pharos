@@ -14,6 +14,7 @@ swiftc -o /tmp/variable-row-layout-tests \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Models/QueryVariable.swift \
+  Pharos/Views/NSStackView+SpanFullWidth.swift \
   PharosTests/VariableRowLayoutTests.swift \
   "$TMPMAIN"
 /tmp/variable-row-layout-tests
