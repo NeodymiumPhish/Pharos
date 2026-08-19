@@ -13,20 +13,24 @@ extension ResultsGridVC: ResultsFindControllerDelegate {
         currentMatchRow: Int,
         currentMatchColId: String?
     ) {
+        let previousDisplayRows = displayRows
         if let newDisplayRows {
             displayRows = newDisplayRows
         }
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: matchSet, currentMatchRow: currentMatchRow, currentMatchColId: currentMatchColId)
         tableView.reloadData()
+        reconcileSelection(previousDisplayRows: previousDisplayRows)
         updateStatusBarText()
     }
 
     func findControllerDidClose(displayRows newDisplayRows: [Int]) {
+        let previousDisplayRows = displayRows
         displayRows = newDisplayRows
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
+        reconcileSelection(previousDisplayRows: previousDisplayRows)
         updateStatusBarText()
         view.window?.makeFirstResponder(tableView)
     }

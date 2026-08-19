@@ -16,6 +16,7 @@
 		09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93588EE0C42422561A35483 /* RowFingerprint.swift */; };
 		0BA418AD455AB1B24F34B671 /* ColumnClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */; };
 		0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */; };
+		0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */; };
 		0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
@@ -308,6 +309,7 @@
 		C061E832235866E86FB1BD81 /* MainMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainMenu.swift; sourceTree = "<group>"; };
 		C1B12A90407F4333607C559D /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
+		C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSelectionValidity.swift; sourceTree = "<group>"; };
 		C9154BC81016709ADD201F2C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C93588EE0C42422561A35483 /* RowFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowFingerprint.swift; sourceTree = "<group>"; };
 		CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBadgeButton.swift; sourceTree = "<group>"; };
@@ -568,6 +570,7 @@
 				CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */,
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
+				C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */,
 				267FBF59C6FA236284E961CC /* HistoryRowText.swift */,
 				87AC310E071D54672B86BAFE /* InspectorOwnership.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
@@ -810,6 +813,7 @@
 				E95A1BECEE9799B577E51E26 /* FilterableHeaderView.swift in Sources */,
 				EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */,
 				AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */,
+				0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */,
 				4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */,
 				34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */,
 				9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */,

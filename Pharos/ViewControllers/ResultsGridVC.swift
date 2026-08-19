@@ -561,15 +561,53 @@ class ResultsGridVC: NSViewController {
     /// visible this hands off and that callback finishes the job. Find is therefore
     /// still stage 3, downstream of the column filters, exactly as before.
     func applyColumnFiltered(_ newFiltered: [Int]) {
+        let previousDisplayRows = displayRows
         columnFilteredDisplayRows = newFiltered
         if findController.isFindVisible {
+            // findFieldChanged calls back into findControllerDidUpdateResults
+            // synchronously, and THAT reconciles the selection against its own
+            // before-list. Reconciling here as well would be redundant.
             findController.findFieldChanged(findField)
         } else {
             displayRows = columnFilteredDisplayRows
             pushDataToHelpers()
             tableView.reloadData()
+            reconcileSelection(previousDisplayRows: previousDisplayRows)
         }
         updateStatusBarText()
+    }
+
+    /// Re-anchors the grid's selection after `displayRows` was rebuilt and the
+    /// table reloaded. Every path that does both must end here.
+    ///
+    /// Two facts make this necessary. The selection is held in DISPLAY
+    /// coordinates, so a re-sort hands a selected position to a different
+    /// record. And `NSTableView.reloadData()` silently drops the table's own
+    /// row selection WITHOUT posting `tableViewSelectionDidChange` — verified
+    /// against AppKit, not assumed — so nothing downstream, the Inspector
+    /// included, would otherwise hear that the highlight had gone.
+    ///
+    /// A selection that still addresses the same records is therefore
+    /// re-applied; one that does not is dropped, which fires `onChange` and
+    /// takes the stale row detail off the Inspector with it. The grid and the
+    /// Inspector then agree either way, which is the part that was broken: an
+    /// invisible selection with row detail still on screen.
+    func reconcileSelection(previousDisplayRows: [Int]) {
+        guard let controller = cellSelectionController else { return }
+        let state = controller.state
+        guard GridSelectionValidity.survivesRebuild(
+            selected: state.selectedRowIndices(),
+            before: previousDisplayRows,
+            after: displayRows)
+        else {
+            controller.clear()
+            return
+        }
+        // Cell-mode highlight is redrawn from `dataSource.cellSelection` by
+        // the realize path, so only row mode needs putting back by hand.
+        if state.isRowMode {
+            tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
+        }
     }
 
     /// The single place that rebuilds `displayRows` from `unfilteredDisplayRows`.
