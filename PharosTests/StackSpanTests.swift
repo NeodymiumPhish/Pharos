@@ -9,7 +9,9 @@
 // identical rows starting at different offsets in `TagRemovalSheet` — was
 // invisible in review because the code SAID the right thing. Three states are
 // measured here so the rule cannot be argued about again: the rejected
-// alignment, `.leading` on its own, and `.leading` with the span.
+// alignment, `.leading` on its own, and `.leading` with the span. A fourth
+// case measures the span on a stack that pads its own sides, where "the
+// stack's width" and "the width a row may take" are not the same number.
 //
 // The two sheets whose latent copies of the defect this fixes (TagSheet,
 // TagManageSheet) cannot be hosted here — both reach TagStore.shared, which is
@@ -173,6 +175,39 @@ func runTests() {
         // governs a row the pin did NOT reach.
         expectTrue(abs(late.frame.minX) < 0.5,
                    "the unheld row still starts at the leading edge, because the alignment is .leading (\(Int(late.frame.minX)))")
+    }
+
+    // MARK: - 6. A stack that pads its own sides keeps its padding
+
+    do {
+        // The pin means "as wide as a row may be", not "as wide as the stack".
+        // On a padded stack those differ, and pinning to the raw width anchor
+        // widens every row over its own padding — the content then runs to the
+        // container's edge. `ColumnFilterPopoverVC` pads 12pt each side.
+        let inset: CGFloat = 12
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        // A row that hugs, so only the pin can make it span.
+        let row = NSStackView(views: [NSButton(checkboxWithTitle: "", target: nil, action: nil)])
+        row.setHuggingPriority(.defaultHigh, for: .horizontal)
+        stack.addArrangedSubview(row)
+        stack.spanArrangedSubviewsFullWidth()
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: hostWidth, height: 200))
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: host.topAnchor),
+        ])
+        host.layoutSubtreeIfNeeded()
+        expectTrue(abs(row.frame.minX - inset) < 0.5,
+                   "a padded stack still starts its rows inside the padding (\(Int(row.frame.minX)) of \(Int(inset)))")
+        expectTrue(abs(row.frame.width - (stack.frame.width - inset * 2)) < 0.5,
+                   "and the row spans the padded width, not the stack's (\(Int(row.frame.width)) of \(Int(stack.frame.width - inset * 2)))")
     }
 
     if failures == 0 {

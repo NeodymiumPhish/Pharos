@@ -30,12 +30,21 @@ extension NSStackView {
     /// stack's width and so starts at the stack's edge whatever the alignment
     /// says, but a row added afterwards has only the alignment to hold it.
     ///
+    /// `edgeInsets` is subtracted, because "the stack's width" is not the width
+    /// a row may occupy on a stack that pads its sides: pinning to the raw
+    /// `widthAnchor` there widens every row over its own padding and the
+    /// content reaches the container's edge. `ColumnFilterPopoverVC` pads by
+    /// 12pt each side and lost exactly that when this was written without the
+    /// subtraction.
+    ///
     /// `scripts/test-stack-span.sh` measures all three states — the rejected
-    /// alignment, `.leading` alone, and `.leading` with this pin —
-    /// and `scripts/test-tag-removal-sheet.sh` measures the real sheet.
+    /// alignment, `.leading` alone, and `.leading` with this pin — plus the
+    /// padded case, and `scripts/test-tag-removal-sheet.sh` measures the real
+    /// sheet.
     func spanArrangedSubviewsFullWidth() {
+        let padding = edgeInsets.left + edgeInsets.right
         for child in arrangedSubviews {
-            child.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+            child.widthAnchor.constraint(equalTo: widthAnchor, constant: -padding).isActive = true
         }
     }
 }

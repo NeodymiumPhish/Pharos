@@ -41,7 +41,13 @@ final class RunningQueriesPopoverVC: NSViewController {
 
         stackView.orientation = .vertical
         stackView.spacing = 4
-        stackView.alignment = .width
+        // `.leading`, not `.width`: an NSStackView rejects `.width` and the
+        // property reads back as `.notAnAttribute` — see
+        // NSStackView+SpanFullWidth.swift. The rows here arrive in
+        // `reconcileRows`, long after this runs, so the shared span helper
+        // would reach none of them; each row is pinned to this stack's width
+        // as it is added instead.
+        stackView.alignment = .leading
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(headerLabel)
@@ -137,6 +143,13 @@ final class RunningQueriesPopoverVC: NSViewController {
             }
             rowsById[q.id] = row
             stackView.addArrangedSubview(row)
+            // A RunningQueryRow states no width of its own — its label is
+            // pinned to its leading edge and its cancel button to its trailing
+            // edge, which only reads correctly at the stack's full width. The
+            // stack's own width is fixed (the popover is 260pt), so a row
+            // measures full width today either way; this says the requirement
+            // rather than inheriting it from that.
+            row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
             orderedIds.append(q.id)
         }
     }

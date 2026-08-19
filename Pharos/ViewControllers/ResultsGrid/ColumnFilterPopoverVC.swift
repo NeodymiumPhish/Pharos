@@ -123,7 +123,10 @@ class ColumnFilterPopoverVC: NSViewController {
 
         // Stack view setup
         stackView.orientation = .vertical
-        stackView.alignment = .width
+        // `.leading`, not `.width`, which an NSStackView rejects — see
+        // NSStackView+SpanFullWidth.swift. The width pin that goes with it is
+        // applied once the seven rows are in place, further down.
+        stackView.alignment = .leading
         stackView.spacing = 8
         stackView.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         stackView.translatesAutoresizingMaskIntoConstraints = false
@@ -270,6 +273,14 @@ class ColumnFilterPopoverVC: NSViewController {
         stackView.addArrangedSubview(advancedHeader)
         stackView.addArrangedSubview(advancedContainer)
         stackView.addArrangedSubview(buttonRow)
+        // Here, not next to the alignment above: the pin only reaches the
+        // arranged subviews present when it runs, and these seven are all of
+        // them — the dynamic value views are swapped into `advancedContainer`,
+        // never into this stack. Every one of the seven needs the full width:
+        // the header row and the button row both carry a spacer that puts a
+        // control at the trailing edge, and the partial-data footer was the row
+        // that actually drifted, sitting three-quarters of the way across.
+        stackView.spanArrangedSubviewsFullWidth()
 
         advancedContainer.isHidden = true   // collapsed by default
 
