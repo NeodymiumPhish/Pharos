@@ -41,15 +41,10 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     /// nil = "New tag"; otherwise the tag the new tuples join.
     private var targetTagId: String?
 
-    /// Marks the one row that means "create a new tag".
-    ///
-    /// A tag, not a nil `representedObject`: a row that merely forgot its value
-    /// would share that answer, and this sheet branches its whole mode on it.
-    /// And not the title either — a tag named literally `New tag` used to
-    /// DELETE this row, because `NSPopUpButton.addItem(withTitle:)` removes an
-    /// existing item with the same title. `isNew` was then never true again and
-    /// no further tag could be created, from plain ASCII and no hostile input
-    /// at all. `PopupValueMenu.populate` builds the rows now.
+    /// Marks the one row that means "create a new tag". Non-zero, because a
+    /// value row's tag is 0. `PopupValueMenu.populate` and `isSentinel` carry
+    /// the reasoning for why the mode is read from a tag rather than from the
+    /// row's title or from its nil value.
     private static let newTagTag = 1
 
     /// Bumped by every `refresh`, so a slow background count that lands after
@@ -278,8 +273,10 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     @objc private func tagChoiceChanged() {
         // Both answers come from the one selected item, so they cannot
         // disagree: the "New tag" row is identified positively by its tag, and
-        // only a real tag row yields a target id.
-        let isNew = tagPopup.selectedItem?.tag == Self.newTagTag
+        // only a real tag row yields a target id. `isSentinel` also answers
+        // true for no selection at all, which keeps this mode and `save`'s
+        // `targetTagId == nil` branch on the same side of the fence.
+        let isNew = PopupValueMenu.isSentinel(tagPopup.selectedItem, tag: Self.newTagTag)
         targetTagId = isNew ? nil : PopupValueMenu.selectedValue(in: tagPopup)
         // "Add to existing" disables the identity fields: the tuples join a tag
         // that already has a name, a colour and a note.

@@ -56,27 +56,35 @@ enum PopupValueMenu {
     /// value, optionally with a leading image.
     ///
     /// `sentinelTag` marks the sentinel row so a caller can identify it
-    /// positively. Without it the only signal is a nil `representedObject`,
-    /// which a row that merely *forgot* its value shares — and one caller
-    /// (`TagSheet`) branches its whole "create versus add to existing" mode on
-    /// that answer.
+    /// positively — read it back with `isSentinel(_:tag:)`. Without it the only
+    /// signal is a nil `representedObject`, which a row that merely *forgot*
+    /// its value shares, and one caller (`TagSheet`) branches its whole
+    /// "create versus add to existing" mode on that answer.
     ///
-    /// **Pass a NON-ZERO tag if you intend to compare against it.** Every value
-    /// row leaves `NSMenuItem.tag` at its default of 0, so `sentinelTag: 0`
-    /// (the default here, for the callers that never look) marks nothing and a
-    /// `tag == 0` test would match every row.
+    /// **A tag of 0 marks nothing.** Every value row leaves `NSMenuItem.tag` at
+    /// its default of 0, so comparing against 0 would match every row. Pass nil
+    /// (the default, for the callers that never look) or a non-zero tag.
+    ///
+    /// Note the sentinel's title is NOT escaped, while every row's is: a
+    /// sentinel is always an in-app literal ("None", "New tag"), never captured
+    /// data. If that ever stops being true, escape it here.
     static func populate(
         _ popup: NSPopUpButton,
         sentinel: String?,
-        sentinelTag: Int = 0,
+        sentinelTag: Int? = nil,
         rows: [Row]
     ) {
+        // A tag with no sentinel to put it on is a programming error, and a
+        // silent one: the tag simply vanishes and the caller's `isSentinel`
+        // test then never matches anything.
+        assert(sentinelTag == nil || sentinel != nil,
+               "sentinelTag was given without a sentinel row to carry it")
         popup.removeAllItems()
         guard let menu = popup.menu else { return }
         if let sentinel {
             let item = NSMenuItem(title: sentinel, action: nil, keyEquivalent: "")
             item.representedObject = nil
-            item.tag = sentinelTag
+            if let sentinelTag { item.tag = sentinelTag }
             menu.addItem(item)
         }
         for row in rows {
@@ -85,6 +93,23 @@ enum PopupValueMenu {
             item.image = row.image
             menu.addItem(item)
         }
+    }
+
+    /// Whether `item` is the sentinel row carrying `tag`.
+    ///
+    /// **Answers true for a nil item**, and that is the load-bearing part: a
+    /// caller asking this is deciding a MODE, and "no selection" must fall to
+    /// the same side as the sentinel. `TagSheet` disables its name, colour and
+    /// note fields when this is false; if a nil selection answered false, the
+    /// sheet would show "Add to Tag" with those fields disabled while its save
+    /// path — which sees a nil target id — created a new tag instead.
+    ///
+    /// Exists as a function rather than a comparison at the call site so that
+    /// rule is stated once and can be tested; the sheet that needs it has no
+    /// test harness of its own.
+    static func isSentinel(_ item: NSMenuItem?, tag: Int) -> Bool {
+        guard let item else { return true }
+        return item.tag == tag
     }
 
     /// Selects the row whose raw value equals `value`, by VALUE not by index —

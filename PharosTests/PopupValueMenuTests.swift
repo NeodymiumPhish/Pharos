@@ -219,6 +219,38 @@ private func testTwoRowsWithCollidingEscapedTitlesBothSurvive() {
                 "each collided row keeps its own value")
 }
 
+private func testIsSentinelDecidesTheMode() {
+    // The mode rule TagSheet branches on. It has no harness of its own, so the
+    // rule lives here where it can be tested.
+    let popup = newPopup()
+    PopupValueMenu.populate(popup, sentinel: "New tag", sentinelTag: 1, rows: [
+        PopupValueMenu.Row(display: "Case Alpha", value: "tag-1"),
+    ])
+    expectEqual(PopupValueMenu.isSentinel(popup.itemArray[0], tag: 1), true,
+                "the sentinel row is the sentinel")
+    expectEqual(PopupValueMenu.isSentinel(popup.itemArray[1], tag: 1), false,
+                "a value row is not the sentinel")
+    // The state the first version of this fix got wrong: no selection must fall
+    // to the SAME side as the sentinel, or the sheet shows "add to existing"
+    // with its fields disabled while the save path creates a new tag.
+    expectEqual(PopupValueMenu.isSentinel(nil, tag: 1), true,
+                "no selection counts as the sentinel, not as a value row")
+}
+
+private func testEmptyRowsIsWellDefined() {
+    let withSentinel = newPopup()
+    PopupValueMenu.populate(withSentinel, sentinel: "None", rows: [])
+    expectEqual(withSentinel.numberOfItems, 1, "a sentinel and no rows is one item")
+    expectEqual(PopupValueMenu.selectedValue(in: withSentinel), nil,
+                "the sentinel still carries no value")
+
+    let bare = newPopup()
+    PopupValueMenu.populate(bare, sentinel: nil, rows: [])
+    expectEqual(bare.numberOfItems, 0, "no sentinel and no rows is an empty popup")
+    expectEqual(PopupValueMenu.selectedValue(in: bare), nil,
+                "an empty popup has no value")
+}
+
 func runTests() {
     testReadBack()
     testSentinelCollision()
@@ -228,6 +260,8 @@ func runTests() {
     testRowsCarryDisplayValueAndImageSeparately()
     testSentinelSurvivesARowDisplayedLikeIt()
     testTwoRowsWithCollidingEscapedTitlesBothSurvive()
+    testIsSentinelDecidesTheMode()
+    testEmptyRowsIsWellDefined()
 
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
