@@ -51,6 +51,18 @@ func runTests() {
     expectEqual(longMsg.contains("<U+202E>"), false,
                 "the scalar past the 200-char cut is gone entirely, not escaped")
 
+    // Ordering is load-bearing and this input discriminates it: the override
+    // sits at index 199, INSIDE the 200-char cut. Truncate-then-escape keeps
+    // it and discloses it whole. Escape-then-truncate would expand it to an
+    // 8-char token BEFORE the cut, and the cut would slice the token into a
+    // bare "<" fragment.
+    let boundarySQL = String(repeating: "S", count: 199) + "\u{202E}" + String(repeating: "S", count: 150)
+    let boundaryMsg = DestructiveConfirmationText.destructiveQueryMessage(keywords: ["DROP"], sql: boundarySQL)
+    expectEqual(boundaryMsg.contains("<U+202E>"), true,
+                "a scalar inside the cut is disclosed whole — proves truncate-then-escape")
+    expectEqual(boundaryMsg.hasSuffix("…"), true,
+                "the boundary preview is still truncated")
+
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)
