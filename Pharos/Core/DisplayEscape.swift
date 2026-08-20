@@ -145,6 +145,16 @@ enum DisplayEscape {
         }
     }
 
+    /// A `schema.table` label with each part escaped separately.
+    ///
+    /// Per part, not on the joined string: the dot is OUR separator, so
+    /// escaping `"\(schema).\(table)"` as one string demotes each part's edge
+    /// space to an interior space and loses its disclosure. Six call sites
+    /// render this pair; they must all render it the same way.
+    static func escapedQualified(schema: String, table: String) -> String {
+        "\(escaped(schema)).\(escaped(table))"
+    }
+
     /// The scalar walk shared by `escaped` and `escapedMultiline`: each caller
     /// supplies only which scalars are marked, and this collapses a run of the
     /// same marked scalar into one `<U+XXXX×N>` token instead of N.

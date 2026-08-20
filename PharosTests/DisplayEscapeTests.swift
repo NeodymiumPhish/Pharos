@@ -244,6 +244,24 @@ func runTests() {
     expectEqual(DisplayEscape.needsEscaping("10.0.0.1\r"), true,
                 "a trailing CR still marks a single-line value as needing escape")
 
+    // A qualified name is escaped PER PART: the dot is our separator, so a
+    // part's own edge space must still be disclosed inside its own half.
+    expectEqual(DisplayEscape.escapedQualified(schema: "public", table: "users"),
+                "public.users",
+                "an ordinary qualified name is unchanged")
+    expectEqual(DisplayEscape.escapedQualified(schema: "public", table: "users\u{200B}"),
+                "public.users<U+200B>",
+                "a hostile scalar in the table part is disclosed")
+    expectEqual(DisplayEscape.escapedQualified(schema: "pub\u{202E}lic", table: "users"),
+                "pub<U+202E>lic.users",
+                "a hostile scalar in the schema part is disclosed")
+    expectEqual(DisplayEscape.escapedQualified(schema: "public", table: "users "),
+                "public.users<U+0020>",
+                "a trailing space in a part is disclosed, which joining first would hide")
+    expectEqual(DisplayEscape.escapedQualified(schema: " public", table: "users"),
+                "<U+0020>public.users",
+                "a leading space in the schema part is disclosed")
+
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
     } else {

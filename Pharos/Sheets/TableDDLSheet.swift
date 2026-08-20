@@ -60,7 +60,7 @@ class TableDDLSheet: NSViewController {
         // the DDL request keep using the raw stored strings.
         // Each part is escaped BEFORE the join: joined-string escaping would
         // demote a part's edge space to interior and lose its disclosure.
-        let subtitleLabel = NSTextField(labelWithString: "\(DisplayEscape.escaped(schema)).\(DisplayEscape.escaped(table))")
+        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escapedQualified(schema: schema, table: table))
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
