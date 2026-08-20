@@ -267,6 +267,28 @@ private func testEmptyStringsFallThroughLikeNil() {
     expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "both empty falls through to the first SQL line")
 }
 
+/// Every label string the cell holds, so an assertion can ask what the row
+/// SHOWS without the cell having to expose each field by name.
+private func allLabelStrings(in view: NSView) -> [String] {
+    view.subviews.flatMap { ($0 as? NSTextField).map { [$0.stringValue] } ?? allLabelStrings(in: $0) }
+}
+
+/// The preview row draws captured data, and its accessibility label reads
+/// the displayed string back — so VoiceOver announces the disclosure too,
+/// which is deliberate: a screen-reader user cannot see an override.
+private func testHostileCustomLabelIsDisclosed() {
+    let cell = makeCell()
+    cell.configure(meta: makeMeta(customLabel: "safe\u{202E}gpj.exe"),
+                   dotColor: .systemRed, isMatch: true)
+    let shown = allLabelStrings(in: cell).joined(separator: "|")
+    expectTrue(shown.contains("<U+202E>"),
+               "the preview row discloses a bidi override in a custom label")
+    expectTrue(!shown.unicodeScalars.contains("\u{202E}"),
+               "the raw override never reaches the label")
+    expectTrue(cell.accessibilityLabel()?.contains("<U+202E>") == true,
+               "VoiceOver announces the escaped text, not the reordered text")
+}
+
 private func testSizeCaption() {
     let cell = makeCell()
     cell.configure(meta: makeMeta(rowCount: 1000, columnCount: 1), dotColor: .systemBlue, isMatch: false)
@@ -287,6 +309,7 @@ func runTests() {
     testSecondaryLabelColourFollowsHasResults()
     testLabelsPreferCustomLabelThenTableNamesThenSQL()
     testEmptyStringsFallThroughLikeNil()
+    testHostileCustomLabelIsDisclosed()
     testSizeCaption()
     testPlainClauseWhenNotFiltering()
     testMatchClauseVerbAgreesWithTheCount()

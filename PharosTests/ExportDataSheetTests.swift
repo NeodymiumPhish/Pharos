@@ -41,6 +41,30 @@ private func columnSection(in view: NSView) -> NSStackView? {
     return walk(view)
 }
 
+private func checkboxTitles(in view: NSView) -> [String] {
+    var found: [String] = []
+    func walk(_ v: NSView) {
+        for sub in v.subviews {
+            if let button = sub as? NSButton, !button.title.isEmpty { found.append(button.title) }
+            walk(sub)
+        }
+    }
+    walk(view)
+    return found
+}
+
+private func allLabelStrings(in view: NSView) -> [String] {
+    var found: [String] = []
+    func walk(_ v: NSView) {
+        for sub in v.subviews {
+            if let field = sub as? NSTextField { found.append(field.stringValue) }
+            walk(sub)
+        }
+    }
+    walk(view)
+    return found
+}
+
 func runTests() {
     let sheet = ExportDataSheet(schema: "public", table: "users",
                                 columns: columns(4), onExport: { _ in })
@@ -73,6 +97,27 @@ func runTests() {
     let header = section.arrangedSubviews[0]
     expectTrue(header.frame.maxX == section.frame.width,
                "the Columns header reaches the section's trailing edge")
+
+    // The checkbox title is display-only: the export reads the raw column name
+    // from the parallel (checkbox, name) tuple, so escaping the title must not
+    // change what is exported.
+    do {
+        let hostileColumns = [
+            ColumnInfo(name: "ip\u{200B}addr", dataType: "text", isNullable: true,
+                       isPrimaryKey: false, ordinalPosition: 1, columnDefault: nil)
+        ]
+        let sheet2 = ExportDataSheet(schema: "pub\u{202E}lic", table: "users",
+                                     columns: hostileColumns, onExport: { _ in })
+        let window2 = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 440),
+                               styleMask: [.borderless], backing: .buffered, defer: false)
+        window2.contentView = sheet2.view
+        sheet2.view.layoutSubtreeIfNeeded()
+
+        expectTrue(checkboxTitles(in: sheet2.view).contains { $0.contains("<U+200B>") },
+                   "a column checkbox discloses a zero-width space in its name")
+        expectTrue(allLabelStrings(in: sheet2.view).contains { $0.contains("<U+202E>") },
+                   "the sheet subtitle discloses a bidi override in the schema name")
+    }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

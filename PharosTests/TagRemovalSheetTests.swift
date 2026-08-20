@@ -715,6 +715,24 @@ func runTests() {
         print("FAIL the long-name sheet has no header at all")
     }
 
+    // MARK: a hostile tag name is disclosed in the header, not obeyed
+
+    // A tag name in the store can predate the input sanitiser, so the header
+    // has to disclose one. Same construction path as every other case here:
+    // only the fixture's tag name changes.
+    let hostile = TagRemovalSheet(
+        groups: [
+            TagRemovalGroup(tagId: "t10", tagName: "safe\u{202E}gpj.exe", colorIndex: 3, tuples: [
+                tuple("u16", [value("ip", "10.0.0.1")]),
+            ]),
+        ],
+        remover: RecordingRemover())
+    _ = host(hostile)
+    expectTrue(labels(hostile.view).map(\.stringValue).contains { $0.contains("<U+202E>") },
+               "the removal sheet's group header discloses a hostile tag name")
+    expectString(headers(hostile.view).first?.toolTip ?? "", "safe<U+202E>gpj.exe",
+                 "and the tooltip carries the ESCAPED name in full, not the reordered one")
+
     print(failures == 0 ? "\nAll TagRemovalSheet tests passed." : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

@@ -195,6 +195,20 @@ func runTests() {
                     "a nameless tag's line is dropped; a real tag beside it still gets its line")
     }
 
+    // A tag name can predate the input sanitiser, so the store can hold a
+    // hostile one — the row tooltip must disclose it. The `\n` join is ours
+    // and must survive.
+    do {
+        let hostileName = "safe\u{202E}gpj.exe"
+        let one = TagPalette.tooltip(matches: [match("h", .solid)], tagNames: ["h": hostileName])
+        expectEqual(one, "safe<U+202E>gpj.exe — solid",
+                    "the row tooltip discloses a bidi override in a tag name")
+        let two = TagPalette.tooltip(matches: [match("h", .solid), match("red-tag", .dashed)],
+                                     tagNames: ["h": hostileName, "red-tag": redTag.name])
+        expectEqual(two, "safe<U+202E>gpj.exe — solid\nReds — dashed",
+                    "two matches still join with a real newline")
+    }
+
     // MARK: - 6. Empty inputs
 
     expectTrue(TagPalette.segments(matches: [], tagColors: colors).isEmpty,

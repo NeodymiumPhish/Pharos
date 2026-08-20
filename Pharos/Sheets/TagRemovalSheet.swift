@@ -71,7 +71,7 @@ final class TagRemovalSheet: NSViewController {
 
         for (groupIndex, group) in groups.enumerated() {
             let dot = NSImageView(image: TagPalette.swatch(colorIndex: group.colorIndex))
-            let name = NSTextField(labelWithString: group.tagName)
+            let name = NSTextField(labelWithString: DisplayEscape.escaped(group.tagName))
             name.font = .systemFont(ofSize: 12, weight: .semibold)
             name.lineBreakMode = .byTruncatingTail
             // A tag name is free text and can be any length. Without a bound
@@ -82,9 +82,11 @@ final class TagRemovalSheet: NSViewController {
             // with NO ellipsis, and two long names differing only past the cut
             // read as the same tag. Same fix as TagManageSheet's list cell:
             // pin the trailing edge and let it truncate. The tooltip carries
-            // the name in full.
+            // the ESCAPED name in full — a tag name in the store can predate
+            // the input sanitiser, so the untruncated reading must disclose a
+            // hostile scalar rather than obey it.
             name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            name.toolTip = group.tagName
+            name.toolTip = DisplayEscape.escaped(group.tagName)
             let header = NSStackView(views: [dot, name])
             header.orientation = .horizontal
             header.alignment = .centerY

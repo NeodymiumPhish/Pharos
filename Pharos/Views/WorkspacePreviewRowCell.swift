@@ -91,13 +91,18 @@ class WorkspacePreviewRowCell: NSTableCellView {
     func configure(meta: WorkspaceResultMeta, dotColor: NSColor, isMatch: Bool) {
         dot.layer?.backgroundColor = dotColor.cgColor
 
+        // Display only. All three branches draw captured data — a label the
+        // user typed over somebody else's dataset, the table names, or the
+        // query's first line — so all three are escaped. The emptiness tests
+        // stay on the RAW string: escaping never empties a non-empty value,
+        // and testing the escaped one would be testing the wrong thing.
         if let label = meta.customLabel, !label.isEmpty {
-            primaryLabel.stringValue = label
+            primaryLabel.stringValue = DisplayEscape.escaped(label)
         } else if let tableNames = meta.tableNames, !tableNames.isEmpty {
-            primaryLabel.stringValue = tableNames
+            primaryLabel.stringValue = DisplayEscape.escaped(tableNames)
         } else {
             let firstLine = meta.sql.components(separatedBy: .newlines).first ?? meta.sql
-            primaryLabel.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
+            primaryLabel.stringValue = DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces))
         }
 
         var parts: [String] = []
@@ -117,6 +122,11 @@ class WorkspacePreviewRowCell: NSTableCellView {
 
         // The bar and the semibold font are visual only. Clearing the label on
         // the unmatched path is required, not tidiness — the cell is recycled.
+        //
+        // Read back from `primaryLabel.stringValue`, which is the ESCAPED
+        // display string, on purpose: a screen-reader user cannot see a bidi
+        // override, so VoiceOver must announce the disclosure rather than the
+        // reordered text.
         setAccessibilityLabel(
             isMatch ? "\(primaryLabel.stringValue), matches the filter" : nil
         )

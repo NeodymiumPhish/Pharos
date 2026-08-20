@@ -35,7 +35,11 @@ class ExportDataSheet: NSViewController {
         let titleLabel = NSTextField(labelWithString: "Export Data")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
-        let subtitleLabel = NSTextField(labelWithString: "\(schema).\(table)")
+        // Escaped per PART, not on the joined pair: the dot is ours, so
+        // escaping the whole string would demote each part's edge space to an
+        // interior one and lose its disclosure. The raw `schema`/`table` are
+        // what the export request carries.
+        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escapedQualified(schema: schema, table: table))
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
@@ -67,7 +71,9 @@ class ExportDataSheet: NSViewController {
         columnStack.translatesAutoresizingMaskIntoConstraints = false
 
         for col in columns {
-            let title = "\(col.name)  \u{2022}  \(col.dataType)"
+            // Display only: the selected columns are read from the tuple's
+            // `name`, never from the button's title.
+            let title = "\(DisplayEscape.escaped(col.name))  \u{2022}  \(DisplayEscape.escaped(col.dataType))"
             let checkbox = NSButton(checkboxWithTitle: title, target: nil, action: nil)
             checkbox.state = .on
             checkbox.font = .systemFont(ofSize: 12)

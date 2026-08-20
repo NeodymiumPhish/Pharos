@@ -156,8 +156,10 @@ enum TagPalette {
     /// and the tooltip must agree rather than naming a tag that no longer
     /// exists.
     static func tooltip(matches: [TagRowMatch], tagNames: [String: String]) -> String? {
+        // Escaped per NAME, never on the joined result: the `\n` at the join is
+        // ours, and a tag name in the store can predate the input sanitiser.
         let lines = matches.compactMap { match in
-            tagNames[match.tagId].map { "\($0) — \(match.state == .solid ? "solid" : "dashed")" }
+            tagNames[match.tagId].map { "\(DisplayEscape.escaped($0)) — \(match.state == .solid ? "solid" : "dashed")" }
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }

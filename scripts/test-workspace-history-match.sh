@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 TMPMAIN=$(mktemp -d)/main.swift
 echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/workspace-history-match-tests \
+  Pharos/Core/DisplayEscape.swift \
   Pharos/Core/HistoryRowText.swift \
   Pharos/Views/WorkspacePreviewRowCell.swift \
   Pharos/Models/Workspace.swift \

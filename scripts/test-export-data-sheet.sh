@@ -4,6 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/export-data-sheet-tests \
+  Pharos/Core/DisplayEscape.swift \
   Pharos/Models/Schema.swift \
   Pharos/Views/NSTextField+FormLabel.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
