@@ -438,10 +438,10 @@ extension SQLCompletionProvider: NSTableViewDelegate {
             ])
         }
 
-        cell.textField?.stringValue = item.label
+        cell.textField?.stringValue = DisplayEscape.escaped(item.label)
 
         let detailField = cell.viewWithTag(100) as? NSTextField
-        detailField?.stringValue = item.detail
+        detailField?.stringValue = DisplayEscape.escaped(item.detail)
 
         let iconName: String
         switch item.kind {

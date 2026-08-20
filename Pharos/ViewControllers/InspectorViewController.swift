@@ -436,11 +436,11 @@ class InspectorViewController: NSViewController {
 
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        let titleLabel = NSTextField(labelWithString: title)
+        let titleLabel = NSTextField(labelWithString: DisplayEscape.escaped(title))
         titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         titleLabel.textColor = .secondaryLabelColor
 
-        let subtitleLabel = NSTextField(labelWithString: subtitle)
+        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escaped(subtitle))
         subtitleLabel.font = .systemFont(ofSize: 11)
         subtitleLabel.textColor = .tertiaryLabelColor
         subtitleLabel.alignment = .right

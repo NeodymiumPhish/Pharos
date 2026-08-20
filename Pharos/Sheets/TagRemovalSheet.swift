@@ -336,7 +336,7 @@ final class TagRemovalSheet: NSViewController {
             guard let window = view.window else { return }
             let alert = NSAlert()
             alert.messageText = "Could not remove the tuples"
-            alert.informativeText = "\(error)"
+            alert.informativeText = DisplayEscape.escapedMultiline("\(error)")
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window)
         }

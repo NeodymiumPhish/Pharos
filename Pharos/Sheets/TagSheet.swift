@@ -364,7 +364,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
             NSLog("Tag save failed: \(error)")
             let alert = NSAlert()
             alert.messageText = "Could not save the tag"
-            alert.informativeText = "\(error)"
+            alert.informativeText = DisplayEscape.escapedMultiline("\(error)")
             alert.addButton(withTitle: "OK")
             guard let window = view.window else { return }
             alert.beginSheetModal(for: window)

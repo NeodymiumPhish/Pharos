@@ -30,7 +30,7 @@ class ImportDataSheet: NSViewController {
         let titleLabel = NSTextField(labelWithString: "Import Data")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
-        let subtitleLabel = NSTextField(labelWithString: "\(schema).\(table)")
+        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escapedQualified(schema: schema, table: table))
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
@@ -94,13 +94,13 @@ class ImportDataSheet: NSViewController {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Select a CSV file to import into \(schema).\(table)"
+        panel.message = "Select a CSV file to import into \(DisplayEscape.escapedQualified(schema: schema, table: table))"
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             if response == .OK, let url = panel.url {
                 self?.selectedFilePath = url.path
-                self?.filePathLabel.stringValue = url.lastPathComponent
+                self?.filePathLabel.stringValue = DisplayEscape.escaped(url.lastPathComponent)
                 self?.filePathLabel.textColor = .labelColor
             }
         }

@@ -99,7 +99,8 @@ private struct ConnectionListRow: View {
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(connection.name.isEmpty ? "Untitled" : connection.name)
+                Text(connection.name.isEmpty
+                    ? "Untitled" : DisplayEscape.escaped(connection.name))
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -123,7 +124,7 @@ private struct ConnectionListRow: View {
     private var subtitle: String {
         isStub
             ? "Not saved"
-            : "\(connection.host):\(connection.port) · \(connection.database)"
+            : "\(DisplayEscape.escaped(connection.host)):\(connection.port) · \(DisplayEscape.escaped(connection.database))"
     }
 
     private var statusColor: Color {
@@ -791,7 +792,7 @@ final class ConnectionsManagerVC: NSViewController {
                         self.testStatusLabel.textColor = .systemGreen
                         self.populateDefaultSchemas(using: d)
                     } else {
-                        self.testStatusLabel.stringValue = result.error ?? "Failed"
+                        self.testStatusLabel.stringValue = DisplayEscape.escaped(result.error ?? "Failed")
                         self.testStatusLabel.textColor = .systemRed
                     }
                 }
@@ -801,7 +802,7 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    self.testStatusLabel.stringValue = error.localizedDescription
+                    self.testStatusLabel.stringValue = DisplayEscape.escaped(error.localizedDescription)
                     self.testStatusLabel.textColor = .systemRed
                 }
             }

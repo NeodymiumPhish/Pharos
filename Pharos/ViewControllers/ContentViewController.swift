@@ -2249,7 +2249,9 @@ class ContentViewController: NSViewController {
             let short = failure.message.count > 120
                 ? String(failure.message.prefix(120)) + "…" : failure.message
             Toast.show(
-                in: view, message: "\(failure.tabName) · \(short)", style: .error, duration: 4.0
+                in: view,
+                message: "\(DisplayEscape.escaped(failure.tabName)) · \(DisplayEscape.escaped(short))",
+                style: .error, duration: 4.0
             ) { [weak self] in
                 self?.openFailure(tabId: failure.tabId, failureId: failure.id)
             }

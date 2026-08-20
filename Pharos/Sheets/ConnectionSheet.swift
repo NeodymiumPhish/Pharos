@@ -212,7 +212,7 @@ class ConnectionSheet: NSViewController {
                             }
                         }
                     } else {
-                        self.testStatusLabel.stringValue = result.error ?? "Failed"
+                        self.testStatusLabel.stringValue = DisplayEscape.escaped(result.error ?? "Failed")
                         self.testStatusLabel.textColor = .systemRed
                     }
                 }
@@ -222,7 +222,7 @@ class ConnectionSheet: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    self.testStatusLabel.stringValue = error.localizedDescription
+                    self.testStatusLabel.stringValue = DisplayEscape.escaped(error.localizedDescription)
                     self.testStatusLabel.textColor = .systemRed
                 }
             }

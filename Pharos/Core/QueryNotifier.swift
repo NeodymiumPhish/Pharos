@@ -143,9 +143,9 @@ final class QueryNotifier: NSObject {
         connectionName: String?
     ) {
         let content = UNMutableNotificationContent()
-        content.title = "\(connectionName?.nonEmpty ?? "Pharos") · Query failed"
+        content.title = "\(DisplayEscape.escaped(connectionName?.nonEmpty ?? "Pharos")) · Query failed"
         let truncated = message.count > 200 ? String(message.prefix(200)) + "…" : message
-        content.body = "\(subheader)\n\(truncated)"
+        content.body = "\(DisplayEscape.escaped(subheader))\n\(DisplayEscape.escapedMultiline(truncated))"
         content.sound = .default
         content.categoryIdentifier = Self.categoryIdentifier
         content.threadIdentifier = tabId

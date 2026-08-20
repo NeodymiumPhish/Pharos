@@ -47,12 +47,12 @@ class SchemaTreeNode: NSObject {
 
     var title: String {
         switch kind {
-        case .schema(let info): return info.name
-        case .table(let info): return info.name
-        case .view(let info): return info.name
-        case .column(let info): return info.name
+        case .schema(let info): return DisplayEscape.escaped(info.name)
+        case .table(let info): return DisplayEscape.escaped(info.name)
+        case .view(let info): return DisplayEscape.escaped(info.name)
+        case .column(let info): return DisplayEscape.escaped(info.name)
         case .partitionGroup: return "Partitions"
-        case .partition(let info): return info.name
+        case .partition(let info): return DisplayEscape.escaped(info.name)
         case .loading: return "Loading\u{2026}"
         }
     }
@@ -63,7 +63,7 @@ class SchemaTreeNode: NSObject {
             if case .table(let info) = kind, info.isPartitioned {
                 var parts: [String] = []
                 if let key = PartitionDisplay.keyColumns(fromPartKeyDef: info.partitionKey) {
-                    parts.append("by (\(key))")
+                    parts.append("by (\(DisplayEscape.escaped(key)))")
                 }
                 if let count = info.partitionCount { parts.append("\(count) partitions") }
                 if partitionMatchCount > 0 { parts.append("\(partitionMatchCount) matching") }
@@ -80,6 +80,9 @@ class SchemaTreeNode: NSObject {
                 default: return ""
                 }
             }
+            // The bare " " sentinel means "reserve the subtitle line, draw nothing".
+            // It must NOT be escaped: DisplayEscape.escaped(" ") is "<U+0020>",
+            // which would put a pill in every rowless table's row.
             guard hasRowCount else { return " " }
             switch kind {
             case .table(let info), .view(let info):
@@ -90,7 +93,7 @@ class SchemaTreeNode: NSObject {
             default: return " "
             }
         case .column(let info):
-            var parts = [info.dataType]
+            var parts = [DisplayEscape.escaped(info.dataType)]
             if info.isPrimaryKey { parts.append("PK") }
             if !info.isNullable { parts.append("NOT NULL") }
             return parts.joined(separator: ", ")
@@ -98,7 +101,8 @@ class SchemaTreeNode: NSObject {
             if let count = parent.partitionCount { return "\(count) partitions" }
             return "\(children.count) partitions"
         case .partition(let info):
-            return PartitionDisplay.boundSummary(info.partitionBound) ?? " "
+            return PartitionDisplay.boundSummary(info.partitionBound)
+                .map(DisplayEscape.escaped) ?? " "
         default:
             return nil
         }

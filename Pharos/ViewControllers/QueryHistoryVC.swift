@@ -626,13 +626,13 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             cell.identifier = cellId
         }
 
-        cell.primaryLabel.stringValue = "📊 \(w.name)"
+        cell.primaryLabel.stringValue = "📊 \(DisplayEscape.escaped(w.name))"
         let clause = HistoryRowText.queryClause(
             total: w.queryCount,
             matches: matchesByWorkspace[w.id]?.count ?? 0,
             isFiltering: isFiltering
         )
-        cell.secondaryLabel.stringValue = "\(clause) · \(formatDate(w.lastActivityAt)) · \(w.connectionName)"
+        cell.secondaryLabel.stringValue = "\(clause) · \(formatDate(w.lastActivityAt)) · \(DisplayEscape.escaped(w.connectionName))"
         return cell
     }
 
@@ -667,7 +667,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         } else {
             colText = ""
         }
-        let tableText = entry.tableNames ?? ""
+        let tableText = DisplayEscape.escaped(entry.tableNames ?? "")
 
         if !colText.isEmpty && !tableText.isEmpty {
             cell.primaryLabel.stringValue = "\(colText) – \(tableText)"
@@ -678,7 +678,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         } else {
             // Fallback: first line of SQL
             let firstLine = entry.sql.components(separatedBy: .newlines).first ?? entry.sql
-            cell.primaryLabel.stringValue = firstLine.trimmingCharacters(in: .whitespaces)
+            cell.primaryLabel.stringValue = DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces))
         }
 
         // Line 2: "1,000 Rows - 1h ago"
@@ -690,7 +690,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         }
         let dateText = formatDate(entry.executedAt)
 
-        let connName = entry.connectionName
+        let connName = DisplayEscape.escaped(entry.connectionName)
         if !rowText.isEmpty {
             cell.secondaryLabel.stringValue = "\(rowText) – \(dateText) – \(connName)"
         } else {

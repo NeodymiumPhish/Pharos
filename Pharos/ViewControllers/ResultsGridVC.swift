@@ -472,7 +472,7 @@ class ResultsGridVC: NSViewController {
     func showResultBanner(schema: String?, date: Date) {
         let schemaText = schema ?? "default"
         let timeText = Self.resultBannerDateFormatter.string(from: date)
-        resultBannerLabel.stringValue = "\(schemaText) \u{00B7} \(timeText)"
+        resultBannerLabel.stringValue = "\(DisplayEscape.escaped(schemaText)) \u{00B7} \(timeText)"
         resultBannerLabel.isHidden = false
     }
 
@@ -734,7 +734,7 @@ class ResultsGridVC: NSViewController {
     func setPinState(pinned: Bool, tabName: String?) {
         isPinned = pinned
         if let name = tabName {
-            pinSourceLabel.stringValue = "Pinned: \(name)"
+            pinSourceLabel.stringValue = "Pinned: \(DisplayEscape.escaped(name))"
         }
         updatePinUI()
     }

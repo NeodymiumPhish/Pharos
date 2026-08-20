@@ -899,7 +899,7 @@ class EditorPaneVC: NSViewController {
            let config = connections.first(where: { $0.id == activeId }) {
             let status = stateManager.status(for: config.id)
             let statusIcon = statusString(for: status)
-            buttonTitle = "\(statusIcon)\(config.name)"
+            buttonTitle = "\(statusIcon)\(DisplayEscape.escaped(config.name))"
         } else if connections.isEmpty {
             buttonTitle = "No Connections"
         } else {
@@ -922,7 +922,7 @@ class EditorPaneVC: NSViewController {
             for config in connections {
                 let status = stateManager.status(for: config.id)
                 let icon = statusString(for: status)
-                let title = "\(icon)\(config.name)"
+                let title = "\(icon)\(DisplayEscape.escaped(config.name))"
                 let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
                 menuItem.target = self
                 menuItem.representedObject = config.id
@@ -984,7 +984,7 @@ class EditorPaneVC: NSViewController {
         // The button shows a single title item; the full schema list and the
         // "All Schemas" / "Set as Default" actions now live in the popover
         // (see presentSchemaPopover), which scrolls naturally for long lists.
-        let titleText = activeSchema ?? "All Schemas"
+        let titleText = DisplayEscape.escaped(activeSchema ?? "All Schemas")
         schemaPopup.addItem(withTitle: titleText)
     }
 

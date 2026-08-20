@@ -153,11 +153,11 @@ class SchemaDetailSheet: NSViewController {
     private var sheetTitle: String {
         switch kind {
         case .indexes(let schema, let table, _):
-            return "Indexes — \(schema).\(table)"
+            return "Indexes — \(DisplayEscape.escapedQualified(schema: schema, table: table))"
         case .constraints(let schema, let table, _):
-            return "Constraints — \(schema).\(table)"
+            return "Constraints — \(DisplayEscape.escapedQualified(schema: schema, table: table))"
         case .functions(let schema, _):
-            return "Functions — \(schema)"
+            return "Functions — \(DisplayEscape.escaped(schema))"
         }
     }
 
@@ -200,7 +200,7 @@ extension SchemaDetailSheet: NSTableViewDataSource, NSTableViewDelegate {
             cell.font = .systemFont(ofSize: 12)
         }
 
-        cell.stringValue = cellValue(column: columnId, row: row)
+        cell.stringValue = DisplayEscape.escaped(cellValue(column: columnId, row: row))
         return cell
     }
 
