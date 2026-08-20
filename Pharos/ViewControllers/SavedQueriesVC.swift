@@ -531,8 +531,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
 
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.stringValue = currentName
+        let textField = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        textField.stringValue = AuthoredLabelSanitizer.sanitized(currentName)
         alert.accessoryView = textField
 
         guard let window = view.window else { return }

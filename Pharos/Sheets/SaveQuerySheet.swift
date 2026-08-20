@@ -10,7 +10,7 @@ enum SaveQueryAction {
 /// Allows choosing a name and folder. Detects duplicate names and offers replace.
 class SaveQuerySheet: NSViewController {
 
-    private let nameField = NSTextField()
+    private let nameField = AuthoredLabelTextField()
     private let folderPopup = NSPopUpButton()
 
     /// Marks the one row that means "prompt me for a new folder name".
@@ -53,7 +53,7 @@ class SaveQuerySheet: NSViewController {
         // Name
         let nameLabel = NSTextField.formLabel("Name")
         nameField.placeholderString = "Query name"
-        nameField.stringValue = initialName
+        nameField.stringValue = AuthoredLabelSanitizer.sanitized(initialName)
 
         // Folder
         let folderLabel = NSTextField.formLabel("Folder")
@@ -139,7 +139,7 @@ class SaveQuerySheet: NSViewController {
             alert.messageText = "New Folder"
             alert.addButton(withTitle: "Create")
             alert.addButton(withTitle: "Cancel")
-            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            let textField = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
             textField.placeholderString = "Folder name"
             alert.accessoryView = textField
 

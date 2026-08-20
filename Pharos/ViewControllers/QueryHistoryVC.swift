@@ -471,8 +471,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
         let alert = NSAlert()
         alert.messageText = "Rename Workspace"
-        let field = NSTextField(string: w.name)
-        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        let field = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = AuthoredLabelSanitizer.sanitized(w.name)
         alert.accessoryView = field
         alert.addButton(withTitle: "Rename")
         alert.addButton(withTitle: "Cancel")
