@@ -60,6 +60,11 @@ enum PopupValueMenu {
     /// which a row that merely *forgot* its value shares — and one caller
     /// (`TagSheet`) branches its whole "create versus add to existing" mode on
     /// that answer.
+    ///
+    /// **Pass a NON-ZERO tag if you intend to compare against it.** Every value
+    /// row leaves `NSMenuItem.tag` at its default of 0, so `sentinelTag: 0`
+    /// (the default here, for the callers that never look) marks nothing and a
+    /// `tag == 0` test would match every row.
     static func populate(
         _ popup: NSPopUpButton,
         sentinel: String?,
