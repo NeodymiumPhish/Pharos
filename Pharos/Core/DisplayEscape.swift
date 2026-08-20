@@ -58,10 +58,25 @@ enum DisplayEscape {
     }
 
     /// Whether a scalar is hostile in FLOWING text — a SQL preview, an editor,
-    /// any multi-line body where `\n` and `\t` are the text's own formatting
-    /// rather than smuggled controls. Everything else `mustEscape` names stays
-    /// hostile, including a stray `\r`. This is a SUBSET of `mustEscape`, not
-    /// a superset: it relaxes exactly those two scalars and nothing else.
+    /// any multi-line body where `\n`, `\r` and `\t` are the text's own
+    /// formatting rather than smuggled controls. `\r` is relaxed because a
+    /// CRLF document is an ordinary Windows `.sql` file, not an attack:
+    /// AppKit does NOT normalise pasted CRLF (measured for both
+    /// `NSTextView.string =` and `insertText`), so treating CR as hostile put a
+    /// `<U+000D>` pill at the end of EVERY line of such a file. Everything else
+    /// `mustEscape` names stays hostile. This is a SUBSET of `mustEscape`, not
+    /// a superset: it relaxes exactly those three scalars and nothing else —
+    /// notably NOT the vertical tab or form feed that sit between them.
+    ///
+    /// The relaxed set is deliberately not the contiguous run 0x09...0x0D:
+    /// VT (0x0B) and FF (0x0C) are still disclosed, because neither is a line
+    /// ending any editor or database produces on purpose.
+    ///
+    /// Relaxing `\r` deliberately also stops `escapedMultiline` — the
+    /// destructive-query preview — from disclosing CR. That is an improvement
+    /// for the same reason: a CRLF query previously showed `<U+000D>` at every
+    /// line end. `escaped()`, which renders SINGLE-line labels where a CR is
+    /// never legitimate formatting, is unaffected and still discloses it.
     ///
     /// One definition, two consumers: `escapedMultiline` renders a hit as
     /// `<U+XXXX>` text, and `FoldingLayoutManager` renders a hit as a pill
@@ -76,7 +91,7 @@ enum DisplayEscape {
     /// can never have a hostile hit land on either half of a surrogate pair.
     /// See `mustEscape`'s doc comment for what breaks that invariant.
     static func isHostileInFlowingText(_ scalar: Unicode.Scalar) -> Bool {
-        mustEscape(scalar) && scalar != "\n" && scalar != "\t"
+        mustEscape(scalar) && scalar != "\n" && scalar != "\t" && scalar != "\r"
     }
 
     /// Whether `escaped(_:)` would change this string.

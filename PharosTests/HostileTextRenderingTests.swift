@@ -129,6 +129,21 @@ func runTests() {
                "the override is still obeyed — the pill discloses it, it does not undo it")
     }
 
+    // MARK: - 6b. A CRLF document is ordinary data, not an attack
+
+    do {
+        // AppKit does NOT normalise pasted CRLF, so if CR counted as hostile
+        // every line of a Windows .sql file would end in a `<U+000D>` pill.
+        let (_, crlf) = makeDisclosingView("SELECT a\r\n  FROM t\r\n")
+        expect(crlf.hostilePillLabel(forCharacterAt: 8) == nil,
+               "a CR is a CRLF document's own line ending — no pill")
+        // And the line does not grow: a pill would have widened it by ~68pt.
+        let (_, lf) = makeDisclosingView("SELECT a\n  FROM t\n")
+        let crlfWidth = crlf.usedRect(for: crlf.textContainers[0]).width
+        let lfWidth = lf.usedRect(for: lf.textContainers[0]).width
+        expectClose(crlfWidth, lfWidth, "a CRLF document is no wider than the same text with LF")
+    }
+
     // MARK: - 7. Fold precedence (pure rule)
 
     do {
@@ -143,6 +158,32 @@ func runTests() {
                "an ordinary scalar outside every fold is left alone")
         expect(FoldingLayoutManager.glyphDisposition(charIndex: 2, foldedRanges: [], isHostile: true) == .disclosedControl,
                "with no folds at all, a hostile scalar is disclosed")
+    }
+
+    // MARK: - 8. The rule and the renderers agree (one seam)
+
+    do {
+        // `glyphDisposition` is only a rule; `disclosedPillLabel` is what the
+        // delegate hooks and the draw loop actually ask. They must give the same
+        // answer, or width is reserved that nothing paints (or vice versa).
+        let storage = NSTextStorage(string: "AB\u{200B}CD\u{202E}EF")
+        let foldState = FoldState()
+        foldState.add(range: NSRange(location: 2, length: 3), placeholder: "…")
+        let layoutManager = FoldingLayoutManager(foldState: foldState)
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(width: 10_000, height: 10_000))
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+
+        // Index 2 is the fold's anchor AND hostile: the fold's pill speaks for
+        // it, so no hostile pill is reserved or drawn.
+        expect(layoutManager.isHostileCharacter(at: 2),
+               "the fold anchor really is a hostile scalar (the case is not vacuous)")
+        expect(layoutManager.disclosedPillLabel(forCharacterAt: 2) == nil,
+               "a hostile fold ANCHOR gets no hostile pill — the fold's own pill speaks for it")
+        // Index 5 is the RLO, outside the fold 2..<5: disclosed.
+        expect(layoutManager.disclosedPillLabel(forCharacterAt: 5) == "<U+202E>",
+               "a hostile scalar outside the fold still gets its pill")
     }
 
     if failures == 0 { print("\nAll hostile-text rendering tests passed.") } else {

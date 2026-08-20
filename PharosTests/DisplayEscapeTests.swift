@@ -213,16 +213,17 @@ func runTests() {
                 "a newline is the text's own formatting")
     expectEqual(DisplayEscape.isHostileInFlowingText("\t"), false,
                 "a tab is the text's own formatting")
-    expectEqual(DisplayEscape.isHostileInFlowingText("\r"), true,
-                "a stray carriage return is still disclosed")
+    expectEqual(DisplayEscape.isHostileInFlowingText("\r"), false,
+                "a carriage return is a CRLF document's own line ending, not smuggled data")
     expectEqual(DisplayEscape.isHostileInFlowingText("A"), false,
                 "an ordinary letter is not hostile")
     expectEqual(DisplayEscape.isHostileInFlowingText(" "), false,
                 "a plain space is not hostile in flowing text — indentation is normal")
-    // Only \n and \t are relaxed — a mutant that widens the relaxed range to
-    // 0x09...0x0C would pass every assertion above without these three.
+    // Only \n, \r and \t are relaxed. Those three are NOT contiguous — they
+    // straddle VT and FF — so a mutant that relaxed the whole 0x09...0x0D run
+    // would pass every assertion above without these three.
     expectEqual(DisplayEscape.isHostileInFlowingText("\u{0B}"), true,
-                "a vertical tab is not the text's own formatting — only \\n and \\t are")
+                "a vertical tab is not the text's own formatting — only \\n, \\r and \\t are")
     expectEqual(DisplayEscape.isHostileInFlowingText("\u{0C}"), true,
                 "a form feed is still disclosed")
     expectEqual(DisplayEscape.isHostileInFlowingText("\u{0085}"), true,
