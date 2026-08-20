@@ -660,8 +660,14 @@ final class ConnectionsManagerVC: NSViewController {
         case .disable: sslPopup.selectItem(at: 2)
         }
         defaultSchemaPopup.removeAllItems()
+        // `fetchedSchemas` was already cleared at the top of this method, and it
+        // must stay cleared here: this path does not populate the popup from a
+        // fetch, so leaving the previous connection's schemas in place would let
+        // a future edit that enables this popup read back a schema from a
+        // different connection.
         if let saved = config.defaultSchema, !saved.isEmpty {
-            defaultSchemaPopup.addItem(withTitle: saved)
+            defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(saved))
+            defaultSchemaPopup.lastItem?.representedObject = saved
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = "Test the connection to refresh the schema list."
         } else {
@@ -733,8 +739,9 @@ final class ConnectionsManagerVC: NSViewController {
         default: d.sslMode = .prefer
         }
         if defaultSchemaPopup.isEnabled,
-           defaultSchemaPopup.indexOfSelectedItem > 0 {
-            d.defaultSchema = defaultSchemaPopup.titleOfSelectedItem
+           defaultSchemaPopup.indexOfSelectedItem > 0,
+           let selected = PopupValueSelection.selectedValue(in: defaultSchemaPopup) {
+            d.defaultSchema = selected
         }
         draft = d
 
@@ -826,7 +833,8 @@ final class ConnectionsManagerVC: NSViewController {
                     self.defaultSchemaPopup.removeAllItems()
                     self.defaultSchemaPopup.addItem(withTitle: "None")
                     for schema in schemas {
-                        self.defaultSchemaPopup.addItem(withTitle: schema.name)
+                        self.defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(schema.name))
+                        self.defaultSchemaPopup.lastItem?.representedObject = schema.name
                     }
                     self.defaultSchemaPopup.isEnabled = true
                     if let existing = self.draft?.defaultSchema,

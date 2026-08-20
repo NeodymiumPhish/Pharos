@@ -201,7 +201,8 @@ class ConnectionSheet: NSViewController {
                                     self.defaultSchemaPopup.removeAllItems()
                                     self.defaultSchemaPopup.addItem(withTitle: "None")
                                     for schema in schemas {
-                                        self.defaultSchemaPopup.addItem(withTitle: schema.name)
+                                        self.defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(schema.name))
+                                        self.defaultSchemaPopup.lastItem?.representedObject = schema.name
                                     }
                                     self.defaultSchemaPopup.isEnabled = true
                                     if let existing = self.existingConfig?.defaultSchema,
@@ -261,8 +262,9 @@ class ConnectionSheet: NSViewController {
 
         let defaultSchema: String? = {
             if defaultSchemaPopup.isEnabled,
-               defaultSchemaPopup.indexOfSelectedItem > 0 {
-                return defaultSchemaPopup.titleOfSelectedItem
+               defaultSchemaPopup.indexOfSelectedItem > 0,
+               let selected = PopupValueSelection.selectedValue(in: defaultSchemaPopup) {
+                return selected
             }
             return existingConfig?.defaultSchema
         }()

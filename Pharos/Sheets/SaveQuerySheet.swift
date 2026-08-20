@@ -55,7 +55,8 @@ class SaveQuerySheet: NSViewController {
         if !existingFolders.isEmpty {
             folderPopup.menu?.addItem(.separator())
             for folder in existingFolders {
-                folderPopup.addItem(withTitle: folder)
+                folderPopup.addItem(withTitle: DisplayEscape.escaped(folder))
+                folderPopup.lastItem?.representedObject = folder
             }
         }
         folderPopup.menu?.addItem(.separator())
@@ -116,8 +117,12 @@ class SaveQuerySheet: NSViewController {
 
         // Handle "New Folder..." selection
         var folder: String?
-        let selectedTitle = folderPopup.titleOfSelectedItem ?? "No Folder"
-        if selectedTitle == "New Folder..." {
+        // The selected ITEM decides, not its title: titles are escaped for
+        // display, and a folder genuinely named "No Folder" used to be
+        // swallowed by the sentinel comparison below.
+        let selectedIsNewFolder = folderPopup.indexOfSelectedItem == folderPopup.numberOfItems - 1
+        let selectedFolder = PopupValueSelection.selectedValue(in: folderPopup)
+        if selectedIsNewFolder {
             // Prompt for folder name synchronously
             let alert = NSAlert()
             alert.messageText = "New Folder"
@@ -134,8 +139,8 @@ class SaveQuerySheet: NSViewController {
             } else {
                 return // User cancelled folder creation
             }
-        } else if selectedTitle != "No Folder" {
-            folder = selectedTitle
+        } else {
+            folder = selectedFolder
         }
 
         // Check for duplicate name in the same folder
