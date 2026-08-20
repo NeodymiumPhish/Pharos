@@ -456,3 +456,47 @@ extension FoldingLayoutManager: NSLayoutManagerDelegate {
                       height: proposedRect.height)
     }
 }
+
+// MARK: - Shared TextKit-Stack Factory
+
+extension NSTextView {
+
+    /// An `NSTextView` already wired with the disclosing stack — a fresh
+    /// `NSTextStorage` laid out by a `FoldingLayoutManager`/`FoldState` pair —
+    /// instead of AppKit's own stock one.
+    ///
+    /// For any surface with a Copy action, this is the ONLY correct answer, not
+    /// one of several: escaping the displayed string would either corrupt what
+    /// Copy yields (a `<U+202E>` token pasted into a real query or filename) or
+    /// diverge from the string Copy is supposed to reproduce exactly — and this
+    /// app's raw-bytes invariant (see `DisplayEscape`'s "Display only" section)
+    /// forbids both. A pill discloses the scalar without touching storage, so
+    /// Copy still yields the exact raw bytes underneath it. That is why every
+    /// read-only, copyable text view in the app (`TableDDLSheet`'s DDL pane,
+    /// `QueryErrorSheet`'s SQL and error panes, `QueryDetailSheet`'s SQL pane)
+    /// must use this stack, not `DisplayEscape.escaped`/`escapedMultiline`.
+    ///
+    /// Needed wherever a stack has to be built OUTSIDE a method body — a stored
+    /// property's inline initializer, for instance — because the two built-in
+    /// shortcuts both fail there in opposite directions: `NSTextView()` alone
+    /// builds AppKit's own COMPLETE stock stack automatically (functional, but
+    /// with a plain `NSLayoutManager` that never discloses anything), while
+    /// `NSTextView(frame:textContainer:)` given a nil container leaves
+    /// `textStorage`, `layoutManager` and `textContainer` all nil and then
+    /// silently drops every assignment to `.string`.
+    ///
+    /// Callers that already configure `textView.textContainer?` further
+    /// (`widthTracksTextView`, a large `containerSize`, etc.) can keep doing so
+    /// afterward — this only supplies a stack where the call site previously
+    /// had none or had the wrong kind.
+    static func disclosingHostileScalars() -> NSTextView {
+        let storage = NSTextStorage()
+        let layoutManager = FoldingLayoutManager(foldState: FoldState())
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer()
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+        return NSTextView(frame: .zero, textContainer: container)
+    }
+}

@@ -9,6 +9,9 @@ swiftc -o /tmp/query-error-sheet-tests \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
+  Pharos/Core/DisplayEscape.swift \
+  Pharos/Editor/FoldState.swift \
+  Pharos/Editor/FoldingLayoutManager.swift \
   Pharos/Sheets/QueryErrorSheet.swift \
   PharosTests/QueryErrorSheetTests.swift \
   PharosTests/main.swift

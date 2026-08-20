@@ -51,7 +51,11 @@ class QueryDetailSheet: NSViewController {
         sqlScrollView.borderType = .bezelBorder
         sqlScrollView.drawsBackground = true
 
-        let sqlTextView = NSTextView()
+        // Disclosing stack, not a stock one: this pane shows the tab's raw SQL
+        // and has a Copy action, so escaping the display would either corrupt
+        // what Copy yields or diverge from it. See
+        // `NSTextView.disclosingHostileScalars()`'s doc comment.
+        let sqlTextView = NSTextView.disclosingHostileScalars()
         sqlTextView.isEditable = false
         sqlTextView.isSelectable = true
         sqlTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)

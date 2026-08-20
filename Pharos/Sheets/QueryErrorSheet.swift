@@ -34,8 +34,14 @@ final class QueryErrorSheet: NSViewController {
     let counterLabel = NSTextField(labelWithString: "")
     let previousButton = NSButton()
     let nextButton = NSButton()
-    let sqlTextView = NSTextView()
-    let errorTextView = NSTextView()
+    // Disclosing stacks, not stock ones: both panes are attacker-controlled
+    // (`errorTextView` shows the server's own error text — the most
+    // attacker-controlled of the two) and both have a Copy action, so escaping
+    // is not an option here — see `NSTextView.disclosingHostileScalars()`'s
+    // doc comment for why a pill is the only mechanism that discloses a
+    // hostile scalar without corrupting what Copy puts on the pasteboard.
+    let sqlTextView = NSTextView.disclosingHostileScalars()
+    let errorTextView = NSTextView.disclosingHostileScalars()
     let goToErrorButton = NSButton(title: "Go to Error", target: nil, action: nil)
     let dismissButton = NSButton(title: "Dismiss", target: nil, action: nil)
     let dismissAllButton = NSButton(title: "Dismiss All", target: nil, action: nil)
