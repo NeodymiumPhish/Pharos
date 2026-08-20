@@ -24,17 +24,19 @@ import Foundation
 ///
 /// - Bidi controls — the marks (LRM, RLM, ALM), the embedding/override set and
 ///   the isolates — are REMOVED. These are the family that reorders a label.
-/// - C0 controls and DEL are REMOVED, except the five whitespace controls
-///   (tab, LF, VT, FF, CR), which fold to a space: a name pasted out of a cell
-///   can carry a newline, and joining `alpha` to `beta` would be its own small
-///   misreading.
-/// - Zero-width characters and the BOM are REMOVED. They are invisible, so two
-///   names that differ only by one are two names that read identically.
-/// - Unusual spaces (NBSP and its relatives) FOLD to a normal space rather
-///   than being removed. Removing them would close up a gap the author can
-///   see and did intend; folding leaves the name looking exactly as it did
-///   while making it the string it appears to be — searchable, re-typable, and
-///   no longer a twin of the name beside it.
+/// - C0 and C1 controls and DEL are REMOVED, except the whitespace controls
+///   (tab, LF, VT, FF, CR, NEL) and the line/paragraph separators (U+2028,
+///   U+2029), which FOLD to a space: a name pasted out of a cell or a
+///   multi-line source can carry one of these, and joining `alpha` to `beta`
+///   would be its own small misreading.
+/// - Zero-width characters, the BOM and the Mongolian vowel separator are
+///   REMOVED. They are invisible, so two names that differ only by one are
+///   two names that read identically.
+/// - Unusual spaces (NBSP, the ogham space mark, and their relatives) FOLD to
+///   a normal space rather than being removed. Removing them would close up a
+///   gap the author can see and did intend; folding leaves the name looking
+///   exactly as it did while making it the string it appears to be —
+///   searchable, re-typable, and no longer a twin of the name beside it.
 ///
 /// Nothing else is touched: no case folding, no trimming, no collapsing of
 /// repeated spaces. Trimming in particular belongs at save (both sheets already
@@ -56,12 +58,13 @@ enum TagNameSanitizer {
     static func disposition(of scalar: Unicode.Scalar) -> Disposition {
         switch scalar.value {
         case 0x09, 0x0A, 0x0B, 0x0C, 0x0D: return .foldToSpace  // the C0 whitespace
-        case 0x00...0x1F, 0x7F: return .remove                  // the rest of C0, and DEL
+        case 0x0085, 0x2028, 0x2029: return .foldToSpace        // NEL, line/paragraph separators
+        case 0x00...0x1F, 0x7F...0x9F: return .remove           // the rest of C0, DEL, the rest of C1
         case 0x200E, 0x200F, 0x061C: return .remove             // LRM, RLM, ALM
         case 0x202A...0x202E: return .remove                    // embeddings and overrides
         case 0x2066...0x2069: return .remove                    // the isolate set
-        case 0x200B...0x200D, 0x2060, 0xFEFF: return .remove     // zero-width, BOM
-        case 0x00A0, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return .foldToSpace
+        case 0x200B...0x200D, 0x2060, 0xFEFF, 0x180E: return .remove  // zero-width, BOM, MVS
+        case 0x00A0, 0x1680, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return .foldToSpace
         default: return .keep
         }
     }

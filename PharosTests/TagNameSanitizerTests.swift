@@ -271,6 +271,28 @@ func runTests() {
                    "and the rewrite did not feed itself a cascade of further changes (\(delegate.changeCount))")
     }
 
+    // MARK: - 10. Parity with DisplayEscape's widened scalar set
+
+    do {
+        // Scalars added by the hostile-text hardening phase. Line and paragraph
+        // separators and NEL fold like the C0 whitespace (joining alpha to beta
+        // would be its own misreading); the ogham space folds like the other
+        // unusual spaces; the invisible scalars (the rest of C1, and the
+        // Mongolian vowel separator) are removed.
+        expectEqual(TagNameSanitizer.sanitized("one\u{2028}two"), "one two",
+                    "line separator folds to a space")
+        expectEqual(TagNameSanitizer.sanitized("one\u{2029}two"), "one two",
+                    "paragraph separator folds to a space")
+        expectEqual(TagNameSanitizer.sanitized("one\u{0085}two"), "one two",
+                    "NEL folds to a space")
+        expectEqual(TagNameSanitizer.sanitized("a\u{009B}b"), "ab",
+                    "a C1 control is removed")
+        expectEqual(TagNameSanitizer.sanitized("a\u{1680}b"), "a b",
+                    "ogham space mark folds to a space")
+        expectEqual(TagNameSanitizer.sanitized("a\u{180E}b"), "ab",
+                    "Mongolian vowel separator is removed")
+    }
+
     if failures == 0 {
         print("\nAll TagNameSanitizer tests passed.")
     } else {
