@@ -387,15 +387,20 @@ class InspectorViewController: NSViewController {
                 }
 
             case .temporal:
+                // Escaped HERE and not inside `makeStatLine`: these two are the
+                // only captured cell values that reach it. Its other callers
+                // pass numbers from `aggregateFormatter`, and a locale that
+                // groups digits with a non-breaking space would then have its
+                // own thousands separator disclosed as `<U+00A0>`.
                 if let earliest = agg.earliest {
                     let earliestLine = makeStatLine(pairs: [
-                        ("Earliest: ", earliest, .systemPurple),
+                        ("Earliest: ", DisplayEscape.escaped(earliest), .systemPurple),
                     ])
                     stackView.addArrangedSubview(earliestLine)
                 }
                 if let latest = agg.latest {
                     let latestLine = makeStatLine(pairs: [
-                        ("Latest: ", latest, .systemPurple),
+                        ("Latest: ", DisplayEscape.escaped(latest), .systemPurple),
                     ])
                     stackView.addArrangedSubview(latestLine)
                 }
