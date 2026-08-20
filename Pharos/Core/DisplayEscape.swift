@@ -35,6 +35,15 @@ import Foundation
 enum DisplayEscape {
 
     /// Scalars that must never reach a label as themselves.
+    ///
+    /// Every case above tops out at U+FEFF — the whole set lives inside the
+    /// BMP, so no scalar this function calls hostile can be one half of a
+    /// surrogate pair. A consumer that walks UTF-16 units one at a time and
+    /// tests each as its own scalar (`FoldingLayoutManager`'s per-unit scan)
+    /// relies on that: it never has to reassemble a pair to find one. If a
+    /// non-BMP scalar is ever added here — the U+E0020–U+E007F tag characters
+    /// are the realistic candidate — that per-unit walk stops seeing it and
+    /// must become a scalar walk instead.
     static func mustEscape(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x00...0x1F, 0x7F...0x9F: return true   // C0 controls, DEL, C1 controls (incl. NEL)
@@ -51,12 +60,22 @@ enum DisplayEscape {
     /// Whether a scalar is hostile in FLOWING text — a SQL preview, an editor,
     /// any multi-line body where `\n` and `\t` are the text's own formatting
     /// rather than smuggled controls. Everything else `mustEscape` names stays
-    /// hostile, including a stray `\r`.
+    /// hostile, including a stray `\r`. This is a SUBSET of `mustEscape`, not
+    /// a superset: it relaxes exactly those two scalars and nothing else.
     ///
-    /// One definition, two consumers: `escapedMultiline` renders it as
-    /// `<U+XXXX>` text, and `FoldingLayoutManager` renders it as a pill without
-    /// touching the text. They must never disagree about what counts.
-    static func mustEscapeInFlowingText(_ scalar: Unicode.Scalar) -> Bool {
+    /// One definition, two consumers: `escapedMultiline` renders a hit as
+    /// `<U+XXXX>` text, and `FoldingLayoutManager` renders a hit as a pill
+    /// without touching the text — "escape" is the wrong verb for that second
+    /// consumer, which is why this predicate is named for the property
+    /// ("hostile") rather than the action. They must never disagree about
+    /// what counts.
+    ///
+    /// Inherits `mustEscape`'s BMP invariant: the highest scalar this can ever
+    /// call hostile is U+FEFF, so a caller that walks UTF-16 code units one at
+    /// a time and builds a scalar per unit — as `FoldingLayoutManager` does —
+    /// can never have a hostile hit land on either half of a surrogate pair.
+    /// See `mustEscape`'s doc comment for what breaks that invariant.
+    static func isHostileInFlowingText(_ scalar: Unicode.Scalar) -> Bool {
         mustEscape(scalar) && scalar != "\n" && scalar != "\t"
     }
 
@@ -100,14 +119,14 @@ enum DisplayEscape {
         }
     }
 
-    /// Multi-line preview variant. In a SQL preview, `\n` and `\t` are the
-    /// query's own formatting and edge spaces are ordinary indentation, so
-    /// none of those are marked; every OTHER hostile scalar is disclosed
-    /// exactly as `escaped` discloses it, run-collapsing included.
+    /// Multi-line preview variant. Which scalars are hostile is decided by
+    /// `isHostileInFlowingText` (edge spaces are ordinary indentation here
+    /// too, so they are never marked); every hit is disclosed exactly as
+    /// `escaped` discloses it, run-collapsing included.
     static func escapedMultiline(_ text: String) -> String {
         let scalars = Array(text.unicodeScalars)
         return escapedCore(scalars) { index in
-            mustEscapeInFlowingText(scalars[index])
+            isHostileInFlowingText(scalars[index])
         }
     }
 

@@ -205,20 +205,28 @@ func runTests() {
 
     // The predicate shared by the multi-line escaper and the editor's pill
     // rendering: in flowing text, `\n` and `\t` are the text's own formatting.
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("\u{202E}"), true,
+    expectEqual(DisplayEscape.isHostileInFlowingText("\u{202E}"), true,
                 "a bidi override is hostile in flowing text")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("\u{200B}"), true,
+    expectEqual(DisplayEscape.isHostileInFlowingText("\u{200B}"), true,
                 "a zero-width space is hostile in flowing text")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("\n"), false,
+    expectEqual(DisplayEscape.isHostileInFlowingText("\n"), false,
                 "a newline is the text's own formatting")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("\t"), false,
+    expectEqual(DisplayEscape.isHostileInFlowingText("\t"), false,
                 "a tab is the text's own formatting")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("\r"), true,
+    expectEqual(DisplayEscape.isHostileInFlowingText("\r"), true,
                 "a stray carriage return is still disclosed")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText("A"), false,
+    expectEqual(DisplayEscape.isHostileInFlowingText("A"), false,
                 "an ordinary letter is not hostile")
-    expectEqual(DisplayEscape.mustEscapeInFlowingText(" "), false,
+    expectEqual(DisplayEscape.isHostileInFlowingText(" "), false,
                 "a plain space is not hostile in flowing text — indentation is normal")
+    // Only \n and \t are relaxed — a mutant that widens the relaxed range to
+    // 0x09...0x0C would pass every assertion above without these three.
+    expectEqual(DisplayEscape.isHostileInFlowingText("\u{0B}"), true,
+                "a vertical tab is not the text's own formatting — only \\n and \\t are")
+    expectEqual(DisplayEscape.isHostileInFlowingText("\u{0C}"), true,
+                "a form feed is still disclosed")
+    expectEqual(DisplayEscape.isHostileInFlowingText("\u{0085}"), true,
+                "NEL is a line break the predicate still discloses")
 
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
