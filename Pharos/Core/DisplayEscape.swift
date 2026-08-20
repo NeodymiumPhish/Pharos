@@ -14,6 +14,9 @@ import Foundation
 ///   genuinely distinct values look the same.
 /// - **C0 controls.** NUL, BEL and ESC passed straight to the label; a newline
 ///   inside one value would read as two.
+/// - **Line and paragraph separators.** U+2028, U+2029 and U+0085 (NEL) are
+///   mandatory line breaks that AppKit obeys, so a single-line label silently
+///   becomes two.
 ///
 /// # Display only
 ///
@@ -34,7 +37,7 @@ enum DisplayEscape {
     /// Scalars that must never reach a label as themselves.
     static func mustEscape(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
-        case 0x00...0x1F, 0x7F: return true          // C0 controls and DEL
+        case 0x00...0x1F, 0x7F...0x9F: return true   // C0 controls, DEL, C1 controls (incl. NEL)
         case 0x200E, 0x200F, 0x061C: return true     // LRM, RLM, ALM
         case 0x202A...0x202E: return true            // the embedding/override set
         case 0x2066...0x2069: return true            // the isolate set

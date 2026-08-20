@@ -173,6 +173,14 @@ func runTests() {
                     "the Mongolian vowel separator is disclosed")
         expectEqual(DisplayEscape.needsEscaping("plain text"), false,
                     "ordinary text still passes the fast path untouched")
+        // U+0085 (NEL) is the fifth mandatory line break AppKit obeys; the rest
+        // of C1 is invisible control noise, exactly like C0.
+        expectEqual(DisplayEscape.escaped("one\u{0085}two"),
+                    "one<U+0085>two",
+                    "a next-line control is shown, not obeyed")
+        expectEqual(DisplayEscape.escaped("a\u{009B}b"),
+                    "a<U+009B>b",
+                    "a C1 control is disclosed")
     }
 
     if failures == 0 {
