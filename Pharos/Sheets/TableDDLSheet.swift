@@ -149,7 +149,10 @@ class TableDDLSheet: NSViewController {
         nameLabel.alignment = .right
         cloneNameField.placeholderString = "table_name"
         cloneNameField.delegate = self
-        cloneNameField.stringValue = "\(table)_copy"
+        // The default is seeded from a server-derived name, and the sanitising
+        // delegate fires only on edits — sanitise the seed itself so the field
+        // never HOLDS a deceptive name, not even before the first keystroke.
+        cloneNameField.stringValue = TagNameSanitizer.sanitized("\(table)_copy")
         cloneNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         includeRowsCheckbox.state = .off
 
