@@ -3226,10 +3226,23 @@ extension ContentViewController {
     }
 
     /// Sanitized result-tab label for use as a save-panel default filename.
+    ///
+    /// Two passes, covering different families. `SavedQueryFilename` is the
+    /// app's one filename sanitiser and handles the INVISIBLE class — controls,
+    /// bidi, zero-width — which this function used to miss entirely. The local
+    /// set is punctuation this panel has always replaced and the shared
+    /// sanitiser deliberately does not, because a saved query named `50%`
+    /// should keep its `%`.
     private func defaultChartExportBaseName() -> String {
-        guard let id = activeResultTabId, let tab = resultTabs.first(where: { $0.id == id }) else { return "chart" }
+        // The empty check moved ahead of the sanitiser: it returns "untitled"
+        // for an empty name, which would beat this function's own "chart".
+        guard let id = activeResultTabId,
+              let tab = resultTabs.first(where: { $0.id == id }),
+              !tab.label.trimmingCharacters(in: .whitespaces).isEmpty
+        else { return "chart" }
         let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
-        let cleaned = tab.label.components(separatedBy: invalid).joined(separator: "-")
+        let cleaned = SavedQueryFilename.sanitize(tab.label)
+            .components(separatedBy: invalid).joined(separator: "-")
             .trimmingCharacters(in: .whitespaces)
         return cleaned.isEmpty ? "chart" : cleaned
     }

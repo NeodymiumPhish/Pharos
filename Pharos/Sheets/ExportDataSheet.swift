@@ -201,7 +201,11 @@ class ExportDataSheet: NSViewController {
 
         // Show save panel
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(table).\(format.fileExtension)"
+        // The table name is a server-supplied string, so it goes through the
+        // app's one filename sanitiser before it reaches the save panel. The
+        // extension stays outside it — it is an app constant, and sanitising
+        // it would be noise.
+        panel.nameFieldStringValue = "\(SavedQueryFilename.sanitize(table)).\(format.fileExtension)"
         panel.message = "Choose where to save the exported data"
         if let contentType = UTType(filenameExtension: format.fileExtension) {
             panel.allowedContentTypes = [contentType]

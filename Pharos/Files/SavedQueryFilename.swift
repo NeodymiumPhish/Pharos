@@ -6,7 +6,16 @@ enum SavedQueryFilename {
 
     /// Sanitize a saved-query name into a safe filesystem stem (no extension).
     ///
-    /// - Replaces `/`, `:`, NUL, and ASCII control characters with `_`.
+    /// - Replaces `/`, `:` and NUL with `_`.
+    /// - Replaces every scalar `DisplayEscape.mustEscape` names with `_` — the
+    ///   whole invisible class: C0 controls, DEL, the C1 range (NEL included),
+    ///   bidi marks/overrides/isolates, line and paragraph separators,
+    ///   zero-width scalars and the BOM, and the unusual spaces. Replaced
+    ///   rather than removed, so the substitution is VISIBLE in the name the
+    ///   user is offered in the save panel: removing a bidi override would let
+    ///   `safe\u{202E}gpj.exe` quietly become `safegpj.exe`, while `safe_gpj.exe`
+    ///   shows that something was taken out. One shared definition means the
+    ///   set a label escapes and the set a filename replaces can never drift.
     /// - Strips leading dots so the file isn't hidden.
     /// - Returns `"untitled"` for empty input or input that sanitizes to empty.
     static func sanitize(_ name: String) -> String {
@@ -15,7 +24,15 @@ enum SavedQueryFilename {
             switch scalar {
             case "/", ":", "\0":
                 out.append("_")
-            case _ where scalar.value < 0x20:
+            // Every scalar the display escaper names, replaced rather than
+            // removed so the substitution is visible in the name the user is
+            // offered. The old `< 0x20` bound missed DEL and the whole C1
+            // range, which includes NEL.
+            // Every scalar the display escaper names, replaced rather than
+            // removed so the substitution is visible in the name the user is
+            // offered. The old `< 0x20` bound missed DEL and the whole C1
+            // range, which includes NEL.
+            case _ where DisplayEscape.mustEscape(scalar):
                 out.append("_")
             default:
                 out.unicodeScalars.append(scalar)
