@@ -4,7 +4,7 @@ import Foundation
 ///
 /// This app inspects somebody else's dataset, so every string it draws is
 /// attacker-controlled until proven otherwise, and an AppKit label obeys what
-/// it is given. Three families were measured rendering wrong on real labels:
+/// it is given. Four families were measured rendering wrong on real labels:
 ///
 /// - **Bidi controls.** `safe\u{202E}gpj.exe` DISPLAYS as `safeexe.jpg`. The
 ///   reader sees a different filename than the data holds. This is the one that
@@ -29,9 +29,9 @@ import Foundation
 /// # Home
 ///
 /// `Pharos/Core/` rather than the results-grid folder because the grid is only
-/// one of four callers (the Inspector, the tag sheets and the removal sheet are
-/// the others) and because the pure `swiftc` harnesses that compile it must not
-/// have to drag `AnyCodable` and `PGTypeCategory` in behind it.
+/// one of many callers, and because the pure `swiftc` harnesses that compile it
+/// (13 of them today) must not have to drag `AnyCodable` and `PGTypeCategory`
+/// in behind it.
 enum DisplayEscape {
 
     /// Scalars that must never reach a label as themselves.
@@ -149,8 +149,9 @@ enum DisplayEscape {
     ///
     /// Per part, not on the joined string: the dot is OUR separator, so
     /// escaping `"\(schema).\(table)"` as one string demotes each part's edge
-    /// space to an interior space and loses its disclosure. Six call sites
-    /// render this pair; they must all render it the same way.
+    /// space to an interior space and loses its disclosure. Six sites render
+    /// this pair; they must all render it the same way — one adopts this so
+    /// far, the rest follow in the tier-3 sweep.
     static func escapedQualified(schema: String, table: String) -> String {
         "\(escaped(schema)).\(escaped(table))"
     }
