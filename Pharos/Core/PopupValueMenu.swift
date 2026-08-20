@@ -29,16 +29,55 @@ enum PopupValueMenu {
     /// wrong name round-trips with no symptom, which is worse than the
     /// visibly-corrupt escaped string this whole mechanism replaced.
     static func populate(_ popup: NSPopUpButton, sentinel: String?, values: [String]) {
+        populate(popup, sentinel: sentinel, rows: values.map { Row(display: $0, value: $0) })
+    }
+
+    /// One row of a value popup: what the eye reads, what the code stores, and
+    /// an optional leading image.
+    ///
+    /// `display` and `value` are separate because they are not always the same
+    /// string. A schema popup shows the schema and stores the schema, so its
+    /// two halves coincide; the tag popup shows a tag's NAME and stores its
+    /// ID. Both arrive RAW — `populate` escapes `display` and never touches
+    /// `value`, so no caller has to remember which half is which.
+    struct Row {
+        let display: String
+        let value: String
+        let image: NSImage?
+
+        init(display: String, value: String, image: NSImage? = nil) {
+            self.display = display
+            self.value = value
+            self.image = image
+        }
+    }
+
+    /// The general form: rows whose displayed text differs from their stored
+    /// value, optionally with a leading image.
+    ///
+    /// `sentinelTag` marks the sentinel row so a caller can identify it
+    /// positively. Without it the only signal is a nil `representedObject`,
+    /// which a row that merely *forgot* its value shares — and one caller
+    /// (`TagSheet`) branches its whole "create versus add to existing" mode on
+    /// that answer.
+    static func populate(
+        _ popup: NSPopUpButton,
+        sentinel: String?,
+        sentinelTag: Int = 0,
+        rows: [Row]
+    ) {
         popup.removeAllItems()
         guard let menu = popup.menu else { return }
         if let sentinel {
             let item = NSMenuItem(title: sentinel, action: nil, keyEquivalent: "")
             item.representedObject = nil
+            item.tag = sentinelTag
             menu.addItem(item)
         }
-        for value in values {
-            let item = NSMenuItem(title: DisplayEscape.escaped(value), action: nil, keyEquivalent: "")
-            item.representedObject = value
+        for row in rows {
+            let item = NSMenuItem(title: DisplayEscape.escaped(row.display), action: nil, keyEquivalent: "")
+            item.representedObject = row.value
+            item.image = row.image
             menu.addItem(item)
         }
     }

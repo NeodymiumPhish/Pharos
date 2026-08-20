@@ -41,6 +41,17 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     /// nil = "New tag"; otherwise the tag the new tuples join.
     private var targetTagId: String?
 
+    /// Marks the one row that means "create a new tag".
+    ///
+    /// A tag, not a nil `representedObject`: a row that merely forgot its value
+    /// would share that answer, and this sheet branches its whole mode on it.
+    /// And not the title either — a tag named literally `New tag` used to
+    /// DELETE this row, because `NSPopUpButton.addItem(withTitle:)` removes an
+    /// existing item with the same title. `isNew` was then never true again and
+    /// no further tag could be created, from plain ASCII and no hostile input
+    /// at all. `PopupValueMenu.populate` builds the rows now.
+    private static let newTagTag = 1
+
     /// Bumped by every `refresh`, so a slow background count that lands after
     /// the analyst has ticked another box is discarded instead of overwriting
     /// a newer number.
@@ -70,15 +81,20 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
                 : "Add Tag")
         title.font = .systemFont(ofSize: 17, weight: .semibold)
 
-        tagPopup.addItem(withTitle: "New tag")
-        for tag in context.existingTags {
-            // Escaped for DISPLAY only. The tag this popup selects is carried by
-            // `representedObject` (the id) on the next line, never by the title,
-            // so escaping cannot pick the wrong tag.
-            tagPopup.addItem(withTitle: DisplayEscape.escaped(tag.name))
-            tagPopup.lastItem?.representedObject = tag.id
-            tagPopup.lastItem?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
-        }
+        // `populate` escapes each name for DISPLAY only and carries the tag's id
+        // in `representedObject`, so escaping cannot pick the wrong tag — and it
+        // builds every row as an `NSMenuItem`, so no name can delete another
+        // row by colliding with its title.
+        PopupValueMenu.populate(
+            tagPopup,
+            sentinel: "New tag",
+            sentinelTag: Self.newTagTag,
+            rows: context.existingTags.map {
+                PopupValueMenu.Row(display: $0.name,
+                                   value: $0.id,
+                                   image: TagPalette.swatch(colorIndex: $0.colorIndex))
+            }
+        )
         tagPopup.target = self
         tagPopup.action = #selector(tagChoiceChanged)
 
@@ -260,10 +276,13 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     }
 
     @objc private func tagChoiceChanged() {
-        targetTagId = tagPopup.selectedItem?.representedObject as? String
+        // Both answers come from the one selected item, so they cannot
+        // disagree: the "New tag" row is identified positively by its tag, and
+        // only a real tag row yields a target id.
+        let isNew = tagPopup.selectedItem?.tag == Self.newTagTag
+        targetTagId = isNew ? nil : PopupValueMenu.selectedValue(in: tagPopup)
         // "Add to existing" disables the identity fields: the tuples join a tag
         // that already has a name, a colour and a note.
-        let isNew = targetTagId == nil
         nameField.isEnabled = isNew
         colorControl.isEnabled = isNew
         noteField.isEnabled = isNew

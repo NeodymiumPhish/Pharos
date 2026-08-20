@@ -163,12 +163,71 @@ private func testSelectValueRoundTrip() {
                 "selectValue never lands on the sentinel row")
 }
 
+private func testRowsCarryDisplayValueAndImageSeparately() {
+    // A tag popup shows a tag's NAME but stores its ID, so display and value
+    // are different strings. The helper escapes `display` and never touches
+    // `value` — the caller does not get to decide either.
+    let swatch = NSImage(size: NSSize(width: 8, height: 8))
+    let popup = newPopup()
+    PopupValueMenu.populate(popup, sentinel: nil, rows: [
+        PopupValueMenu.Row(display: "safe\u{202E}gpj.exe", value: "id-1", image: swatch),
+    ])
+    expectEqual(popup.itemArray[0].title, "safe<U+202E>gpj.exe",
+                "the row's display text is escaped by the helper, not the caller")
+    expectEqual(popup.itemArray[0].representedObject as? String, "id-1",
+                "the row's value is independent of its display text")
+    expectEqual(popup.itemArray[0].image === swatch, true,
+                "the row keeps the image it was given")
+}
+
+private func testSentinelSurvivesARowDisplayedLikeIt() {
+    // THE REGRESSION. A tag named literally "New tag" collided with the
+    // sentinel, AppKit's `addItem(withTitle:)` deleted the sentinel row, and
+    // `isNew` could never be true again — so the user could never create
+    // another tag. Plain ASCII; no hostile input required.
+    let popup = newPopup()
+    PopupValueMenu.populate(popup, sentinel: "New tag", sentinelTag: 7, rows: [
+        PopupValueMenu.Row(display: "New tag", value: "tag-1"),
+        PopupValueMenu.Row(display: "Other", value: "tag-2"),
+    ])
+    expectEqual(popup.numberOfItems, 3,
+                "a row displayed exactly like the sentinel does not delete it")
+    expectEqual(valuesByRow(popup), [nil, "tag-1", "tag-2"],
+                "every row keeps its own value")
+    expectEqual(popup.itemArray[0].tag, 7,
+                "the sentinel is identified positively, by its tag")
+    expectEqual(popup.itemArray[1].tag, 0,
+                "a value row carries no sentinel tag")
+    popup.selectItem(at: 1)
+    expectEqual(PopupValueMenu.selectedValue(in: popup), "tag-1",
+                "selecting the colliding row returns ITS value, not the sentinel's nil")
+}
+
+private func testTwoRowsWithCollidingEscapedTitlesBothSurvive() {
+    // Escaping is not injective: a real zero-width space and the literal text
+    // `<U+200B>` produce one title. Neither row may disappear.
+    let popup = newPopup()
+    PopupValueMenu.populate(popup, sentinel: nil, rows: [
+        PopupValueMenu.Row(display: "foo\u{200B}", value: "id-a"),
+        PopupValueMenu.Row(display: "foo<U+200B>", value: "id-b"),
+    ])
+    expectEqual(popup.itemArray[0].title, popup.itemArray[1].title,
+                "the two titles really are identical — the collision is real")
+    expectEqual(popup.numberOfItems, 2,
+                "two rows whose escaped titles collide both survive")
+    expectEqual(valuesByRow(popup), ["id-a", "id-b"],
+                "each collided row keeps its own value")
+}
+
 func runTests() {
     testReadBack()
     testSentinelCollision()
     testEscapedTitleCollision()
     testRowCountMatchesValueCount()
     testSelectValueRoundTrip()
+    testRowsCarryDisplayValueAndImageSeparately()
+    testSentinelSurvivesARowDisplayedLikeIt()
+    testTwoRowsWithCollidingEscapedTitlesBothSurvive()
 
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
