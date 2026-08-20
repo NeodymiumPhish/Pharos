@@ -242,7 +242,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     let sql = "TRUNCATE TABLE \(quotedQualifiedName(schema: schemaName, table: tableName))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
-                        self?.showInfoAlert(title: "Table Truncated", message: "\"\(tableName)\" has been truncated.")
+                        self?.showInfoAlert(title: "Table Truncated", message: DestructiveConfirmationText.truncatedInfoMessage(table: tableName))
                         self?.delegate?.contextMenuDidRequestReload()
                     }
                 } catch {
@@ -255,7 +255,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
         if stateManager.settings.query.confirmDestructive {
             showDestructiveConfirmation(
-                title: "Truncate \"\(tableName)\"?",
+                title: DestructiveConfirmationText.truncateConfirmTitle(table: tableName),
                 message: "This will permanently delete all rows in the table. This cannot be undone.",
                 buttonTitle: "Truncate",
                 onConfirm: execute
@@ -284,7 +284,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     let sql = "DROP \(objectType) \(quotedQualifiedName(schema: schemaName, table: tableName))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
-                        self?.showInfoAlert(title: "\(isView ? "View" : "Table") Dropped", message: "\"\(tableName)\" has been dropped.")
+                        self?.showInfoAlert(title: "\(isView ? "View" : "Table") Dropped", message: DestructiveConfirmationText.droppedInfoMessage(name: tableName))
                         self?.delegate?.contextMenuDidRequestReload()
                     }
                 } catch {
@@ -297,7 +297,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
         if stateManager.settings.query.confirmDestructive {
             showDestructiveConfirmation(
-                title: "Drop \"\(tableName)\"?",
+                title: DestructiveConfirmationText.dropConfirmTitle(name: tableName),
                 message: "This will permanently delete the \(objectLabel) and all its data. This cannot be undone.",
                 buttonTitle: "Drop",
                 onConfirm: execute
