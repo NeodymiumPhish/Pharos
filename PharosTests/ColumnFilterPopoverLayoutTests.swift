@@ -118,13 +118,25 @@ func runTests() {
 
         expectTrue(list.escapedLabel(for: hostile).contains("<U+00A0>"),
                    "the checkbox title discloses a non-breaking space")
-        expectTrue(list.displayLabel(for: hostile) == hostile,
+        expectTrue(list.searchLabel(for: hostile) == hostile,
                    "the search label stays raw so typing the real value still matches")
         let font = NSFont.systemFont(ofSize: 12)
         let escapedWidth = (list.escapedLabel(for: hostile) as NSString)
             .size(withAttributes: [.font: font]).width
         expectTrue(list.maxValueWidth(font: font) >= escapedWidth,
                    "the popover is measured from the escaped text, not the raw text")
+
+        // Search matches BOTH forms: the true characters, and the token the row
+        // actually shows — a disclosure the user cannot search for is a dead end.
+        list.applySearch(hostile)
+        expectTrue(list.visibleValueCount == 1,
+                   "typing the value's real characters still finds its row")
+        list.applySearch("U+00A0")
+        expectTrue(list.visibleValueCount == 1,
+                   "typing the disclosed token finds the row carrying that scalar")
+        list.applySearch("U+200B")
+        expectTrue(list.visibleValueCount == 0,
+                   "a token the value does not carry matches nothing")
     }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")

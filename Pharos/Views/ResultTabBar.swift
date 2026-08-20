@@ -215,6 +215,14 @@ private class ResultTabButton: NSView {
     /// Computed preferred width for this tab button.
     let preferredWidth: CGFloat
 
+    /// The label as the eye gets it: hostile invisibles disclosed as `<U+XXXX>`.
+    /// Escaped ONCE here, then used both to compute `preferredWidth` below and to
+    /// draw — the button cannot be sized for different text than it shows, which
+    /// two separate `escaped` calls (init and `draw`) only happened to guarantee.
+    /// Tab identity is `resultTab.id`, so nothing reads this string back. It also
+    /// keeps `draw` allocation-free: that runs on every hover and active swap.
+    private let escapedLabel: String
+
     init(resultTab: ResultTab, isActive: Bool, target: AnyObject, selectAction: Selector, closeAction: Selector) {
         self.resultTab = resultTab
         self.resultTabId = resultTab.id
@@ -223,11 +231,11 @@ private class ResultTabButton: NSView {
         self.selectAction = selectAction
         self.closeAction = closeAction
 
-        // Calculate preferred width. This and `draw` must escape together: the
-        // button would otherwise be sized for different text than it draws.
-        // Tab identity is `resultTab.id`, so escaping the label reads back nowhere.
+        // Calculate preferred width from the same escaped string `draw` renders.
+        let escaped = DisplayEscape.escaped(resultTab.label)
+        self.escapedLabel = escaped
         let labelSize = NSAttributedString(
-            string: DisplayEscape.escaped(resultTab.label),
+            string: escaped,
             attributes: [.font: labelFont]
         ).size()
         self.preferredWidth = hPadding + dotSize + dotLabelGap + labelSize.width + labelCloseGap + closeButtonSize + hPadding
@@ -309,7 +317,7 @@ private class ResultTabButton: NSView {
             .font: labelFont,
             .foregroundColor: labelColor,
         ]
-        let labelStr = NSAttributedString(string: DisplayEscape.escaped(resultTab.label), attributes: attrs)
+        let labelStr = NSAttributedString(string: escapedLabel, attributes: attrs)
         let labelSize = labelStr.size()
         let labelY = (bounds.height - labelSize.height) / 2
         labelStr.draw(at: NSPoint(x: x, y: labelY))

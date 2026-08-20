@@ -110,6 +110,11 @@ final class FilterValueListView: NSView {
     /// Checked values (excludes the synthetic Select All row).
     var checkedValues: Set<String> { checked }
 
+    /// How many value rows survive the current search (excludes the synthetic
+    /// Select All row). A deliberate testability seam: it lets the harness assert
+    /// what `applySearch` matched without exposing the mutable row list.
+    var visibleValueCount: Int { visibleValues.count }
+
     /// Filter which rows are visible (case-insensitive substring). Hidden rows
     /// keep their checked state.
     func applySearch(_ query: String) {
@@ -120,7 +125,14 @@ final class FilterValueListView: NSView {
         if q.isEmpty {
             visibleValues = base
         } else {
-            visibleValues = base.filter { displayLabel(for: $0).lowercased().contains(q) }
+            // Either form matches. The raw form keeps typing a value's true
+            // characters working; the escaped form makes the disclosure the row
+            // SHOWS actionable — a reader who sees `<U+00A0>` can type
+            // "U+00A0" and get every row carrying that scalar.
+            visibleValues = base.filter {
+                searchLabel(for: $0).lowercased().contains(q)
+                    || escapedLabel(for: $0).lowercased().contains(q)
+            }
         }
         tableView.reloadData()
     }
@@ -134,15 +146,20 @@ final class FilterValueListView: NSView {
 
     // Both labels are internal rather than private as a deliberate testability
     // seam: the standalone harness asserts the raw/escaped split directly.
-    func displayLabel(for value: String) -> String {
+
+    /// The label as the DATA holds it — the form `applySearch` matches against,
+    /// so typing a value's real characters still finds it. Named for the search
+    /// rather than the display because the eye must get `escapedLabel`; a name
+    /// like "displayLabel" would invite a future draw site to reach for the
+    /// wrong one, and the compiler cannot catch that.
+    func searchLabel(for value: String) -> String {
         value == ColumnFilter.blanksSentinel ? "(Blanks)" : value
     }
 
-    /// `displayLabel` for the eye. Kept separate from `displayLabel` because
-    /// the search field filters through THAT one: if escaping happened there,
-    /// typing the real characters of a value would stop matching it.
+    /// The label for the EYE: hostile invisibles disclosed as `<U+XXXX>`. Every
+    /// site that draws or measures a row uses this one.
     func escapedLabel(for value: String) -> String {
-        DisplayEscape.escaped(displayLabel(for: value))
+        DisplayEscape.escaped(searchLabel(for: value))
     }
 
     /// Aggregate state of the Select All row over the currently visible rows.

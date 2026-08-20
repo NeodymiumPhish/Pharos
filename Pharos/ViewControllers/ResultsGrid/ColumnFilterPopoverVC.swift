@@ -140,7 +140,11 @@ class ColumnFilterPopoverVC: NSViewController {
         ])
 
         // Header
-        headerLabel.stringValue = "Filter: \(displayName)"
+        // `displayName` is the display half of the pair — `columnName` is the key
+        // every emitted `ColumnFilter` carries — so escaping it here reads back
+        // nowhere. Without this the grid header discloses a hostile column name
+        // and the popover opened from it does not.
+        headerLabel.stringValue = "Filter: \(DisplayEscape.escaped(displayName))"
         headerLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         headerLabel.setContentHuggingPriority(.required, for: .vertical)
 
