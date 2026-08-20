@@ -4,7 +4,9 @@ import AppKit
 /// scrollable list of schemas, so it scrolls naturally (unlike NSMenu, which jumps
 /// in large increments). A pinned "All Schemas" row sits at the top; the active
 /// schema shows a checkmark and the connection's default schema shows a
-/// "★ default" badge. Single-click commits a selection; the owner dismisses the
+/// "default" badge in its own view — never text appended to the name, since
+/// `★` and spaces are legal in a schema name and could otherwise imitate the
+/// marker. Single-click commits a selection; the owner dismisses the
 /// popover. Self-contained — knows nothing about EditorPaneVC.
 final class SchemaSelectorPopoverVC: NSViewController {
 
@@ -125,6 +127,27 @@ final class SchemaSelectorPopoverVC: NSViewController {
     @objc private func setDefaultClicked() {
         onSetDefault?()
     }
+
+    /// The default-schema marker, as a separate view rather than text appended
+    /// to the name. `★` and spaces are legal in a schema name, so a schema
+    /// called `foo ★ default` would otherwise render exactly like the real
+    /// marker. A marker of app state must live where name content cannot
+    /// reach it.
+    fileprivate static func makeDefaultBadge() -> NSTextField {
+        let badge = NSTextField(labelWithString: "default")
+        badge.font = .systemFont(ofSize: 10, weight: .semibold)
+        badge.textColor = .secondaryLabelColor
+        badge.alignment = .right
+        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return badge
+    }
+}
+
+/// Row cell for the schema list. Holds the default-schema badge as a stored
+/// subview built once at cell-creation time, so a recycled cell never carries
+/// state from the row it last displayed — only `isHidden` changes per row.
+private final class SchemaRowCellView: NSTableCellView {
+    let badge = SchemaSelectorPopoverVC.makeDefaultBadge()
 }
 
 extension SchemaSelectorPopoverVC: NSSearchFieldDelegate {
@@ -141,8 +164,8 @@ extension SchemaSelectorPopoverVC: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("schemaRow")
-        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView) ?? {
-            let c = NSTableCellView()
+        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? SchemaRowCellView) ?? {
+            let c = SchemaRowCellView()
             let tf = NSTextField(labelWithString: "")
             tf.translatesAutoresizingMaskIntoConstraints = false
             tf.font = .systemFont(ofSize: 12)
@@ -151,6 +174,8 @@ extension SchemaSelectorPopoverVC: NSTableViewDataSource, NSTableViewDelegate {
             iv.translatesAutoresizingMaskIntoConstraints = false
             c.addSubview(iv)
             c.addSubview(tf)
+            c.badge.translatesAutoresizingMaskIntoConstraints = false
+            c.addSubview(c.badge)
             c.imageView = iv
             c.textField = tf
             c.identifier = id
@@ -159,27 +184,50 @@ extension SchemaSelectorPopoverVC: NSTableViewDataSource, NSTableViewDelegate {
                 iv.centerYAnchor.constraint(equalTo: c.centerYAnchor),
                 iv.widthAnchor.constraint(equalToConstant: 14),
                 tf.leadingAnchor.constraint(equalTo: iv.trailingAnchor, constant: 4),
-                tf.trailingAnchor.constraint(equalTo: c.trailingAnchor, constant: -4),
                 tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
+                // Two independent caps on the name field's trailing edge: one
+                // always active (against the container), one against the
+                // badge's leading edge. AppKit excludes a constraint from
+                // layout whenever the view it references is hidden, so when
+                // the badge is hidden only the container cap applies and the
+                // name field can use the full row width; when the badge is
+                // shown, both apply and the tighter one (the badge) wins.
+                tf.trailingAnchor.constraint(lessThanOrEqualTo: c.trailingAnchor, constant: -4),
+                tf.trailingAnchor.constraint(
+                    lessThanOrEqualTo: c.badge.leadingAnchor, constant: -4),
+                c.badge.trailingAnchor.constraint(equalTo: c.trailingAnchor, constant: -4),
+                c.badge.centerYAnchor.constraint(equalTo: c.centerYAnchor),
             ])
             return c
         }()
 
-        let title: String
+        let rawTitle: String
         let isActive: Bool
+        let isDefault: Bool
         if row == 0 {
-            title = "All Schemas"
+            rawTitle = "All Schemas"
             isActive = (activeSchema == nil)
+            isDefault = false
         } else {
             let name = visibleSchemas[row - 1]
-            title = (name == defaultSchema) ? "\(name)  \u{2605} default" : name
+            rawTitle = name
             isActive = (activeSchema == name)
+            isDefault = (name == defaultSchema)   // raw-name comparison — never the escaped/displayed text
         }
-        cell.textField?.stringValue = title
+        let escapedTitle = DisplayEscape.escaped(rawTitle)
+        cell.textField?.stringValue = escapedTitle
         cell.imageView?.image = isActive
             ? NSImage(systemSymbolName: "checkmark", accessibilityDescription: "selected")
             : nil
-        cell.toolTip = title
+        // Set in both directions every time: a recycled cell must never keep
+        // a badge left visible from the row it displayed before.
+        cell.badge.isHidden = !isDefault
+        // The tooltip may disclose the escaped name, but whether it also says
+        // "default schema" is driven by `isDefault` (an app-state boolean from
+        // the raw-name comparison above), never by concatenating marker text
+        // onto the name itself — so a name that merely looks like the marker
+        // still cannot make the tooltip claim default status.
+        cell.toolTip = isDefault ? "\(escapedTitle) (default schema)" : escapedTitle
         return cell
     }
 }
