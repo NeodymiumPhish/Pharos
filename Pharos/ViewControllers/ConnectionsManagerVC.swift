@@ -647,7 +647,7 @@ final class ConnectionsManagerVC: NSViewController {
         listModel.dirtyConnectionId = nil
 
         titleField.stringValue = config.name.isEmpty ? "Untitled Connection" : config.name
-        nameField.stringValue = config.name
+        nameField.stringValue = AuthoredLabelSanitizer.sanitized(config.name)
         hostField.stringValue = config.host
         portField.stringValue = String(config.port)
         databaseField.stringValue = config.database
@@ -901,7 +901,17 @@ final class ConnectionsManagerVC: NSViewController {
 // MARK: - NSTextFieldDelegate
 
 extension ConnectionsManagerVC: NSTextFieldDelegate {
-    func controlTextDidChange(_ obj: Notification) { syncFormIntoDraft() }
+    func controlTextDidChange(_ obj: Notification) {
+        // The name is an authored label and is sanitised. Host, database, user
+        // and password are round-trip DATA — they must reach libpq byte for
+        // byte, so they are never altered here. Sanitising runs before the
+        // sync, because `syncFormIntoDraft` copies the field straight into the
+        // draft.
+        if (obj.object as? NSTextField) === nameField {
+            nameField.sanitizeAsAuthoredLabel()
+        }
+        syncFormIntoDraft()
+    }
 }
 
 // MARK: - Status badge

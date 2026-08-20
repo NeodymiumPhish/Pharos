@@ -833,6 +833,21 @@ extension VariableDetailVC: NSTextFieldDelegate {
     /// name never colliding — including with another empty name, since two
     /// freshly added rows are not duplicates of each other.
     func controlTextDidChange(_ obj: Notification) {
+        // Sanitised BEFORE the collision check, so collision detection sees the
+        // text the field now holds. Two names differing only by a zero-width
+        // character therefore collide, which is the right answer.
+        //
+        // A variable name is a `{{token}}` key, and this project's rule is that
+        // a key is never ESCAPED. Sanitising is a different operation and is
+        // safe here for a reason worth writing down: the token grammar is
+        // `[A-Za-z0-9_]`, so every scalar this removes or folds was ALREADY
+        // outside it — a name holding one could never be referenced by a token
+        // anyway (see the note above `commitNameIfValid`). So this cannot break
+        // a name that worked; it can only make a previously unreferenceable
+        // name behave the way it looks.
+        if (obj.object as? NSTextField) === nameField {
+            nameField.sanitizeAsAuthoredLabel()
+        }
         recomputeCollisionState()
     }
 

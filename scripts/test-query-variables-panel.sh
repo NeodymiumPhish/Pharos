@@ -28,6 +28,8 @@ swiftc -o /tmp/query-variables-panel-tests \
   Pharos/Editor/LineNumberGutter.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Views/NSTextField+AuthoredLabel.swift \
   PharosTests/QueryVariablesPanelTests.swift \
   "$TMPMAIN"
 /tmp/query-variables-panel-tests

@@ -996,6 +996,14 @@ protocol SavedQueryCellEditingDelegate: AnyObject {
 }
 
 extension SavedQueryCellView: NSTextFieldDelegate {
+    /// The inline folder rename is an authored label, sanitised as it is typed.
+    /// `textShouldEndEditing` below reads the FIELD EDITOR, so a rewrite here is
+    /// exactly what that method goes on to see.
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === titleLabel else { return }
+        titleLabel.sanitizeAsAuthoredLabel()
+    }
+
     func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
         let newName = fieldEditor.string.trimmingCharacters(in: .whitespaces)
         let delegate = editingDelegate
