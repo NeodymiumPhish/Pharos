@@ -301,7 +301,7 @@ private extension NSView {
 
 extension TableDDLSheet: NSTextFieldDelegate {
     // A clone name is an authored label that becomes an identifier: it is
-    // sanitised as it changes (same mechanism as the tag name field), so the
+    // sanitised as it changes by the shared authored-label mechanism, so the
     // field never holds a name that reads as something it is not.
     func controlTextDidChange(_ obj: Notification) {
         guard (obj.object as? NSTextField) === cloneNameField else { return }
