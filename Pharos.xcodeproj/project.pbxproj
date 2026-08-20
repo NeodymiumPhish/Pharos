@@ -112,6 +112,7 @@
 		9015C2BD6AD59FEB0CBCE418 /* TupleKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE5B4EF09AF5B61C35AAFA5 /* TupleKey.swift */; };
 		9085B64F9C81AB9B96C72467 /* SchemaListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */; };
 		915C735DB5EE744A31495822 /* VariableListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1ACA16C38A777BDCF7104A /* VariableListView.swift */; };
+		93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */; };
 		957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51B7E42D0E3720183013836 /* VariableValuePreview.swift */; };
 		96F8B81C319801D4E045CF43 /* ResultsTagController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F4997A1B526AF0B5B07BB2 /* ResultsTagController.swift */; };
 		97E54C924094DDE82999F054 /* ChartSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1154372FFE011857B1F28F1B /* ChartSorter.swift */; };
@@ -343,6 +344,7 @@
 		DE109495071281357840CE57 /* QueryHistoryVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistoryVC.swift; sourceTree = "<group>"; };
 		DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerWindowController.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
+		E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostileTextBadge.swift; sourceTree = "<group>"; };
 		E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableDDLSheet.swift; sourceTree = "<group>"; };
 		E81B37D867FA93870C9481FC /* PartitionOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionOrdering.swift; sourceTree = "<group>"; };
 		EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryResult.swift; sourceTree = "<group>"; };
@@ -676,6 +678,7 @@
 			children = (
 				AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */,
 				CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */,
+				E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */,
 				FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */,
 				AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */,
 				FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */,
@@ -843,6 +846,7 @@
 				AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */,
 				0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */,
 				4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */,
+				93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */,
 				34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */,
 				9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */,
 				587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */,

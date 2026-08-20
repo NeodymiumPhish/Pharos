@@ -185,6 +185,14 @@ final class ConnectionsManagerVC: NSViewController {
     private let sslPopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
 
+    // One badge per round-trip field. `nameField` has none — it is an authored
+    // label and is sanitised instead — and `portField` has none, because a port
+    // is digits.
+    private let hostBadge = HostileTextBadge()
+    private let databaseBadge = HostileTextBadge()
+    private let usernameBadge = HostileTextBadge()
+    private let passwordBadge = HostileTextBadge()
+
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()
@@ -203,6 +211,7 @@ final class ConnectionsManagerVC: NSViewController {
         static let popupMinWidth: CGFloat = 200
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 10
+        static let badgeGap: CGFloat = 6
     }
 
     /// Slightly darker than the right pane content background so the left
@@ -418,16 +427,16 @@ final class ConnectionsManagerVC: NSViewController {
 
         let serverSection = section(title: "Server", rows: [
             row(label: "Name", field: nameField),
-            row(label: "Host", field: hostField),
+            row(label: "Host", field: hostField, badge: hostBadge),
             row(label: "Port", field: portField, fieldFixedWidth: L.portWidth),
         ])
         let authSection = section(title: "Authentication", rows: [
-            row(label: "Username", field: usernameField),
-            row(label: "Password", field: passwordField),
+            row(label: "Username", field: usernameField, badge: usernameBadge),
+            row(label: "Password", field: passwordField, badge: passwordBadge),
             row(label: "SSL Mode", control: sslPopup),
         ])
         let dbSection = section(title: "Database", rows: [
-            row(label: "Database", field: databaseField),
+            row(label: "Database", field: databaseField, badge: databaseBadge),
             row(label: "Default Schema", control: defaultSchemaPopup),
         ])
 
@@ -465,7 +474,11 @@ final class ConnectionsManagerVC: NSViewController {
         field.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    private func row(label: String, field: NSControl, fieldFixedWidth: CGFloat? = nil) -> NSView {
+    /// Builds one label-plus-field row. `badge`, when given, stands at the
+    /// trailing edge and discloses an invisible character in a field whose text
+    /// must never be altered.
+    private func row(label: String, field: NSControl, fieldFixedWidth: CGFloat? = nil,
+                     badge: HostileTextBadge? = nil) -> NSView {
         let labelView = NSTextField(labelWithString: label)
         labelView.alignment = .right
         labelView.font = .systemFont(ofSize: 13)
@@ -486,11 +499,37 @@ final class ConnectionsManagerVC: NSViewController {
             field.topAnchor.constraint(equalTo: container.topAnchor),
             field.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ]
+
+        // The badge owns the container's trailing edge, and the field stops
+        // short of it. A hidden view's constraints still apply, so the badge
+        // holds its slot whether it is shown or not: the field keeps ONE width
+        // and the row never reflows when a badge is raised.
+        if let badge {
+            container.addSubview(badge)
+            constraints.append(badge.trailingAnchor.constraint(equalTo: container.trailingAnchor))
+            constraints.append(badge.centerYAnchor.constraint(equalTo: field.centerYAnchor))
+        }
+
         if let w = fieldFixedWidth {
             constraints.append(field.widthAnchor.constraint(equalToConstant: w))
-            constraints.append(field.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor))
+            // A fixed-width field cannot stretch, so the trailing edge is only
+            // a limit — an equality here would fight the fixed width.
+            if let badge {
+                constraints.append(field.trailingAnchor.constraint(
+                    lessThanOrEqualTo: badge.leadingAnchor, constant: -L.badgeGap))
+            } else {
+                constraints.append(field.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor))
+            }
         } else {
-            constraints.append(field.trailingAnchor.constraint(equalTo: container.trailingAnchor))
+            // An equality, not a limit: this pin is what makes the field fill
+            // the row, so a `lessThanOrEqualTo` alone would leave the width
+            // undetermined between its minimum and the trailing edge.
+            if let badge {
+                constraints.append(field.trailingAnchor.constraint(
+                    equalTo: badge.leadingAnchor, constant: -L.badgeGap))
+            } else {
+                constraints.append(field.trailingAnchor.constraint(equalTo: container.trailingAnchor))
+            }
             constraints.append(field.widthAnchor.constraint(greaterThanOrEqualToConstant: L.fieldMinWidth))
         }
         NSLayoutConstraint.activate(constraints)
@@ -674,6 +713,10 @@ final class ConnectionsManagerVC: NSViewController {
         testSpinner.isHidden = true
         testSpinner.stopAnimation(nil)
 
+        // The text delegate only fires on edits, so a SAVED value that already
+        // carries an invisible character would disclose nothing until the user
+        // typed. Disclose it on open instead.
+        refreshHostileTextBadges()
         refreshStatusBadge()
         updateButtonStates()
     }
@@ -910,7 +953,16 @@ extension ConnectionsManagerVC: NSTextFieldDelegate {
         if (obj.object as? NSTextField) === nameField {
             nameField.sanitizeAsAuthoredLabel()
         }
+        refreshHostileTextBadges()
         syncFormIntoDraft()
+    }
+
+    /// Every round-trip field's badge, refreshed from the current field text.
+    private func refreshHostileTextBadges() {
+        hostBadge.update(for: hostField.stringValue)
+        databaseBadge.update(for: databaseField.stringValue)
+        usernameBadge.update(for: usernameField.stringValue)
+        passwordBadge.update(for: passwordField.stringValue)
     }
 }
 
