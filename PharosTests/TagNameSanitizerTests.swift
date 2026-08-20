@@ -233,6 +233,31 @@ func runTests() {
                    "an ordinary keystroke leaves the editor alone, so a composition survives")
     }
 
+    // An active IME composition must survive the sanitiser: the rewrite runs
+    // when the composition commits, not during it. (Rewriting editor.string
+    // mid-composition unmarks and destroys the user's marked text.)
+    do {
+        let (field, editor) = editingField("", caret: 0)
+        guard let textView = editor as? NSTextView else {
+            failures += 1
+            print("FAIL the field editor is not an NSTextView — cannot mark text")
+            print("\n\(failures) failure(s).")
+            exit(1)
+        }
+        textView.setMarkedText("safe\u{202E}",
+                               selectedRange: NSRange(location: 5, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+        field.sanitizeAsTagName()
+        expectEqual(textView.hasMarkedText(), true,
+                    "sanitising during composition leaves the marked text alone")
+        expectEqual(editor.string, "safe\u{202E}",
+                    "the composed text is not rewritten while marked")
+        textView.unmarkText()
+        field.sanitizeAsTagName()
+        expectEqual(editor.string, "safe",
+                    "the rewrite runs once the composition commits")
+    }
+
     do {
         // No editor: the path a call from outside an edit session takes. The
         // Manage sheet loads a stored name into the field this way.

@@ -22,6 +22,9 @@ extension NSTextField {
     /// all — and so this is safe to call from the change notification that
     /// rewriting the editor may itself raise: the sanitised text is a fixed
     /// point, so a second pass changes nothing and stops.
+    ///
+    /// An editor holding marked text (an IME composition in progress) is left
+    /// alone entirely; the rewrite runs when the composition commits instead.
     func sanitizeAsTagName() {
         guard let editor = currentEditor() else {
             let plain = stringValue
@@ -29,6 +32,11 @@ extension NSTextField {
             stringValue = TagNameSanitizer.sanitized(plain)
             return
         }
+        // An active IME composition is never rewritten: replacing
+        // editor.string unmarks and destroys the marked text mid-composition.
+        // Committing the composition fires its own change notification, and
+        // the rewrite runs then, so nothing deceptive survives to the store.
+        if let textView = editor as? NSTextView, textView.hasMarkedText() { return }
         let raw = editor.string
         guard TagNameSanitizer.needsSanitizing(raw) else { return }
         // Both ends of the selection are mapped, not just its start: a paste
