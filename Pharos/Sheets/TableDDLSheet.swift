@@ -40,7 +40,9 @@ class TableDDLSheet: NSViewController {
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         // Display-only: schema/table are server-derived. The clone action and
         // the DDL request keep using the raw stored strings.
-        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escaped("\(schema).\(table)"))
+        // Each part is escaped BEFORE the join: joined-string escaping would
+        // demote a part's edge space to interior and lose its disclosure.
+        let subtitleLabel = NSTextField(labelWithString: "\(DisplayEscape.escaped(schema)).\(DisplayEscape.escaped(table))")
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
