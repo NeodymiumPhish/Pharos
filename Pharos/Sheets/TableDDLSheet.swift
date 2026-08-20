@@ -38,7 +38,9 @@ class TableDDLSheet: NSViewController {
         // Title
         let titleLabel = NSTextField(labelWithString: "Table DDL")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        let subtitleLabel = NSTextField(labelWithString: "\(schema).\(table)")
+        // Display-only: schema/table are server-derived. The clone action and
+        // the DDL request keep using the raw stored strings.
+        let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escaped("\(schema).\(table)"))
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
 
@@ -146,6 +148,7 @@ class TableDDLSheet: NSViewController {
         nameLabel.font = .systemFont(ofSize: 13)
         nameLabel.alignment = .right
         cloneNameField.placeholderString = "table_name"
+        cloneNameField.delegate = self
         cloneNameField.stringValue = "\(table)_copy"
         cloneNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         includeRowsCheckbox.state = .off
@@ -205,7 +208,14 @@ class TableDDLSheet: NSViewController {
     }
 
     @objc private func doClone() {
-        let name = cloneNameField.stringValue.trimmingCharacters(in: .whitespaces)
+        // Sanitised again here, after controlTextDidChange has already done it
+        // per keystroke: this is the only line that reaches the clone action,
+        // so a future path that sets the field without an edit notification
+        // cannot get a deceptive name past it. Sanitising BEFORE trimming
+        // matters — an unusual space folds to a plain one, which the trim
+        // then takes.
+        let name = TagNameSanitizer.sanitized(cloneNameField.stringValue)
+            .trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         let include = includeRowsCheckbox.state == .on
         let callback = onClone
@@ -262,5 +272,17 @@ private extension NSView {
             if let found = sub.findSubview(ofType: type, where: predicate) { return found }
         }
         return nil
+    }
+}
+
+// MARK: - Clone-name sanitising
+
+extension TableDDLSheet: NSTextFieldDelegate {
+    // A clone name is an authored label that becomes an identifier: it is
+    // sanitised as it changes (same mechanism as the tag name field), so the
+    // field never holds a name that reads as something it is not.
+    func controlTextDidChange(_ obj: Notification) {
+        guard (obj.object as? NSTextField) === cloneNameField else { return }
+        cloneNameField.sanitizeAsTagName()
     }
 }
