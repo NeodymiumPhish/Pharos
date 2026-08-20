@@ -1614,8 +1614,10 @@ class ContentViewController: NSViewController {
     ) {
         let alert = NSAlert()
         alert.messageText = "Run destructive query?"
-        let preview = sql.count > 200 ? String(sql.prefix(200)) + "…" : sql
-        alert.informativeText = "This SQL contains \(keywords.joined(separator: ", ")):\n\n\(preview)"
+        // Rendered through the disclosing builder: the SQL here has variables
+        // already substituted, so a hostile variable value could otherwise
+        // make the preview read as a different statement than will run.
+        alert.informativeText = DestructiveConfirmationText.destructiveQueryMessage(keywords: keywords, sql: sql)
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Run")
         alert.addButton(withTitle: "Cancel")
