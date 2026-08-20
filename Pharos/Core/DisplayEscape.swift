@@ -83,10 +83,27 @@ enum DisplayEscape {
         var trail = scalars.count
         while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
 
-        func isMarked(_ index: Int) -> Bool {
+        return escapedCore(scalars) { index in
             index < lead || index >= trail || mustEscape(scalars[index])
         }
+    }
 
+    /// Multi-line preview variant. In a SQL preview, `\n` and `\t` are the
+    /// query's own formatting and edge spaces are ordinary indentation, so
+    /// none of those are marked; every OTHER hostile scalar is disclosed
+    /// exactly as `escaped` discloses it, run-collapsing included.
+    static func escapedMultiline(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        return escapedCore(scalars) { index in
+            let scalar = scalars[index]
+            return mustEscape(scalar) && scalar != "\n" && scalar != "\t"
+        }
+    }
+
+    /// The scalar walk shared by `escaped` and `escapedMultiline`: each caller
+    /// supplies only which scalars are marked, and this collapses a run of the
+    /// same marked scalar into one `<U+XXXX×N>` token instead of N.
+    private static func escapedCore(_ scalars: [Unicode.Scalar], isMarked: (Int) -> Bool) -> String {
         var out = ""
         var index = 0
         while index < scalars.count {

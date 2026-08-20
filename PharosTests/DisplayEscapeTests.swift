@@ -183,6 +183,26 @@ func runTests() {
                     "a C1 control is disclosed")
     }
 
+    // MARK: - 8. escapedMultiline: a SQL preview's own formatting is not hostile
+
+    do {
+        expectEqual(DisplayEscape.escapedMultiline("DROP TABLE a;\n\tDELETE FROM b;"),
+                    "DROP TABLE a;\n\tDELETE FROM b;",
+                    "newlines and tabs are the query's own formatting")
+        expectEqual(DisplayEscape.escapedMultiline("  SELECT 1"),
+                    "  SELECT 1",
+                    "leading spaces are indentation, not edge-space disclosure")
+        expectEqual(DisplayEscape.escapedMultiline("DROP \u{202E}x\nGO"),
+                    "DROP <U+202E>x\nGO",
+                    "a hostile scalar inside a line is still disclosed")
+        expectEqual(DisplayEscape.escapedMultiline("a\u{200B}\u{200B}\u{200B}b"),
+                    "a<U+200B\u{00D7}3>b",
+                    "run collapsing works in the multi-line variant too")
+        expectEqual(DisplayEscape.escapedMultiline("one\u{2028}two"),
+                    "one<U+2028>two",
+                    "a line SEPARATOR is not a newline and is still disclosed")
+    }
+
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
     } else {

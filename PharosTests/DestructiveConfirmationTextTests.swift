@@ -63,6 +63,16 @@ func runTests() {
     expectEqual(boundaryMsg.hasSuffix("…"), true,
                 "the boundary preview is still truncated")
 
+    // Ordinary multi-line SQL must read as itself in the preview.
+    expectEqual(DestructiveConfirmationText.destructiveQueryMessage(
+                    keywords: ["DROP"], sql: "DROP TABLE a;\n\tDELETE FROM b;"),
+                "This SQL contains DROP:\n\nDROP TABLE a;\n\tDELETE FROM b;",
+                "multi-line SQL keeps its newlines and tabs")
+    expectEqual(DestructiveConfirmationText.destructiveQueryMessage(
+                    keywords: ["DROP", "TRUNCATE"], sql: "DROP TABLE x"),
+                "This SQL contains DROP, TRUNCATE:\n\nDROP TABLE x",
+                "keywords join with a comma and a space")
+
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)
