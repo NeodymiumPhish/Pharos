@@ -115,7 +115,11 @@ final class VariableRowView: NSView {
             valueLabel.font = Self.italicPreviewFont
             valueLabel.textColor = problem != nil ? .systemRed : .tertiaryLabelColor
         } else {
-            valueLabel.stringValue = VariableValuePreview.snippet(for: variable.value)
+            // Display only: the value is data the analyst pasted, and two values
+            // differing by one invisible scalar must not read as the same value.
+            // `snippet` has already trimmed the ends, so nothing here marks an
+            // edge space that the author meant to type.
+            valueLabel.stringValue = DisplayEscape.escaped(VariableValuePreview.snippet(for: variable.value))
             valueLabel.font = Self.previewFont
             valueLabel.textColor = isShadowed ? .tertiaryLabelColor : .secondaryLabelColor
         }

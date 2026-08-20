@@ -68,6 +68,17 @@ private func topRightStack(in row: VariableRowView) -> NSStackView {
     row.subviews.compactMap { $0 as? NSStackView }.first!
 }
 
+/// The row's direct `NSTextField` subviews are added in one order — name,
+/// caption, value — so the value preview is the last of the three. Same
+/// add-order assumption the name-label accessors above already make.
+private func valueLabel(in row: VariableRowView) -> NSTextField {
+    let fields = row.subviews.compactMap { $0 as? NSTextField }
+    guard fields.count >= 3 else {
+        fatalError("expected three direct NSTextField subviews, found \(fields.count)")
+    }
+    return fields[2]
+}
+
 /// `localPoint` is in `row`'s own bounds space (e.g. a subview's frame
 /// midpoint); converted into `container`'s space for the hit test, matching
 /// how a real mouse event's window-space point gets converted before
@@ -319,6 +330,23 @@ private func testAccessibilityIdentity() {
     expectTrue(
         row.accessibilityLabel()?.contains("target_ip") == true,
         "row accessibility label mentions the variable name")
+}
+
+/// A value is pasted data, so its preview is escaped at render: two values
+/// differing only by an invisible scalar must not draw identically. The scalar
+/// sits mid-value so no trimming in `VariableValuePreview.snippet` can remove
+/// it before the escaper sees it.
+private func testHostileValuePreviewIsDisclosed() {
+    let (_, _, row) = makeHostedRow(width: 320)
+    let hostile = QueryVariable(name: "ip", value: "10.0.0\u{200B}.1", type: .literal)
+    row.configure(with: hostile, state: nil)
+    let shown = valueLabel(in: row).stringValue
+    expectTrue(shown.contains("<U+200B>"),
+               "the row's value preview discloses a zero-width space")
+    expectTrue(!shown.unicodeScalars.contains("\u{200B}"),
+               "the raw invisible scalar never reaches the label")
+    expectEqual(hostile.value, "10.0.0\u{200B}.1",
+                "the variable's own value is not altered — only the preview")
 }
 
 // MARK: - VariableListView harness helpers
@@ -661,6 +689,7 @@ func runTests() {
     testColorsFollowAppearanceChange()
     testLayoutUnambiguous()
     testAccessibilityIdentity()
+    testHostileValuePreviewIsDisclosed()
 
     testListLayoutUnambiguous()
     testRowsAreFullWidth()
