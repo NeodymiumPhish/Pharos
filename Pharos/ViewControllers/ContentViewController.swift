@@ -1381,8 +1381,7 @@ class ContentViewController: NSViewController {
         segmentIndex: Int,
         lineRange: ClosedRange<Int>,
         customLabel: String?,
-        createResultTab: Bool,
-        destructiveConfirmed: Bool = false
+        createResultTab: Bool
     ) {
         guard let activeTab = stateManager.activeTab,
               let connectionId = activeTab.connectionId,
@@ -1400,27 +1399,64 @@ class ContentViewController: NSViewController {
 
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
-        if !destructiveConfirmed, stateManager.settings.query.confirmDestructive {
+        if stateManager.settings.query.confirmDestructive {
             let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
             if !keywords.isEmpty {
+                // On confirm, run the exact SQL the sheet displayed against the
+                // captured tab/connection — never re-derive from the active tab,
+                // which could have changed while the sheet was up.
                 presentDestructiveQueryConfirmation(keywords: keywords, sql: sql) { [weak self] in
-                    self?.performQuery(
-                        querySQL,
+                    self?.executeRenderedQuery(
+                        sql,
+                        rawSQL: querySQL,
+                        tabId: tabId,
+                        connectionId: connectionId,
+                        tabSchema: tabSchema,
                         segmentIndex: segmentIndex,
                         lineRange: lineRange,
                         customLabel: customLabel,
-                        createResultTab: createResultTab,
-                        destructiveConfirmed: true
+                        createResultTab: createResultTab
                     )
                 }
                 return
             }
         }
 
+        executeRenderedQuery(
+            sql,
+            rawSQL: querySQL,
+            tabId: tabId,
+            connectionId: connectionId,
+            tabSchema: tabSchema,
+            segmentIndex: segmentIndex,
+            lineRange: lineRange,
+            customLabel: customLabel,
+            createResultTab: createResultTab
+        )
+    }
+
+    /// Execute already-rendered SQL against a captured tab/connection. Split from
+    /// `performQuery` so the destructive-confirmation continuation executes exactly
+    /// the SQL it displayed, without re-reading the active tab or re-rendering
+    /// variables.
+    private func executeRenderedQuery(
+        _ sql: String,
+        rawSQL: String,
+        tabId: String,
+        connectionId: String,
+        tabSchema: String?,
+        segmentIndex: Int,
+        lineRange: ClosedRange<Int>,
+        customLabel: String?,
+        createResultTab: Bool
+    ) {
+        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+              stateManager.status(for: connectionId) == .connected else { return }
+
         let normalized = Self.normalizeSQL(sql)
 
         // Dedup: re-running the same SQL while it's in flight is a no-op (with toast).
-        if let existing = activeTab.runningQueries.first(where: { $0.normalizedSQL == normalized }) {
+        if let existing = tab.runningQueries.first(where: { $0.normalizedSQL == normalized }) {
             let elapsed = Self.formatElapsed(CACurrentMediaTime() - existing.startTime)
             let lineFragment: String
             if existing.segmentIndex == -1 {
@@ -1444,7 +1480,7 @@ class ContentViewController: NSViewController {
         // race to overwrite tab.result.
         var effectiveCreateResultTab = createResultTab
         if segmentIndex == -1,
-           activeTab.runningQueries.contains(where: { $0.segmentIndex == -1 }) {
+           tab.runningQueries.contains(where: { $0.segmentIndex == -1 }) {
             effectiveCreateResultTab = true
         }
 
@@ -1497,7 +1533,7 @@ class ContentViewController: NSViewController {
                         if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, rawSQL: querySQL, lineRange: lineRange, color: color, timestamp: Date()
+                                sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
                             )
                             rt.customLabel = customLabel
                             rt.queryResult = result
@@ -1509,7 +1545,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: querySQL)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
@@ -1534,7 +1570,7 @@ class ContentViewController: NSViewController {
                         if effectiveCreateResultTab {
                             var rt = ResultTab(
                                 id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, rawSQL: querySQL, lineRange: lineRange, color: color, timestamp: Date()
+                                sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
                             )
                             rt.customLabel = customLabel
                             rt.executeResult = result
@@ -1545,7 +1581,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: querySQL)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
