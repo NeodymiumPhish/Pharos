@@ -267,7 +267,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     /// meant. Its exposure is a display concern, not an input one.
     func controlTextDidChange(_ obj: Notification) {
         guard (obj.object as? NSTextField) === nameField else { return }
-        nameField.sanitizeAsTagName()
+        nameField.sanitizeAsAuthoredLabel()
     }
 
     @objc private func tagChoiceChanged() {
@@ -366,7 +366,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
                 // without an edit notification cannot get a deceptive name
                 // past it. Sanitising BEFORE trimming matters — an unusual
                 // space folds to a plain one, which the trim then takes.
-                let name = TagNameSanitizer.sanitized(nameField.stringValue)
+                let name = AuthoredLabelSanitizer.sanitized(nameField.stringValue)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let note = noteField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 try TagStore.shared.createTag(CreateTag(

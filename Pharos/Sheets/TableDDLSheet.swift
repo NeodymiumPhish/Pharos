@@ -171,7 +171,7 @@ class TableDDLSheet: NSViewController {
         // The default is seeded from a server-derived name, and the sanitising
         // delegate fires only on edits — sanitise the seed itself so the field
         // never HOLDS a deceptive name, not even before the first keystroke.
-        cloneNameField.stringValue = TagNameSanitizer.sanitized("\(table)_copy")
+        cloneNameField.stringValue = AuthoredLabelSanitizer.sanitized("\(table)_copy")
         cloneNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         includeRowsCheckbox.state = .off
 
@@ -236,7 +236,7 @@ class TableDDLSheet: NSViewController {
         // cannot get a deceptive name past it. Sanitising BEFORE trimming
         // matters — an unusual space folds to a plain one, which the trim
         // then takes.
-        let name = TagNameSanitizer.sanitized(cloneNameField.stringValue)
+        let name = AuthoredLabelSanitizer.sanitized(cloneNameField.stringValue)
             .trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         let include = includeRowsCheckbox.state == .on
@@ -305,6 +305,6 @@ extension TableDDLSheet: NSTextFieldDelegate {
     // field never holds a name that reads as something it is not.
     func controlTextDidChange(_ obj: Notification) {
         guard (obj.object as? NSTextField) === cloneNameField else { return }
-        cloneNameField.sanitizeAsTagName()
+        cloneNameField.sanitizeAsAuthoredLabel()
     }
 }

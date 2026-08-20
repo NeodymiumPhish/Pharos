@@ -1,14 +1,17 @@
 import Foundation
 
-/// Keeps a tag NAME from being able to misrepresent itself.
+/// Keeps an AUTHORED LABEL from being able to misrepresent itself.
 ///
-/// A tag name is not captured data. It is a LABEL the analyst authors, and the
-/// app then draws it as its own voice: on the grid row's tooltip, in the
-/// Inspector's Tags section, as the group header of the removal sheet, in the
-/// "Add to existing tag" popup, and in the delete confirmation. `safe` +
-/// `U+202E` + `gpj.exe` pasted into the Add Tag sheet DISPLAYS as
-/// `safeexe.jpg`, so a tag can be created under a name that reads as something
-/// it is not — including on a destructive confirmation.
+/// An authored label is not captured data. It is a NAME the analyst types for
+/// their own object, and the app then draws it back as its own voice: on the
+/// grid row's tooltip, in the Inspector's Tags section, as the group header of
+/// the removal sheet, in the "Add to existing tag" popup, in the delete
+/// confirmation, and — beyond tags — in folder names, workspace names,
+/// saved-query names, connection names, editor tab names, table names (via
+/// the clone-table sheet), and variable names. `safe` + `U+202E` + `gpj.exe`
+/// typed into any of these fields DISPLAYS as `safeexe.jpg`, so an object can
+/// be created or renamed under a label that reads as something it is not —
+/// including on a destructive confirmation.
 ///
 /// # Why not `DisplayEscape`
 ///
@@ -46,7 +49,7 @@ import Foundation
 /// Sanitising is applied as the field CHANGES, so the field never holds a
 /// deceptive name and what is saved is what was on screen. `sanitized` is
 /// therefore idempotent by construction: its output holds only kept scalars.
-enum TagNameSanitizer {
+enum AuthoredLabelSanitizer {
 
     /// What `sanitized` does with one scalar.
     enum Disposition: Equatable {

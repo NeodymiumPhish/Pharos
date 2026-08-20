@@ -1,6 +1,6 @@
-// Standalone test runner for TagNameSanitizer and the field rewrite that
+// Standalone test runner for AuthoredLabelSanitizer and the field rewrite that
 // applies it. Compiled with the implementation by
-// scripts/test-tag-name-sanitizer.sh.
+// scripts/test-authored-label-sanitizer.sh.
 //
 // AppKit is imported for the second half only: the sanitiser itself is pure
 // Foundation, and the field editor is what proves the caret survives a rewrite.
@@ -53,7 +53,7 @@ private final class SanitizingDelegate: NSObject, NSTextFieldDelegate {
     private(set) var changeCount = 0
     func controlTextDidChange(_ obj: Notification) {
         changeCount += 1
-        (obj.object as? NSTextField)?.sanitizeAsTagName()
+        (obj.object as? NSTextField)?.sanitizeAsAuthoredLabel()
     }
 }
 
@@ -65,27 +65,27 @@ func runTests() {
         // The reproduction: this pastes into the Add Tag sheet's Name field and
         // DISPLAYS as "safeexe.jpg". After sanitising there is no scalar left
         // that can reorder anything, so the name reads as what it holds.
-        expectEqual(TagNameSanitizer.sanitized("safe\u{202E}gpj.exe"), "safegpj.exe",
+        expectEqual(AuthoredLabelSanitizer.sanitized("safe\u{202E}gpj.exe"), "safegpj.exe",
                     "a right-to-left override cannot enter a name")
-        expectEqual(TagNameSanitizer.sanitized("a\u{202A}b\u{202B}c\u{202C}d\u{202D}e"),
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{202A}b\u{202B}c\u{202C}d\u{202D}e"),
                     "abcde", "the whole embedding/override set is denied")
-        expectEqual(TagNameSanitizer.sanitized("a\u{2066}b\u{2067}c\u{2068}d\u{2069}e"),
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{2066}b\u{2067}c\u{2068}d\u{2069}e"),
                     "abcde", "the isolate set is denied")
-        expectEqual(TagNameSanitizer.sanitized("a\u{200E}b\u{200F}c\u{061C}d"), "abcd",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{200E}b\u{200F}c\u{061C}d"), "abcd",
                     "the invisible bidi marks are denied, not just the overrides")
     }
 
     // MARK: - 2. Invisible characters, which make two names read alike
 
     do {
-        expectEqual(TagNameSanitizer.sanitized("Case\u{200B}Alpha"), "CaseAlpha",
+        expectEqual(AuthoredLabelSanitizer.sanitized("Case\u{200B}Alpha"), "CaseAlpha",
                     "a zero-width space cannot hide inside a name")
-        expectEqual(TagNameSanitizer.sanitized("a\u{200C}b\u{200D}c\u{2060}d\u{FEFF}e"),
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{200C}b\u{200D}c\u{2060}d\u{FEFF}e"),
                     "abcde", "the rest of the zero-width family, and the BOM")
         // The point of the rule stated as the property it defends: two names
         // that LOOK the same must not be able to be different strings.
         let twins = ["Case Alpha", "Case\u{00A0}Alpha", "Case Alpha\u{200B}"]
-            .map(TagNameSanitizer.sanitized)
+            .map(AuthoredLabelSanitizer.sanitized)
         expectTrue(Set(twins).count == 1,
                    "three names that render identically become one string (\(Set(twins)))")
     }
@@ -93,14 +93,14 @@ func runTests() {
     // MARK: - 3. Controls
 
     do {
-        expectEqual(TagNameSanitizer.sanitized("a\u{0000}b\u{0007}c\u{001B}d"), "abcd",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{0000}b\u{0007}c\u{001B}d"), "abcd",
                     "NUL, BEL and ESC are denied")
-        expectEqual(TagNameSanitizer.sanitized("a\u{007F}b"), "ab", "DEL is denied")
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{007F}b"), "ab", "DEL is denied")
         // The whitespace controls FOLD rather than vanish: a name pasted from a
         // cell can carry a newline, and "alphabeta" would be its own misreading.
-        expectEqual(TagNameSanitizer.sanitized("alpha\nbeta"), "alpha beta",
+        expectEqual(AuthoredLabelSanitizer.sanitized("alpha\nbeta"), "alpha beta",
                     "a newline folds to a space rather than joining two words")
-        expectEqual(TagNameSanitizer.sanitized("a\tb\u{000B}c\u{000C}d\re"), "a b c d e",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\tb\u{000B}c\u{000C}d\re"), "a b c d e",
                     "tab, VT, FF and CR fold the same way")
     }
 
@@ -110,12 +110,12 @@ func runTests() {
         // The decision this file records: NBSP and its relatives are folded to
         // a normal space, not removed. Removing would close a gap the author
         // can see and did intend.
-        expectEqual(TagNameSanitizer.sanitized("Case\u{00A0}Alpha"), "Case Alpha",
+        expectEqual(AuthoredLabelSanitizer.sanitized("Case\u{00A0}Alpha"), "Case Alpha",
                     "NBSP becomes a space, so the name keeps the gap it shows")
-        expectEqual(TagNameSanitizer.sanitized("a\u{2003}b\u{202F}c\u{205F}d\u{3000}e"),
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{2003}b\u{202F}c\u{205F}d\u{3000}e"),
                     "a b c d e",
                     "em space, narrow NBSP, medium mathematical space and the ideographic space fold")
-        expectEqual(TagNameSanitizer.sanitized("a\u{2000}b\u{200A}c"), "a b c",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{2000}b\u{200A}c"), "a b c",
                     "both ends of the U+2000…U+200A block fold")
     }
 
@@ -124,18 +124,18 @@ func runTests() {
     do {
         // A sanitiser that trimmed or collapsed would fight ordinary typing:
         // the space you just typed would disappear from under the caret.
-        expectEqual(TagNameSanitizer.sanitized("  Case  Alpha  "), "  Case  Alpha  ",
+        expectEqual(AuthoredLabelSanitizer.sanitized("  Case  Alpha  "), "  Case  Alpha  ",
                     "no trimming and no collapsing — both sheets trim at save instead")
-        expectEqual(TagNameSanitizer.sanitized("café ☕ 日本 — Ω"), "café ☕ 日本 — Ω",
+        expectEqual(AuthoredLabelSanitizer.sanitized("café ☕ 日本 — Ω"), "café ☕ 日本 — Ω",
                     "accents, emoji, CJK, an em dash and Greek are ordinary text")
-        expectEqual(TagNameSanitizer.sanitized("APT-41 / \"quoted\" <b> 'x'"),
+        expectEqual(AuthoredLabelSanitizer.sanitized("APT-41 / \"quoted\" <b> 'x'"),
                     "APT-41 / \"quoted\" <b> 'x'",
                     "punctuation a case name really carries is left alone")
-        expectEqual(TagNameSanitizer.sanitized("𝔸 \u{1F600}"), "𝔸 \u{1F600}",
+        expectEqual(AuthoredLabelSanitizer.sanitized("𝔸 \u{1F600}"), "𝔸 \u{1F600}",
                     "astral scalars survive — the scan is per scalar, not per UTF-16 unit")
-        expectTrue(!TagNameSanitizer.needsSanitizing("Case Alpha"),
+        expectTrue(!AuthoredLabelSanitizer.needsSanitizing("Case Alpha"),
                    "an ordinary name is reported as needing nothing, so the field is never rewritten")
-        expectTrue(TagNameSanitizer.needsSanitizing("Case\u{202E}Alpha"),
+        expectTrue(AuthoredLabelSanitizer.needsSanitizing("Case\u{202E}Alpha"),
                    "and a deceptive one is reported as needing the rewrite")
     }
 
@@ -144,13 +144,13 @@ func runTests() {
     do {
         // The change handler rewrites the field, which can raise the change
         // notification again. A second pass must be a no-op or that is a loop.
-        let once = TagNameSanitizer.sanitized("safe\u{202E}gpj\u{00A0}.exe\u{200B}")
-        expectEqual(TagNameSanitizer.sanitized(once), once,
+        let once = AuthoredLabelSanitizer.sanitized("safe\u{202E}gpj\u{00A0}.exe\u{200B}")
+        expectEqual(AuthoredLabelSanitizer.sanitized(once), once,
                     "sanitising twice is sanitising once")
-        expectTrue(!TagNameSanitizer.needsSanitizing(once),
+        expectTrue(!AuthoredLabelSanitizer.needsSanitizing(once),
                    "so the guard stops the second pass before it touches the editor")
-        expectEqual(TagNameSanitizer.sanitized(""), "", "an empty name is left empty")
-        expectEqual(TagNameSanitizer.sanitized("\u{202E}\u{200B}"), "",
+        expectEqual(AuthoredLabelSanitizer.sanitized(""), "", "an empty name is left empty")
+        expectEqual(AuthoredLabelSanitizer.sanitized("\u{202E}\u{200B}"), "",
                     "a name made only of deceptive scalars sanitises away to nothing")
     }
 
@@ -159,20 +159,20 @@ func runTests() {
     do {
         // Offsets are UTF-16, the unit NSTextView.selectedRange speaks.
         let raw = "safe\u{202E}gpj.exe"
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: raw, at: 0), 0,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: 0), 0,
                     "a caret at the start stays at the start")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: raw, at: 4), 4,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: 4), 4,
                     "a caret before the removed scalar does not move")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: raw, at: 5), 4,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: 5), 4,
                     "a caret just after it moves back by exactly one")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: raw, at: raw.utf16.count),
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: raw.utf16.count),
                     raw.utf16.count - 1,
                     "and a caret at the end lands at the end of the shorter name")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: "a\u{00A0}b", at: 3), 3,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: "a\u{00A0}b", at: 3), 3,
                     "a folded scalar keeps its width, so the caret does not move")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: "\u{1F600}\u{202E}x", at: 3), 2,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: "\u{1F600}\u{202E}x", at: 3), 2,
                     "an astral scalar counts as its two UTF-16 units")
-        expectEqual(TagNameSanitizer.sanitizedCaret(in: "ab", at: 99), 2,
+        expectEqual(AuthoredLabelSanitizer.sanitizedCaret(in: "ab", at: 99), 2,
                     "an offset past the end clamps rather than trapping")
     }
 
@@ -182,7 +182,7 @@ func runTests() {
         // The paste in the bug report, made in the middle of a name the analyst
         // had already typed. The caret must stay where the pasted text ended.
         let (field, editor) = editingField("Case safe\u{202E}gpj.exe Alpha", caret: 21)
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectEqual(editor.string, "Case safegpj.exe Alpha",
                     "the field itself no longer holds the override")
         expectEqual(field.stringValue, "Case safegpj.exe Alpha",
@@ -196,7 +196,7 @@ func runTests() {
         // A rewrite that lands while text is selected must not leave the
         // selection covering characters that are gone.
         let (field, editor) = editingField("a\u{202E}bcdef", caret: 2, length: 3)
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectEqual(editor.string, "abcdef", "the override goes")
         expectEqual(editor.selectedRange.location, 1, "the selection start follows the text")
         expectEqual(editor.selectedRange.length, 3, "and its length still covers \"bcd\"")
@@ -206,7 +206,7 @@ func runTests() {
         // Ordinary typing must be left completely alone — including the caret,
         // which a blind rewrite would move even when the text did not change.
         let (field, editor) = editingField("Case Alpha", caret: 4)
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectEqual(editor.string, "Case Alpha", "an ordinary name is untouched")
         expectEqual(editor.selectedRange.location, 4,
                     "and the caret is left exactly where it was")
@@ -228,7 +228,7 @@ func runTests() {
         textView.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0),
                                replacementRange: textView.selectedRange)
         expectTrue(textView.hasMarkedText(), "the fixture really is mid-composition")
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectTrue(textView.hasMarkedText(),
                    "an ordinary keystroke leaves the editor alone, so a composition survives")
     }
@@ -247,13 +247,13 @@ func runTests() {
         textView.setMarkedText("safe\u{202E}",
                                selectedRange: NSRange(location: 5, length: 0),
                                replacementRange: NSRange(location: NSNotFound, length: 0))
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectEqual(textView.hasMarkedText(), true,
                     "sanitising during composition leaves the marked text alone")
         expectEqual(editor.string, "safe\u{202E}",
                     "the composed text is not rewritten while marked")
         textView.unmarkText()
-        field.sanitizeAsTagName()
+        field.sanitizeAsAuthoredLabel()
         expectEqual(editor.string, "safe",
                     "the rewrite runs once the composition commits")
     }
@@ -263,7 +263,7 @@ func runTests() {
         // Manage sheet loads a stored name into the field this way.
         let plain = NSTextField()
         plain.stringValue = "old\u{202E}name"
-        plain.sanitizeAsTagName()
+        plain.sanitizeAsAuthoredLabel()
         expectEqual(plain.stringValue, "oldname",
                     "a field with no field editor is still cleaned")
     }
@@ -304,22 +304,22 @@ func runTests() {
         // would be its own misreading); the ogham space folds like the other
         // unusual spaces; the invisible scalars (the rest of C1, and the
         // Mongolian vowel separator) are removed.
-        expectEqual(TagNameSanitizer.sanitized("one\u{2028}two"), "one two",
+        expectEqual(AuthoredLabelSanitizer.sanitized("one\u{2028}two"), "one two",
                     "line separator folds to a space")
-        expectEqual(TagNameSanitizer.sanitized("one\u{2029}two"), "one two",
+        expectEqual(AuthoredLabelSanitizer.sanitized("one\u{2029}two"), "one two",
                     "paragraph separator folds to a space")
-        expectEqual(TagNameSanitizer.sanitized("one\u{0085}two"), "one two",
+        expectEqual(AuthoredLabelSanitizer.sanitized("one\u{0085}two"), "one two",
                     "NEL folds to a space")
-        expectEqual(TagNameSanitizer.sanitized("a\u{009B}b"), "ab",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{009B}b"), "ab",
                     "a C1 control is removed")
-        expectEqual(TagNameSanitizer.sanitized("a\u{1680}b"), "a b",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{1680}b"), "a b",
                     "ogham space mark folds to a space")
-        expectEqual(TagNameSanitizer.sanitized("a\u{180E}b"), "ab",
+        expectEqual(AuthoredLabelSanitizer.sanitized("a\u{180E}b"), "ab",
                     "Mongolian vowel separator is removed")
     }
 
     if failures == 0 {
-        print("\nAll TagNameSanitizer tests passed.")
+        print("\nAll AuthoredLabelSanitizer tests passed.")
     } else {
         print("\n\(failures) failure(s).")
         exit(1)

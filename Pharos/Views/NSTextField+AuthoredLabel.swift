@@ -2,7 +2,7 @@ import AppKit
 
 extension NSTextField {
 
-    /// Rewrite this field's live text to `TagNameSanitizer.sanitized`, keeping
+    /// Rewrite this field's live text to `AuthoredLabelSanitizer.sanitized`, keeping
     /// the insertion point where the reader put it.
     ///
     /// Called from `controlTextDidChange`, so the field never HOLDS a
@@ -25,11 +25,11 @@ extension NSTextField {
     ///
     /// An editor holding marked text (an IME composition in progress) is left
     /// alone entirely; the rewrite runs when the composition commits instead.
-    func sanitizeAsTagName() {
+    func sanitizeAsAuthoredLabel() {
         guard let editor = currentEditor() else {
             let plain = stringValue
-            guard TagNameSanitizer.needsSanitizing(plain) else { return }
-            stringValue = TagNameSanitizer.sanitized(plain)
+            guard AuthoredLabelSanitizer.needsSanitizing(plain) else { return }
+            stringValue = AuthoredLabelSanitizer.sanitized(plain)
             return
         }
         // An active IME composition is never rewritten: replacing
@@ -38,16 +38,16 @@ extension NSTextField {
         // the rewrite runs then, so nothing deceptive survives to the store.
         if let textView = editor as? NSTextView, textView.hasMarkedText() { return }
         let raw = editor.string
-        guard TagNameSanitizer.needsSanitizing(raw) else { return }
+        guard AuthoredLabelSanitizer.needsSanitizing(raw) else { return }
         // Both ends of the selection are mapped, not just its start: a paste
         // collapses the selection, but a rewrite can also land while text is
         // selected, and a selection whose length was left alone would extend
         // past characters the rewrite removed.
         let selection = editor.selectedRange
-        let start = TagNameSanitizer.sanitizedCaret(in: raw, at: selection.location)
-        let end = TagNameSanitizer.sanitizedCaret(
+        let start = AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: selection.location)
+        let end = AuthoredLabelSanitizer.sanitizedCaret(
             in: raw, at: selection.location + selection.length)
-        editor.string = TagNameSanitizer.sanitized(raw)
+        editor.string = AuthoredLabelSanitizer.sanitized(raw)
         editor.selectedRange = NSRange(location: start, length: end - start)
     }
 }

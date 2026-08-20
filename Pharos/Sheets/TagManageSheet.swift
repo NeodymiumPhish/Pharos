@@ -219,7 +219,7 @@ final class TagManageSheet: NSViewController,
             // Cleaning it on the way IN means the field and the store agree
             // about everything except the characters that were only ever there
             // to deceive — and any later Save takes them out of the store too.
-            nameField.stringValue = TagNameSanitizer.sanitized(tag.name)
+            nameField.stringValue = AuthoredLabelSanitizer.sanitized(tag.name)
             colorControl.selectedSegment = TagPalette.normalizedColorIndex(tag.colorIndex) ?? -1
             noteField.stringValue = tag.note ?? ""
         } else {
@@ -251,7 +251,7 @@ final class TagManageSheet: NSViewController,
     /// that already carries trust can be given a name that reads as something
     /// else. The note is deliberately not sanitised; see `TagSheet`.
     func controlTextDidChange(_ obj: Notification) {
-        if (obj.object as? NSTextField) === nameField { nameField.sanitizeAsTagName() }
+        if (obj.object as? NSTextField) === nameField { nameField.sanitizeAsAuthoredLabel() }
         updateSaveButton()
     }
 
@@ -264,7 +264,7 @@ final class TagManageSheet: NSViewController,
         // that sets the field without raising an edit notification cannot get
         // a deceptive name past it. Before the trim: an unusual space folds to
         // a plain one, which the trim then takes.
-        let name = TagNameSanitizer.sanitized(nameField.stringValue)
+        let name = AuthoredLabelSanitizer.sanitized(nameField.stringValue)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
 
