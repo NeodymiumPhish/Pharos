@@ -20,7 +20,6 @@ class ConnectionSheet: NSViewController {
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()
     private let defaultSchemaPopup = NSPopUpButton()
-    private var fetchedSchemas: [String] = []
 
     // MARK: - Factory
 
@@ -77,7 +76,7 @@ class ConnectionSheet: NSViewController {
         sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
 
         let defaultSchemaLabel = NSTextField.formLabel("Default Schema")
-        defaultSchemaPopup.addItem(withTitle: "Test connection first")
+        PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
         defaultSchemaPopup.isEnabled = false
 
         // Test connection row
@@ -197,18 +196,16 @@ class ConnectionSheet: NSViewController {
 
                                 await MainActor.run { [weak self] in
                                     guard let self else { return }
-                                    self.fetchedSchemas = schemas.map { $0.name }
-                                    self.defaultSchemaPopup.removeAllItems()
-                                    self.defaultSchemaPopup.addItem(withTitle: "None")
-                                    for schema in schemas {
-                                        self.defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(schema.name))
-                                        self.defaultSchemaPopup.lastItem?.representedObject = schema.name
-                                    }
+                                    PopupValueMenu.populate(self.defaultSchemaPopup,
+                                                            sentinel: "None",
+                                                            values: schemas.map(\.name))
                                     self.defaultSchemaPopup.isEnabled = true
-                                    if let existing = self.existingConfig?.defaultSchema,
-                                       let idx = self.fetchedSchemas.firstIndex(of: existing) {
-                                        self.defaultSchemaPopup.selectItem(at: idx + 1)
-                                    }
+                                    // By value, not by index: a schema named
+                                    // "None" no longer has to be counted
+                                    // around, and a saved schema the server has
+                                    // since dropped simply leaves row 0 selected.
+                                    PopupValueMenu.selectValue(self.existingConfig?.defaultSchema,
+                                                               in: self.defaultSchemaPopup)
                                 }
                             } catch {
                                 NSLog("Failed to fetch schemas for default schema picker: \(error)")
@@ -263,7 +260,7 @@ class ConnectionSheet: NSViewController {
         let defaultSchema: String? = {
             if defaultSchemaPopup.isEnabled,
                defaultSchemaPopup.indexOfSelectedItem > 0,
-               let selected = PopupValueSelection.selectedValue(in: defaultSchemaPopup) {
+               let selected = PopupValueMenu.selectedValue(in: defaultSchemaPopup) {
                 return selected
             }
             return existingConfig?.defaultSchema

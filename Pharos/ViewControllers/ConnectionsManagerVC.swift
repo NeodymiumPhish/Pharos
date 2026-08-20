@@ -162,7 +162,6 @@ final class ConnectionsManagerVC: NSViewController {
 
     private var draft: ConnectionConfig?
     private var draftBaseline: ConnectionConfig?
-    private var fetchedSchemas: [String] = []
 
     private var isDirty: Bool {
         guard let draft, let draftBaseline else { return false }
@@ -374,7 +373,7 @@ final class ConnectionsManagerVC: NSViewController {
 
         defaultSchemaPopup.target = self
         defaultSchemaPopup.action = #selector(defaultSchemaChanged)
-        defaultSchemaPopup.addItem(withTitle: "Test connection first")
+        PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
         defaultSchemaPopup.isEnabled = false
         defaultSchemaPopup.translatesAutoresizingMaskIntoConstraints = false
 
@@ -645,7 +644,6 @@ final class ConnectionsManagerVC: NSViewController {
         draft = config
         draftBaseline = config
         listModel.dirtyConnectionId = nil
-        fetchedSchemas = []
 
         titleField.stringValue = config.name.isEmpty ? "Untitled Connection" : config.name
         nameField.stringValue = config.name
@@ -659,19 +657,14 @@ final class ConnectionsManagerVC: NSViewController {
         case .require: sslPopup.selectItem(at: 1)
         case .disable: sslPopup.selectItem(at: 2)
         }
-        defaultSchemaPopup.removeAllItems()
-        // `fetchedSchemas` was already cleared at the top of this method, and it
-        // must stay cleared here: this path does not populate the popup from a
-        // fetch, so leaving the previous connection's schemas in place would let
-        // a future edit that enables this popup read back a schema from a
-        // different connection.
+        // This path shows the one saved schema and nothing else — there is no
+        // list to pick from until the connection is tested, so no sentinel.
         if let saved = config.defaultSchema, !saved.isEmpty {
-            defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(saved))
-            defaultSchemaPopup.lastItem?.representedObject = saved
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: nil, values: [saved])
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = "Test the connection to refresh the schema list."
         } else {
-            defaultSchemaPopup.addItem(withTitle: "Test connection first")
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = nil
         }
@@ -740,7 +733,7 @@ final class ConnectionsManagerVC: NSViewController {
         }
         if defaultSchemaPopup.isEnabled,
            defaultSchemaPopup.indexOfSelectedItem > 0,
-           let selected = PopupValueSelection.selectedValue(in: defaultSchemaPopup) {
+           let selected = PopupValueMenu.selectedValue(in: defaultSchemaPopup) {
             d.defaultSchema = selected
         }
         draft = d
@@ -829,18 +822,15 @@ final class ConnectionsManagerVC: NSViewController {
 
                 await MainActor.run { [weak self] in
                     guard let self else { return }
-                    self.fetchedSchemas = schemas.map { $0.name }
-                    self.defaultSchemaPopup.removeAllItems()
-                    self.defaultSchemaPopup.addItem(withTitle: "None")
-                    for schema in schemas {
-                        self.defaultSchemaPopup.addItem(withTitle: DisplayEscape.escaped(schema.name))
-                        self.defaultSchemaPopup.lastItem?.representedObject = schema.name
-                    }
+                    PopupValueMenu.populate(self.defaultSchemaPopup,
+                                            sentinel: "None",
+                                            values: schemas.map(\.name))
                     self.defaultSchemaPopup.isEnabled = true
-                    if let existing = self.draft?.defaultSchema,
-                       let idx = self.fetchedSchemas.firstIndex(of: existing) {
-                        self.defaultSchemaPopup.selectItem(at: idx + 1)
-                    }
+                    // By value, not by index: a schema named "None" no longer
+                    // has to be counted around, and a saved schema the server
+                    // has since dropped simply leaves row 0 selected.
+                    PopupValueMenu.selectValue(self.draft?.defaultSchema,
+                                               in: self.defaultSchemaPopup)
                 }
             } catch {
                 NSLog("Failed to fetch schemas for default schema picker: \(error)")

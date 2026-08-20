@@ -13,6 +13,14 @@ class SaveQuerySheet: NSViewController {
     private let nameField = NSTextField()
     private let folderPopup = NSPopUpButton()
 
+    /// Marks the one row that means "prompt me for a new folder name".
+    ///
+    /// A tag, not `numberOfItems - 1`: that index was only correct because
+    /// nothing appended after the row, an invariant no code stated. And not
+    /// `representedObject` either — both this row and the "No Folder" row carry
+    /// no value, so the value alone cannot tell them apart.
+    private static let newFolderTag = 1
+
     private let initialName: String
     private let sql: String
     private let variables: [QueryVariable]
@@ -49,18 +57,21 @@ class SaveQuerySheet: NSViewController {
 
         // Folder
         let folderLabel = NSTextField.formLabel("Folder")
-        folderPopup.addItem(withTitle: "No Folder")
         // Load existing folders from cached queries
         let existingFolders = Set(existingQueries.compactMap { $0.folder }).filter { !$0.isEmpty }.sorted()
+        PopupValueMenu.populate(folderPopup, sentinel: "No Folder", values: existingFolders)
+        // The separator goes in after the fact so the sentinel and the folder
+        // rows are still built by one call: a folder literally named
+        // "No Folder" must not delete the sentinel row, which is what
+        // `addItem(withTitle:)` did here — leaving index 0 a separator and the
+        // control rendering blank.
         if !existingFolders.isEmpty {
-            folderPopup.menu?.addItem(.separator())
-            for folder in existingFolders {
-                folderPopup.addItem(withTitle: DisplayEscape.escaped(folder))
-                folderPopup.lastItem?.representedObject = folder
-            }
+            folderPopup.menu?.insertItem(.separator(), at: 1)
         }
         folderPopup.menu?.addItem(.separator())
-        folderPopup.addItem(withTitle: "New Folder...")
+        let newFolderItem = NSMenuItem(title: "New Folder...", action: nil, keyEquivalent: "")
+        newFolderItem.tag = Self.newFolderTag
+        folderPopup.menu?.addItem(newFolderItem)
 
         // Grid
         let grid = NSGridView(views: [
@@ -119,9 +130,9 @@ class SaveQuerySheet: NSViewController {
         var folder: String?
         // The selected ITEM decides, not its title: titles are escaped for
         // display, and a folder genuinely named "No Folder" used to be
-        // swallowed by the sentinel comparison below.
-        let selectedIsNewFolder = folderPopup.indexOfSelectedItem == folderPopup.numberOfItems - 1
-        let selectedFolder = PopupValueSelection.selectedValue(in: folderPopup)
+        // swallowed by a sentinel string comparison here.
+        let selectedIsNewFolder = folderPopup.selectedItem?.tag == Self.newFolderTag
+        let selectedFolder = PopupValueMenu.selectedValue(in: folderPopup)
         if selectedIsNewFolder {
             // Prompt for folder name synchronously
             let alert = NSAlert()
