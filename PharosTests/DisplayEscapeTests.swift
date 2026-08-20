@@ -153,6 +153,28 @@ func runTests() {
                     "the token text is plain ASCII and survives a second pass")
     }
 
+    // MARK: - Scalars added by the hostile-text hardening phase
+
+    do {
+        // U+2028/U+2029 break a single-line label into two apparent values.
+        expectEqual(DisplayEscape.escaped("one\u{2028}two"),
+                    "one<U+2028>two",
+                    "a line separator is shown, not obeyed")
+        expectEqual(DisplayEscape.escaped("one\u{2029}two"),
+                    "one<U+2029>two",
+                    "a paragraph separator is shown, not obeyed")
+        // U+1680 renders as a space on most fonts: an unusual-space twin.
+        expectEqual(DisplayEscape.escaped("a\u{1680}b"),
+                    "a<U+1680>b",
+                    "the ogham space mark is disclosed")
+        // U+180E is format (Cf) since Unicode 6.3: fully invisible.
+        expectEqual(DisplayEscape.escaped("a\u{180E}b"),
+                    "a<U+180E>b",
+                    "the Mongolian vowel separator is disclosed")
+        expectEqual(DisplayEscape.needsEscaping("plain text"), false,
+                    "ordinary text still passes the fast path untouched")
+    }
+
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
     } else {

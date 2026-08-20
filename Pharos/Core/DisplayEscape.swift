@@ -38,8 +38,9 @@ enum DisplayEscape {
         case 0x200E, 0x200F, 0x061C: return true     // LRM, RLM, ALM
         case 0x202A...0x202E: return true            // the embedding/override set
         case 0x2066...0x2069: return true            // the isolate set
-        case 0x200B...0x200D, 0x2060, 0xFEFF: return true  // zero-width, BOM
-        case 0x00A0, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true  // spaces
+        case 0x2028, 0x2029: return true             // line/paragraph separators
+        case 0x200B...0x200D, 0x2060, 0xFEFF, 0x180E: return true  // zero-width, BOM, MVS
+        case 0x00A0, 0x1680, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true  // spaces
         default: return false
         }
     }
