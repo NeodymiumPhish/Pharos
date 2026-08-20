@@ -35,6 +35,16 @@ func runTests() {
                 "Drop \"a<U+200B>b\"?",
                 "drop title discloses a zero-width character")
 
+    // The delete-workspace confirmation is the same shape: the last thing a
+    // user reads before an irreversible delete, naming an attacker-controlled
+    // workspace name.
+    expectEqual(DestructiveConfirmationText.deleteWorkspaceConfirmTitle(name: "My Workspace"),
+                "Delete workspace \"My Workspace\"?",
+                "plain delete-workspace title")
+    expectEqual(DestructiveConfirmationText.deleteWorkspaceConfirmTitle(name: "safe\u{202E}x"),
+                "Delete workspace \"safe<U+202E>x\"?",
+                "delete-workspace title discloses a bidi override")
+
     // The destructive-query preview: raw SQL truncated FIRST (grapheme-safe),
     // escaped AFTER, so an escape token is never cut in half.
     let msg = DestructiveConfirmationText.destructiveQueryMessage(

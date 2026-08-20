@@ -35,6 +35,10 @@ enum DestructiveConfirmationText {
         "Drop \"\(DisplayEscape.escaped(name))\"?"
     }
 
+    static func deleteWorkspaceConfirmTitle(name: String) -> String {
+        "Delete workspace \"\(DisplayEscape.escaped(name))\"?"
+    }
+
     static func droppedInfoMessage(name: String) -> String {
         "\"\(DisplayEscape.escaped(name))\" has been dropped."
     }

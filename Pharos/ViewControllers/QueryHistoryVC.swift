@@ -497,7 +497,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         guard case .workspace(let w)? = rowAt(tableView.clickedRow) else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Delete workspace \"\(w.name)\"?"
+        alert.messageText = DestructiveConfirmationText.deleteWorkspaceConfirmTitle(name: w.name)
         alert.informativeText = "This permanently deletes the workspace and all its saved results."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
