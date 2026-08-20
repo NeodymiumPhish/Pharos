@@ -257,10 +257,20 @@ func runTests() {
                 "a hostile scalar in the schema part is disclosed")
     expectEqual(DisplayEscape.escapedQualified(schema: "public", table: "users "),
                 "public.users<U+0020>",
-                "a trailing space in a part is disclosed, which joining first would hide")
+                "an outer-edge trailing space (end of the table part) is disclosed")
     expectEqual(DisplayEscape.escapedQualified(schema: " public", table: "users"),
                 "<U+0020>public.users",
-                "a leading space in the schema part is disclosed")
+                "an outer-edge leading space (start of the schema part) is disclosed")
+
+    // The DISCRIMINATING cases: a space at a part's inner edge becomes an
+    // interior space once joined, where the joined form no longer marks it.
+    // These two are what make per-part escaping observably different.
+    expectEqual(DisplayEscape.escapedQualified(schema: "public ", table: "users"),
+                "public<U+0020>.users",
+                "the schema's trailing space is disclosed though joining would bury it")
+    expectEqual(DisplayEscape.escapedQualified(schema: "public", table: " users"),
+                "public.<U+0020>users",
+                "the table's leading space is disclosed though joining would bury it")
 
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
