@@ -229,6 +229,21 @@ func runTests() {
     expectEqual(DisplayEscape.isHostileInFlowingText("\u{0085}"), true,
                 "NEL is a line break the predicate still discloses")
 
+    // THE LAYER BOUNDARY. Everything above relaxes CR in FLOWING text only.
+    // The relaxation must never sink one layer down into `mustEscape`, which is
+    // what guards single-line grid labels, the Inspector and the tag sheets —
+    // there a CR is never legitimate formatting, and a raw one reaching a label
+    // is the original bug this whole file exists to prevent.
+    //
+    // Without this assertion the boundary is undefended: relaxing 0x0D inside
+    // `mustEscape` passed all 69 suites, because `needsEscaping("10.0.0.1\r")`
+    // then answers false and `escaped` returns its input untouched. This is the
+    // same shape as the 0x09...0x0D sibling mutant guarded above, one layer down.
+    expectEqual(DisplayEscape.escaped("a\rb"), "a<U+000D>b",
+                "a CR is relaxed ONLY in flowing text — a single-line label still discloses it")
+    expectEqual(DisplayEscape.needsEscaping("10.0.0.1\r"), true,
+                "a trailing CR still marks a single-line value as needing escape")
+
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
     } else {

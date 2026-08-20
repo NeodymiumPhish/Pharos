@@ -13,11 +13,18 @@
 //
 // Two mechanics are mandatory here, and both fail SILENTLY when got wrong:
 //
-//  1. A bitmap context is y-up and the layout manager draws y-down. Without the
-//     `translateBy` + `scaleBy(y: -1)` flip, the text lands outside the bitmap
-//     and every ink count is zero — assertions then "pass" against a blank
-//     image. The flip also makes bitmap coordinates equal text coordinates,
-//     which is why the rects below are written in text coordinates.
+//  1. A bitmap context is y-up and the layout manager draws y-down, so the flip
+//     below is required for bitmap coordinates to equal TEXT coordinates —
+//     which is what lets every rect in this file be written in text
+//     coordinates straight from the layout manager.
+//
+//     Measured, so nobody has to guess at the failure mode: removing the flip
+//     does NOT push the text off the bitmap and does NOT zero every count. The
+//     text stays inside, drawn mirrored, and test 1 still passes on 293px of
+//     ink. What breaks is the CORRESPONDENCE — a rect computed in text
+//     coordinates no longer covers the thing it names, so tests 2 and 3 drop to
+//     0px and fail. Test 1 is therefore not a flip check, whatever its name
+//     suggests; tests 2 and 3 are.
 //  2. `NSLayoutManager` does NOT own its `NSTextStorage`. A helper that returns
 //     only the rep and the layout manager lets the storage deallocate the
 //     moment it returns; `numberOfGlyphs` then reads 0, the layout is empty, and
@@ -201,8 +208,10 @@ func runTests() {
         let plain = render("SELECT 1")
         expectGreater(plain.layoutManager.numberOfGlyphs, 0,
                       "the layout is not empty — the text storage outlived the helper")
+        // Note this does NOT verify the y-flip — it passes mirrored too. It only
+        // proves the context exists and something was drawn into it.
         expectGreater(inkCount(plain, in: NSRect(x: 0, y: 0, width: 700, height: 40)), 100,
-                      "plain text puts ink on the bitmap, so the flip and the context are right")
+                      "plain text puts ink on the bitmap, so the context is real")
     }
 
     // MARK: - 2. The reserved pill space is actually painted
@@ -307,9 +316,16 @@ func runTests() {
                                        actualCharacterRange: nil)
             return lm.location(forGlyphAt: glyphs.location).x
         }
-        let anchorAdvance = glyphX(8) - glyphX(2)
+        let anchorX = glyphX(2)
+        let anchorAdvance = glyphX(8) - anchorX
         let hostilePillWidth = (lm as! FoldingLayoutManager).measurePill(label: "<U+200B>").width
 
+        // Non-vacuity guard. A failed glyph lookup returns 0 from both calls, so
+        // the advance would be 0 and the two assertions below would pass against
+        // nothing. The anchor sits after "AB", so its x must be a real non-zero
+        // position (16.07pt) — that is what proves the lookups resolved.
+        expect(anchorX > 1.0,
+               "the glyph lookups resolved — the advance below is a real measurement [anchor x=\(anchorX)pt]")
         expect(anchorAdvance < 1.0,
                "a fold anchored on a hostile scalar reserves no width [advance \(anchorAdvance)pt]")
         expect(anchorAdvance < hostilePillWidth / 2,
