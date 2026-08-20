@@ -32,7 +32,11 @@ final class VariableValueTextView: NSTextView {
     /// `maxSize`) stays with the host, matching `QueryEditorVC`.
     convenience init() {
         let storage = NSTextStorage()
-        let layoutManager = NSLayoutManager()
+        // The disclosing layout manager, not a stock one: a value is data that
+        // will be substituted into SQL, so a bidi override pasted here must be
+        // visible rather than obeyed. Folding is unused at this size — the fold
+        // state stays empty — and the same class carries both behaviours.
+        let layoutManager = FoldingLayoutManager(foldState: FoldState())
         storage.addLayoutManager(layoutManager)
         let container = NSTextContainer()
         container.widthTracksTextView = true

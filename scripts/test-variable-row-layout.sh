@@ -13,6 +13,9 @@ swiftc -o /tmp/variable-row-layout-tests \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValuePreview.swift \
+  Pharos/Core/DisplayEscape.swift \
+  Pharos/Editor/FoldState.swift \
+  Pharos/Editor/FoldingLayoutManager.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   PharosTests/VariableRowLayoutTests.swift \

@@ -14,7 +14,7 @@ class TableDDLSheet: NSViewController {
     private var selectedLevel: DDLDetailLevel = .columns
 
     private let sidebar = NSTableView()
-    private let textView = NSTextView()
+    private let textView = TableDDLSheet.makeDisclosingTextView()
     private let cloneNameField = NSTextField()
     private let includeRowsCheckbox = NSButton(checkboxWithTitle: "Include table rows", target: nil, action: nil)
     private var cloneSection: NSView!
@@ -29,6 +29,24 @@ class TableDDLSheet: NSViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
+    }
+
+    /// The DDL view with the disclosing layout manager, so an invisible scalar
+    /// smuggled into an identifier is visible before the reader copies the DDL
+    /// and runs it somewhere else. Copy DDL still copies the raw bytes.
+    ///
+    /// Builds its own TextKit stack for the same reason `VariableValueTextView`
+    /// does: `NSTextView()` alone leaves storage, layout manager and container
+    /// nil, and then silently drops every assignment to `string`.
+    private static func makeDisclosingTextView() -> NSTextView {
+        let storage = NSTextStorage()
+        let layoutManager = FoldingLayoutManager(foldState: FoldState())
+        storage.addLayoutManager(layoutManager)
+        let container = NSTextContainer()
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+        return NSTextView(frame: .zero, textContainer: container)
     }
 
     override func loadView() {
