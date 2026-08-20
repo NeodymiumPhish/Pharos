@@ -685,7 +685,12 @@ final class ConnectionsManagerVC: NSViewController {
         draftBaseline = config
         listModel.dirtyConnectionId = nil
 
-        titleField.stringValue = config.name.isEmpty ? "Untitled Connection" : config.name
+        // A display label, so it is ESCAPED rather than sanitised — matching the
+        // list row for the same name. It is also the largest rendering of the
+        // name in this view, so it is the last place that should be able to lie.
+        titleField.stringValue = config.name.isEmpty
+            ? "Untitled Connection"
+            : DisplayEscape.escaped(config.name)
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(config.name)
         hostField.stringValue = config.host
         portField.stringValue = String(config.port)

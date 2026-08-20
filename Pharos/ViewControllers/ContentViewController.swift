@@ -3234,17 +3234,18 @@ extension ContentViewController {
     /// sanitiser deliberately does not, because a saved query named `50%`
     /// should keep its `%`.
     private func defaultChartExportBaseName() -> String {
-        // The empty check moved ahead of the sanitiser: it returns "untitled"
-        // for an empty name, which would beat this function's own "chart".
         guard let id = activeResultTabId,
-              let tab = resultTabs.first(where: { $0.id == id }),
-              !tab.label.trimmingCharacters(in: .whitespaces).isEmpty
+              let tab = resultTabs.first(where: { $0.id == id })
         else { return "chart" }
         let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
         let cleaned = SavedQueryFilename.sanitize(tab.label)
             .components(separatedBy: invalid).joined(separator: "-")
             .trimmingCharacters(in: .whitespaces)
-        return cleaned.isEmpty ? "chart" : cleaned
+        // Checked AFTER sanitising, and against `untitled` as well as empty:
+        // the shared sanitiser strips leading dots, so a label of "..." arrives
+        // here as its own fallback rather than as an empty string, and this
+        // panel's fallback should still win.
+        return cleaned.isEmpty || cleaned == "untitled" ? "chart" : cleaned
     }
 }
 

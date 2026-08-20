@@ -113,7 +113,12 @@ final class VariableDetailVC: NSViewController {
         backButton.action = #selector(backTapped)
 
         nameField.placeholderString = "name"
-        nameField.stringValue = variable.name
+        // Sanitised on the way in, not only on edit. `recomputeCollisionState`
+        // runs once at the end of this method precisely so a colliding name
+        // shows the moment you drill in — with a raw seed that fails, because a
+        // name like `ops<U+200B>` reads as `ops` but collides with nothing
+        // until the first keystroke rewrites it.
+        nameField.stringValue = AuthoredLabelSanitizer.sanitized(variable.name)
         nameField.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         nameField.textColor = .systemIndigo
         nameField.isBordered = false

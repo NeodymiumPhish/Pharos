@@ -28,10 +28,6 @@ enum SavedQueryFilename {
             // removed so the substitution is visible in the name the user is
             // offered. The old `< 0x20` bound missed DEL and the whole C1
             // range, which includes NEL.
-            // Every scalar the display escaper names, replaced rather than
-            // removed so the substitution is visible in the name the user is
-            // offered. The old `< 0x20` bound missed DEL and the whole C1
-            // range, which includes NEL.
             case _ where DisplayEscape.mustEscape(scalar):
                 out.append("_")
             default:
