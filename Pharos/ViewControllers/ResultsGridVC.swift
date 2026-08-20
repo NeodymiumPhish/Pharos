@@ -531,7 +531,10 @@ class ResultsGridVC: NSViewController {
             // Assign the header cell BEFORE the title: replacing headerCell resets
             // its stringValue (title), so setting title first would be discarded.
             col.headerCell = SortAwareHeaderCell()
-            col.title = colDef.name
+            // Safe to escape: column identity is `colId`, never the title, and the
+            // filter popover gets `columns[idx].name` from the model — nothing
+            // reads this string back. `measuredColumnWidth` must escape in step.
+            col.title = DisplayEscape.escaped(colDef.name)
             col.minWidth = 50
             col.maxWidth = 1000
             types[colId] = colDef.dataType.uppercased()
@@ -1027,7 +1030,12 @@ class ResultsGridVC: NSViewController {
         // rounding safety, so the rendered text never lands a hair short and truncates.
         let pad: CGFloat = SortAwareHeaderCell.hInset * 2 + tableView.intercellSpacing.width + 2
         // Header contributes the wider of the two rows: name (row 1) and type (row 2).
-        let nameStr = idx < columns.count ? columns[idx].name : column.title
+        // Escaped in lockstep with the `col.title` site above, or the column is
+        // sized for shorter text than the header draws and the disclosure token
+        // truncates. The fallback branch is NOT escaped again: `column.title`
+        // already came out of that site escaped, and a second pass would double
+        // every token.
+        let nameStr = idx < columns.count ? DisplayEscape.escaped(columns[idx].name) : column.title
         let typeStr = (idx < columns.count ? columns[idx].dataType : "").uppercased()
         let nameW = (nameStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
         let typeW = (typeStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width

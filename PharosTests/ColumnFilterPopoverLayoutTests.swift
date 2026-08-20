@@ -106,6 +106,27 @@ func runTests() {
     expectTrue(abs(advanced.alignmentRect(forFrame: advanced.frame).minX - sideInset) < 0.5,
                "the advanced area starts at the same leading edge as the rest")
 
+    // MARK: hostile text in the value list — drawn side and measured side together
+
+    // A value's checkbox title is escaped, the search label stays raw, and the
+    // popover is sized from the ESCAPED text — otherwise the disclosure just
+    // added is the first thing truncated away.
+    do {
+        let hostile = "10.0.0\u{00A0}.1"
+        let list = FilterValueListView(frame: .zero)
+        list.setValues([hostile], checked: [hostile])
+
+        expectTrue(list.escapedLabel(for: hostile).contains("<U+00A0>"),
+                   "the checkbox title discloses a non-breaking space")
+        expectTrue(list.displayLabel(for: hostile) == hostile,
+                   "the search label stays raw so typing the real value still matches")
+        let font = NSFont.systemFont(ofSize: 12)
+        let escapedWidth = (list.escapedLabel(for: hostile) as NSString)
+            .size(withAttributes: [.font: font]).width
+        expectTrue(list.maxValueWidth(font: font) >= escapedWidth,
+                   "the popover is measured from the escaped text, not the raw text")
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

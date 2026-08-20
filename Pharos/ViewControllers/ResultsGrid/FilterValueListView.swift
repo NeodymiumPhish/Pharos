@@ -73,7 +73,10 @@ final class FilterValueListView: NSView {
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
         var widest: CGFloat = 0
         for value in allValues {
-            let w = (displayLabel(for: value) as NSString).size(withAttributes: attrs).width
+            // Measured from the ESCAPED label because that is what the row draws:
+            // measuring the raw text sizes the popover for fewer characters than
+            // it shows, and the disclosure token is the first thing truncated.
+            let w = (escapedLabel(for: value) as NSString).size(withAttributes: attrs).width
             if w > widest { widest = w }
         }
         return widest
@@ -129,8 +132,17 @@ final class FilterValueListView: NSView {
         applySearch(searchQuery)
     }
 
-    private func displayLabel(for value: String) -> String {
+    // Both labels are internal rather than private as a deliberate testability
+    // seam: the standalone harness asserts the raw/escaped split directly.
+    func displayLabel(for value: String) -> String {
         value == ColumnFilter.blanksSentinel ? "(Blanks)" : value
+    }
+
+    /// `displayLabel` for the eye. Kept separate from `displayLabel` because
+    /// the search field filters through THAT one: if escaping happened there,
+    /// typing the real characters of a value would stop matching it.
+    func escapedLabel(for value: String) -> String {
+        DisplayEscape.escaped(displayLabel(for: value))
     }
 
     /// Aggregate state of the Select All row over the currently visible rows.
@@ -191,7 +203,7 @@ extension FilterValueListView: NSTableViewDataSource, NSTableViewDelegate {
             cell.countLabel.stringValue = ""
         } else {
             let value = visibleValues[row - 1]
-            let label = displayLabel(for: value)
+            let label = escapedLabel(for: value)
             box.title = label
             box.font = .systemFont(ofSize: 12)
             box.allowsMixedState = false

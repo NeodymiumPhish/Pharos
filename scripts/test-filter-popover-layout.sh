@@ -7,6 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/filter-popover-layout-tests \
+  Pharos/Core/DisplayEscape.swift \
   Pharos/Utilities/BlanksSentinel.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnFilter.swift \

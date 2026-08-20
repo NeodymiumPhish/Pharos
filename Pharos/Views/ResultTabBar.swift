@@ -223,9 +223,11 @@ private class ResultTabButton: NSView {
         self.selectAction = selectAction
         self.closeAction = closeAction
 
-        // Calculate preferred width
+        // Calculate preferred width. This and `draw` must escape together: the
+        // button would otherwise be sized for different text than it draws.
+        // Tab identity is `resultTab.id`, so escaping the label reads back nowhere.
         let labelSize = NSAttributedString(
-            string: resultTab.label,
+            string: DisplayEscape.escaped(resultTab.label),
             attributes: [.font: labelFont]
         ).size()
         self.preferredWidth = hPadding + dotSize + dotLabelGap + labelSize.width + labelCloseGap + closeButtonSize + hPadding
@@ -307,7 +309,7 @@ private class ResultTabButton: NSView {
             .font: labelFont,
             .foregroundColor: labelColor,
         ]
-        let labelStr = NSAttributedString(string: resultTab.label, attributes: attrs)
+        let labelStr = NSAttributedString(string: DisplayEscape.escaped(resultTab.label), attributes: attrs)
         let labelSize = labelStr.size()
         let labelY = (bounds.height - labelSize.height) / 2
         labelStr.draw(at: NSPoint(x: x, y: labelY))
