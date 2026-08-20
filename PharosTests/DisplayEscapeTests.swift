@@ -203,6 +203,23 @@ func runTests() {
                     "a line SEPARATOR is not a newline and is still disclosed")
     }
 
+    // The predicate shared by the multi-line escaper and the editor's pill
+    // rendering: in flowing text, `\n` and `\t` are the text's own formatting.
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("\u{202E}"), true,
+                "a bidi override is hostile in flowing text")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("\u{200B}"), true,
+                "a zero-width space is hostile in flowing text")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("\n"), false,
+                "a newline is the text's own formatting")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("\t"), false,
+                "a tab is the text's own formatting")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("\r"), true,
+                "a stray carriage return is still disclosed")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText("A"), false,
+                "an ordinary letter is not hostile")
+    expectEqual(DisplayEscape.mustEscapeInFlowingText(" "), false,
+                "a plain space is not hostile in flowing text — indentation is normal")
+
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")
     } else {

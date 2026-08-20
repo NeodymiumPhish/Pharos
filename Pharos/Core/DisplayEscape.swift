@@ -48,6 +48,18 @@ enum DisplayEscape {
         }
     }
 
+    /// Whether a scalar is hostile in FLOWING text — a SQL preview, an editor,
+    /// any multi-line body where `\n` and `\t` are the text's own formatting
+    /// rather than smuggled controls. Everything else `mustEscape` names stays
+    /// hostile, including a stray `\r`.
+    ///
+    /// One definition, two consumers: `escapedMultiline` renders it as
+    /// `<U+XXXX>` text, and `FoldingLayoutManager` renders it as a pill without
+    /// touching the text. They must never disagree about what counts.
+    static func mustEscapeInFlowingText(_ scalar: Unicode.Scalar) -> Bool {
+        mustEscape(scalar) && scalar != "\n" && scalar != "\t"
+    }
+
     /// Whether `escaped(_:)` would change this string.
     ///
     /// Exposed so the answer can be tested directly, and used by `escaped` as a
@@ -95,8 +107,7 @@ enum DisplayEscape {
     static func escapedMultiline(_ text: String) -> String {
         let scalars = Array(text.unicodeScalars)
         return escapedCore(scalars) { index in
-            let scalar = scalars[index]
-            return mustEscape(scalar) && scalar != "\n" && scalar != "\t"
+            mustEscapeInFlowingText(scalars[index])
         }
     }
 
