@@ -353,7 +353,7 @@ class InspectorViewController: NSViewController {
             let nullCount = agg.totalCount - agg.nonNullCount
             var statLines = ["Count: \(agg.nonNullCount)"]
             if agg.distinctCount == 1, let only = agg.distinctValues.first {
-                statLines.append("Distinct: 1 (\(only))")
+                statLines.append("Distinct: 1 (\(DisplayEscape.escaped(only)))")
             } else {
                 statLines.append("Distinct: \(agg.distinctCount)")
             }
@@ -717,8 +717,17 @@ class InspectorViewController: NSViewController {
         return label
     }
 
+    /// Escapes here, once, rather than at each caller: `addDetailField` routes
+    /// raw server-supplied schema metadata (parent/partition names, a
+    /// partition bound expression, schema name, data type, column default)
+    /// through this single choke point, so no new caller can forget the
+    /// disclosure and a caller that already escaped is unaffected (`escaped`
+    /// is idempotent). `showSQL` also calls this, but immediately overwrites
+    /// `attributedStringValue` with the raw SQL text for syntax highlighting —
+    /// that path is unaffected by this escape and stays raw on purpose, the
+    /// same way `addTagNote` leaves analyst prose alone.
     private func makeFieldValueLabel(_ text: String, color: NSColor) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
+        let label = NSTextField(labelWithString: DisplayEscape.escaped(text))
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
