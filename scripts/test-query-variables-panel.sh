@@ -30,6 +30,8 @@ swiftc -o /tmp/query-variables-panel-tests \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
+  Pharos/Core/SanitiseNotice.swift \
+  Pharos/Views/Toast.swift \
   PharosTests/QueryVariablesPanelTests.swift \
   "$TMPMAIN"
 /tmp/query-variables-panel-tests

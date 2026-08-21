@@ -144,6 +144,7 @@
 		BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */; };
 		BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */; };
 		BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */; };
+		BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */; };
 		C09D4BB119BB9E4BAE7941C1 /* ServerChartDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */; };
 		C35835C7F2F3155BB74617C5 /* WorkspacePreviewRowCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */; };
 		C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */; };
@@ -330,6 +331,7 @@
 		CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBadgeButton.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
 		CDED3E898043241B00FE18D7 /* ResizeGripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeGripView.swift; sourceTree = "<group>"; };
+		CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SanitiseNotice.swift; sourceTree = "<group>"; };
 		CEADE04C5F358D12DBAEFF53 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartExporter.swift; sourceTree = "<group>"; };
 		CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CIDRRange.swift; sourceTree = "<group>"; };
@@ -614,6 +616,7 @@
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
+				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
 				0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */,
 				8870AA5A4E803E6824897E6C /* TagDraft.swift */,
@@ -919,6 +922,7 @@
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,
 				24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */,
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
+				BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */,
 				E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */,
 				E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */,
 				3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */,

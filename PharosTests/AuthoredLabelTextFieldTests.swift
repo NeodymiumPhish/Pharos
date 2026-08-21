@@ -89,6 +89,22 @@ func runTests() {
                     "a seeded value can be sanitised with no field editor present")
     }
 
+    // The notice actually reaches the screen. This is what proves the hook is
+    // WIRED — `SanitiseNoticeTests` already proves the message is right, and a
+    // correct message nobody shows is the failure mode worth guarding.
+    do {
+        let (window, _, editor) = hostedField()
+        func noticeCount() -> Int {
+            (window.contentView?.subviews.compactMap { $0 as? ToastView } ?? []).count
+        }
+        expectEqual(noticeCount(), 0, "no notice before anything is typed")
+        editor.insertText("case_alpha")
+        expectEqual(noticeCount(), 0, "an ordinary paste raises no notice")
+        editor.insertText("safe\u{202E}gpj.exe")
+        expectTrue(noticeCount() >= 1,
+                   "a hostile paste raises a notice in the window hosting the field")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)

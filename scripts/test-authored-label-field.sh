@@ -7,6 +7,9 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/authored-label-field-tests \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
+  Pharos/Core/DisplayEscape.swift \
+  Pharos/Core/SanitiseNotice.swift \
+  Pharos/Views/Toast.swift \
   Pharos/Views/AuthoredLabelTextField.swift \
   PharosTests/AuthoredLabelTextFieldTests.swift \
   PharosTests/main.swift

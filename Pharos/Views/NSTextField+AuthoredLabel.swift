@@ -47,7 +47,32 @@ extension NSTextField {
         let start = AuthoredLabelSanitizer.sanitizedCaret(in: raw, at: selection.location)
         let end = AuthoredLabelSanitizer.sanitizedCaret(
             in: raw, at: selection.location + selection.length)
-        editor.string = AuthoredLabelSanitizer.sanitized(raw)
+        let sanitised = AuthoredLabelSanitizer.sanitized(raw)
+        editor.string = sanitised
         editor.selectedRange = NSRange(location: start, length: end - start)
+        announceSanitising(raw: raw, sanitised: sanitised)
+    }
+
+    /// Say what was just taken out, and show the original with its invisible
+    /// characters made visible.
+    ///
+    /// Only on the EDITOR path, never on the `stringValue` path above: that one
+    /// is the seed, and a notice every time a sheet opens on a stored name
+    /// would be noise rather than news. This fires when the text the analyst
+    /// just typed or pasted was rewritten under them, which is the moment the
+    /// silence was surprising.
+    ///
+    /// Fires once per rewrite, not per keystroke: sanitised text is a fixed
+    /// point, so the `needsSanitizing` guard above stops the very next change
+    /// from reaching here.
+    private func announceSanitising(raw: String, sanitised: String) {
+        guard let notice = SanitiseNotice.message(raw: raw, sanitised: sanitised),
+              let host = window?.contentView
+        else { return }
+        // `window.contentView` rather than a superview: four of these fields
+        // are the accessory view of an `NSAlert`, whose own window hosts the
+        // toast perfectly well, and none of the nine sites has to lay anything
+        // out for this.
+        Toast.show(in: host, message: notice, style: .warning, duration: 5.0)
     }
 }

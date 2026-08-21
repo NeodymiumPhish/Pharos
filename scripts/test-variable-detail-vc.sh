@@ -25,6 +25,8 @@ swiftc -o /tmp/variable-detail-vc-tests \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
+  Pharos/Core/SanitiseNotice.swift \
+  Pharos/Views/Toast.swift \
   PharosTests/VariableDetailVCTests.swift \
   "$TMPMAIN"
 /tmp/variable-detail-vc-tests
