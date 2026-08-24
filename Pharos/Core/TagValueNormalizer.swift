@@ -33,6 +33,10 @@ enum TagValueNormalizer {
     static let temporalFamily = "temporal"
     static let uuidFamily = "uuid"
 
+    /// The prefix `family(forDataType:)` puts on a type it has no rule for.
+    /// Shared so the code that STRIPS it cannot drift from the code that adds it.
+    static let typePrefix = "type:"
+
     /// The family of a column, from `ColumnDef.dataType`.
     ///
     /// Both spellings are listed for every family. `pharos-core` reports
@@ -70,7 +74,7 @@ enum TagValueNormalizer {
         case "uuid":
             return uuidFamily
         default:
-            return "type:\(t)"
+            return "\(typePrefix)\(t)"
         }
     }
 

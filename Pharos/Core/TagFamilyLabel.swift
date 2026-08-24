@@ -4,11 +4,12 @@ import Foundation
 
 /// One family string, one human label.
 ///
-/// Conditions carry a family and no column name: the column a value came from
-/// is provenance, and a hand-authored condition has no column at all, so the
-/// family is the only thing every condition can be described by. One producer,
-/// so the Inspector, the removal sheet and the type picker cannot describe the
-/// same family with three different words.
+/// A condition is described by its FAMILY, not by a column. A column name
+/// never takes part in matching — it is provenance — and a hand-authored
+/// condition has no column at all, so the family is the one description
+/// every condition can share. One producer, so the Inspector, the removal
+/// sheet and the type picker cannot describe the same family with three
+/// different words.
 ///
 /// `DisplayEscape` on the way out, like every other stored text this app draws:
 /// an exotic family carries a PostgreSQL type name, which is somebody else's
@@ -33,7 +34,8 @@ enum TagFamilyLabel {
         if let known = known.first(where: { $0.family == family }) {
             return known.label
         }
-        let bare = family.hasPrefix("type:") ? String(family.dropFirst(5)) : family
+        let prefix = TagValueNormalizer.typePrefix
+        let bare = family.hasPrefix(prefix) ? String(family.dropFirst(prefix.count)) : family
         return DisplayEscape.escaped(bare)
     }
 }

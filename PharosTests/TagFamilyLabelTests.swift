@@ -12,6 +12,11 @@ func runTests() {
     expect(TagFamilyLabel.text(for: "temporal") == "Date & time", "temporal family")
     expect(TagFamilyLabel.text(for: "uuid") == "UUID", "uuid family")
 
+    // The ORDER is deliberate — a later type picker shows these in it — so it
+    // is pinned. A comment alone would not survive a reorder.
+    expect(TagFamilyLabel.known.map(\.family) == ["text", "address", "numeric", "temporal", "uuid"],
+           "the known family order is fixed")
+
     // An exotic type keeps its own name as its family. The label shows the
     // TYPE, not the "type:" bookkeeping prefix the normalizer added.
     expect(TagFamilyLabel.text(for: "type:bool") == "bool", "type: prefix stripped")
