@@ -187,6 +187,14 @@ func runTests() {
     expect(!hits(.between, "numeric", "0", "10", cell: "1,000", cellFamily: "numeric"),
            "a fallen-back numeric cell never matches between")
 
+    // `-Infinity` above is a WEAK case against a byte compare, and deliberately
+    // kept for the -infinity float8 scenario it names. But it sorts BELOW "0"
+    // (0x2D against 0x30), so a byte compare answers "not greater" and is right
+    // by accident. Every other fallen-back value sorts ABOVE "0", so this one
+    // discriminates where that one cannot.
+    expect(!hits(.greaterThan, "numeric", "0", cell: "1,000", cellFamily: "numeric"),
+           "a fallen-back numeric cell that sorts high never matches greaterThan")
+
     // Temporal comparators.
     expect(hits(.greaterThan, "temporal", "2026-08-13 12:34:56.9",
                 cell: "2026-08-13 12:34:56.91", cellFamily: "temporal"),
