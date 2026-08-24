@@ -7,6 +7,7 @@ swiftc -o /tmp/tuple-key-tests \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Core/TagConditionKind.swift \
   Pharos/Core/RuleKey.swift \
   PharosTests/TupleKeyTests.swift \
   PharosTests/main.swift

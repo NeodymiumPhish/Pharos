@@ -20,7 +20,8 @@ private func value(_ column: String, _ family: String, _ text: String) -> TagCon
 
 private func tuple(_ id: String, _ values: [TagCondition]) -> TagRule {
     TagRule(id: id, conditions: values, tupleKey: RuleKey.encode(
-                values.map { TagValueKey(family: $0.family, value: $0.value) }) ?? "",
+                values.map { RuleConditionKey(kind: $0.kind, family: $0.family,
+                                              value: $0.value, operand2: $0.operand2) }) ?? "",
              originConnection: "c1", originTable: "public.certs",
              createdAt: "2026-08-13T00:00:00Z")
 }

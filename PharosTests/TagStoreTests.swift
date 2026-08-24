@@ -29,7 +29,8 @@ private func newTuple(_ value: String) -> NewTagRule {
                                   value: normalized, display: value)
     return NewTagRule(
         conditions: [taggedValue],
-        tupleKey: RuleKey.encode([TagValueKey(family: "text", value: normalized)])!,
+        tupleKey: RuleKey.encode([RuleConditionKey(kind: .exact, family: "text",
+                                                   value: normalized, operand2: nil)])!,
         originConnection: "c1", originTable: "public.certs")
 }
 

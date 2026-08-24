@@ -59,7 +59,8 @@ enum TagDraft {
             // A tuple that lost every value contributes nothing — an empty
             // tuple would be inert in the matcher and noise in the store.
             guard let key = RuleKey.encode(
-                values.map { TagValueKey(family: $0.family, value: $0.value) })
+                values.map { RuleConditionKey(kind: $0.kind, family: $0.family,
+                                              value: $0.value, operand2: $0.operand2) })
             else { continue }
             // Two rows whose captured values normalize the same ARE one finding.
             // The unique index would absorb the repeat on write; collapsing here
