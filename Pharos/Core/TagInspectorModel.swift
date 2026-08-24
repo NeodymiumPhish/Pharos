@@ -61,14 +61,14 @@ enum TagInspectorModel {
     /// the wording is pinned by the standalone suite instead of by eye.
     ///
     /// Both the noun AND the verb inflect. Inflecting only the noun reads
-    /// "Its 1 tuple stop matching", which is why this is a function and not
+    /// "Its 1 rule stop matching", which is why this is a function and not
     /// an interpolated string at each call site.
     static func deleteConfirmation(
-        name: String, tupleCount: Int
+        name: String, ruleCount: Int
     ) -> (title: String, body: String) {
-        let subject = tupleCount == 1
-            ? "Its 1 tuple stops"
-            : "Its \(tupleCount) tuples stop"
+        let subject = ruleCount == 1
+            ? "Its 1 rule stops"
+            : "Its \(ruleCount) rules stop"
         return (
             title: "Delete tag \u{201C}\(name)\u{201D}?",
             body: "\(subject) matching in every result, on every connection — not only here."

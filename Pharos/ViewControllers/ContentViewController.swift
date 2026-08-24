@@ -827,7 +827,7 @@ class ContentViewController: NSViewController {
             return
         }
         let text = TagInspectorModel.deleteConfirmation(
-            name: tag.name, tupleCount: tag.rules.count)
+            name: tag.name, ruleCount: tag.rules.count)
         let alert = NSAlert()
         alert.messageText = text.title
         alert.informativeText = text.body

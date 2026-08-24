@@ -80,13 +80,13 @@ enum TagRuleMatcher {
                 // `tuple_values` blob: the Rust CRUD decodes bad JSON to an
                 // empty list rather than failing the load.
                 guard !tuple.conditions.isEmpty else { continue }
-                let tupleSlot = index.ruleIds.count
+                let ruleSlot = index.ruleIds.count
                 index.ruleIds.append(tuple.id)
                 index.ruleWidth.append(tuple.conditions.count)
                 for (position, value) in tuple.conditions.enumerated() {
                     let key = TagValueKey(family: value.family, value: value.value)
                     index.slots[key, default: []].append(
-                        Index.Slot(tag: tagSlot, rule: tupleSlot, position: position))
+                        Index.Slot(tag: tagSlot, rule: ruleSlot, position: position))
                     index.families.insert(value.family)
                 }
             }

@@ -308,23 +308,23 @@ func runTests() {
     // MARK: - 17. The delete confirmation inflects the noun AND the verb
 
     do {
-        let many = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 3)
+        let many = TagInspectorModel.deleteConfirmation(name: "Suspect infra", ruleCount: 3)
         expectEqual(many.body,
-                    "Its 3 tuples stop matching in every result, "
+                    "Its 3 rules stop matching in every result, "
                     + "on every connection — not only here.",
-                    "many tuples take a plural noun AND a plural verb")
-        // The bug this pins: inflecting the noun alone gives "Its 1 tuple
+                    "many rules take a plural noun AND a plural verb")
+        // The bug this pins: inflecting the noun alone gives "Its 1 rule
         // stop matching". Both halves must move together.
-        let one = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 1)
+        let one = TagInspectorModel.deleteConfirmation(name: "Suspect infra", ruleCount: 1)
         expectEqual(one.body,
-                    "Its 1 tuple stops matching in every result, "
+                    "Its 1 rule stops matching in every result, "
                     + "on every connection — not only here.",
-                    "one tuple takes a singular noun AND a singular verb")
-        let none = TagInspectorModel.deleteConfirmation(name: "Suspect infra", tupleCount: 0)
+                    "one rule takes a singular noun AND a singular verb")
+        let none = TagInspectorModel.deleteConfirmation(name: "Suspect infra", ruleCount: 0)
         expectEqual(none.body,
-                    "Its 0 tuples stop matching in every result, "
+                    "Its 0 rules stop matching in every result, "
                     + "on every connection — not only here.",
-                    "zero tuples take the plural, not the singular")
+                    "zero rules take the plural, not the singular")
         expectEqual(one.title, "Delete tag \u{201C}Suspect infra\u{201D}?",
                     "the title names the tag in curly quotes")
     }

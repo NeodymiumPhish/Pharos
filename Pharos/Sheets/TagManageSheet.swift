@@ -309,7 +309,7 @@ final class TagManageSheet: NSViewController,
         // Shared with the Inspector's per-tag "Remove Tag…", which offers the
         // same destructive action: one wording, one plural rule, one test.
         let text = TagInspectorModel.deleteConfirmation(
-            name: tag.name, tupleCount: tag.rules.count)
+            name: tag.name, ruleCount: tag.rules.count)
         let alert = NSAlert()
         alert.messageText = text.title
         alert.informativeText = text.body
