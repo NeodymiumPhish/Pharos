@@ -5,7 +5,7 @@ import AppKit
 /// "Add Tag": name a finding, pick the columns that define it, watch the live
 /// count, save.
 ///
-/// The model layer is `TagDraft` and the count is the real `TagTupleMatcher`,
+/// The model layer is `TagDraft` and the count is the real `TagRuleMatcher`,
 /// so what the footer promises and what SQLite receives cannot drift apart.
 /// This class owns layout and event wiring only.
 final class TagSheet: NSViewController, NSTextFieldDelegate {
@@ -242,7 +242,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         checkboxes.filter { $0.state == .on }.map { $0.tag }
     }
 
-    private var draftTuples: [NewTagTuple] {
+    private var draftTuples: [NewTagRule] {
         TagDraft.tuples(selectedRows: context.selectedRows, columns: context.columns,
                         checkedColumns: checkedColumns,
                         originConnection: context.originConnection,
@@ -309,7 +309,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         let previewTag = TagDraft.previewTag(tuples: tuples)
 
         guard rows.count > Self.asyncCountThreshold else {
-            show(matched: TagTupleMatcher.matchCount(tag: previewTag,
+            show(matched: TagRuleMatcher.matchCount(tag: previewTag,
                                                      columns: columns, rows: rows),
                  loaded: rows.count)
             return
@@ -321,7 +321,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         countLabel.stringValue = "Counting…"
         warningLabel.stringValue = ""
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let matched = TagTupleMatcher.matchCount(tag: previewTag,
+            let matched = TagRuleMatcher.matchCount(tag: previewTag,
                                                      columns: columns, rows: rows)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -352,7 +352,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         do {
             if let targetTagId {
                 try TagStore.shared.addTuples(
-                    AddTagTuples(tagId: targetTagId, tuples: tuples))
+                    AddTagRules(tagId: targetTagId, rules: tuples))
             } else {
                 // `.whitespacesAndNewlines`, not `.whitespaces`: pasted text
                 // carries a trailing newline, which `.whitespaces` leaves in
@@ -373,7 +373,7 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
                     name: name.isEmpty ? "Untitled tag" : name,
                     colorIndex: max(0, colorControl.selectedSegment),
                     note: note.isEmpty ? nil : note,
-                    tuples: tuples))
+                    rules: tuples))
             }
             dismiss(nil)
         } catch {

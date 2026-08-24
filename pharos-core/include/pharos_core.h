@@ -349,7 +349,7 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_create_tag(const char *json);
 
 /**
- * Append tuples to a tag. `json` is a JSON-encoded AddTagTuples. Returns the
+ * Append tuples to a tag. `json` is a JSON-encoded AddTagRules. Returns the
  * number inserted as a decimal string, which can be fewer than sent.
  */
  char *pharos_add_tag_tuples(const char *json);

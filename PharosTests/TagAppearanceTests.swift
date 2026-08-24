@@ -27,7 +27,7 @@ func expectNil<T>(_ actual: T?, _ name: String) {
 private func match(_ tagId: String, _ state: TagMatchState,
                    columns: [Int] = [0]) -> TagRowMatch {
     TagRowMatch(tagId: tagId, state: state, matchedColumns: columns,
-                matchedTupleIds: ["u1"], solidTupleIds: state == .solid ? ["u1"] : [])
+                matchedRuleIds: ["u1"], solidRuleIds: state == .solid ? ["u1"] : [])
 }
 
 /// Minimal tag fixture. The colour index picks a palette entry the assertions
@@ -35,7 +35,7 @@ private func match(_ tagId: String, _ state: TagMatchState,
 private func tag(_ id: String, _ name: String, colorIndex: Int) -> Tag {
     Tag(id: id, name: name, colorIndex: colorIndex, note: nil,
         createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-        tuples: [])
+        rules: [])
 }
 
 // Palette indices: 0 red, 1 orange, 2 yellow, 3 green, 4 blue, 5 purple.

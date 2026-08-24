@@ -65,25 +65,25 @@ enum TagRemovalModel {
     ) -> [TagRemovalGroup] {
         var idsByTag: [String: Set<String>] = [:]
         for row in targetRows {
-            for match in matchesByRow[row] ?? [] where !match.solidTupleIds.isEmpty {
-                idsByTag[match.tagId, default: []].formUnion(match.solidTupleIds)
+            for match in matchesByRow[row] ?? [] where !match.solidRuleIds.isEmpty {
+                idsByTag[match.tagId, default: []].formUnion(match.solidRuleIds)
             }
         }
         guard !idsByTag.isEmpty else { return [] }
 
         return tags.compactMap { tag in
             guard let ids = idsByTag[tag.id] else { return nil }
-            let tuples = tag.tuples
-                // `!$0.values.isEmpty`: a tuple with no captured values can
+            let tuples = tag.rules
+                // `!$0.conditions.isEmpty`: a tuple with no captured values can
                 // reach here from a corrupt `tuple_values` blob — Rust's CRUD
                 // decodes bad JSON to an empty list rather than failing the
-                // load (see `TagTupleMatcher.buildIndex`). A blank row on a
+                // load (see `TagRuleMatcher.buildIndex`). A blank row on a
                 // delete confirmation is the worst possible disclosure.
-                .filter { ids.contains($0.id) && !$0.values.isEmpty }
+                .filter { ids.contains($0.id) && !$0.conditions.isEmpty }
                 .map { tuple in
                     TagRemovalTuple(
                         tupleId: tuple.id,
-                        values: tuple.values.map {
+                        values: tuple.conditions.map {
                             TagRemovalValue(column: $0.column, display: $0.display,
                                             normalized: $0.value)
                         })

@@ -5,7 +5,7 @@
 # TagStore.swift is deliberately NOT compiled in: it is @MainActor (which
 # main.swift's nonisolated runTests() cannot call into) and it reaches the
 # Keychain through the FFI, which would hang a headless run. The sheet commits
-# through TagTupleRemoving, which sits in its own dependency-free file (so that
+# through TagRuleRemoving, which sits in its own dependency-free file (so that
 # scripts/test-tag-store.sh can compile the store's conformance without pulling
 # in this AppKit sheet), and the test file supplies its own conformer — so no
 # store, no staticlib, no prompt. The real
@@ -16,12 +16,12 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-removal-sheet-tests \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/TagValueNormalizer.swift \
-  Pharos/Core/TagTupleMatcher.swift \
+  Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagPalette.swift \
   Pharos/Core/TagRemovalModel.swift \
   Pharos/Core/TagMatchDisclosure.swift \
   Pharos/Core/DisplayEscape.swift \
-  Pharos/Core/TagTupleRemoving.swift \
+  Pharos/Core/TagRuleRemoving.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \

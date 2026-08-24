@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagTuples, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagTuple, QueryHistoryEntry, SavedQuery, SslMode, Tag, TagTuple, UpdateSavedQuery, UpdateTag};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag};
 
 // ==================== Compression Helpers ====================
 
@@ -874,10 +874,10 @@ pub fn batch_delete_saved_queries(conn: &Connection, ids: &[String]) -> SqliteRe
 fn insert_tag_tuple(
     conn: &Connection,
     tag_id: &str,
-    tuple: &NewTagTuple,
+    tuple: &NewTagRule,
     now: &str,
 ) -> SqliteResult<usize> {
-    let values_json = serde_json::to_string(&tuple.values).unwrap_or_else(|_| "[]".to_string());
+    let values_json = serde_json::to_string(&tuple.conditions).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
         r#"
         INSERT OR IGNORE INTO tag_tuples
@@ -908,7 +908,7 @@ pub fn create_tag(conn: &Connection, id: &str, create: &CreateTag) -> SqliteResu
         "#,
         (id, &create.name, create.color_index, &create.note, &now),
     )?;
-    for tuple in &create.tuples {
+    for tuple in &create.rules {
         insert_tag_tuple(&tx, id, tuple, &now)?;
     }
     tx.commit()?;
@@ -918,11 +918,11 @@ pub fn create_tag(conn: &Connection, id: &str, create: &CreateTag) -> SqliteResu
 
 /// Append tuples to an existing tag. Returns how many were actually inserted,
 /// which is fewer than sent when a tuple was already there.
-pub fn add_tag_tuples(conn: &Connection, payload: &AddTagTuples) -> SqliteResult<usize> {
+pub fn add_tag_tuples(conn: &Connection, payload: &AddTagRules) -> SqliteResult<usize> {
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.unchecked_transaction()?;
     let mut inserted = 0;
-    for tuple in &payload.tuples {
+    for tuple in &payload.rules {
         inserted += insert_tag_tuple(&tx, &payload.tag_id, tuple, &now)?;
     }
     tx.execute("UPDATE tags SET updated_at = ?2 WHERE id = ?1", (&payload.tag_id, &now))?;
@@ -930,7 +930,7 @@ pub fn add_tag_tuples(conn: &Connection, payload: &AddTagTuples) -> SqliteResult
     Ok(inserted)
 }
 
-fn read_tag_tuples(conn: &Connection, tag_id: &str) -> SqliteResult<Vec<TagTuple>> {
+fn read_tag_tuples(conn: &Connection, tag_id: &str) -> SqliteResult<Vec<TagRule>> {
     // Tie-break on `rowid`, not `id`: a multi-tuple create or add stamps every
     // tuple with the SAME `created_at`, so an `id ASC` tie-break would order
     // ties by a random UUID instead of insertion order. `rowid` is SQLite's
@@ -948,12 +948,12 @@ fn read_tag_tuples(conn: &Connection, tag_id: &str) -> SqliteResult<Vec<TagTuple
     let tuples = stmt
         .query_map([tag_id], |row| {
             let values: String = row.get(1)?;
-            Ok(TagTuple {
+            Ok(TagRule {
                 id: row.get(0)?,
                 // Bad JSON gives an empty list, not a failed load. An empty
                 // tuple is inert in the matcher, so a corrupt row costs its
                 // own match, never the whole tag.
-                values: serde_json::from_str(&values).unwrap_or_default(),
+                conditions: serde_json::from_str(&values).unwrap_or_default(),
                 tuple_key: row.get(2)?,
                 origin_connection: row.get(3)?,
                 origin_table: row.get(4)?,
@@ -972,7 +972,7 @@ fn get_tag(conn: &Connection, tag_id: &str) -> SqliteResult<Option<Tag>> {
     let Some(row) = rows.next()? else { return Ok(None) };
     let id: String = row.get(0)?;
     Ok(Some(Tag {
-        tuples: read_tag_tuples(conn, &id)?,
+        rules: read_tag_tuples(conn, &id)?,
         id,
         name: row.get(1)?,
         color_index: row.get(2)?,
@@ -999,7 +999,7 @@ pub fn load_tags(conn: &Connection) -> SqliteResult<Vec<Tag>> {
         .into_iter()
         .map(|(id, name, color_index, note, created_at, updated_at)| {
             Ok(Tag {
-                tuples: read_tag_tuples(conn, &id)?,
+                rules: read_tag_tuples(conn, &id)?,
                 id,
                 name,
                 color_index,
@@ -2644,9 +2644,9 @@ mod tag_schema_tests {
         assert_eq!(orphans, 0, "tag delete must cascade to its tuples");
     }
 
-    fn sample_tuple(key: &str, value: &str) -> crate::models::NewTagTuple {
-        crate::models::NewTagTuple {
-            values: vec![crate::models::TaggedValue {
+    fn sample_tuple(key: &str, value: &str) -> crate::models::NewTagRule {
+        crate::models::NewTagRule {
+            conditions: vec![crate::models::TagCondition {
                 column: "md5".into(),
                 family: "text".into(),
                 value: value.into(),
@@ -2670,18 +2670,18 @@ mod tag_schema_tests {
                 name: "Suspect infra".into(),
                 color_index: 2,
                 note: Some("may sprint".into()),
-                tuples: vec![sample_tuple("k1", "d41d8c"), sample_tuple("k2", "aabbcc")],
+                rules: vec![sample_tuple("k1", "d41d8c"), sample_tuple("k2", "aabbcc")],
             },
         )
         .unwrap();
-        assert_eq!(created.tuples.len(), 2);
+        assert_eq!(created.rules.len(), 2);
 
         // Add-to-existing, with one repeat: the unique index absorbs it.
         let added = add_tag_tuples(
             &conn,
-            &crate::models::AddTagTuples {
+            &crate::models::AddTagRules {
                 tag_id: "tag-1".into(),
-                tuples: vec![sample_tuple("k2", "aabbcc"), sample_tuple("k3", "ddeeff")],
+                rules: vec![sample_tuple("k2", "aabbcc"), sample_tuple("k3", "ddeeff")],
             },
         )
         .unwrap();
@@ -2689,8 +2689,8 @@ mod tag_schema_tests {
 
         let loaded = load_tags(&conn).unwrap();
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].tuples.len(), 3);
-        assert_eq!(loaded[0].tuples[0].values[0].display, "D41D8C");
+        assert_eq!(loaded[0].rules.len(), 3);
+        assert_eq!(loaded[0].rules[0].conditions[0].display, "D41D8C");
 
         let renamed = update_tag(
             &conn,
@@ -2706,9 +2706,9 @@ mod tag_schema_tests {
         assert_eq!(renamed.name, "Renamed");
         assert_eq!(renamed.color_index, 2, "an absent field keeps its value");
 
-        let ids: Vec<String> = loaded[0].tuples.iter().take(2).map(|t| t.id.clone()).collect();
+        let ids: Vec<String> = loaded[0].rules.iter().take(2).map(|t| t.id.clone()).collect();
         assert_eq!(delete_tag_tuples(&conn, &ids).unwrap(), 2);
-        assert_eq!(load_tags(&conn).unwrap()[0].tuples.len(), 1);
+        assert_eq!(load_tags(&conn).unwrap()[0].rules.len(), 1);
 
         assert!(delete_tag(&conn, "tag-1").unwrap());
         assert!(load_tags(&conn).unwrap().is_empty());

@@ -17,31 +17,31 @@ func expectTrue(_ actual: Bool, _ name: String) {
 
 // MARK: - Fixtures
 
-private func value(_ column: String, _ display: String) -> TaggedValue {
-    TaggedValue(column: column, family: "text", value: display.lowercased(),
+private func value(_ column: String, _ display: String) -> TagCondition {
+    TagCondition(column: column, family: "text", value: display.lowercased(),
                 display: display)
 }
 
-private func tuple(_ id: String, _ values: [TaggedValue]) -> TagTuple {
-    TagTuple(id: id, values: values, tupleKey: "k-\(id)",
+private func tuple(_ id: String, _ values: [TagCondition]) -> TagRule {
+    TagRule(id: id, conditions: values, tupleKey: "k-\(id)",
              originConnection: "conn", originTable: "public.t",
              createdAt: "2026-08-14T00:00:00Z")
 }
 
-private func tag(_ id: String, _ name: String, colorIndex: Int = 1, tuples: [TagTuple]) -> Tag {
+private func tag(_ id: String, _ name: String, colorIndex: Int = 1, tuples: [TagRule]) -> Tag {
     Tag(id: id, name: name, colorIndex: colorIndex, note: nil,
         createdAt: "2026-08-14T00:00:00Z", updatedAt: "2026-08-14T00:00:00Z",
-        tuples: tuples)
+        rules: tuples)
 }
 
 // No default/derived fields: a helper that synthesises a field the code
-// under test may read (a prior version defaulted `matchedTupleIds` from
-// `solidTupleIds`) can hide a real bug behind coincidentally-equal fixtures.
+// under test may read (a prior version defaulted `matchedRuleIds` from
+// `solidRuleIds`) can hide a real bug behind coincidentally-equal fixtures.
 // Every call site states both explicitly.
 private func match(_ tagId: String, _ state: TagMatchState,
-                    matchedTupleIds: [String], solidTupleIds: [String]) -> TagRowMatch {
+                    matchedRuleIds: [String], solidRuleIds: [String]) -> TagRowMatch {
     TagRowMatch(tagId: tagId, state: state, matchedColumns: [0],
-                matchedTupleIds: matchedTupleIds, solidTupleIds: solidTupleIds)
+                matchedRuleIds: matchedRuleIds, solidRuleIds: solidRuleIds)
 }
 
 func runTests() {
@@ -68,15 +68,15 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [3, 7],
             matchesByRow: [
-                3: [match("tB", .solid, matchedTupleIds: ["v1"], solidTupleIds: ["v1"]),
-                    match("tA", .solid, matchedTupleIds: ["u1"], solidTupleIds: ["u1"])],
-                7: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])],   // u1 again
+                3: [match("tB", .solid, matchedRuleIds: ["v1"], solidRuleIds: ["v1"]),
+                    match("tA", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
+                7: [match("tA", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1", "u2"])],   // u1 again
             ],
             tags: [tagA, tagB])
         expectEqual(groups.map(\.tagName), ["Alpha", "Beta"],
                     "groups follow the STORE's tag order, not the match order")
         expectEqual(groups[0].tuples.map(\.tupleId), ["u1", "u2"],
-                    "duplicate tuple ids across rows collapse; order follows tag.tuples")
+                    "duplicate tuple ids across rows collapse; order follows tag.rules")
         expectEqual(groups[1].tuples.map(\.tupleId), ["v1"], "the second tag keeps its tuple")
         expectEqual(groups[0].colorIndex, 1, "a group carries ITS OWN tag's colour, not a fixed one")
         expectEqual(groups[1].colorIndex, 2, "a different tag carries a different colour")
@@ -90,9 +90,9 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [1],
-            // Touched (matchedTupleIds) the ip half of u2 without completing
-            // it (solidTupleIds empty) — a real dashed shape, not a stand-in.
-            matchesByRow: [1: [match("tA", .dashed, matchedTupleIds: ["u2"], solidTupleIds: [])]],
+            // Touched (matchedRuleIds) the ip half of u2 without completing
+            // it (solidRuleIds empty) — a real dashed shape, not a stand-in.
+            matchesByRow: [1: [match("tA", .dashed, matchedRuleIds: ["u2"], solidRuleIds: [])]],
             tags: [tagA])
         expectTrue(groups.isEmpty, "a dashed-only row completes no tuple, so there is nothing to list")
     }
@@ -102,7 +102,7 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1", "u2"])]],
             tags: [tagA])
         let tuples = groups[0].tuples
         expectEqual(tuples[0].values,
@@ -121,8 +121,8 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("ghost", .solid, matchedTupleIds: ["zz"], solidTupleIds: ["zz"]),
-                               match("tA", .solid, matchedTupleIds: ["u3", "gone"], solidTupleIds: ["u3", "gone"])]],
+            matchesByRow: [0: [match("ghost", .solid, matchedRuleIds: ["zz"], solidRuleIds: ["zz"]),
+                               match("tA", .solid, matchedRuleIds: ["u3", "gone"], solidRuleIds: ["u3", "gone"])]],
             tags: [tagA])
         expectEqual(groups.count, 1, "the unknown tag id contributes no group")
         expectEqual(groups[0].tuples.map(\.tupleId), ["u3"],
@@ -155,7 +155,7 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u2", "u4"], solidTupleIds: ["u2", "u4"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u2", "u4"], solidRuleIds: ["u2", "u4"])]],
             tags: [tagA])
         let byId = Dictionary(uniqueKeysWithValues: groups[0].tuples.map { ($0.tupleId, $0) })
         // The collision the model must survive: joined into one line these two
@@ -184,7 +184,7 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "e1"], solidTupleIds: ["u1", "e1"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u1", "e1"], solidRuleIds: ["u1", "e1"])]],
             tags: [tagA])
         expectEqual(groups[0].tuples.map(\.tupleId), ["u1"],
                     "a tuple with an empty values array is filtered out — a blank row is the worst possible disclosure")
@@ -196,29 +196,29 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [3],
             matchesByRow: [
-                3: [match("tA", .solid, matchedTupleIds: ["u1"], solidTupleIds: ["u1"])],
+                3: [match("tA", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
                 // Row 4 has a real, solid match too — but it was never
                 // selected. Walking `matchesByRow` instead of `targetRows`
                 // would pull it in anyway, silently turning a per-row action
                 // into a global one.
-                4: [match("tB", .solid, matchedTupleIds: ["v1"], solidTupleIds: ["v1"])],
+                4: [match("tB", .solid, matchedRuleIds: ["v1"], solidRuleIds: ["v1"])],
             ],
             tags: [tagA, tagB])
         expectEqual(groups.map(\.tagName), ["Alpha"],
                     "only the TARGET rows' matches contribute — an untargeted row's match must not leak in")
     }
 
-    // MARK: - 10. solidTupleIds, not matchedTupleIds, decides what is removable
+    // MARK: - 10. solidRuleIds, not matchedRuleIds, decides what is removable
 
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            // The row touched all three of tA's tuples (matchedTupleIds) but
-            // completed only u2 (solidTupleIds) — the shape a dashed-turned-
+            // The row touched all three of tA's tuples (matchedRuleIds) but
+            // completed only u2 (solidRuleIds) — the shape a dashed-turned-
             // solid tag realistically produces on a wide row.
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["u1", "u2", "u3"],
-                                     solidTupleIds: ["u2"])]],
+                                     matchedRuleIds: ["u1", "u2", "u3"],
+                                     solidRuleIds: ["u2"])]],
             tags: [tagA])
         expectEqual(groups[0].tuples.map(\.tupleId), ["u2"],
                     "only the COMPLETE tuple is offered for removal, even though the row touched two others")
@@ -232,8 +232,8 @@ func runTests() {
             // Both ids the row named are stale (the store no longer holds
             // either) — the tag must not render as an empty header.
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["gone1", "gone2"],
-                                     solidTupleIds: ["gone1", "gone2"])]],
+                                     matchedRuleIds: ["gone1", "gone2"],
+                                     solidRuleIds: ["gone1", "gone2"])]],
             tags: [tagA])
         expectTrue(groups.isEmpty, "a tag whose every named tuple is stale contributes NO group, not an empty one")
     }
@@ -244,11 +244,11 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["u1", "u2"],
-                                     solidTupleIds: ["u1", "u2"]),
+                                     matchedRuleIds: ["u1", "u2"],
+                                     solidRuleIds: ["u1", "u2"]),
                                match("tB", .solid,
-                                     matchedTupleIds: ["v1"],
-                                     solidTupleIds: ["v1"])]],
+                                     matchedRuleIds: ["v1"],
+                                     solidRuleIds: ["v1"])]],
             tags: [tagA, tagB])
         // Order matters and is the LIST's order: the sheet shows the tuples in
         // this sequence, and a payload in some other order cannot be read back

@@ -29,10 +29,10 @@ func runTests() {
                                  checkedColumns: [0], originConnection: "c1",
                                  originTable: "public.certs")
     expectEqual(single.count, 2, "two rows give two tuples")
-    expectEqual(single[0].values.count, 1, "one checked column gives one value")
-    expectEqual(single[0].values[0].column, "md5", "the column travels as provenance")
-    expectEqual(single[0].values[0].display, "D41D8C", "display keeps the captured text")
-    expectEqual(single[0].values[0].value, "d41d8c", "value is normalized")
+    expectEqual(single[0].conditions.count, 1, "one checked column gives one value")
+    expectEqual(single[0].conditions[0].column, "md5", "the column travels as provenance")
+    expectEqual(single[0].conditions[0].display, "D41D8C", "display keeps the captured text")
+    expectEqual(single[0].conditions[0].value, "d41d8c", "value is normalized")
     expectEqual(single[0].originTable, "public.certs", "origin travels with the tuple")
 
     // 2. Two checked columns give one two-value tuple per row — NOT a cross
@@ -41,7 +41,7 @@ func runTests() {
                                checkedColumns: [0, 1], originConnection: "c1",
                                originTable: "public.certs")
     expectEqual(pair.count, 2, "two rows, two tuples")
-    expectEqual(pair[0].values.count, 2, "two checked columns give two values")
+    expectEqual(pair[0].conditions.count, 2, "two checked columns give two values")
 
     // 3. Rows that normalize to the same tuple collapse. The unique index would
     //    absorb the repeat anyway; collapsing here keeps the live count honest
@@ -57,7 +57,7 @@ func runTests() {
                                    checkedColumns: [0, 1], originConnection: "c1",
                                    originTable: "public.certs")
     expectEqual(withNull.count, 1, "a partly NULL row still contributes")
-    expectEqual(withNull[0].values.count, 1, "the NULL value is dropped")
+    expectEqual(withNull[0].conditions.count, 1, "the NULL value is dropped")
     let allNull = TagDraft.tuples(selectedRows: [[nil, nil, nil]], columns: columns,
                                   checkedColumns: [0, 1], originConnection: "c1",
                                   originTable: "public.certs")
@@ -73,12 +73,12 @@ func runTests() {
     //    Load More that changed the shape.
     expectEqual(TagDraft.tuples(selectedRows: [rows[0]], columns: columns,
                                 checkedColumns: [0, 99], originConnection: "c1",
-                                originTable: "t")[0].values.count,
+                                originTable: "t")[0].conditions.count,
                 1, "an unknown column index is skipped")
 
     // 7. The live count runs the real matcher over the loaded rows.
     let draft = TagDraft.previewTag(tuples: single)
-    expectEqual(TagTupleMatcher.matchCount(tag: draft, columns: columns, rows: rows), 3,
+    expectEqual(TagRuleMatcher.matchCount(tag: draft, columns: columns, rows: rows), 3,
                 "two md5 values match three loaded rows")
     expectEqual(TagDraft.isBroad(matched: 3, loaded: 4), true, "3 of 4 is over a tenth")
     expectEqual(TagDraft.isBroad(matched: 3, loaded: 100), false, "3 of 100 is not")

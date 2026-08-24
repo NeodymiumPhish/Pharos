@@ -17,7 +17,7 @@ import Foundation
 /// Matching section is explicit that column names are shown, not compared.
 /// `value` is the normalized form `TagValueNormalizer` produced; `display` is
 /// the text as captured, for the Inspector.
-struct TaggedValue: Codable, Equatable {
+struct TagCondition: Codable, Equatable {
     let column: String
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     let family: String
@@ -26,9 +26,9 @@ struct TaggedValue: Codable, Equatable {
 }
 
 /// One tagged origin row. Its values are the tuple the matcher tests.
-struct TagTuple: Codable, Equatable, Identifiable {
+struct TagRule: Codable, Equatable, Identifiable {
     let id: String
-    let values: [TaggedValue]
+    let conditions: [TagCondition]
     let tupleKey: String
     let originConnection: String
     let originTable: String
@@ -45,13 +45,13 @@ struct Tag: Codable, Equatable, Identifiable {
     var note: String?
     let createdAt: String
     let updatedAt: String
-    var tuples: [TagTuple]
+    var rules: [TagRule]
 }
 
 /// A tuple as Swift sends it. Rust mints the id and the timestamp.
-struct NewTagTuple: Codable, Equatable {
-    var values: [TaggedValue]
-    /// `TupleKey.encode` is the only producer. Rust never builds one.
+struct NewTagRule: Codable, Equatable {
+    var conditions: [TagCondition]
+    /// `RuleKey.encode` is the only producer. Rust never builds one.
     var tupleKey: String
     var originConnection: String
     var originTable: String
@@ -61,12 +61,12 @@ struct CreateTag: Codable {
     var name: String
     var colorIndex: Int
     var note: String?
-    var tuples: [NewTagTuple]
+    var rules: [NewTagRule]
 }
 
-struct AddTagTuples: Codable {
+struct AddTagRules: Codable {
     var tagId: String
-    var tuples: [NewTagTuple]
+    var rules: [NewTagRule]
 }
 
 /// A nil field is left as it is. A note cannot be CLEARED through this payload,

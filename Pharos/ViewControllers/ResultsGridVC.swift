@@ -50,7 +50,7 @@ class ResultsGridVC: NSViewController {
     /// origin. It never decides whether a row can be tagged, and the matcher
     /// never reads a row key — matching is on cell values alone.
     var rowIdentity: RowIdentity?
-    /// Matching tags by DATA row index, from `TagTupleMatcher`, strongest
+    /// Matching tags by DATA row index, from `TagRuleMatcher`, strongest
     /// first. The grid is the ONLY owner: the data source keeps no copy of it.
     /// `applyTagMap` bakes this map once, through `TagPalette.bake`, into the
     /// four render dictionaries the data source does hold — `segmentsByRow`,
@@ -788,7 +788,7 @@ class ResultsGridVC: NSViewController {
         let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
 
         guard rows.count > Self.matchAsyncThreshold else {
-            applyTagMap(TagTupleMatcher.match(columns: columnDefs, rows: textRows, index: index))
+            applyTagMap(TagRuleMatcher.match(columns: columnDefs, rows: textRows, index: index))
             return
         }
 
@@ -800,7 +800,7 @@ class ResultsGridVC: NSViewController {
         applyTagMap([:])
         let generation = tagMapGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let map = TagTupleMatcher.match(columns: columnDefs, rows: textRows, index: index)
+            let map = TagRuleMatcher.match(columns: columnDefs, rows: textRows, index: index)
             DispatchQueue.main.async {
                 // `DispatchQueue.main.async`'s closure is `@Sendable`, so the
                 // compiler cannot see that main-queue dispatch already

@@ -33,7 +33,7 @@ pub extern "C" fn pharos_create_tag(json: *const c_char) -> *mut c_char {
     })
 }
 
-/// Append tuples to a tag. `json` is a JSON-encoded AddTagTuples. Returns the
+/// Append tuples to a tag. `json` is a JSON-encoded AddTagRules. Returns the
 /// number inserted as a decimal string, which can be fewer than sent.
 #[no_mangle]
 pub extern "C" fn pharos_add_tag_tuples(json: *const c_char) -> *mut c_char {
@@ -41,7 +41,7 @@ pub extern "C" fn pharos_add_tag_tuples(json: *const c_char) -> *mut c_char {
         let state = app_state();
         let rt = runtime();
         let json_str = unsafe { c_str_to_string(json) };
-        let payload: crate::models::AddTagTuples = match serde_json::from_str(&json_str) {
+        let payload: crate::models::AddTagRules = match serde_json::from_str(&json_str) {
             Ok(p) => p,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };

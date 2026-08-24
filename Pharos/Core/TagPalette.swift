@@ -121,7 +121,7 @@ enum TagPalette {
 
     // MARK: - Per-row primitives
     //
-    // Each takes ONE row's matches, in `TagTupleMatcher.ordered`'s
+    // Each takes ONE row's matches, in `TagRuleMatcher.ordered`'s
     // strongest-first order, and never sorts them. `bake` composes all three;
     // they stay separate so each rule can be tested on its own.
 
@@ -221,9 +221,9 @@ enum TagPalette {
     /// A tagged row lands in all three in practice, but that is NOT an
     /// invariant `bake` enforces — it leans on an upstream property. A
     /// `TagRowMatch` with an empty `matchedColumns` would take a band and a
-    /// tooltip line and contribute no tint entry; `TagTupleMatcher` cannot
+    /// tooltip line and contribute no tint entry; `TagRuleMatcher` cannot
     /// produce one, because it fills `matchedColumns` and `touched` in the
-    /// same loop body (`TagTupleMatcher.swift`), so a match always carries at
+    /// same loop body (`TagRuleMatcher.swift`), so a match always carries at
     /// least one column. Do not read row membership here as guaranteed.
     ///
     /// `segmentsByRow` carries plain tuples rather than `Segment`s so

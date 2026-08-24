@@ -39,7 +39,7 @@ final class TagStore {
     /// The probe index, rebuilt on every store change rather than per result.
     /// Building it here is what keeps the per-cell matching cost independent of
     /// how many tags and tuples exist.
-    private(set) var tagIndex = TagTupleMatcher.Index()
+    private(set) var tagIndex = TagRuleMatcher.Index()
 
     private var tagsLoaded = false
 
@@ -56,7 +56,7 @@ final class TagStore {
     func reloadTags() throws {
         let loaded = try PharosCore.loadTags()
         tags = loaded
-        tagIndex = TagTupleMatcher.buildIndex(loaded)
+        tagIndex = TagRuleMatcher.buildIndex(loaded)
         tagsLoaded = true
         postChange()
     }
@@ -75,8 +75,8 @@ final class TagStore {
 
     /// Grow an existing tag. Returns how many tuples were actually inserted.
     @discardableResult
-    func addTuples(_ payload: AddTagTuples) throws -> Int {
-        let inserted = try PharosCore.addTagTuples(payload)
+    func addTuples(_ payload: AddTagRules) throws -> Int {
+        let inserted = try PharosCore.addTagRules(payload)
         try reloadTagsOrEvict()
         return inserted
     }
@@ -86,7 +86,7 @@ final class TagStore {
     /// sheet is where a tag is deleted outright.
     func removeTuples(ids: [String]) throws {
         guard !ids.isEmpty else { return }
-        _ = try PharosCore.deleteTagTuples(ids: ids)
+        _ = try PharosCore.deleteTagRules(ids: ids)
         try reloadTagsOrEvict()
     }
 
@@ -109,7 +109,7 @@ final class TagStore {
         do { try reloadTags() }
         catch {
             tags = []
-            tagIndex = TagTupleMatcher.Index()
+            tagIndex = TagRuleMatcher.Index()
             tagsLoaded = false
             postChange()
             throw error
@@ -117,14 +117,14 @@ final class TagStore {
     }
 }
 
-// MARK: - TagTupleRemoving
+// MARK: - TagRuleRemoving
 
 /// `TagRemovalSheet` commits through this one capability rather than through
 /// the whole store, so its standalone harness can compile the sheet without
 /// this `@MainActor`, FFI-bound class. The conformance lives here so that a
 /// change to `removeTuples(ids:)` fails the APP BUILD — a test double declared
 /// on the far side could drift from reality in silence. The protocol itself is
-/// in `TagTupleRemoving.swift`, which depends on nothing: both this file's
+/// in `TagRuleRemoving.swift`, which depends on nothing: both this file's
 /// suite and the sheet's suite compile it, and neither can compile the other's
 /// side.
 /// `@preconcurrency`: the protocol is deliberately nonisolated (the harness
@@ -135,4 +135,4 @@ final class TagStore {
 /// that makes this conformance worth having, and adds a runtime main-thread
 /// check in place of the static one. Every caller is a view-controller action,
 /// so every call is already on the main thread.
-extension TagStore: @preconcurrency TagTupleRemoving {}
+extension TagStore: @preconcurrency TagRuleRemoving {}

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// was captured, for the Inspector.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TaggedValue {
+pub struct TagCondition {
     pub column: String,
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     pub family: String,
@@ -16,9 +16,9 @@ pub struct TaggedValue {
 /// One tagged origin row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TagTuple {
+pub struct TagRule {
     pub id: String,
-    pub values: Vec<TaggedValue>,
+    pub conditions: Vec<TagCondition>,
     pub tuple_key: String,
     pub origin_connection: String,
     pub origin_table: String,
@@ -36,14 +36,14 @@ pub struct Tag {
     pub note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    pub tuples: Vec<TagTuple>,
+    pub rules: Vec<TagRule>,
 }
 
 /// A tuple as Swift sends it. The id and the timestamp are minted here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewTagTuple {
-    pub values: Vec<TaggedValue>,
+pub struct NewTagRule {
+    pub conditions: Vec<TagCondition>,
     pub tuple_key: String,
     pub origin_connection: String,
     pub origin_table: String,
@@ -55,14 +55,14 @@ pub struct CreateTag {
     pub name: String,
     pub color_index: i64,
     pub note: Option<String>,
-    pub tuples: Vec<NewTagTuple>,
+    pub rules: Vec<NewTagRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddTagTuples {
+pub struct AddTagRules {
     pub tag_id: String,
-    pub tuples: Vec<NewTagTuple>,
+    pub rules: Vec<NewTagRule>,
 }
 
 /// A nil field is left as it is. A note therefore cannot be CLEARED through
@@ -88,21 +88,21 @@ mod tests {
     #[test]
     fn create_tag_decodes_swift_camel_case() {
         let json = r#"{"name":"Suspect infra","colorIndex":2,"note":"may sprint",
-          "tuples":[{"values":[{"column":"md5","family":"text","value":"d41d8c",
+          "rules":[{"conditions":[{"column":"md5","family":"text","value":"d41d8c",
           "display":"D41D8C"}],"tupleKey":"K4:textV6:d41d8c",
           "originConnection":"c1","originTable":"public.certs"}]}"#;
         let create: CreateTag = serde_json::from_str(json).unwrap();
         assert_eq!(create.color_index, 2);
         assert_eq!(create.note.as_deref(), Some("may sprint"));
-        assert_eq!(create.tuples[0].tuple_key, "K4:textV6:d41d8c");
-        assert_eq!(create.tuples[0].origin_table, "public.certs");
-        assert_eq!(create.tuples[0].values[0].display, "D41D8C");
+        assert_eq!(create.rules[0].tuple_key, "K4:textV6:d41d8c");
+        assert_eq!(create.rules[0].origin_table, "public.certs");
+        assert_eq!(create.rules[0].conditions[0].display, "D41D8C");
     }
 
     #[test]
     fn add_and_update_payloads_decode_swift_camel_case() {
-        let add: AddTagTuples = serde_json::from_str(
-            r#"{"tagId":"t1","tuples":[{"values":[],"tupleKey":"k","originConnection":"c",
+        let add: AddTagRules = serde_json::from_str(
+            r#"{"tagId":"t1","rules":[{"conditions":[],"tupleKey":"k","originConnection":"c",
                "originTable":"t"}]}"#,
         )
         .unwrap();
@@ -127,9 +127,9 @@ mod tests {
             note: None,
             created_at: "2026-08-13T00:00:00Z".into(),
             updated_at: "2026-08-13T00:00:00Z".into(),
-            tuples: vec![TagTuple {
+            rules: vec![TagRule {
                 id: "u1".into(),
-                values: vec![TaggedValue {
+                conditions: vec![TagCondition {
                     column: "md5".into(),
                     family: "text".into(),
                     value: "d41d8c".into(),

@@ -95,7 +95,7 @@ enum TagInspectorModel {
             guard let tag = tagById[match.tagId] else { return nil }
             guard let tuple = displayedTuple(for: match, in: tag, present: present) else { return nil }
 
-            let values = tuple.values.map { value in
+            let values = tuple.conditions.map { value in
                 TagInspectorValue(
                     column: value.column,
                     display: value.display,
@@ -111,12 +111,12 @@ enum TagInspectorModel {
                 note: (trimmedNote?.isEmpty ?? true) ? nil : trimmedNote,
                 isPartial: match.state == .dashed,
                 values: values,
-                isCrossTuple: match.state == .dashed && match.matchedTupleIds.count > 1)
+                isCrossTuple: match.state == .dashed && match.matchedRuleIds.count > 1)
         }
     }
 
     /// The tuple to show for one tag's match: for a solid match, the first
-    /// tuple in `solidTupleIds` (already sorted) — UNLESS that tuple was
+    /// tuple in `solidRuleIds` (already sorted) — UNLESS that tuple was
     /// deleted since the match was computed, in which case this falls through
     /// to the same rule a dashed match uses. Without the fallthrough, a tuple
     /// deletion would make the Inspector entry vanish while the grid's bar —
@@ -136,12 +136,12 @@ enum TagInspectorModel {
     /// beside a nominally solid tag.
     private static func displayedTuple(
         for match: TagRowMatch, in tag: Tag, present: Set<TagValueKey>
-    ) -> TagTuple? {
-        let tupleById = Dictionary(tag.tuples.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if let solidId = match.solidTupleIds.first, let solid = tupleById[solidId] {
+    ) -> TagRule? {
+        let tupleById = Dictionary(tag.rules.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if let solidId = match.solidRuleIds.first, let solid = tupleById[solidId] {
             return solid
         }
-        return match.matchedTupleIds
+        return match.matchedRuleIds
             .compactMap { tupleById[$0] }
             .max { a, b in
                 let (ma, mb) = (presentCount(a, in: present), presentCount(b, in: present))
@@ -151,15 +151,15 @@ enum TagInspectorModel {
             }
     }
 
-    private static func presentCount(_ tuple: TagTuple, in present: Set<TagValueKey>) -> Int {
-        tuple.values.filter {
+    private static func presentCount(_ tuple: TagRule, in present: Set<TagValueKey>) -> Int {
+        tuple.conditions.filter {
             present.contains(TagValueKey(family: $0.family, value: $0.value))
         }.count
     }
 
     /// Every (family, normalized value) the row holds — the matcher's probe
     /// key, rebuilt for one row. NULL cells contribute nothing, exactly as in
-    /// `TagTupleMatcher`; a captured tagged value can itself be an empty
+    /// `TagRuleMatcher`; a captured tagged value can itself be an empty
     /// string (capture drops NULL but keeps an empty text cell), so a NULL row
     /// cell must never be coerced into `""` here or it would falsely match one.
     private static func presentKeys(

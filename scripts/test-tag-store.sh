@@ -20,9 +20,9 @@ swiftc -o "$BIN" \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/TagValueNormalizer.swift \
-  Pharos/Core/TupleKey.swift \
-  Pharos/Core/TagTupleMatcher.swift \
-  Pharos/Core/TagTupleRemoving.swift \
+  Pharos/Core/RuleKey.swift \
+  Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRuleRemoving.swift \
   Pharos/Core/TagStore.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \

@@ -42,9 +42,9 @@ final class TagRemovalSheet: NSViewController {
     /// Who the commit goes to. Injected with no default, deliberately: a
     /// default of `TagStore.shared` would name the store in THIS file, and the
     /// point of the seam is that the harness can compile the sheet without it.
-    private let remover: TagTupleRemoving
+    private let remover: TagRuleRemoving
 
-    init(groups: [TagRemovalGroup], remover: TagTupleRemoving) {
+    init(groups: [TagRemovalGroup], remover: TagRuleRemoving) {
         self.groups = groups
         self.remover = remover
         super.init(nibName: nil, bundle: nil)

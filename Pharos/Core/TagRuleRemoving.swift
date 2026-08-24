@@ -1,4 +1,4 @@
-// MARK: - TagTupleRemoving
+// MARK: - TagRuleRemoving
 
 /// The one store capability `TagRemovalSheet` needs.
 ///
@@ -24,6 +24,6 @@
 /// `TagStore` conforms in `TagStore.swift`, so a change to
 /// `removeTuples(ids:)`'s shape breaks the APP BUILD rather than quietly
 /// leaving a test double behind on the far side.
-protocol TagTupleRemoving {
+protocol TagRuleRemoving {
     func removeTuples(ids: [String]) throws
 }

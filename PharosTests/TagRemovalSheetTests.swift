@@ -14,7 +14,7 @@ import AppKit
 
 // MARK: - Recording remover
 
-/// The sheet commits through `TagTupleRemoving`, which it declares itself, so
+/// The sheet commits through `TagRuleRemoving`, which it declares itself, so
 /// this suite supplies its own conformer and the real `TagStore` — `@MainActor`
 /// and Keychain-bound through the FFI — stays out of the binary entirely.
 /// Same shape as `QueryErrorSheetTests`' `SpyDelegate`.
@@ -23,7 +23,7 @@ import AppKit
 /// `TagStore.swift`, so if `removeTuples(ids:)` ever changes shape the app
 /// build fails rather than this suite passing against something that no longer
 /// matches the real store.
-private final class RecordingRemover: TagTupleRemoving {
+private final class RecordingRemover: TagRuleRemoving {
     private(set) var removed: [[String]] = []
     /// Set to make the next commit throw, standing in for a Rust-side failure.
     var failure: Error?

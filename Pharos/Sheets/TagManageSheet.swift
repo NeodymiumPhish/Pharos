@@ -309,7 +309,7 @@ final class TagManageSheet: NSViewController,
         // Shared with the Inspector's per-tag "Remove Tag…", which offers the
         // same destructive action: one wording, one plural rule, one test.
         let text = TagInspectorModel.deleteConfirmation(
-            name: tag.name, tupleCount: tag.tuples.count)
+            name: tag.name, tupleCount: tag.rules.count)
         let alert = NSAlert()
         alert.messageText = text.title
         alert.informativeText = text.body
@@ -396,7 +396,7 @@ final class TagManageSheet: NSViewController,
                 return fresh
             }()
         cell.imageView?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
-        let count = tag.tuples.count
+        let count = tag.rules.count
         // DISPLAY only, and still needed after the name rule: a tag stored
         // before it exists can hold a bidi override, and this list row is what
         // the analyst reads before pressing Delete. The EDITABLE `nameField` in

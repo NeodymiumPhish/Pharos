@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - TupleKey
+// MARK: - RuleKey
 
 /// The canonical string for one tuple — the duplicate key behind
 /// `tag_tuples_identity`, which is what makes re-tagging a row into the same
@@ -20,7 +20,7 @@ import Foundation
 ///
 /// Swift is the ONLY producer. Rust stores the string and compares it; it never
 /// builds one, so the two languages never have to agree on a byte here.
-enum TupleKey {
+enum RuleKey {
 
     /// Sorted by family bytes then value bytes, so the order the analyst ticked
     /// the columns in — or the order the columns happen to sit in a later

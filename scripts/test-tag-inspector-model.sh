@@ -6,7 +6,7 @@ swiftc -o /tmp/tag-inspector-model-tests \
   Pharos/Core/TagInspectorModel.swift \
   Pharos/Core/TagMatchDisclosure.swift \
   Pharos/Core/DisplayEscape.swift \
-  Pharos/Core/TagTupleMatcher.swift \
+  Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Models/Tag.swift \

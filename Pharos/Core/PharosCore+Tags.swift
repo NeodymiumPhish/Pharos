@@ -38,7 +38,7 @@ extension PharosCore {
     /// inserted: a tuple already on the tag is absorbed by the unique index,
     /// not an error, so re-tagging the same row is a no-op.
     @discardableResult
-    static func addTagTuples(_ payload: AddTagTuples) throws -> Int {
+    static func addTagRules(_ payload: AddTagRules) throws -> Int {
         let text = try scalarResult(input: payload) { pharos_add_tag_tuples($0) }
         guard let count = Int(text) else {
             throw PharosCoreError.rustError("Unexpected add count result: \(text)")
@@ -59,7 +59,7 @@ extension PharosCore {
     /// Remove individual tuples — the "Remove From Tag" path. A tag that loses
     /// every tuple survives; it is still a named case.
     @discardableResult
-    static func deleteTagTuples(ids: [String]) throws -> Int {
+    static func deleteTagRules(ids: [String]) throws -> Int {
         let text = try scalarResult(input: ids) { pharos_delete_tag_tuples($0) }
         guard let count = Int(text) else {
             throw PharosCoreError.rustError("Unexpected delete count result: \(text)")
