@@ -23,6 +23,7 @@ swiftc -o /tmp/tag-removal-sheet-tests \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagRuleRemoving.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
+  Pharos/Core/TagConditionKind.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Sheets/TagRemovalSheet.swift \

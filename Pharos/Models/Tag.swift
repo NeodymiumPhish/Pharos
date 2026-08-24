@@ -3,26 +3,76 @@ import Foundation
 // The Rust tag models in `pharos-core/src/models/tag.rs` all carry
 // `#[serde(rename_all = "camelCase")]`, and JSONDecoder/Encoder.pharos apply NO
 // key strategy, so these Swift structs use plain camelCase property names
-// (matching the JSON keys exactly) with NO CodingKeys. Do not add snake_case
-// CodingKeys here.
+// (matching the JSON keys exactly). Do not add snake_case CodingKeys here.
+// `TagCondition` is the one type that carries CodingKeys at all, and only
+// because its hand-written `init(from:)` needs them; they spell the same
+// camelCase the synthesized ones would, and they list EVERY coded property.
 //
 // The OPPOSITE rule applies to the result models — see `ColumnDef` in
 // Pharos/Models/QueryResult.swift, whose Rust structs carry no `rename_all` and
 // therefore DO need CodingKeys. The two conventions sit side by side on
 // purpose; a mismatch throws at run time only, so TagModelTests pins this one.
 
-/// One captured value.
+/// One condition of a rule: what to test, and what to test it against.
+///
+/// `value` is the NORMALIZED form and is what matching compares. `display` is
+/// the text as captured or typed, byte for byte, and is what every surface
+/// draws. Normalizing derives a second form beside the first; it never alters
+/// what the analyst wrote.
 ///
 /// `column` is PROVENANCE and never takes part in matching — the design's
 /// Matching section is explicit that column names are shown, not compared.
-/// `value` is the normalized form `TagValueNormalizer` produced; `display` is
-/// the text as captured, for the Inspector.
+///
+/// The hand-written `init(from:)` is what makes `kind` and `operand2` tolerate
+/// an ABSENT key, and `TagConditionKind`'s own decoder is what makes `kind`
+/// tolerate an UNKNOWN VALUE. Both are needed; neither substitutes for the
+/// other, and losing either destroys a rule written by a newer build.
+///
+/// `CodingKeys` must stay EXHAUSTIVE. Swift requires every coded property to
+/// appear, and a key left out is silently dropped — the hazard
+/// `memory/pharos-ffi-json-casing.md` records. There were deliberately no
+/// `CodingKeys` on this type before; they exist now only because `init(from:)`
+/// needs them, and they must list every property.
 struct TagCondition: Codable, Equatable {
     let column: String
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     let family: String
+    let kind: TagConditionKind
     let value: String
+    /// The upper bound of a `.between`. nil for every other kind.
+    ///
+    /// `between` must be ONE condition rather than two comparators. Conditions
+    /// in a rule are ANDed, but each is satisfied by SOME cell in the row, not
+    /// the same cell — so `>= 1000` could be satisfied by one column and
+    /// `<= 2000` by another, which is not a range test at all.
+    let operand2: String?
     let display: String
+
+    init(column: String, family: String, kind: TagConditionKind = .exact,
+         value: String, operand2: String? = nil, display: String) {
+        self.column = column
+        self.family = family
+        self.kind = kind
+        self.value = value
+        self.operand2 = operand2
+        self.display = display
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case column, family, kind, value, operand2, display
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        column = try container.decode(String.self, forKey: .column)
+        family = try container.decode(String.self, forKey: .family)
+        // `decodeIfPresent` covers an ABSENT key; `TagConditionKind`'s own
+        // decoder covers an UNKNOWN value.
+        kind = try container.decodeIfPresent(TagConditionKind.self, forKey: .kind) ?? .exact
+        value = try container.decode(String.self, forKey: .value)
+        operand2 = try container.decodeIfPresent(String.self, forKey: .operand2)
+        display = try container.decode(String.self, forKey: .display)
+    }
 }
 
 /// One tagged origin row. Its values are the tuple the matcher tests.

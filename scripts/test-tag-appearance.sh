@@ -10,6 +10,7 @@ swiftc -o /tmp/tag-appearance-tests \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/RowFingerprint.swift \
+  Pharos/Core/TagConditionKind.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagAppearanceTests.swift \

@@ -2649,7 +2649,9 @@ mod tag_schema_tests {
             conditions: vec![crate::models::TagCondition {
                 column: "md5".into(),
                 family: "text".into(),
+                kind: None,
                 value: value.into(),
+                operand2: None,
                 display: value.to_uppercase(),
             }],
             tuple_key: key.into(),

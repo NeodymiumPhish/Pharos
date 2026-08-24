@@ -1,15 +1,32 @@
 use serde::{Deserialize, Serialize};
 
-/// One captured value. `column` is PROVENANCE — the matcher never reads it.
-/// `value` is the normalized form Swift produced; `display` is the text as it
-/// was captured, for the Inspector.
+/// One condition of a rule. `column` is PROVENANCE — the matcher never reads
+/// it. `value` is the normalized form Swift produced; `display` is the text as
+/// it was captured, for the Inspector.
+///
+/// `kind` and `operand2` are plain optional STRINGS here, never an enum. Rust
+/// does not interpret them — Swift is the only producer, exactly as it already
+/// is for `tuple_key`.
+///
+/// An enum would reject a kind written by a newer build, and `read_tag_tuples`
+/// decodes the blob with `unwrap_or_default()`, so one rejected variant loads
+/// the rule with an EMPTY condition list that the next save writes back. That
+/// destroys the rule silently, with no error anywhere.
+///
+/// `#[serde(default)]` covers an ABSENT key, which is what an old stored blob
+/// has. It does nothing about an unknown VALUE; keeping the type as `String` is
+/// what covers that.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagCondition {
     pub column: String,
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     pub family: String,
+    #[serde(default)]
+    pub kind: Option<String>,
     pub value: String,
+    #[serde(default)]
+    pub operand2: Option<String>,
     pub display: String,
 }
 
@@ -118,6 +135,42 @@ mod tests {
         assert_eq!(sparse.name, None);
     }
 
+    /// A SPARSE document pins the defaults and nothing more. A FULL literal
+    /// document is what pins the key names — serde reports a mis-cased optional
+    /// as `None`, indistinguishable from the caller omitting it.
+    #[test]
+    fn condition_decodes_sparse_and_full_documents() {
+        let sparse: TagCondition = serde_json::from_str(
+            r#"{"column":"host","family":"text","value":"abc","display":"ABC"}"#,
+        )
+        .unwrap();
+        assert_eq!(sparse.kind, None);
+        assert_eq!(sparse.operand2, None);
+
+        let full: TagCondition = serde_json::from_str(
+            r#"{"column":"port","family":"numeric","kind":"between","value":"1000",
+                "operand2":"2000","display":"1000 .. 2000"}"#,
+        )
+        .unwrap();
+        assert_eq!(full.kind.as_deref(), Some("between"));
+        assert_eq!(full.operand2.as_deref(), Some("2000"));
+        assert_eq!(full.family, "numeric");
+        assert_eq!(full.display, "1000 .. 2000");
+    }
+
+    /// An unknown kind must round-trip verbatim. This is the test that protects
+    /// a rule written by a newer build from being destroyed by an older one.
+    #[test]
+    fn unknown_kind_round_trips_verbatim() {
+        let decoded: TagCondition = serde_json::from_str(
+            r#"{"column":"h","family":"text","kind":"startsWith","value":"a","display":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(decoded.kind.as_deref(), Some("startsWith"));
+        let json = serde_json::to_string(&decoded).unwrap();
+        assert!(json.contains(r#""kind":"startsWith""#), "got {}", json);
+    }
+
     #[test]
     fn tag_serializes_camel_case() {
         let tag = Tag {
@@ -132,7 +185,9 @@ mod tests {
                 conditions: vec![TagCondition {
                     column: "md5".into(),
                     family: "text".into(),
+                    kind: None,
                     value: "d41d8c".into(),
+                    operand2: None,
                     display: "D41D8C".into(),
                 }],
                 tuple_key: "K4:textV6:d41d8c".into(),

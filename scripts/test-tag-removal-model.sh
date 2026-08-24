@@ -9,6 +9,7 @@ swiftc -o /tmp/tag-removal-model-tests \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Core/TagConditionKind.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagRemovalModelTests.swift \
