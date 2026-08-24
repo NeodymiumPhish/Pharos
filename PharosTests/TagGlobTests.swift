@@ -55,5 +55,27 @@ func runTests() {
     expect(glob("*", ""), "a lone star matches empty text")
     expect(glob("a*", "a"), "trailing star matches nothing")
 
+    // Escaping a NON-metacharacter is permissive: `\a` is just `a`. Pinned
+    // because the alternative (rejecting it) is equally defensible, so a later
+    // reader must be able to see which was chosen.
+    expect(glob(#"\a"#, "a"), "escaping a plain character yields that character")
+
+    // `?` matches a metacharacter sitting in the DATA. The pattern language
+    // and the text share no alphabet.
+    expect(glob("a?c", "a*c"), "? matches a literal star in the text")
+
+    // A pattern of only `?` is a length test.
+    expect(glob("???", "abc"), "three ? match three characters")
+    expect(!glob("???", "ab"), "three ? do not match two characters")
+
+    // A star matches an empty run on BOTH sides at once.
+    expect(glob("*?*", "x"), "stars either side of a ? both match nothing")
+
+    // The star collapse is observable, not just internal.
+    expect(TagGlob.compile("**")?.count == 1, "a run of stars compiles to one token")
+
+    // A literal pattern never matches empty text.
+    expect(!glob("a", ""), "a literal does not match empty text")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
