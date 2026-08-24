@@ -11,6 +11,8 @@ swiftc -o /tmp/tag-appearance-tests \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagAppearanceTests.swift \

@@ -10,6 +10,8 @@ swiftc -o /tmp/tag-tuple-matcher-tests \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagTupleMatcherTests.swift \

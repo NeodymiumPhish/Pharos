@@ -25,6 +25,8 @@ swiftc -o "$BIN" \
   Pharos/Core/TagRuleRemoving.swift \
   Pharos/Core/TagStore.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagStoreTests.swift \

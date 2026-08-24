@@ -123,6 +123,12 @@ enum TagValueNormalizer {
         }
     }
 
+    /// Every family with a rule of its own. A `type:<name>` family is not in
+    /// here — it has no rule, so no predicate can ever answer it.
+    static let everyFamily: [String] = [
+        addressFamily, textFamily, numericFamily, temporalFamily, uuidFamily,
+    ]
+
     // MARK: Comparable forms
 
     /// The `Decimal` a NORMALIZED numeric value holds, or nil when that value

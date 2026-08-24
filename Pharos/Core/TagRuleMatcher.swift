@@ -61,7 +61,20 @@ enum TagRuleMatcher {
         /// Families that appear at all, so an irrelevant column costs nothing.
         fileprivate var families: Set<String> = []
 
-        var isEmpty: Bool { slots.isEmpty }
+        /// A condition a hash cannot answer, paired with the slot it fills.
+        fileprivate struct PatternSlot {
+            let predicate: TagPredicate
+            let slot: Slot
+        }
+        fileprivate var patterns: [PatternSlot] = []
+        /// Families any PATTERN could answer. `cidr` puts `text` in here as
+        /// well as `address`.
+        fileprivate var patternFamilies: Set<String> = []
+
+        /// A tag made only of pattern conditions has an EMPTY `slots`, so
+        /// testing `slots` alone would short-circuit `match` and let every
+        /// pattern-only tag match nothing.
+        var isEmpty: Bool { slots.isEmpty && patterns.isEmpty }
     }
 
     /// Build the index from every tag the store holds.
@@ -80,14 +93,46 @@ enum TagRuleMatcher {
                 // `tuple_values` blob: the Rust CRUD decodes bad JSON to an
                 // empty list rather than failing the load.
                 guard !tuple.conditions.isEmpty else { continue }
+
+                // Compile BEFORE recording anything. A rule whose conditions
+                // cannot all be evaluated is skipped WHOLE: recording only the
+                // ones that compiled would leave a NARROWER rule than the
+                // analyst wrote, and a narrower rule is easier to satisfy — a
+                // false match, the one failure direction this model cannot
+                // tolerate.
+                var compiled: [TagPredicate?] = []
+                compiled.reserveCapacity(tuple.conditions.count)
+                var evaluable = true
+                for condition in tuple.conditions {
+                    if condition.kind == .exact {
+                        compiled.append(nil)
+                        continue
+                    }
+                    guard let predicate = TagPredicate.compile(condition) else {
+                        evaluable = false
+                        break
+                    }
+                    compiled.append(predicate)
+                }
+                guard evaluable else { continue }
+
                 let ruleSlot = index.ruleIds.count
                 index.ruleIds.append(tuple.id)
                 index.ruleWidth.append(tuple.conditions.count)
-                for (position, value) in tuple.conditions.enumerated() {
-                    let key = TagValueKey(family: value.family, value: value.value)
-                    index.slots[key, default: []].append(
-                        Index.Slot(tag: tagSlot, rule: ruleSlot, position: position))
-                    index.families.insert(value.family)
+
+                for (position, condition) in tuple.conditions.enumerated() {
+                    let slot = Index.Slot(tag: tagSlot, rule: ruleSlot, position: position)
+                    if let predicate = compiled[position] {
+                        index.patterns.append(Index.PatternSlot(predicate: predicate, slot: slot))
+                        for family in TagValueNormalizer.everyFamily
+                        where predicate.tests(family: family) {
+                            index.patternFamilies.insert(family)
+                        }
+                    } else {
+                        let key = TagValueKey(family: condition.family, value: condition.value)
+                        index.slots[key, default: []].append(slot)
+                        index.families.insert(condition.family)
+                    }
                 }
             }
         }
@@ -108,14 +153,25 @@ enum TagRuleMatcher {
         -> [Int: [TagRowMatch]] {
         guard !index.isEmpty else { return [:] }
 
-        // One classification for the whole result. nil means "no tagged value
-        // could ever live in this column", and that cell is never normalized —
+        // One classification for the whole result. nil means "no condition
+        // could ever answer this column", and that cell is never normalized —
         // the cheapest way to skip a wide result's uninteresting columns.
         let families: [String?] = columns.map {
             let family = TagValueNormalizer.family(forDataType: $0.dataType)
-            return index.families.contains(family) ? family : nil
+            return index.families.contains(family) || index.patternFamilies.contains(family)
+                ? family : nil
         }
         guard families.contains(where: { $0 != nil }) else { return [:] }
+
+        // The preparation pass runs ONLY when a pattern exists. Without one this
+        // takes the path it always has and allocates nothing new, so a user who
+        // authors no condition cannot be regressed.
+        let expanded = !index.patterns.isEmpty
+        var cellKeys: [[TagValueKey?]] = []
+        var overlay: [TagValueKey: [Index.Slot]] = [:]
+        if expanded {
+            (cellKeys, overlay) = expand(families: families, rows: rows, index: index)
+        }
 
         var out: [Int: [TagRowMatch]] = [:]
         for (rowIndex, row) in rows.enumerated() {
@@ -126,17 +182,28 @@ enum TagRuleMatcher {
             var touched: [Int: Set<Int>] = [:]
 
             for (column, family) in families.enumerated() {
-                guard let family, column < row.count,
-                      let key = TagValueNormalizer.key(text: row[column], family: family),
-                      let hits = index.slots[key]
-                else { continue }
-                // One probe returns EVERY slot holding this value, including two
-                // slots of one tuple — which is exactly the design's rule that
-                // presence, not multiplicity, satisfies a slot.
-                for hit in hits {
-                    satisfied[hit.rule, default: []].insert(hit.position)
-                    matchedColumns[hit.tag, default: []].insert(column)
-                    touched[hit.tag, default: []].insert(hit.rule)
+                guard let family else { continue }
+                let key: TagValueKey?
+                if expanded {
+                    // `cellKeys[rowIndex]` is always `families.count` wide, so
+                    // a short row is already handled — `expand` left its
+                    // missing cells nil.
+                    key = cellKeys[rowIndex][column]
+                } else {
+                    guard column < row.count else { continue }
+                    key = TagValueNormalizer.key(text: row[column], family: family)
+                }
+                guard let key else { continue }
+                // Two probes, both O(1). Each returns EVERY slot holding this
+                // value — including two slots of one rule, which is the design's
+                // rule that presence, not multiplicity, satisfies a slot.
+                if let hits = index.slots[key] {
+                    record(hits, column: column, satisfied: &satisfied,
+                           matchedColumns: &matchedColumns, touched: &touched)
+                }
+                if expanded, let hits = overlay[key] {
+                    record(hits, column: column, satisfied: &satisfied,
+                           matchedColumns: &matchedColumns, touched: &touched)
                 }
             }
             guard !touched.isEmpty else { continue }
@@ -157,6 +224,59 @@ enum TagRuleMatcher {
             out[rowIndex] = ordered(matches)
         }
         return out
+    }
+
+    /// Fold one probe's hits into the row's tallies.
+    ///
+    /// Extracted so the exact and overlay probes cannot drift apart, and so
+    /// neither has to build a merged array per cell just to share a loop.
+    private static func record(
+        _ hits: [Index.Slot], column: Int,
+        satisfied: inout [Int: Set<Int>],
+        matchedColumns: inout [Int: Set<Int>],
+        touched: inout [Int: Set<Int>]
+    ) {
+        for hit in hits {
+            satisfied[hit.rule, default: []].insert(hit.position)
+            matchedColumns[hit.tag, default: []].insert(column)
+            touched[hit.tag, default: []].insert(hit.rule)
+        }
+    }
+
+    /// Expand every pattern against the result's DISTINCT values, once.
+    ///
+    /// This is what keeps the row loop a hash probe. Testing a pattern per CELL
+    /// would cost `cells x patterns`; testing it per distinct value costs
+    /// `distinct x patterns`, and the modal re-runs this whole matcher on every
+    /// checkbox click, so that saving is paid back on every keystroke.
+    ///
+    /// Normalizing each distinct text once instead of each cell is the second
+    /// saving: the cache this builds is what the row loop reads.
+    private static func expand(families: [String?], rows: [[String?]], index: Index)
+        -> (cellKeys: [[TagValueKey?]], overlay: [TagValueKey: [Index.Slot]]) {
+        var cellKeys = [[TagValueKey?]](repeating: [], count: rows.count)
+        var distinct = Set<TagValueKey>()
+        for (rowIndex, row) in rows.enumerated() {
+            var keys = [TagValueKey?](repeating: nil, count: families.count)
+            for (column, family) in families.enumerated() {
+                guard let family, column < row.count,
+                      let key = TagValueNormalizer.key(text: row[column], family: family)
+                else { continue }
+                keys[column] = key
+                distinct.insert(key)
+            }
+            cellKeys[rowIndex] = keys
+        }
+
+        var overlay: [TagValueKey: [Index.Slot]] = [:]
+        for pattern in index.patterns {
+            for key in distinct where pattern.predicate.tests(family: key.family) {
+                guard pattern.predicate.matches(normalized: key.value, family: key.family)
+                else { continue }
+                overlay[key, default: []].append(pattern.slot)
+            }
+        }
+        return (cellKeys, overlay)
     }
 
     /// Strongest first: solid before dashed, then more matched values, then the

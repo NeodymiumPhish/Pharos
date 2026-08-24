@@ -11,6 +11,8 @@ swiftc -o /tmp/tag-draft-tests \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagDraftTests.swift \

@@ -152,6 +152,108 @@ func runTests() {
     expectEqual(tieMatches[0]?[0].tagId, "a-tag",
                 "the tag id is the only remaining tie-break")
 
+    // MARK: pattern conditions
+
+    func cond(_ kind: TagConditionKind, _ family: String, _ raw: String,
+              _ operand2: String? = nil) -> TagCondition {
+        TagCondition(column: "c", family: family, kind: kind,
+                     value: TagValueNormalizer.normalize(raw, family: family),
+                     operand2: operand2.map { TagValueNormalizer.normalize($0, family: family) },
+                     display: raw)
+    }
+
+    let addressColumn = ColumnDef(name: "ip_addr", dataType: "inet")
+    let hostColumn = ColumnDef(name: "host", dataType: "text")
+    let portColumn = ColumnDef(name: "port", dataType: "int4")
+    let schema = [addressColumn, hostColumn, portColumn]
+
+    let sample: [[String?]] = [
+        ["107.8.8.1", "neodymiumphi.sh", "443"],           // 0
+        ["107.8.8.1", "network.neodymiumphi.sh", "8443"],  // 1
+        ["203.0.113.9", "example.org", "80"],              // 2
+        ["107.8.9.1", "other.neodymiumphi.sh", "22"],      // 3
+    ]
+
+    // The case this whole feature exists for: an exact address AND a glob host
+    // in ONE rule. Both rows go solid, where an exact-only tag left row 1 dashed.
+    let mixed = tag("mixed", [tuple("r1", [
+        cond(.exact, "address", "107.8.8.1"),
+        cond(.glob, "text", "*neodymiumphi.sh"),
+    ])])
+    let mixedResult = TagRuleMatcher.match(
+        columns: schema, rows: sample, index: TagRuleMatcher.buildIndex([mixed]))
+    expectEqual(mixedResult[0]?.first?.state, .solid, "row 0 solid on exact + glob")
+    expectEqual(mixedResult[1]?.first?.state, .solid, "row 1 solid on exact + glob")
+    expectEqual(mixedResult[2] == nil, true, "row 2 does not match at all")
+    // Row 3's host matches the glob but its address does not, so the rule is
+    // incomplete: dashed, exactly as a half-matched exact rule would be.
+    expectEqual(mixedResult[3]?.first?.state, .dashed, "row 3 dashed on the glob alone")
+
+    // A rule made ONLY of patterns can go solid. This is the case that breaks
+    // if `Index.isEmpty` still tests only `slots`.
+    let cidrTag = tag("cidr", [tuple("r2", [cond(.cidr, "address", "107.8.8.0/24")])])
+    let cidrIndex = TagRuleMatcher.buildIndex([cidrTag])
+    expectEqual(cidrIndex.isEmpty, false, "an index holding only patterns is not empty")
+    let cidrResult = TagRuleMatcher.match(columns: schema, rows: sample, index: cidrIndex)
+    expectEqual(cidrResult[0]?.first?.state, .solid, "cidr matches 107.8.8.1")
+    expectEqual(cidrResult[1]?.first?.state, .solid, "cidr matches the second 107.8.8.1")
+    expectEqual(cidrResult[3] == nil, true, "cidr does not reach 107.8.9.1")
+
+    // A CIDR condition also reaches an address stored in a TEXT column.
+    let textSchema = [ColumnDef(name: "src", dataType: "text")]
+    let textRows: [[String?]] = [["107.8.8.1"], ["not an address"], ["203.0.113.9"]]
+    let textResult = TagRuleMatcher.match(
+        columns: textSchema, rows: textRows, index: cidrIndex)
+    expectEqual(textResult[0]?.first?.state, .solid, "cidr reaches an address in a text column")
+    expectEqual(textResult[1] == nil, true, "cidr ignores text that is not an address")
+    expectEqual(textResult[2] == nil, true, "cidr ignores an address outside it")
+
+    // A comparator, and the matched column is reported so the grid can tint it.
+    let portTag = tag("ports", [tuple("r3", [cond(.greaterThan, "numeric", "1000")])])
+    let portResult = TagRuleMatcher.match(
+        columns: schema, rows: sample, index: TagRuleMatcher.buildIndex([portTag]))
+    expectEqual(portResult[1]?.first?.state, .solid, "8443 is above 1000")
+    expectEqual(portResult[0] == nil, true, "443 is not above 1000")
+    expectEqual(portResult[1]?.first?.matchedColumns, [2], "the port column is the matched one")
+
+    // A numeric comparator must NOT sweep the text columns.
+    let sweepRows: [[String?]] = [["1.1.1.1", "9999", "5"]]
+    let sweepResult = TagRuleMatcher.match(
+        columns: schema, rows: sweepRows, index: TagRuleMatcher.buildIndex([portTag]))
+    expectEqual(sweepResult[0] == nil, true, "a numeric comparator ignores a numeric-looking text cell")
+
+    // A rule with a condition this build cannot evaluate is skipped WHOLE. A
+    // rule missing one condition is EASIER to satisfy than the analyst wrote,
+    // and a too-easy rule is a false match.
+    let future = tag("future", [tuple("r4", [
+        cond(.exact, "address", "107.8.8.1"),
+        TagCondition(column: "c", family: "text", kind: .unsupported("startsWith"),
+                     value: "neo", operand2: nil, display: "neo"),
+    ])])
+    let futureResult = TagRuleMatcher.match(
+        columns: schema, rows: sample, index: TagRuleMatcher.buildIndex([future]))
+    expectEqual(futureResult.isEmpty, true,
+                "a rule with an unsupported condition matches nothing at all")
+
+    // The same for an operand that cannot be parsed.
+    let broken = tag("broken", [tuple("r5", [cond(.cidr, "address", "10.2.3.999")])])
+    expectEqual(TagRuleMatcher.buildIndex([broken]).isEmpty, true,
+                "a malformed CIDR builds no index")
+
+    // THE regression guard: with no patterns, the result must be what today's
+    // code produces. This is the promise that a user who authors no condition
+    // cannot be regressed.
+    let exactOnly = tag("exact", [tuple("r6", [
+        cond(.exact, "address", "107.8.8.1"),
+        cond(.exact, "text", "neodymiumphi.sh"),
+    ])])
+    let exactResult = TagRuleMatcher.match(
+        columns: schema, rows: sample, index: TagRuleMatcher.buildIndex([exactOnly]))
+    expectEqual(exactResult.count, 2, "exact-only tag touches exactly two rows")
+    expectEqual(exactResult[0]?.first?.state, .solid, "exact-only row 0 solid")
+    expectEqual(exactResult[1]?.first?.state, .dashed, "exact-only row 1 dashed as before")
+    expectEqual(exactResult[0]?.first?.solidRuleIds, ["r6"], "the solid rule is reported")
+
     print(failures == 0 ? "\nAll matcher checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }
