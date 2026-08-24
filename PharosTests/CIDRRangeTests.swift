@@ -46,6 +46,35 @@ func runTests() {
     expectEqual(v6?.isIPv6, true, "v4-mapped v6 stays v6")
     expectEqual(v4 == v6, false, "a v4 address never equals a v6 one")
 
+    // MARK: containment
+
+    func range(_ t: String) -> CIDRRange { CIDRRange.parse(t)! }
+
+    expectEqual(range("10.2.3.0/24").contains(range("10.2.3.4")), true, "v4 host inside its /24")
+    expectEqual(range("10.2.3.0/24").contains(range("10.2.4.4")), false, "v4 host outside its /24")
+
+    // A prefix that is not byte-aligned is where a byte-wise compare goes
+    // wrong, so it gets its own cases on both sides of the boundary.
+    expectEqual(range("10.0.0.0/12").contains(range("10.15.255.255")), true, "last address of a /12")
+    expectEqual(range("10.0.0.0/12").contains(range("10.16.0.0")), false, "first address past a /12")
+
+    // A range can only hold something at least as SPECIFIC as itself.
+    expectEqual(range("10.0.0.0/8").contains(range("10.2.3.0/24")), true, "/8 holds a /24 inside it")
+    expectEqual(range("10.2.3.0/24").contains(range("10.0.0.0/8")), false, "/24 does not hold its own /8")
+
+    // Equal ranges contain each other; /0 holds everything of its family.
+    expectEqual(range("10.2.3.4").contains(range("10.2.3.4")), true, "an address contains itself")
+    expectEqual(range("0.0.0.0/0").contains(range("203.0.113.9")), true, "v4 default route holds any v4")
+
+    // The families never mix. The byte widths differ, so a partial compare
+    // would read past the end of the shorter array.
+    expectEqual(range("0.0.0.0/0").contains(range("2001:db8::1")), false, "v4 /0 does not hold a v6")
+    expectEqual(range("::/0").contains(range("10.2.3.4")), false, "v6 /0 does not hold a v4")
+
+    expectEqual(range("2001:db8::/32").contains(range("2001:db8::1")), true, "v6 host inside its /32")
+    expectEqual(range("2001:db8::/32").contains(range("2001:db9::1")), false, "v6 host outside its /32")
+    expectEqual(range("::/0").contains(range("2001:db8::1")), true, "v6 default route holds any v6")
+
     print(failures == 0 ? "\nAll CIDRRange checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }
