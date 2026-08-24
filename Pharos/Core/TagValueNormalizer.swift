@@ -147,34 +147,37 @@ enum TagValueNormalizer {
         return value
     }
 
-    /// How many fractional digits `comparableTimestamp` pads to. Nine covers
-    /// nanoseconds; PostgreSQL stores microseconds, so this has room to spare.
-    private static let fractionWidth = 9
-
     /// A NORMALIZED temporal value as a byte-comparable string, or nil when
     /// that value fell back to raw text.
     ///
-    /// The canonical form keeps every fractional digit, so `…56.9Z` and
-    /// `…56.91Z` differ in LENGTH. Byte order compares `Z` against `1` and puts
-    /// `.9` above `.91`, which is backwards. Padding the fraction to a fixed
-    /// width makes byte order agree with time order, and the rest of the form is
-    /// already fixed width and already ordered.
+    /// The whole job is to DROP THE TRAILING `Z`, and that is not a tidy-up —
+    /// it is the comparison. The canonical form keeps every fractional digit,
+    /// so `…56.9Z` and `…56.91Z` differ in LENGTH; with the `Z` still attached,
+    /// byte order compares `Z` against `1` and ranks `.9` ABOVE `.91`, which is
+    /// backwards.
+    ///
+    /// With the `Z` gone, byte order IS time order, and no padding is needed.
+    /// `canonicalTimestamp` strips trailing zeros, so a canonical fraction never
+    /// ends in `0`. Two consequences follow, and together they cover every case:
+    /// if one fraction is a prefix of another, the longer one carries an extra
+    /// non-zero digit and really is larger, which is the order a prefix already
+    /// sorts in; and if two fractions diverge, the first differing digit decides
+    /// the byte order and the numeric order alike. Everything left of the
+    /// fraction is fixed width and already ordered.
+    ///
+    /// An earlier draft padded the fraction to nine digits. That was a second
+    /// defence against a hazard dropping the `Z` had already removed, and it
+    /// cost a real failure: a fraction longer than nine digits returned nil, so
+    /// a valid timestamp silently stopped matching.
     ///
     /// The gate is `canonicalTimestamp`'s own IDEMPOTENCE: a value that is its
     /// own canonical form parsed, and a value that fell back did not. That is
     /// one source of truth rather than a second parser here — and it is why raw
-    /// text that happens to end in `Z` is refused instead of being padded into a
+    /// text that happens to end in `Z` is refused instead of being turned into a
     /// comparable-looking string.
     static func comparableTimestamp(_ normalized: String) -> String? {
         guard canonicalTimestamp(normalized) == normalized else { return nil }
-        let body = String(normalized.dropLast())   // the trailing "Z"
-        guard let dot = body.firstIndex(of: ".") else {
-            return body + "." + String(repeating: "0", count: fractionWidth)
-        }
-        let base = String(body[body.startIndex..<dot])
-        let digits = String(body[body.index(after: dot)...])
-        guard digits.count <= fractionWidth else { return nil }
-        return base + "." + digits + String(repeating: "0", count: fractionWidth - digits.count)
+        return String(normalized.dropLast())
     }
 
     // MARK: Numeric

@@ -187,6 +187,17 @@ func runTests() {
     expectEqual(TagValueNormalizer.comparableTimestamp("XYZ") == nil, true,
                 "raw text ending in Z has no comparable form")
 
+    // A fraction longer than nine digits still compares. The padded draft
+    // returned nil here, which silently stopped a valid timestamp matching.
+    let deepA = TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.1234567891"))
+    let deepB = TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.1234567892"))
+    expectEqual(deepA != nil && deepB != nil, true, "a ten-digit fraction has a comparable form")
+    expectEqual(deepA! < deepB!, true, "a ten-digit fraction still orders correctly")
+
+    // The trailing Z is what must go. Its presence is the whole trap.
+    expectEqual(TagValueNormalizer.comparableTimestamp(normTime("2026-08-13"))?.hasSuffix("Z"), false,
+                "the comparable form carries no trailing Z")
+
     print(failures == 0 ? "\nAll normalizer checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }
