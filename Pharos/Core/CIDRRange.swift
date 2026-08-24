@@ -7,17 +7,14 @@ import Darwin
 
 /// An IPv4 or IPv6 address with an optional prefix length.
 ///
-/// Its ONE job is canonical text for the address family of the tag normalizer:
-/// two spellings of one address must produce one string, so that a tagged
-/// `2001:0DB8::0001` matches a probed `2001:db8::1`.
-///
-/// It does NOT answer containment. The superseded value-tag design matched an
-/// address predicate by CIDR membership; the unified model matches by a hash
-/// probe on `(family, normalized value)`, and a hash cannot answer "is this
-/// address inside that prefix". A `10.2.3.0/24` tag matches the literal value
-/// `10.2.3.0/24`, not the hosts inside it. Adding containment back means adding
-/// a second, linear matching path — a design decision, not an implementation
-/// one.
+/// Two questions live here, because both are questions about one parsed
+/// address. `canonicalText` serves the hash-probe path: two spellings of one
+/// address must produce one string, so that a tagged `2001:0DB8::0001`
+/// matches a probed `2001:db8::1`. `contains` serves the `cidr` CONDITION: a
+/// hash probe can only ask "is this the same value", never "is this address
+/// inside that prefix" — containment needs its own, linear comparison, which
+/// is what `contains`, below, provides. Folding containment back into this
+/// type was a design decision, and it has now been taken.
 ///
 /// `inet_pton` does the parsing: it is the same code the operating system uses,
 /// it rejects every malformed spelling (`10.2.3.999`, `10.2.3.4.5`), and it
@@ -113,8 +110,10 @@ struct CIDRRange: Equatable {
     ///    would compare 4 bytes of a 16-byte address and call a stranger a
     ///    match — and `bytes[index]` past the shorter array would trap.
     ///  - A range only holds something at least as SPECIFIC as itself. Without
-    ///    this, `10.2.3.0/24` would "hold" `10.0.0.0/8`, because the /8's first
-    ///    24 bits agree with it.
+    ///    this, `10.2.3.0/24` would wrongly hold `10.2.3.99/8`: its bytes are
+    ///    `[10,2,3,99]`, so the first three bytes agree with the /24 and its
+    ///    own `spare` is `0` — nothing would check that the /8's own prefix
+    ///    length is shorter than the /24's.
     ///  - The trailing partial byte is masked. A prefix that is not a multiple
     ///    of 8 leaves bits in the last byte that belong to the host, not the
     ///    network, and comparing them whole rejects every real member.
