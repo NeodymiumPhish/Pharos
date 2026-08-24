@@ -21,9 +21,13 @@ enum TagDraft {
     ///
     /// - Parameters:
     ///   - selectedRows: the selected rows' values as text, in column order.
-    ///   - columns: the result's columns, for names and families.
+    ///   - columns: the result's columns, for their families. The column NAME
+    ///     is not captured: it never took part in matching, and a hand-authored
+    ///     condition has no column at all, so a condition is described by its
+    ///     family. Row-level provenance is unaffected — `originConnection` and
+    ///     `originTable` travel on the rule.
     ///   - checkedColumns: indices into `columns`.
-    static func tuples(
+    static func rules(
         selectedRows: [[String?]],
         columns: [ColumnDef],
         checkedColumns: [Int],
@@ -32,13 +36,12 @@ enum TagDraft {
     ) -> [NewTagRule] {
         guard !checkedColumns.isEmpty else { return [] }
         // One family lookup per checked column, not per row.
-        let checked: [(index: Int, name: String, family: String)] = checkedColumns.compactMap {
+        let checked: [(index: Int, family: String)] = checkedColumns.compactMap {
             // A column index the result no longer holds is skipped rather than
             // trapping: the modal's list and the grid could disagree after a
             // Load More that changed the result's shape.
             guard $0 >= 0, $0 < columns.count else { return nil }
-            return ($0, columns[$0].name,
-                    TagValueNormalizer.family(forDataType: columns[$0].dataType))
+            return ($0, TagValueNormalizer.family(forDataType: columns[$0].dataType))
         }
         guard !checked.isEmpty else { return [] }
 
@@ -51,7 +54,6 @@ enum TagDraft {
                 // the tuple instead of becoming a slot nothing can satisfy.
                 guard column.index < row.count, let text = row[column.index] else { continue }
                 values.append(TagCondition(
-                    column: column.name,
                     family: column.family,
                     value: TagValueNormalizer.normalize(text, family: column.family),
                     display: text))

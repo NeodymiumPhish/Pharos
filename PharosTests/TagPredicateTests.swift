@@ -70,7 +70,7 @@ func runTests() {
 
     func condition(_ kind: TagConditionKind, _ family: String, _ value: String,
                    _ operand2: String? = nil) -> TagCondition {
-        TagCondition(column: "c", family: family, kind: kind,
+        TagCondition(family: family, kind: kind,
                      value: value, operand2: operand2, display: value)
     }
 

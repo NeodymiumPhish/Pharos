@@ -21,9 +21,9 @@ private func col(_ name: String, _ type: String) -> ColumnDef {
     ColumnDef(name: name, dataType: type)
 }
 
-private func value(_ column: String, _ family: String, _ normalized: String,
+private func value(_ family: String, _ normalized: String,
                    display: String? = nil) -> TagCondition {
-    TagCondition(column: column, family: family, value: normalized,
+    TagCondition(family: family, value: normalized,
                 display: display ?? normalized)
 }
 
@@ -53,7 +53,7 @@ func runTests() {
 
     do {
         let t = tag("t1", "Suspect infra", note: "May sprint",
-                    tuples: [tuple("u1", [value("md5", "text", "d41d8c")])])
+                    tuples: [tuple("u1", [value("text", "d41d8c")])])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
             tags: [t], columns: columns,
@@ -67,14 +67,15 @@ func runTests() {
         expectEqual(entries.first?.isCrossTuple, false, "a solid match never shows the cross-tuple line")
         expectEqual(entries.first?.values.count, 1, "the displayed tuple has one value")
         expectEqual(entries.first?.values.first?.isMatched, true, "the completed value is marked matched")
-        expectEqual(entries.first?.values.first?.column, "md5", "provenance column name shown")
+        expectEqual(entries.first?.values.first?.family, "text",
+                    "the condition is described by its family, not by a column name")
     }
 
     // MARK: - 2. Case drift still marks matched — presence uses normalized values
 
     do {
         let t = tag("t1", "Hashes",
-                    tuples: [tuple("u1", [value("md5", "text", "d41d8c", display: "D41D8C")])])
+                    tuples: [tuple("u1", [value("text", "d41d8c", display: "D41D8C")])])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
             tags: [t], columns: columns,
@@ -89,7 +90,7 @@ func runTests() {
 
     do {
         let t = tag("t1", "Pairs", tuples: [
-            tuple("u1", [value("ip", "text", "10.2.3.4"), value("subject", "text", "cn=other")]),
+            tuple("u1", [value("text", "10.2.3.4"), value("text", "cn=other")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["u1"], solidRuleIds: [])],
@@ -106,8 +107,8 @@ func runTests() {
 
     do {
         let t = tag("t1", "Pairs", tuples: [
-            tuple("u1", [value("ip", "text", "10.2.3.4"), value("subject", "text", "cn=a")]),
-            tuple("u2", [value("ip", "text", "10.9.9.9"), value("subject", "text", "cn=b")]),
+            tuple("u1", [value("text", "10.2.3.4"), value("text", "cn=a")]),
+            tuple("u2", [value("text", "10.9.9.9"), value("text", "cn=b")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["u1", "u2"], solidRuleIds: [])],
@@ -123,8 +124,8 @@ func runTests() {
         // Discriminating fixture: the tuple with more present values has the
         // LATER id, so an implementation that picks by id order fails here.
         let t = tag("t1", "Pairs", tuples: [
-            tuple("a-first", [value("ip", "text", "10.2.3.4"), value("subject", "text", "cn=absent")]),
-            tuple("z-last", [value("ip", "text", "10.2.3.4"), value("subject", "text", "cn=b")]),
+            tuple("a-first", [value("text", "10.2.3.4"), value("text", "cn=absent")]),
+            tuple("z-last", [value("text", "10.2.3.4"), value("text", "cn=b")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["a-first", "z-last"], solidRuleIds: [])],
@@ -138,8 +139,8 @@ func runTests() {
 
     do {
         let t = tag("t1", "Pairs", tuples: [
-            tuple("b", [value("subject", "text", "cn=absent-1"), value("ip", "text", "10.2.3.4")]),
-            tuple("a", [value("subject", "text", "cn=absent-2"), value("ip", "text", "10.2.3.4")]),
+            tuple("b", [value("text", "cn=absent-1"), value("text", "10.2.3.4")]),
+            tuple("a", [value("text", "cn=absent-2"), value("text", "10.2.3.4")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["b", "a"], solidRuleIds: [])],
@@ -153,8 +154,8 @@ func runTests() {
 
     do {
         let t = tag("t1", "Hashes", tuples: [
-            tuple("u1", [value("md5", "text", "d41d8c")]),
-            tuple("u2", [value("md5", "text", "aaaaaa")]),
+            tuple("u1", [value("text", "d41d8c")]),
+            tuple("u2", [value("text", "aaaaaa")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1", "u2"])],
@@ -169,8 +170,8 @@ func runTests() {
     // MARK: - 8. Order follows the matches array; unknown tags are skipped
 
     do {
-        let t1 = tag("t1", "First", colorIndex: 3, tuples: [tuple("u1", [value("md5", "text", "d41d8c")])])
-        let t2 = tag("t2", "Second", colorIndex: 7, tuples: [tuple("u2", [value("md5", "text", "d41d8c")])])
+        let t1 = tag("t1", "First", colorIndex: 3, tuples: [tuple("u1", [value("text", "d41d8c")])])
+        let t2 = tag("t2", "Second", colorIndex: 7, tuples: [tuple("u2", [value("text", "d41d8c")])])
         let entries = TagInspectorModel.entries(
             matches: [
                 match("t2", .solid, matchedRuleIds: ["u2"], solidRuleIds: ["u2"]),
@@ -189,7 +190,7 @@ func runTests() {
 
     do {
         let t = tag("t1", "NoNote", note: "   ",
-                    tuples: [tuple("u1", [value("md5", "text", "d41d8c")])])
+                    tuples: [tuple("u1", [value("text", "d41d8c")])])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
             tags: [t], columns: columns,
@@ -207,7 +208,7 @@ func runTests() {
 
     do {
         let t = tag("t1", "Mismatch", tuples: [
-            tuple("u1", [value("port", "text", "443")]),
+            tuple("u1", [value("text", "443")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["u1"], solidRuleIds: [])],
@@ -226,7 +227,7 @@ func runTests() {
         // key, so the value cannot match. A clamp reading cell 0 under the
         // numeric family would wrongly mark it matched.
         let t = tag("t1", "ShortRow", tuples: [
-            tuple("u1", [value("port", "numeric", "443")]),
+            tuple("u1", [value("numeric", "443")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["u1"], solidRuleIds: [])],
@@ -242,7 +243,7 @@ func runTests() {
         let t = tag("t1", "Recovered", tuples: [
             // "u1" no longer exists; the fallback "u2" is itself only
             // partially present (its second value has no match in the row).
-            tuple("u2", [value("md5", "text", "aaaaaa"), value("subject", "text", "absent")]),
+            tuple("u2", [value("text", "aaaaaa"), value("text", "absent")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1"])],
@@ -262,7 +263,7 @@ func runTests() {
 
     do {
         let t = tag("t1", "EmptyValue", tuples: [
-            tuple("u1", [value("subject", "text", "")]),
+            tuple("u1", [value("text", "")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["u1"], solidRuleIds: [])],
@@ -276,8 +277,8 @@ func runTests() {
 
     do {
         let t = tag("t1", "NoneClose", tuples: [
-            tuple("b", [value("subject", "text", "cn=nope-b")]),
-            tuple("a", [value("subject", "text", "cn=nope-a")]),
+            tuple("b", [value("text", "cn=nope-b")]),
+            tuple("a", [value("text", "cn=nope-a")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .dashed, matchedRuleIds: ["b", "a"], solidRuleIds: [])],
@@ -295,8 +296,8 @@ func runTests() {
         // gives "b" — this pins that the solid preference in `displayedTuple`
         // is checked BEFORE the most-present fallback, not folded into it.
         let t = tag("t1", "BothSolid", tuples: [
-            tuple("a", [value("md5", "text", "x")]),
-            tuple("b", [value("md5", "text", "x"), value("subject", "text", "y")]),
+            tuple("a", [value("text", "x")]),
+            tuple("b", [value("text", "x"), value("text", "y")]),
         ])
         let entries = TagInspectorModel.entries(
             matches: [match("t1", .solid, matchedRuleIds: ["a", "b"], solidRuleIds: ["a", "b"])],
@@ -356,8 +357,8 @@ func runTests() {
         let padded = "US" + String(repeating: " ", count: 18)
         let t = tag("t1", "Padded", tuples: [
             tuple("u1", [
-                value("md5", "text", "d41d8c"),                     // text IS the form
-                value("cc", "text", "us", display: padded),         // padding AND case
+                value("text", "d41d8c"),               // text IS the form
+                value("text", "us", display: padded),   // padding AND case
             ]),
         ])
         let entries = TagInspectorModel.entries(
@@ -366,21 +367,21 @@ func runTests() {
             rowText: ["d41d8c", padded])
         let values = entries.first?.values ?? []
         expectEqual(values.count, 2, "both captured values reach the Inspector")
-        expectEqual(values.first(where: { $0.column == "cc" })?.display, padded,
+        expectEqual(values.first(where: { $0.normalized == "us" })?.display, padded,
                     "the captured text keeps its padding — provenance is what makes a tuple auditable")
-        expectEqual(values.first(where: { $0.column == "md5" })?.matchDisclosure, nil,
+        expectEqual(values.first(where: { $0.normalized == "d41d8c" })?.matchDisclosure, nil,
                     "a value whose text IS the matching form adds no second line")
-        expectEqual(values.first(where: { $0.column == "cc" })?.matchDisclosure?.text,
+        expectEqual(values.first(where: { $0.normalized == "us" })?.matchDisclosure?.text,
                     "matches as \u{201C}us\u{201D} — \(reason)",
                     "the padded, upper-case value discloses the form that actually stops matching")
-        expectEqual(values.first(where: { $0.column == "cc" })?.matchDisclosure?.isPlaceholder, false,
+        expectEqual(values.first(where: { $0.normalized == "us" })?.matchDisclosure?.isPlaceholder, false,
                     "a real matching form is not a stand-in")
 
         // Every remaining case is pinned on the value itself: `entries` only
         // copies `TagCondition.value` across, and routing each through a fresh
         // tag/match/row fixture would test the copy five more times, not the rule.
         func disclosure(_ display: String, _ normalized: String) -> TagMatchDisclosure.Line? {
-            TagInspectorValue(column: "c", display: display, normalized: normalized,
+            TagInspectorValue(family: "text", display: display, normalized: normalized,
                               isMatched: true).matchDisclosure
         }
         expectEqual(disclosure("us", "us"), nil,

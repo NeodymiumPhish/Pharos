@@ -20,8 +20,16 @@ import Foundation
 /// draws. Normalizing derives a second form beside the first; it never alters
 /// what the analyst wrote.
 ///
-/// `column` is PROVENANCE and never takes part in matching — the design's
-/// Matching section is explicit that column names are shown, not compared.
+/// There is deliberately NO column name here. A column never took part in
+/// matching — that is what lets a hash captured under `cert_md5` resurface
+/// under `certificate_hash` in another schema — and a hand-authored condition
+/// has no column at all, so the FAMILY is the one description every condition
+/// can share. `TagFamilyLabel` turns it into words. Row-level provenance is
+/// unaffected: `originConnection` and `originTable` live on `TagRule`.
+///
+/// A stored blob that still carries the old `column` key decodes unchanged:
+/// `CodingKeys` has no case for it, so it is ignored. No migration is needed,
+/// and `TagModelTests` pins that.
 ///
 /// The hand-written `init(from:)` is what makes `kind` and `operand2` tolerate
 /// an ABSENT key, and `TagConditionKind`'s own decoder is what makes `kind`
@@ -34,7 +42,6 @@ import Foundation
 /// `CodingKeys` on this type before; they exist now only because `init(from:)`
 /// needs them, and they must list every property.
 struct TagCondition: Codable, Equatable {
-    let column: String
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     let family: String
     let kind: TagConditionKind
@@ -48,9 +55,8 @@ struct TagCondition: Codable, Equatable {
     let operand2: String?
     let display: String
 
-    init(column: String, family: String, kind: TagConditionKind = .exact,
+    init(family: String, kind: TagConditionKind = .exact,
          value: String, operand2: String? = nil, display: String) {
-        self.column = column
         self.family = family
         self.kind = kind
         self.value = value
@@ -59,12 +65,11 @@ struct TagCondition: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case column, family, kind, value, operand2, display
+        case family, kind, value, operand2, display
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        column = try container.decode(String.self, forKey: .column)
         family = try container.decode(String.self, forKey: .family)
         // `decodeIfPresent` covers an ABSENT key; `TagConditionKind`'s own
         // decoder covers an UNKNOWN value.

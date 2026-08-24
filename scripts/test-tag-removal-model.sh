@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-removal-model-tests \
   Pharos/Core/TagRemovalModel.swift \
   Pharos/Core/TagMatchDisclosure.swift \
+  Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagValueNormalizer.swift \

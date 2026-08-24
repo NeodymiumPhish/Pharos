@@ -25,7 +25,7 @@ func expectTrue(_ actual: Bool, _ name: String) {
 
 private func newTuple(_ value: String) -> NewTagRule {
     let normalized = TagValueNormalizer.normalize(value, family: "text")
-    let taggedValue = TagCondition(column: "md5", family: "text",
+    let taggedValue = TagCondition(family: "text",
                                   value: normalized, display: value)
     return NewTagRule(
         conditions: [taggedValue],

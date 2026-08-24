@@ -156,9 +156,9 @@ private func listLines(_ root: NSView) -> [String] {
 /// value whose reach is exactly what it shows and which therefore draws no
 /// second line. The cases where the two DIFFER pass it explicitly — the
 /// default must never be able to hide a missing disclosure.
-private func value(_ column: String, _ display: String,
+private func value(_ family: String, _ display: String,
                    normalized: String? = nil) -> TagRemovalValue {
-    TagRemovalValue(column: column, display: display,
+    TagRemovalValue(family: family, display: display,
                     normalized: normalized ?? display)
 }
 
@@ -167,10 +167,11 @@ private func tuple(_ id: String, _ values: [TagRemovalValue]) -> TagRemovalTuple
 }
 
 /// What a tuple's values WOULD join to, built here in the test because the
-/// model no longer produces such a string anywhere. Used only to prove the
-/// collision fixture is a genuine collision.
+/// model no longer produces such a string anywhere. Rendered through the real
+/// producer, so the collision is a collision of what the sheet actually draws.
+/// Used only to prove the collision fixture is a genuine collision.
 private func joined(_ t: TagRemovalTuple) -> String {
-    t.values.map { "\($0.column): \($0.display)" }.joined(separator: "  +  ")
+    t.values.map { TagRemovalModel.valueText(for: $0).text }.joined(separator: "  +  ")
 }
 
 /// Hosting the view is what makes Auto Layout run; an unhosted view keeps
@@ -191,11 +192,11 @@ func runTests() {
     // Two tags: one with two single-value tuples, one with a multi-value tuple.
     let groups = [
         TagRemovalGroup(tagId: "t1", tagName: "Case Alpha", colorIndex: 0, tuples: [
-            tuple("u1", [value("ip", "10.0.0.1")]),
-            tuple("u2", [value("md5", "D41D8C")]),
+            tuple("u1", [value("address", "10.0.0.1")]),
+            tuple("u2", [value("text", "D41D8C")]),
         ]),
         TagRemovalGroup(tagId: "t2", tagName: "Case Beta", colorIndex: 1, tuples: [
-            tuple("u3", [value("ip", "10.0.0.2"), value("subject", "CN=evil")]),
+            tuple("u3", [value("address", "10.0.0.2"), value("text", "CN=evil")]),
         ]),
     ]
     let remover = RecordingRemover()
@@ -217,15 +218,15 @@ func runTests() {
     expectTrue(boxes.allSatisfy { $0.state == .on }, "everything starts checked")
 
     let text = labels(root).map(\.stringValue)
-    expectTrue(text.contains("ip: 10.0.0.1"), "a single value renders as its own label")
-    expectTrue(text.contains("ip: 10.0.0.2"), "a multi-value tuple's first value is its own label")
-    expectTrue(text.contains("subject: CN=evil"), "its second value is a separate label")
-    expectTrue(!text.contains("ip: 10.0.0.2  +  subject: CN=evil"),
+    expectTrue(text.contains("Address: 10.0.0.1"), "a single value renders as its own label")
+    expectTrue(text.contains("Address: 10.0.0.2"), "a multi-value tuple's first value is its own label")
+    expectTrue(text.contains("Text: CN=evil"), "its second value is a separate label")
+    expectTrue(!text.contains("Address: 10.0.0.2  +  Text: CN=evil"),
                "the joined title is never rendered as one line")
     expectInt(text.filter { $0.hasPrefix("Removed together") }.count, 1,
               "only the multi-value tuple carries the atomicity caption")
     expectString(boxes[2].accessibilityLabel() ?? "",
-                 "ip: 10.0.0.2, subject: CN=evil",
+                 "Address: 10.0.0.2, Text: CN=evil",
                  "VoiceOver reads the multi-value tuple's values")
 
     // MARK: the group headers — WHICH TAG each block belongs to
@@ -243,8 +244,8 @@ func runTests() {
     // Order is the disclosure: a header names the tuples BELOW it. Rendered
     // after its tuples instead, every header would label the next tag's block.
     expectString(listLines(root).joined(separator: " / "),
-                 "Case Alpha / ip: 10.0.0.1 / md5: D41D8C / Case Beta / "
-                    + "ip: 10.0.0.2 / subject: CN=evil / "
+                 "Case Alpha / Address: 10.0.0.1 / Text: D41D8C / Case Beta / "
+                    + "Address: 10.0.0.2 / Text: CN=evil / "
                     + "Removed together — a tuple matches only as a whole.",
                  "the list reads header, that tag's values, next header")
 
@@ -348,8 +349,8 @@ func runTests() {
     // them apart, which is why the sheet may never render `title`.
     let colliding = [
         TagRemovalGroup(tagId: "t3", tagName: "Case Gamma", colorIndex: 2, tuples: [
-            tuple("u4", [value("note", "a  +  b: c")]),
-            tuple("u5", [value("note", "a"), value("b", "c")]),
+            tuple("u4", [value("text", "a  +  Text: c")]),
+            tuple("u5", [value("text", "a"), value("text", "c")]),
         ]),
     ]
     let trap = TagRemovalSheet(groups: colliding, remover: RecordingRemover())
@@ -357,9 +358,9 @@ func runTests() {
     let trapText = labels(trap.view).map(\.stringValue)
     expectString(joined(colliding[0].tuples[0]), joined(colliding[0].tuples[1]),
                  "the fixture really is a collision: joined, these two tuples are identical")
-    expectTrue(trapText.contains("note: a  +  b: c"),
+    expectTrue(trapText.contains("Text: a  +  Text: c"),
                "a value containing the separator renders whole, in one label")
-    expectTrue(trapText.contains("note: a") && trapText.contains("b: c"),
+    expectInt(trapText.filter { $0 == "Text: a" || $0 == "Text: c" }.count, 2,
                "the tuple whose TITLE collides with it renders as two separate labels")
     expectInt(checkboxes(trap.view).count, 2, "the two colliding tuples stay two rows")
 
@@ -369,13 +370,13 @@ func runTests() {
     let big = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t4", tagName: "Case Delta", colorIndex: 3, tuples: [
-                tuple("u6", [value("payload", long)]),
+                tuple("u6", [value("text", long)]),
             ]),
         ],
         remover: RecordingRemover())
     _ = host(big)
     big.view.layoutSubtreeIfNeeded()
-    guard let payload = labels(big.view).first(where: { $0.stringValue.hasPrefix("payload: ") })
+    guard let payload = labels(big.view).first(where: { $0.stringValue.hasPrefix("Text: abcdefgh") })
     else {
         failures += 1
         print("FAIL the long value has no label at all")
@@ -388,7 +389,7 @@ func runTests() {
                "no raw newline survives into a row")
     expectTrue(payload.stringValue.hasSuffix("<U+000A>second line"),
                "the value's tail is shown, with its newline as a visible escape")
-    expectInt(payload.stringValue.count, "payload: ".count + long.count + 7,
+    expectInt(payload.stringValue.count, "Text: ".count + long.count + 7,
               "every character is held — the length grows by exactly 7, the one escaped newline")
     expectTrue(payload.frame.height > 100,
                "the long value wraps to many lines (height \(Int(payload.frame.height)) > 100)")
@@ -427,13 +428,13 @@ func runTests() {
     let hash = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t5", tagName: "Case Epsilon", colorIndex: 4, tuples: [
-                tuple("u7", [value("sha256", unbroken)]),
+                tuple("u7", [value("text", unbroken)]),
             ]),
         ],
         remover: RecordingRemover())
     _ = host(hash)
     hash.view.layoutSubtreeIfNeeded()
-    guard let token = labels(hash.view).first(where: { $0.stringValue.hasPrefix("sha256: ") })
+    guard let token = labels(hash.view).first(where: { $0.stringValue.hasPrefix("Text: a1b2c3") })
     else {
         failures += 1
         print("FAIL the unbroken value has no label at all")
@@ -441,7 +442,7 @@ func runTests() {
         exit(1)
     }
     let hashFormWidth = hash.view.frame.width - 40
-    expectString(token.stringValue, "sha256: \(unbroken)", "the unbroken value is held whole")
+    expectString(token.stringValue, "Text: \(unbroken)", "the unbroken value is held whole")
     expectTrue(token.frame.width <= hash.view.frame.width,
                "an unbroken token does not force the label wider than the sheet (label \(Int(token.frame.width)))")
     expectTrue(token.frame.width >= hashFormWidth * 2 / 3,
@@ -459,7 +460,7 @@ func runTests() {
     // path may commit anything on its way out.
     let escapeGroups = [
         TagRemovalGroup(tagId: "t6", tagName: "Case Zeta", colorIndex: 0, tuples: [
-            tuple("u8", [value("ip", "10.0.0.9")]),
+            tuple("u8", [value("address", "10.0.0.9")]),
         ]),
     ]
     let cancelRemover = RecordingRemover()
@@ -500,11 +501,11 @@ func runTests() {
     // NOT on a fixed stride, so neither a content-driven nor an index-driven
     // cycle can hide inside the fixture.
     let mixed = (0..<7).map { index -> TagRemovalTuple in
-        var values = [value("ip", "10.0.0.\(index)")]
+        var values = [value("address", "10.0.0.\(index)")]
         if index == 1 || index == 2 || index == 5 {
-            values.append(value("subject", "CN=evil-\(index)"))
+            values.append(value("text", "CN=evil-\(index)"))
         }
-        if index == 2 { values.append(value("sha256", "d41d8cd98f00b204e9800998ecf8427e")) }
+        if index == 2 { values.append(value("uuid", "d41d8cd98f00b204e9800998ecf8427e")) }
         return tuple("m\(index)", values)
     }
     let column = TagRemovalSheet(
@@ -576,26 +577,29 @@ func runTests() {
     let nasty = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t7", tagName: "Case Eta", colorIndex: 2, tuples: [
-                tuple("u9", [value("ip", "")]),
-                tuple("u10", [value("", "")]),
-                tuple("u11", [value("host", "safe\u{202E}gpj.exe")]),
-                tuple("u12", [value("ip", "10.0.0.1 ")]),
+                tuple("u9", [value("address", "")]),
+                // A family this build has never seen. The family is never
+                // empty, so the worst case left is an exotic one beside an
+                // empty display — it must still read as words.
+                tuple("u10", [value("type:bytea", "")]),
+                tuple("u11", [value("text", "safe\u{202E}gpj.exe")]),
+                tuple("u12", [value("address", "10.0.0.1 ")]),
             ]),
         ],
         remover: RecordingRemover())
     _ = host(nasty)
     let nastyLines = listLines(nasty.view)
-    expectTrue(nastyLines.contains("ip: (empty)"),
+    expectTrue(nastyLines.contains("Address: (empty)"),
                "an empty value says so, rather than drawing a checkbox beside nothing")
-    expectTrue(nastyLines.contains("(no column): (empty)"),
+    expectTrue(nastyLines.contains("bytea: (empty)"),
                "the worst case reads as words, not as a bare colon")
-    expectTrue(nastyLines.contains("host: safe<U+202E>gpj.exe"),
+    expectTrue(nastyLines.contains("Text: safe<U+202E>gpj.exe"),
                "a bidi override is shown, not obeyed — the row must not read as a .jpg")
-    expectTrue(nastyLines.contains("ip: 10.0.0.1<U+0020>"),
+    expectTrue(nastyLines.contains("Address: 10.0.0.1<U+0020>"),
                "a trailing space is visible, so this row cannot be confused with a clean one")
     // A placeholder is not captured data and is styled apart from it.
-    let placeholder = labels(nasty.view).first { $0.stringValue == "ip: (empty)" }
-    let real = labels(nasty.view).first { $0.stringValue == "ip: 10.0.0.1<U+0020>" }
+    let placeholder = labels(nasty.view).first { $0.stringValue == "Address: (empty)" }
+    let real = labels(nasty.view).first { $0.stringValue == "Address: 10.0.0.1<U+0020>" }
     expectTrue(placeholder?.textColor != real?.textColor,
                "the placeholder does not read as a captured value")
 
@@ -609,25 +613,25 @@ func runTests() {
     let reach = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t9", tagName: "Case Reach", colorIndex: 2, tuples: [
-                tuple("u14", [value("cc", padded, normalized: "us"),
-                              value("ip", "10.0.0.1")]),
-                tuple("u15", [value("note", "   ", normalized: "")]),
+                tuple("u14", [value("text", padded, normalized: "us"),
+                              value("address", "10.0.0.1")]),
+                tuple("u15", [value("text", "   ", normalized: "")]),
             ]),
         ],
         remover: RecordingRemover())
     _ = host(reach)
     let reachLines = listLines(reach.view)
-    expectTrue(reachLines.contains("cc: US<U+0020\u{00D7}18>"),
+    expectTrue(reachLines.contains("Text: US<U+0020\u{00D7}18>"),
                "the captured text keeps its padding — that provenance is what makes the tuple auditable")
     expectTrue(reachLines.contains("matches as \u{201C}us\u{201D} — \(reason)"),
                "and the form that actually stops matching is disclosed beside it, on its own label")
     expectInt(reachLines.filter { $0.hasPrefix("matches as") }.count, 2,
-              "one line for the padded value and one for the blank one — and NONE for ip: 10.0.0.1, whose text is already the matching form")
+              "one line for the padded value and one for the blank one — and NONE for Address: 10.0.0.1, whose text is already the matching form")
     expectTrue(reachLines.contains("matches as (empty) — \(reason)"),
                "an all-whitespace value matches every blank cell, and says so in words rather than in empty quotes")
     // The reach is a separate label, never merged into the value's: a captured
     // value can legally contain any separator this could have used.
-    expectTrue(!reachLines.contains(where: { $0.hasPrefix("cc: ") && $0.contains("matches as") }),
+    expectTrue(!reachLines.contains(where: { $0.hasPrefix("Text: US") && $0.contains("matches as") }),
                "the reach is never appended to the value label")
     // Read from `attributedStringValue`, which is what the reach label actually
     // DRAWS. `NSTextField.font` and `.textColor` report the field's own
@@ -641,7 +645,7 @@ func runTests() {
     }
     if let reachLabel = labels(reach.view).first(where: { $0.stringValue.hasPrefix("matches as \u{201C}us") }),
        let blankReach = labels(reach.view).first(where: { $0.stringValue.hasPrefix("matches as (empty)") }),
-       let valueLabel = labels(reach.view).first(where: { $0.stringValue.hasPrefix("cc: ") }) {
+       let valueLabel = labels(reach.view).first(where: { $0.stringValue.hasPrefix("Text: US") }) {
         // Not `maximumNumberOfLines != 1`, which was tried and is too weak to
         // catch the real failure: a plain `labelWithString` label has
         // `cell.wraps == false`, and neither that property nor the paragraph
@@ -674,7 +678,7 @@ func runTests() {
     let reachBoxes = checkboxes(reach.view)
     if reachBoxes.count == 2 {
         expectString(reachBoxes[0].accessibilityLabel() ?? "",
-                     "cc: US<U+0020\u{00D7}18>, matches as \u{201C}us\u{201D} — \(reason), ip: 10.0.0.1",
+                     "Text: US<U+0020\u{00D7}18>, matches as \u{201C}us\u{201D} — \(reason), Address: 10.0.0.1",
                      "the checkbox is spoken from exactly the text that is shown")
     } else {
         failures += 1
@@ -691,7 +695,7 @@ func runTests() {
     let wide = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t8", tagName: longName, colorIndex: 3, tuples: [
-                tuple("u13", [value("ip", "10.0.0.1")]),
+                tuple("u13", [value("address", "10.0.0.1")]),
             ]),
         ],
         remover: RecordingRemover())
@@ -723,7 +727,7 @@ func runTests() {
     let hostile = TagRemovalSheet(
         groups: [
             TagRemovalGroup(tagId: "t10", tagName: "safe\u{202E}gpj.exe", colorIndex: 3, tuples: [
-                tuple("u16", [value("ip", "10.0.0.1")]),
+                tuple("u16", [value("address", "10.0.0.1")]),
             ]),
         ],
         remover: RecordingRemover())

@@ -1,8 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-/// One condition of a rule. `column` is PROVENANCE — the matcher never reads
-/// it. `value` is the normalized form Swift produced; `display` is the text as
-/// it was captured, for the Inspector.
+/// One condition of a rule. `value` is the normalized form Swift produced;
+/// `display` is the text as it was captured, for the Inspector.
+///
+/// There is deliberately NO column name here. A column never took part in
+/// matching, and a hand-authored condition has no column at all, so the FAMILY
+/// is the one description every condition can share. Row-level provenance is
+/// unaffected: `origin_connection` and `origin_table` live on the rule.
+/// A stored blob that still carries the old key decodes unchanged — serde
+/// ignores an unknown field — so no migration is needed; see
+/// `legacy_column_key_is_ignored` below.
 ///
 /// `kind` and `operand2` are plain optional STRINGS here, never an enum. Rust
 /// does not interpret them — Swift is the only producer, exactly as it already
@@ -19,7 +26,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagCondition {
-    pub column: String,
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     pub family: String,
     #[serde(default)]
@@ -105,7 +111,7 @@ mod tests {
     #[test]
     fn create_tag_decodes_swift_camel_case() {
         let json = r#"{"name":"Suspect infra","colorIndex":2,"note":"may sprint",
-          "rules":[{"conditions":[{"column":"md5","family":"text","value":"d41d8c",
+          "rules":[{"conditions":[{"family":"text","value":"d41d8c",
           "display":"D41D8C"}],"tupleKey":"K4:textV6:d41d8c",
           "originConnection":"c1","originTable":"public.certs"}]}"#;
         let create: CreateTag = serde_json::from_str(json).unwrap();
@@ -141,14 +147,14 @@ mod tests {
     #[test]
     fn condition_decodes_sparse_and_full_documents() {
         let sparse: TagCondition = serde_json::from_str(
-            r#"{"column":"host","family":"text","value":"abc","display":"ABC"}"#,
+            r#"{"family":"text","value":"abc","display":"ABC"}"#,
         )
         .unwrap();
         assert_eq!(sparse.kind, None);
         assert_eq!(sparse.operand2, None);
 
         let full: TagCondition = serde_json::from_str(
-            r#"{"column":"port","family":"numeric","kind":"between","value":"1000",
+            r#"{"family":"numeric","kind":"between","value":"1000",
                 "operand2":"2000","display":"1000 .. 2000"}"#,
         )
         .unwrap();
@@ -158,12 +164,24 @@ mod tests {
         assert_eq!(full.display, "1000 .. 2000");
     }
 
+    /// A stored blob that still carries `column` decodes unchanged. This is the
+    /// whole basis of the "no migration" claim.
+    #[test]
+    fn legacy_column_key_is_ignored() {
+        let decoded: TagCondition = serde_json::from_str(
+            r#"{"column":"host","family":"text","value":"abc","display":"ABC"}"#,
+        )
+        .unwrap();
+        assert_eq!(decoded.value, "abc");
+        assert_eq!(decoded.family, "text");
+    }
+
     /// An unknown kind must round-trip verbatim. This is the test that protects
     /// a rule written by a newer build from being destroyed by an older one.
     #[test]
     fn unknown_kind_round_trips_verbatim() {
         let decoded: TagCondition = serde_json::from_str(
-            r#"{"column":"h","family":"text","kind":"startsWith","value":"a","display":"a"}"#,
+            r#"{"family":"text","kind":"startsWith","value":"a","display":"a"}"#,
         )
         .unwrap();
         assert_eq!(decoded.kind.as_deref(), Some("startsWith"));
@@ -183,7 +201,6 @@ mod tests {
             rules: vec![TagRule {
                 id: "u1".into(),
                 conditions: vec![TagCondition {
-                    column: "md5".into(),
                     family: "text".into(),
                     kind: None,
                     value: "d41d8c".into(),

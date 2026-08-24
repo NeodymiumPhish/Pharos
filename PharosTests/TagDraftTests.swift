@@ -25,19 +25,18 @@ func runTests() {
     ]
 
     // 1. One tuple per selected row, of exactly the checked columns.
-    let single = TagDraft.tuples(selectedRows: [rows[0], rows[1]], columns: columns,
+    let single = TagDraft.rules(selectedRows: [rows[0], rows[1]], columns: columns,
                                  checkedColumns: [0], originConnection: "c1",
                                  originTable: "public.certs")
     expectEqual(single.count, 2, "two rows give two tuples")
     expectEqual(single[0].conditions.count, 1, "one checked column gives one value")
-    expectEqual(single[0].conditions[0].column, "md5", "the column travels as provenance")
     expectEqual(single[0].conditions[0].display, "D41D8C", "display keeps the captured text")
     expectEqual(single[0].conditions[0].value, "d41d8c", "value is normalized")
     expectEqual(single[0].originTable, "public.certs", "origin travels with the tuple")
 
     // 2. Two checked columns give one two-value tuple per row — NOT a cross
     //    product. The tuple is the row's finding.
-    let pair = TagDraft.tuples(selectedRows: [rows[0], rows[1]], columns: columns,
+    let pair = TagDraft.rules(selectedRows: [rows[0], rows[1]], columns: columns,
                                checkedColumns: [0, 1], originConnection: "c1",
                                originTable: "public.certs")
     expectEqual(pair.count, 2, "two rows, two tuples")
@@ -46,32 +45,32 @@ func runTests() {
     // 3. Rows that normalize to the same tuple collapse. The unique index would
     //    absorb the repeat anyway; collapsing here keeps the live count honest
     //    about what will actually be saved.
-    let collapsed = TagDraft.tuples(selectedRows: [rows[0], rows[2]], columns: columns,
+    let collapsed = TagDraft.rules(selectedRows: [rows[0], rows[2]], columns: columns,
                                     checkedColumns: [0, 1], originConnection: "c1",
                                     originTable: "public.certs")
     expectEqual(collapsed.count, 1, "10.2.3.4/32 and 10.2.3.4 are one tuple")
 
     // 4. A NULL drops out of its tuple; a tuple that loses everything
     //    contributes nothing at all.
-    let withNull = TagDraft.tuples(selectedRows: [rows[3]], columns: columns,
+    let withNull = TagDraft.rules(selectedRows: [rows[3]], columns: columns,
                                    checkedColumns: [0, 1], originConnection: "c1",
                                    originTable: "public.certs")
     expectEqual(withNull.count, 1, "a partly NULL row still contributes")
     expectEqual(withNull[0].conditions.count, 1, "the NULL value is dropped")
-    let allNull = TagDraft.tuples(selectedRows: [[nil, nil, nil]], columns: columns,
+    let allNull = TagDraft.rules(selectedRows: [[nil, nil, nil]], columns: columns,
                                   checkedColumns: [0, 1], originConnection: "c1",
                                   originTable: "public.certs")
     expectEqual(allNull.isEmpty, true, "an all-NULL row contributes nothing")
 
     // 5. Nothing checked, nothing captured — the modal disables Create on this.
-    expectEqual(TagDraft.tuples(selectedRows: rows, columns: columns, checkedColumns: [],
+    expectEqual(TagDraft.rules(selectedRows: rows, columns: columns, checkedColumns: [],
                                 originConnection: "c1", originTable: "t").isEmpty,
                 true, "no checked column, no tuples")
 
     // 6. An out-of-range column index is ignored rather than trapping: the
     //    checkbox list and the result could in principle disagree after a
     //    Load More that changed the shape.
-    expectEqual(TagDraft.tuples(selectedRows: [rows[0]], columns: columns,
+    expectEqual(TagDraft.rules(selectedRows: [rows[0]], columns: columns,
                                 checkedColumns: [0, 99], originConnection: "c1",
                                 originTable: "t")[0].conditions.count,
                 1, "an unknown column index is skipped")

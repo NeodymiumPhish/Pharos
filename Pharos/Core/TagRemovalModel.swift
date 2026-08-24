@@ -12,12 +12,16 @@ import Foundation
 /// impersonate another is the whole game. Rendering goes through
 /// `TagRemovalModel.valueText(for:)`, one token per value.
 struct TagRemovalValue: Equatable {
-    let column: String
+    /// The RAW family string, not a label. `TagFamilyLabel` turns it into words
+    /// in `valueText` — the model stays data rather than presentation, and one
+    /// producer means this sheet and the Inspector cannot describe the same
+    /// family with two different words.
+    let family: String
     let display: String
     /// The normalized form matching actually compares. Carried beside the
-    /// captured text rather than in place of it: `display` plus its column is
-    /// the provenance that makes a tuple auditable, and `normalized` is the
-    /// reach. `TagMatchDisclosure` decides when the second is worth saying.
+    /// captured text rather than in place of it: `display` is the provenance
+    /// that makes a tuple auditable, and `normalized` is the reach.
+    /// `TagMatchDisclosure` decides when the second is worth saying.
     let normalized: String
 }
 
@@ -84,7 +88,7 @@ enum TagRemovalModel {
                     TagRemovalTuple(
                         tupleId: tuple.id,
                         values: tuple.conditions.map {
-                            TagRemovalValue(column: $0.column, display: $0.display,
+                            TagRemovalValue(family: $0.family, display: $0.display,
                                             normalized: $0.value)
                         })
                 }
@@ -116,7 +120,7 @@ enum TagRemovalModel {
     /// One value as the sheet must show it: escaped, never blank.
     struct ValueText: Equatable {
         let text: String
-        /// The value or its column had nothing printable, so `text` carries a
+        /// The value had nothing printable, so `text` carries a
         /// stand-in word rather than captured data. The sheet styles it apart
         /// so a placeholder can never be mistaken for a value.
         let isPlaceholder: Bool
@@ -134,20 +138,26 @@ enum TagRemovalModel {
         DisplayEscape.escaped(text)
     }
 
-    /// The line the sheet shows for one value: "ip: 10.0.0.1".
+    /// One condition, ready to draw.
     ///
-    /// An empty column or display gets a stand-in word. `TagDraft` fills
-    /// `display` from the raw cell and an empty text cell is not NULL, so it
-    /// passes the NULL guard and arrives here as "" — which would otherwise
-    /// draw a checkbox beside a bare colon, or beside nothing at all. A blank
-    /// row on a delete confirmation is the worst possible disclosure.
+    /// The FAMILY names the condition now: a hand-authored condition has no
+    /// column, and a captured one's column is provenance the matcher never
+    /// reads. `TagFamilyLabel` is the one producer, so this and the Inspector
+    /// cannot describe the same family with two different words. It escapes
+    /// what it returns, so do NOT escape the label again here.
+    ///
+    /// An empty display still gets a stand-in word. `TagDraft` fills `display`
+    /// from the raw cell and an empty text cell is not NULL, so it passes the
+    /// NULL guard and arrives here as "" — which would otherwise draw a
+    /// checkbox beside a bare colon. A blank row on a delete confirmation is
+    /// the worst possible disclosure. A family is never empty, so it needs no
+    /// stand-in of its own.
     static func valueText(for value: TagRemovalValue) -> ValueText {
-        let column = escaped(value.column)
+        let family = TagFamilyLabel.text(for: value.family)
         let display = escaped(value.display)
         return ValueText(
-            text: "\(column.isEmpty ? "(no column)" : column): "
-                + "\(display.isEmpty ? "(empty)" : display)",
-            isPlaceholder: column.isEmpty || display.isEmpty)
+            text: "\(family): \(display.isEmpty ? "(empty)" : display)",
+            isPlaceholder: display.isEmpty)
     }
 
     /// The second line under a value, when the form matching compares differs

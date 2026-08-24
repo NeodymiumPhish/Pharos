@@ -562,8 +562,8 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
 
     // Unified tags (design 2026-08-13). A tag is a named indicator set; each
     // tagged row contributes one TUPLE of normalized values. Matching consults
-    // families and values only — `origin_*` and each value's `column` are
-    // provenance for the Inspector, never match input.
+    // families and values only — `origin_*` is provenance for the Inspector,
+    // never match input.
     //
     // ON DELETE CASCADE is live here for the same reason it is on the tables
     // above: foreign keys ARE enforced (see the note on create_schema), so the
@@ -585,8 +585,10 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         CREATE TABLE IF NOT EXISTS tag_tuples (
             id                TEXT PRIMARY KEY,
             tag_id            TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            -- JSON array of {column, family, value, display}. `value` is the
-            -- normalized form the matcher compares; `display` is the captured text.
+            -- JSON array of {family, kind?, value, operand2?, display}. `value`
+            -- is the normalized form the matcher compares; `display` is the
+            -- captured text. A blob written before the column name was dropped
+            -- still carries a `column` key; serde ignores it.
             tuple_values      TEXT NOT NULL,
             -- Canonical string of the (family, value) pairs, sorted. The
             -- duplicate key: re-tagging one row into one tag is a no-op.
@@ -2647,7 +2649,6 @@ mod tag_schema_tests {
     fn sample_tuple(key: &str, value: &str) -> crate::models::NewTagRule {
         crate::models::NewTagRule {
             conditions: vec![crate::models::TagCondition {
-                column: "md5".into(),
                 family: "text".into(),
                 kind: None,
                 value: value.into(),

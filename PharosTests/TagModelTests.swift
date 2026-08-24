@@ -23,7 +23,7 @@ func runTests() {
     let create = CreateTag(
         name: "Suspect infra", colorIndex: 2, note: "may sprint",
         rules: [NewTagRule(
-            conditions: [TagCondition(column: "md5", family: "text",
+            conditions: [TagCondition(family: "text",
                                  value: "d41d8c", display: "D41D8C")],
             tupleKey: "K4:textV6:d41d8c",
             originConnection: "c1", originTable: "public.certs")])
@@ -45,7 +45,7 @@ func runTests() {
     let wire = """
     {"id":"t1","name":"Suspect infra","colorIndex":2,"note":null,
      "createdAt":"2026-08-13T00:00:00Z","updatedAt":"2026-08-13T00:00:00Z",
-     "rules":[{"id":"u1","conditions":[{"column":"md5","family":"text",
+     "rules":[{"id":"u1","conditions":[{"family":"text",
      "value":"d41d8c","display":"D41D8C"}],"tupleKey":"K4:textV6:d41d8c",
      "originConnection":"c1","originTable":"public.certs",
      "createdAt":"2026-08-13T00:00:00Z"}]}
@@ -65,7 +65,7 @@ func runTests() {
     // nothing else: serde and Codable both report a mis-cased optional as
     // absent, which is indistinguishable from the caller omitting it. See
     // tasks/lessons.md, "An optional field's FFI key name fails silently".
-    let sparse = #"{"column":"host","family":"text","value":"abc","display":"ABC"}"#
+    let sparse = #"{"family":"text","value":"abc","display":"ABC"}"#
     let sparseCondition = try! conditionDecoder.decode(
         TagCondition.self, from: sparse.data(using: .utf8)!)
     expectTrue(sparseCondition.kind == .exact, "an absent kind defaults to exact")
@@ -74,7 +74,7 @@ func runTests() {
 
     // (b) FULL LITERAL document — every optional key PRESENT, each asserted.
     // This is the case that actually pins the key names.
-    let full = #"{"column":"port","family":"numeric","kind":"between","value":"1000","operand2":"2000","display":"1000 .. 2000"}"#
+    let full = #"{"family":"numeric","kind":"between","value":"1000","operand2":"2000","display":"1000 .. 2000"}"#
     let fullCondition = try! conditionDecoder.decode(
         TagCondition.self, from: full.data(using: .utf8)!)
     expectTrue(fullCondition.family == "numeric", "full document: family")
@@ -85,7 +85,7 @@ func runTests() {
 
     // (c) An UNKNOWN kind survives a round trip byte for byte. A rule written by
     // a newer build must not be destroyed by this one.
-    let future = #"{"column":"h","family":"text","kind":"startsWith","value":"a","display":"a"}"#
+    let future = #"{"family":"text","kind":"startsWith","value":"a","display":"a"}"#
     let futureCondition = try! conditionDecoder.decode(
         TagCondition.self, from: future.data(using: .utf8)!)
     expectTrue(futureCondition.kind == .unsupported("startsWith"), "an unknown kind is kept")
@@ -93,11 +93,27 @@ func runTests() {
     expectTrue(reEncoded.contains("\"kind\":\"startsWith\""), "an unknown kind re-encodes verbatim")
 
     // (d) The ENCODED form carries both new keys under their exact names.
-    let built = TagCondition(column: "c", family: "numeric", kind: .greaterThan,
+    let built = TagCondition(family: "numeric", kind: .greaterThan,
                              value: "5", operand2: nil, display: "5")
     let builtJSON = String(data: try! JSONEncoder().encode(built), encoding: .utf8)!
     expectTrue(builtJSON.contains("\"kind\":\"greaterThan\""), "encoding writes the kind key")
     expectTrue(builtJSON.contains("\"family\":\"numeric\""), "encoding writes the family key")
+
+    // MARK: the column is gone — no migration needed
+
+    // A stored blob that still carries `column` decodes fine — an unknown key
+    // is ignored. This is the whole basis of the "no migration" claim.
+    let legacy = #"{"column":"host","family":"text","value":"abc","display":"ABC"}"#
+    let legacyCondition = try! JSONDecoder().decode(
+        TagCondition.self, from: legacy.data(using: .utf8)!)
+    expectTrue(legacyCondition.value == "abc", "a legacy blob with column still decodes")
+    expectTrue(legacyCondition.family == "text", "and its other fields are intact")
+
+    // The encoded form no longer WRITES a column.
+    let fresh = TagCondition(family: "text", kind: .exact, value: "abc",
+                             operand2: nil, display: "ABC")
+    let freshJSON = String(data: try! JSONEncoder().encode(fresh), encoding: .utf8)!
+    expectTrue(!freshJSON.contains("\"column\""), "encoding no longer writes a column key")
 
     print(failures == 0 ? "\nAll tag model checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }

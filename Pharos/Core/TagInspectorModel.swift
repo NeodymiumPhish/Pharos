@@ -4,13 +4,15 @@ import Foundation
 
 /// One captured value of the displayed tuple, ready for the Inspector.
 struct TagInspectorValue: Equatable {
-    /// The captured column name — provenance, never used for matching.
-    let column: String
+    /// The RAW family string, not a label. `TagFamilyLabel` turns it into words
+    /// at the point the Inspector draws it, so the model stays data rather than
+    /// presentation and there is exactly one producer of the wording.
+    let family: String
     /// The value as captured.
     let display: String
     /// The normalized form matching actually compares. Kept beside `display`
-    /// rather than replacing it: the captured text and its column are the
-    /// provenance, this is the reach.
+    /// rather than replacing it: the captured text is the provenance, this is
+    /// the reach.
     let normalized: String
     /// True when the selected row holds this (family, normalized value).
     let isMatched: Bool
@@ -18,7 +20,7 @@ struct TagInspectorValue: Equatable {
     /// The extra line disclosing the reach, or nil when the captured text IS
     /// the form matching compares.
     ///
-    /// Already escaped, unlike `column` and `display`, which this section's
+    /// Already escaped, unlike `display`, which this section's
     /// view escapes as it draws them. The wording belongs to the model — the
     /// removal sheet must not describe the same value differently — and the
     /// escaping travels with the wording because the matching form is
@@ -97,7 +99,7 @@ enum TagInspectorModel {
 
             let values = tuple.conditions.map { value in
                 TagInspectorValue(
-                    column: value.column,
+                    family: value.family,
                     display: value.display,
                     normalized: value.value,
                     isMatched: present.contains(

@@ -20,6 +20,7 @@ swiftc -o /tmp/tag-removal-sheet-tests \
   Pharos/Core/TagPalette.swift \
   Pharos/Core/TagRemovalModel.swift \
   Pharos/Core/TagMatchDisclosure.swift \
+  Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagRuleRemoving.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \

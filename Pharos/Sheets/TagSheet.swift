@@ -243,10 +243,10 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
     }
 
     private var draftTuples: [NewTagRule] {
-        TagDraft.tuples(selectedRows: context.selectedRows, columns: context.columns,
-                        checkedColumns: checkedColumns,
-                        originConnection: context.originConnection,
-                        originTable: context.originTable)
+        TagDraft.rules(selectedRows: context.selectedRows, columns: context.columns,
+                       checkedColumns: checkedColumns,
+                       originConnection: context.originConnection,
+                       originTable: context.originTable)
     }
 
     @objc private func columnToggled() { refresh() }

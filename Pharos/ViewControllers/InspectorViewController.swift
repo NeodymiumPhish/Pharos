@@ -593,19 +593,22 @@ class InspectorViewController: NSViewController {
         noteLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
     }
 
-    /// One captured value: a match mark, the column it was captured from, and
-    /// the value itself.
+    /// One condition: a match mark, the family that names it, and the value
+    /// itself. A column name is not shown — it never took part in matching, and
+    /// a hand-authored condition has none at all.
     private func addTagValueRow(_ value: TagInspectorValue) {
         let mark = NSTextField(labelWithString: value.isMatched ? "\u{2713}" : "\u{2014}")
         mark.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         mark.textColor = value.isMatched ? .systemGreen : .tertiaryLabelColor
 
-        // Escaped, like the row-detail values above and the removal sheet that
-        // deletes these same tuples: a captured value is somebody else's data,
-        // and this row is what the analyst reads before pressing "Remove Tag…".
-        let columnLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.column))
-        columnLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        columnLabel.textColor = .secondaryLabelColor
+        // `TagFamilyLabel` is the one producer of this wording, so the removal
+        // sheet that deletes these same tuples cannot name the family
+        // differently. It escapes what it returns — an exotic family carries a
+        // PostgreSQL type name, which is somebody else's data — so do NOT
+        // escape it again here.
+        let familyLabel = NSTextField(labelWithString: TagFamilyLabel.text(for: value.family))
+        familyLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        familyLabel.textColor = .secondaryLabelColor
 
         let displayLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.display))
         displayLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -613,7 +616,7 @@ class InspectorViewController: NSViewController {
         displayLabel.lineBreakMode = .byTruncatingMiddle
         displayLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let valueRow = NSStackView(views: [mark, columnLabel, displayLabel])
+        let valueRow = NSStackView(views: [mark, familyLabel, displayLabel])
         valueRow.orientation = .horizontal
         valueRow.distribution = .fill
         valueRow.spacing = 6

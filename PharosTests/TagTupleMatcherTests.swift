@@ -13,8 +13,8 @@ func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: String) {
 
 // MARK: Fixtures
 
-private func value(_ column: String, _ family: String, _ text: String) -> TagCondition {
-    TagCondition(column: column, family: family,
+private func value(_ family: String, _ text: String) -> TagCondition {
+    TagCondition(family: family,
                 value: TagValueNormalizer.normalize(text, family: family), display: text)
 }
 
@@ -42,13 +42,13 @@ func runTests() {
     // A single-column tag: every tuple is one value wide, so any hit is
     // complete — the md5 case draws solid.
     let md5Tag = tag("md5-tag", [
-        tuple("t1", [value("md5", "text", "D41D8C")]),
-        tuple("t2", [value("md5", "text", "AABBCC")]),
+        tuple("t1", [value("text", "D41D8C")]),
+        tuple("t2", [value("text", "AABBCC")]),
     ])
     // A two-column tag: one tuple per tagged row.
     let pairTag = tag("pair-tag", [
-        tuple("p1", [value("ip", "address", "10.2.3.4"), value("subject", "text", "CN=evil")]),
-        tuple("p2", [value("ip", "address", "10.9.9.9"), value("subject", "text", "CN=other")]),
+        tuple("p1", [value("address", "10.2.3.4"), value("text", "CN=evil")]),
+        tuple("p2", [value("address", "10.9.9.9"), value("text", "CN=other")]),
     ])
 
     let index = TagRuleMatcher.buildIndex([md5Tag, pairTag])
@@ -110,7 +110,7 @@ func runTests() {
     // 8. The family gates the compare: "443" in an int4 column never matches
     //    "443" tagged from a text column.
     let textPort = TagRuleMatcher.buildIndex(
-        [tag("t", [tuple("x", [value("label", "text", "443")])])])
+        [tag("t", [tuple("x", [value("text", "443")])])])
     expectEqual(TagRuleMatcher.match(columns: columns, rows: rows, index: textPort).isEmpty,
                 true, "a text 443 does not match a numeric 443")
 
@@ -126,7 +126,7 @@ func runTests() {
     // 10. One value satisfies every slot that holds it: a tuple capturing the
     //     same value twice is solid on a single hit.
     let twiceIndex = TagRuleMatcher.buildIndex([tag("twice", [
-        tuple("d1", [value("a", "text", "dup"), value("b", "text", "dup")])])])
+        tuple("d1", [value("text", "dup"), value("text", "dup")])])])
     let twiceRows: [[String?]] = [["dup", "unrelated", "192.0.2.1", "1"]]
     expectEqual(TagRuleMatcher.match(columns: columns, rows: twiceRows,
                                       index: twiceIndex)[0]?[0].state, .solid,
@@ -144,8 +144,8 @@ func runTests() {
     //     at random. A dictionary's iteration order is not stable, so this is a
     //     real risk, not a theoretical one.
     let tieIndex = TagRuleMatcher.buildIndex([
-        tag("a-tag", [tuple("a1", [value("md5", "text", "zzz")])]),
-        tag("b-tag", [tuple("b1", [value("subject", "text", "yyy")])]),
+        tag("a-tag", [tuple("a1", [value("text", "zzz")])]),
+        tag("b-tag", [tuple("b1", [value("text", "yyy")])]),
     ])
     let tieRows: [[String?]] = [["zzz", "yyy", "192.0.2.1", "1"]]
     let tieMatches = TagRuleMatcher.match(columns: columns, rows: tieRows, index: tieIndex)
@@ -156,7 +156,7 @@ func runTests() {
 
     func cond(_ kind: TagConditionKind, _ family: String, _ raw: String,
               _ operand2: String? = nil) -> TagCondition {
-        TagCondition(column: "c", family: family, kind: kind,
+        TagCondition(family: family, kind: kind,
                      value: TagValueNormalizer.normalize(raw, family: family),
                      operand2: operand2.map { TagValueNormalizer.normalize($0, family: family) },
                      display: raw)
@@ -227,7 +227,7 @@ func runTests() {
     // and a too-easy rule is a false match.
     let future = tag("future", [tuple("r4", [
         cond(.exact, "address", "107.8.8.1"),
-        TagCondition(column: "c", family: "text", kind: .unsupported("startsWith"),
+        TagCondition(family: "text", kind: .unsupported("startsWith"),
                      value: "neo", operand2: nil, display: "neo"),
     ])])
     let futureResult = TagRuleMatcher.match(
