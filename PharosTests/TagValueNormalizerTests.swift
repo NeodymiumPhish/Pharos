@@ -124,6 +124,69 @@ func runTests() {
     expectEqual(TagValueNormalizer.key(text: "A", family: "text"),
                 TagValueKey(family: "text", value: "a"), "key carries family and normalized text")
 
+    // MARK: comparable forms
+
+    func normNum(_ t: String) -> String { TagValueNormalizer.normalize(t, family: "numeric") }
+    func normTime(_ t: String) -> String { TagValueNormalizer.normalize(t, family: "temporal") }
+
+    // A parseable number yields a Decimal, and the ORDER is numeric, not byte
+    // order: a byte compare puts "9" above "10".
+    let nine = TagValueNormalizer.decimal(from: normNum("9"))
+    let ten = TagValueNormalizer.decimal(from: normNum("10"))
+    expectEqual(nine != nil && ten != nil, true, "9 and 10 both parse to a Decimal")
+    expectEqual(nine! < ten!, true, "9 orders below 10, which byte order gets wrong")
+
+    // Negatives order correctly too, which byte order also gets wrong.
+    let minusFive = TagValueNormalizer.decimal(from: normNum("-5"))
+    let zero = TagValueNormalizer.decimal(from: normNum("0"))
+    expectEqual(minusFive != nil && zero != nil, true, "-5 and 0 both parse to a Decimal")
+    expectEqual(minusFive! < nine!, true, "-5 orders below 9")
+    expectEqual(minusFive! < zero!, true, "-5 orders below 0")
+
+    // A value that FELL BACK to raw text has no Decimal. A comparator against
+    // it must fail to match rather than compare bytes.
+    expectEqual(TagValueNormalizer.decimal(from: normNum("-Infinity")) == nil, true,
+                "-Infinity has no Decimal")
+    expectEqual(TagValueNormalizer.decimal(from: normNum("5-")) == nil, true,
+                "a trailing sign has no Decimal")
+    expectEqual(TagValueNormalizer.decimal(from: normNum("1,000")) == nil, true,
+                "grouped digits have no Decimal")
+    expectEqual(TagValueNormalizer.decimal(from: normNum(String(repeating: "9", count: 39))) == nil,
+                true, "39 significant digits have no Decimal")
+    expectEqual(TagValueNormalizer.decimal(from: normNum("not a number")) == nil, true,
+                "plain text has no Decimal")
+
+    // Temporal: padding makes byte order agree with time order. Without it
+    // ".9Z" sorts ABOVE ".91Z", because 'Z' outranks '1'.
+    let shortFraction = TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.9"))
+    let longFraction = TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.91"))
+    expectEqual(shortFraction != nil && longFraction != nil, true,
+                "both fractional timestamps have a comparable form")
+    expectEqual(shortFraction! < longFraction!, true,
+                ".9 orders below .91, which byte order gets wrong")
+
+    // Equal instants written differently compare EQUAL.
+    expectEqual(TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.500"))
+                    == TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 12:34:56.5")),
+                true, ".500 and .5 are one instant")
+
+    // Ordering across the whole form, and across a date/timestamp boundary.
+    let dayOne = TagValueNormalizer.comparableTimestamp(normTime("2026-08-13"))
+    let dayTwo = TagValueNormalizer.comparableTimestamp(normTime("2026-08-14"))
+    expectEqual(dayOne != nil && dayTwo != nil, true, "both dates have a comparable form")
+    expectEqual(dayOne! < dayTwo!, true, "dates order")
+    expectEqual(dayOne! < TagValueNormalizer.comparableTimestamp(normTime("2026-08-13 00:00:01"))!,
+                true, "a date sits at midnight, below a time later that day")
+
+    // A temporal value that fell back to raw text has no comparable form. The
+    // gate is the normalizer's OWN idempotence, so it cannot disagree with it.
+    expectEqual(TagValueNormalizer.comparableTimestamp(normTime("12:34:56")) == nil, true,
+                "a bare time has no comparable form")
+    expectEqual(TagValueNormalizer.comparableTimestamp(normTime("3 days")) == nil, true,
+                "an interval has no comparable form")
+    expectEqual(TagValueNormalizer.comparableTimestamp("XYZ") == nil, true,
+                "raw text ending in Z has no comparable form")
+
     print(failures == 0 ? "\nAll normalizer checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }

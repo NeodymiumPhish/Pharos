@@ -123,6 +123,60 @@ enum TagValueNormalizer {
         }
     }
 
+    // MARK: Comparable forms
+
+    /// The `Decimal` a NORMALIZED numeric value holds, or nil when that value
+    /// fell back to raw text.
+    ///
+    /// Comparators must never compare numeric text by bytes. The normalized
+    /// form is `"\(Decimal)"`, which is neither fixed width nor sign-ordered:
+    /// byte order puts `"9"` above `"10"` and puts every negative number in the
+    /// wrong place.
+    ///
+    /// nil is the answer for a value that FELL BACK. `normalize` keeps
+    /// unparseable text as-is, so `-Infinity`, `5-`, `1,000` and a 39-digit
+    /// number all arrive here as themselves. A comparator against one must fail
+    /// to match, not compare bytes — a byte compare there is exactly the false
+    /// match `isNumericText` and `significantDigitCount` exist to prevent. It is
+    /// the SAME pair of gates here, in the same file, rather than a second copy
+    /// that could drift from the one matching actually used.
+    static func decimal(from normalized: String) -> Decimal? {
+        guard isNumericText(normalized), significantDigitCount(normalized) <= 38,
+              let value = Decimal(string: normalized), value.isFinite
+        else { return nil }
+        return value
+    }
+
+    /// How many fractional digits `comparableTimestamp` pads to. Nine covers
+    /// nanoseconds; PostgreSQL stores microseconds, so this has room to spare.
+    private static let fractionWidth = 9
+
+    /// A NORMALIZED temporal value as a byte-comparable string, or nil when
+    /// that value fell back to raw text.
+    ///
+    /// The canonical form keeps every fractional digit, so `…56.9Z` and
+    /// `…56.91Z` differ in LENGTH. Byte order compares `Z` against `1` and puts
+    /// `.9` above `.91`, which is backwards. Padding the fraction to a fixed
+    /// width makes byte order agree with time order, and the rest of the form is
+    /// already fixed width and already ordered.
+    ///
+    /// The gate is `canonicalTimestamp`'s own IDEMPOTENCE: a value that is its
+    /// own canonical form parsed, and a value that fell back did not. That is
+    /// one source of truth rather than a second parser here — and it is why raw
+    /// text that happens to end in `Z` is refused instead of being padded into a
+    /// comparable-looking string.
+    static func comparableTimestamp(_ normalized: String) -> String? {
+        guard canonicalTimestamp(normalized) == normalized else { return nil }
+        let body = String(normalized.dropLast())   // the trailing "Z"
+        guard let dot = body.firstIndex(of: ".") else {
+            return body + "." + String(repeating: "0", count: fractionWidth)
+        }
+        let base = String(body[body.startIndex..<dot])
+        let digits = String(body[body.index(after: dot)...])
+        guard digits.count <= fractionWidth else { return nil }
+        return base + "." + digits + String(repeating: "0", count: fractionWidth - digits.count)
+    }
+
     // MARK: Numeric
 
     /// Is this the text of a number, all of it?
