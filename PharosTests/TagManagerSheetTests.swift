@@ -145,6 +145,53 @@ private func type(_ field: NSTextField, _ text: String) {
         Notification(name: NSControl.textDidChangeNotification, object: field))
 }
 
+/// Ticks or unticks a rule's checkbox the way a click does.
+///
+/// It refuses a HIDDEN box and a DISABLED one. A helper that reached past
+/// either would let a mode that draws no checkboxes, or a rule that has no id
+/// to delete, appear to take a tick that the analyst could never give it —
+/// which is the whole property assertions 6 to 8 exist to hold.
+private func tick(_ box: NSButton, _ on: Bool, _ what: String) {
+    guard !box.isHidden else {
+        failures += 1
+        print("FAIL a hidden checkbox cannot be ticked (\(what))")
+        return
+    }
+    guard box.isEnabled else {
+        failures += 1
+        print("FAIL a disabled checkbox cannot be ticked (\(what))")
+        return
+    }
+    box.state = on ? .on : .off
+    guard let action = box.action, let target = box.target as? NSObject else {
+        failures += 1
+        print("FAIL the checkbox has no target/action (\(what))")
+        return
+    }
+    target.perform(action, with: box)
+}
+
+/// Lets the main queue run, until `done` answers true or the deadline passes.
+///
+/// A never-shown window has no event loop of its own, so a background count's
+/// `DispatchQueue.main.async` hop back would never be executed without this. The
+/// timer is not decoration: with NO input source attached, `RunLoop.run` returns
+/// immediately and drains nothing at all.
+///
+/// Waiting on a CONDITION rather than on a duration matters. A fixed sleep long
+/// enough today is a race tomorrow — libdispatch can be slow to start a second
+/// thread while the first is blocked, which is exactly the situation this suite
+/// arranges on purpose.
+private func pump(_ seconds: TimeInterval = 1.0, until done: () -> Bool = { false }) {
+    let deadline = Date().addingTimeInterval(seconds)
+    let keepAlive = Timer(timeInterval: 0.005, repeats: true) { _ in }
+    RunLoop.current.add(keepAlive, forMode: .default)
+    while Date() < deadline, !done() {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    }
+    keepAlive.invalidate()
+}
+
 /// Fires a control's action the way a click does, without depending on
 /// `NSApplication` being up. Used for the colour control, whose segment must be
 /// chosen BEFORE the action fires.
@@ -213,6 +260,28 @@ private func deletedTagIds(_ commits: [TagManagerCommit]) -> [String] {
     }
 }
 
+/// Every rule id a save would delete, in the order the commands would run.
+private func deletedRuleIds(_ commits: [TagManagerCommit]) -> [String] {
+    commits.flatMap { commit -> [String] in
+        if case .deleteRules(let ids) = commit { return ids }
+        return []
+    }
+}
+
+private func addedRules(_ commits: [TagManagerCommit]) -> [AddTagRules] {
+    commits.compactMap {
+        if case .addRules(let add) = $0 { return add }
+        return nil
+    }
+}
+
+private func createdTags(_ commits: [TagManagerCommit]) -> [CreateTag] {
+    commits.compactMap {
+        if case .create(let create) = $0 { return create }
+        return nil
+    }
+}
+
 // MARK: - Fixtures
 
 private let bidi = "\u{202E}"
@@ -253,9 +322,118 @@ private func fixtureTags() -> [Tag] {
 }
 
 private func makeSheet(_ committer: RecordingCommitter,
-                       tags: [Tag] = fixtureTags()) -> TagManagerSheet {
-    TagManagerSheet(model: TagManagerModel(tags: tags, mode: .manage),
-                    committer: committer, columns: [], loadedRows: [])
+                       tags: [Tag] = fixtureTags(),
+                       mode: TagManagerModel.Mode = .manage,
+                       columns: [ColumnDef] = [],
+                       loadedRows: [[String?]] = []) -> TagManagerSheet {
+    TagManagerSheet(model: TagManagerModel(tags: tags, mode: mode),
+                    committer: committer, columns: columns, loadedRows: loadedRows)
+}
+
+// MARK: - Fixtures for the live count
+
+/// A result the fixture tags can be counted against: an address column and a
+/// text one, which are the two families `fixtureTags` uses.
+private func countColumns() -> [ColumnDef] {
+    [
+        ColumnDef(name: "ip", dataType: "inet", relationOid: nil, relationAttno: nil),
+        ColumnDef(name: "host", dataType: "text", relationOid: nil, relationAttno: nil),
+    ]
+}
+
+/// Ten rows. Tag "Suspect" (10.0.0.1 or evil.example) matches exactly ONE of
+/// them; changing its address rule to 10.0.0.2 makes it match TWO, which is
+/// also over the breadth threshold.
+private func countRows() -> [[String?]] {
+    var rows: [[String?]] = [
+        ["10.0.0.1", "a.example"],
+        ["10.0.0.2", "b.example"],
+        ["10.0.0.2", "c.example"],
+    ]
+    for index in 0..<7 { rows.append(["10.0.0.9", "x\(index).example"]) }
+    return rows
+}
+
+/// Above `asyncCountThreshold`, so the count leaves the main thread — which is
+/// the only path on which a stale count can exist at all.
+private func manyRows() -> [[String?]] {
+    (0..<5_001).map { ["10.9.\($0 / 256).\($0 % 256)", "h\($0).example"] }
+}
+
+/// One draft rule, carrying the provenance a captured finding must keep.
+private func draftRule(_ condition: TagCondition) -> NewTagRule {
+    let key = RuleKey.encode([RuleConditionKey(kind: condition.kind,
+                                               family: condition.family,
+                                               value: condition.value,
+                                               operand2: condition.operand2)])
+    return NewTagRule(conditions: [condition], tupleKey: key ?? condition.value,
+                      originConnection: "conn-42", originTable: "public.certs")
+}
+
+/// Three rows' worth of draft, as `Mode.add` carries them.
+private func fixtureDraft() -> [NewTagRule] {
+    [
+        draftRule(cond("address", "203.0.113.7")),
+        draftRule(cond("address", "203.0.113.8")),
+        draftRule(cond("text", "bad.example")),
+    ]
+}
+
+// MARK: - A counting function the test drives
+
+/// Stands in for `TagRuleMatcher.matchCount` on the sheet's injectable seam.
+///
+/// The stale-count guard cannot be pinned by racing the real matcher: the two
+/// counts would be ordered by whichever thread happened to win, and a test whose
+/// result depends on that is a flaky test pretending to be a guarantee. This
+/// blocks the FIRST count on a semaphore the test releases when it chooses, so
+/// "a slow count lands after a newer one" is ARRANGED rather than hoped for.
+private final class GatedCounter {
+    let gate = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var calls = 0
+
+    /// What each call returns, by call number. Deliberately distinct, so the
+    /// footer names WHICH count it is showing.
+    private let results = [11, 22, 33]
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    /// Has the held-back first count RETURNED? The test waits for this before
+    /// asserting that its answer was thrown away — otherwise it would be
+    /// asserting that a count which had not happened yet did not land, which
+    /// every implementation passes.
+    ///
+    /// Behind the lock like `calls`: it is written on a background thread and
+    /// read on the main one.
+    var firstFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return finishedFirst
+    }
+
+    private var finishedFirst = false
+
+    func count(_ tag: Tag, _ columns: [ColumnDef], _ rows: [[String?]]) -> Int {
+        lock.lock()
+        calls += 1
+        let ordinal = calls
+        lock.unlock()
+        // Only the first is held back. Every later count runs straight through,
+        // so the newest number reaches the footer while the first is still
+        // inside this function.
+        if ordinal == 1 {
+            gate.wait()
+            lock.lock()
+            finishedFirst = true
+            lock.unlock()
+        }
+        return ordinal <= results.count ? results[ordinal - 1] : 99
+    }
 }
 
 // MARK: - The suite
@@ -566,6 +744,228 @@ func runTests() {
     expectTrue(!emptying.emptyLabel.isHidden, "the empty sidebar says so in words")
     expectTrue(emptying.newTagButton.isEnabled,
                "and a new tag can still be made, so the sheet is not a dead end")
+
+    // MARK: 15 — `.manage` shows every tag and preselects the first
+
+    let managing = makeSheet(RecordingCommitter())
+    host(managing)
+    expectInt(managing.tableView.numberOfRows, 3, "`.manage` lists every tag")
+    expectInt(managing.selectedTagIndex ?? -1, 0, "and preselects the first")
+    expectString(managing.titleLabel.stringValue, "Tags",
+                 "under the plain heading — nothing is being added or removed")
+
+    // MARK: 16 — `.add` shows every tag, and says how many rows are joining one
+
+    let addSheet = makeSheet(RecordingCommitter(), mode: .add(draft: fixtureDraft()))
+    host(addSheet)
+    expectInt(addSheet.tableView.numberOfRows, 3,
+              "`.add` lists every tag, because the analyst is choosing which one the draft joins")
+    expectTrue(addSheet.titleLabel.stringValue.contains("3 rows"),
+               "and the header states how many rows are being added "
+               + "(\(addSheet.titleLabel.stringValue.debugDescription))")
+
+    // MARK: 17 — `.add` onto an existing tag keeps the draft's PROVENANCE
+
+    // The point of the whole entry. An authored rule has empty origin strings
+    // because it came from nobody's result; a captured finding must arrive with
+    // the connection and table it was seen on, or the record of where it was
+    // found is lost at the moment it is filed.
+    let joinCommitter = RecordingCommitter()
+    let joining = makeSheet(joinCommitter, mode: .add(draft: fixtureDraft()))
+    host(joining)
+    select(joining, row: 0)
+    expectTrue(joining.saveButton.isEnabled,
+               "a draft with a tag chosen can be saved without any other edit")
+    // Which makes the footer load-bearing: the tag the draft joins is chosen by
+    // a SIDEBAR SELECTION, which looks like navigation rather than a decision,
+    // and Save is the default button. This line is what makes it a decision.
+    expectString(joining.statusLabel.stringValue,
+                 "Saving adds 3 rules to \u{201C}Suspect\u{201D}.",
+                 "and the footer names the tag the rows would join, and how many")
+    joining.saveButton.performClick(nil)
+    expectInt(joinCommitter.applied.count, 1, "saving commits once")
+    let joined = addedRules(joinCommitter.applied.first ?? [])
+    expectInt(joined.count, 1, "with one add-rules command")
+    if let add = joined.first {
+        expectString(add.tagId, "t1", "naming the chosen tag")
+        expectInt(add.rules.count, 3, "and carrying every draft rule")
+        expectString(add.rules.map(\.originConnection).joined(separator: ","),
+                     "conn-42,conn-42,conn-42",
+                     "each with the connection it was captured on, not an empty string")
+        expectString(add.rules.map(\.originTable).joined(separator: ","),
+                     "public.certs,public.certs,public.certs",
+                     "and the table it was captured from")
+    }
+
+    // MARK: 18 — `.add` onto a NEW tag creates it WITH the draft
+
+    let bornCommitter = RecordingCommitter()
+    let born = makeSheet(bornCommitter, mode: .add(draft: fixtureDraft()))
+    host(born)
+    born.newTagButton.performClick(nil)
+    type(born.nameField, "Fresh Finding")
+    born.saveButton.performClick(nil)
+    expectInt(bornCommitter.applied.count, 1, "saving commits once")
+    let bornCreates = createdTags(bornCommitter.applied.first ?? [])
+    expectInt(bornCreates.count, 1, "with one create command")
+    if let create = bornCreates.first {
+        expectString(create.name, "Fresh Finding", "under the typed name")
+        expectInt(create.rules.count, 3,
+                  "and the draft rules go IN it — a second command could not name "
+                  + "a tag whose id does not exist yet")
+        expectString(create.rules.map(\.originTable).joined(separator: ","),
+                     "public.certs,public.certs,public.certs",
+                     "still carrying their provenance")
+    }
+
+    // MARK: 19 — `.remove` narrows the sidebar to the tags holding those rules
+
+    let removing = makeSheet(RecordingCommitter(), mode: .remove(ruleIds: ["r1"]))
+    host(removing)
+    expectInt(removing.tableView.numberOfRows, 1,
+              "`.remove` answers a question about ONE row, so it lists only the "
+              + "tags holding the named rules")
+    expectString(rowText(removing, 0), "Suspect — 2 rules", "which is the one holding r1")
+    expectString(removing.titleLabel.stringValue, "Remove from Tag",
+                 "and the header says what this entry is for")
+
+    // MARK: 20 — `.remove` draws a checkbox per rule, with the named ones TICKED
+
+    expectInt(removing.grid.groups.count, 2, "the selected tag draws both its rules")
+    if removing.grid.groups.count == 2 {
+        expectTrue(!removing.grid.groups[0].selectionBox.isHidden
+                    && !removing.grid.groups[1].selectionBox.isHidden,
+                   "every rule gets a checkbox")
+        expectTrue(removing.grid.groups[0].selectionBox.state == .on,
+                   "the rule the analyst came here about starts TICKED")
+        expectTrue(removing.grid.groups[1].selectionBox.state == .off,
+                   "and a rule they did not ask about does not")
+    }
+
+    // MARK: 21 — Save deletes exactly what is TICKED, not what was preselected
+
+    // The disclosure property this entry exists to guarantee. Whatever the sheet
+    // opened with, the boxes on screen are the promise — so the promise is
+    // changed BOTH ways before it is read: one more ticked, and the preselected
+    // one taken back.
+    if removing.grid.groups.count == 2 {
+        tick(removing.grid.groups[1].selectionBox, true, "rule 2")
+        tick(removing.grid.groups[0].selectionBox, false, "rule 1")
+    }
+    let removeCommitter = RecordingCommitter()
+    let removeSheet = removing
+    removeSheet.onClose = nil
+    expectTrue(removeSheet.saveButton.isEnabled,
+               "a tick is a change, so Save is available")
+    expectTrue(removeSheet.statusLabel.stringValue.contains("1 rule"),
+               "and the footer says what will go "
+               + "(\(removeSheet.statusLabel.stringValue.debugDescription))")
+    // A second sheet, driven the same way, so the assertion reads the commits a
+    // click actually hands over rather than a recomputation of them.
+    let ticking = makeSheet(removeCommitter, mode: .remove(ruleIds: ["r1"]))
+    host(ticking)
+    if ticking.grid.groups.count == 2 {
+        tick(ticking.grid.groups[1].selectionBox, true, "rule 2")
+        tick(ticking.grid.groups[0].selectionBox, false, "rule 1")
+    } else {
+        failures += 1
+        print("FAIL the remove sheet did not draw two rules to tick")
+    }
+    ticking.saveButton.performClick(nil)
+    expectInt(removeCommitter.applied.count, 1, "saving commits once")
+    expectString(deletedRuleIds(removeCommitter.applied.first ?? []).joined(separator: ","),
+                 "r2",
+                 "and deletes exactly the TICKED rule, never the preselected one")
+
+    // MARK: 22 — `.manage` and `.add` draw no checkboxes at all
+
+    expectTrue(managing.grid.groups.allSatisfy { $0.selectionBox.isHidden },
+               "`.manage` draws no checkboxes — nothing there is being chosen for deletion")
+    select(addSheet, row: 0)
+    expectTrue(!addSheet.grid.groups.isEmpty,
+               "the `.add` sheet has rules on screen to check")
+    expectTrue(addSheet.grid.groups.allSatisfy { $0.selectionBox.isHidden },
+               "and `.add` draws none either")
+
+    // MARK: 23 — the footer counts with the REAL matcher, and follows an edit
+
+    let counting = makeSheet(RecordingCommitter(),
+                             columns: countColumns(), loadedRows: countRows())
+    host(counting)
+    expectString(counting.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
+                 "the footer counts the selected tag over the loaded rows")
+    expectString(counting.warningLabel.stringValue, "",
+                 "one row in ten is not broad, so nothing is said")
+    guard counting.grid.groups.count == 2,
+          counting.grid.groups[0].conditionRows.count == 1 else {
+        failures += 1
+        print("FAIL the counted tag did not render a rule with a value to edit")
+        finish()
+        return
+    }
+    type(counting.grid.groups[0].conditionRows[0].valueField, "10.0.0.2")
+    expectString(counting.countLabel.stringValue, "Matches 2 of 10 loaded rows.",
+                 "and the count follows an edit")
+
+    // MARK: 24 — a broad tag is DISCLOSED, never blocked
+
+    // A deliberately broad temporary tag is a legitimate tool, and only the
+    // analyst knows which this is.
+    expectString(counting.warningLabel.stringValue, "This tag is broad.",
+                 "two rows in ten is over the threshold, so the warning appears")
+    expectTrue(counting.saveButton.isEnabled,
+               "and a broad tag can still be SAVED — the warning never blocks")
+
+    // MARK: 25 — with no result behind the sheet the footer says so
+
+    // "Matches 0 of 0 loaded rows" would read as "this tag matches nothing",
+    // which is a claim about the TAG made from having nothing to compare it to.
+    let unbacked = makeSheet(RecordingCommitter())
+    host(unbacked)
+    expectString(unbacked.countLabel.stringValue,
+                 "No rows are loaded here, so there is nothing to count against.",
+                 "an empty result is stated as a fact about the RESULT")
+    expectTrue(!unbacked.countLabel.stringValue.contains("Matches"),
+               "and never as a count of zero, which would be a claim about the tag")
+    expectString(unbacked.warningLabel.stringValue, "",
+                 "and nothing can be called broad against nothing")
+
+    // MARK: 26 — a slow count landing after a newer edit is DISCARDED
+
+    // Two async counts cannot be raced deterministically by timing, so the
+    // counting function is injected: the first call blocks on a semaphore this
+    // test releases, which arranges the stale landing instead of hoping for it.
+    let counter = GatedCounter()
+    let gated = TagManagerSheet(
+        model: TagManagerModel(tags: fixtureTags(), mode: .manage),
+        committer: RecordingCommitter(),
+        columns: countColumns(), loadedRows: manyRows())
+    gated.countMatches = { counter.count($0, $1, $2) }
+    host(gated)
+    expectInt(counter.callCount, 1, "opening the sheet starts one count")
+    guard gated.grid.groups.count == 2,
+          gated.grid.groups[0].conditionRows.count == 1 else {
+        failures += 1
+        print("FAIL the gated sheet did not render a rule with a value to edit")
+        finish()
+        return
+    }
+    // The first count is still inside the counting function, holding the gate.
+    type(gated.grid.groups[0].conditionRows[0].valueField, "10.9.0.3")
+    pump(5.0) { gated.countLabel.stringValue.hasPrefix("Matches") }
+    expectInt(counter.callCount, 2, "an edit starts a second count")
+    expectString(gated.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
+                 "and the SECOND count reaches the footer")
+    // Released only now, so the first count returns its answer into a sheet that
+    // has already moved on.
+    counter.gate.signal()
+    pump(5.0) { counter.firstFinished }
+    // And a further turn of the run loop, so its hop back to the main thread is
+    // delivered rather than merely queued.
+    pump(0.5)
+    expectString(gated.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
+                 "the first count, landing afterwards, is DISCARDED rather than "
+                 + "overwriting the newer number")
 
     finish()
 }

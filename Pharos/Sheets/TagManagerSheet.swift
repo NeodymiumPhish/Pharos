@@ -47,11 +47,45 @@ final class TagManagerSheet: NSViewController,
     private(set) var model: TagManagerModel
     private let committer: TagManagerCommitting
 
-    /// The result behind the manager, for the live match count a later task
-    /// adds. Both may be empty — the "Manage Tags…" entry has no result behind
-    /// it at all — so nothing here may require them.
+    /// The result behind the manager, for the live match count. Both may be
+    /// empty — the "Manage Tags…" entry has no result behind it at all — so
+    /// nothing here may require them.
     private let columns: [ColumnDef]
     private let loadedRows: [[String?]]
+
+    /// How the footer's count is worked out.
+    ///
+    /// Injectable so the stale-count guard can be tested. A test supplies a
+    /// function that blocks on a semaphore it controls; production uses the real
+    /// matcher. Racing the real one by timing would be a flaky test pretending
+    /// to be a guarantee.
+    var countMatches: (Tag, [ColumnDef], [[String?]]) -> Int = TagRuleMatcher.matchCount
+
+    /// Bumped by every count started, so a slow background count that lands
+    /// after a newer one is discarded instead of overwriting a fresher number.
+    ///
+    /// Lifted from `TagSheet.countGeneration`, together with the threshold and
+    /// the background hop below — the sheet this one replaces. It guards a tag
+    /// SWITCH as well as an edit, which `TagSheet` never had to: every count
+    /// starts here, and the previous tag's number landing under the new tag's
+    /// name would be a wrong number attached to the wrong tag, which is worse
+    /// than a slow one.
+    private var countGeneration = 0
+
+    /// Mirrors `TagSheet.asyncCountThreshold`, which mirrors
+    /// `ResultsGridVC.matchAsyncThreshold`. Deliberately its own constant rather
+    /// than a reference: this is a modal's responsiveness policy, not the
+    /// grid's. Keep them in step by hand.
+    private static let asyncCountThreshold = 5_000
+
+    /// The rules TICKED for removal, across every tag — not only the one on
+    /// screen.
+    ///
+    /// Held here rather than in the grid because the grid draws ONE tag: a
+    /// `.remove` that spans two tags would lose the first tag's ticks the moment
+    /// the analyst looked at the second. Seeded from the mode, and from then on
+    /// the analyst's, which is the whole point of assertion 7.
+    private var tickedRuleIds: Set<String> = []
 
     /// The tag on show, by its index in `model.tags` — NOT its row in the
     /// sidebar. The two differ the moment a tag is deleted, because the model
@@ -102,6 +136,14 @@ final class TagManagerSheet: NSViewController,
     /// Why Save is unavailable, or what a save will do that cannot be undone.
     let statusLabel = NSTextField(labelWithString: "")
     let emptyLabel = NSTextField(labelWithString: "No tags yet. Add one to start.")
+    /// What the sheet is FOR, which is the one thing that differs between the
+    /// three entries.
+    let titleLabel = NSTextField(labelWithString: "Tags")
+    /// How many loaded rows the selected tag matches, run through the real
+    /// matcher.
+    let countLabel = NSTextField(labelWithString: "")
+    /// "This tag is broad." Never blocks — see `refreshCount`.
+    let warningLabel = NSTextField(labelWithString: "")
 
     /// The identity form and the rules, hidden together when no tag is
     /// selected. An `NSStackView` detaches a hidden arranged subview, so an
@@ -117,6 +159,11 @@ final class TagManagerSheet: NSViewController,
         self.committer = committer
         self.columns = columns
         self.loadedRows = loadedRows
+        // Seeded from the mode, then owned by the analyst. Nothing reads the
+        // mode's set again: the boxes on screen are the promise, and a second
+        // reader of the original set is exactly how a delete comes to disagree
+        // with what was ticked.
+        if case .remove(let ruleIds) = model.mode { self.tickedRuleIds = ruleIds }
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -127,8 +174,8 @@ final class TagManagerSheet: NSViewController,
     override func loadView() {
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 560))
 
-        let title = NSTextField(labelWithString: "Tags")
-        title.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.stringValue = Self.title(for: model.mode)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         buildSidebar()
         buildIdentity()
@@ -146,7 +193,16 @@ final class TagManagerSheet: NSViewController,
         footerRow.alignment = .centerY
         footerRow.spacing = 8
 
-        let form = NSStackView(views: [title, columnsRow, footerRow])
+        // The count sits ABOVE the status line rather than beside it: the two
+        // answer different questions — "what does this tag reach" and "what will
+        // Save do" — and one crowded row would make either easy to miss.
+        let countRow = NSStackView(views: [countLabel, warningLabel,
+                                           TagRuleGridView.slack()])
+        countRow.orientation = .horizontal
+        countRow.alignment = .centerY
+        countRow.spacing = 8
+
+        let form = NSStackView(views: [titleLabel, columnsRow, countRow, footerRow])
         form.orientation = .vertical
         // `.leading` plus the span, never `.width`: an NSStackView silently
         // discards `.width` as an alignment — see NSStackView+SpanFullWidth.
@@ -300,7 +356,29 @@ final class TagManagerSheet: NSViewController,
         return column
     }
 
+    /// What the sheet is FOR, in its heading.
+    ///
+    /// One modal with three jobs, and the heading is the first thing that says
+    /// which. `.add` states the ROW COUNT because that number is the analyst's
+    /// only check that the sheet caught the selection they made — an off-by-one
+    /// selection is silent everywhere else.
+    private static func title(for mode: TagManagerModel.Mode) -> String {
+        switch mode {
+        case .manage:
+            return "Tags"
+        case .add(let draft):
+            return draft.count == 1 ? "Add to Tag — 1 row" : "Add to Tag — \(draft.count) rows"
+        case .remove:
+            return "Remove from Tag"
+        }
+    }
+
     private func buildFooterControls() {
+        countLabel.font = .preferredFont(forTextStyle: .caption1)
+        countLabel.textColor = .secondaryLabelColor
+        warningLabel.font = .preferredFont(forTextStyle: .caption1)
+        warningLabel.textColor = .systemOrange
+
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
@@ -356,6 +434,7 @@ final class TagManagerSheet: NSViewController,
         refreshIdentity()
         renderGrid()
         refreshFooter()
+        refreshCount()
     }
 
     /// The tag on show, or nil.
@@ -418,7 +497,21 @@ final class TagManagerSheet: NSViewController,
         refusals = [:]
         let tag = selectedTag
             ?? EditableTag(id: nil, name: "", colorIndex: 0, note: "", rules: [])
-        grid.render(tag, callbacks: gridCallbacks())
+        // nil in every mode but `.remove`: nothing else is choosing rules, and
+        // the empty set would still draw a column of boxes.
+        let selection: Set<String>?
+        if case .remove = model.mode { selection = tickedRuleIds } else { selection = nil }
+        grid.render(tag, callbacks: gridCallbacks(), selection: selection)
+    }
+
+    /// A tick changed. The grid reports the ticked rules of the tag ON SCREEN,
+    /// so the other tags' ticks are carried across unread — a `.remove` can span
+    /// two tags, and switching between them must not silently untick the first.
+    private func changedSelection(_ onScreen: Set<String>) {
+        let drawn = Set(grid.groups.compactMap(\.ruleId))
+        tickedRuleIds.subtract(drawn)
+        tickedRuleIds.formUnion(onScreen)
+        refreshFooter()
     }
 
     /// Redraw ONE sidebar row, for an edit that changed what it says — a
@@ -430,6 +523,102 @@ final class TagManagerSheet: NSViewController,
                              columnIndexes: IndexSet(integersIn: 0..<max(tableView.numberOfColumns, 1)))
     }
 
+    // MARK: The live count
+    //
+    // Lifted wholesale from `TagSheet.refresh` and `TagSheet.show` — the sheet
+    // this one replaces, whose count this is. The threshold, the background hop
+    // and the generation guard are its reasoning, not new reasoning: below
+    // `asyncCountThreshold` the count runs synchronously, which is the same cost
+    // class as the match the grid runs anyway; above it the count moves to a
+    // background queue exactly as `ResultsGridVC.matchAsyncThreshold` does for
+    // the grid's own match, so a large loaded set cannot drop a frame on every
+    // edit; and `countGeneration` discards a slow count that lands after a newer
+    // one rather than letting it overwrite a fresher number.
+    //
+    // One thing IS new. This count is per SELECTED TAG, which `TagSheet`'s never
+    // was, so a tag switch starts a count too — and every switch goes through
+    // `select` or `tableViewSelectionDidChange`, both of which come here. A
+    // stale count from the previous tag would land under the new tag's name,
+    // which is a wrong number attached to the wrong tag: worse than a slow one.
+
+    /// Count the selected tag against the loaded rows, and say so.
+    private func refreshCount() {
+        // Bumped even on the paths that return early, so a count already in
+        // flight is invalidated by a switch to a tag that has nothing to count.
+        countGeneration += 1
+        let generation = countGeneration
+
+        guard let tag = selectedTag else {
+            countLabel.stringValue = ""
+            warningLabel.stringValue = ""
+            return
+        }
+        let rows = loadedRows
+        guard !rows.isEmpty else {
+            // NOT "Matches 0 of 0 loaded rows": that reads as a statement about
+            // the TAG, made from having nothing to compare it against. The
+            // "Manage Tags…" entry has no result behind it at all.
+            countLabel.stringValue =
+                "No rows are loaded here, so there is nothing to count against."
+            warningLabel.stringValue = ""
+            return
+        }
+
+        let preview = previewTag(for: tag)
+        let columns = self.columns
+        let count = countMatches
+
+        guard rows.count > Self.asyncCountThreshold else {
+            show(matched: count(preview, columns, rows), loaded: rows.count)
+            return
+        }
+
+        countLabel.stringValue = "Counting…"
+        warningLabel.stringValue = ""
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let matched = count(preview, columns, rows)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.countGeneration == generation else { return }
+                    self.show(matched: matched, loaded: rows.count)
+                }
+            }
+        }
+    }
+
+    /// The footer, from a finished count.
+    private func show(matched: Int, loaded: Int) {
+        countLabel.stringValue = "Matches \(matched) of \(loaded) loaded rows."
+        // The warning never blocks Save, and nothing below it may start to: a
+        // deliberately broad temporary tag is a legitimate tool, and only the
+        // analyst knows which this is.
+        warningLabel.stringValue = TagDraft.isBroad(matched: matched, loaded: loaded)
+            ? "This tag is broad."
+            : ""
+    }
+
+    /// The tag the count is run against: the one on screen as it is being
+    /// edited, plus — in `.add` — the draft that is about to join it.
+    ///
+    /// The draft is INCLUDED on purpose. The analyst is about to add those rules
+    /// to this tag, so the honest answer to "what will this tag reach" is the
+    /// answer after the add; a count of the tag without them would be a number
+    /// for a tag that is about to stop existing.
+    private func previewTag(for tag: EditableTag) -> Tag {
+        var rules: [NewTagRule] = tag.rules.compactMap { rule in
+            guard let key = RuleKey.encode(rule.conditions.map {
+                RuleConditionKey(kind: $0.kind, family: $0.family,
+                                 value: $0.value, operand2: $0.operand2)
+            }) else { return nil }
+            // Origins are provenance and take no part in matching, so the
+            // preview leaves them empty rather than inventing them.
+            return NewTagRule(conditions: rule.conditions, tupleKey: key,
+                              originConnection: "", originTable: "")
+        }
+        rules.append(contentsOf: model.draftRules)
+        return TagDraft.previewTag(tuples: rules)
+    }
+
     private func refreshFooter() {
         let commits = model.commits()
         if let reason = blockingReason(commits) {
@@ -439,20 +628,59 @@ final class TagManagerSheet: NSViewController,
             return
         }
         saveButton.isEnabled = true
-        // Nothing here CONFIRMS the delete: it has not happened yet, and Cancel
-        // still discards it. What it must not do is happen silently, so the one
-        // irreversible thing a save can do is stated before the analyst presses
-        // the button.
+        // Nothing here CONFIRMS any of this: none of it has happened yet, and
+        // Cancel still discards the lot. What it must not do is happen silently,
+        // so everything a save would do that the analyst cannot see on screen is
+        // stated before they press the button.
+        var notices: [String] = []
         let doomed = commits.filter { if case .deleteTag = $0 { return true } else { return false } }
-        if doomed.isEmpty {
-            statusLabel.stringValue = ""
-            statusLabel.textColor = .secondaryLabelColor
-        } else {
-            statusLabel.stringValue = doomed.count == 1
+        if !doomed.isEmpty {
+            notices.append(doomed.count == 1
                 ? "Saving deletes 1 tag and every rule in it."
-                : "Saving deletes \(doomed.count) tags and every rule in them."
-            statusLabel.textColor = .systemOrange
+                : "Saving deletes \(doomed.count) tags and every rule in them.")
         }
+        let ticked = pendingDeletions.count
+        if ticked > 0 {
+            notices.append(ticked == 1
+                ? "Saving removes 1 rule from its tag."
+                : "Saving removes \(ticked) rules from their tags.")
+        }
+        // Said in `.add` even though nothing is wrong, because the tag the draft
+        // joins is chosen by a SIDEBAR SELECTION — which looks like navigation,
+        // not like a decision. This is the line that makes it one.
+        if !model.draftRules.isEmpty, let index = selectedTagIndex {
+            let rules = model.draftRules.count
+            notices.append("Saving adds \(rules) rule\(rules == 1 ? "" : "s") to "
+                + "\(tagName(index)).")
+        }
+        statusLabel.stringValue = notices.joined(separator: " ")
+        statusLabel.textColor = notices.isEmpty ? .secondaryLabelColor : .systemOrange
+    }
+
+    /// The rules a save would remove because they are TICKED.
+    ///
+    /// Read from the sheet's own set, which the boxes drive — never from
+    /// `Mode.remove`'s ids, which are only ever the STARTING position. Narrowed
+    /// to rules that still exist and are not already going with their tag, so
+    /// nothing is named twice.
+    private var pendingDeletions: [String] {
+        guard case .remove = model.mode, !tickedRuleIds.isEmpty else { return [] }
+        let live = Set(model.tags.indices
+            .filter { !model.isDeleted(tagAt: $0) }
+            .flatMap { model.tags[$0].rules.compactMap(\.id) })
+        // Sorted, so what is written is the same list twice running.
+        return tickedRuleIds.intersection(live).sorted()
+    }
+
+    /// Work this sheet carries that the MODEL cannot see: the draft of `.add`,
+    /// and the ticks of `.remove`.
+    ///
+    /// Without it `saveBlocker` answers `.noChanges` for a sheet whose entire
+    /// purpose is a change — a `.remove` where nothing but boxes was touched
+    /// would offer a dead Save button and say "Nothing has changed yet."
+    private var hasModeWork: Bool {
+        if !model.draftRules.isEmpty { return selectedTagIndex != nil }
+        return !pendingDeletions.isEmpty
     }
 
     // MARK: What stops a save
@@ -477,6 +705,10 @@ final class TagManagerSheet: NSViewController,
             return blankConditionText()
         }
         guard let blocker = model.saveBlocker() else { return nil }
+        // The model cannot see the draft or the ticks, so its "nothing has
+        // changed" is only ever true of the tags. Every other blocker still
+        // holds: an empty rule or a duplicate one would still be written.
+        if case .noChanges = blocker, hasModeWork { return nil }
         return blockerText(blocker)
     }
 
@@ -638,7 +870,8 @@ final class TagManagerSheet: NSViewController,
             addCondition: { [weak self] in self?.addCondition(toRule: $0) },
             removeCondition: { [weak self] in self?.removeCondition($1, fromRule: $0) },
             changedCondition: { [weak self] in self?.changedCondition($0, $1, $2) },
-            invalidCondition: { [weak self] in self?.invalidCondition($0, $1, $2) })
+            invalidCondition: { [weak self] in self?.invalidCondition($0, $1, $2) },
+            changedSelection: { [weak self] in self?.changedSelection($0) })
     }
 
     /// A condition with nothing in it yet.
@@ -682,6 +915,7 @@ final class TagManagerSheet: NSViewController,
         renderGrid()
         refreshSidebarRow(index)
         refreshFooter()
+        refreshCount()
     }
 
     /// A value was typed. NOT structural: the row already shows what was typed,
@@ -694,6 +928,9 @@ final class TagManagerSheet: NSViewController,
                                ofTagAt: index, with: condition)
         refusals[ConditionRef(rule: ruleIndex, condition: conditionIndex)] = nil
         refreshFooter()
+        // A value edit changes nothing structural, but it is exactly the thing
+        // that changes what the tag REACHES.
+        refreshCount()
     }
 
     /// The editor refused what was typed. The ROW draws the message beside the
@@ -706,12 +943,75 @@ final class TagManagerSheet: NSViewController,
 
     // MARK: Saving
 
+    /// Everything a save would write: what the model derived, plus the work only
+    /// this sheet knows about.
+    ///
+    /// In `.remove`, the analyst's OTHER edits are committed too — a rename they
+    /// made on the way past goes with the deletion. The alternative is to
+    /// discard it silently, which is worse: they typed it, they can see it, and
+    /// nothing on screen says it will be thrown away. The footer states the
+    /// removal explicitly, so neither half of the save is a surprise.
+    private func commitsToWrite() -> [TagManagerCommit] {
+        let commits = model.commits()
+        // The ticked deletions go FIRST, for the reason `commits()` puts its own
+        // deletes first: a rule about to be deleted may hold the very key an
+        // edited rule is moving onto, and the unique index would refuse the
+        // update otherwise.
+        let doomed = pendingDeletions
+        let withDeletions = doomed.isEmpty ? commits : [.deleteRules(doomed)] + commits
+        guard !model.draftRules.isEmpty, let index = selectedTagIndex else {
+            return withDeletions
+        }
+        return withDraft(model.draftRules, into: withDeletions, joiningTagAt: index)
+    }
+
+    /// The draft rules folded into the command that writes the tag they join.
+    ///
+    /// Two shapes, because a tag that does not exist yet has no id to name. An
+    /// existing tag takes one more `.addRules`; a tag made this session must
+    /// take the draft INSIDE its own `.create`.
+    ///
+    /// Which `.create`: `commits()` emits them in tag order, so the target's
+    /// place among them is the number of new, undeleted tags before it.
+    ///
+    /// The draft rules pass through UNCHANGED, `originConnection` and
+    /// `originTable` included. That is the whole reason the draft travels on the
+    /// mode rather than through `EditableRule`: `TagManagerModel` writes empty
+    /// origins for an authored rule, correctly, because an authored rule came
+    /// from nobody's result — and a captured finding that lost its origin on the
+    /// way in would have lost where it was seen, permanently.
+    private func withDraft(_ draft: [NewTagRule], into commits: [TagManagerCommit],
+                           joiningTagAt index: Int) -> [TagManagerCommit] {
+        guard model.tags.indices.contains(index), !model.isDeleted(tagAt: index)
+        else { return commits }
+        if let id = model.tags[index].id {
+            return commits + [.addRules(AddTagRules(tagId: id, rules: draft))]
+        }
+        let ordinal = model.tags.indices.filter {
+            $0 < index && model.tags[$0].id == nil && !model.isDeleted(tagAt: $0)
+        }.count
+        var seen = -1
+        return commits.map { commit in
+            guard case .create(var create) = commit else { return commit }
+            seen += 1
+            guard seen == ordinal else { return commit }
+            create.rules += draft
+            return .create(create)
+        }
+    }
+
     @objc private func saveTapped(_ sender: Any?) {
         // The disabled button is the guard the analyst meets; this is the guard
         // behind it, for the Return key and for anything that enables the button
         // without going through the footer.
+        //
+        // Asked of `model.commits()`, not of everything below: those checks
+        // refuse what the analyst AUTHORED here — a nameless tag, a condition
+        // with no value typed into it. A draft rule captured from a real row is
+        // neither, and a cell that happened to be empty must not make a finding
+        // permanently unsaveable through a field that is not on screen.
         guard blockingReason(model.commits()) == nil else { return }
-        let commits = model.commits()
+        let commits = commitsToWrite()
         do {
             try committer.apply(commits)
         } catch {
@@ -815,6 +1115,10 @@ final class TagManagerSheet: NSViewController,
         refreshIdentity()
         renderGrid()
         refreshFooter()
+        // A tag SWITCH starts a count like any other change, and bumps the
+        // generation like any other — a count of the previous tag landing under
+        // this one's name would be a wrong number, not a slow one.
+        refreshCount()
     }
 }
 

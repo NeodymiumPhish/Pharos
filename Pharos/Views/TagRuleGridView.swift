@@ -16,6 +16,15 @@ final class TagRuleGridView: NSStackView {
         var removeCondition: (Int, Int) -> Void
         var changedCondition: (Int, Int, TagCondition) -> Void
         var invalidCondition: (Int, Int, TagConditionEditor.Invalid?) -> Void
+        /// Which rules are TICKED, in whole, after a tick changed.
+        ///
+        /// The whole set rather than one id and a flag: what a save would delete
+        /// must not be assembled from a running tally that one missed callback
+        /// could put permanently out of step with the boxes on screen.
+        ///
+        /// Defaulted, so a caller that renders no checkboxes need never mention
+        /// it.
+        var changedSelection: (Set<String>) -> Void = { _ in }
     }
 
     /// The rule groups, in MODEL order.
@@ -96,7 +105,14 @@ final class TagRuleGridView: NSStackView {
     /// Rebuild from scratch. The caller re-renders after every model change
     /// rather than patching, because the model is the truth and a diffing view
     /// is a second place for the two to disagree.
-    func render(_ tag: EditableTag, callbacks: Callbacks) {
+    ///
+    /// - Parameter selection: nil draws NO checkboxes at all; a set draws one per
+    ///   rule with the named ones ticked. nil and the empty set are deliberately
+    ///   different — "this grid is not choosing rules" is not the same statement
+    ///   as "nothing is chosen yet", and a mode that draws boxes must go on
+    ///   drawing them after the last one is unticked.
+    func render(_ tag: EditableTag, callbacks: Callbacks,
+                selection: Set<String>? = nil) {
         self.callbacks = callbacks
         // `removeFromSuperview`, NOT `removeArrangedSubview`. The latter only
         // detaches a view from the ARRANGEMENT and leaves it in `subviews`,
@@ -110,7 +126,13 @@ final class TagRuleGridView: NSStackView {
             // from the view tree. It is the number `TagManagerModel` indexes
             // with, and the view's own position is not the same number.
             let group = TagRuleGroupView(rule: rule, ordinal: ruleIndex + 1,
-                                         callbacks: callbacks, ruleIndex: ruleIndex)
+                                         callbacks: callbacks, ruleIndex: ruleIndex,
+                                         selection: selection)
+            // The GRID owns the tick action, not the group: only the grid can see
+            // every box, and the answer to "what would Save delete" is a fact
+            // about all of them together.
+            group.selectionBox.target = self
+            group.selectionBox.action = #selector(selectionBoxTapped)
             groups.append(group)
             // Before the footer, which is always last.
             insertArrangedSubview(group, at: max(arrangedSubviews.count - 1, 0))
@@ -118,10 +140,22 @@ final class TagRuleGridView: NSStackView {
         }
     }
 
+    /// The ticked rules, READ FROM THE BOXES rather than remembered.
+    ///
+    /// A remembered set is a second copy of the answer, and the one the analyst
+    /// can see is the one that must win.
+    var selectedRuleIds: Set<String> {
+        Set(groups.compactMap { $0.selectionBox.state == .on ? $0.ruleId : nil })
+    }
+
     // MARK: Actions
 
     @objc private func addRuleTapped(_ sender: Any?) {
         callbacks?.addRule()
+    }
+
+    @objc private func selectionBoxTapped(_ sender: Any?) {
+        callbacks?.changedSelection(selectedRuleIds)
     }
 
     // MARK: Helpers
@@ -160,8 +194,14 @@ final class TagRuleGroupView: NSView {
     /// May this rule's conditions be changed? Straight from
     /// `EditableRule.isEditable` — this view never decides it.
     let isEditableRule: Bool
+    /// The rule's STORED id, or nil for one added this session and never saved.
+    /// The only thing a deletion can name.
+    let ruleId: String?
 
     let titleLabel: NSTextField
+    /// "Remove this rule from the tag". Hidden unless the grid was rendered with
+    /// a selection — see `TagRuleGridView.render(_:callbacks:selection:)`.
+    let selectionBox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     let deleteRuleButton = NSButton()
     let addConditionButton = NSButton()
     /// Why the rows are greyed. Hidden for a rule this build understands.
@@ -184,18 +224,44 @@ final class TagRuleGroupView: NSView {
     // MARK: Construction
 
     init(rule: EditableRule, ordinal: Int,
-         callbacks: TagRuleGridView.Callbacks, ruleIndex: Int) {
+         callbacks: TagRuleGridView.Callbacks, ruleIndex: Int,
+         selection: Set<String>? = nil) {
         self.ruleIndex = ruleIndex
         self.isEditableRule = rule.isEditable
+        self.ruleId = rule.id
         self.callbacks = callbacks
         self.titleLabel = NSTextField(labelWithString: "Rule \(ordinal)")
         super.init(frame: .zero)
 
         buildBorder()
         buildControls()
+        buildSelectionBox(selection, ordinal: ordinal)
         buildRows(rule, ruleIndex: ruleIndex, callbacks: callbacks)
         buildLayout()
         setEditable(rule.isEditable)
+    }
+
+    /// The tick box, or no box at all.
+    ///
+    /// Hidden rather than absent: an `NSStackView` detaches a hidden arranged
+    /// subview, so a grid that is not choosing rules draws no column of empty
+    /// boxes and loses no width to one.
+    private func buildSelectionBox(_ selection: Set<String>?, ordinal: Int) {
+        selectionBox.setAccessibilityLabel("Remove rule \(ordinal) from this tag")
+        selectionBox.setContentHuggingPriority(.required, for: .horizontal)
+        guard let selection else {
+            selectionBox.isHidden = true
+            selectionBox.isEnabled = false
+            selectionBox.state = .off
+            return
+        }
+        selectionBox.isHidden = false
+        // A rule added this session has no id, so there is nothing for a delete
+        // to name. Drawn, so the boxes stay in one column, and DEAD — a live box
+        // promising to remove it would be a promise nothing could keep. Nothing
+        // is lost: an unsaved rule goes by being deleted outright.
+        selectionBox.isEnabled = ruleId != nil
+        selectionBox.state = ruleId.map(selection.contains) == true ? .on : .off
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -278,6 +344,8 @@ final class TagRuleGroupView: NSView {
         header.orientation = .horizontal
         header.alignment = .centerY
         header.spacing = 6
+        // First, so the tick reads as belonging to the whole rule below it.
+        header.addArrangedSubview(selectionBox)
         header.addArrangedSubview(titleLabel)
         header.addArrangedSubview(deleteRuleButton)
 
@@ -326,6 +394,10 @@ final class TagRuleGroupView: NSView {
     /// Adding a condition stays disabled: `TagManagerModel.addCondition`
     /// refuses it anyway, and a live control that does nothing is worse than a
     /// dead one.
+    ///
+    /// The tick box is the same exception as delete, for the same reason:
+    /// removing a rule from a tag names it by id and needs no understanding of
+    /// its conditions. It is deliberately not touched here.
     private func setEditable(_ isEditable: Bool) {
         addConditionButton.isEnabled = isEditable
         deleteRuleButton.isEnabled = true

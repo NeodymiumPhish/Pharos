@@ -25,6 +25,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/SanitiseNotice.swift \
   Pharos/Core/TagConditionEditor.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagDraft.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \
   Pharos/Core/TagManagerCommitting.swift \
