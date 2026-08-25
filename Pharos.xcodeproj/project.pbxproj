@@ -117,6 +117,7 @@
 		915C735DB5EE744A31495822 /* VariableListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1ACA16C38A777BDCF7104A /* VariableListView.swift */; };
 		93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */; };
 		957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51B7E42D0E3720183013836 /* VariableValuePreview.swift */; };
+		96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F92E5CA3CD3F9F34190FFD0 /* TagManagerCommitting.swift */; };
 		96F8B81C319801D4E045CF43 /* ResultsTagController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F4997A1B526AF0B5B07BB2 /* ResultsTagController.swift */; };
 		97E54C924094DDE82999F054 /* ChartSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1154372FFE011857B1F28F1B /* ChartSorter.swift */; };
 		98ABDB227EE8B96889F26C62 /* NotificationCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */; };
@@ -267,6 +268,7 @@
 		5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorViewController.swift; sourceTree = "<group>"; };
 		5CA969614B127DE629649F33 /* SQLTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLTextView.swift; sourceTree = "<group>"; };
 		5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Delegates.swift"; sourceTree = "<group>"; };
+		5F92E5CA3CD3F9F34190FFD0 /* TagManagerCommitting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerCommitting.swift; sourceTree = "<group>"; };
 		6128081BC6A9DFAF1457EF1D /* PopupValueMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupValueMenu.swift; sourceTree = "<group>"; };
 		61756089841C329775F79CBB /* TagInspectorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagInspectorModel.swift; sourceTree = "<group>"; };
 		6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
@@ -639,6 +641,7 @@
 				17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */,
 				6EB1F7A6CABE76CAD424B5B6 /* TagGlob.swift */,
 				61756089841C329775F79CBB /* TagInspectorModel.swift */,
+				5F92E5CA3CD3F9F34190FFD0 /* TagManagerCommitting.swift */,
 				CD157725BA52EAD6B6DCC696 /* TagManagerModel.swift */,
 				2012DA5C4BDE052549A92704 /* TagMatchDisclosure.swift */,
 				2A11259CEF977B988D8D542B /* TagPalette.swift */,
@@ -975,6 +978,7 @@
 				694A0DA60C72BE7BC271173E /* TagGlob.swift in Sources */,
 				8C84EF40E4447DEAF3262BEE /* TagInspectorModel.swift in Sources */,
 				63752FE4D9E9EB235ED88219 /* TagManageSheet.swift in Sources */,
+				96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */,
 				65F348FC51CDFF4E92D5E98D /* TagManagerModel.swift in Sources */,
 				4048DB404CB9E8B2FEC98C0C /* TagMatchDisclosure.swift in Sources */,
 				B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */,

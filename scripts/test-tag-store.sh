@@ -23,6 +23,8 @@ swiftc -o "$BIN" \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagRuleRemoving.swift \
+  Pharos/Core/TagManagerCommitting.swift \
+  Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagStore.swift \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/TagGlob.swift \

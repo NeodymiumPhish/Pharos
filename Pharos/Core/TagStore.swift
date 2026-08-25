@@ -136,3 +136,32 @@ final class TagStore {
 /// check in place of the static one. Every caller is a view-controller action,
 /// so every call is already on the main thread.
 extension TagStore: @preconcurrency TagRuleRemoving {}
+
+// MARK: - TagManagerCommitting
+
+/// `@preconcurrency` for the same reason as `TagRuleRemoving` above: the
+/// protocol is nonisolated so a headless harness can conform to it, and a plain
+/// conformance from this `@MainActor` class is an error under the Swift 6
+/// language mode. The attribute keeps the compile-time signature check that
+/// makes this conformance worth having.
+extension TagStore: @preconcurrency TagManagerCommitting {
+
+    /// Apply one save.
+    ///
+    /// Each command goes through the store's existing methods, which re-read
+    /// after every write rather than applying a hand-made delta — the core mints
+    /// ids and absorbs duplicate rules, so only a re-read is honest about what
+    /// was stored. That means several reloads for a multi-command save, which is
+    /// acceptable because a save is a deliberate act and not a keystroke.
+    func apply(_ commits: [TagManagerCommit]) throws {
+        for commit in commits {
+            switch commit {
+            case .create(let payload): try createTag(payload)
+            case .update(let payload): _ = try updateTag(payload)
+            case .addRules(let payload): _ = try addTuples(payload)
+            case .deleteRules(let ids): try removeTuples(ids: ids)
+            case .deleteTag(let id): try deleteTag(id: id)
+            }
+        }
+    }
+}
