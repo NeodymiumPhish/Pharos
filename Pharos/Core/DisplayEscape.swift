@@ -152,6 +152,38 @@ enum DisplayEscape {
     /// space to an interior space and loses its disclosure. Six sites render
     /// this pair; they must all render it the same way — one adopts this so
     /// far, the rest follow in the tier-3 sweep.
+    /// A captured VALUE that may span lines: its own newlines are formatting,
+    /// but its edge spaces are still data.
+    ///
+    /// The third point on two axes, and both matter:
+    ///
+    ///  - `escaped` treats a newline as hostile, because its callers draw on ONE
+    ///    line, where a `\n` cannot render and its absence would hide that the
+    ///    value spans lines at all.
+    ///  - `escapedMultiline` treats leading spaces as indentation, because its
+    ///    callers show a SQL preview or an error, where the layout is the
+    ///    author's own and disclosing it would be noise.
+    ///
+    /// The Inspector's value pane is neither. The label wraps
+    /// (`maximumNumberOfLines = 0`), so a newline renders correctly and escaping
+    /// it produces the `<U+000A>` litter this function exists to stop. But the
+    /// text is somebody else's DATA, so a trailing run of spaces is the
+    /// `char(20)` padding an analyst needs to see — exactly what
+    /// `escapedMultiline` would swallow.
+    ///
+    /// So: `isHostileInFlowingText` for the body, and `escaped`'s own edge-space
+    /// walk unchanged.
+    static func escapedMultilineValue(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        var lead = 0
+        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
+        var trail = scalars.count
+        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
+        return escapedCore(scalars) { index in
+            index < lead || index >= trail || isHostileInFlowingText(scalars[index])
+        }
+    }
+
     static func escapedQualified(schema: String, table: String) -> String {
         "\(escaped(schema)).\(escaped(table))"
     }

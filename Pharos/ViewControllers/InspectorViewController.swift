@@ -837,7 +837,12 @@ class InspectorViewController: NSViewController {
         // override would otherwise make this pane read as a filename the row
         // does not hold; an escaped copy would paste a corrupt indicator into
         // whatever the analyst pastes it into.
-        label.stringValue = DisplayEscape.escaped(value.displayString)
+        // `escapedMultilineValue`, not `escaped`: this label WRAPS
+        // (`maximumNumberOfLines = 0` above), so a newline renders correctly and
+        // escaping it litters the pane with `<U+000A>`. Edge spaces are still
+        // disclosed, because a trailing run is `char(20)` padding the analyst
+        // needs to see — which is why plain `escapedMultiline` will not do here.
+        label.stringValue = DisplayEscape.escapedMultilineValue(value.displayString)
         label.copyableValue = value.displayString
 
         switch category {
