@@ -200,8 +200,14 @@ final class TagRuleGroupView: NSView {
 
     let titleLabel: NSTextField
     /// "Remove this rule from the tag". Hidden unless the grid was rendered with
-    /// a selection — see `TagRuleGridView.render(_:callbacks:selection:)`.
+    /// a selection — see `TagRuleGridView.render(_:callbacks:selection:)` — and
+    /// hidden as well for a rule that has no id to delete.
     let selectionBox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    /// Holds the space the box occupies, so hiding ONE box does not pull its
+    /// rule's heading left and break the column. `NSStackView` detaches a hidden
+    /// arranged subview, so the box cannot be arranged directly and still keep
+    /// its place.
+    private let selectionSlot = NSView()
     let deleteRuleButton = NSButton()
     let addConditionButton = NSButton()
     /// Why the rows are greyed. Hidden for a rule this build understands.
@@ -243,25 +249,50 @@ final class TagRuleGroupView: NSView {
 
     /// The tick box, or no box at all.
     ///
-    /// Hidden rather than absent: an `NSStackView` detaches a hidden arranged
-    /// subview, so a grid that is not choosing rules draws no column of empty
-    /// boxes and loses no width to one.
+    /// Two different "no box", and they are not the same statement:
+    ///
+    ///  - The whole grid is not choosing rules. The SLOT goes too, so no rule
+    ///    loses width to a column that is not there. An `NSStackView` detaches a
+    ///    hidden arranged subview, so hiding the slot is enough.
+    ///  - This one rule has no id, because it was added this session and has
+    ///    never been saved. Nothing could ever delete it, so it gets no box —
+    ///    and the SLOT STAYS, so the rules beside it keep one column. A disabled
+    ///    box was the earlier answer and it was the wrong one: disabled says
+    ///    "not now", and the truth here is "never, this rule does not exist
+    ///    yet". Nothing is lost — an unsaved rule goes by being deleted outright.
     private func buildSelectionBox(_ selection: Set<String>?, ordinal: Int) {
         selectionBox.setAccessibilityLabel("Remove rule \(ordinal) from this tag")
         selectionBox.setContentHuggingPriority(.required, for: .horizontal)
+        selectionBox.translatesAutoresizingMaskIntoConstraints = false
+        selectionSlot.addSubview(selectionBox)
+        NSLayoutConstraint.activate([
+            selectionBox.leadingAnchor.constraint(equalTo: selectionSlot.leadingAnchor),
+            selectionBox.trailingAnchor.constraint(equalTo: selectionSlot.trailingAnchor),
+            selectionBox.topAnchor.constraint(equalTo: selectionSlot.topAnchor),
+            selectionBox.bottomAnchor.constraint(equalTo: selectionSlot.bottomAnchor),
+        ])
+        // The slot takes its size from the box, which keeps its intrinsic size
+        // while hidden — `isHidden` stops a view drawing and stops a stack
+        // ARRANGING it, but the box is not arranged here, it is pinned.
+        selectionSlot.setContentHuggingPriority(.required, for: .horizontal)
+
         guard let selection else {
+            selectionSlot.isHidden = true
+            selectionBox.isHidden = true
+            selectionBox.isEnabled = false
+            selectionBox.state = .off
+            return
+        }
+        selectionSlot.isHidden = false
+        guard let ruleId else {
             selectionBox.isHidden = true
             selectionBox.isEnabled = false
             selectionBox.state = .off
             return
         }
         selectionBox.isHidden = false
-        // A rule added this session has no id, so there is nothing for a delete
-        // to name. Drawn, so the boxes stay in one column, and DEAD — a live box
-        // promising to remove it would be a promise nothing could keep. Nothing
-        // is lost: an unsaved rule goes by being deleted outright.
-        selectionBox.isEnabled = ruleId != nil
-        selectionBox.state = ruleId.map(selection.contains) == true ? .on : .off
+        selectionBox.isEnabled = true
+        selectionBox.state = selection.contains(ruleId) ? .on : .off
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -344,8 +375,9 @@ final class TagRuleGroupView: NSView {
         header.orientation = .horizontal
         header.alignment = .centerY
         header.spacing = 6
-        // First, so the tick reads as belonging to the whole rule below it.
-        header.addArrangedSubview(selectionBox)
+        // First, so the tick reads as belonging to the whole rule below it. The
+        // SLOT is arranged, never the box — see `buildSelectionBox`.
+        header.addArrangedSubview(selectionSlot)
         header.addArrangedSubview(titleLabel)
         header.addArrangedSubview(deleteRuleButton)
 

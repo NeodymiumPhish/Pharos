@@ -877,6 +877,47 @@ func runTests() {
                  "r2",
                  "and deletes exactly the TICKED rule, never the preselected one")
 
+    // MARK: 21b — a rule that does not exist yet draws NO checkbox
+
+    // A rule added this session has no id, so nothing could ever remove it. A
+    // DISABLED box would say "not now"; the truth is "never, this rule does not
+    // exist yet", and only a hidden box says that. The left inset stays, so the
+    // rules beside it keep one column.
+    let unsavedCommitter = RecordingCommitter()
+    let unsaved = makeSheet(unsavedCommitter, mode: .remove(ruleIds: ["r1"]))
+    host(unsaved)
+    unsaved.grid.addRuleButton.performClick(nil)
+    expectInt(unsaved.grid.groups.count, 3, "the tag gains a rule added this session")
+    if unsaved.grid.groups.count == 3 {
+        expectTrue(unsaved.grid.groups[2].ruleId == nil,
+                   "which has no id, because it has never been saved")
+        expectTrue(unsaved.grid.groups[2].selectionBox.isHidden,
+                   "so it draws NO checkbox — nothing could ever delete it")
+        expectTrue(!unsaved.grid.groups[0].selectionBox.isHidden
+                    && !unsaved.grid.groups[1].selectionBox.isHidden,
+                   "while the stored rules beside it still draw theirs")
+        // The inset is kept, so hiding the box does not pull the rule's heading
+        // left and break the column.
+        unsaved.view.layoutSubtreeIfNeeded()
+        let stored = unsaved.grid.groups[0]
+        let fresh = unsaved.grid.groups[2]
+        expectString("\(Int(stored.titleLabel.convert(NSPoint.zero, to: stored).x))",
+                     "\(Int(fresh.titleLabel.convert(NSPoint.zero, to: fresh).x))",
+                     "and the heading starts at the same x, so the rules stay aligned")
+    }
+    expectString(unsaved.grid.selectedRuleIds.sorted().joined(separator: ","), "r1",
+                 "and the ticked set is untouched by its arrival")
+    // End to end: take the unsaved rule away again, and what a save deletes is
+    // still exactly the one tick.
+    if unsaved.grid.groups.count == 3 {
+        unsaved.grid.groups[2].deleteRuleButton.performClick(nil)
+    }
+    unsaved.saveButton.performClick(nil)
+    expectInt(unsavedCommitter.applied.count, 1, "saving commits once")
+    expectString(deletedRuleIds(unsavedCommitter.applied.first ?? []).joined(separator: ","),
+                 "r1",
+                 "deleting exactly the ticked rule, and nothing the id-less one touched")
+
     // MARK: 22 — `.manage` and `.add` draw no checkboxes at all
 
     expectTrue(managing.grid.groups.allSatisfy { $0.selectionBox.isHidden },
