@@ -894,18 +894,27 @@ class ResultsGridVC: NSViewController {
     func presentTagSheet(on targets: [Int]) {
         // A sheet needs a window to hang from; a grid off screen just beeps.
         guard !targets.isEmpty, view.window != nil else { NSSound.beep(); return }
-        let sheet = TagSheet(context: TagSheet.Context(
-            columns: columns,
+        // The manager has no per-column checkbox row the way `TagSheet` did, so
+        // there is nothing on screen for the analyst to narrow with here. Every
+        // column is captured rather than reading the grid's cell selection: the
+        // common path into this method is a ROW selection (⌘L, the row-number
+        // click, the context menu), which leaves no cell range at all, and a
+        // "use the cell selection if any" rule would silently capture from zero
+        // columns on exactly that path — an empty draft the manager cannot add.
+        let draft = TagDraft.rules(
             selectedRows: targets.compactMap { row in
                 row < rows.count ? rows[row].map { $0.stringValue } : nil
             },
-            loadedRows: rows.map { row in row.map { $0.stringValue } },
+            columns: columns,
+            checkedColumns: Array(columns.indices),
             originConnection: AppStateManager.shared.activeConnectionId ?? "",
             // Provenance only. A result with no source table is still taggable —
             // the "no source table" refusal retired with row identity.
-            originTable: rowIdentity?.tableDisplay ?? "",
-            existingTags: TagStore.shared.tags))
-        presentAsSheet(sheet)
+            originTable: rowIdentity?.tableDisplay ?? "")
+        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .add(draft: draft))
+        presentAsSheet(TagManagerSheet(model: model, committer: TagStore.shared,
+                                       columns: columns,
+                                       loadedRows: rows.map { row in row.map { $0.stringValue } }))
     }
 
     /// "Manage Tags…": rename, recolour, note, delete. `preselect` lands the
@@ -915,7 +924,24 @@ class ResultsGridVC: NSViewController {
             NSSound.beep()
             return
         }
-        presentAsSheet(TagManageSheet(preselect: preselect))
+        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .manage)
+        let sheet = TagManagerSheet(model: model, committer: TagStore.shared,
+                                    columns: columns,
+                                    loadedRows: rows.map { row in row.map { $0.stringValue } })
+        presentAsSheet(sheet)
+        // There is no public "select this tag" entry point on the sheet — only
+        // a sidebar table an analyst clicks. `viewDidLoad`, which `presentAsSheet`
+        // has already run by the time it returns, has selected the first visible
+        // tag; honouring `preselect` means moving that same real selection and
+        // telling the same real delegate, exactly as the sheet's own suite drives
+        // it and exactly as a click would.
+        guard let preselect,
+              let modelIndex = sheet.model.tags.firstIndex(where: { $0.id == preselect }),
+              let row = sheet.model.visibleTagIndices.firstIndex(of: modelIndex)
+        else { return }
+        sheet.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        sheet.tableView.delegate?.tableViewSelectionDidChange?(
+            Notification(name: NSTableView.selectionDidChangeNotification, object: sheet.tableView))
     }
 
     /// "Remove From Tag…": open the removal confirmation sheet on the tuples
@@ -931,7 +957,11 @@ class ResultsGridVC: NSViewController {
         // went while the menu was open: there is nothing to disclose and the
         // footer would read "Removes 0 tuples from 0 tags."
         guard !groups.isEmpty else { NSSound.beep(); return }
-        presentAsSheet(TagRemovalSheet(groups: groups, remover: TagStore.shared))
+        let ruleIds = Set(TagRemovalModel.checkedTupleIds(in: groups))
+        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .remove(ruleIds: ruleIds))
+        presentAsSheet(TagManagerSheet(model: model, committer: TagStore.shared,
+                                       columns: columns,
+                                       loadedRows: rows.map { row in row.map { $0.stringValue } }))
     }
 
     // MARK: - Helper Coordination
