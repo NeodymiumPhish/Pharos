@@ -10,11 +10,17 @@ struct EditableRule: Equatable {
 
     /// May the analyst change this rule's conditions?
     ///
-    /// No, when it carries a kind this build does not understand. The store has
-    /// no update-rule command, so editing is delete-then-add — and re-adding
-    /// would drop the kind this build cannot reproduce, destroying a rule that
-    /// currently round-trips intact. ONE unknown condition makes the whole rule
-    /// uneditable, because rebuilding it would drop that one.
+    /// No, when it carries a kind this build does not understand. There is no
+    /// control that could render or evaluate such a condition, so an edit would
+    /// be an edit made blind. ONE unknown condition makes the whole rule
+    /// uneditable, because the analyst cannot see what they are changing around
+    /// it.
+    ///
+    /// The older reason — that editing was delete-then-add, which would drop the
+    /// unknown kind — no longer holds: `.updateRule` carries the conditions
+    /// verbatim and `TagConditionKind.unsupported` re-encodes byte for byte, so
+    /// an edited rule would keep the kind now. The read-only treatment is a
+    /// policy choice from here on, not a data-loss guard.
     ///
     /// It may still be DELETED outright, which needs no understanding of it, and
     /// the tag around it stays fully editable — an `UpdateTag` carries only
@@ -256,6 +262,16 @@ struct TagManagerModel {
         /// and noise in the store, and it is almost certainly a half-finished
         /// edit rather than an intent.
         case emptyRule(tagIndex: Int, ruleIndex: Int)
+        /// Two rules of one tag would end up with the same key, and at least one
+        /// of them is an EDIT.
+        ///
+        /// Narrower than "two rules share a key" on purpose. A purely-added
+        /// duplicate is absorbed by `INSERT OR IGNORE`, which is the re-tagging
+        /// no-op and has always been correct. Only an `UPDATE` moving onto an
+        /// occupied key errors — `sqlite::update_tag_rule` is a plain `UPDATE`
+        /// deliberately — so only that must block. Blocking the harmless case
+        /// too would refuse something the app has always allowed.
+        case duplicateRule(tagIndex: Int, ruleIndex: Int)
     }
 
     /// Nothing about an unsupported rule blocks Save. An `UpdateTag` carries
@@ -278,7 +294,60 @@ struct TagManagerModel {
                 return .emptyRule(tagIndex: tagIndex, ruleIndex: ruleIndex)
             }
         }
+        // The empty rule outranks the duplicate: it is the more basic problem
+        // and its message is the more actionable one.
+        if let duplicate = duplicateRuleBlocker() { return duplicate }
         return commits().isEmpty ? .noChanges : nil
+    }
+
+    /// Two live rules of one tag heading for the same key, when at least one of
+    /// them is an edit.
+    ///
+    /// Only an edit can make this reach SQLite as an error. Deletes are written
+    /// first, so a key a deleted rule holds is already free; updates follow, and
+    /// one moving onto an occupied key errors; the adds come last as
+    /// `INSERT OR IGNORE`, which absorbs a collision. A deleted tag is skipped
+    /// whole — none of its rules will be written at all — and a rule with no
+    /// conditions is skipped because `emptyRule` above has already refused it
+    /// and `RuleKey.encode` has no key for one anyway.
+    ///
+    /// One case is refused that SQLite would in fact accept: an EDITED rule and
+    /// a newly ADDED one landing on the same key. The update runs first, onto a
+    /// key nothing holds, and the add behind it is then absorbed — nothing
+    /// errors. It is refused anyway, deliberately on the conservative side:
+    /// `TagStore.apply` writes the commands one at a time with no enclosing
+    /// transaction, so a wrong answer in the other direction leaves a
+    /// half-written save. The rule named is the added one, which is the one to
+    /// drop.
+    private func duplicateRuleBlocker() -> SaveBlocker? {
+        for (tagIndex, tag) in tags.enumerated() where !deleted.contains(tagIndex) {
+            // key -> was the FIRST rule holding it an edit.
+            var firstHolderWasEdit: [String: Bool] = [:]
+            for (ruleIndex, rule) in tag.rules.enumerated() {
+                guard let key = Self.ruleKey(rule) else { continue }
+                let isEdit = isEdited(rule, in: tag)
+                guard let earlierWasEdit = firstHolderWasEdit[key] else {
+                    firstHolderWasEdit[key] = isEdit
+                    continue
+                }
+                // The SECOND rule of the pair is named, not the first: it is the
+                // one the analyst has just changed, so it is the one to point at.
+                if earlierWasEdit || isEdit {
+                    return .duplicateRule(tagIndex: tagIndex, ruleIndex: ruleIndex)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Is this a rule that was READ IN, whose conditions have changed since?
+    /// False for a rule added this session — it has no stored form to differ
+    /// from, and it will be written as an add, not an update.
+    private func isEdited(_ rule: EditableRule, in tag: EditableTag) -> Bool {
+        guard let ruleId = rule.id, let tagId = tag.id,
+              let before = stored[tagId]?.rules.first(where: { $0.id == ruleId })
+        else { return false }
+        return before.conditions != rule.conditions
     }
 
     /// Everything to write, in the order it must be written.
@@ -316,13 +385,13 @@ struct TagManagerModel {
                                              colorIndex: tag.colorIndex, note: tag.note)))
             }
 
-            // Rules. Three groups: gone, new, and rebuilt.
+            // Rules. Three groups: gone, edited, and new.
             let beforeRules = Dictionary(before.rules.map { ($0.id, $0) },
                                          uniquingKeysWith: { first, _ in first })
             let survivingIds = Set(tag.rules.compactMap(\.id))
             let goneIds = before.rules.map(\.id).filter { !survivingIds.contains($0) }
 
-            var rebuiltIds: [String] = []
+            var updates: [UpdateTagRule] = []
             var added: [NewTagRule] = []
             for rule in tag.rules {
                 guard let ruleId = rule.id else {
@@ -331,19 +400,22 @@ struct TagManagerModel {
                 }
                 guard let beforeRule = beforeRules[ruleId],
                       beforeRule.conditions != rule.conditions else { continue }
-                // Edited. The store has no update-rule command, so this is a
-                // delete plus an add — which costs the rule its `createdAt`.
-                // A `pharos_update_tag_rule` command that preserves id and
-                // timestamp is the fix, and is deliberately out of scope.
-                rebuiltIds.append(ruleId)
-                if let new = Self.newRule(rule) { added.append(new) }
+                // Edited, and written in place — ONE command. The rule keeps its
+                // id, and with it its `createdAt`: when the finding was first
+                // recorded. The delete-plus-add this replaces reset both.
+                guard let key = Self.ruleKey(rule) else { continue }
+                updates.append(UpdateTagRule(ruleId: ruleId, conditions: rule.conditions,
+                                             tupleKey: key))
             }
 
-            // Deletes FIRST. The unique index on (tag_id, tuple_key) would
-            // otherwise refuse the add of a rebuilt rule whose key did not
-            // change — an edit that only touched a display value.
-            let deletes = goneIds + rebuiltIds
-            if !deletes.isEmpty { out.append(.deleteRules(deletes)) }
+            // Deletes FIRST: a rule being deleted may hold the very key an
+            // edited rule is moving onto, and the unique index would refuse the
+            // update otherwise.
+            if !goneIds.isEmpty { out.append(.deleteRules(goneIds)) }
+            // Updates next, each keeping its rule's id and first-seen time.
+            for update in updates { out.append(.updateRule(update)) }
+            // Adds last. INSERT OR IGNORE absorbs a collision here, which is
+            // the re-tagging no-op and is correct.
             if !added.isEmpty { out.append(.addRules(AddTagRules(tagId: id, rules: added))) }
         }
         return out
@@ -360,11 +432,20 @@ struct TagManagerModel {
     /// rule that came from a grid selection carries the real values through
     /// `Mode.add`'s draft, which a later phase wires up.
     private static func newRule(_ rule: EditableRule) -> NewTagRule? {
-        guard let key = RuleKey.encode(rule.conditions.map {
-            RuleConditionKey(kind: $0.kind, family: $0.family,
-                             value: $0.value, operand2: $0.operand2)
-        }) else { return nil }
+        guard let key = ruleKey(rule) else { return nil }
         return NewTagRule(conditions: rule.conditions, tupleKey: key,
                           originConnection: "", originTable: "")
+    }
+
+    /// One editable rule's canonical key, or nil when it holds no conditions.
+    ///
+    /// The single place the encoding is spelled out: an add, an update and the
+    /// duplicate check all need the same key for the same rule, and two copies
+    /// of the expression could drift apart into two keys for one rule.
+    private static func ruleKey(_ rule: EditableRule) -> String? {
+        RuleKey.encode(rule.conditions.map {
+            RuleConditionKey(kind: $0.kind, family: $0.family,
+                             value: $0.value, operand2: $0.operand2)
+        })
     }
 }

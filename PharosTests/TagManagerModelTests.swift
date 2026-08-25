@@ -52,9 +52,8 @@ func runTests() {
     // A rule this build fully understands is editable.
     expect(model.tags[0].rules[0].isEditable, "a rule of known kinds is editable")
 
-    // A rule carrying a kind from a NEWER build is NOT editable. Editing is
-    // delete-then-add, and re-adding would drop the kind this build cannot
-    // reproduce — destroying a rule that currently round-trips intact.
+    // A rule carrying a kind from a NEWER build is NOT editable: no control can
+    // render or evaluate such a condition, so an edit would be made blind.
     let future = storedRule("r9", [
         TagCondition(family: "text", kind: .unsupported("startsWith"),
                      value: "neo", operand2: nil, display: "neo"),
@@ -64,7 +63,7 @@ func runTests() {
 
     // A rule is only uneditable if it holds an unknown kind. One known-kind
     // condition beside an unknown one still makes the whole rule uneditable,
-    // because rebuilding it would drop the unknown one.
+    // because the analyst cannot see what sits beside what they are changing.
     let mixed = storedRule("r10", [
         host,
         TagCondition(family: "text", kind: .unsupported("endsWith"),
@@ -275,34 +274,34 @@ func runTests() {
         expect(false, "deleting a rule writes a delete")
     }
 
-    // EDITING an existing rule is delete-then-add, because the store has no
-    // update-rule command. Both halves must be written, and the delete must
-    // come FIRST — the unique index on (tag_id, tuple_key) would otherwise
-    // refuse the add when only a display value changed.
-    var reworked = TagManagerModel(tags: [stored], mode: .manage)
-    _ = reworked.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0)
-    let reworkCommits = reworked.commits()
-    expect(reworkCommits.count == 2, "editing a rule writes two commands")
+    // MARK: editing a rule in place
+
+    // An edited rule now writes ONE command, and the rule keeps its id — which
+    // is what keeps its `createdAt`, the time the finding was first recorded.
+    var edited = TagManagerModel(tags: [stored], mode: .manage)
+    _ = edited.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0)
+    let editedCommits = edited.commits()
+    expect(editedCommits.count == 1, "editing a rule writes exactly one command")
     // Guarded, never indexed on the strength of the line above. A trap discards
-    // Swift's block-buffered stdout, so one out-of-range index would destroy the
-    // output of EVERY assertion in this file — including the one that just
-    // failed — and the run would then look exactly like a mutation that never
-    // applied.
-    if reworkCommits.count == 2 {
-        if case .deleteRules(let ids) = reworkCommits[0] {
-            expect(ids == ["r1"], "the delete comes first, naming the old rule")
-        } else {
-            expect(false, "editing a rule deletes the old one first")
-        }
-        if case .addRules(let payload) = reworkCommits[1] {
-            if payload.rules.count == 1 {
-                expect(payload.rules[0].conditions.count == 3, "then adds the rebuilt rule")
-            } else {
-                expect(false, "then adds the rebuilt rule")
-            }
-        } else {
-            expect(false, "editing a rule adds the rebuilt one second")
-        }
+    // Swift's stdout buffer, so one out-of-range index would destroy the output
+    // of EVERY assertion in this file — including the one that just failed —
+    // and the run would then look exactly like a mutation that never applied.
+    if editedCommits.count == 1, case .updateRule(let payload) = editedCommits[0] {
+        expect(payload.ruleId == "r1", "the update names the rule, keeping its id")
+        expect(payload.conditions.count == 3, "and carries the new conditions")
+        expect(!payload.tupleKey.isEmpty, "and a key derived from them")
+    } else {
+        expect(false, "editing a rule writes an updateRule")
+    }
+
+    // The key really is derived from the NEW conditions, not carried over.
+    var rekeyed = TagManagerModel(tags: [stored], mode: .manage)
+    _ = rekeyed.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 0,
+                                 with: condition("address", "10.9.9.9"))
+    if case .updateRule(let payload)? = rekeyed.commits().first {
+        expect(payload.tupleKey.contains("10.9.9.9"), "the key follows the new conditions")
+    } else {
+        expect(false, "replacing a condition writes an updateRule")
     }
 
     // Deleting a tag writes one command and nothing else — no point updating a
@@ -360,6 +359,84 @@ func runTests() {
     futureRename.rename(tagAt: 0, to: "still fine")
     expect(futureRename.saveBlocker() == nil,
            "a tag holding an unknown rule can still be saved")
+
+    // MARK: collisions
+
+    // Two rules of one tag, edited until they match, cannot be saved: the
+    // UPDATE would error on the unique index.
+    let twoRules = storedTag("t7", "two", [
+        storedRule("r7a", [condition("text", "one.example")]),
+        storedRule("r7b", [condition("text", "two.example")]),
+    ])
+    var colliding = TagManagerModel(tags: [twoRules], mode: .manage)
+    _ = colliding.replaceCondition(at: 0, inRuleAt: 1, ofTagAt: 0,
+                                   with: condition("text", "one.example"))
+    expect(colliding.saveBlocker() == .duplicateRule(tagIndex: 0, ruleIndex: 1),
+           "two rules edited to match block Save, naming the second")
+
+    // The same conditions in DIFFERENT tags do not collide — the index is per
+    // tag, and one indicator legitimately appears in two cases.
+    let sameInTwo = [
+        storedTag("t8", "a", [storedRule("r8", [condition("text", "shared.example")])]),
+        storedTag("t9", "b", [storedRule("r9b", [condition("text", "other.example")])]),
+    ]
+    var across = TagManagerModel(tags: sameInTwo, mode: .manage)
+    _ = across.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 1,
+                                with: condition("text", "shared.example"))
+    expect(across.saveBlocker() == nil, "the same rule in two different tags is fine")
+
+    // A purely-ADDED duplicate does NOT block: INSERT OR IGNORE absorbs it,
+    // which is the re-tagging no-op and has always been allowed.
+    var addedDuplicate = TagManagerModel(tags: [twoRules], mode: .manage)
+    addedDuplicate.addRule(toTagAt: 0, conditions: [condition("text", "one.example")])
+    expect(addedDuplicate.saveBlocker() == nil,
+           "a newly added duplicate is absorbed, not blocked")
+
+    // Deleting a rule and editing another onto its key is FINE, and the delete
+    // must be emitted first.
+    var freed = TagManagerModel(tags: [twoRules], mode: .manage)
+    freed.removeRule(at: 0, fromTagAt: 0)
+    _ = freed.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 0,
+                               with: condition("text", "one.example"))
+    expect(freed.saveBlocker() == nil, "taking a deleted rule's key is allowed")
+    let freedCommits = freed.commits()
+    expect(freedCommits.count == 2, "it writes a delete and an update")
+    if freedCommits.count == 2 {
+        if case .deleteRules = freedCommits[0] {
+            expect(true, "the delete comes first")
+        } else {
+            expect(false, "the delete comes first")
+        }
+    }
+
+    // An empty rule still outranks a duplicate: it is the more basic problem
+    // and its message is more actionable.
+    var bothWrong = TagManagerModel(tags: [twoRules], mode: .manage)
+    _ = bothWrong.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0)
+    _ = bothWrong.replaceCondition(at: 0, inRuleAt: 1, ofTagAt: 0,
+                                   with: condition("text", "two.example"))
+    if case .emptyRule? = bothWrong.saveBlocker() {
+        expect(true, "an empty rule outranks a duplicate")
+    } else {
+        expect(false, "an empty rule outranks a duplicate")
+    }
+
+    // The same precedence, with a duplicate that is really THERE. The case
+    // above cannot see it: rule 1 is replaced with the value it already holds,
+    // so nothing is edited and no two rules ever share a key. Here rule 2 moves
+    // onto rule 1's key, so a duplicate genuinely exists — and the emptied rule
+    // must still be the one reported.
+    let threeRules = storedTag("t10", "three", [
+        storedRule("r10a", [condition("text", "one.example")]),
+        storedRule("r10b", [condition("text", "two.example")]),
+        storedRule("r10c", [condition("text", "three.example")]),
+    ])
+    var emptyOutranks = TagManagerModel(tags: [threeRules], mode: .manage)
+    _ = emptyOutranks.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0)
+    _ = emptyOutranks.replaceCondition(at: 0, inRuleAt: 2, ofTagAt: 0,
+                                       with: condition("text", "two.example"))
+    expect(emptyOutranks.saveBlocker() == .emptyRule(tagIndex: 0, ruleIndex: 0),
+           "an empty rule outranks a duplicate that is really there")
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
