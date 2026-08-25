@@ -81,6 +81,18 @@ final class TagStore {
         return inserted
     }
 
+    /// Replace one rule's conditions in place. Returns whether a rule moved.
+    ///
+    /// The reload afterwards is the same rule every write here follows: the core
+    /// mints ids and absorbs duplicates, so only a re-read is honest about what
+    /// was stored.
+    @discardableResult
+    func updateRule(_ payload: UpdateTagRule) throws -> Bool {
+        let changed = try PharosCore.updateTagRule(payload)
+        try reloadTagsOrEvict()
+        return changed
+    }
+
     /// Remove individual tuples — the "Remove From Tag" path. A tag that loses
     /// every tuple survives: it is still a named case, and Phase 5's manage
     /// sheet is where a tag is deleted outright.
@@ -159,6 +171,7 @@ extension TagStore: @preconcurrency TagManagerCommitting {
             case .create(let payload): try createTag(payload)
             case .update(let payload): _ = try updateTag(payload)
             case .addRules(let payload): _ = try addTuples(payload)
+            case .updateRule(let payload): _ = try updateRule(payload)
             case .deleteRules(let ids): try removeTuples(ids: ids)
             case .deleteTag(let id): try deleteTag(id: id)
             }

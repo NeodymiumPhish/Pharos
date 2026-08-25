@@ -132,3 +132,19 @@ struct UpdateTag: Codable {
     var colorIndex: Int?
     var note: String?
 }
+
+/// One rule's conditions, replaced in place.
+///
+/// The point of this payload is what it does NOT carry. The rule keeps its id,
+/// its `createdAt` — when the finding was first recorded — and the origin
+/// columns saying where it was first observed. Editing conditions changes none
+/// of those, and the delete-then-add it replaces used to reset all four.
+///
+/// No `tagId`: the rule id is a primary key, and the core finds the tag by
+/// subquery when it bumps `updatedAt`.
+struct UpdateTagRule: Codable, Equatable {
+    var ruleId: String
+    var conditions: [TagCondition]
+    /// `RuleKey.encode` is the only producer. Rust never builds one.
+    var tupleKey: String
+}

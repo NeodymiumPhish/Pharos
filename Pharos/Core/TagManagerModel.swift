@@ -48,6 +48,7 @@ enum TagManagerCommit: Equatable {
     case create(CreateTag)
     case update(UpdateTag)
     case addRules(AddTagRules)
+    case updateRule(UpdateTagRule)
     case deleteRules([String])
     case deleteTag(String)
 }

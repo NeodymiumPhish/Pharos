@@ -46,6 +46,22 @@ extension PharosCore {
         return count
     }
 
+    /// Replace one rule's conditions in place, keeping its id and the time the
+    /// finding was first recorded. Returns whether a rule with that id existed.
+    ///
+    /// A collision with another rule of the same tag THROWS rather than being
+    /// absorbed. `addTagRules` is the opposite by design — re-tagging a row is a
+    /// no-op — but an edit is something the analyst asked for, and one that
+    /// silently vanished would be worse than one that failed.
+    @discardableResult
+    static func updateTagRule(_ payload: UpdateTagRule) throws -> Bool {
+        let text = try scalarResult(input: payload) { pharos_update_tag_rule($0) }
+        guard let count = Int(text) else {
+            throw PharosCoreError.rustError("Unexpected update-rule result: \(text)")
+        }
+        return count > 0
+    }
+
     /// Change a tag's name, colour or note. Returns nil when no tag has that id.
     static func updateTag(_ update: UpdateTag) throws -> Tag? {
         try callSync(input: update) { pharos_update_tag($0) }
