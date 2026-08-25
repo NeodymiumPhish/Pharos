@@ -11,6 +11,7 @@ swiftc -o /tmp/tag-condition-editor-tests \
   Pharos/Core/TagGlob.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/TagValueNormalizer.swift \
+  Pharos/Core/DisplayEscape.swift \
   Pharos/Models/Tag.swift \
   PharosTests/TagConditionEditorTests.swift \
   PharosTests/main.swift

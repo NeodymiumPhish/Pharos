@@ -97,4 +97,89 @@ enum TagConditionEditor {
         guard needsSecondOperand(kind) else { return nil }
         return family == TagValueNormalizer.temporalFamily ? "2026-08-14T00:00:00Z" : "2"
     }
+
+    // MARK: Validation
+
+    /// Why a typed condition is not well formed.
+    ///
+    /// `Error` as well as `Equatable`: `Result<TagCondition, Invalid>` requires
+    /// its failure type to conform to `Error`, which the handed-over spec
+    /// omitted.
+    enum Invalid: Equatable, Error {
+        case emptyValue
+        case emptySecondOperand
+        /// The matcher refused it. The string is ready to draw beside the field.
+        case unparseable(String)
+    }
+
+    /// Turn what the analyst typed into a condition, or say what is wrong.
+    ///
+    /// The typed text survives into `display` BYTE FOR BYTE. A condition value
+    /// is TIER 1 — never altered — because it DESCRIBES hostile data: an analyst
+    /// hunting Trojan Source or IDN homograph abuse must be able to name a
+    /// hostname that genuinely carries a bidi override. Sanitising the field
+    /// would silently destroy the hunt this feature exists for. `value` is a
+    /// normalized form derived BESIDE the typed text, never in place of it.
+    ///
+    /// The refusal delegates to `TagPredicate.compile`. A second copy of the
+    /// rules could accept something the matcher then refuses, and a condition
+    /// that saves but never matches is the worst outcome available here: the tag
+    /// looks like it is watching something when it is not.
+    static func condition(family: String, kind: TagConditionKind,
+                          value: String, operand2: String) -> Result<TagCondition, Invalid> {
+        // Trim only for the EMPTINESS test. What is stored in `display` is
+        // untouched, and normalization does its own trimming per family.
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .failure(.emptyValue)
+        }
+        let wantsUpper = needsSecondOperand(kind)
+        if wantsUpper, operand2.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .failure(.emptySecondOperand)
+        }
+
+        let built = TagCondition(
+            family: family,
+            kind: kind,
+            value: TagValueNormalizer.normalize(value, family: family),
+            // An operand the operator does not take is DROPPED rather than
+            // stored: the popup can change under a field that still holds text,
+            // and a stray bound would sit in the rule key and split one finding
+            // into two.
+            operand2: wantsUpper ? TagValueNormalizer.normalize(operand2, family: family) : nil,
+            display: value)
+
+        // An exact condition never reaches the compiler — it lives in the hash
+        // index, and `compile` returns nil for it by design.
+        guard kind != .exact else { return .success(built) }
+
+        guard TagPredicate.compile(built) != nil else {
+            return .failure(.unparseable(refusal(kind: kind, family: family)))
+        }
+        return .success(built)
+    }
+
+    /// The message shown beside a refused field.
+    ///
+    /// Written per operator, because "invalid" tells an analyst nothing they can
+    /// act on. `TagPredicate.compile` answers only yes or no, so the reason is
+    /// reconstructed from what that operator requires — safe because each
+    /// operator has exactly one way to fail its parse.
+    private static func refusal(kind: TagConditionKind, family: String) -> String {
+        switch kind {
+        case .cidr:
+            return "Not an address or CIDR block. Try 107.8.8.0/24."
+        case .glob:
+            return "Not a usable pattern. A lone \\ at the end has nothing to escape."
+        case .greaterThan, .greaterOrEqual, .lessThan, .lessOrEqual, .between:
+            return family == TagValueNormalizer.temporalFamily
+                ? "Not a date or time this can compare. Try 2026-08-13 or 2026-08-13 12:34:56."
+                : "Not a number this can compare."
+        case .exact:
+            // Unreachable: an exact condition returns before the compile gate.
+            return "Not usable here."
+        case .unsupported(let raw):
+            // Reachable only if a caller hands back a kind read from storage.
+            return "This build does not understand the operator \(DisplayEscape.escaped(raw))."
+        }
+    }
 }
