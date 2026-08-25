@@ -107,6 +107,7 @@
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
+		8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7353499DAF1364777E974B1F /* TagConditionRowView.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
 		8BD5C948806AAF45D1D1821F /* DestructiveConfirmationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BCCCCFD4E9B5194DCA6176 /* DestructiveConfirmationText.swift */; };
@@ -283,6 +284,7 @@
 		722165042DF02B1F5B535DC8 /* TagStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagStore.swift; sourceTree = "<group>"; };
 		724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryDetailSheet.swift; sourceTree = "<group>"; };
 		72D48095594419F14207C82F /* SQLFoldingParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFoldingParser.swift; sourceTree = "<group>"; };
+		7353499DAF1364777E974B1F /* TagConditionRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagConditionRowView.swift; sourceTree = "<group>"; };
 		73C0E80717841FF454B8D378 /* DrillCoverage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillCoverage.swift; sourceTree = "<group>"; };
 		73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTab.swift; sourceTree = "<group>"; };
 		745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsColumnFilterController.swift; sourceTree = "<group>"; };
@@ -712,6 +714,7 @@
 				0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */,
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
+				7353499DAF1364777E974B1F /* TagConditionRowView.swift */,
 				20973E948617F8AF21A804FE /* Toast.swift */,
 				A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */,
 			);
@@ -970,6 +973,7 @@
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
 				A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */,
 				C15E7F3DE79893F32AB4E3B7 /* TagConditionKind.swift in Sources */,
+				8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */,
 				131D6EEE108B0D2C3C469E7F /* TagCopyScope.swift in Sources */,
 				237A68781035A34B9C7EF7DD /* TagDraft.swift in Sources */,
 				724BB32883E5C34365C10CB6 /* TagFamilyLabel.swift in Sources */,
