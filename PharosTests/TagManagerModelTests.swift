@@ -110,5 +110,94 @@ func runTests() {
     expect(TagManagerModel(tags: two, mode: .manage).draftRules.isEmpty,
            "manage mode carries no draft rules")
 
+    // MARK: rule and condition edits
+
+    var edit = TagManagerModel(tags: [stored], mode: .manage)
+
+    // Adding a rule. A new rule has no id until it is saved.
+    edit.addRule(toTagAt: 0, conditions: [condition("text", "new.example")])
+    expect(edit.tags[0].rules.count == 2, "a rule can be added")
+    expect(edit.tags[0].rules[1].id == nil, "a new rule has no id yet")
+
+    // Adding a condition to an existing rule.
+    expect(edit.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0),
+           "a condition can be added to an editable rule")
+    expect(edit.tags[0].rules[0].conditions.count == 3, "and it lands")
+
+    // Replacing one, which is how the value field commits.
+    expect(edit.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 0,
+                                 with: condition("address", "10.0.0.2")),
+           "a condition can be replaced")
+    expect(edit.tags[0].rules[0].conditions[0].display == "10.0.0.2", "and it lands")
+
+    // Removing one.
+    expect(edit.removeCondition(at: 2, fromRuleAt: 0, inTagAt: 0), "a condition can be removed")
+    expect(edit.tags[0].rules[0].conditions.count == 2, "and it goes")
+
+    // Removing a whole rule.
+    edit.removeRule(at: 1, fromTagAt: 0)
+    expect(edit.tags[0].rules.count == 1, "a rule can be removed")
+
+    // A rule this build cannot understand refuses every condition edit, and the
+    // refusal is REPORTED rather than silent — the sheet must be able to say why
+    // nothing happened.
+    var futureEdits = TagManagerModel(tags: [storedTag("t3", "future", [future])], mode: .manage)
+    expect(!futureEdits.addCondition(condition("text", "x"), toRuleAt: 0, inTagAt: 0),
+           "an unknown-kind rule refuses a new condition")
+    expect(!futureEdits.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0),
+           "an unknown-kind rule refuses a condition removal")
+    expect(!futureEdits.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 0,
+                                         with: condition("text", "x")),
+           "an unknown-kind rule refuses a replacement")
+    expect(futureEdits.tags[0].rules[0].conditions.count == 1,
+           "and none of the refusals changed it")
+
+    // But it can be DELETED whole, which needs no understanding of it.
+    futureEdits.removeRule(at: 0, fromTagAt: 0)
+    expect(futureEdits.tags[0].rules.isEmpty, "an unknown-kind rule can still be deleted whole")
+
+    // New tags.
+    var creating = TagManagerModel(tags: [stored], mode: .manage)
+    creating.addTag(name: "New case", colorIndex: 3)
+    expect(creating.tags.count == 2, "a tag can be added")
+    expect(creating.tags[1].id == nil, "a new tag has no id yet")
+    expect(creating.tags[1].note == "", "and an empty note, never nil")
+    expect(creating.tags[1].rules.isEmpty, "and no rules yet")
+
+    // Deleting a tag marks it, rather than dropping it from the array — the
+    // sidebar keeps its indices stable while the sheet is open.
+    creating.deleteTag(at: 0)
+    expect(creating.isDeleted(tagAt: 0), "a deleted tag is marked")
+    expect(creating.tags.count == 2, "and is still in the array, so indices hold")
+    expect(creating.visibleTagIndices == [1], "but leaves the sidebar")
+
+    // Every index-taking method survives an out-of-range index rather than
+    // trapping. The sheet's indices and the model's can disagree for one run
+    // loop after a delete.
+    var ranges = TagManagerModel(tags: [stored], mode: .manage)
+    ranges.rename(tagAt: 99, to: "x")
+    ranges.recolour(tagAt: 99, to: 5)
+    ranges.note(tagAt: 99, to: "x")
+    ranges.removeRule(at: 99, fromTagAt: 99)
+    ranges.addRule(toTagAt: 99, conditions: [condition("text", "x")])
+    ranges.deleteTag(at: 99)
+    expect(!ranges.addCondition(condition("text", "x"), toRuleAt: 99, inTagAt: 99),
+           "an out-of-range condition add is refused, not a trap")
+    expect(!ranges.removeCondition(at: 99, fromRuleAt: 99, inTagAt: 99),
+           "an out-of-range condition remove is refused, not a trap")
+    expect(!ranges.replaceCondition(at: 99, inRuleAt: 99, ofTagAt: 99,
+                                    with: condition("text", "x")),
+           "an out-of-range replacement is refused, not a trap")
+    expect(ranges.tags[0].name == "Suspect infra", "and nothing was disturbed")
+    expect(ranges.tags.count == 1, "and no tag was added or removed")
+
+    // An in-range TAG but an out-of-range RULE is refused too — the two indices
+    // are checked separately and both can be stale.
+    expect(!ranges.addCondition(condition("text", "x"), toRuleAt: 99, inTagAt: 0),
+           "a stale rule index inside a live tag is refused")
+    // And an in-range rule with an out-of-range CONDITION index.
+    expect(!ranges.removeCondition(at: 99, fromRuleAt: 0, inTagAt: 0),
+           "a stale condition index inside a live rule is refused")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

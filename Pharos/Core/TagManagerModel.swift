@@ -68,6 +68,14 @@ struct TagManagerModel {
     /// later task derives, so a hand-maintained dirty flag cannot drift out of
     /// step with what actually changed.
     private let stored: [String: Tag]
+    /// Tags the analyst has deleted this session, by index.
+    ///
+    /// Marked rather than removed from the array: the sheet's table holds
+    /// indices into `tags`, and dropping an element under it would shift every
+    /// later row's meaning between one run loop and the next.
+    private var deleted: Set<Int> = []
+
+    func isDeleted(tagAt index: Int) -> Bool { deleted.contains(index) }
 
     init(tags: [Tag], mode: Mode) {
         self.mode = mode
@@ -95,8 +103,9 @@ struct TagManagerModel {
     /// `.add` shows everything, because the analyst is choosing which tag the
     /// draft joins.
     var visibleTagIndices: [Int] {
-        guard case .remove(let ruleIds) = mode else { return Array(tags.indices) }
-        return tags.indices.filter { index in
+        let live = tags.indices.filter { !deleted.contains($0) }
+        guard case .remove(let ruleIds) = mode else { return live }
+        return live.filter { index in
             tags[index].rules.contains { $0.id.map(ruleIds.contains) ?? false }
         }
     }
@@ -124,5 +133,77 @@ struct TagManagerModel {
     mutating func note(tagAt index: Int, to note: String) {
         guard tags.indices.contains(index) else { return }
         tags[index].note = note
+    }
+
+    // MARK: Tag edits
+
+    mutating func addTag(name: String, colorIndex: Int) {
+        tags.append(EditableTag(id: nil, name: name, colorIndex: colorIndex,
+                                note: "", rules: []))
+    }
+
+    mutating func deleteTag(at index: Int) {
+        guard tags.indices.contains(index) else { return }
+        deleted.insert(index)
+    }
+
+    // MARK: Rule edits
+
+    mutating func addRule(toTagAt tagIndex: Int, conditions: [TagCondition]) {
+        guard tags.indices.contains(tagIndex) else { return }
+        tags[tagIndex].rules.append(EditableRule(id: nil, conditions: conditions))
+    }
+
+    /// Delete a rule whole. Allowed even for a rule this build cannot
+    /// understand: deleting by id needs no understanding of its conditions.
+    mutating func removeRule(at ruleIndex: Int, fromTagAt tagIndex: Int) {
+        guard tags.indices.contains(tagIndex),
+              tags[tagIndex].rules.indices.contains(ruleIndex) else { return }
+        tags[tagIndex].rules.remove(at: ruleIndex)
+    }
+
+    // MARK: Condition edits
+    //
+    // Each returns false rather than trapping, for two independent reasons that
+    // both matter. An out-of-range index is possible for one run loop after a
+    // delete, when the sheet's table indices and this array have not yet
+    // resynchronised. And a rule this build cannot understand must refuse every
+    // condition edit — but the refusal has to be VISIBLE, so the sheet can say
+    // why nothing happened instead of appearing to ignore the click.
+
+    @discardableResult
+    mutating func addCondition(_ condition: TagCondition,
+                               toRuleAt ruleIndex: Int, inTagAt tagIndex: Int) -> Bool {
+        guard editableRuleExists(ruleIndex, tagIndex) else { return false }
+        tags[tagIndex].rules[ruleIndex].conditions.append(condition)
+        return true
+    }
+
+    @discardableResult
+    mutating func replaceCondition(at conditionIndex: Int, inRuleAt ruleIndex: Int,
+                                   ofTagAt tagIndex: Int, with condition: TagCondition) -> Bool {
+        guard editableRuleExists(ruleIndex, tagIndex),
+              tags[tagIndex].rules[ruleIndex].conditions.indices.contains(conditionIndex)
+        else { return false }
+        tags[tagIndex].rules[ruleIndex].conditions[conditionIndex] = condition
+        return true
+    }
+
+    @discardableResult
+    mutating func removeCondition(at conditionIndex: Int, fromRuleAt ruleIndex: Int,
+                                  inTagAt tagIndex: Int) -> Bool {
+        guard editableRuleExists(ruleIndex, tagIndex),
+              tags[tagIndex].rules[ruleIndex].conditions.indices.contains(conditionIndex)
+        else { return false }
+        tags[tagIndex].rules[ruleIndex].conditions.remove(at: conditionIndex)
+        return true
+    }
+
+    /// Does this rule exist, and may its conditions be changed?
+    private func editableRuleExists(_ ruleIndex: Int, _ tagIndex: Int) -> Bool {
+        guard tags.indices.contains(tagIndex),
+              tags[tagIndex].rules.indices.contains(ruleIndex)
+        else { return false }
+        return tags[tagIndex].rules[ruleIndex].isEditable
     }
 }
