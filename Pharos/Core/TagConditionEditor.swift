@@ -110,6 +110,10 @@ enum TagConditionEditor {
         case emptySecondOperand
         /// The matcher refused it. The string is ready to draw beside the field.
         case unparseable(String)
+        /// The family cannot host this operator at all — a `cidr` against text,
+        /// or a comparator against text. The message names the disagreement
+        /// rather than blaming the typed value, which is well formed.
+        case wrongOperator(String)
     }
 
     /// Turn what the analyst typed into a condition, or say what is wrong.
@@ -152,6 +156,23 @@ enum TagConditionEditor {
         // index, and `compile` returns nil for it by design.
         guard kind != .exact else { return .success(built) }
 
+        // An unsupported kind first: it has a better message of its own, and it
+        // appears in no family's operator list, so the agreement check below
+        // would otherwise swallow it.
+        guard kind.isSupported else {
+            return .failure(.unparseable(refusal(kind: kind, family: family)))
+        }
+
+        // Then the family/operator agreement. `compile` answers only yes or no,
+        // so without this the refusal would blame a well-formed value for a
+        // disagreement it had no part in. `operators(for:)` is the authority,
+        // which also ties this function to the picker: they can never disagree
+        // about what is offerable.
+        guard operators(for: family).contains(kind) else {
+            return .failure(.wrongOperator(
+                "A \(TagFamilyLabel.text(for: family)) condition cannot use this operator."))
+        }
+
         guard TagPredicate.compile(built) != nil else {
             return .failure(.unparseable(refusal(kind: kind, family: family)))
         }
@@ -178,7 +199,11 @@ enum TagConditionEditor {
             // Unreachable: an exact condition returns before the compile gate.
             return "Not usable here."
         case .unsupported(let raw):
-            // Reachable only if a caller hands back a kind read from storage.
+            // Reached through the `kind.isSupported` guard in `condition`,
+            // which routes an unsupported kind here before the family/operator
+            // agreement check can swallow it with a less useful message. That
+            // guard's only caller today hands back a kind read from storage —
+            // the picker never offers one — but this message is live, not dead.
             return "This build does not understand the operator \(DisplayEscape.escaped(raw))."
         }
     }

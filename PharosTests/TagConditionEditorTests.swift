@@ -170,5 +170,32 @@ func runTests() {
     expect(rejection("text", .unsupported("startsWith"), "a") != nil,
            "an unsupported kind cannot be authored")
 
+    // A family that cannot host an operator says SO, rather than blaming a
+    // value that is perfectly well formed. Not reachable through the picker —
+    // `operators(for:)` never offers a mismatched pair — but this function is
+    // the API the whole modal calls, and an error that lies at the boundary
+    // only bites once something else changes.
+    if case .wrongOperator(let message)? = rejection("text", .cidr, "10.0.0.0/8") {
+        expect(!message.isEmpty, "a wrong-operator refusal carries a message")
+        expect(!message.contains("CIDR"), "and does not blame the well-formed value")
+    } else {
+        expect(false, "a cidr against text is refused as a wrong operator")
+    }
+    expect(rejection("text", .greaterThan, "5") != nil,
+           "a comparator against text is refused")
+    if case .wrongOperator? = rejection("uuid", .glob, "a*") {
+        expect(true, "a glob against uuid is a wrong operator, not an unparseable value")
+    } else {
+        expect(false, "a glob against uuid is refused as a wrong operator")
+    }
+
+    // An unsupported kind keeps its OWN message. It appears in no family's
+    // operator list, so the agreement check must not swallow it.
+    if case .unparseable(let message)? = rejection("text", .unsupported("startsWith"), "a") {
+        expect(message.contains("startsWith"), "an unsupported kind is named in its refusal")
+    } else {
+        expect(false, "an unsupported kind is refused as unparseable, not wrong-operator")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
