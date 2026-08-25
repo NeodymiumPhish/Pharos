@@ -70,6 +70,26 @@ pub extern "C" fn pharos_update_tag(json: *const c_char) -> *mut c_char {
     })
 }
 
+/// Replace one rule's conditions in place, keeping its id and first-seen time.
+/// `json` is a JSON-encoded UpdateTagRule. Returns the number of rows changed
+/// as a decimal string.
+#[no_mangle]
+pub extern "C" fn pharos_update_tag_rule(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let json_str = unsafe { c_str_to_string(json) };
+        let payload: crate::models::UpdateTagRule = match serde_json::from_str(&json_str) {
+            Ok(p) => p,
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
+        };
+        match rt.block_on(crate::commands::update_tag_rule(state, payload)) {
+            Ok(count) => to_c_string(&count.to_string()),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
+        }
+    })
+}
+
 /// Delete a tag and, by cascade, its tuples. Returns "true" or "false".
 #[no_mangle]
 pub extern "C" fn pharos_delete_tag(tag_id: *const c_char) -> *mut c_char {

@@ -360,6 +360,13 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_update_tag(const char *json);
 
 /**
+ * Replace one rule's conditions in place, keeping its id and first-seen time.
+ * `json` is a JSON-encoded UpdateTagRule. Returns the number of rows changed
+ * as a decimal string.
+ */
+ char *pharos_update_tag_rule(const char *json);
+
+/**
  * Delete a tag and, by cascade, its tuples. Returns "true" or "false".
  */
  char *pharos_delete_tag(const char *tag_id);

@@ -100,6 +100,18 @@ pub struct UpdateTag {
     pub note: Option<String>,
 }
 
+/// One rule's conditions, replaced in place.
+///
+/// No `tag_id`: the rule id is a primary key. The tag is found by subquery when
+/// its `updated_at` is bumped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTagRule {
+    pub rule_id: String,
+    pub conditions: Vec<TagCondition>,
+    pub tuple_key: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +151,33 @@ mod tests {
 
         let sparse: UpdateTag = serde_json::from_str(r#"{"id":"t1"}"#).unwrap();
         assert_eq!(sparse.name, None);
+    }
+
+    /// Every key of an edit payload is REQUIRED, so a mis-cased one already
+    /// fails loudly rather than reading back as `None`. Pin the literal document
+    /// anyway: the property names are the wire contract with Swift, and a rename
+    /// on either side must break a test, not the app.
+    #[test]
+    fn update_rule_payload_decodes_swift_camel_case() {
+        let json = r#"{"ruleId":"u1","conditions":[{"family":"address","kind":"cidr",
+          "value":"10.0.0.0/8","operand2":null,"display":"10.0.0.0/8"}],
+          "tupleKey":"K7:addressV10:10.0.0.0/8"}"#;
+        let payload: UpdateTagRule = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rule_id, "u1");
+        assert_eq!(payload.tuple_key, "K7:addressV10:10.0.0.0/8");
+        assert_eq!(payload.conditions.len(), 1);
+        assert_eq!(payload.conditions[0].family, "address");
+        assert_eq!(payload.conditions[0].kind.as_deref(), Some("cidr"));
+        assert_eq!(payload.conditions[0].display, "10.0.0.0/8");
+
+        // snake_case is NOT the contract; the rename must be doing real work.
+        assert!(
+            serde_json::from_str::<UpdateTagRule>(
+                r#"{"rule_id":"u1","conditions":[],"tuple_key":"k"}"#
+            )
+            .is_err(),
+            "snake_case keys must be refused, or `rename_all` is not in force"
+        );
     }
 
     /// A SPARSE document pins the defaults and nothing more. A FULL literal

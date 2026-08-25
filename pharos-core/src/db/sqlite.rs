@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -930,6 +930,45 @@ pub fn add_tag_tuples(conn: &Connection, payload: &AddTagRules) -> SqliteResult<
     tx.execute("UPDATE tags SET updated_at = ?2 WHERE id = ?1", (&payload.tag_id, &now))?;
     tx.commit()?;
     Ok(inserted)
+}
+
+/// Replace one rule's conditions in place, keeping its id and `created_at`.
+///
+/// A plain `UPDATE`, NOT `UPDATE OR IGNORE`. The insert path ignores a conflict
+/// on purpose — re-tagging one row into one tag should be a no-op. An edit is
+/// the opposite: the analyst asked for a change, and one that silently vanished
+/// would be worse than one that failed. So a collision on
+/// `tag_tuples_identity` surfaces as an error. `TagManagerModel` blocks a
+/// colliding edit before it reaches here; this is the backstop for when that
+/// model is wrong.
+///
+/// `origin_connection` and `origin_table` are left alone: they record where the
+/// finding was first OBSERVED, which editing its conditions does not change.
+///
+/// Returns rows affected: 0 means no rule has that id.
+pub fn update_tag_rule(conn: &Connection, payload: &UpdateTagRule) -> SqliteResult<usize> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let values_json =
+        serde_json::to_string(&payload.conditions).unwrap_or_else(|_| "[]".to_string());
+    let tx = conn.unchecked_transaction()?;
+    let affected = tx.execute(
+        r#"
+        UPDATE tag_tuples SET tuple_values = ?2, tuple_key = ?3 WHERE id = ?1
+        "#,
+        (&payload.rule_id, &values_json, &payload.tuple_key),
+    )?;
+    // Only touch the tag when a rule actually moved.
+    if affected > 0 {
+        tx.execute(
+            r#"
+            UPDATE tags SET updated_at = ?2
+            WHERE id = (SELECT tag_id FROM tag_tuples WHERE id = ?1)
+            "#,
+            (&payload.rule_id, &now),
+        )?;
+    }
+    tx.commit()?;
+    Ok(affected)
 }
 
 fn read_tag_tuples(conn: &Connection, tag_id: &str) -> SqliteResult<Vec<TagRule>> {
@@ -2716,6 +2755,175 @@ mod tag_schema_tests {
         assert!(delete_tag(&conn, "tag-1").unwrap());
         assert!(load_tags(&conn).unwrap().is_empty());
         assert!(!delete_tag(&conn, "tag-1").unwrap(), "unknown id is false, not an error");
+    }
+
+    /// A tag with `keys.len()` rules, one condition each.
+    fn tag_with_rules(conn: &Connection, id: &str, keys: &[&str]) -> crate::models::Tag {
+        create_tag(
+            conn,
+            id,
+            &crate::models::CreateTag {
+                name: "Suspect infra".into(),
+                color_index: 2,
+                note: None,
+                rules: keys.iter().map(|k| sample_tuple(k, k)).collect(),
+            },
+        )
+        .unwrap()
+    }
+
+    fn edit(rule_id: &str, value: &str, key: &str) -> crate::models::UpdateTagRule {
+        crate::models::UpdateTagRule {
+            rule_id: rule_id.into(),
+            conditions: vec![crate::models::TagCondition {
+                family: "address".into(),
+                kind: None,
+                value: value.into(),
+                operand2: None,
+                display: value.into(),
+            }],
+            tuple_key: key.into(),
+        }
+    }
+
+    /// The whole point of the verb: a rule keeps its identity and the moment the
+    /// finding was first recorded. The delete-plus-add it replaces loses both.
+    #[test]
+    fn update_tag_rule_keeps_id_and_created_at() {
+        let conn = db();
+        let created = tag_with_rules(&conn, "tag-1", &["k1"]);
+        assert_eq!(created.rules.len(), 1, "fixture must have one rule");
+        let (id, created_at) = (created.rules[0].id.clone(), created.rules[0].created_at.clone());
+
+        let affected = update_tag_rule(&conn, &edit(&id, "10.0.0.1", "k1-edited")).unwrap();
+        assert_eq!(affected, 1);
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].rules.len(), 1, "an edit must not add a rule");
+        let after = &loaded[0].rules[0];
+        assert_eq!(after.id, id, "the rule id must survive an edit");
+        assert_eq!(after.created_at, created_at, "first-seen time must survive an edit");
+        assert_eq!(after.tuple_key, "k1-edited", "the key must be replaced");
+        assert_eq!(after.conditions.len(), 1);
+        assert_eq!(after.conditions[0].value, "10.0.0.1", "conditions must be replaced");
+        assert_eq!(after.conditions[0].family, "address");
+    }
+
+    /// Provenance records where the finding was first OBSERVED. Editing what it
+    /// matches does not move it to a different connection or table.
+    #[test]
+    fn update_tag_rule_keeps_origin_connection_and_table() {
+        let conn = db();
+        let created = tag_with_rules(&conn, "tag-1", &["k1"]);
+        assert_eq!(created.rules.len(), 1, "fixture must have one rule");
+        let rule = created.rules[0].clone();
+        assert_eq!(rule.origin_connection, "c1");
+        assert_eq!(rule.origin_table, "public.certs");
+
+        update_tag_rule(&conn, &edit(&rule.id, "10.0.0.1", "k1-edited")).unwrap();
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded[0].rules.len(), 1);
+        let after = &loaded[0].rules[0];
+        assert_eq!(after.origin_connection, "c1", "origin connection must survive an edit");
+        assert_eq!(after.origin_table, "public.certs", "origin table must survive an edit");
+    }
+
+    /// An edit is a change to the tag, exactly as an add is, so the tag's own
+    /// `updated_at` moves with it.
+    #[test]
+    fn update_tag_rule_bumps_the_tags_updated_at() {
+        let conn = db();
+        let created = tag_with_rules(&conn, "tag-1", &["k1"]);
+        assert_eq!(created.rules.len(), 1, "fixture must have one rule");
+        let before = created.updated_at.clone();
+
+        update_tag_rule(&conn, &edit(&created.rules[0].id, "10.0.0.1", "k1-edited")).unwrap();
+
+        let after = load_tags(&conn).unwrap()[0].updated_at.clone();
+        assert_ne!(
+            after, before,
+            "the tag's updated_at must move with the edit (equal strings here would \
+             mean the clock did not advance between two Utc::now() calls, which is \
+             worth investigating rather than ignoring)"
+        );
+        assert!(after > before, "updated_at must move FORWARD: {} -> {}", before, after);
+    }
+
+    /// 0, not an error, matching how `delete_tag` reports an unknown id. And the
+    /// tag is left completely alone — the bump is guarded on the rule count.
+    #[test]
+    fn an_unknown_rule_id_reports_zero_and_changes_nothing() {
+        let conn = db();
+        let created = tag_with_rules(&conn, "tag-1", &["k1"]);
+        assert_eq!(created.rules.len(), 1, "fixture must have one rule");
+        let before = created.rules[0].clone();
+
+        let affected = update_tag_rule(&conn, &edit("no-such-rule", "10.0.0.1", "k9")).unwrap();
+        assert_eq!(affected, 0, "an unknown rule id reports 0, not an error");
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded[0].updated_at, created.updated_at, "a no-op must not bump the tag");
+        assert_eq!(loaded[0].rules.len(), 1);
+        assert_eq!(loaded[0].rules[0].tuple_key, before.tuple_key);
+        assert_eq!(loaded[0].rules[0].conditions, before.conditions);
+    }
+
+    /// The test that pins `UPDATE` rather than `UPDATE OR IGNORE`. An analyst
+    /// asked for this change; an edit that silently vanished would be worse than
+    /// one that failed. So the collision on `tag_tuples_identity` must SURFACE,
+    /// and rule A must be genuinely unchanged afterwards, not merely reported as
+    /// failed.
+    #[test]
+    fn a_colliding_edit_fails_and_leaves_the_rule_untouched() {
+        let conn = db();
+        let created = tag_with_rules(&conn, "tag-1", &["k1", "k2"]);
+        assert_eq!(created.rules.len(), 2, "fixture must have two rules");
+        let rule_a = created.rules[0].clone();
+        let key_b = created.rules[1].tuple_key.clone();
+
+        let result = update_tag_rule(&conn, &edit(&rule_a.id, "10.0.0.1", &key_b));
+        assert!(
+            result.is_err(),
+            "a collision must be an error, never a silent no-op; got {:?}",
+            result
+        );
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded[0].rules.len(), 2, "both rules must still be there");
+        let after = loaded[0]
+            .rules
+            .iter()
+            .find(|r| r.id == rule_a.id)
+            .expect("rule A must still be there after a refused edit");
+        assert_eq!(after.tuple_key, rule_a.tuple_key, "a refused edit must not move the key");
+        assert_eq!(after.conditions, rule_a.conditions, "a refused edit must not move conditions");
+        assert_eq!(after.created_at, rule_a.created_at);
+        assert_eq!(
+            loaded[0].updated_at, created.updated_at,
+            "a refused edit must not bump the tag either"
+        );
+    }
+
+    /// The `updated_at` bump finds its tag by subquery on `tag_tuples.id`, which
+    /// is a PRIMARY KEY — so it can never resolve to more than one tag. Pin
+    /// that: a sibling tag holding its own rule must not move.
+    #[test]
+    fn the_bump_reaches_only_the_edited_rules_own_tag() {
+        let conn = db();
+        let one = tag_with_rules(&conn, "tag-1", &["k1"]);
+        let two = tag_with_rules(&conn, "tag-2", &["k9"]);
+        assert_eq!(one.rules.len(), 1, "fixture must have one rule");
+
+        update_tag_rule(&conn, &edit(&one.rules[0].id, "10.0.0.1", "k1-edited")).unwrap();
+
+        let loaded = load_tags(&conn).unwrap();
+        assert_eq!(loaded.len(), 2);
+        let sibling = loaded.iter().find(|t| t.id == "tag-2").expect("tag-2 must still be there");
+        assert_eq!(sibling.updated_at, two.updated_at, "an edit must bump ONE tag only");
+        assert_eq!(sibling.rules.len(), 1);
+        assert_eq!(sibling.rules[0].tuple_key, "k9", "a sibling rule must not move");
     }
 
     #[test]
