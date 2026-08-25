@@ -115,6 +115,7 @@
 		8C84EF40E4447DEAF3262BEE /* TagInspectorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61756089841C329775F79CBB /* TagInspectorModel.swift */; };
 		8E61FD82387576403E08F27E /* QueryFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E3B50BE19F7837639A56643 /* QueryFailure.swift */; };
 		9085B64F9C81AB9B96C72467 /* SchemaListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */; };
+		9136F4D3A5652DF9C508A828 /* TagRuleGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */; };
 		915C735DB5EE744A31495822 /* VariableListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1ACA16C38A777BDCF7104A /* VariableListView.swift */; };
 		93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */; };
 		957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51B7E42D0E3720183013836 /* VariableValuePreview.swift */; };
@@ -310,6 +311,7 @@
 		996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridVC.swift; sourceTree = "<group>"; };
 		9993005117CA5F91ED0A2692 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		99F4997A1B526AF0B5B07BB2 /* ResultsTagController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsTagController.swift; sourceTree = "<group>"; };
+		9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleGridView.swift; sourceTree = "<group>"; };
 		9EC681B504DAF0E904245D22 /* Pharos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pharos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValueTextView.swift; sourceTree = "<group>"; };
 		A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewRowCell.swift; sourceTree = "<group>"; };
@@ -715,6 +717,7 @@
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
 				7353499DAF1364777E974B1F /* TagConditionRowView.swift */,
+				9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */,
 				20973E948617F8AF21A804FE /* Toast.swift */,
 				A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */,
 			);
@@ -989,6 +992,7 @@
 				419548440610B3FAF2841187 /* TagPredicate.swift in Sources */,
 				6D36D71452C10B76F0579C71 /* TagRemovalModel.swift in Sources */,
 				06EEE52F9789159EA40A21E5 /* TagRemovalSheet.swift in Sources */,
+				9136F4D3A5652DF9C508A828 /* TagRuleGridView.swift in Sources */,
 				B10BAE7114021E9CC8BB03F5 /* TagRuleMatcher.swift in Sources */,
 				9FAE872307D0C9BFBD8D0236 /* TagRuleRemoving.swift in Sources */,
 				32EEF868E2B364546F9D3380 /* TagSheet.swift in Sources */,
