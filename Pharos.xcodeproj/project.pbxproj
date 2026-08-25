@@ -143,6 +143,7 @@
 		AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */; };
 		B0EB5E848C3BA0450A2EDF6E /* PharosCore+Query.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */; };
 		B10BAE7114021E9CC8BB03F5 /* TagRuleMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */; };
+		B2EA38316B8353EF9079F372 /* TagManagerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6DCF7AC5AC9DD6628EBDAF3 /* TagManagerSheet.swift */; };
 		B328811200CD6EBE799D2971 /* SchemaContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */; };
 		B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */; };
 		B4EC4931D5D8DDDEED9071DA /* ChartPaletteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */; };
@@ -365,6 +366,7 @@
 		DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerWindowController.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
 		E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostileTextBadge.swift; sourceTree = "<group>"; };
+		E6DCF7AC5AC9DD6628EBDAF3 /* TagManagerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerSheet.swift; sourceTree = "<group>"; };
 		E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableDDLSheet.swift; sourceTree = "<group>"; };
 		E81B37D867FA93870C9481FC /* PartitionOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionOrdering.swift; sourceTree = "<group>"; };
 		EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryResult.swift; sourceTree = "<group>"; };
@@ -587,6 +589,7 @@
 				819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */,
 				CEADE04C5F358D12DBAEFF53 /* SettingsSheet.swift */,
 				E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */,
+				E6DCF7AC5AC9DD6628EBDAF3 /* TagManagerSheet.swift */,
 				BDA3AF129CC899157F8D01DE /* TagManageSheet.swift */,
 				F78335C4D85F943A653333E3 /* TagRemovalSheet.swift */,
 				986BECC83F55A9FE5E857F27 /* TagSheet.swift */,
@@ -987,6 +990,7 @@
 				63752FE4D9E9EB235ED88219 /* TagManageSheet.swift in Sources */,
 				96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */,
 				65F348FC51CDFF4E92D5E98D /* TagManagerModel.swift in Sources */,
+				B2EA38316B8353EF9079F372 /* TagManagerSheet.swift in Sources */,
 				4048DB404CB9E8B2FEC98C0C /* TagMatchDisclosure.swift in Sources */,
 				B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */,
 				419548440610B3FAF2841187 /* TagPredicate.swift in Sources */,
