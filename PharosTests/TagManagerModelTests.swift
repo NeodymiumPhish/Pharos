@@ -117,7 +117,11 @@ func runTests() {
     // Adding a rule. A new rule has no id until it is saved.
     edit.addRule(toTagAt: 0, conditions: [condition("text", "new.example")])
     expect(edit.tags[0].rules.count == 2, "a rule can be added")
-    expect(edit.tags[0].rules[1].id == nil, "a new rule has no id yet")
+    // Rule 1 exists only because `addRule` appended it, so its index is guarded
+    // rather than assumed. A trap here would take the whole file's output down.
+    if edit.tags[0].rules.count == 2 {
+        expect(edit.tags[0].rules[1].id == nil, "a new rule has no id yet")
+    }
 
     // Adding a condition to an existing rule.
     expect(edit.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0),
@@ -160,9 +164,12 @@ func runTests() {
     var creating = TagManagerModel(tags: [stored], mode: .manage)
     creating.addTag(name: "New case", colorIndex: 3)
     expect(creating.tags.count == 2, "a tag can be added")
-    expect(creating.tags[1].id == nil, "a new tag has no id yet")
-    expect(creating.tags[1].note == "", "and an empty note, never nil")
-    expect(creating.tags[1].rules.isEmpty, "and no rules yet")
+    // Tag 1 exists only because `addTag` appended it. Guarded, not assumed.
+    if creating.tags.count == 2 {
+        expect(creating.tags[1].id == nil, "a new tag has no id yet")
+        expect(creating.tags[1].note == "", "and an empty note, never nil")
+        expect(creating.tags[1].rules.isEmpty, "and no rules yet")
+    }
 
     // Deleting a tag marks it, rather than dropping it from the array — the
     // sidebar keeps its indices stable while the sheet is open.
@@ -240,7 +247,9 @@ func runTests() {
     if case .create(let payload)? = createCommits.first {
         expect(payload.name == "New case", "the create carries the name")
         expect(payload.rules.count == 1, "and its rules")
-        expect(!payload.rules[0].tupleKey.isEmpty, "and a rule key derived for it")
+        // `.first?`, not `[0]` — the count above is an assertion, not a guard.
+        expect(payload.rules.first?.tupleKey.isEmpty == false,
+               "and a rule key derived for it")
     } else {
         expect(false, "a new tag writes a create")
     }
@@ -274,15 +283,26 @@ func runTests() {
     _ = reworked.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0)
     let reworkCommits = reworked.commits()
     expect(reworkCommits.count == 2, "editing a rule writes two commands")
-    if case .deleteRules(let ids) = reworkCommits[0] {
-        expect(ids == ["r1"], "the delete comes first, naming the old rule")
-    } else {
-        expect(false, "editing a rule deletes the old one first")
-    }
-    if case .addRules(let payload) = reworkCommits[1] {
-        expect(payload.rules[0].conditions.count == 3, "then adds the rebuilt rule")
-    } else {
-        expect(false, "editing a rule adds the rebuilt one second")
+    // Guarded, never indexed on the strength of the line above. A trap discards
+    // Swift's block-buffered stdout, so one out-of-range index would destroy the
+    // output of EVERY assertion in this file — including the one that just
+    // failed — and the run would then look exactly like a mutation that never
+    // applied.
+    if reworkCommits.count == 2 {
+        if case .deleteRules(let ids) = reworkCommits[0] {
+            expect(ids == ["r1"], "the delete comes first, naming the old rule")
+        } else {
+            expect(false, "editing a rule deletes the old one first")
+        }
+        if case .addRules(let payload) = reworkCommits[1] {
+            if payload.rules.count == 1 {
+                expect(payload.rules[0].conditions.count == 3, "then adds the rebuilt rule")
+            } else {
+                expect(false, "then adds the rebuilt rule")
+            }
+        } else {
+            expect(false, "editing a rule adds the rebuilt one second")
+        }
     }
 
     // Deleting a tag writes one command and nothing else — no point updating a
