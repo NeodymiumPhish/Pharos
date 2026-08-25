@@ -199,5 +199,147 @@ func runTests() {
     expect(!ranges.removeCondition(at: 99, fromRuleAt: 0, inTagAt: 0),
            "a stale condition index inside a live rule is refused")
 
+    // MARK: deriving the save
+
+    // Nothing touched, nothing written. This is the property that makes Save
+    // safe to press twice.
+    expect(TagManagerModel(tags: [stored], mode: .manage).commits().isEmpty,
+           "an untouched model writes nothing")
+
+    // A rename writes an update carrying ONLY the identity fields. It must never
+    // carry conditions — that is what lets a tag holding a rule this build
+    // cannot understand still be renamed without destroying it.
+    var renamed = TagManagerModel(tags: [stored], mode: .manage)
+    renamed.rename(tagAt: 0, to: "Renamed")
+    let renameCommits = renamed.commits()
+    expect(renameCommits.count == 1, "a rename writes one command")
+    if case .update(let payload)? = renameCommits.first {
+        expect(payload.id == "t1", "the update names the tag")
+        expect(payload.name == "Renamed", "and carries the new name")
+        expect(payload.colorIndex == 2, "and the unchanged colour")
+    } else {
+        expect(false, "a rename writes an update")
+    }
+
+    // A note cleared to empty is written as an empty STRING, not nil — a nil
+    // field means "leave it alone" in this payload, so nil could never clear it.
+    var cleared = TagManagerModel(tags: [stored], mode: .manage)
+    cleared.note(tagAt: 0, to: "")
+    if case .update(let payload)? = cleared.commits().first {
+        expect(payload.note == "", "a cleared note is written as empty text, not nil")
+    } else {
+        expect(false, "clearing a note writes an update")
+    }
+
+    // A brand-new tag writes a create carrying its rules, and no update.
+    var created = TagManagerModel(tags: [], mode: .manage)
+    created.addTag(name: "New case", colorIndex: 1)
+    created.addRule(toTagAt: 0, conditions: [condition("text", "evil.com")])
+    let createCommits = created.commits()
+    expect(createCommits.count == 1, "a new tag writes exactly one command")
+    if case .create(let payload)? = createCommits.first {
+        expect(payload.name == "New case", "the create carries the name")
+        expect(payload.rules.count == 1, "and its rules")
+        expect(!payload.rules[0].tupleKey.isEmpty, "and a rule key derived for it")
+    } else {
+        expect(false, "a new tag writes a create")
+    }
+
+    // A new rule on an EXISTING tag writes an add, not a create.
+    var grown = TagManagerModel(tags: [stored], mode: .manage)
+    grown.addRule(toTagAt: 0, conditions: [condition("text", "new.example")])
+    let growCommits = grown.commits()
+    expect(growCommits.count == 1, "adding a rule writes one command")
+    if case .addRules(let payload)? = growCommits.first {
+        expect(payload.tagId == "t1", "the add names the tag")
+        expect(payload.rules.count == 1, "and carries the one new rule")
+    } else {
+        expect(false, "a new rule on an existing tag writes an add")
+    }
+
+    // Deleting a rule writes its id.
+    var pruned = TagManagerModel(tags: [stored], mode: .manage)
+    pruned.removeRule(at: 0, fromTagAt: 0)
+    if case .deleteRules(let ids)? = pruned.commits().first {
+        expect(ids == ["r1"], "deleting a rule writes its id")
+    } else {
+        expect(false, "deleting a rule writes a delete")
+    }
+
+    // EDITING an existing rule is delete-then-add, because the store has no
+    // update-rule command. Both halves must be written, and the delete must
+    // come FIRST — the unique index on (tag_id, tuple_key) would otherwise
+    // refuse the add when only a display value changed.
+    var reworked = TagManagerModel(tags: [stored], mode: .manage)
+    _ = reworked.addCondition(condition("numeric", "443"), toRuleAt: 0, inTagAt: 0)
+    let reworkCommits = reworked.commits()
+    expect(reworkCommits.count == 2, "editing a rule writes two commands")
+    if case .deleteRules(let ids) = reworkCommits[0] {
+        expect(ids == ["r1"], "the delete comes first, naming the old rule")
+    } else {
+        expect(false, "editing a rule deletes the old one first")
+    }
+    if case .addRules(let payload) = reworkCommits[1] {
+        expect(payload.rules[0].conditions.count == 3, "then adds the rebuilt rule")
+    } else {
+        expect(false, "editing a rule adds the rebuilt one second")
+    }
+
+    // Deleting a tag writes one command and nothing else — no point updating a
+    // tag that is about to go.
+    var dropped = TagManagerModel(tags: [stored], mode: .manage)
+    dropped.rename(tagAt: 0, to: "doomed")
+    dropped.deleteTag(at: 0)
+    let dropCommits = dropped.commits()
+    expect(dropCommits.count == 1, "a deleted tag writes exactly one command")
+    if case .deleteTag(let id)? = dropCommits.first {
+        expect(id == "t1", "and it is the delete")
+    } else {
+        expect(false, "a deleted tag writes a delete")
+    }
+
+    // A tag created and then deleted in the same session writes NOTHING — it
+    // never reached the store, so there is nothing to undo.
+    var churned = TagManagerModel(tags: [], mode: .manage)
+    churned.addTag(name: "brief", colorIndex: 0)
+    churned.deleteTag(at: 0)
+    expect(churned.commits().isEmpty, "a tag created and deleted in one session writes nothing")
+
+    // A new tag with no rules still writes a create: a named case with no
+    // indicators yet is a legitimate thing to make.
+    var empty = TagManagerModel(tags: [], mode: .manage)
+    empty.addTag(name: "empty case", colorIndex: 0)
+    expect(empty.commits().count == 1, "a new tag with no rules is still created")
+
+    // MARK: what blocks Save
+
+    expect(TagManagerModel(tags: [stored], mode: .manage).saveBlocker() == .noChanges,
+           "an untouched model cannot be saved")
+    expect(renamed.saveBlocker() == nil, "a rename can be saved")
+
+    // A rule stripped of every condition blocks Save. It would be inert in the
+    // matcher and noise in the store, and it is almost certainly a half-finished
+    // edit rather than an intent.
+    var hollow = TagManagerModel(tags: [stored], mode: .manage)
+    _ = hollow.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0)
+    _ = hollow.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0)
+    expect(hollow.saveBlocker() == .emptyRule(tagIndex: 0, ruleIndex: 0),
+           "a rule with no conditions blocks Save, and says which")
+
+    // A rule that arrived EMPTY from a corrupt blob must NOT block Save, or its
+    // tag could never be renamed again. Only a rule emptied in this session does.
+    let corrupt = storedTag("t5", "corrupt", [storedRule("r5", [])])
+    var corruptEdit = TagManagerModel(tags: [corrupt], mode: .manage)
+    corruptEdit.rename(tagAt: 0, to: "renamed anyway")
+    expect(corruptEdit.saveBlocker() == nil,
+           "a rule that arrived empty does not block Save")
+
+    // A tag holding a rule this build cannot understand is still saveable —
+    // an update carries no conditions, so it cannot rewrite the unknown rule.
+    var futureRename = TagManagerModel(tags: [storedTag("t3", "future", [future])], mode: .manage)
+    futureRename.rename(tagAt: 0, to: "still fine")
+    expect(futureRename.saveBlocker() == nil,
+           "a tag holding an unknown rule can still be saved")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

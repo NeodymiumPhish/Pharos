@@ -9,6 +9,8 @@ swiftc -o /tmp/tag-manager-model-tests \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Core/RuleKey.swift \
+  Pharos/Core/RowFingerprint.swift \
   Pharos/Models/Tag.swift \
   PharosTests/TagManagerModelTests.swift \
   PharosTests/main.swift

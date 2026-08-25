@@ -35,6 +35,45 @@ struct EditableTag: Equatable {
     var rules: [EditableRule]
 }
 
+// MARK: - TagManagerCommit
+
+/// One thing the manager wants written.
+///
+/// An explicit list rather than the sheet calling the store as it goes. Two
+/// reasons: the sheet's own harness can assert exactly what WOULD be written
+/// with no store in the binary, and `TagStore.reloadTags` posts a global change
+/// that rebuilds every open grid's match — so a per-keystroke write would
+/// rebuild the app's grids on every character typed.
+enum TagManagerCommit: Equatable {
+    case create(CreateTag)
+    case update(UpdateTag)
+    case addRules(AddTagRules)
+    case deleteRules([String])
+    case deleteTag(String)
+}
+
+// The three write payloads are `Codable` but not `Equatable`, and
+// `TagManagerCommit` must be comparable for the suite to assert what a save
+// would write. `internal`, NOT `public` — these types are internal, and a
+// `public` operator on an internal type does not compile.
+extension CreateTag: Equatable {
+    static func == (a: CreateTag, b: CreateTag) -> Bool {
+        a.name == b.name && a.colorIndex == b.colorIndex && a.note == b.note && a.rules == b.rules
+    }
+}
+
+extension UpdateTag: Equatable {
+    static func == (a: UpdateTag, b: UpdateTag) -> Bool {
+        a.id == b.id && a.name == b.name && a.colorIndex == b.colorIndex && a.note == b.note
+    }
+}
+
+extension AddTagRules: Equatable {
+    static func == (a: AddTagRules, b: AddTagRules) -> Bool {
+        a.tagId == b.tagId && a.rules == b.rules
+    }
+}
+
 // MARK: - TagManagerModel
 
 /// Every decision the Tag Manager makes, with no AppKit in sight.
@@ -205,5 +244,126 @@ struct TagManagerModel {
               tags[tagIndex].rules.indices.contains(ruleIndex)
         else { return false }
         return tags[tagIndex].rules[ruleIndex].isEditable
+    }
+
+    // MARK: Saving
+
+    /// Why Save is unavailable, or nil when it is.
+    enum SaveBlocker: Equatable {
+        case noChanges
+        /// A rule stripped of every condition. It would be inert in the matcher
+        /// and noise in the store, and it is almost certainly a half-finished
+        /// edit rather than an intent.
+        case emptyRule(tagIndex: Int, ruleIndex: Int)
+    }
+
+    /// Nothing about an unsupported rule blocks Save. An `UpdateTag` carries
+    /// only name, colour and note — never conditions — so saving can never
+    /// rewrite a rule this build does not understand, and blocking would make
+    /// such a tag permanently uneditable for no gain.
+    func saveBlocker() -> SaveBlocker? {
+        for (tagIndex, tag) in tags.enumerated() where !deleted.contains(tagIndex) {
+            for (ruleIndex, rule) in tag.rules.enumerated() where rule.conditions.isEmpty {
+                // A rule that arrived EMPTY is not the analyst's doing. The Rust
+                // CRUD decodes a corrupt `tuple_values` blob to an empty list
+                // rather than failing the load, so such a rule can exist in the
+                // store — and blocking on it would make its tag permanently
+                // unsaveable, unable even to be renamed. Only a rule emptied
+                // HERE blocks.
+                let wasAlreadyEmpty = rule.id
+                    .flatMap { id in stored[tag.id ?? ""]?.rules.first { $0.id == id } }
+                    .map(\.conditions.isEmpty) ?? false
+                guard !wasAlreadyEmpty else { continue }
+                return .emptyRule(tagIndex: tagIndex, ruleIndex: ruleIndex)
+            }
+        }
+        return commits().isEmpty ? .noChanges : nil
+    }
+
+    /// Everything to write, in the order it must be written.
+    ///
+    /// Derived by comparing each edited tag against the stored one it came from,
+    /// rather than from a dirty flag maintained by hand — a flag can drift out
+    /// of step with what actually changed, and this cannot.
+    func commits() -> [TagManagerCommit] {
+        var out: [TagManagerCommit] = []
+        for (index, tag) in tags.enumerated() {
+            // A tag deleted this session: one command, and nothing else. There
+            // is no point updating a tag that is about to go — and a tag both
+            // CREATED and deleted here never reached the store at all, so it
+            // needs no command.
+            if deleted.contains(index) {
+                if let id = tag.id { out.append(.deleteTag(id)) }
+                continue
+            }
+
+            guard let id = tag.id, let before = stored[id] else {
+                // A tag the analyst made this session.
+                out.append(.create(CreateTag(
+                    name: tag.name, colorIndex: tag.colorIndex,
+                    note: tag.note.isEmpty ? nil : tag.note,
+                    rules: tag.rules.compactMap(Self.newRule))))
+                continue
+            }
+
+            // Identity. An empty note is written as an empty STRING, never nil:
+            // nil means "leave it alone" in this payload, so nil could never
+            // clear a note.
+            if tag.name != before.name || tag.colorIndex != before.colorIndex
+                || tag.note != (before.note ?? "") {
+                out.append(.update(UpdateTag(id: id, name: tag.name,
+                                             colorIndex: tag.colorIndex, note: tag.note)))
+            }
+
+            // Rules. Three groups: gone, new, and rebuilt.
+            let beforeRules = Dictionary(before.rules.map { ($0.id, $0) },
+                                         uniquingKeysWith: { first, _ in first })
+            let survivingIds = Set(tag.rules.compactMap(\.id))
+            let goneIds = before.rules.map(\.id).filter { !survivingIds.contains($0) }
+
+            var rebuiltIds: [String] = []
+            var added: [NewTagRule] = []
+            for rule in tag.rules {
+                guard let ruleId = rule.id else {
+                    if let new = Self.newRule(rule) { added.append(new) }
+                    continue
+                }
+                guard let beforeRule = beforeRules[ruleId],
+                      beforeRule.conditions != rule.conditions else { continue }
+                // Edited. The store has no update-rule command, so this is a
+                // delete plus an add — which costs the rule its `createdAt`.
+                // A `pharos_update_tag_rule` command that preserves id and
+                // timestamp is the fix, and is deliberately out of scope.
+                rebuiltIds.append(ruleId)
+                if let new = Self.newRule(rule) { added.append(new) }
+            }
+
+            // Deletes FIRST. The unique index on (tag_id, tuple_key) would
+            // otherwise refuse the add of a rebuilt rule whose key did not
+            // change — an edit that only touched a display value.
+            let deletes = goneIds + rebuiltIds
+            if !deletes.isEmpty { out.append(.deleteRules(deletes)) }
+            if !added.isEmpty { out.append(.addRules(AddTagRules(tagId: id, rules: added))) }
+        }
+        return out
+    }
+
+    /// One editable rule as the store receives it, or nil when it holds nothing.
+    ///
+    /// `RuleKey.encode` is the only producer of a rule key, and it returns nil
+    /// for an empty rule — which `saveBlocker` has already refused, so this
+    /// `compactMap` is a belt to that braces.
+    ///
+    /// `originConnection` and `originTable` are empty for an authored rule: it
+    /// has no origin row. They are provenance only and no code gates on them. A
+    /// rule that came from a grid selection carries the real values through
+    /// `Mode.add`'s draft, which a later phase wires up.
+    private static func newRule(_ rule: EditableRule) -> NewTagRule? {
+        guard let key = RuleKey.encode(rule.conditions.map {
+            RuleConditionKey(kind: $0.kind, family: $0.family,
+                             value: $0.value, operand2: $0.operand2)
+        }) else { return nil }
+        return NewTagRule(conditions: rule.conditions, tupleKey: key,
+                          originConnection: "", originTable: "")
     }
 }
