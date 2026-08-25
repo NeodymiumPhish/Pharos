@@ -409,23 +409,10 @@ func runTests() {
         }
     }
 
-    // An empty rule still outranks a duplicate: it is the more basic problem
-    // and its message is more actionable.
-    var bothWrong = TagManagerModel(tags: [twoRules], mode: .manage)
-    _ = bothWrong.removeCondition(at: 0, fromRuleAt: 0, inTagAt: 0)
-    _ = bothWrong.replaceCondition(at: 0, inRuleAt: 1, ofTagAt: 0,
-                                   with: condition("text", "two.example"))
-    if case .emptyRule? = bothWrong.saveBlocker() {
-        expect(true, "an empty rule outranks a duplicate")
-    } else {
-        expect(false, "an empty rule outranks a duplicate")
-    }
-
-    // The same precedence, with a duplicate that is really THERE. The case
-    // above cannot see it: rule 1 is replaced with the value it already holds,
-    // so nothing is edited and no two rules ever share a key. Here rule 2 moves
-    // onto rule 1's key, so a duplicate genuinely exists — and the emptied rule
-    // must still be the one reported.
+    // An empty rule outranks a duplicate: it is the more basic problem and its
+    // message is more actionable. The duplicate has to be REALLY THERE for this
+    // to test anything — rule 0 is emptied, and rule 2 moves onto rule 1's key,
+    // so both blockers hold at once and only the empty one may be reported.
     let threeRules = storedTag("t10", "three", [
         storedRule("r10a", [condition("text", "one.example")]),
         storedRule("r10b", [condition("text", "two.example")]),

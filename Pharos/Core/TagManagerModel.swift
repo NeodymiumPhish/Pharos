@@ -271,6 +271,15 @@ struct TagManagerModel {
         /// occupied key errors — `sqlite::update_tag_rule` is a plain `UPDATE`
         /// deliberately — so only that must block. Blocking the harmless case
         /// too would refuse something the app has always allowed.
+        ///
+        /// Wider than "what SQLite would refuse", in one case, deliberately: an
+        /// edited rule and a newly ADDED rule on one key would succeed, because
+        /// the update runs onto a free key and `INSERT OR IGNORE` absorbs the
+        /// add. Blocking it anyway is the better answer twice over. `apply` has
+        /// no enclosing transaction, so an under-block can leave a half-written
+        /// save. And allowing it means the analyst made two rules, watched the
+        /// save succeed, and found one afterwards with no explanation — this
+        /// says "these are the same finding" while they can still fix it.
         case duplicateRule(tagIndex: Int, ruleIndex: Int)
     }
 
@@ -311,14 +320,10 @@ struct TagManagerModel {
     /// conditions is skipped because `emptyRule` above has already refused it
     /// and `RuleKey.encode` has no key for one anyway.
     ///
-    /// One case is refused that SQLite would in fact accept: an EDITED rule and
-    /// a newly ADDED one landing on the same key. The update runs first, onto a
-    /// key nothing holds, and the add behind it is then absorbed — nothing
-    /// errors. It is refused anyway, deliberately on the conservative side:
-    /// `TagStore.apply` writes the commands one at a time with no enclosing
-    /// transaction, so a wrong answer in the other direction leaves a
-    /// half-written save. The rule named is the added one, which is the one to
-    /// drop.
+    /// One case is refused that SQLite would in fact accept — an EDITED rule and
+    /// a newly ADDED one on one key. `SaveBlocker.duplicateRule` records why
+    /// that width is wanted. The rule named there is the added one, which is
+    /// the one to drop.
     private func duplicateRuleBlocker() -> SaveBlocker? {
         for (tagIndex, tag) in tags.enumerated() where !deleted.contains(tagIndex) {
             // key -> was the FIRST rule holding it an edit.
