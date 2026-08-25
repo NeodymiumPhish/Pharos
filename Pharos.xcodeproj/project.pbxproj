@@ -130,6 +130,7 @@
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
 		A120CA2AA04F952185155B87 /* QueryDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */; };
 		A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */; };
+		A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */; };
 		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
@@ -229,6 +230,7 @@
 		24970168104D1359837B89EF /* TaggedRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaggedRowView.swift; sourceTree = "<group>"; };
 		264FF44EDD39F675DE642D7B /* ChartTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartTypes.swift; sourceTree = "<group>"; };
 		267FBF59C6FA236284E961CC /* HistoryRowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRowText.swift; sourceTree = "<group>"; };
+		29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagConditionEditor.swift; sourceTree = "<group>"; };
 		2A11259CEF977B988D8D542B /* TagPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPalette.swift; sourceTree = "<group>"; };
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLErrorLocation.swift; sourceTree = "<group>"; };
@@ -627,6 +629,7 @@
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
+				29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */,
 				3100894A7037A0DB0C24E782 /* TagConditionKind.swift */,
 				0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */,
 				8870AA5A4E803E6824897E6C /* TagDraft.swift */,
@@ -959,6 +962,7 @@
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
+				A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */,
 				C15E7F3DE79893F32AB4E3B7 /* TagConditionKind.swift in Sources */,
 				131D6EEE108B0D2C3C469E7F /* TagCopyScope.swift in Sources */,
 				237A68781035A34B9C7EF7DD /* TagDraft.swift in Sources */,
