@@ -35,6 +35,28 @@ enum TagConditionEditor {
         }
     }
 
+    /// The words for an operator in a picker, which differ by family: `>` on a
+    /// number reads as `after` on a date.
+    ///
+    /// Not `rawValue` — that is the wire string. A picker showing
+    /// `greaterOrEqual` would be the model leaking into the interface.
+    static func label(for kind: TagConditionKind, family: String) -> String {
+        let temporal = family == TagValueNormalizer.temporalFamily
+        switch kind {
+        case .exact: return "is"
+        case .glob: return "matches"
+        case .cidr: return "in range"
+        case .greaterThan: return temporal ? "after" : ">"
+        case .greaterOrEqual: return temporal ? "on or after" : "≥"
+        case .lessThan: return temporal ? "before" : "<"
+        case .lessOrEqual: return temporal ? "on or before" : "≤"
+        case .between: return "between"
+        // A kind from a newer build has no words of ours. Its own raw value is
+        // the only honest label, escaped because it is stored text.
+        case .unsupported(let raw): return DisplayEscape.escaped(raw)
+        }
+    }
+
     /// Does this operator take an upper bound as well?
     ///
     /// Only `between`, and it must be ONE condition rather than two

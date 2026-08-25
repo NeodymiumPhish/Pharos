@@ -81,6 +81,39 @@ func runTests() {
     expect(TagConditionEditor.operators(for: "text").allSatisfy { $0.isSupported },
            "the picker never offers an unsupported kind")
 
+    // MARK: operator labels
+
+    // The picker shows WORDS, never the wire string. Every operator a family
+    // offers must have some, in every family that offers it.
+    for (family, familyLabel) in TagFamilyLabel.known {
+        for kind in TagConditionEditor.operators(for: family) {
+            expect(!TagConditionEditor.label(for: kind, family: family).isEmpty,
+                   "\(familyLabel)/\(kind.rawValue) has words for the picker")
+        }
+    }
+
+    // The same kind reads differently per family: `>` on a number is `after` on
+    // a date. That is the whole reason the family is a parameter here.
+    expect(TagConditionEditor.label(for: .greaterThan, family: "numeric") == ">",
+           "greaterThan on a number is the comparator itself")
+    expect(TagConditionEditor.label(for: .greaterThan, family: "temporal") == "after",
+           "greaterThan on a date reads as after")
+
+    // A kind from a newer build has no words of ours, so it wears its own raw
+    // value rather than an empty row.
+    expect(TagConditionEditor.label(for: .unsupported("startsWith"), family: "text")
+            .contains("startsWith"),
+           "an unsupported kind is labelled with its own raw value")
+
+    // A picker with two identical rows is unusable: the analyst cannot tell
+    // which one they are choosing, and neither can a reader of the saved rule.
+    for (family, familyLabel) in TagFamilyLabel.known {
+        let labels = TagConditionEditor.operators(for: family)
+            .map { TagConditionEditor.label(for: $0, family: family) }
+        expect(Set(labels).count == labels.count,
+               "no two operators of \(familyLabel) share a label (\(labels.joined(separator: ", ")))")
+    }
+
     // MARK: validation
 
     func build(_ family: String, _ kind: TagConditionKind, _ value: String,
