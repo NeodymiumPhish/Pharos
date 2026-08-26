@@ -927,8 +927,32 @@ final class TagManagerSheet: NSViewController,
     }
 
     private func quoted(_ name: String) -> String {
-        let escaped = DisplayEscape.escaped(name)
+        let escaped = displayName(name)
         return escaped.isEmpty ? "the unnamed tag" : "\u{201C}\(escaped)\u{201D}"
+    }
+
+    /// One tag's name as this sheet draws it anywhere but the field itself:
+    /// the sidebar row, its tooltip, and every sentence naming a tag in the
+    /// footer or an alert. TRIMMED, then escaped — not the raw name, which
+    /// is `TagManagerModel.committedName`'s edge-space disclosure bug this
+    /// method exists to fix (a name typed as `Test ` mid-word must not read
+    /// `Test<U+0020>` before the analyst has even finished the word), and not
+    /// `committedName(name)` either, despite that being the form the store
+    /// will actually receive.
+    ///
+    /// `committedName` SANITISES before it trims, and sanitising does not
+    /// disclose a hostile scalar — it REMOVES one, same as the name field
+    /// does per keystroke. Piping every stored name through it here would
+    /// make a bidi override in a name typed this session invisible, which is
+    /// correct (the field already denied it entry, so there is nothing left
+    /// to show), but it would ALSO make one in a name stored before that
+    /// field rule existed invisible — silently, with no `<U+XXXX>` marking
+    /// where it stood. `DisplayEscape` exists precisely so a hostile scalar
+    /// in somebody else's data is never swallowed like that. Trimming alone
+    /// carries no such risk: whitespace is never the scalar an override or a
+    /// zero-width character needs hidden behind.
+    private func displayName(_ name: String) -> String {
+        DisplayEscape.escaped(name.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     // MARK: Identity edits
@@ -1204,16 +1228,18 @@ final class TagManagerSheet: NSViewController,
         let cell = tableView.makeView(withIdentifier: identifier, owner: self)
             as? NSTableCellView ?? Self.makeRowCell(identifier)
         cell.imageView?.image = TagPalette.swatch(colorIndex: tag.colorIndex)
-        // ESCAPED, unlike the editable name field above: this row is drawn in
-        // the app's own voice and is what the analyst reads before pressing
-        // Delete, and nothing reads it back.
+        // TRIMMED then ESCAPED (`displayName`), unlike the editable name field
+        // above: this row is drawn in the app's own voice and is what the
+        // analyst reads before pressing Delete, and nothing reads it back — so
+        // a trailing space typed a moment ago and about to be trimmed at Save
+        // has no business appearing here as a mid-word `<U+0020>`.
         //
         // The count is the EDITED one, rules added this session included. Every
         // other surface in this sheet shows the edit in progress, and a sidebar
         // saying "2 rules" beside a grid drawing three would have the two
         // disagree about the same tag while the analyst looks at both.
         let count = tag.rules.count
-        let name = DisplayEscape.escaped(tag.name)
+        let name = displayName(tag.name)
         cell.textField?.stringValue = "\(name) — \(count) rule\(count == 1 ? "" : "s")"
         // The full name, because the label truncates. The removal sheet this
         // manager replaced carried it in a group header; without this, two tags

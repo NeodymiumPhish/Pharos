@@ -593,6 +593,55 @@ func runTests() {
     expectTrue(!rowText(sheet, 2).contains(bidi),
                "so the override itself never reaches the row")
 
+    // MARK: 1a — a trailing space typed mid-word does not appear anywhere the
+    // sheet draws the name back — the sidebar row, its tooltip, or the footer.
+    //
+    // `TagManagerModel.committedName` TRIMS a name before it reaches the
+    // store, so a name typed as "Test " is going to become "Test" the moment
+    // Save runs. Disclosing the space in the meantime — as `Test<U+0020>` —
+    // showed a state the database can never hold, in the middle of ordinary
+    // typing, which is the defect this MARK pins shut.
+    let spaced = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()))
+    host(spaced)
+    select(spaced, row: 0)
+    type(spaced.nameField, "Test ")
+    expectString(spaced.nameField.stringValue, "Test ",
+                 "the FIELD keeps exactly what was typed, trailing space "
+                 + "included — trimming it here would fight ordinary typing "
+                 + "and the analyst could never type 'Test Case'")
+    expectString(rowText(spaced, 0), "Test — 2 rules",
+                 "the sidebar shows the trimmed form, not 'Test\u{2039}U+0020\u{203A}'")
+    expectString(rowToolTip(spaced, 0), "Test",
+                 "and the tooltip, which carries the same name, agrees")
+    tickCapture(spaced, 0, true, "the address column")
+    tickCapture(spaced, 1, true, "the host column")
+    expectString(spaced.statusLabel.stringValue,
+                 "Saving adds 3 rules to \u{201C}Test\u{201D}, one per selected row.",
+                 "and the footer names the tag by the name that will be saved, "
+                 + "not the raw one with its trailing space")
+
+    // MARK: 1b — both ends trim
+
+    let bothEnds = makeSheet(RecordingCommitter())
+    host(bothEnds)
+    select(bothEnds, row: 0)
+    type(bothEnds.nameField, "  Test  ")
+    expectString(rowText(bothEnds, 0), "Test — 2 rules",
+                 "leading AND trailing spaces are trimmed, not just the trailing one")
+
+    // MARK: 1c — a name of nothing but whitespace shows as EMPTY, not as a
+    // row of escape tokens, and Save stays blocked exactly as MARK 40 pins.
+
+    let blank = makeSheet(RecordingCommitter())
+    host(blank)
+    select(blank, row: 0)
+    type(blank.nameField, "   ")
+    expectString(rowText(blank, 0), " — 2 rules",
+                 "the sidebar shows the name as empty rather than as "
+                 + "'<U+0020\u{00D7}3>' or similar")
+    expectTrue(!blank.saveButton.isEnabled,
+               "and Save stays blocked, same as it is for the field alone")
+
     // MARK: 8a — Save is disabled with nothing changed, and says why
 
     expectTrue(!sheet.saveButton.isEnabled, "a sheet with no edits cannot be saved")

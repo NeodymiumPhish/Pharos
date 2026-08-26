@@ -506,7 +506,16 @@ struct TagManagerModel {
     /// you just typed would fight ordinary typing mid-word, so the three sheets
     /// this manager replaced each trimmed on the one line that reached the
     /// store — which is this one.
-    private static func committedName(_ raw: String) -> String {
+    ///
+    /// INTERNAL, not private: `TagManagerSheet` calls this too, for the
+    /// "unnamed tag" fallback and to decide what an edited name settles to.
+    /// The sheet's own row/tooltip/footer text stops short of the SANITISE
+    /// half of this for a hostile stored name — see its `displayName(_:)` —
+    /// because that half REMOVES a bidi override rather than disclosing it,
+    /// and a name typed this session can never hold one to begin with (the
+    /// field denies it entry per keystroke), so the two answers agree on
+    /// everything this sheet can actually produce.
+    static func committedName(_ raw: String) -> String {
         AuthoredLabelSanitizer.sanitized(raw)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
