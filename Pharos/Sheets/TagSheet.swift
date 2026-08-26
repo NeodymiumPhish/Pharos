@@ -309,9 +309,9 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         let previewTag = TagDraft.previewTag(tuples: tuples)
 
         guard rows.count > Self.asyncCountThreshold else {
-            show(matched: TagRuleMatcher.matchCount(tag: previewTag,
-                                                     columns: columns, rows: rows),
-                 loaded: rows.count)
+            let counts = TagRuleMatcher.matchCounts(tag: previewTag,
+                                                     columns: columns, rows: rows)
+            show(matched: counts.solid + counts.partial, loaded: rows.count)
             return
         }
 
@@ -321,8 +321,9 @@ final class TagSheet: NSViewController, NSTextFieldDelegate {
         countLabel.stringValue = "Counting…"
         warningLabel.stringValue = ""
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let matched = TagRuleMatcher.matchCount(tag: previewTag,
+            let counts = TagRuleMatcher.matchCounts(tag: previewTag,
                                                      columns: columns, rows: rows)
+            let matched = counts.solid + counts.partial
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.countGeneration == generation else { return }

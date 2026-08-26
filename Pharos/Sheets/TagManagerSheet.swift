@@ -59,7 +59,8 @@ final class TagManagerSheet: NSViewController,
     /// function that blocks on a semaphore it controls; production uses the real
     /// matcher. Racing the real one by timing would be a flaky test pretending
     /// to be a guarantee.
-    var countMatches: (Tag, [ColumnDef], [[String?]]) -> Int = TagRuleMatcher.matchCount
+    var countMatches: (Tag, [ColumnDef], [[String?]]) -> (solid: Int, partial: Int)
+        = TagRuleMatcher.matchCounts
 
     /// Bumped by every count started, so a slow background count that lands
     /// after a newer one is discarded instead of overwriting a fresher number.
@@ -686,30 +687,48 @@ final class TagManagerSheet: NSViewController,
         let count = countMatches
 
         guard rows.count > Self.asyncCountThreshold else {
-            show(matched: count(preview, columns, rows), loaded: rows.count)
+            let counts = count(preview, columns, rows)
+            show(solid: counts.solid, partial: counts.partial, loaded: rows.count)
             return
         }
 
         countLabel.stringValue = "Counting…"
         warningLabel.stringValue = ""
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let matched = count(preview, columns, rows)
+            let counts = count(preview, columns, rows)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.countGeneration == generation else { return }
-                    self.show(matched: matched, loaded: rows.count)
+                    self.show(solid: counts.solid, partial: counts.partial, loaded: rows.count)
                 }
             }
         }
     }
 
     /// The footer, from a finished count.
-    private func show(matched: Int, loaded: Int) {
-        countLabel.stringValue = "Matches \(matched) of \(loaded) loaded rows."
+    ///
+    /// `solid` is what the tag CLAIMS — one whole rule present in the row —
+    /// and is the number that falls when a rule tightens. `partial` is what
+    /// the tag merely TOUCHES: rows a rule is halfway satisfied against, which
+    /// tint in the grid too but are not claimed. Stating only `solid` would
+    /// leave the analyst seeing more colour in the grid than the footer
+    /// accounts for, so the partial count is said alongside it — but dropped
+    /// entirely when there are none, so the common case reads as one plain
+    /// sentence rather than a trailing "0 partial." that means nothing.
+    private func show(solid: Int, partial: Int, loaded: Int) {
+        var text = "Matches \(solid) of \(loaded) loaded rows."
+        if partial > 0 {
+            text += " \(partial) partial."
+        }
+        countLabel.stringValue = text
         // The warning never blocks Save, and nothing below it may start to: a
         // deliberately broad temporary tag is a legitimate tool, and only the
         // analyst knows which this is.
-        warningLabel.stringValue = TagDraft.isBroad(matched: matched, loaded: loaded)
+        //
+        // Fed solid + partial, not solid alone: "This tag is broad" warns
+        // about how much of the grid will light up, and a value common enough
+        // to touch — without claiming — hundreds of rows dashed IS broad.
+        warningLabel.stringValue = TagDraft.isBroad(matched: solid + partial, loaded: loaded)
             ? "This tag is broad."
             : ""
     }

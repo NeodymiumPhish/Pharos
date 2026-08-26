@@ -297,10 +297,33 @@ enum TagRuleMatcher {
         }
     }
 
-    /// How many of `rows` any tuple of `tag` would match. The modal's live
-    /// count, and deliberately the REAL matcher rather than a cheaper estimate
-    /// — a count that disagreed with what saves would be worse than no count.
-    static func matchCount(tag: Tag, columns: [ColumnDef], rows: [[String?]]) -> Int {
-        match(columns: columns, rows: rows, index: buildIndex([tag])).count
+    /// How many of `rows` the tag claims, and how many it merely touches.
+    ///
+    /// Two numbers because they answer different questions and one of them was
+    /// silently doing both jobs badly. `solid` is what the tag CLAIMS: one whole
+    /// rule present. It falls when a rule tightens, which is what lets the
+    /// modal's footer tell an analyst whether tightening helped — the previous
+    /// single count included dashed rows, so an extra condition could only ever
+    /// add to it.
+    ///
+    /// `partial` is what the tag TOUCHES without claiming. Those rows tint too,
+    /// so an analyst who saw only `solid` would see more colour than the number
+    /// accounted for.
+    ///
+    /// Deliberately the REAL matcher rather than a cheaper estimate — a count
+    /// that disagreed with what saves would be worse than no count.
+    static func matchCounts(tag: Tag, columns: [ColumnDef], rows: [[String?]])
+        -> (solid: Int, partial: Int) {
+        let matches = match(columns: columns, rows: rows, index: buildIndex([tag]))
+        var solid = 0
+        var partial = 0
+        for rowMatches in matches.values {
+            // `buildIndex([tag])` indexes exactly one tag, so each row's match
+            // list holds at most one verdict for it — `first` is exhaustive,
+            // not a narrowing choice among several.
+            guard let state = rowMatches.first?.state else { continue }
+            if state == .solid { solid += 1 } else { partial += 1 }
+        }
+        return (solid, partial)
     }
 }

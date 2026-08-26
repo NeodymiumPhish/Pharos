@@ -75,10 +75,15 @@ func runTests() {
                                 originTable: "t")[0].conditions.count,
                 1, "an unknown column index is skipped")
 
-    // 7. The live count runs the real matcher over the loaded rows.
+    // 7. The live count runs the real matcher over the loaded rows. `single`'s
+    //    two tuples are each ONE condition wide, so a touch is automatically a
+    //    complete rule — solid is the whole 3, and partial is 0 (a case that
+    //    can't show a shortfall of its own; the shortfall is what
+    //    `TagManagerSheetTests` MARK 33 pins with a two-condition rule).
     let draft = TagDraft.previewTag(tuples: single)
-    expectEqual(TagRuleMatcher.matchCount(tag: draft, columns: columns, rows: rows), 3,
-                "two md5 values match three loaded rows")
+    let counts = TagRuleMatcher.matchCounts(tag: draft, columns: columns, rows: rows)
+    expectEqual(counts.solid, 3, "two md5 values match three loaded rows, all solid")
+    expectEqual(counts.partial, 0, "single-condition rules can never be merely touched")
     expectEqual(TagDraft.isBroad(matched: 3, loaded: 4), true, "3 of 4 is over a tenth")
     expectEqual(TagDraft.isBroad(matched: 3, loaded: 100), false, "3 of 100 is not")
     expectEqual(TagDraft.isBroad(matched: 0, loaded: 0), false, "no rows, no warning")

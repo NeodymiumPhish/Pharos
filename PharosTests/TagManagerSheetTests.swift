@@ -409,7 +409,7 @@ private let hostileValue = "safe\(bidi)gpj.exe"
 
 // MARK: - A counting function the test drives
 
-/// Stands in for `TagRuleMatcher.matchCount` on the sheet's injectable seam.
+/// Stands in for `TagRuleMatcher.matchCounts` on the sheet's injectable seam.
 ///
 /// The stale-count guard cannot be pinned by racing the real matcher: the two
 /// counts would be ordered by whichever thread happened to win, and a test whose
@@ -422,8 +422,10 @@ private final class GatedCounter {
     private var calls = 0
 
     /// What each call returns, by call number. Deliberately distinct, so the
-    /// footer names WHICH count it is showing.
-    private let results = [11, 22, 33]
+    /// footer names WHICH count it is showing. Partial is always 0 here — this
+    /// suite is only pinning which of several counts landed, not exercising
+    /// the solid/partial split, which `TagDraftTests` and MARK 33 below cover.
+    private let results: [(solid: Int, partial: Int)] = [(11, 0), (22, 0), (33, 0)]
 
     var callCount: Int {
         lock.lock()
@@ -446,7 +448,7 @@ private final class GatedCounter {
 
     private var finishedFirst = false
 
-    func count(_ tag: Tag, _ columns: [ColumnDef], _ rows: [[String?]]) -> Int {
+    func count(_ tag: Tag, _ columns: [ColumnDef], _ rows: [[String?]]) -> (solid: Int, partial: Int) {
         lock.lock()
         calls += 1
         let ordinal = calls
@@ -460,7 +462,7 @@ private final class GatedCounter {
             finishedFirst = true
             lock.unlock()
         }
-        return ordinal <= results.count ? results[ordinal - 1] : 99
+        return ordinal <= results.count ? results[ordinal - 1] : (99, 0)
     }
 }
 
@@ -1170,18 +1172,19 @@ func runTests() {
     tickCapture(counted, 1, true, "the host column")
     expectInt(counted.model.draftRules.first?.conditions.count ?? 0, 2,
               "ticking a second column narrows the captured rule to both values")
-    // The FOOTER's number does not come down, and that is pinned as it is rather
-    // than as it ought to be. `TagRuleMatcher.matchCount` counts every row the
-    // tag TOUCHES — dashed as well as solid — so a second condition can only add
-    // touches, never remove one: 10.0.0.2 still touches rows 1 and 2 even though
-    // only row 1 satisfies the whole rule now. That is pre-existing behaviour,
-    // shared with the `TagSheet` this modal replaced, and it means "Matches N"
-    // overstates what the tag actually applies to. It is NOT introduced here and
-    // is not fixed here — a change to the count's meaning is its own task, with
-    // its own reading of what the footer should promise.
-    expectString(counted.countLabel.stringValue, "Matches 3 of 10 loaded rows.",
-                 "while the footer's number counts every row TOUCHED, so it does "
-                 + "not come down (a known pre-existing overstatement)")
+    // The FOOTER's number FALLS, which is the whole reason this task exists.
+    // 10.0.0.2 still touches rows 1 and 2, but only row 1 (10.0.0.2,
+    // b.example) now satisfies the whole two-condition rule; row 2
+    // (10.0.0.2, c.example) is left merely touched. So of the ten rows: row 0
+    // is claimed by the tag's stored "10.0.0.1" rule, row 1 is claimed by the
+    // tightened draft rule — two SOLID claims — and row 2 is TOUCHED but not
+    // claimed by the draft rule's address half — one partial. The old single
+    // count (3, unable to fall) is gone: solid drops to 2 while the partial
+    // count separately discloses the extra colour in the grid.
+    expectString(counted.countLabel.stringValue, "Matches 2 of 10 loaded rows. 1 partial.",
+                 "tightening the rule to two conditions makes the claimed count FALL "
+                 + "from 3 to 2, with the narrowed-out row reported as 1 partial "
+                 + "rather than silently folded back into the total")
     tickCapture(counted, 0, false, "the address column")
     tickCapture(counted, 1, false, "the host column")
     expectString(counted.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
@@ -1310,6 +1313,48 @@ func runTests() {
     let squeezed = wideSheet.captureList.rows.filter { $0.valueLabel.frame.width < 40 }
     expectInt(squeezed.count, 0,
               "and no value label is squeezed to nothing by the family beside it")
+
+    // MARK: 37 — a tag that only TOUCHES rows claims none, and says so without
+    // reading as "matches nothing at all"
+
+    // One rule, two conditions, neither row in `countRows()` ever satisfies
+    // both: rows 1 and 2 hold "10.0.0.2" (touching the address half) but
+    // neither holds the host half, "unmatched.example". So every touch stays
+    // dashed and the tag claims zero rows outright.
+    let dashedOnlyTag = storedTag("t9", "DashedOnly", colorIndex: 0, note: nil, [
+        storedRule("r9", [cond("address", "10.0.0.2"), cond("text", "unmatched.example")]),
+    ])
+    let dashedOnly = makeSheet(RecordingCommitter(), tags: [dashedOnlyTag],
+                               columns: countColumns(), loadedRows: countRows())
+    host(dashedOnly)
+    expectString(dashedOnly.countLabel.stringValue, "Matches 0 of 10 loaded rows. 2 partial.",
+                 "a solid-claims-nothing tag reports 0, but the '2 partial' sitting "
+                 + "right beside it is what keeps the sentence from reading as though "
+                 + "the tag touches nothing at all — the ten rows on screen would "
+                 + "still show two of them tinted dashed, and the footer names that "
+                 + "count instead of going silent about it")
+    expectTrue(!dashedOnly.countLabel.stringValue.contains("nothing"),
+               "chosen over any 'matches nothing' phrasing, which would be true of "
+               + "solid alone but false of what the grid is about to show")
+    // Assertion 5: `isBroad` is fed solid + partial, not solid alone. Here
+    // that total is 2 of 10 (20%), over the tenth-of-loaded-rows threshold, so
+    // the warning fires even though the tag CLAIMS nothing.
+    expectString(dashedOnly.warningLabel.stringValue, "This tag is broad.",
+                 "0 solid + 2 partial is still a fifth of the loaded rows, so the "
+                 + "breadth warning is driven by the total that will light up the "
+                 + "grid, not by what the tag claims")
+
+    // MARK: 38 — the partial sentence is dropped entirely when there is nothing to add
+
+    // `dashedOnlyTag` above proves the sentence is ADDED when partial > 0; this
+    // proves it is OMITTED, not printed as "0 partial.", when partial == 0.
+    // `counting`'s selected tag ("Suspect") is single-condition rules only, so
+    // every touch it makes is automatically solid — the case this modal will
+    // hit on almost every screen.
+    expectTrue(!counting.countLabel.stringValue.contains("partial"),
+               "the common case — no partial matches — reads as one plain "
+               + "sentence (\(counting.countLabel.stringValue.debugDescription)), "
+               + "not noise like '0 partial.'")
 
     finish()
 }

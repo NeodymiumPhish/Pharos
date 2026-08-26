@@ -254,6 +254,23 @@ func runTests() {
     expectEqual(exactResult[1]?.first?.state, .dashed, "exact-only row 1 dashed as before")
     expectEqual(exactResult[0]?.first?.solidRuleIds, ["r6"], "the solid rule is reported")
 
+    // MARK: matchCounts — the modal's live count, split into what the tag
+    // CLAIMS and what it merely TOUCHES.
+    //
+    // Reuses `exactOnly` and `sample` from the regression guard just above,
+    // where `match` already pins row 0 solid and row 1 dashed: `matchCounts`
+    // must report exactly one of each rather than folding them together.
+    let exactCounts = TagRuleMatcher.matchCounts(tag: exactOnly, columns: schema, rows: sample)
+    expectEqual(exactCounts.solid, 1, "matchCounts.solid counts only the whole-rule row")
+    expectEqual(exactCounts.partial, 1, "matchCounts.partial counts only the touched-not-complete row")
+
+    // Assertion 6: an empty row set returns (0, 0) rather than crashing —
+    // `match` returns an empty map for it, and `matchCounts` must fold that
+    // into zero rather than reading past an absent value.
+    let emptyCounts = TagRuleMatcher.matchCounts(tag: exactOnly, columns: schema, rows: [])
+    expectEqual(emptyCounts.solid, 0, "no rows means no solid claims")
+    expectEqual(emptyCounts.partial, 0, "no rows means no partial touches either")
+
     print(failures == 0 ? "\nAll matcher checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }
