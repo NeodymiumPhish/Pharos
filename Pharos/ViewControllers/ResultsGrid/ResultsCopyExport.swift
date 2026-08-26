@@ -331,69 +331,92 @@ class ResultsCopyExport: NSObject {
     @objc func copyAsSQLInsert(_: Any?) {
         let cats = columnCategories
         copyOnBackground { data in
-            let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
-            let statements = data.rows.map { row in
-                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                    if val.isEmpty || val == "NULL" { return "NULL" }
-                    let category = colIdx < cats.count ? cats[colIdx] : .string
-                    switch category {
-                    case .numeric:
-                        return val
-                    case .boolean:
-                        return Self.sqlBooleanLiteral(val)
-                    default:
-                        return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                    }
-                }
-                return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
-            }
-            return statements.joined(separator: "\n")
+            Self.sqlInsertStatements(data: data, categories: cats)
         }
+    }
+
+    /// Builds the `INSERT INTO table_name (...) VALUES (...);` text that
+    /// "Copy as SQL INSERT" puts on the pasteboard. Internal and pure for the
+    /// same reason as `sqlWithStatement`, and it quotes the column names
+    /// through the same shared quoter.
+    static func sqlInsertStatements(data: CopyData, categories: [PGTypeCategory]) -> String {
+        let colList = data.columnNames.map { quotedSqlIdentifier($0) }.joined(separator: ", ")
+        let statements = data.rows.map { row in
+            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
+                if val.isEmpty || val == "NULL" { return "NULL" }
+                let category = colIdx < categories.count ? categories[colIdx] : .string
+                switch category {
+                case .numeric:
+                    return val
+                case .boolean:
+                    return Self.sqlBooleanLiteral(val)
+                default:
+                    return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                }
+            }
+            return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
+        }
+        return statements.joined(separator: "\n")
     }
 
     @objc func copyAsSQLWith(_: Any?) {
         let cats = columnCategories
         let cols = columns
         copyOnBackground { data in
-            // copyAsSQLWith historically suppressed headers regardless of the
-            // user toggle (the WITH/cte() carries column names already), so
-            // preserve that behavior here in the off-thread path.
-            let _ = data.includeHeaders
-
-            let colList = data.columnNames.joined(separator: ", ")
-            let valueRows = data.rows.enumerated().map { (rowIdx, row) in
-                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                    let pgType = colIdx < cols.count ? cols[colIdx].dataType : "text"
-                    // NULLs in row 0 still need the type cast — otherwise PG has
-                    // nothing to anchor type inference on for that column and
-                    // mixed-type unification across rows can fail downstream.
-                    if val.isEmpty || val == "NULL" {
-                        return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
-                    }
-                    let category = colIdx < cats.count ? cats[colIdx] : .string
-                    let literal: String
-                    switch category {
-                    case .numeric:
-                        literal = val
-                    case .boolean:
-                        literal = Self.sqlBooleanLiteral(val)
-                    default:
-                        literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                    }
-                    // Cast on first row so PG infers types for the rest. Boolean
-                    // literals already type themselves via the TRUE/FALSE keyword
-                    // (or the embedded ::boolean cast for unrecognized forms), so
-                    // skip the extra cast there to avoid double-cast noise.
-                    if rowIdx == 0 && category != .boolean {
-                        return "\(literal)::\(pgType)"
-                    }
-                    return literal
-                }
-                return "    (\(values.joined(separator: ", ")))"
-            }
-
-            return "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
+            Self.sqlWithStatement(data: data, categories: cats, columns: cols)
         }
+    }
+
+    /// Builds the `WITH cte(...) AS (VALUES ...)` text that "Copy as SQL WITH"
+    /// puts on the pasteboard.
+    ///
+    /// Internal and pure so `scripts/test-sql-copy-format.sh` can assert the
+    /// text: the column list must survive a paste into the editor, and a column
+    /// that carries an alias (`min(ts) AS "First Seen"`), an uppercase letter or
+    /// PG's own `?column?` is NOT a bare identifier. Every name therefore goes
+    /// through `quotedSqlIdentifier`, which also doubles an embedded `"` so a
+    /// hostile alias cannot break out of the column list.
+    static func sqlWithStatement(data: CopyData,
+                                 categories: [PGTypeCategory],
+                                 columns: [ColumnDef]) -> String {
+        // copyAsSQLWith historically suppressed headers regardless of the
+        // user toggle (the WITH/cte() carries column names already), so
+        // preserve that behavior here in the off-thread path.
+        let _ = data.includeHeaders
+
+        let colList = data.columnNames.map { quotedSqlIdentifier($0) }.joined(separator: ", ")
+        let valueRows = data.rows.enumerated().map { (rowIdx, row) in
+            let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
+                let pgType = colIdx < columns.count ? columns[colIdx].dataType : "text"
+                // NULLs in row 0 still need the type cast — otherwise PG has
+                // nothing to anchor type inference on for that column and
+                // mixed-type unification across rows can fail downstream.
+                if val.isEmpty || val == "NULL" {
+                    return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
+                }
+                let category = colIdx < categories.count ? categories[colIdx] : .string
+                let literal: String
+                switch category {
+                case .numeric:
+                    literal = val
+                case .boolean:
+                    literal = Self.sqlBooleanLiteral(val)
+                default:
+                    literal = "'\(val.replacingOccurrences(of: "'", with: "''"))'"
+                }
+                // Cast on first row so PG infers types for the rest. Boolean
+                // literals already type themselves via the TRUE/FALSE keyword
+                // (or the embedded ::boolean cast for unrecognized forms), so
+                // skip the extra cast there to avoid double-cast noise.
+                if rowIdx == 0 && category != .boolean {
+                    return "\(literal)::\(pgType)"
+                }
+                return literal
+            }
+            return "    (\(values.joined(separator: ", ")))"
+        }
+
+        return "WITH cte(\(colList)) AS (\n  VALUES\n\(valueRows.joined(separator: ",\n"))\n)\nSELECT * FROM cte;"
     }
 
     /// Normalize a string from a boolean-typed column to a SQL boolean literal.
