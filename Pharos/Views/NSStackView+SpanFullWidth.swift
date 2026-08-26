@@ -17,8 +17,9 @@ extension NSStackView {
     /// Trailing wins by those ten points, so every subview narrower than the
     /// stack is pushed to the RIGHT — and nothing constrains its width, so how
     /// wide it ends up is the solver's choice. Rows with identical content can
-    /// land differently, which is why the drift this fixed in `TagRemovalSheet`
-    /// read as a repeating cycle rather than as one broken row.
+    /// land differently, which is why the drift this fixed — in the tag
+    /// removal sheet the Tag Manager has since replaced — read as a repeating
+    /// cycle rather than as one broken row.
     ///
     /// A stack whose content happens to fill it looks correct under `.width`
     /// anyway, which is the trap: the defect is latent until a row that hugs

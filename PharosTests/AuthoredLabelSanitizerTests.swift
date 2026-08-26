@@ -4,10 +4,10 @@
 //
 // AppKit is imported for the second half only: the sanitiser itself is pure
 // Foundation, and the field editor is what proves the caret survives a rewrite.
-// The two sheets that call this (TagSheet, TagManageSheet) cannot be hosted
-// here — both reach TagStore.shared, which is @MainActor and Keychain-bound
-// through the FFI — so what is asserted is the shared helper they both call,
-// exactly as they call it.
+// No caller is compiled in: each has a suite of its own, and this one asserts
+// the shared helper they all call, exactly as they call it. The Tag Manager's
+// use of it — a name sanitised as it is typed — is pinned separately by
+// PharosTests/TagManagerSheetTests.swift.
 import AppKit
 
 private var failures = 0

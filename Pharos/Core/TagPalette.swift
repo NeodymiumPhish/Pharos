@@ -78,9 +78,9 @@ enum TagPalette {
     ///
     /// A `static let` rather than a mutable cache: the domain is the palette,
     /// which never changes at run time, so the whole set can be built on first
-    /// touch and handed out for ever after. `TagManageSheet` asks for one per
-    /// row draw, and drawing an `NSImage` per draw is the kind of allocation a
-    /// scrolling list should never make.
+    /// touch and handed out for ever after. The Tag Manager's sidebar asks for
+    /// one per row draw, and drawing an `NSImage` per draw is the kind of
+    /// allocation a scrolling list should never make.
     private static let swatches: [NSImage] = colors.indices.map { index in
         NSImage(size: swatchSize, flipped: false) { rect in
             colors[index].setFill()

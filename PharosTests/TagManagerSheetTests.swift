@@ -966,6 +966,99 @@ func runTests() {
                  "r1",
                  "deleting exactly the ticked rule, and nothing the id-less one touched")
 
+    // MARK: 21c — a `.remove` that SPANS TAGS keeps every tag's ticks
+    //
+    // The sheet this modal replaces drew a group header per tag, because a
+    // removal can reach into MORE THAN ONE tag and a list that named none of
+    // them understated what was about to happen. That disclosure survives here
+    // as the sidebar plus the footer — but the grid draws ONE tag at a time, so
+    // the ticks of the tag NOT on screen are exactly what an ordinary-looking
+    // edit would drop.
+
+    let spanCommitter = RecordingCommitter()
+    let spanning = makeSheet(spanCommitter, mode: .remove(ruleIds: ["r1", "r3"]))
+    host(spanning)
+    expectInt(spanning.tableView.numberOfRows, 2,
+              "a removal naming rules in two tags lists BOTH of them")
+    expectString(rowText(spanning, 0), "Suspect — 2 rules", "the tag holding r1")
+    expectString(rowText(spanning, 1), "Beta — 1 rule", "and the tag holding r3")
+    expectString(spanning.statusLabel.stringValue,
+                 "Saving removes 2 rules from their tags.",
+                 "the footer states the WHOLE reach, both tags' ticks included — "
+                 + "not only the tag on screen, and in the plural")
+    // Look at the other tag, then come back.
+    select(spanning, row: 1)
+    if spanning.grid.groups.count == 1 {
+        expectTrue(spanning.grid.groups[0].selectionBox.state == .on,
+                   "the second tag's named rule is ticked when it is looked at")
+    } else {
+        failures += 1
+        print("FAIL the second tag did not draw its one rule")
+    }
+    select(spanning, row: 0)
+    if spanning.grid.groups.count == 2 {
+        expectTrue(spanning.grid.groups[0].selectionBox.state == .on,
+                   "and the first tag's tick SURVIVED the trip to the other tag")
+        expectTrue(spanning.grid.groups[1].selectionBox.state == .off,
+                   "while the rule nobody asked about is still untouched")
+    } else {
+        failures += 1
+        print("FAIL the first tag did not draw its two rules")
+    }
+    expectString(spanning.statusLabel.stringValue,
+                 "Saving removes 2 rules from their tags.",
+                 "and the footer still counts both after the switch")
+    spanning.saveButton.performClick(nil)
+    expectInt(spanCommitter.applied.count, 1, "saving commits once")
+    expectString(deletedRuleIds(spanCommitter.applied.first ?? []).joined(separator: ","),
+                 "r1,r3",
+                 "deleting the ticked rule of EACH tag — the off-screen tick is "
+                 + "not silently dropped")
+
+    // MARK: 21d — unticking the last box takes Save away
+    //
+    // The old sheet refused an empty payload outright and said so in words,
+    // rather than offering a "Removes 0 tuples from 0 tags" non-sentence. The
+    // same promise here is that the boxes and the button agree.
+
+    let emptiedCommitter = RecordingCommitter()
+    let emptied = makeSheet(emptiedCommitter, mode: .remove(ruleIds: ["r1"]))
+    host(emptied)
+    expectTrue(emptied.saveButton.isEnabled,
+               "the rule the analyst came here about starts ticked, so Save is live")
+    if emptied.grid.groups.count == 2 {
+        tick(emptied.grid.groups[0].selectionBox, false, "the preselected rule")
+    } else {
+        failures += 1
+        print("FAIL the emptied sheet did not draw two rules to untick")
+    }
+    expectTrue(!emptied.saveButton.isEnabled,
+               "unticking the last box takes Save away")
+    expectString(emptied.statusLabel.stringValue, "Nothing has changed yet.",
+                 "and says so in words, never as a count of zero rules")
+    // The disabled button is the guard the analyst meets; this is the guard
+    // BEHIND it, which is the one an empty payload would have to get past.
+    emptied.saveButton.isEnabled = true
+    emptied.saveButton.performClick(nil)
+    expectInt(emptiedCommitter.applied.count, 0,
+              "an empty payload is refused even if the button is somehow enabled")
+
+    // MARK: 21e — Cancel commits nothing, ticks and all
+    //
+    // The removal this sheet stages is permanent and global, so neither way out
+    // may write anything on its way.
+
+    let cancelCommitter = RecordingCommitter()
+    let cancelling = makeSheet(cancelCommitter, mode: .remove(ruleIds: ["r1"]))
+    let cancelClosings = countClosings(cancelling)
+    host(cancelling)
+    expectTrue(cancelling.saveButton.isEnabled, "there is a ticked rule to remove")
+    cancelling.cancelButton.performClick(nil)
+    expectInt(cancelCommitter.applied.count, 0, "Cancel removes nothing at all")
+    expectInt(cancelClosings.count, 1, "and closes the sheet")
+    expectString(cancelling.cancelButton.keyEquivalent, "\u{1b}",
+                 "Escape is the way out, and it is the same way out")
+
     // MARK: 22 — `.manage` and `.add` draw no checkboxes at all
 
     expectTrue(managing.grid.groups.allSatisfy { $0.selectionBox.isHidden },
@@ -1058,9 +1151,9 @@ func runTests() {
 
     // MARK: 27 — the checklist is drawn in `.add` ONLY, one row per column
 
-    // The capability the migration to this modal dropped. `TagSheet` made the
-    // analyst tick which columns a tag captured from; "capture every column"
-    // replaced it, and on a twenty-column result that produces a rule matching
+    // The capability the migration to this modal dropped. The Add Tag sheet
+    // this replaced made the analyst tick which columns a tag captured from;
+    // "capture every column" replaced it, and on a twenty-column result that produces a rule matching
     // almost nothing but the row it came from.
     let listing = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()),
                             columns: countColumns(), loadedRows: countRows())

@@ -836,10 +836,11 @@ class ContentViewController: NSViewController {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         // Cancel takes Return, not Delete. The delete is global and permanent
-        // — ON DELETE CASCADE takes every tuple — and `TagManageSheet` and
-        // `TagRemovalSheet` both give Return to Cancel for the same action.
-        // The Inspector must not be the one surface where the habitual key
-        // destroys a tag.
+        // — ON DELETE CASCADE takes every tuple — so the habitual key must not
+        // be the one that destroys a tag. The Tag Manager reaches the same end
+        // by a different route: nothing it stages is destructive until Save,
+        // and its footer states what a save would remove before the analyst
+        // presses it.
         alert.buttons.first?.keyEquivalent = ""
         alert.buttons.last?.keyEquivalent = "\r"
         alert.beginSheetModal(for: window) { [weak self] response in

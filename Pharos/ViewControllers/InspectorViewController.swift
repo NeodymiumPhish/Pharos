@@ -577,8 +577,8 @@ class InspectorViewController: NSViewController {
     /// constraint instead of breaking it.
     ///
     /// Deliberately NOT run through `DisplayEscape`, unlike every other label in
-    /// this section. A note is prose the ANALYST typed into `TagSheet`, not
-    /// captured data, it is the one label here that is legitimately multi-line
+    /// this section. A note is prose the ANALYST typed into the Tag Manager,
+    /// not captured data, it is the one label here that is legitimately multi-line
     /// (`maximumNumberOfLines = 0`), and escaping would turn its own paragraph
     /// breaks into `<U+000A>`. It also names no value and gates no deletion.
     private func addTagNote(_ note: String) {

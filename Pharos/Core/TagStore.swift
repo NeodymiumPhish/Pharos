@@ -131,14 +131,14 @@ final class TagStore {
 
 // MARK: - TagRuleRemoving
 
-/// `TagRemovalSheet` commits through this one capability rather than through
-/// the whole store, so its standalone harness can compile the sheet without
-/// this `@MainActor`, FFI-bound class. The conformance lives here so that a
-/// change to `removeTuples(ids:)` fails the APP BUILD — a test double declared
-/// on the far side could drift from reality in silence. The protocol itself is
-/// in `TagRuleRemoving.swift`, which depends on nothing: both this file's
-/// suite and the sheet's suite compile it, and neither can compile the other's
-/// side.
+/// The removal sheet the Tag Manager replaced committed through this one
+/// capability rather than through the whole store, so its standalone harness
+/// could compile a view controller without this `@MainActor`, FFI-bound class.
+/// That sheet is gone; the conformance stays because it costs nothing and a
+/// change to `removeTuples(ids:)` still fails the APP BUILD rather than
+/// drifting in silence. The protocol itself is in `TagRuleRemoving.swift`,
+/// which depends on nothing, so this file's suite can compile it without an
+/// AppKit view controller coming with it.
 /// `@preconcurrency`: the protocol is deliberately nonisolated (the harness
 /// conforms to it without `@MainActor`), and a plain conformance from this
 /// `@MainActor` class warns that it "crosses into main actor-isolated code" —
@@ -169,6 +169,12 @@ extension TagStore: @preconcurrency TagManagerCommitting {
         for commit in commits {
             switch commit {
             case .create(let payload): try createTag(payload)
+            // KNOWN GAP, kept from the manage sheet this replaced: `update_tag`
+            // runs `UPDATE … WHERE id = ?1` and returns Ok(None) for an id that
+            // is gone, so no error crosses the FFI. Discarding that nil means a
+            // save into a tag deleted elsewhere reports success and the analyst
+            // is left believing the edit landed. The old sheet checked it and
+            // said "That tag no longer exists"; nothing checks it here yet.
             case .update(let payload): _ = try updateTag(payload)
             case .addRules(let payload): _ = try addTuples(payload)
             case .updateRule(let payload): _ = try updateRule(payload)

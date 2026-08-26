@@ -58,8 +58,10 @@ enum PopupValueMenu {
     /// `sentinelTag` marks the sentinel row so a caller can identify it
     /// positively — read it back with `isSentinel(_:tag:)`. Without it the only
     /// signal is a nil `representedObject`, which a row that merely *forgot*
-    /// its value shares, and one caller (`TagSheet`) branches its whole
-    /// "create versus add to existing" mode on that answer.
+    /// its value shares. The one caller that branched a whole "create versus
+    /// add to existing" mode on that answer was the Add Tag sheet the Tag
+    /// Manager replaced; no production caller passes a sentinel tag today, and
+    /// `PharosTests/PopupValueMenuTests.swift` is what keeps the rule honest.
     ///
     /// **A tag of 0 marks nothing.** Every value row leaves `NSMenuItem.tag` at
     /// its default of 0, so comparing against 0 would match every row. Pass nil
@@ -99,14 +101,16 @@ enum PopupValueMenu {
     ///
     /// **Answers true for a nil item**, and that is the load-bearing part: a
     /// caller asking this is deciding a MODE, and "no selection" must fall to
-    /// the same side as the sentinel. `TagSheet` disables its name, colour and
-    /// note fields when this is false; if a nil selection answered false, the
-    /// sheet would show "Add to Tag" with those fields disabled while its save
-    /// path — which sees a nil target id — created a new tag instead.
+    /// the same side as the sentinel. The sheet this was written for disabled
+    /// its name, colour and note fields when the answer was false; had a nil
+    /// selection answered false, it would have shown "Add to Tag" with those
+    /// fields disabled while its save path — which sees a nil target id —
+    /// created a new tag instead.
     ///
-    /// Exists as a function rather than a comparison at the call site so that
-    /// rule is stated once and can be tested; the sheet that needs it has no
-    /// test harness of its own.
+    /// That sheet is gone and nothing in the app calls this now. It stays as a
+    /// function rather than a comparison at the call site so the rule is
+    /// stated once, and `PharosTests/PopupValueMenuTests.swift` is the only
+    /// thing holding it.
     static func isSentinel(_ item: NSMenuItem?, tag: Int) -> Bool {
         guard let item else { return true }
         return item.tag == tag

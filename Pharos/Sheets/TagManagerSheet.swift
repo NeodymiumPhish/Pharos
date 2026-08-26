@@ -65,18 +65,16 @@ final class TagManagerSheet: NSViewController,
     /// Bumped by every count started, so a slow background count that lands
     /// after a newer one is discarded instead of overwriting a fresher number.
     ///
-    /// Lifted from `TagSheet.countGeneration`, together with the threshold and
-    /// the background hop below — the sheet this one replaces. It guards a tag
-    /// SWITCH as well as an edit, which `TagSheet` never had to: every count
-    /// starts here, and the previous tag's number landing under the new tag's
-    /// name would be a wrong number attached to the wrong tag, which is worse
-    /// than a slow one.
+    /// Lifted from the Add Tag sheet this one replaced, together with the
+    /// threshold and the background hop below. It guards a tag SWITCH as well
+    /// as an edit, which that sheet never had to: every count starts here, and
+    /// the previous tag's number landing under the new tag's name would be a
+    /// wrong number attached to the wrong tag, which is worse than a slow one.
     private var countGeneration = 0
 
-    /// Mirrors `TagSheet.asyncCountThreshold`, which mirrors
-    /// `ResultsGridVC.matchAsyncThreshold`. Deliberately its own constant rather
-    /// than a reference: this is a modal's responsiveness policy, not the
-    /// grid's. Keep them in step by hand.
+    /// Mirrors `ResultsGridVC.matchAsyncThreshold`. Deliberately its own
+    /// constant rather than a reference: this is a modal's responsiveness
+    /// policy, not the grid's. Keep them in step by hand.
     private static let asyncCountThreshold = 5_000
 
     /// The rules TICKED for removal, across every tag — not only the one on
@@ -643,9 +641,9 @@ final class TagManagerSheet: NSViewController,
 
     // MARK: The live count
     //
-    // Lifted wholesale from `TagSheet.refresh` and `TagSheet.show` — the sheet
-    // this one replaces, whose count this is. The threshold, the background hop
-    // and the generation guard are its reasoning, not new reasoning: below
+    // Lifted wholesale from the Add Tag sheet this one replaces, whose count
+    // this is. The threshold, the background hop and the generation guard are
+    // its reasoning, not new reasoning: below
     // `asyncCountThreshold` the count runs synchronously, which is the same cost
     // class as the match the grid runs anyway; above it the count moves to a
     // background queue exactly as `ResultsGridVC.matchAsyncThreshold` does for
@@ -653,8 +651,8 @@ final class TagManagerSheet: NSViewController,
     // edit; and `countGeneration` discards a slow count that lands after a newer
     // one rather than letting it overwrite a fresher number.
     //
-    // One thing IS new. This count is per SELECTED TAG, which `TagSheet`'s never
-    // was, so a tag switch starts a count too — and every switch goes through
+    // One thing IS new. This count is per SELECTED TAG, which that sheet's
+    // never was, so a tag switch starts a count too — and every switch goes through
     // `select` or `tableViewSelectionDidChange`, both of which come here. A
     // stale count from the previous tag would land under the new tag's name,
     // which is a wrong number attached to the wrong tag: worse than a slow one.

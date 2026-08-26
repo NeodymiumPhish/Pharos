@@ -945,9 +945,10 @@ class ResultsGridVC: NSViewController {
             Notification(name: NSTableView.selectionDidChangeNotification, object: sheet.tableView))
     }
 
-    /// "Remove From Tag…": open the removal confirmation sheet on the tuples
-    /// the target rows complete. The sheet — not this method — deletes;
-    /// see `TagRemovalSheet` for the disclosure rules.
+    /// "Remove From Tag…": open the Tag Manager in `.remove` on the rules the
+    /// target rows complete. The sheet — not this method — deletes, and only
+    /// on Save: what it opens with is a starting position, and the boxes the
+    /// analyst leaves ticked are what actually goes.
     func presentTagRemovalSheet(on targets: [Int]) {
         guard view.window != nil else { NSSound.beep(); return }
         let groups = TagRemovalModel.groups(
