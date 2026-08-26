@@ -282,6 +282,37 @@ func runTests() {
     expectEqual(DisplayEscape.needsEscaping("10.0.0.1\r"), true,
                 "a trailing CR still marks a single-line value as needing escape")
 
+    // MARK: - escapedTrimmed: trim first, THEN escape — never sanitise
+
+    do {
+        // The shared producer behind the tag delete confirmation, the
+        // Inspector's tag header, the grid row's tag tooltip, and the Tag
+        // Manager sheet's own `displayName`.
+        expectEqual(DisplayEscape.escapedTrimmed("  Suspect infra  "), "Suspect infra",
+                    "edge spaces are trimmed away entirely, not disclosed as tokens")
+        expectEqual(DisplayEscape.escapedTrimmed("plain"), "plain",
+                    "ordinary text is unaffected")
+        expectEqual(DisplayEscape.escapedTrimmed(""), "",
+                    "the empty string trims and escapes to itself")
+
+        // The property that actually matters: a hostile scalar survives to be
+        // DISCLOSED. Sanitising instead of trimming would remove it outright —
+        // this is the trap the previous hardening task found, proved here so
+        // it stays caught.
+        expectEqual(DisplayEscape.escapedTrimmed("safe\u{202E}gpj.exe"),
+                    "safe<U+202E>gpj.exe",
+                    "a bidi override survives trimming and is disclosed by the escape")
+        expectEqual(DisplayEscape.escapedTrimmed("safe\u{202E}gpj.exe").unicodeScalars
+            .contains("\u{202E}"), false,
+                    "the raw override scalar is gone from the OUTPUT text — only its token remains")
+
+        // Trim and escape compose: an override survives even when it sits
+        // right beside the edge whitespace being trimmed away.
+        expectEqual(DisplayEscape.escapedTrimmed("  safe\u{202E}gpj.exe  "),
+                    "safe<U+202E>gpj.exe",
+                    "edge spaces are trimmed while an interior override is still disclosed")
+    }
+
     // A qualified name is escaped PER PART: the dot is our separator, so a
     // part's own edge space must still be disclosed inside its own half.
     expectEqual(DisplayEscape.escapedQualified(schema: "public", table: "users"),

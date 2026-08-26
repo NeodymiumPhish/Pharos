@@ -550,8 +550,13 @@ class InspectorViewController: NSViewController {
         ])
 
         // The name is single-line and identifies which tag the buttons below
-        // act on, so it is escaped. The NOTE is not — see `addTagNote`.
-        let nameLabel = NSTextField(labelWithString: DisplayEscape.escaped(entry.name))
+        // act on, so it is escaped. The NOTE is not — see `addTagNote`. TRIMMED
+        // first, like every other surface that draws a tag name (the Tag
+        // Manager's sidebar row, the grid row's tooltip, the delete
+        // confirmation): a name stored before this branch began trimming on
+        // input would otherwise render its stray edge space as a mid-word
+        // `<U+0020>` here. `DisplayEscape.escapedTrimmed` is the one producer.
+        let nameLabel = NSTextField(labelWithString: DisplayEscape.escapedTrimmed(entry.name))
         nameLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

@@ -947,12 +947,15 @@ final class TagManagerSheet: NSViewController,
     /// correct (the field already denied it entry, so there is nothing left
     /// to show), but it would ALSO make one in a name stored before that
     /// field rule existed invisible — silently, with no `<U+XXXX>` marking
-    /// where it stood. `DisplayEscape` exists precisely so a hostile scalar
-    /// in somebody else's data is never swallowed like that. Trimming alone
-    /// carries no such risk: whitespace is never the scalar an override or a
-    /// zero-width character needs hidden behind.
+    /// where it stood.
+    ///
+    /// The trim-then-escape order is `DisplayEscape.escapedTrimmed`'s now — it
+    /// was lifted out of this method into the shared producer once the delete
+    /// confirmation, the Inspector's tag header, and the grid row's tooltip
+    /// all needed the identical rule. See that function's doc for why the
+    /// order discloses a hostile scalar instead of swallowing it.
     private func displayName(_ name: String) -> String {
-        DisplayEscape.escaped(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        DisplayEscape.escapedTrimmed(name)
     }
 
     // MARK: Identity edits

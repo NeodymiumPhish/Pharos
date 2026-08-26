@@ -209,6 +209,17 @@ func runTests() {
                     "two matches still join with a real newline")
     }
 
+    // A tag name can also predate the edge-trim this branch added, and hold
+    // edge spaces that were never sanitised at input time. TRIMMED, then
+    // escaped — the trailing space must vanish, not render as a mid-word
+    // `<U+0020>` token in the tooltip.
+    do {
+        let padded = TagPalette.tooltip(matches: [match("h", .solid)],
+                                        tagNames: ["h": "  Suspect infra  "])
+        expectEqual(padded, "Suspect infra — solid",
+                    "edge spaces in the tag name are trimmed away, not disclosed as tokens")
+    }
+
     // MARK: - 6. Empty inputs
 
     expectTrue(TagPalette.segments(matches: [], tagColors: colors).isEmpty,

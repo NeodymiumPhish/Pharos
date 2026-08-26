@@ -65,6 +65,18 @@ enum TagInspectorModel {
     /// Both the noun AND the verb inflect. Inflecting only the noun reads
     /// "Its 1 rule stop matching", which is why this is a function and not
     /// an interpolated string at each call site.
+    ///
+    /// `name` is TRIMMED then ESCAPED here, at the one producer, rather than by
+    /// each caller — the same reasoning that keeps the noun/verb inflection in
+    /// this function instead of at the call site. A tag name is attacker
+    /// surface: it can hold a bidi override, and this confirmation is the
+    /// highest-stakes surface that draws one — a title that showed the raw name
+    /// would let a hostile name make a destructive confirmation appear to name
+    /// a DIFFERENT tag than the one about to be destroyed. `DisplayEscape.escapedTrimmed`
+    /// is the shared implementation: see it for why trimming first (not
+    /// sanitising) is the order that discloses rather than hides. `ruleCount`
+    /// needs none of this — it is an `Int`, and an `Int` cannot carry hostile
+    /// text.
     static func deleteConfirmation(
         name: String, ruleCount: Int
     ) -> (title: String, body: String) {
@@ -72,7 +84,7 @@ enum TagInspectorModel {
             ? "Its 1 rule stops"
             : "Its \(ruleCount) rules stop"
         return (
-            title: "Delete tag \u{201C}\(name)\u{201D}?",
+            title: "Delete tag \u{201C}\(DisplayEscape.escapedTrimmed(name))\u{201D}?",
             body: "\(subject) matching in every result, on every connection — not only here."
         )
     }

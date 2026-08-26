@@ -134,6 +134,33 @@ enum DisplayEscape {
         }
     }
 
+    /// Trim edge whitespace, THEN escape — the order `TagManagerSheet.displayName`
+    /// established for a tag name, now the one producer shared by every surface
+    /// that draws one: the whole-tag delete confirmation, the Inspector's tag
+    /// header, the grid row's tag tooltip, and the Tag Manager sheet itself.
+    ///
+    /// The order is load-bearing. Trimming FIRST means a name saved before this
+    /// app trimmed on input renders its stray edge space gone rather than as a
+    /// mid-word `<U+0020>` — the display defect this function exists to fix, not
+    /// a second copy of it. Escaping SECOND, rather than routing the trimmed
+    /// text through `AuthoredLabelSanitizer.sanitized`, means a bidi override or
+    /// a zero-width character survives to be DISCLOSED: sanitising REMOVES such
+    /// a scalar outright, so a caller that sanitised here would render a hostile
+    /// name as though it were clean — the exact failure this function exists to
+    /// prevent.
+    ///
+    /// `.whitespacesAndNewlines` is never the scalar an override, an isolate, a
+    /// zero-width character, or a bidi mark hides behind — none of those sit in
+    /// Unicode's whitespace or newline categories — so trimming with it can
+    /// never swallow the scalars that make a label lie about identity. It CAN
+    /// trim away an edge NBSP or ideographic space (both `mustEscape` marks)
+    /// before `escaped` gets a chance to disclose them; that is
+    /// `TagManagerSheet.displayName`'s existing behaviour, carried here rather
+    /// than narrowed, so every caller trims the same way.
+    static func escapedTrimmed(_ text: String) -> String {
+        escaped(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// Multi-line preview variant. Which scalars are hostile is decided by
     /// `isHostileInFlowingText` (edge spaces are ordinary indentation here
     /// too, so they are never marked); every hit is disclosed exactly as

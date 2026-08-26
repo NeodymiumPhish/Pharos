@@ -328,6 +328,29 @@ func runTests() {
                     "zero rules take the plural, not the singular")
         expectEqual(one.title, "Delete tag \u{201C}Suspect infra\u{201D}?",
                     "the title names the tag in curly quotes")
+
+        // The title is the highest-stakes surface in the whole tag feature: a
+        // raw bidi override here would make a destructive confirmation NAME A
+        // DIFFERENT TAG than the one about to be destroyed. It must be escaped,
+        // not sanitised — sanitising REMOVES the override, so the confirmation
+        // would read as though the name were clean while the store still holds
+        // the hostile one.
+        let hostile = TagInspectorModel.deleteConfirmation(
+            name: "safe\u{202E}gpj.exe", ruleCount: 1)
+        expectEqual(hostile.title, "Delete tag \u{201C}safe<U+202E>gpj.exe\u{201D}?",
+                    "a bidi override in the name is escaped, not obeyed, in the delete title")
+        expectTrue(!hostile.title.unicodeScalars.contains("\u{202E}"),
+                   "the raw override scalar itself is absent from the title entirely")
+
+        // A name stored before this branch began trimming on input can still
+        // carry edge spaces. TRIMMED then escaped — the trailing space must
+        // disappear, not render as a mid-word `<U+0020>` token.
+        let padded = TagInspectorModel.deleteConfirmation(
+            name: "  Suspect infra  ", ruleCount: 1)
+        expectEqual(padded.title, "Delete tag \u{201C}Suspect infra\u{201D}?",
+                    "edge spaces in the name are trimmed away, not disclosed as tokens")
+        expectTrue(!padded.title.contains("<U+0020>"),
+                   "no U+0020 token appears once the edge spaces are trimmed")
     }
 
     // MARK: - 18. The state word mirrors isPartial
