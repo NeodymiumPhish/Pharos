@@ -1186,8 +1186,14 @@ final class TagManagerSheet: NSViewController,
             // The sheet STAYS UP, with every edit where it was: a save that
             // failed halfway is the one moment the analyst most needs their
             // work still in front of them.
+            // `localizedDescription`, not interpolation. Every error that
+            // reaches here is a `LocalizedError` — `TagCommitError` from the
+            // save loop, `PharosCoreError` from the FFI under it — and
+            // interpolating one of those prints the SWIFT CASE, so the analyst
+            // would read `rustError("connection refused")` instead of the
+            // sentence the error was given.
             statusLabel.stringValue = "Could not save: "
-                + DisplayEscape.escapedMultiline("\(error)")
+                + DisplayEscape.escapedMultiline(error.localizedDescription)
             statusLabel.textColor = .systemRed
             presentFailure(error)
             return
@@ -1212,7 +1218,9 @@ final class TagManagerSheet: NSViewController,
         guard let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = "Could not save the tags"
-        alert.informativeText = DisplayEscape.escapedMultiline("\(error)")
+        // Same reason as the status line above: the sentence the error carries,
+        // not the Swift case that carries it.
+        alert.informativeText = DisplayEscape.escapedMultiline(error.localizedDescription)
         alert.addButton(withTitle: "OK")
         alert.beginSheetModal(for: window)
     }

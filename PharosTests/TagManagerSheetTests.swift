@@ -50,7 +50,15 @@ private final class RecordingCommitter: TagManagerCommitting {
     }
 }
 
-private struct StoreFailure: Error {}
+/// Stands in for a Rust-side failure, which is always a `PharosCoreError` — a
+/// `LocalizedError` carrying a sentence. It conforms the same way on purpose: a
+/// plain `struct …: Error {}` has no `errorDescription`, so
+/// `localizedDescription` would hand back Cocoa's "The operation couldn't be
+/// completed" and the suite could not tell a reported message from a swallowed
+/// one.
+private struct StoreFailure: LocalizedError {
+    var errorDescription: String? { "The core refused the write." }
+}
 
 // MARK: - A store something was deleted out from under
 
@@ -858,6 +866,12 @@ func runTests() {
     if survived.count == 1 {
         expectString(survived[0].name ?? "<nil>", "Edited But Unsaved", "unchanged")
     }
+    // The SENTENCE the error carries, not the Swift value carrying it. The sheet
+    // asks for `localizedDescription`; interpolation would print
+    // `StoreFailure()` here, and `rustError("…")` in the app.
+    expectString(failing.statusLabel.stringValue,
+                 "Could not save: The core refused the write.",
+                 "and the status line reports the error's own words")
 
     // MARK: 11 — "New tag" adds an editable tag and selects it
 
@@ -1695,9 +1709,9 @@ func runTests() {
     expectTrue(vanishedMessage.lowercased().contains("another window"),
                "and where it probably went, which is the part the analyst can act on")
     expectString(vanishedError?.localizedDescription ?? "", vanishedMessage,
-                 "and the localised description says the same thing as the "
-                 + "interpolation the sheet actually prints — an enum with no "
-                 + "`description` would print its CASE NAME here")
+                 "and the localised description the sheet actually prints says "
+                 + "the same thing as the interpolation the log line prints — "
+                 + "an enum with neither would show its CASE NAME instead")
 
     // MARK: 43 — an edit to a rule deleted elsewhere fails the same way
 

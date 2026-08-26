@@ -18,10 +18,12 @@ enum TagCommitError: LocalizedError, CustomStringConvertible, Equatable {
 
     var errorDescription: String? { message }
 
-    /// `TagManagerSheet` reports a failed save by INTERPOLATING the error, into
-    /// its status line and into the alert. An enum that is only a
-    /// `LocalizedError` interpolates as its case name, so without this the
-    /// analyst would read "tagVanished" — a Swift identifier, not a sentence.
+    /// Kept after the sheet moved to `localizedDescription`, for the channels
+    /// that still interpolate: the `NSLog` line beside the save, and anything
+    /// that prints an error without asking for its description. An enum that is
+    /// only a `LocalizedError` interpolates as its case name, so without this
+    /// those lines would read "tagVanished" — a Swift identifier, not a
+    /// sentence.
     var description: String { message }
 
     private var message: String {

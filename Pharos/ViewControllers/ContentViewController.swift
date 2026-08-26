@@ -855,8 +855,14 @@ class ContentViewController: NSViewController {
                 // the analyst confirms a destructive action, the tag stays on
                 // screen, and nothing says why.
                 DispatchQueue.main.async {
+                    // `localizedDescription`, not interpolation: what reaches
+                    // here is `PharosCoreError` from the FFI, and interpolating
+                    // it prints `rustError("…")` — the Swift case, not the
+                    // sentence the case carries. Escaped like every other
+                    // failure surface, because the text can quote a tag name.
                     self?.presentTagError(
-                        title: "Could not delete the tag", message: "\(error)")
+                        title: "Could not delete the tag",
+                        message: DisplayEscape.escapedMultiline(error.localizedDescription))
                 }
             }
         }
