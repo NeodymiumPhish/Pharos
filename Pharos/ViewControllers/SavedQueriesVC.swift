@@ -249,7 +249,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         if selectedIds.count == 1 {
             // Find the name for a nicer message
             let name = selectedQueryNames().first ?? "this query"
-            alert.messageText = "Delete '\(name)'?"
+            alert.messageText = DestructiveConfirmationText
+                .deleteSavedQueryConfirmTitle(name: name)
         } else {
             alert.messageText = "Delete \(selectedIds.count) queries?"
         }
@@ -538,7 +539,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
+            let newName = AuthoredLabelSanitizer.committed(textField.stringValue)
             guard !newName.isEmpty, newName != currentName else { return }
             self?.performRename(node: node, newName: newName)
         }
@@ -593,7 +594,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 return
             }
             let alert = NSAlert()
-            alert.messageText = "Delete folder \"\(name)\"?"
+            alert.messageText = DestructiveConfirmationText
+                .deleteFolderConfirmTitle(name: name)
             alert.informativeText = "This will delete \(count) saved quer\(count == 1 ? "y" : "ies") in this folder."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Delete")

@@ -318,6 +318,48 @@ func runTests() {
                     "Mongolian vowel separator is removed")
     }
 
+
+    // MARK: - `committed` — the name as the store receives it
+
+    // Sanitise, THEN trim. One named producer for every authored label on its
+    // way to the store: a tag name, a workspace name, a connection name.
+    expectEqual(AuthoredLabelSanitizer.committed("Prod Reporting"), "Prod Reporting",
+                "committed leaves an ordinary name alone")
+    expectEqual(AuthoredLabelSanitizer.committed("  Prod  "), "Prod",
+                "committed trims edge spaces")
+    expectEqual(AuthoredLabelSanitizer.committed(" a b "), "a b",
+                "committed keeps interior spaces")
+
+    // The sanitise half: a bidi override is DENIED ENTRY to the store, so no
+    // record can hold a name that reorders itself when drawn.
+    expectEqual(AuthoredLabelSanitizer.committed("safe\u{202E}gpj.exe"), "safegpj.exe",
+                "committed removes a bidi override")
+
+    // The order is load-bearing and this input discriminates it. The
+    // zero-width space sits BETWEEN a leading space and the text.
+    //   sanitise then trim: ZWSP is removed, leaving "  x", which trims to "x".
+    //   trim then sanitise: the trim stops at the ZWSP because a zero-width
+    //     space is not whitespace, so a leading space survives as " x".
+    expectEqual(AuthoredLabelSanitizer.committed(" \u{200B} x"), "x",
+                "committed sanitises before it trims")
+
+    // A name made only of scalars that are denied entry commits to nothing.
+    // The caller must refuse an empty name; this states what it will see.
+    expectEqual(AuthoredLabelSanitizer.committed(" \u{202E}\u{200B} "), "",
+                "a name of only hostile scalars commits to empty")
+
+    // Committing a committed name changes nothing more.
+    let once = AuthoredLabelSanitizer.committed(" a\u{00A0}\u{202E}b ")
+    expectEqual(AuthoredLabelSanitizer.committed(once), once,
+                "committed is idempotent")
+
+    // An unusual space FOLDS rather than being removed, so an interior one
+    // stays a visible gap while an edge one becomes trimmable.
+    expectEqual(AuthoredLabelSanitizer.committed("a\u{00A0}b"), "a b",
+                "committed folds an interior NBSP to a space")
+    expectEqual(AuthoredLabelSanitizer.committed("\u{00A0}ab\u{3000}"), "ab",
+                "committed trims an edge NBSP and ideographic space once folded")
+
     if failures == 0 {
         print("\nAll AuthoredLabelSanitizer tests passed.")
     } else {

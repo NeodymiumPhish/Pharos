@@ -81,6 +81,30 @@ enum AuthoredLabelSanitizer {
         text.unicodeScalars.contains { disposition(of: $0) != .keep }
     }
 
+    /// The name as the STORE receives it: sanitised, then trimmed.
+    ///
+    /// One producer for every authored label on its way to the store — a tag
+    /// name, a workspace name, a connection name — because two save paths that
+    /// trim differently are how a stored name and the label drawn for it come
+    /// to disagree.
+    ///
+    /// `sanitized` deliberately does not trim (see the note above: a sanitiser
+    /// that ate the space you just typed would fight ordinary typing), so the
+    /// trim belongs here, at save, and not a keystroke earlier.
+    ///
+    /// The order is load-bearing. Sanitising FIRST folds an edge NBSP or
+    /// ideographic space to a plain space and REMOVES an edge zero-width
+    /// character, so the trim that follows can see both. Trimming first would
+    /// stop at a zero-width space — which is not whitespace — and leave the
+    /// ordinary space behind it in the stored name.
+    ///
+    /// May return an empty string, when the name held nothing but scalars that
+    /// are denied entry. Every caller already refuses an empty name; none may
+    /// stop doing so.
+    static func committed(_ text: String) -> String {
+        sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The name with every deceptive scalar denied entry.
     static func sanitized(_ text: String) -> String {
         guard needsSanitizing(text) else { return text }

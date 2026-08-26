@@ -516,8 +516,7 @@ struct TagManagerModel {
     /// field denies it entry per keystroke), so the two answers agree on
     /// everything this sheet can actually produce.
     static func committedName(_ raw: String) -> String {
-        AuthoredLabelSanitizer.sanitized(raw)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        AuthoredLabelSanitizer.committed(raw)
     }
 
     /// One editable rule as the store receives it, or nil when it holds nothing.

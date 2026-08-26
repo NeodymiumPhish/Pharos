@@ -120,7 +120,13 @@ class SaveQuerySheet: NSViewController {
     }
 
     @objc private func saveSheet() {
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
+        // `committed`, not a bare trim: a saved-query name is an AUTHORED
+        // LABEL, so the store must not receive a bidi override or a zero-width
+        // character in one. It also trims newlines, which a bare `.whitespaces`
+        // trim leaves at an edge of a pasted name — and the delete confirmation
+        // trims what it draws, so an untrimmed stored name would be a name the
+        // dialog silently disagrees with.
+        let name = AuthoredLabelSanitizer.committed(nameField.stringValue)
         guard !name.isEmpty else {
             NSSound.beep()
             return
@@ -145,7 +151,7 @@ class SaveQuerySheet: NSViewController {
 
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
-                let folderName = textField.stringValue.trimmingCharacters(in: .whitespaces)
+                let folderName = AuthoredLabelSanitizer.committed(textField.stringValue)
                 folder = folderName.isEmpty ? nil : folderName
             } else {
                 return // User cancelled folder creation

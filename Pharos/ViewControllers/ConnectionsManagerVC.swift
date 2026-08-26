@@ -86,6 +86,13 @@ struct ConnectionsListView: View {
     }
 }
 
+private extension String {
+    /// `self`, or `fallback` when `self` holds nothing. Used where a name is
+    /// trimmed for display: the placeholder has to be chosen AFTER the trim,
+    /// because a name of nothing but spaces trims away to nothing.
+    func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
+}
+
 private struct ConnectionListRow: View {
     let connection: ConnectionConfig
     let status: ConnectionStatus
@@ -99,8 +106,10 @@ private struct ConnectionListRow: View {
                 .frame(width: 8, height: 8)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(connection.name.isEmpty
-                    ? "Untitled" : DisplayEscape.escaped(connection.name))
+                // The placeholder is chosen on the TRIMMED text, not the raw
+                // name: a stored name of nothing but spaces trims to nothing,
+                // and a blank row is less use than "Untitled".
+                Text(DisplayEscape.escapedTrimmed(connection.name).ifEmpty("Untitled"))
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -635,7 +644,7 @@ final class ConnectionsManagerVC: NSViewController {
         }
         let alert = NSAlert()
         let name = (draft?.name.isEmpty == false ? draft?.name : nil) ?? "this connection"
-        alert.messageText = "Save changes to \"\(name)\"?"
+        alert.messageText = DestructiveConfirmationText.unsavedChangesConfirmTitle(name: name)
         alert.informativeText = "Your edits will be lost if you don't save."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Don't Save")
@@ -686,11 +695,12 @@ final class ConnectionsManagerVC: NSViewController {
         listModel.dirtyConnectionId = nil
 
         // A display label, so it is ESCAPED rather than sanitised — matching the
-        // list row for the same name. It is also the largest rendering of the
-        // name in this view, so it is the last place that should be able to lie.
-        titleField.stringValue = config.name.isEmpty
-            ? "Untitled Connection"
-            : DisplayEscape.escaped(config.name)
+        // list row and the delete confirmation for the same name. It is also the
+        // largest rendering of the name in this view, so it is the last place
+        // that should be able to lie. TRIMMED as well, because the save path
+        // trims: an edge space here is a record written before it did.
+        titleField.stringValue = DisplayEscape.escapedTrimmed(config.name)
+            .ifEmpty("Untitled Connection")
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(config.name)
         hostField.stringValue = config.host
         portField.stringValue = String(config.port)
@@ -800,7 +810,31 @@ final class ConnectionsManagerVC: NSViewController {
     @objc private func saveChanges() { saveChangesInternal() }
 
     private func saveChangesInternal() {
-        guard let d = draft, isDraftValid() else { NSSound.beep(); return }
+        guard var d = draft, isDraftValid() else { NSSound.beep(); return }
+
+        // The name is an AUTHORED LABEL, so the store receives it COMMITTED —
+        // sanitised and trimmed — the same producer a tag name and a workspace
+        // name already go through. Two reasons it has to happen here and not
+        // only in the field:
+        //
+        //  - `loadSelectionIntoForm` puts the RAW stored name in the draft while
+        //    showing the sanitised one in the field, so saving an untouched
+        //    legacy record would otherwise write its hostile name straight back.
+        //  - Nothing trimmed until now, so `"prod "` was a stored name distinct
+        //    from `"prod"` while reading identically on every surface.
+        //
+        // Host, database, username and password are round-trip DATA — they must
+        // reach libpq byte for byte — so they are never altered.
+        d.name = AuthoredLabelSanitizer.committed(d.name)
+
+        // `isDraftValid` trims with `.whitespaces` only, so a name of nothing
+        // but a bidi override passes it and commits to empty.
+        guard !d.name.isEmpty else { NSSound.beep(); return }
+
+        // The draft, the baseline and the field all take the committed name, so
+        // what is on screen is what was saved and the view is not left dirty.
+        draft = d
+        nameField.stringValue = d.name
         pendingStubIds.remove(d.id)
         stateManager.saveConnection(d)
         draftBaseline = d
@@ -919,7 +953,12 @@ final class ConnectionsManagerVC: NSViewController {
 
         let alert = NSAlert()
         if selected.count == 1 {
-            alert.messageText = "Delete \"\(selected[0].name)\"?"
+            // Built by `DestructiveConfirmationText`, never interpolated here:
+            // this title gates an irreversible delete, and a bidi override in
+            // the name would let it name a different connection than the one
+            // about to go.
+            alert.messageText = DestructiveConfirmationText
+                .deleteConnectionConfirmTitle(name: selected[0].name)
         } else {
             alert.messageText = "Delete \(selected.count) connections?"
         }
