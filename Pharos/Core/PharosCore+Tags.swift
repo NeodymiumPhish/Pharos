@@ -38,12 +38,28 @@ extension PharosCore {
     /// inserted: a tuple already on the tag is absorbed by the unique index,
     /// not an error, so re-tagging the same row is a no-op.
     @discardableResult
-    static func addTagTuples(_ payload: AddTagTuples) throws -> Int {
+    static func addTagRules(_ payload: AddTagRules) throws -> Int {
         let text = try scalarResult(input: payload) { pharos_add_tag_tuples($0) }
         guard let count = Int(text) else {
             throw PharosCoreError.rustError("Unexpected add count result: \(text)")
         }
         return count
+    }
+
+    /// Replace one rule's conditions in place, keeping its id and the time the
+    /// finding was first recorded. Returns whether a rule with that id existed.
+    ///
+    /// A collision with another rule of the same tag THROWS rather than being
+    /// absorbed. `addTagRules` is the opposite by design — re-tagging a row is a
+    /// no-op — but an edit is something the analyst asked for, and one that
+    /// silently vanished would be worse than one that failed.
+    @discardableResult
+    static func updateTagRule(_ payload: UpdateTagRule) throws -> Bool {
+        let text = try scalarResult(input: payload) { pharos_update_tag_rule($0) }
+        guard let count = Int(text) else {
+            throw PharosCoreError.rustError("Unexpected update-rule result: \(text)")
+        }
+        return count > 0
     }
 
     /// Change a tag's name, colour or note. Returns nil when no tag has that id.
@@ -59,7 +75,7 @@ extension PharosCore {
     /// Remove individual tuples — the "Remove From Tag" path. A tag that loses
     /// every tuple survives; it is still a named case.
     @discardableResult
-    static func deleteTagTuples(ids: [String]) throws -> Int {
+    static func deleteTagRules(ids: [String]) throws -> Int {
         let text = try scalarResult(input: ids) { pharos_delete_tag_tuples($0) }
         guard let count = Int(text) else {
             throw PharosCoreError.rustError("Unexpected delete count result: \(text)")

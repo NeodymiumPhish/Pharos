@@ -4,7 +4,7 @@ import Foundation
 
 /// The field grammar every canonical compare string is built from.
 ///
-/// `TupleKey` is the only production caller, and it uses `column(_:)` and
+/// `RuleKey` is the only production caller, and it uses `column(_:)` and
 /// `field(_:)` ONLY. `encode(columns:values:)` has no production caller at all
 /// since the row-identity tag model retired — `PharosTests/RowFingerprintTests.swift`
 /// is the only thing that calls it. It stays because the grammar it demonstrates

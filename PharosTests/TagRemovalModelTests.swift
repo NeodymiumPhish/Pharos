@@ -17,49 +17,52 @@ func expectTrue(_ actual: Bool, _ name: String) {
 
 // MARK: - Fixtures
 
-private func value(_ column: String, _ display: String) -> TaggedValue {
-    TaggedValue(column: column, family: "text", value: display.lowercased(),
+/// The FAMILY is what names a condition now, so the fixture takes one. The
+/// normalized form is a plain lowercase — a stub, not the real normalizer,
+/// which these tests do not exercise.
+private func value(_ family: String, _ display: String) -> TagCondition {
+    TagCondition(family: family, value: display.lowercased(),
                 display: display)
 }
 
-private func tuple(_ id: String, _ values: [TaggedValue]) -> TagTuple {
-    TagTuple(id: id, values: values, tupleKey: "k-\(id)",
+private func tuple(_ id: String, _ values: [TagCondition]) -> TagRule {
+    TagRule(id: id, conditions: values, tupleKey: "k-\(id)",
              originConnection: "conn", originTable: "public.t",
              createdAt: "2026-08-14T00:00:00Z")
 }
 
-private func tag(_ id: String, _ name: String, colorIndex: Int = 1, tuples: [TagTuple]) -> Tag {
+private func tag(_ id: String, _ name: String, colorIndex: Int = 1, tuples: [TagRule]) -> Tag {
     Tag(id: id, name: name, colorIndex: colorIndex, note: nil,
         createdAt: "2026-08-14T00:00:00Z", updatedAt: "2026-08-14T00:00:00Z",
-        tuples: tuples)
+        rules: tuples)
 }
 
 // No default/derived fields: a helper that synthesises a field the code
-// under test may read (a prior version defaulted `matchedTupleIds` from
-// `solidTupleIds`) can hide a real bug behind coincidentally-equal fixtures.
+// under test may read (a prior version defaulted `matchedRuleIds` from
+// `solidRuleIds`) can hide a real bug behind coincidentally-equal fixtures.
 // Every call site states both explicitly.
 private func match(_ tagId: String, _ state: TagMatchState,
-                    matchedTupleIds: [String], solidTupleIds: [String]) -> TagRowMatch {
+                    matchedRuleIds: [String], solidRuleIds: [String]) -> TagRowMatch {
     TagRowMatch(tagId: tagId, state: state, matchedColumns: [0],
-                matchedTupleIds: matchedTupleIds, solidTupleIds: solidTupleIds)
+                matchedRuleIds: matchedRuleIds, solidRuleIds: solidRuleIds)
 }
 
 func runTests() {
     let tagA = tag("tA", "Alpha", colorIndex: 1, tuples: [
-        tuple("u1", [value("md5", "D41D8C")]),
-        tuple("u2", [value("ip", "10.2.3.4"), value("subject", "CN=evil")]),
-        tuple("u3", [value("md5", "AAAA")]),
+        tuple("u1", [value("text", "D41D8C")]),
+        tuple("u2", [value("address", "10.2.3.4"), value("text", "CN=evil")]),
+        tuple("u3", [value("text", "AAAA")]),
         // Its display text embeds the separator `title` joins values with, so
         // this single-value tuple's title collides byte-for-byte with u2's —
         // see MARK 7.
-        tuple("u4", [value("ip", "10.2.3.4  +  subject: CN=evil")]),
+        tuple("u4", [value("address", "10.2.3.4  +  Text: CN=evil")]),
         // Reachable only via a corrupt `tuple_values` blob in production
         // (Rust decodes bad JSON to an empty list rather than failing the
         // load) — never via a live match. See MARK 8.
         tuple("e1", []),
     ])
     let tagB = tag("tB", "Beta", colorIndex: 2, tuples: [
-        tuple("v1", [value("port", "443")]),
+        tuple("v1", [value("numeric", "443")]),
     ])
 
     // MARK: - 1. Groups span tags, follow the store's tag order, and dedupe
@@ -68,15 +71,15 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [3, 7],
             matchesByRow: [
-                3: [match("tB", .solid, matchedTupleIds: ["v1"], solidTupleIds: ["v1"]),
-                    match("tA", .solid, matchedTupleIds: ["u1"], solidTupleIds: ["u1"])],
-                7: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])],   // u1 again
+                3: [match("tB", .solid, matchedRuleIds: ["v1"], solidRuleIds: ["v1"]),
+                    match("tA", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
+                7: [match("tA", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1", "u2"])],   // u1 again
             ],
             tags: [tagA, tagB])
         expectEqual(groups.map(\.tagName), ["Alpha", "Beta"],
                     "groups follow the STORE's tag order, not the match order")
         expectEqual(groups[0].tuples.map(\.tupleId), ["u1", "u2"],
-                    "duplicate tuple ids across rows collapse; order follows tag.tuples")
+                    "duplicate tuple ids across rows collapse; order follows tag.rules")
         expectEqual(groups[1].tuples.map(\.tupleId), ["v1"], "the second tag keeps its tuple")
         expectEqual(groups[0].colorIndex, 1, "a group carries ITS OWN tag's colour, not a fixed one")
         expectEqual(groups[1].colorIndex, 2, "a different tag carries a different colour")
@@ -90,29 +93,29 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [1],
-            // Touched (matchedTupleIds) the ip half of u2 without completing
-            // it (solidTupleIds empty) — a real dashed shape, not a stand-in.
-            matchesByRow: [1: [match("tA", .dashed, matchedTupleIds: ["u2"], solidTupleIds: [])]],
+            // Touched (matchedRuleIds) the ip half of u2 without completing
+            // it (solidRuleIds empty) — a real dashed shape, not a stand-in.
+            matchesByRow: [1: [match("tA", .dashed, matchedRuleIds: ["u2"], solidRuleIds: [])]],
             tags: [tagA])
         expectTrue(groups.isEmpty, "a dashed-only row completes no tuple, so there is nothing to list")
     }
 
-    // MARK: - 3. Values arrive as structured tokens with their captured columns
+    // MARK: - 3. Values arrive as structured tokens carrying their families
 
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "u2"], solidTupleIds: ["u1", "u2"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u1", "u2"], solidRuleIds: ["u1", "u2"])]],
             tags: [tagA])
         let tuples = groups[0].tuples
         expectEqual(tuples[0].values,
-                    [TagRemovalValue(column: "md5", display: "D41D8C", normalized: "d41d8c")],
+                    [TagRemovalValue(family: "text", display: "D41D8C", normalized: "d41d8c")],
                     "a single-value tuple carries exactly one structured value")
-        expectEqual(TagRemovalModel.valueText(for: tuples[0].values[0]).text, "md5: D41D8C",
-                    "a value renders as column: display")
+        expectEqual(TagRemovalModel.valueText(for: tuples[0].values[0]).text, "Text: D41D8C",
+                    "a value renders as family: display")
         expectEqual(tuples[1].values,
-                    [TagRemovalValue(column: "ip", display: "10.2.3.4", normalized: "10.2.3.4"),
-                     TagRemovalValue(column: "subject", display: "CN=evil", normalized: "cn=evil")],
+                    [TagRemovalValue(family: "address", display: "10.2.3.4", normalized: "10.2.3.4"),
+                     TagRemovalValue(family: "text", display: "CN=evil", normalized: "cn=evil")],
                     "a multi-value tuple carries each value as its OWN structured element")
     }
 
@@ -121,8 +124,8 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("ghost", .solid, matchedTupleIds: ["zz"], solidTupleIds: ["zz"]),
-                               match("tA", .solid, matchedTupleIds: ["u3", "gone"], solidTupleIds: ["u3", "gone"])]],
+            matchesByRow: [0: [match("ghost", .solid, matchedRuleIds: ["zz"], solidRuleIds: ["zz"]),
+                               match("tA", .solid, matchedRuleIds: ["u3", "gone"], solidRuleIds: ["u3", "gone"])]],
             tags: [tagA])
         expectEqual(groups.count, 1, "the unknown tag id contributes no group")
         expectEqual(groups[0].tuples.map(\.tupleId), ["u3"],
@@ -155,7 +158,7 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u2", "u4"], solidTupleIds: ["u2", "u4"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u2", "u4"], solidRuleIds: ["u2", "u4"])]],
             tags: [tagA])
         let byId = Dictionary(uniqueKeysWithValues: groups[0].tuples.map { ($0.tupleId, $0) })
         // The collision the model must survive: joined into one line these two
@@ -163,7 +166,7 @@ func runTests() {
         // Nothing in the model produces that joined form any more — this
         // builds it here, in the test, purely to prove the trap is real.
         let joined = { (t: TagRemovalTuple) in
-            t.values.map { "\($0.column): \($0.display)" }.joined(separator: "  +  ")
+            t.values.map { TagRemovalModel.valueText(for: $0).text }.joined(separator: "  +  ")
         }
         expectEqual(joined(byId["u2"]!), joined(byId["u4"]!),
                     "a genuine 2-value tuple and a 1-value tuple whose display embeds the separator WOULD collide if joined")
@@ -171,8 +174,8 @@ func runTests() {
         expectEqual(byId["u4"]!.values.count, 1,
                     "a single value containing the separator text still yields exactly ONE structured value, not two")
         expectEqual(byId["u4"]!.values,
-                    [TagRemovalValue(column: "ip", display: "10.2.3.4  +  subject: CN=evil",
-                                     normalized: "10.2.3.4  +  subject: cn=evil")],
+                    [TagRemovalValue(family: "address", display: "10.2.3.4  +  Text: CN=evil",
+                                     normalized: "10.2.3.4  +  text: cn=evil")],
                     "the embedded separator is not re-parsed; the display string survives whole")
         expectEqual(byId["u2"]!.values.count > 1, true, "u2 goes as a whole: it has two values")
         expectEqual(byId["u4"]!.values.count > 1, false,
@@ -184,7 +187,7 @@ func runTests() {
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            matchesByRow: [0: [match("tA", .solid, matchedTupleIds: ["u1", "e1"], solidTupleIds: ["u1", "e1"])]],
+            matchesByRow: [0: [match("tA", .solid, matchedRuleIds: ["u1", "e1"], solidRuleIds: ["u1", "e1"])]],
             tags: [tagA])
         expectEqual(groups[0].tuples.map(\.tupleId), ["u1"],
                     "a tuple with an empty values array is filtered out — a blank row is the worst possible disclosure")
@@ -196,29 +199,29 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [3],
             matchesByRow: [
-                3: [match("tA", .solid, matchedTupleIds: ["u1"], solidTupleIds: ["u1"])],
+                3: [match("tA", .solid, matchedRuleIds: ["u1"], solidRuleIds: ["u1"])],
                 // Row 4 has a real, solid match too — but it was never
                 // selected. Walking `matchesByRow` instead of `targetRows`
                 // would pull it in anyway, silently turning a per-row action
                 // into a global one.
-                4: [match("tB", .solid, matchedTupleIds: ["v1"], solidTupleIds: ["v1"])],
+                4: [match("tB", .solid, matchedRuleIds: ["v1"], solidRuleIds: ["v1"])],
             ],
             tags: [tagA, tagB])
         expectEqual(groups.map(\.tagName), ["Alpha"],
                     "only the TARGET rows' matches contribute — an untargeted row's match must not leak in")
     }
 
-    // MARK: - 10. solidTupleIds, not matchedTupleIds, decides what is removable
+    // MARK: - 10. solidRuleIds, not matchedRuleIds, decides what is removable
 
     do {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
-            // The row touched all three of tA's tuples (matchedTupleIds) but
-            // completed only u2 (solidTupleIds) — the shape a dashed-turned-
+            // The row touched all three of tA's tuples (matchedRuleIds) but
+            // completed only u2 (solidRuleIds) — the shape a dashed-turned-
             // solid tag realistically produces on a wide row.
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["u1", "u2", "u3"],
-                                     solidTupleIds: ["u2"])]],
+                                     matchedRuleIds: ["u1", "u2", "u3"],
+                                     solidRuleIds: ["u2"])]],
             tags: [tagA])
         expectEqual(groups[0].tuples.map(\.tupleId), ["u2"],
                     "only the COMPLETE tuple is offered for removal, even though the row touched two others")
@@ -232,8 +235,8 @@ func runTests() {
             // Both ids the row named are stale (the store no longer holds
             // either) — the tag must not render as an empty header.
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["gone1", "gone2"],
-                                     solidTupleIds: ["gone1", "gone2"])]],
+                                     matchedRuleIds: ["gone1", "gone2"],
+                                     solidRuleIds: ["gone1", "gone2"])]],
             tags: [tagA])
         expectTrue(groups.isEmpty, "a tag whose every named tuple is stale contributes NO group, not an empty one")
     }
@@ -244,11 +247,11 @@ func runTests() {
         let groups = TagRemovalModel.groups(
             targetRows: [0],
             matchesByRow: [0: [match("tA", .solid,
-                                     matchedTupleIds: ["u1", "u2"],
-                                     solidTupleIds: ["u1", "u2"]),
+                                     matchedRuleIds: ["u1", "u2"],
+                                     solidRuleIds: ["u1", "u2"]),
                                match("tB", .solid,
-                                     matchedTupleIds: ["v1"],
-                                     solidTupleIds: ["v1"])]],
+                                     matchedRuleIds: ["v1"],
+                                     solidRuleIds: ["v1"])]],
             tags: [tagA, tagB])
         // Order matters and is the LIST's order: the sheet shows the tuples in
         // this sequence, and a payload in some other order cannot be read back
@@ -306,8 +309,8 @@ func runTests() {
         // Reachable: TagDraft fills `display` from the raw cell, and an empty
         // text cell is not NULL, so it passes the NULL guard and arrives as "".
         let empty = TagRemovalModel.valueText(
-            for: TagRemovalValue(column: "ip", display: "", normalized: ""))
-        expectEqual(empty.text, "ip: (empty)", "an empty display says so")
+            for: TagRemovalValue(family: "address", display: "", normalized: ""))
+        expectEqual(empty.text, "Address: (empty)", "an empty display says so")
         expectEqual(empty.isPlaceholder, true, "and is marked as a placeholder, to be styled apart")
 
         // The count suffix arrived with `DisplayEscape`, which the result grid
@@ -316,20 +319,24 @@ func runTests() {
         // escaped scalar therefore carries its count. A single edge space is
         // still a bare `<U+0020>` — see the trailing-space case above.
         let spaces = TagRemovalModel.valueText(
-            for: TagRemovalValue(column: "md5", display: "   ", normalized: ""))
-        expectEqual(spaces.text, "md5: <U+0020\u{00D7}3>",
+            for: TagRemovalValue(family: "text", display: "   ", normalized: ""))
+        expectEqual(spaces.text, "Text: <U+0020\u{00D7}3>",
                     "whitespace is shown as what it is, and says how much of it there is")
         expectEqual(spaces.isPlaceholder, false,
                     "it is real captured data, so it is not styled as a stand-in")
 
-        let nothing = TagRemovalModel.valueText(
-            for: TagRemovalValue(column: "", display: "", normalized: ""))
-        expectEqual(nothing.text, "(no column): (empty)",
+        // The family needs no stand-in of its own — it is never empty — so the
+        // worst case left is an empty display beside a family this build has
+        // never seen. It must still read as words, and the type name is more
+        // use to an analyst than a stand-in would be.
+        let exotic = TagRemovalModel.valueText(
+            for: TagRemovalValue(family: "type:bytea", display: "", normalized: ""))
+        expectEqual(exotic.text, "bytea: (empty)",
                     "the worst case — a checkbox beside a bare colon — reads as words")
-        expectEqual(nothing.isPlaceholder, true, "and is marked")
+        expectEqual(exotic.isPlaceholder, true, "and is marked")
 
         let ordinary = TagRemovalModel.valueText(
-            for: TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1"))
+            for: TagRemovalValue(family: "address", display: "10.0.0.1", normalized: "10.0.0.1"))
         expectEqual(ordinary.isPlaceholder, false, "a real value is not a placeholder")
     }
 
@@ -342,22 +349,22 @@ func runTests() {
 
         expectEqual(
             TagRemovalModel.matchDisclosure(
-                for: TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1")),
+                for: TagRemovalValue(family: "address", display: "10.0.0.1", normalized: "10.0.0.1")),
             nil,
             "captured text that IS the matching form adds no second line — noise on every row would bury the ones that matter")
 
         expectEqual(
             TagRemovalModel.matchDisclosure(
-                for: TagRemovalValue(column: "cc", display: "US", normalized: "us"))?.text,
+                for: TagRemovalValue(family: "text", display: "US", normalized: "us"))?.text,
             "matches as \u{201C}us\u{201D} — \(reason)",
             "a case-only difference is disclosed: the sheet used to say US while us was what stopped matching")
 
         // The char(20) case, and the reason `display` is not trimmed at
         // capture: eighteen pad spaces are part of what the cell held.
-        let padded = TagRemovalValue(column: "cc", display: "US" + String(repeating: " ", count: 18),
+        let padded = TagRemovalValue(family: "text", display: "US" + String(repeating: " ", count: 18),
                                      normalized: "us")
         expectEqual(TagRemovalModel.valueText(for: padded).text,
-                    "cc: US<U+0020\u{00D7}18>",
+                    "Text: US<U+0020\u{00D7}18>",
                     "the captured text keeps its padding — that is the provenance")
         expectEqual(TagRemovalModel.matchDisclosure(for: padded)?.text,
                     "matches as \u{201C}us\u{201D} — \(reason)",
@@ -367,13 +374,13 @@ func runTests() {
 
         expectEqual(
             TagRemovalModel.matchDisclosure(
-                for: TagRemovalValue(column: "amount", display: "0012.500", normalized: "12.5"))?.text,
+                for: TagRemovalValue(family: "numeric", display: "0012.500", normalized: "12.5"))?.text,
             "matches as \u{201C}12.5\u{201D} — \(reason)",
             "a numeric canonicalisation is disclosed the same way, with no family-specific claim to get wrong")
 
         // The loudest thing this line can say, so it says it in words rather
         // than in a pair of empty quotes that would read as a rendering fault.
-        let blank = TagRemovalValue(column: "note", display: "   ", normalized: "")
+        let blank = TagRemovalValue(family: "text", display: "   ", normalized: "")
         expectEqual(TagRemovalModel.matchDisclosure(for: blank)?.text,
                     "matches as (empty) — \(reason)",
                     "an all-whitespace value matches every blank cell, and must not disclose that as nothing at all")
@@ -384,7 +391,7 @@ func runTests() {
         // override in it would misrender exactly as it would in `display`.
         expectEqual(
             TagRemovalModel.matchDisclosure(
-                for: TagRemovalValue(column: "f", display: "SAFE\u{202E}GPJ.EXE",
+                for: TagRemovalValue(family: "text", display: "SAFE\u{202E}GPJ.EXE",
                                      normalized: "safe\u{202E}gpj.exe"))?.text,
             "matches as \u{201C}safe<U+202E>gpj.exe\u{201D} — \(reason)",
             "the matching form is escaped too — it can lie the same way the captured text could")
@@ -392,12 +399,31 @@ func runTests() {
         // A tuple where only ONE value's reach differs: the other must stay
         // silent, or the signal is lost in the noise again.
         let mixed = TagRemovalTuple(tupleId: "u9", values: [
-            TagRemovalValue(column: "ip", display: "10.0.0.1", normalized: "10.0.0.1"),
-            TagRemovalValue(column: "cc", display: "US", normalized: "us"),
+            TagRemovalValue(family: "address", display: "10.0.0.1", normalized: "10.0.0.1"),
+            TagRemovalValue(family: "text", display: "US", normalized: "us"),
         ])
         expectEqual(mixed.values.map { TagRemovalModel.matchDisclosure(for: $0)?.text },
                     [nil, "matches as \u{201C}us\u{201D} — \(reason)"],
                     "in a multi-value tuple only the value whose reach differs gets a line")
+    }
+
+    // MARK: - 16. A condition is described by its FAMILY, through one producer
+
+    do {
+        // A column name never took part in matching and a hand-authored
+        // condition has no column at all, so the family is the one description
+        // every condition can share. `TagFamilyLabel` is the one producer, so
+        // this sheet and the Inspector cannot name the same family two ways.
+        expectEqual(TagRemovalModel.valueText(
+            for: TagRemovalValue(family: "text", display: "evil.com", normalized: "evil.com")).text,
+            "Text: evil.com", "a text condition reads by family")
+        expectEqual(TagRemovalModel.valueText(
+            for: TagRemovalValue(family: "address", display: "10.0.0.1", normalized: "10.0.0.1")).text,
+            "Address: 10.0.0.1", "an address condition reads by family")
+        // An exotic family shows the type name rather than a stand-in word.
+        expectEqual(TagRemovalModel.valueText(
+            for: TagRemovalValue(family: "type:bool", display: "t", normalized: "t")).text,
+            "bool: t", "an exotic family shows its type name")
     }
 
     if failures == 0 {

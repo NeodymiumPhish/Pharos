@@ -349,7 +349,7 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_create_tag(const char *json);
 
 /**
- * Append tuples to a tag. `json` is a JSON-encoded AddTagTuples. Returns the
+ * Append tuples to a tag. `json` is a JSON-encoded AddTagRules. Returns the
  * number inserted as a decimal string, which can be fewer than sent.
  */
  char *pharos_add_tag_tuples(const char *json);
@@ -358,6 +358,13 @@ void pharos_import_csv(const char *connection_id,
  * Update a tag. `json` is a JSON-encoded UpdateTag. Returns the Tag or null.
  */
  char *pharos_update_tag(const char *json);
+
+/**
+ * Replace one rule's conditions in place, keeping its id and first-seen time.
+ * `json` is a JSON-encoded UpdateTagRule. Returns the number of rows changed
+ * as a decimal string.
+ */
+ char *pharos_update_tag_rule(const char *json);
 
 /**
  * Delete a tag and, by cascade, its tuples. Returns "true" or "false".

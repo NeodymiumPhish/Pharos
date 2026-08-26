@@ -33,7 +33,7 @@ pub extern "C" fn pharos_create_tag(json: *const c_char) -> *mut c_char {
     })
 }
 
-/// Append tuples to a tag. `json` is a JSON-encoded AddTagTuples. Returns the
+/// Append tuples to a tag. `json` is a JSON-encoded AddTagRules. Returns the
 /// number inserted as a decimal string, which can be fewer than sent.
 #[no_mangle]
 pub extern "C" fn pharos_add_tag_tuples(json: *const c_char) -> *mut c_char {
@@ -41,7 +41,7 @@ pub extern "C" fn pharos_add_tag_tuples(json: *const c_char) -> *mut c_char {
         let state = app_state();
         let rt = runtime();
         let json_str = unsafe { c_str_to_string(json) };
-        let payload: crate::models::AddTagTuples = match serde_json::from_str(&json_str) {
+        let payload: crate::models::AddTagRules = match serde_json::from_str(&json_str) {
             Ok(p) => p,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
@@ -65,6 +65,26 @@ pub extern "C" fn pharos_update_tag(json: *const c_char) -> *mut c_char {
         };
         match rt.block_on(crate::commands::update_tag(state, update)) {
             Ok(tag) => to_json_c_string(&tag),
+            Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
+        }
+    })
+}
+
+/// Replace one rule's conditions in place, keeping its id and first-seen time.
+/// `json` is a JSON-encoded UpdateTagRule. Returns the number of rows changed
+/// as a decimal string.
+#[no_mangle]
+pub extern "C" fn pharos_update_tag_rule(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let json_str = unsafe { c_str_to_string(json) };
+        let payload: crate::models::UpdateTagRule = match serde_json::from_str(&json_str) {
+            Ok(p) => p,
+            Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
+        };
+        match rt.block_on(crate::commands::update_tag_rule(state, payload)) {
+            Ok(count) => to_c_string(&count.to_string()),
             Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }
     })

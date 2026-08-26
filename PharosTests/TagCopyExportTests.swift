@@ -129,7 +129,7 @@ private func testEveryRowInTheSetIsInScope() {
     // NOTE this canNOT prove the "dashed counts too" decision: `Set<Int>`
     // carries no match state, so the suite cannot tell a dashed row from a
     // solid one. That decision lives in `ResultsGridVC.applyTagMap`, which
-    // passes `Set(map.keys)` — every row `TagTupleMatcher.match` recorded, at
+    // passes `Set(map.keys)` — every row `TagRuleMatcher.match` recorded, at
     // either state — and no harness compiles that file. Verified by reading.
     let (s, _) = makeSubject(taggedRows: [7, 5])
     setTaggedOnly(s)

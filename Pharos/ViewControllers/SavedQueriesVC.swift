@@ -249,7 +249,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         if selectedIds.count == 1 {
             // Find the name for a nicer message
             let name = selectedQueryNames().first ?? "this query"
-            alert.messageText = "Delete '\(name)'?"
+            alert.messageText = DestructiveConfirmationText
+                .deleteSavedQueryConfirmTitle(name: name)
         } else {
             alert.messageText = "Delete \(selectedIds.count) queries?"
         }
@@ -538,7 +539,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
+            let newName = AuthoredLabelSanitizer.committed(textField.stringValue)
             guard !newName.isEmpty, newName != currentName else { return }
             self?.performRename(node: node, newName: newName)
         }
@@ -593,7 +594,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 return
             }
             let alert = NSAlert()
-            alert.messageText = "Delete folder \"\(name)\"?"
+            alert.messageText = DestructiveConfirmationText
+                .deleteFolderConfirmTitle(name: name)
             alert.informativeText = "This will delete \(count) saved quer\(count == 1 ? "y" : "ies") in this folder."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Delete")
@@ -926,91 +928,5 @@ extension SavedQueriesVC: SavedQueryCellEditingDelegate {
         }
         reload()
         NotificationCoalescer.post(.savedQueriesDidChange)
-    }
-}
-
-// MARK: - Compact Cell View
-
-class SavedQueryCellView: NSTableCellView {
-
-    private let iconView = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private weak var editingDelegate: SavedQueryCellEditingDelegate?
-
-    convenience init(identifier: NSUserInterfaceItemIdentifier) {
-        self.init()
-        self.identifier = identifier
-
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.font = .systemFont(ofSize: 13)
-        titleLabel.textColor = .labelColor
-        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        addSubview(iconView)
-        addSubview(titleLabel)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    func configure(icon: NSImage?, tint: NSColor, title: String, isHighlighted: Bool = false) {
-        iconView.image = icon
-        iconView.contentTintColor = tint
-        titleLabel.stringValue = title
-        titleLabel.font = isHighlighted ? .boldSystemFont(ofSize: 13) : .systemFont(ofSize: 13)
-    }
-
-    /// Makes the title label editable and selects all text for immediate renaming.
-    func beginEditing(delegate: SavedQueryCellEditingDelegate) {
-        editingDelegate = delegate
-        titleLabel.isEditable = true
-        titleLabel.isBezeled = false
-        titleLabel.drawsBackground = false
-        titleLabel.delegate = self
-        titleLabel.selectText(nil)
-        window?.makeFirstResponder(titleLabel)
-    }
-
-    fileprivate func endEditing() {
-        titleLabel.isEditable = false
-        titleLabel.delegate = nil
-        editingDelegate = nil
-    }
-}
-
-protocol SavedQueryCellEditingDelegate: AnyObject {
-    func cellView(_ cellView: SavedQueryCellView, didFinishEditingWithText text: String)
-}
-
-extension SavedQueryCellView: NSTextFieldDelegate {
-    /// The inline folder rename is an authored label, sanitised as it is typed.
-    /// `textShouldEndEditing` below reads the FIELD EDITOR, so a rewrite here is
-    /// exactly what that method goes on to see.
-    func controlTextDidChange(_ obj: Notification) {
-        guard (obj.object as? NSTextField) === titleLabel else { return }
-        titleLabel.sanitizeAsAuthoredLabel()
-    }
-
-    func control(_ control: NSControl, textShouldEndEditing fieldEditor: NSText) -> Bool {
-        let newName = fieldEditor.string.trimmingCharacters(in: .whitespaces)
-        let delegate = editingDelegate
-        endEditing()
-        if !newName.isEmpty {
-            delegate?.cellView(self, didFinishEditingWithText: newName)
-        }
-        return true
     }
 }

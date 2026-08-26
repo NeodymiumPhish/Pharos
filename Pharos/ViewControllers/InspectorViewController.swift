@@ -550,8 +550,13 @@ class InspectorViewController: NSViewController {
         ])
 
         // The name is single-line and identifies which tag the buttons below
-        // act on, so it is escaped. The NOTE is not — see `addTagNote`.
-        let nameLabel = NSTextField(labelWithString: DisplayEscape.escaped(entry.name))
+        // act on, so it is escaped. The NOTE is not — see `addTagNote`. TRIMMED
+        // first, like every other surface that draws a tag name (the Tag
+        // Manager's sidebar row, the grid row's tooltip, the delete
+        // confirmation): a name stored before this branch began trimming on
+        // input would otherwise render its stray edge space as a mid-word
+        // `<U+0020>` here. `DisplayEscape.escapedTrimmed` is the one producer.
+        let nameLabel = NSTextField(labelWithString: DisplayEscape.escapedTrimmed(entry.name))
         nameLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -577,8 +582,8 @@ class InspectorViewController: NSViewController {
     /// constraint instead of breaking it.
     ///
     /// Deliberately NOT run through `DisplayEscape`, unlike every other label in
-    /// this section. A note is prose the ANALYST typed into `TagSheet`, not
-    /// captured data, it is the one label here that is legitimately multi-line
+    /// this section. A note is prose the ANALYST typed into the Tag Manager,
+    /// not captured data, it is the one label here that is legitimately multi-line
     /// (`maximumNumberOfLines = 0`), and escaping would turn its own paragraph
     /// breaks into `<U+000A>`. It also names no value and gates no deletion.
     private func addTagNote(_ note: String) {
@@ -593,19 +598,22 @@ class InspectorViewController: NSViewController {
         noteLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
     }
 
-    /// One captured value: a match mark, the column it was captured from, and
-    /// the value itself.
+    /// One condition: a match mark, the family that names it, and the value
+    /// itself. A column name is not shown — it never took part in matching, and
+    /// a hand-authored condition has none at all.
     private func addTagValueRow(_ value: TagInspectorValue) {
         let mark = NSTextField(labelWithString: value.isMatched ? "\u{2713}" : "\u{2014}")
         mark.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         mark.textColor = value.isMatched ? .systemGreen : .tertiaryLabelColor
 
-        // Escaped, like the row-detail values above and the removal sheet that
-        // deletes these same tuples: a captured value is somebody else's data,
-        // and this row is what the analyst reads before pressing "Remove Tag…".
-        let columnLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.column))
-        columnLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        columnLabel.textColor = .secondaryLabelColor
+        // `TagFamilyLabel` is the one producer of this wording, so the removal
+        // sheet that deletes these same tuples cannot name the family
+        // differently. It escapes what it returns — an exotic family carries a
+        // PostgreSQL type name, which is somebody else's data — so do NOT
+        // escape it again here.
+        let familyLabel = NSTextField(labelWithString: TagFamilyLabel.text(for: value.family))
+        familyLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        familyLabel.textColor = .secondaryLabelColor
 
         let displayLabel = NSTextField(labelWithString: DisplayEscape.escaped(value.display))
         displayLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -613,7 +621,7 @@ class InspectorViewController: NSViewController {
         displayLabel.lineBreakMode = .byTruncatingMiddle
         displayLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let valueRow = NSStackView(views: [mark, columnLabel, displayLabel])
+        let valueRow = NSStackView(views: [mark, familyLabel, displayLabel])
         valueRow.orientation = .horizontal
         valueRow.distribution = .fill
         valueRow.spacing = 6
@@ -834,7 +842,12 @@ class InspectorViewController: NSViewController {
         // override would otherwise make this pane read as a filename the row
         // does not hold; an escaped copy would paste a corrupt indicator into
         // whatever the analyst pastes it into.
-        label.stringValue = DisplayEscape.escaped(value.displayString)
+        // `escapedMultilineValue`, not `escaped`: this label WRAPS
+        // (`maximumNumberOfLines = 0` above), so a newline renders correctly and
+        // escaping it litters the pane with `<U+000A>`. Edge spaces are still
+        // disclosed, because a trailing run is `char(20)` padding the analyst
+        // needs to see — which is why plain `escapedMultiline` will not do here.
+        label.stringValue = DisplayEscape.escapedMultilineValue(value.displayString)
         label.copyableValue = value.displayString
 
         switch category {

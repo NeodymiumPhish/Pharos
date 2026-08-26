@@ -220,8 +220,10 @@ private func testTwoRowsWithCollidingEscapedTitlesBothSurvive() {
 }
 
 private func testIsSentinelDecidesTheMode() {
-    // The mode rule TagSheet branches on. It has no harness of its own, so the
-    // rule lives here where it can be tested.
+    // The mode rule a two-mode picker branches on. The sheet that used it —
+    // the Add Tag sheet the Tag Manager replaced — is gone, so no production
+    // caller passes a sentinel tag today and this suite is the only thing
+    // holding the rule.
     let popup = newPopup()
     PopupValueMenu.populate(popup, sentinel: "New tag", sentinelTag: 1, rows: [
         PopupValueMenu.Row(display: "Case Alpha", value: "tag-1"),

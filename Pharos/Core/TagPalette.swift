@@ -78,9 +78,9 @@ enum TagPalette {
     ///
     /// A `static let` rather than a mutable cache: the domain is the palette,
     /// which never changes at run time, so the whole set can be built on first
-    /// touch and handed out for ever after. `TagManageSheet` asks for one per
-    /// row draw, and drawing an `NSImage` per draw is the kind of allocation a
-    /// scrolling list should never make.
+    /// touch and handed out for ever after. The Tag Manager's sidebar asks for
+    /// one per row draw, and drawing an `NSImage` per draw is the kind of
+    /// allocation a scrolling list should never make.
     private static let swatches: [NSImage] = colors.indices.map { index in
         NSImage(size: swatchSize, flipped: false) { rect in
             colors[index].setFill()
@@ -121,7 +121,7 @@ enum TagPalette {
 
     // MARK: - Per-row primitives
     //
-    // Each takes ONE row's matches, in `TagTupleMatcher.ordered`'s
+    // Each takes ONE row's matches, in `TagRuleMatcher.ordered`'s
     // strongest-first order, and never sorts them. `bake` composes all three;
     // they stay separate so each rule can be tested on its own.
 
@@ -156,10 +156,14 @@ enum TagPalette {
     /// and the tooltip must agree rather than naming a tag that no longer
     /// exists.
     static func tooltip(matches: [TagRowMatch], tagNames: [String: String]) -> String? {
-        // Escaped per NAME, never on the joined result: the `\n` at the join is
-        // ours, and a tag name in the store can predate the input sanitiser.
+        // TRIMMED then escaped per NAME, never on the joined result: the `\n`
+        // at the join is ours, and a tag name in the store can predate both the
+        // input sanitiser AND the edge-trim this branch added — a name saved
+        // before either existed must not render its stray edge space as a
+        // mid-word `<U+0020>` here. `DisplayEscape.escapedTrimmed` is the one
+        // producer this and every other tag-name surface share.
         let lines = matches.compactMap { match in
-            tagNames[match.tagId].map { "\(DisplayEscape.escaped($0)) — \(match.state == .solid ? "solid" : "dashed")" }
+            tagNames[match.tagId].map { "\(DisplayEscape.escapedTrimmed($0)) — \(match.state == .solid ? "solid" : "dashed")" }
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
@@ -221,9 +225,9 @@ enum TagPalette {
     /// A tagged row lands in all three in practice, but that is NOT an
     /// invariant `bake` enforces — it leans on an upstream property. A
     /// `TagRowMatch` with an empty `matchedColumns` would take a band and a
-    /// tooltip line and contribute no tint entry; `TagTupleMatcher` cannot
+    /// tooltip line and contribute no tint entry; `TagRuleMatcher` cannot
     /// produce one, because it fills `matchedColumns` and `touched` in the
-    /// same loop body (`TagTupleMatcher.swift`), so a match always carries at
+    /// same loop body (`TagRuleMatcher.swift`), so a match always carries at
     /// least one column. Do not read row membership here as guaranteed.
     ///
     /// `segmentsByRow` carries plain tuples rather than `Segment`s so

@@ -134,6 +134,33 @@ enum DisplayEscape {
         }
     }
 
+    /// Trim edge whitespace, THEN escape — the order `TagManagerSheet.displayName`
+    /// established for a tag name, now the one producer shared by every surface
+    /// that draws one: the whole-tag delete confirmation, the Inspector's tag
+    /// header, the grid row's tag tooltip, and the Tag Manager sheet itself.
+    ///
+    /// The order is load-bearing. Trimming FIRST means a name saved before this
+    /// app trimmed on input renders its stray edge space gone rather than as a
+    /// mid-word `<U+0020>` — the display defect this function exists to fix, not
+    /// a second copy of it. Escaping SECOND, rather than routing the trimmed
+    /// text through `AuthoredLabelSanitizer.sanitized`, means a bidi override or
+    /// a zero-width character survives to be DISCLOSED: sanitising REMOVES such
+    /// a scalar outright, so a caller that sanitised here would render a hostile
+    /// name as though it were clean — the exact failure this function exists to
+    /// prevent.
+    ///
+    /// `.whitespacesAndNewlines` is never the scalar an override, an isolate, a
+    /// zero-width character, or a bidi mark hides behind — none of those sit in
+    /// Unicode's whitespace or newline categories — so trimming with it can
+    /// never swallow the scalars that make a label lie about identity. It CAN
+    /// trim away an edge NBSP or ideographic space (both `mustEscape` marks)
+    /// before `escaped` gets a chance to disclose them; that is
+    /// `TagManagerSheet.displayName`'s existing behaviour, carried here rather
+    /// than narrowed, so every caller trims the same way.
+    static func escapedTrimmed(_ text: String) -> String {
+        escaped(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     /// Multi-line preview variant. Which scalars are hostile is decided by
     /// `isHostileInFlowingText` (edge spaces are ordinary indentation here
     /// too, so they are never marked); every hit is disclosed exactly as
@@ -152,6 +179,38 @@ enum DisplayEscape {
     /// space to an interior space and loses its disclosure. Six sites render
     /// this pair; they must all render it the same way — one adopts this so
     /// far, the rest follow in the tier-3 sweep.
+    /// A captured VALUE that may span lines: its own newlines are formatting,
+    /// but its edge spaces are still data.
+    ///
+    /// The third point on two axes, and both matter:
+    ///
+    ///  - `escaped` treats a newline as hostile, because its callers draw on ONE
+    ///    line, where a `\n` cannot render and its absence would hide that the
+    ///    value spans lines at all.
+    ///  - `escapedMultiline` treats leading spaces as indentation, because its
+    ///    callers show a SQL preview or an error, where the layout is the
+    ///    author's own and disclosing it would be noise.
+    ///
+    /// The Inspector's value pane is neither. The label wraps
+    /// (`maximumNumberOfLines = 0`), so a newline renders correctly and escaping
+    /// it produces the `<U+000A>` litter this function exists to stop. But the
+    /// text is somebody else's DATA, so a trailing run of spaces is the
+    /// `char(20)` padding an analyst needs to see — exactly what
+    /// `escapedMultiline` would swallow.
+    ///
+    /// So: `isHostileInFlowingText` for the body, and `escaped`'s own edge-space
+    /// walk unchanged.
+    static func escapedMultilineValue(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars)
+        var lead = 0
+        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
+        var trail = scalars.count
+        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
+        return escapedCore(scalars) { index in
+            index < lead || index >= trail || isHostileInFlowingText(scalars[index])
+        }
+    }
+
     static func escapedQualified(schema: String, table: String) -> String {
         "\(escaped(schema)).\(escaped(table))"
     }

@@ -4,13 +4,15 @@ import Foundation
 
 /// One captured value of the displayed tuple, ready for the Inspector.
 struct TagInspectorValue: Equatable {
-    /// The captured column name — provenance, never used for matching.
-    let column: String
+    /// The RAW family string, not a label. `TagFamilyLabel` turns it into words
+    /// at the point the Inspector draws it, so the model stays data rather than
+    /// presentation and there is exactly one producer of the wording.
+    let family: String
     /// The value as captured.
     let display: String
     /// The normalized form matching actually compares. Kept beside `display`
-    /// rather than replacing it: the captured text and its column are the
-    /// provenance, this is the reach.
+    /// rather than replacing it: the captured text is the provenance, this is
+    /// the reach.
     let normalized: String
     /// True when the selected row holds this (family, normalized value).
     let isMatched: Bool
@@ -18,7 +20,7 @@ struct TagInspectorValue: Equatable {
     /// The extra line disclosing the reach, or nil when the captured text IS
     /// the form matching compares.
     ///
-    /// Already escaped, unlike `column` and `display`, which this section's
+    /// Already escaped, unlike `display`, which this section's
     /// view escapes as it draws them. The wording belongs to the model — the
     /// removal sheet must not describe the same value differently — and the
     /// escaping travels with the wording because the matching form is
@@ -61,16 +63,28 @@ enum TagInspectorModel {
     /// the wording is pinned by the standalone suite instead of by eye.
     ///
     /// Both the noun AND the verb inflect. Inflecting only the noun reads
-    /// "Its 1 tuple stop matching", which is why this is a function and not
+    /// "Its 1 rule stop matching", which is why this is a function and not
     /// an interpolated string at each call site.
+    ///
+    /// `name` is TRIMMED then ESCAPED here, at the one producer, rather than by
+    /// each caller — the same reasoning that keeps the noun/verb inflection in
+    /// this function instead of at the call site. A tag name is attacker
+    /// surface: it can hold a bidi override, and this confirmation is the
+    /// highest-stakes surface that draws one — a title that showed the raw name
+    /// would let a hostile name make a destructive confirmation appear to name
+    /// a DIFFERENT tag than the one about to be destroyed. `DisplayEscape.escapedTrimmed`
+    /// is the shared implementation: see it for why trimming first (not
+    /// sanitising) is the order that discloses rather than hides. `ruleCount`
+    /// needs none of this — it is an `Int`, and an `Int` cannot carry hostile
+    /// text.
     static func deleteConfirmation(
-        name: String, tupleCount: Int
+        name: String, ruleCount: Int
     ) -> (title: String, body: String) {
-        let subject = tupleCount == 1
-            ? "Its 1 tuple stops"
-            : "Its \(tupleCount) tuples stop"
+        let subject = ruleCount == 1
+            ? "Its 1 rule stops"
+            : "Its \(ruleCount) rules stop"
         return (
-            title: "Delete tag \u{201C}\(name)\u{201D}?",
+            title: "Delete tag \u{201C}\(DisplayEscape.escapedTrimmed(name))\u{201D}?",
             body: "\(subject) matching in every result, on every connection — not only here."
         )
     }
@@ -95,9 +109,9 @@ enum TagInspectorModel {
             guard let tag = tagById[match.tagId] else { return nil }
             guard let tuple = displayedTuple(for: match, in: tag, present: present) else { return nil }
 
-            let values = tuple.values.map { value in
+            let values = tuple.conditions.map { value in
                 TagInspectorValue(
-                    column: value.column,
+                    family: value.family,
                     display: value.display,
                     normalized: value.value,
                     isMatched: present.contains(
@@ -111,12 +125,12 @@ enum TagInspectorModel {
                 note: (trimmedNote?.isEmpty ?? true) ? nil : trimmedNote,
                 isPartial: match.state == .dashed,
                 values: values,
-                isCrossTuple: match.state == .dashed && match.matchedTupleIds.count > 1)
+                isCrossTuple: match.state == .dashed && match.matchedRuleIds.count > 1)
         }
     }
 
     /// The tuple to show for one tag's match: for a solid match, the first
-    /// tuple in `solidTupleIds` (already sorted) — UNLESS that tuple was
+    /// tuple in `solidRuleIds` (already sorted) — UNLESS that tuple was
     /// deleted since the match was computed, in which case this falls through
     /// to the same rule a dashed match uses. Without the fallthrough, a tuple
     /// deletion would make the Inspector entry vanish while the grid's bar —
@@ -136,12 +150,12 @@ enum TagInspectorModel {
     /// beside a nominally solid tag.
     private static func displayedTuple(
         for match: TagRowMatch, in tag: Tag, present: Set<TagValueKey>
-    ) -> TagTuple? {
-        let tupleById = Dictionary(tag.tuples.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if let solidId = match.solidTupleIds.first, let solid = tupleById[solidId] {
+    ) -> TagRule? {
+        let tupleById = Dictionary(tag.rules.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if let solidId = match.solidRuleIds.first, let solid = tupleById[solidId] {
             return solid
         }
-        return match.matchedTupleIds
+        return match.matchedRuleIds
             .compactMap { tupleById[$0] }
             .max { a, b in
                 let (ma, mb) = (presentCount(a, in: present), presentCount(b, in: present))
@@ -151,15 +165,15 @@ enum TagInspectorModel {
             }
     }
 
-    private static func presentCount(_ tuple: TagTuple, in present: Set<TagValueKey>) -> Int {
-        tuple.values.filter {
+    private static func presentCount(_ tuple: TagRule, in present: Set<TagValueKey>) -> Int {
+        tuple.conditions.filter {
             present.contains(TagValueKey(family: $0.family, value: $0.value))
         }.count
     }
 
     /// Every (family, normalized value) the row holds — the matcher's probe
     /// key, rebuilt for one row. NULL cells contribute nothing, exactly as in
-    /// `TagTupleMatcher`; a captured tagged value can itself be an empty
+    /// `TagRuleMatcher`; a captured tagged value can itself be an empty
     /// string (capture drops NULL but keeps an empty text cell), so a NULL row
     /// cell must never be coerced into `""` here or it would falsely match one.
     private static func presentKeys(

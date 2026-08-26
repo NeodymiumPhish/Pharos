@@ -33,6 +33,10 @@ enum TagValueNormalizer {
     static let temporalFamily = "temporal"
     static let uuidFamily = "uuid"
 
+    /// The prefix `family(forDataType:)` puts on a type it has no rule for.
+    /// Shared so the code that STRIPS it cannot drift from the code that adds it.
+    static let typePrefix = "type:"
+
     /// The family of a column, from `ColumnDef.dataType`.
     ///
     /// Both spellings are listed for every family. `pharos-core` reports
@@ -70,7 +74,7 @@ enum TagValueNormalizer {
         case "uuid":
             return uuidFamily
         default:
-            return "type:\(t)"
+            return "\(typePrefix)\(t)"
         }
     }
 
@@ -117,6 +121,69 @@ enum TagValueNormalizer {
             // guess about a type this code does not understand.
             return text
         }
+    }
+
+    /// Every family with a rule of its own. A `type:<name>` family is not in
+    /// here — it has no rule, so no predicate can ever answer it.
+    static let everyFamily: [String] = [
+        addressFamily, textFamily, numericFamily, temporalFamily, uuidFamily,
+    ]
+
+    // MARK: Comparable forms
+
+    /// The `Decimal` a NORMALIZED numeric value holds, or nil when that value
+    /// fell back to raw text.
+    ///
+    /// Comparators must never compare numeric text by bytes. The normalized
+    /// form is `"\(Decimal)"`, which is neither fixed width nor sign-ordered:
+    /// byte order puts `"9"` above `"10"` and puts every negative number in the
+    /// wrong place.
+    ///
+    /// nil is the answer for a value that FELL BACK. `normalize` keeps
+    /// unparseable text as-is, so `-Infinity`, `5-`, `1,000` and a 39-digit
+    /// number all arrive here as themselves. A comparator against one must fail
+    /// to match, not compare bytes — a byte compare there is exactly the false
+    /// match `isNumericText` and `significantDigitCount` exist to prevent. It is
+    /// the SAME pair of gates here, in the same file, rather than a second copy
+    /// that could drift from the one matching actually used.
+    static func decimal(from normalized: String) -> Decimal? {
+        guard isNumericText(normalized), significantDigitCount(normalized) <= 38,
+              let value = Decimal(string: normalized), value.isFinite
+        else { return nil }
+        return value
+    }
+
+    /// A NORMALIZED temporal value as a byte-comparable string, or nil when
+    /// that value fell back to raw text.
+    ///
+    /// The whole job is to DROP THE TRAILING `Z`, and that is not a tidy-up —
+    /// it is the comparison. The canonical form keeps every fractional digit,
+    /// so `…56.9Z` and `…56.91Z` differ in LENGTH; with the `Z` still attached,
+    /// byte order compares `Z` against `1` and ranks `.9` ABOVE `.91`, which is
+    /// backwards.
+    ///
+    /// With the `Z` gone, byte order IS time order, and no padding is needed.
+    /// `canonicalTimestamp` strips trailing zeros, so a canonical fraction never
+    /// ends in `0`. Two consequences follow, and together they cover every case:
+    /// if one fraction is a prefix of another, the longer one carries an extra
+    /// non-zero digit and really is larger, which is the order a prefix already
+    /// sorts in; and if two fractions diverge, the first differing digit decides
+    /// the byte order and the numeric order alike. Everything left of the
+    /// fraction is fixed width and already ordered.
+    ///
+    /// An earlier draft padded the fraction to nine digits. That was a second
+    /// defence against a hazard dropping the `Z` had already removed, and it
+    /// cost a real failure: a fraction longer than nine digits returned nil, so
+    /// a valid timestamp silently stopped matching.
+    ///
+    /// The gate is `canonicalTimestamp`'s own IDEMPOTENCE: a value that is its
+    /// own canonical form parsed, and a value that fell back did not. That is
+    /// one source of truth rather than a second parser here — and it is why raw
+    /// text that happens to end in `Z` is refused instead of being turned into a
+    /// comparable-looking string.
+    static func comparableTimestamp(_ normalized: String) -> String? {
+        guard canonicalTimestamp(normalized) == normalized else { return nil }
+        return String(normalized.dropLast())
     }
 
     // MARK: Numeric

@@ -66,7 +66,7 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
             // Only a row that COMPLETES a tuple can have one removed; a partial
             // match names no single tuple to drop.
             let removable = targets.contains { row in
-                grid.matchesByRow[row]?.contains { !$0.solidTupleIds.isEmpty } ?? false
+                grid.matchesByRow[row]?.contains { !$0.solidRuleIds.isEmpty } ?? false
             }
             remove.isEnabled = removable
         }

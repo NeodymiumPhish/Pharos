@@ -6,18 +6,17 @@
 // What this suite is FOR: `NSStackView` accepts `alignment = .width` and
 // silently discards it, so a stack written that way is not aligned at all and
 // each row's width is left to the solver. The bug that came out of it —
-// identical rows starting at different offsets in `TagRemovalSheet` — was
+// identical rows starting at different offsets in a tag sheet's list — was
 // invisible in review because the code SAID the right thing. Three states are
 // measured here so the rule cannot be argued about again: the rejected
 // alignment, `.leading` on its own, and `.leading` with the span. A fourth
 // case measures the span on a stack that pads its own sides, where "the
 // stack's width" and "the width a row may take" are not the same number.
 //
-// The two sheets whose latent copies of the defect this fixes (TagSheet,
-// TagManageSheet) cannot be hosted here — both reach TagStore.shared, which is
-// @MainActor and Keychain-bound through the FFI. What they call is this
-// helper. `scripts/test-tag-removal-sheet.sh` measures the third caller's real
-// list.
+// No caller is compiled in; what they all call is this helper. The callers
+// with real lists to measure have suites of their own —
+// `scripts/test-tag-manager-sheet.sh` and `scripts/test-tag-rule-grid-view.sh`
+// measure the Tag Manager's stacks against a hosted window.
 import AppKit
 
 private var failures = 0
@@ -144,8 +143,8 @@ func runTests() {
 
     do {
         // The ordering rule the callers depend on, and the one a later edit is
-        // most likely to break: TagSheet spans its column list AFTER building
-        // the rows. A row added afterwards is simply not held.
+        // most likely to break: a caller spans its list AFTER building the
+        // rows, so a row added afterwards is simply not held.
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading

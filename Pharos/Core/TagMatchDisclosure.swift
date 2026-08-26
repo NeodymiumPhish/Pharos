@@ -4,7 +4,7 @@ import Foundation
 
 /// What a captured value actually REACHES.
 ///
-/// A `TaggedValue` carries two forms of one cell: `display`, the text as
+/// A `TagCondition` carries two forms of one cell: `display`, the text as
 /// captured, and `value`, the normalized form `TagValueNormalizer` produced —
 /// and matching compares only the second. Where the two differ, a surface
 /// showing `display` alone UNDERSTATES the tag: `US` in a `char(20)` is

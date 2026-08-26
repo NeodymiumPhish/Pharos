@@ -1,5 +1,5 @@
 use crate::db::sqlite;
-use crate::models::{AddTagTuples, CreateTag, Tag, UpdateTag};
+use crate::models::{AddTagRules, CreateTag, Tag, UpdateTag, UpdateTagRule};
 use crate::state::AppState;
 
 /// Every tag, globally. Tags carry no connection id by design.
@@ -19,10 +19,18 @@ pub async fn create_tag(state: &AppState, create: CreateTag) -> Result<Tag, Stri
 
 /// Returns how many tuples were actually inserted; a repeat is absorbed, not an
 /// error.
-pub async fn add_tag_tuples(state: &AppState, payload: AddTagTuples) -> Result<usize, String> {
+pub async fn add_tag_tuples(state: &AppState, payload: AddTagRules) -> Result<usize, String> {
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
 
     sqlite::add_tag_tuples(&db, &payload).map_err(|e| format!("Failed to add tag values: {}", e))
+}
+
+/// Returns rows affected: 0 for an unknown rule id.
+pub async fn update_tag_rule(state: &AppState, payload: UpdateTagRule) -> Result<usize, String> {
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+
+    sqlite::update_tag_rule(&db, &payload)
+        .map_err(|e| format!("Failed to update tag rule: {}", e))
 }
 
 pub async fn update_tag(state: &AppState, update: UpdateTag) -> Result<Option<Tag>, String> {

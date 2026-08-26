@@ -14,16 +14,27 @@ swiftc -o "$BIN" \
   -L pharos-core/target/release -lpharos_core \
   -framework Security -framework SystemConfiguration -framework CoreFoundation \
   -lz -liconv -lm -lresolv \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/RustScalarError.swift \
   Pharos/Core/PharosCore.swift \
   Pharos/Core/PharosCore+Tags.swift \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/TagValueNormalizer.swift \
-  Pharos/Core/TupleKey.swift \
-  Pharos/Core/TagTupleMatcher.swift \
-  Pharos/Core/TagTupleRemoving.swift \
+  Pharos/Core/RuleKey.swift \
+  Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRuleRemoving.swift \
+  Pharos/Core/TagManagerCommitting.swift \
+  Pharos/Core/TagCommitWriting.swift \
+  Pharos/Core/TagManagerModel.swift \
+  Pharos/Core/TagCapture.swift \
+  Pharos/Core/TagDraft.swift \
+  Pharos/Core/TagFamilyLabel.swift \
+  Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagStore.swift \
+  Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
   PharosTests/TagStoreTests.swift \

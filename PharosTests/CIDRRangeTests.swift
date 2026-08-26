@@ -10,6 +10,9 @@ func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: String) {
     }
 }
 
+func expectTrue(_ actual: Bool, _ name: String) { expectEqual(actual, true, name) }
+func expectFalse(_ actual: Bool, _ name: String) { expectEqual(actual, false, name) }
+
 func runTests() {
     // 1. A bare address canonicalises to itself.
     expectEqual(CIDRRange.canonical("10.2.3.4"), "10.2.3.4", "v4 bare address")
@@ -45,6 +48,49 @@ func runTests() {
     expectEqual(v4?.isIPv6, false, "dotted quad parses as v4")
     expectEqual(v6?.isIPv6, true, "v4-mapped v6 stays v6")
     expectEqual(v4 == v6, false, "a v4 address never equals a v6 one")
+
+    // MARK: containment
+
+    func range(_ t: String) -> CIDRRange { CIDRRange.parse(t)! }
+
+    expectTrue(range("10.2.3.0/24").contains(range("10.2.3.4")), "v4 host inside its /24")
+    expectFalse(range("10.2.3.0/24").contains(range("10.2.4.4")), "v4 host outside its /24")
+
+    // A prefix that is not byte-aligned is where a byte-wise compare goes
+    // wrong, so it gets its own cases on both sides of the boundary.
+    expectTrue(range("10.0.0.0/12").contains(range("10.15.255.255")), "last address of a /12")
+    expectFalse(range("10.0.0.0/12").contains(range("10.16.0.0")), "first address past a /12")
+
+    // `spare == 1` and `spare == 7` are the two ends of the shift. The `/12`
+    // case above cannot see a swapped shift direction, because at `spare == 4`
+    // both directions compute the same mask.
+    expectTrue(range("10.0.0.0/17").contains(range("10.0.127.255")), "last address of a /17")
+    expectFalse(range("10.0.0.0/17").contains(range("10.0.128.0")), "first address past a /17")
+    expectTrue(range("10.0.0.0/15").contains(range("10.1.255.255")), "last address of a /15")
+    expectFalse(range("10.0.0.0/15").contains(range("10.2.0.0")), "first address past a /15")
+
+    // A range can only hold something at least as SPECIFIC as itself.
+    expectTrue(range("10.0.0.0/8").contains(range("10.2.3.0/24")), "/8 holds a /24 inside it")
+    expectFalse(range("10.2.3.0/24").contains(range("10.0.0.0/8")), "/24 does not hold its own /8")
+
+    // Equal ranges contain each other; /0 holds everything of its family.
+    expectTrue(range("10.2.3.4").contains(range("10.2.3.4")), "an address contains itself")
+    expectTrue(range("0.0.0.0/0").contains(range("203.0.113.9")), "v4 default route holds any v4")
+
+    // The families never mix. The byte widths differ, so a partial compare
+    // would read past the end of the shorter array.
+    expectFalse(range("0.0.0.0/0").contains(range("2001:db8::1")), "v4 /0 does not hold a v6")
+    expectFalse(range("::/0").contains(range("10.2.3.4")), "v6 /0 does not hold a v4")
+
+    expectTrue(range("2001:db8::/32").contains(range("2001:db8::1")), "v6 host inside its /32")
+    expectFalse(range("2001:db8::/32").contains(range("2001:db9::1")), "v6 host outside its /32")
+    expectTrue(range("::/0").contains(range("2001:db8::1")), "v6 default route holds any v6")
+
+    // Every prior v6 case uses a byte-aligned prefix, so v6 never reached the
+    // mask branch above. Not load-bearing — the mask code does not branch on
+    // family — but cheap, so it gets covered too.
+    expectTrue(range("2001:db8::/36").contains(range("2001:db8:fff::1")), "v6 held within a non-byte-aligned prefix")
+    expectFalse(range("2001:db8::/36").contains(range("2001:db8:1000::1")), "v6 outside a non-byte-aligned prefix")
 
     print(failures == 0 ? "\nAll CIDRRange checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }

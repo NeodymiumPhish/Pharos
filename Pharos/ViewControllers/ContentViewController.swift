@@ -827,7 +827,7 @@ class ContentViewController: NSViewController {
             return
         }
         let text = TagInspectorModel.deleteConfirmation(
-            name: tag.name, tupleCount: tag.tuples.count)
+            name: tag.name, ruleCount: tag.rules.count)
         let alert = NSAlert()
         alert.messageText = text.title
         alert.informativeText = text.body
@@ -836,10 +836,11 @@ class ContentViewController: NSViewController {
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
         // Cancel takes Return, not Delete. The delete is global and permanent
-        // — ON DELETE CASCADE takes every tuple — and `TagManageSheet` and
-        // `TagRemovalSheet` both give Return to Cancel for the same action.
-        // The Inspector must not be the one surface where the habitual key
-        // destroys a tag.
+        // — ON DELETE CASCADE takes every tuple — so the habitual key must not
+        // be the one that destroys a tag. The Tag Manager reaches the same end
+        // by a different route: nothing it stages is destructive until Save,
+        // and its footer states what a save would remove before the analyst
+        // presses it.
         alert.buttons.first?.keyEquivalent = ""
         alert.buttons.last?.keyEquivalent = "\r"
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -854,8 +855,14 @@ class ContentViewController: NSViewController {
                 // the analyst confirms a destructive action, the tag stays on
                 // screen, and nothing says why.
                 DispatchQueue.main.async {
+                    // `localizedDescription`, not interpolation: what reaches
+                    // here is `PharosCoreError` from the FFI, and interpolating
+                    // it prints `rustError("…")` — the Swift case, not the
+                    // sentence the case carries. Escaped like every other
+                    // failure surface, because the text can quote a tag name.
                     self?.presentTagError(
-                        title: "Could not delete the tag", message: "\(error)")
+                        title: "Could not delete the tag",
+                        message: DisplayEscape.escapedMultiline(error.localizedDescription))
                 }
             }
         }

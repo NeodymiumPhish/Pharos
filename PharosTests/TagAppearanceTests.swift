@@ -27,7 +27,7 @@ func expectNil<T>(_ actual: T?, _ name: String) {
 private func match(_ tagId: String, _ state: TagMatchState,
                    columns: [Int] = [0]) -> TagRowMatch {
     TagRowMatch(tagId: tagId, state: state, matchedColumns: columns,
-                matchedTupleIds: ["u1"], solidTupleIds: state == .solid ? ["u1"] : [])
+                matchedRuleIds: ["u1"], solidRuleIds: state == .solid ? ["u1"] : [])
 }
 
 /// Minimal tag fixture. The colour index picks a palette entry the assertions
@@ -35,7 +35,7 @@ private func match(_ tagId: String, _ state: TagMatchState,
 private func tag(_ id: String, _ name: String, colorIndex: Int) -> Tag {
     Tag(id: id, name: name, colorIndex: colorIndex, note: nil,
         createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-        tuples: [])
+        rules: [])
 }
 
 // Palette indices: 0 red, 1 orange, 2 yellow, 3 green, 4 blue, 5 purple.
@@ -207,6 +207,17 @@ func runTests() {
                                      tagNames: ["h": hostileName, "red-tag": redTag.name])
         expectEqual(two, "safe<U+202E>gpj.exe — solid\nReds — dashed",
                     "two matches still join with a real newline")
+    }
+
+    // A tag name can also predate the edge-trim this branch added, and hold
+    // edge spaces that were never sanitised at input time. TRIMMED, then
+    // escaped — the trailing space must vanish, not render as a mid-word
+    // `<U+0020>` token in the tooltip.
+    do {
+        let padded = TagPalette.tooltip(matches: [match("h", .solid)],
+                                        tagNames: ["h": "  Suspect infra  "])
+        expectEqual(padded, "Suspect infra — solid",
+                    "edge spaces in the tag name are trimmed away, not disclosed as tokens")
     }
 
     // MARK: - 6. Empty inputs

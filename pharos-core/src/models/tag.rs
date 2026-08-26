@@ -1,24 +1,47 @@
 use serde::{Deserialize, Serialize};
 
-/// One captured value. `column` is PROVENANCE — the matcher never reads it.
-/// `value` is the normalized form Swift produced; `display` is the text as it
-/// was captured, for the Inspector.
+/// One condition of a rule. `value` is the normalized form Swift produced;
+/// `display` is the text as it was captured, for the Inspector.
+///
+/// There is deliberately NO column name here. A column never took part in
+/// matching, and a hand-authored condition has no column at all, so the FAMILY
+/// is the one description every condition can share. Row-level provenance is
+/// unaffected: `origin_connection` and `origin_table` live on the rule.
+/// A stored blob that still carries the old key decodes unchanged — serde
+/// ignores an unknown field — so no migration is needed; see
+/// `legacy_column_key_is_ignored` below.
+///
+/// `kind` and `operand2` are plain optional STRINGS here, never an enum. Rust
+/// does not interpret them — Swift is the only producer, exactly as it already
+/// is for `tuple_key`.
+///
+/// An enum would reject a kind written by a newer build, and `read_tag_tuples`
+/// decodes the blob with `unwrap_or_default()`, so one rejected variant loads
+/// the rule with an EMPTY condition list that the next save writes back. That
+/// destroys the rule silently, with no error anywhere.
+///
+/// `#[serde(default)]` covers an ABSENT key, which is what an old stored blob
+/// has. It does nothing about an unknown VALUE; keeping the type as `String` is
+/// what covers that.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TaggedValue {
-    pub column: String,
+pub struct TagCondition {
     /// "address" | "text" | "numeric" | "temporal" | "uuid" | "type:<name>"
     pub family: String,
+    #[serde(default)]
+    pub kind: Option<String>,
     pub value: String,
+    #[serde(default)]
+    pub operand2: Option<String>,
     pub display: String,
 }
 
 /// One tagged origin row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TagTuple {
+pub struct TagRule {
     pub id: String,
-    pub values: Vec<TaggedValue>,
+    pub conditions: Vec<TagCondition>,
     pub tuple_key: String,
     pub origin_connection: String,
     pub origin_table: String,
@@ -36,14 +59,14 @@ pub struct Tag {
     pub note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    pub tuples: Vec<TagTuple>,
+    pub rules: Vec<TagRule>,
 }
 
 /// A tuple as Swift sends it. The id and the timestamp are minted here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewTagTuple {
-    pub values: Vec<TaggedValue>,
+pub struct NewTagRule {
+    pub conditions: Vec<TagCondition>,
     pub tuple_key: String,
     pub origin_connection: String,
     pub origin_table: String,
@@ -55,14 +78,14 @@ pub struct CreateTag {
     pub name: String,
     pub color_index: i64,
     pub note: Option<String>,
-    pub tuples: Vec<NewTagTuple>,
+    pub rules: Vec<NewTagRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddTagTuples {
+pub struct AddTagRules {
     pub tag_id: String,
-    pub tuples: Vec<NewTagTuple>,
+    pub rules: Vec<NewTagRule>,
 }
 
 /// A nil field is left as it is. A note therefore cannot be CLEARED through
@@ -77,6 +100,18 @@ pub struct UpdateTag {
     pub note: Option<String>,
 }
 
+/// One rule's conditions, replaced in place.
+///
+/// No `tag_id`: the rule id is a primary key. The tag is found by subquery when
+/// its `updated_at` is bumped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTagRule {
+    pub rule_id: String,
+    pub conditions: Vec<TagCondition>,
+    pub tuple_key: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,21 +123,21 @@ mod tests {
     #[test]
     fn create_tag_decodes_swift_camel_case() {
         let json = r#"{"name":"Suspect infra","colorIndex":2,"note":"may sprint",
-          "tuples":[{"values":[{"column":"md5","family":"text","value":"d41d8c",
+          "rules":[{"conditions":[{"family":"text","value":"d41d8c",
           "display":"D41D8C"}],"tupleKey":"K4:textV6:d41d8c",
           "originConnection":"c1","originTable":"public.certs"}]}"#;
         let create: CreateTag = serde_json::from_str(json).unwrap();
         assert_eq!(create.color_index, 2);
         assert_eq!(create.note.as_deref(), Some("may sprint"));
-        assert_eq!(create.tuples[0].tuple_key, "K4:textV6:d41d8c");
-        assert_eq!(create.tuples[0].origin_table, "public.certs");
-        assert_eq!(create.tuples[0].values[0].display, "D41D8C");
+        assert_eq!(create.rules[0].tuple_key, "K4:textV6:d41d8c");
+        assert_eq!(create.rules[0].origin_table, "public.certs");
+        assert_eq!(create.rules[0].conditions[0].display, "D41D8C");
     }
 
     #[test]
     fn add_and_update_payloads_decode_swift_camel_case() {
-        let add: AddTagTuples = serde_json::from_str(
-            r#"{"tagId":"t1","tuples":[{"values":[],"tupleKey":"k","originConnection":"c",
+        let add: AddTagRules = serde_json::from_str(
+            r#"{"tagId":"t1","rules":[{"conditions":[],"tupleKey":"k","originConnection":"c",
                "originTable":"t"}]}"#,
         )
         .unwrap();
@@ -118,6 +153,81 @@ mod tests {
         assert_eq!(sparse.name, None);
     }
 
+    /// Every key of an edit payload is REQUIRED, so a mis-cased one already
+    /// fails loudly rather than reading back as `None`. Pin the literal document
+    /// anyway: the property names are the wire contract with Swift, and a rename
+    /// on either side must break a test, not the app.
+    #[test]
+    fn update_rule_payload_decodes_swift_camel_case() {
+        let json = r#"{"ruleId":"u1","conditions":[{"family":"address","kind":"cidr",
+          "value":"10.0.0.0/8","operand2":null,"display":"10.0.0.0/8"}],
+          "tupleKey":"K7:addressV10:10.0.0.0/8"}"#;
+        let payload: UpdateTagRule = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rule_id, "u1");
+        assert_eq!(payload.tuple_key, "K7:addressV10:10.0.0.0/8");
+        assert_eq!(payload.conditions.len(), 1);
+        assert_eq!(payload.conditions[0].family, "address");
+        assert_eq!(payload.conditions[0].kind.as_deref(), Some("cidr"));
+        assert_eq!(payload.conditions[0].display, "10.0.0.0/8");
+
+        // snake_case is NOT the contract; the rename must be doing real work.
+        assert!(
+            serde_json::from_str::<UpdateTagRule>(
+                r#"{"rule_id":"u1","conditions":[],"tuple_key":"k"}"#
+            )
+            .is_err(),
+            "snake_case keys must be refused, or `rename_all` is not in force"
+        );
+    }
+
+    /// A SPARSE document pins the defaults and nothing more. A FULL literal
+    /// document is what pins the key names — serde reports a mis-cased optional
+    /// as `None`, indistinguishable from the caller omitting it.
+    #[test]
+    fn condition_decodes_sparse_and_full_documents() {
+        let sparse: TagCondition = serde_json::from_str(
+            r#"{"family":"text","value":"abc","display":"ABC"}"#,
+        )
+        .unwrap();
+        assert_eq!(sparse.kind, None);
+        assert_eq!(sparse.operand2, None);
+
+        let full: TagCondition = serde_json::from_str(
+            r#"{"family":"numeric","kind":"between","value":"1000",
+                "operand2":"2000","display":"1000 .. 2000"}"#,
+        )
+        .unwrap();
+        assert_eq!(full.kind.as_deref(), Some("between"));
+        assert_eq!(full.operand2.as_deref(), Some("2000"));
+        assert_eq!(full.family, "numeric");
+        assert_eq!(full.display, "1000 .. 2000");
+    }
+
+    /// A stored blob that still carries `column` decodes unchanged. This is the
+    /// whole basis of the "no migration" claim.
+    #[test]
+    fn legacy_column_key_is_ignored() {
+        let decoded: TagCondition = serde_json::from_str(
+            r#"{"column":"host","family":"text","value":"abc","display":"ABC"}"#,
+        )
+        .unwrap();
+        assert_eq!(decoded.value, "abc");
+        assert_eq!(decoded.family, "text");
+    }
+
+    /// An unknown kind must round-trip verbatim. This is the test that protects
+    /// a rule written by a newer build from being destroyed by an older one.
+    #[test]
+    fn unknown_kind_round_trips_verbatim() {
+        let decoded: TagCondition = serde_json::from_str(
+            r#"{"family":"text","kind":"startsWith","value":"a","display":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(decoded.kind.as_deref(), Some("startsWith"));
+        let json = serde_json::to_string(&decoded).unwrap();
+        assert!(json.contains(r#""kind":"startsWith""#), "got {}", json);
+    }
+
     #[test]
     fn tag_serializes_camel_case() {
         let tag = Tag {
@@ -127,12 +237,13 @@ mod tests {
             note: None,
             created_at: "2026-08-13T00:00:00Z".into(),
             updated_at: "2026-08-13T00:00:00Z".into(),
-            tuples: vec![TagTuple {
+            rules: vec![TagRule {
                 id: "u1".into(),
-                values: vec![TaggedValue {
-                    column: "md5".into(),
+                conditions: vec![TagCondition {
                     family: "text".into(),
+                    kind: None,
                     value: "d41d8c".into(),
+                    operand2: None,
                     display: "D41D8C".into(),
                 }],
                 tuple_key: "K4:textV6:d41d8c".into(),

@@ -23,13 +23,14 @@ func expectTrue(_ actual: Bool, _ name: String) {
     if actual { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected true") }
 }
 
-private func newTuple(_ value: String) -> NewTagTuple {
+private func newTuple(_ value: String) -> NewTagRule {
     let normalized = TagValueNormalizer.normalize(value, family: "text")
-    let taggedValue = TaggedValue(column: "md5", family: "text",
+    let taggedValue = TagCondition(family: "text",
                                   value: normalized, display: value)
-    return NewTagTuple(
-        values: [taggedValue],
-        tupleKey: TupleKey.encode([TagValueKey(family: "text", value: normalized)])!,
+    return NewTagRule(
+        conditions: [taggedValue],
+        tupleKey: RuleKey.encode([RuleConditionKey(kind: .exact, family: "text",
+                                                   value: normalized, operand2: nil)])!,
         originConnection: "c1", originTable: "public.certs")
 }
 
@@ -39,21 +40,21 @@ func writePhase() {
     do {
         let created = try store.createTag(CreateTag(
             name: "Suspect infra", colorIndex: 2, note: "may sprint",
-            tuples: [newTuple("D41D8C"), newTuple("AABBCC")]))
-        expectEqual(created.tuples.count, 2, "create stores both tuples")
+            rules: [newTuple("D41D8C"), newTuple("AABBCC")]))
+        expectEqual(created.rules.count, 2, "create stores both tuples")
         expectEqual(store.tags.count, 1, "the cache holds the new tag")
         expectTrue(!store.tagIndex.isEmpty, "the probe index is rebuilt on write")
 
         // Add-to-existing, with one repeat the unique index must absorb.
-        let added = try store.addTuples(AddTagTuples(
-            tagId: created.id, tuples: [newTuple("AABBCC"), newTuple("DDEEFF")]))
+        let added = try store.addTuples(AddTagRules(
+            tagId: created.id, rules: [newTuple("AABBCC"), newTuple("DDEEFF")]))
         expectEqual(added, 1, "a repeated tuple is a no-op")
-        expectEqual(store.tag(id: created.id)?.tuples.count, 3, "the tag grew by one")
+        expectEqual(store.tag(id: created.id)?.rules.count, 3, "the tag grew by one")
 
         // The store is GLOBAL: no connection argument anywhere above.
         let columns = [ColumnDef(name: "hash", dataType: "text")]
         let rows: [[String?]] = [["d41d8c"], ["nothing"], ["ddeeff"]]
-        let matches = TagTupleMatcher.match(columns: columns, rows: rows, index: store.tagIndex)
+        let matches = TagRuleMatcher.match(columns: columns, rows: rows, index: store.tagIndex)
         expectEqual(matches.count, 2, "the cached index matches a foreign result")
         expectEqual(matches[0]?[0].state, .solid, "a one-value tuple is solid")
     } catch {
@@ -71,14 +72,14 @@ func readPhase() {
         guard let tag = store.tags.first else { return }
         expectEqual(tag.name, "Suspect infra", "the name survived")
         expectEqual(tag.note, "may sprint", "the note survived")
-        expectEqual(tag.tuples.count, 3, "every tuple survived")
+        expectEqual(tag.rules.count, 3, "every tuple survived")
 
         // Remove two tuples: the tag itself SURVIVES an empty tuple list — it is
         // still a named case the analyst may grow again.
-        let ids = tag.tuples.prefix(3).map { $0.id }
+        let ids = tag.rules.prefix(3).map { $0.id }
         try store.removeTuples(ids: Array(ids))
         expectEqual(store.tags.count, 1, "a tag with no tuples still exists")
-        expectEqual(store.tags.first?.tuples.isEmpty, true, "its tuples are gone")
+        expectEqual(store.tags.first?.rules.isEmpty, true, "its tuples are gone")
         expectTrue(store.tagIndex.isEmpty, "an empty tag indexes nothing")
 
         try store.deleteTag(id: tag.id)
