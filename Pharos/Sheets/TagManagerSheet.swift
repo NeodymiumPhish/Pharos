@@ -1213,8 +1213,26 @@ final class TagManagerSheet: NSViewController,
         // saying "2 rules" beside a grid drawing three would have the two
         // disagree about the same tag while the analyst looks at both.
         let count = tag.rules.count
-        cell.textField?.stringValue =
-            "\(DisplayEscape.escaped(tag.name)) — \(count) rule\(count == 1 ? "" : "s")"
+        let name = DisplayEscape.escaped(tag.name)
+        cell.textField?.stringValue = "\(name) — \(count) rule\(count == 1 ? "" : "s")"
+        // The full name, because the label truncates. The removal sheet this
+        // manager replaced carried it in a group header; without this, two tags
+        // whose names differ only past the cut read identically in the list.
+        //
+        // ESCAPED, like the label: it is stored text drawn in the app's own
+        // voice, and a tooltip is exactly the surface a reordering override
+        // would go unnoticed on.
+        //
+        // Set on the LABEL as well as the cell. The label covers most of the
+        // row, and a subview under the pointer answers the tooltip question for
+        // itself rather than deferring to the view behind it.
+        //
+        // ALWAYS set, never only when the text is cut off: whether it is cut off
+        // depends on the pane width at that moment, and a tooltip that came and
+        // went with a drag of the divider is its own small confusion. The name
+        // alone is worth showing anyway — the label adds a rule count to it.
+        cell.toolTip = name
+        cell.textField?.toolTip = name
         return cell
     }
 

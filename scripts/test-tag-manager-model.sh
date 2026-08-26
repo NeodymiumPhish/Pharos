@@ -4,7 +4,11 @@
 # the Tag Manager makes before any of its UI exists.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+#
+# AuthoredLabelSanitizer comes along because the name a save writes is
+# sanitised and then trimmed at the commit — see `committedName`.
 swiftc -o /tmp/tag-manager-model-tests \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagCapture.swift \
   Pharos/Core/TagDraft.swift \

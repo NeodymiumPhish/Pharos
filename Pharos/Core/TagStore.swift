@@ -149,38 +149,29 @@ final class TagStore {
 /// so every call is already on the main thread.
 extension TagStore: @preconcurrency TagRuleRemoving {}
 
-// MARK: - TagManagerCommitting
+// MARK: - TagCommitWriting and TagManagerCommitting
 
+/// The store's six writes, and with them the save loop that uses them.
+///
+/// There is no `apply(_:)` here. `TagCommitWriting`'s extension defines it, and
+/// that one definition is the witness for `TagManagerCommitting` below — so the
+/// loop the Tag Manager's harness drives is the same loop this store runs, not a
+/// copy of it. The six requirements are named exactly as the methods above
+/// already are, which is why this conformance needs no body: a change to any of
+/// their signatures fails this build.
+///
 /// `@preconcurrency` for the same reason as `TagRuleRemoving` above: the
 /// protocol is nonisolated so a headless harness can conform to it, and a plain
 /// conformance from this `@MainActor` class is an error under the Swift 6
 /// language mode. The attribute keeps the compile-time signature check that
-/// makes this conformance worth having.
-extension TagStore: @preconcurrency TagManagerCommitting {
+/// makes this conformance worth having, and adds a runtime main-thread check in
+/// place of the static one.
+extension TagStore: @preconcurrency TagCommitWriting {}
 
-    /// Apply one save.
-    ///
-    /// Each command goes through the store's existing methods, which re-read
-    /// after every write rather than applying a hand-made delta — the core mints
-    /// ids and absorbs duplicate rules, so only a re-read is honest about what
-    /// was stored. That means several reloads for a multi-command save, which is
-    /// acceptable because a save is a deliberate act and not a keystroke.
-    func apply(_ commits: [TagManagerCommit]) throws {
-        for commit in commits {
-            switch commit {
-            case .create(let payload): try createTag(payload)
-            // KNOWN GAP, kept from the manage sheet this replaced: `update_tag`
-            // runs `UPDATE … WHERE id = ?1` and returns Ok(None) for an id that
-            // is gone, so no error crosses the FFI. Discarding that nil means a
-            // save into a tag deleted elsewhere reports success and the analyst
-            // is left believing the edit landed. The old sheet checked it and
-            // said "That tag no longer exists"; nothing checks it here yet.
-            case .update(let payload): _ = try updateTag(payload)
-            case .addRules(let payload): _ = try addTuples(payload)
-            case .updateRule(let payload): _ = try updateRule(payload)
-            case .deleteRules(let ids): try removeTuples(ids: ids)
-            case .deleteTag(let id): try deleteTag(id: id)
-            }
-        }
-    }
-}
+/// NO `@preconcurrency` here, unlike every other conformance in this file, and
+/// the compiler says so: it "has no effect". The witness for `apply(_:)` is the
+/// `TagCommitWriting` extension above, which is generic over `Self` and
+/// therefore nowhere near this class's `@MainActor`. Nothing crosses an
+/// isolation boundary at this conformance, so there is nothing for the
+/// attribute to relax.
+extension TagStore: TagManagerCommitting {}

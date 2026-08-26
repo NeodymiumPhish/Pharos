@@ -349,6 +349,76 @@ func runTests() {
         expect(false, "a new tag writes a create")
     }
 
+    // MARK: the name a save writes
+
+    // The three sheets this manager replaced each trimmed the name on the ONE
+    // line that reached the store. The manager sanitises per keystroke but did
+    // not trim, so `"  Suspect  "` was stored with its spaces. Trimming happens
+    // HERE, at the commit, and not in the field: a field that ate the space you
+    // just typed would fight ordinary typing mid-word.
+    var padded = TagManagerModel(tags: [stored], mode: .manage)
+    padded.rename(tagAt: 0, to: "  Suspect  ")
+    if case .update(let payload)? = padded.commits().first {
+        expect(payload.name == "Suspect", "a padded name commits trimmed")
+    } else {
+        expect(false, "a padded rename writes an update")
+    }
+
+    // The same on the create path, which reaches the store by a different line.
+    var paddedNew = TagManagerModel(tags: [], mode: .manage)
+    paddedNew.addTag(name: "  Fresh  ", colorIndex: 1)
+    paddedNew.addRule(toTagAt: 0, conditions: [condition("text", "evil.com")])
+    if case .create(let payload)? = paddedNew.commits().first {
+        expect(payload.name == "Fresh", "a padded new name commits trimmed too")
+    } else {
+        expect(false, "a padded new tag writes a create")
+    }
+
+    // Padding ALONE is not a change. Without this the analyst types a trailing
+    // space, Save lights up, and the write that follows sets the name to what it
+    // already was.
+    var onlyPadding = TagManagerModel(tags: [stored], mode: .manage)
+    onlyPadding.rename(tagAt: 0, to: "  \(stored.name)  ")
+    expect(onlyPadding.commits().isEmpty,
+           "adding spaces around the stored name is no change at all")
+
+    // SANITISE FIRST, THEN TRIM. An unusual space folds to a plain one, which
+    // the trim then takes. A lone NBSP therefore commits as an EMPTY name —
+    // which `TagManagerSheet.blockingReason` refuses, so Save stays shut rather
+    // than writing a tag whose name is one invisible character.
+    var nbspOnly = TagManagerModel(tags: [stored], mode: .manage)
+    nbspOnly.rename(tagAt: 0, to: "\u{00A0}")
+    if case .update(let payload)? = nbspOnly.commits().first {
+        expect(payload.name == "", "a name of one unusual space commits as empty")
+    } else {
+        expect(false, "a name of one unusual space still writes an update")
+    }
+
+    // The ordering, pinned by an input that can actually tell the two apart.
+    //
+    // The lone NBSP above cannot. Every scalar the sanitiser FOLDS is itself in
+    // `.whitespacesAndNewlines`, so trimming first reaches the same empty string
+    // — that input pins the BEHAVIOUR but not the order.
+    //
+    // What tells them apart is a REMOVED scalar sitting outboard of a folded
+    // one. A BOM pasted off the end of a line is the everyday version. Trim
+    // first and the BOM stops the trim before it reaches the NBSP; the NBSP then
+    // folds to a plain space that nothing trims any more, and the name commits
+    // as `"Suspect "` — the very defect the trim was added to fix, one paste
+    // further along.
+    //
+    // U+200B is NOT the character to use here: Foundation's whitespace set
+    // includes it, so the trim goes straight through it either way.
+    var foldedEdge = TagManagerModel(tags: [stored], mode: .manage)
+    foldedEdge.rename(tagAt: 0, to: "Suspect\u{00A0}\u{FEFF}")
+    if case .update(let payload)? = foldedEdge.commits().first {
+        expect(payload.name == "Suspect",
+               "a folded space behind an invisible is sanitised BEFORE it is "
+               + "trimmed, so no space survives the commit")
+    } else {
+        expect(false, "a name with a folded edge writes an update")
+    }
+
     // A new rule on an EXISTING tag writes an add, not a create.
     var grown = TagManagerModel(tags: [stored], mode: .manage)
     grown.addRule(toTagAt: 0, conditions: [condition("text", "new.example")])

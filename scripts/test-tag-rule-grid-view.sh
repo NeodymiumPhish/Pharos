@@ -17,6 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-rule-grid-view-tests \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/PopupValueMenu.swift \

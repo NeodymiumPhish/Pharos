@@ -39,14 +39,92 @@ private final class RecordingCommitter: TagManagerCommitting {
     private(set) var applied: [[TagManagerCommit]] = []
     /// Set to make every commit throw, standing in for a Rust-side failure.
     var failure: Error?
+    /// Set to run the REAL save loop over a store where something has been
+    /// deleted in another window. See `VanishingStore`.
+    var vanished: VanishingStore?
 
     func apply(_ commits: [TagManagerCommit]) throws {
         applied.append(commits)
         if let failure { throw failure }
+        if let vanished { try vanished.apply(commits) }
     }
 }
 
 private struct StoreFailure: Error {}
+
+// MARK: - A store something was deleted out from under
+
+/// A store whose writes all succeed, except that the tags and rules named here
+/// are not there any more — deleted in another window while the manager sat
+/// open on them.
+///
+/// It conforms to `TagCommitWriting`, so `apply(_:)` on it is the very same
+/// protocol-extension default that `TagStore` runs; the save loop is not
+/// reimplemented here, and a change to it changes what this suite drives. What
+/// the double supplies is only the one answer the FFI cannot report as an error:
+/// `nil` from `update_tag`, `false` from `update_tag_rule`. Both are `Ok` on the
+/// Rust side, which is exactly why the absence has to become a failure in Swift.
+private final class VanishingStore: TagCommitWriting {
+    var vanishedTagIds: Set<String> = []
+    var vanishedRuleIds: Set<String> = []
+    /// What actually reached the store, so a save that stopped early can be
+    /// told from one that ran on.
+    private(set) var wrote: [String] = []
+
+    func createTag(_ create: CreateTag) throws -> Tag {
+        wrote.append("create \(create.name)")
+        return storedTag("fresh", create.name, colorIndex: create.colorIndex,
+                         note: create.note, [])
+    }
+
+    func updateTag(_ update: UpdateTag) throws -> Tag? {
+        wrote.append("update \(update.id)")
+        guard !vanishedTagIds.contains(update.id) else { return nil }
+        return storedTag(update.id, update.name ?? "", colorIndex: update.colorIndex ?? 0,
+                         note: update.note, [])
+    }
+
+    func addTuples(_ payload: AddTagRules) throws -> Int {
+        wrote.append("addRules \(payload.tagId)")
+        return payload.rules.count
+    }
+
+    func updateRule(_ payload: UpdateTagRule) throws -> Bool {
+        wrote.append("updateRule \(payload.ruleId)")
+        return !vanishedRuleIds.contains(payload.ruleId)
+    }
+
+    func removeTuples(ids: [String]) throws {
+        wrote.append("deleteRules \(ids.joined(separator: ","))")
+    }
+
+    func deleteTag(id: String) throws {
+        wrote.append("deleteTag \(id)")
+    }
+}
+
+/// Runs a save loop that is expected to fail, and hands back the error.
+private func expectThrows(_ what: String, _ body: () throws -> Void) -> Error? {
+    do {
+        try body()
+        failures += 1
+        print("FAIL \(what)")
+        return nil
+    } catch {
+        print("PASS \(what)")
+        return error
+    }
+}
+
+private func expectNoThrow(_ what: String, _ body: () throws -> Void) {
+    do {
+        try body()
+        print("PASS \(what)")
+    } catch {
+        failures += 1
+        print("FAIL \(what) — it threw \(error)")
+    }
+}
 
 /// Counts what `dismiss(nil)` cannot be asked: whether the sheet closed.
 ///
@@ -247,25 +325,53 @@ private func select(_ sheet: TagManagerSheet, row: Int) {
         Notification(name: NSTableView.selectionDidChangeNotification, object: sheet.tableView))
 }
 
-/// One sidebar row's text, read from the real cell view the table would draw.
-private func rowText(_ sheet: TagManagerSheet, _ row: Int) -> String {
+/// The real cell view the table would draw for one sidebar row.
+private func rowCell(_ sheet: TagManagerSheet, _ row: Int) -> NSTableCellView? {
     guard let column = sheet.tableView.tableColumns.first else {
         failures += 1
         print("FAIL the sidebar table has no column")
-        return "<no column>"
+        return nil
     }
     guard row >= 0, row < sheet.tableView.numberOfRows else {
         failures += 1
         print("FAIL there is no sidebar row \(row)")
-        return "<no row>"
+        return nil
     }
     guard let cell = sheet.tableView(sheet.tableView, viewFor: column, row: row)
-            as? NSTableCellView, let field = cell.textField else {
+            as? NSTableCellView else {
+        failures += 1
+        print("FAIL sidebar row \(row) has no cell view")
+        return nil
+    }
+    return cell
+}
+
+/// One sidebar row's text, read from the real cell view the table would draw.
+private func rowText(_ sheet: TagManagerSheet, _ row: Int) -> String {
+    guard let cell = rowCell(sheet, row) else { return "<no cell>" }
+    guard let field = cell.textField else {
         failures += 1
         print("FAIL sidebar row \(row) has no text field")
-        return "<no cell>"
+        return "<no field>"
     }
     return field.stringValue
+}
+
+/// One sidebar row's tooltip — what the analyst gets when the label is cut off.
+///
+/// Read from the CELL, which is what the table registers the tooltip on. The
+/// label inside it carries the same text, because a subview under the pointer
+/// answers for itself.
+private func rowToolTip(_ sheet: TagManagerSheet, _ row: Int) -> String {
+    guard let cell = rowCell(sheet, row) else { return "<no cell>" }
+    guard let tip = cell.toolTip else { return "<no tooltip>" }
+    guard cell.textField?.toolTip == tip else {
+        failures += 1
+        print("FAIL sidebar row \(row)'s label does not carry the row's tooltip, "
+              + "so the pointer would find nothing over the text")
+        return "<label disagrees>"
+    }
+    return tip
 }
 
 /// The `.update` payloads a save would write, in order.
@@ -1448,6 +1554,153 @@ func runTests() {
                "the common case — no partial matches — reads as one plain "
                + "sentence (\(counting.countLabel.stringValue.debugDescription)), "
                + "not noise like '0 partial.'")
+
+    // MARK: 39 — every sidebar row carries its full name as a tooltip
+
+    // The row LABEL truncates, and the removal sheet that carried the full name
+    // in its group header is gone. Two tags whose names differ only past the cut
+    // are otherwise indistinguishable in this list.
+    if let firstCell = rowCell(sheet, 0) {
+        expectTrue(firstCell.textField?.lineBreakMode == .byTruncatingTail,
+                   "the row label truncates — which is what the tooltip is for")
+    }
+    expectString(rowToolTip(sheet, 0), "Suspect",
+                 "a row's tooltip is the full name, without the rule count the "
+                 + "label appends")
+    // ALWAYS, not only when the text is cut off. Whether a label truncates
+    // depends on the pane width at that moment, so a tooltip that appeared only
+    // sometimes would be a tooltip the analyst could not learn to expect.
+    expectString(rowToolTip(sheet, 1), "Beta",
+                 "a SHORT name has one too, so the tooltip is always there")
+    expectString(rowToolTip(sheet, 2), DisplayEscape.escaped("Case\(bidi)gpj.exe"),
+                 "and a hostile name is ESCAPED in the tooltip, which the app "
+                 + "draws in its own voice exactly as the row does")
+    expectTrue(!rowToolTip(sheet, 2).contains(bidi),
+               "so the override itself never reaches the tooltip either")
+
+    // The property the tooltip exists for: two names that differ only past the
+    // cut stay tellable apart.
+    let prefix = String(repeating: "long-", count: 30)
+    let twins = makeSheet(RecordingCommitter(), tags: [
+        storedTag("t20", prefix + "alpha", colorIndex: 0, note: "", []),
+        storedTag("t21", prefix + "omega", colorIndex: 0, note: "", []),
+    ])
+    host(twins)
+    expectTrue(rowToolTip(twins, 0) != rowToolTip(twins, 1),
+               "two names differing only past the truncation have different "
+               + "tooltips, which is the whole point of carrying the full one")
+    expectString(rowToolTip(twins, 1), prefix + "omega",
+                 "and each holds its own name whole")
+
+    // And it FOLLOWS a rename. A tooltip left holding the previous name would be
+    // worse than none: it would answer the question wrongly.
+    select(twins, row: 1)
+    type(twins.nameField, "Renamed")
+    expectString(rowToolTip(twins, 1), "Renamed",
+                 "a renamed row's tooltip is the new name, not the old one")
+
+    // MARK: 40 — a name of nothing but whitespace still blocks Save
+
+    // The commit trims, so this name reaches the store as "" — and a nameless
+    // tag has always been refused. The trim must not turn that refusal into a
+    // silent write of an empty name.
+    let blankNamed = makeSheet(RecordingCommitter())
+    host(blankNamed)
+    select(blankNamed, row: 0)
+    type(blankNamed.nameField, "   ")
+    expectTrue(!blankNamed.saveButton.isEnabled,
+               "a name of nothing but spaces cannot be saved")
+    expectString(blankNamed.statusLabel.stringValue,
+                 "A tag has no name yet. Every tag needs one.",
+                 "and says so in the analyst's terms")
+
+    // MARK: 41 — a save into a tag deleted elsewhere FAILS
+
+    // `pharos_update_tag` runs `UPDATE … WHERE id = ?1` and answers `Ok(None)`
+    // for an id that is gone. No error crosses the FFI, so a save loop that
+    // discarded that answer would report success, close the sheet, and leave the
+    // analyst believing an edit landed that was never written.
+    //
+    // Driven through the REAL loop: `VanishingStore` conforms to
+    // `TagCommitWriting`, whose extension supplies the `apply(_:)` that
+    // `TagStore` itself runs.
+    let gone = VanishingStore()
+    gone.vanishedTagIds = ["t1"]
+    let vanishedError = expectThrows(
+        "an update into a tag deleted elsewhere is a FAILURE, not a silent success"
+    ) {
+        try gone.apply([.update(UpdateTag(id: "t1", name: "Renamed",
+                                          colorIndex: 0, note: ""))])
+    }
+
+    // MARK: 42 — and the failure says what happened, in words
+
+    let vanishedMessage = vanishedError.map { "\($0)" } ?? ""
+    expectTrue(!vanishedMessage.isEmpty,
+               "the error carries a message rather than an empty string")
+    expectTrue(!vanishedMessage.contains("nil") && !vanishedMessage.contains("Optional("),
+               "and it is a sentence, not a raw Swift value "
+               + "(\(vanishedMessage.debugDescription))")
+    expectTrue(vanishedMessage.lowercased().contains("no longer exists"),
+               "it says the tag is gone")
+    expectTrue(vanishedMessage.lowercased().contains("another window"),
+               "and where it probably went, which is the part the analyst can act on")
+    expectString(vanishedError?.localizedDescription ?? "", vanishedMessage,
+                 "and the localised description says the same thing as the "
+                 + "interpolation the sheet actually prints — an enum with no "
+                 + "`description` would print its CASE NAME here")
+
+    // MARK: 43 — an edit to a rule deleted elsewhere fails the same way
+
+    let goneRule = VanishingStore()
+    goneRule.vanishedRuleIds = ["r1"]
+    let ruleError = expectThrows(
+        "an edit to a rule deleted elsewhere is a failure too — the analyst "
+        + "asked for that change and none of it was written"
+    ) {
+        try goneRule.apply([.updateRule(UpdateTagRule(
+            ruleId: "r1", conditions: [cond("text", "evil.com")], tupleKey: "k1"))])
+    }
+    expectTrue("\(ruleError.map { "\($0)" } ?? "")".contains("rule"),
+               "and names the RULE, not the tag around it")
+
+    // MARK: 44 — a DELETE of something already deleted is not a failure
+
+    // Deliberately the other way from an update. The analyst asked for it to be
+    // gone and it is gone; who removed it changes nothing about the outcome, and
+    // an error here would be an error about a thing they wanted destroyed.
+    let alreadyGone = VanishingStore()
+    alreadyGone.vanishedTagIds = ["t1"]
+    expectNoThrow("deleting a tag that is already deleted reaches the state that "
+                  + "was asked for, so it is a success") {
+        try alreadyGone.apply([.deleteTag("t1"), .deleteRules(["r1"])])
+    }
+
+    // MARK: 45 — the failing save leaves the sheet OPEN, with the edits intact
+
+    // The same behaviour MARK 10 pins for a Rust-side failure, reached through
+    // the answer that is NOT an error on the Rust side.
+    let vanishedCommitter = RecordingCommitter()
+    let vanishedStore = VanishingStore()
+    vanishedStore.vanishedTagIds = ["t1"]
+    vanishedCommitter.vanished = vanishedStore
+    let vanishing = makeSheet(vanishedCommitter)
+    let vanishingClosings = countClosings(vanishing)
+    let vanishingWindow = host(vanishing)
+    select(vanishing, row: 0)
+    type(vanishing.nameField, "Renamed Into Nothing")
+    vanishing.saveButton.performClick(nil)
+    expectInt(vanishedCommitter.applied.count, 1, "the save was attempted once")
+    expectInt(vanishingClosings.count, 0,
+              "a save into a tag deleted elsewhere does NOT close the sheet")
+    expectInt(vanishingWindow.sheets.count, 1, "it raises the error alert")
+    expectString(vanishing.nameField.stringValue, "Renamed Into Nothing",
+                 "and the edit is still in the field, ready to be saved somewhere")
+    let vanishedSurvivors = updates(vanishing)
+    expectInt(vanishedSurvivors.count, 1, "and still in the model")
+    expectTrue(vanishing.statusLabel.stringValue.contains("no longer exists"),
+               "and the status line says what happened "
+               + "(\(vanishing.statusLabel.stringValue.debugDescription))")
 
     finish()
 }

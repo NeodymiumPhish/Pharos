@@ -14,6 +14,7 @@ swiftc -o "$BIN" \
   -L pharos-core/target/release -lpharos_core \
   -framework Security -framework SystemConfiguration -framework CoreFoundation \
   -lz -liconv -lm -lresolv \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/RustScalarError.swift \
   Pharos/Core/PharosCore.swift \
   Pharos/Core/PharosCore+Tags.swift \
@@ -24,6 +25,7 @@ swiftc -o "$BIN" \
   Pharos/Core/TagRuleMatcher.swift \
   Pharos/Core/TagRuleRemoving.swift \
   Pharos/Core/TagManagerCommitting.swift \
+  Pharos/Core/TagCommitWriting.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagCapture.swift \
   Pharos/Core/TagDraft.swift \

@@ -8,6 +8,11 @@
 # what keeps TagStore out of the binary: it is @MainActor and reaches the
 # Keychain through the FFI, which would hang a headless run.
 #
+# TagCommitWriting.swift comes with it. That file holds the REAL save loop —
+# TagStore conforms to it and takes `apply(_:)` from its extension as the
+# witness — so the suite's `VanishingStore` drives the same code the app runs,
+# not a copy of it.
+#
 # The whole condition stack comes along because the sheet hosts the real rule
 # grid, which hosts real condition rows, which validate through
 # TagConditionEditor and therefore through the real matcher. The authored-label
@@ -29,6 +34,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagCommitWriting.swift \
   Pharos/Core/TagManagerCommitting.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagPalette.swift \

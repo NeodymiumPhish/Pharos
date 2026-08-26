@@ -418,7 +418,7 @@ struct TagManagerModel {
             guard let id = tag.id, let before = stored[id] else {
                 // A tag the analyst made this session.
                 out.append(.create(CreateTag(
-                    name: tag.name, colorIndex: tag.colorIndex,
+                    name: Self.committedName(tag.name), colorIndex: tag.colorIndex,
                     note: tag.note.isEmpty ? nil : tag.note,
                     rules: tag.rules.compactMap(Self.newRule))))
                 continue
@@ -427,9 +427,29 @@ struct TagManagerModel {
             // Identity. An empty note is written as an empty STRING, never nil:
             // nil means "leave it alone" in this payload, so nil could never
             // clear a note.
-            if tag.name != before.name || tag.colorIndex != before.colorIndex
+            //
+            // The name is compared in the form it would be WRITTEN, on BOTH
+            // sides. Two different mistakes are avoided by that.
+            //
+            // Asking it of the edited name stops a trailing space the analyst
+            // added, and the trim then removes, from lighting up Save to write
+            // the name it already had.
+            //
+            // Asking it of the STORED name too stops a tag nobody touched from
+            // reporting itself as changed. A name written before the sanitiser
+            // existed can hold a scalar the sanitiser removes, and comparing the
+            // clean form against the raw one would make every such tag arrive
+            // pre-edited — Save lit, "Nothing has changed yet" gone, and a write
+            // the analyst never asked for. The rewrite still happens when they
+            // save a REAL edit, which is right: the name field shows them the
+            // sanitised form, so that is the name they are agreeing to.
+            //
+            // The NOTE is not treated this way — it is prose, it is neither
+            // sanitised nor escaped, and its edge whitespace may be deliberate.
+            let name = Self.committedName(tag.name)
+            if name != Self.committedName(before.name) || tag.colorIndex != before.colorIndex
                 || tag.note != (before.note ?? "") {
-                out.append(.update(UpdateTag(id: id, name: tag.name,
+                out.append(.update(UpdateTag(id: id, name: name,
                                              colorIndex: tag.colorIndex, note: tag.note)))
             }
 
@@ -467,6 +487,28 @@ struct TagManagerModel {
             if !added.isEmpty { out.append(.addRules(AddTagRules(tagId: id, rules: added))) }
         }
         return out
+    }
+
+    /// One tag's name as the store receives it: SANITISED, then TRIMMED.
+    ///
+    /// Both, and in that ORDER. The sanitiser folds an unusual space to a plain
+    /// one and the trim then takes it; trimming first would stop at whatever
+    /// invisible sits outboard of that space and leave a plain space behind that
+    /// nothing removes. Every scalar the sanitiser folds is itself trimmable, so
+    /// the two orders agree on a lone NBSP and disagree only there — which is
+    /// exactly why the order has to be written down rather than discovered.
+    ///
+    /// Sanitising again here, although the name field already sanitises per
+    /// keystroke: `rename(tagAt:to:)` takes any string from any caller, and this
+    /// is the boundary that reaches the store.
+    ///
+    /// Trimming belongs HERE and not in the field. A field that ate the space
+    /// you just typed would fight ordinary typing mid-word, so the three sheets
+    /// this manager replaced each trimmed on the one line that reached the
+    /// store — which is this one.
+    private static func committedName(_ raw: String) -> String {
+        AuthoredLabelSanitizer.sanitized(raw)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// One editable rule as the store receives it, or nil when it holds nothing.
