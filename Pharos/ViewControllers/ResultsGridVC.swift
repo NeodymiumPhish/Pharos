@@ -894,24 +894,25 @@ class ResultsGridVC: NSViewController {
     func presentTagSheet(on targets: [Int]) {
         // A sheet needs a window to hang from; a grid off screen just beeps.
         guard !targets.isEmpty, view.window != nil else { NSSound.beep(); return }
-        // The manager has no per-column checkbox row the way `TagSheet` did, so
-        // there is nothing on screen for the analyst to narrow with here. Every
-        // column is captured rather than reading the grid's cell selection: the
-        // common path into this method is a ROW selection (⌘L, the row-number
-        // click, the context menu), which leaves no cell range at all, and a
-        // "use the cell selection if any" rule would silently capture from zero
-        // columns on exactly that path — an empty draft the manager cannot add.
-        let draft = TagDraft.rules(
+        // What the selection OFFERS, not what it captures. The manager draws a
+        // checklist of the VALUES in these columns and the analyst ticks the
+        // ones the tag takes; nothing is decided here.
+        //
+        // Every column is offered rather than reading the grid's cell selection:
+        // the common path into this method is a ROW selection (⌘L, the
+        // row-number click, the context menu), which leaves no cell range at
+        // all, so a "use the cell selection if any" rule would silently offer
+        // zero columns on exactly that path.
+        let capture = TagCapture(
+            columns: columns,
             selectedRows: targets.compactMap { row in
                 row < rows.count ? rows[row].map { $0.stringValue } : nil
             },
-            columns: columns,
-            checkedColumns: Array(columns.indices),
             originConnection: AppStateManager.shared.activeConnectionId ?? "",
             // Provenance only. A result with no source table is still taggable —
             // the "no source table" refusal retired with row identity.
             originTable: rowIdentity?.tableDisplay ?? "")
-        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .add(draft: draft))
+        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .add(capture: capture))
         presentAsSheet(TagManagerSheet(model: model, committer: TagStore.shared,
                                        columns: columns,
                                        loadedRows: rows.map { row in row.map { $0.stringValue } }))

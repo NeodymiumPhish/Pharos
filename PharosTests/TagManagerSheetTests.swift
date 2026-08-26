@@ -171,6 +171,30 @@ private func tick(_ box: NSButton, _ on: Bool, _ what: String) {
     target.perform(action, with: box)
 }
 
+/// Ticks a CAPTURE checklist box by its column index, the way a click does.
+///
+/// Refuses a missing row as loudly as `tick` refuses a hidden or disabled box: a
+/// helper that silently did nothing when the checklist was never drawn would let
+/// every assertion below it pass against a sheet with no checklist at all.
+private func tickCapture(_ sheet: TagManagerSheet, _ column: Int, _ on: Bool,
+                         _ what: String) {
+    let rows = sheet.captureList.rows
+    guard rows.indices.contains(column) else {
+        failures += 1
+        print("FAIL there is no capture row \(column) to tick (\(what))")
+        return
+    }
+    // `isHiddenOrHasHiddenAncestor`, not `isHidden`: the checklist is hidden by
+    // hiding the BOX around it, so asking the list itself would answer "visible"
+    // for a checklist nobody can see.
+    guard !sheet.captureList.isHiddenOrHasHiddenAncestor else {
+        failures += 1
+        print("FAIL a hidden capture checklist cannot be ticked (\(what))")
+        return
+    }
+    tick(rows[column].box, on, what)
+}
+
 /// Lets the main queue run, until `done` answers true or the deadline passes.
 ///
 /// A never-shown window has no event loop of its own, so a background count's
@@ -360,24 +384,28 @@ private func manyRows() -> [[String?]] {
     (0..<5_001).map { ["10.9.\($0 / 256).\($0 % 256)", "h\($0).example"] }
 }
 
-/// One draft rule, carrying the provenance a captured finding must keep.
-private func draftRule(_ condition: TagCondition) -> NewTagRule {
-    let key = RuleKey.encode([RuleConditionKey(kind: condition.kind,
-                                               family: condition.family,
-                                               value: condition.value,
-                                               operand2: condition.operand2)])
-    return NewTagRule(conditions: [condition], tupleKey: key ?? condition.value,
-                      originConnection: "conn-42", originTable: "public.certs")
+/// What a grid selection offers, carrying the provenance a captured finding
+/// must keep.
+private func capture(_ rows: [[String?]]) -> TagCapture {
+    TagCapture(columns: countColumns(), selectedRows: rows,
+               originConnection: "conn-42", originTable: "public.certs")
 }
 
-/// Three rows' worth of draft, as `Mode.add` carries them.
-private func fixtureDraft() -> [NewTagRule] {
-    [
-        draftRule(cond("address", "203.0.113.7")),
-        draftRule(cond("address", "203.0.113.8")),
-        draftRule(cond("text", "bad.example")),
-    ]
+/// Three selected rows: every one holds the same host, and each holds a
+/// different address. That is the shape the checklist has to describe two
+/// different ways in the same list — one shared value, and a count.
+private func fixtureCapture() -> TagCapture {
+    capture([
+        ["203.0.113.7", "shared.example"],
+        ["203.0.113.8", "shared.example"],
+        ["203.0.113.9", "shared.example"],
+    ])
 }
+
+/// A hostile value: `safe\u{202E}gpj.exe` DISPLAYS as `safeexe.jpg`, so an
+/// unescaped checklist row would read as a different value than the one the
+/// analyst is ticking.
+private let hostileValue = "safe\(bidi)gpj.exe"
 
 // MARK: - A counting function the test drives
 
@@ -756,13 +784,18 @@ func runTests() {
 
     // MARK: 16 — `.add` shows every tag, and says how many rows are joining one
 
-    let addSheet = makeSheet(RecordingCommitter(), mode: .add(draft: fixtureDraft()))
+    let addSheet = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()))
     host(addSheet)
     expectInt(addSheet.tableView.numberOfRows, 3,
               "`.add` lists every tag, because the analyst is choosing which one the draft joins")
     expectTrue(addSheet.titleLabel.stringValue.contains("3 rows"),
                "and the header states how many rows are being added "
                + "(\(addSheet.titleLabel.stringValue.debugDescription))")
+    // The heading counts SELECTED ROWS, so it does not move as boxes are
+    // ticked: it answers "did the sheet catch the selection I made", and
+    // nothing has been ticked here at all.
+    expectTrue(addSheet.model.draftRules.isEmpty,
+               "with nothing ticked yet, so the heading is not a count of rules")
 
     // MARK: 17 — `.add` onto an existing tag keeps the draft's PROVENANCE
 
@@ -771,24 +804,32 @@ func runTests() {
     // the connection and table it was seen on, or the record of where it was
     // found is lost at the moment it is filed.
     let joinCommitter = RecordingCommitter()
-    let joining = makeSheet(joinCommitter, mode: .add(draft: fixtureDraft()))
+    let joining = makeSheet(joinCommitter, mode: .add(capture: fixtureCapture()))
     host(joining)
     select(joining, row: 0)
+    expectTrue(!joining.saveButton.isEnabled,
+               "with nothing ticked there is nothing to add, so Save is held back")
+    tickCapture(joining, 0, true, "the address column")
+    tickCapture(joining, 1, true, "the host column")
     expectTrue(joining.saveButton.isEnabled,
-               "a draft with a tag chosen can be saved without any other edit")
+               "a ticked capture with a tag chosen can be saved without any other edit")
     // Which makes the footer load-bearing: the tag the draft joins is chosen by
     // a SIDEBAR SELECTION, which looks like navigation rather than a decision,
     // and Save is the default button. This line is what makes it a decision.
     expectString(joining.statusLabel.stringValue,
-                 "Saving adds 3 rules to \u{201C}Suspect\u{201D}.",
-                 "and the footer names the tag the rows would join, and how many")
+                 "Saving adds 3 rules to \u{201C}Suspect\u{201D}, one per selected row.",
+                 "and the footer names the tag the rows would join, how many, and "
+                 + "that three rules from three rows is one each rather than a cross product")
     joining.saveButton.performClick(nil)
     expectInt(joinCommitter.applied.count, 1, "saving commits once")
     let joined = addedRules(joinCommitter.applied.first ?? [])
     expectInt(joined.count, 1, "with one add-rules command")
     if let add = joined.first {
         expectString(add.tagId, "t1", "naming the chosen tag")
-        expectInt(add.rules.count, 3, "and carrying every draft rule")
+        expectInt(add.rules.count, 3, "one rule per selected row")
+        expectString(add.rules.map { "\($0.conditions.count)" }.joined(separator: ","),
+                     "2,2,2",
+                     "each holding the two TICKED columns, never a cross product")
         expectString(add.rules.map(\.originConnection).joined(separator: ","),
                      "conn-42,conn-42,conn-42",
                      "each with the connection it was captured on, not an empty string")
@@ -800,10 +841,12 @@ func runTests() {
     // MARK: 18 — `.add` onto a NEW tag creates it WITH the draft
 
     let bornCommitter = RecordingCommitter()
-    let born = makeSheet(bornCommitter, mode: .add(draft: fixtureDraft()))
+    let born = makeSheet(bornCommitter, mode: .add(capture: fixtureCapture()))
     host(born)
     born.newTagButton.performClick(nil)
     type(born.nameField, "Fresh Finding")
+    tickCapture(born, 0, true, "the address column")
+    tickCapture(born, 1, true, "the host column")
     born.saveButton.performClick(nil)
     expectInt(bornCommitter.applied.count, 1, "saving commits once")
     let bornCreates = createdTags(bornCommitter.applied.first ?? [])
@@ -811,8 +854,11 @@ func runTests() {
     if let create = bornCreates.first {
         expectString(create.name, "Fresh Finding", "under the typed name")
         expectInt(create.rules.count, 3,
-                  "and the draft rules go IN it — a second command could not name "
+                  "and the ticked rules go IN it — a second command could not name "
                   + "a tag whose id does not exist yet")
+        expectString(create.rules.map { "\($0.conditions.count)" }.joined(separator: ","),
+                     "2,2,2",
+                     "each holding the same two ticked columns as the existing-tag path")
         expectString(create.rules.map(\.originTable).joined(separator: ","),
                      "public.certs,public.certs,public.certs",
                      "still carrying their provenance")
@@ -1007,6 +1053,263 @@ func runTests() {
     expectString(gated.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
                  "the first count, landing afterwards, is DISCARDED rather than "
                  + "overwriting the newer number")
+
+    // MARK: 27 — the checklist is drawn in `.add` ONLY, one row per column
+
+    // The capability the migration to this modal dropped. `TagSheet` made the
+    // analyst tick which columns a tag captured from; "capture every column"
+    // replaced it, and on a twenty-column result that produces a rule matching
+    // almost nothing but the row it came from.
+    let listing = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()),
+                            columns: countColumns(), loadedRows: countRows())
+    host(listing)
+    expectInt(listing.captureList.rows.count, countColumns().count,
+              "`.add` draws one checklist row per result column")
+    expectInt(listing.captureList.rows.count, 2, "which here is two")
+    expectTrue(!listing.captureList.isHiddenOrHasHiddenAncestor,
+               "and the checklist is on screen")
+    expectInt(managing.captureList.rows.count, 0,
+              "`.manage` draws no checklist — it has no selection to capture from")
+    expectTrue(managing.captureList.isHiddenOrHasHiddenAncestor,
+               "and the space it would take goes with it")
+    expectInt(removing.captureList.rows.count, 0, "`.remove` draws none either")
+    expectTrue(removing.captureList.isHiddenOrHasHiddenAncestor,
+               "and hides its box too")
+
+    // MARK: 28 — a row shows the FAMILY, never the column name
+
+    // A column name never takes part in matching, and a hand-authored condition
+    // has no column at all — so a name here would promise a precision the tag
+    // does not have.
+    expectString(listing.captureList.rows.map(\.familyLabel.stringValue)
+                    .joined(separator: "|"),
+                 "Address|Text",
+                 "each row names the family the condition will be described by")
+    expectTrue(listing.captureList.rows.allSatisfy {
+                   $0.familyLabel.stringValue != "ip" && $0.familyLabel.stringValue != "host"
+               },
+               "and never the column's own name")
+
+    // MARK: 29 — with ONE row selected, each row shows THAT row's value
+
+    let single = makeSheet(RecordingCommitter(),
+                           mode: .add(capture: capture([["198.51.100.4", "one.example"]])),
+                           columns: countColumns(), loadedRows: countRows())
+    host(single)
+    expectString(single.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+                 "198.51.100.4|one.example",
+                 "one selected row shows its own values, which is what the analyst "
+                 + "is actually deciding about")
+    expectTrue(single.titleLabel.stringValue.contains("1 row"),
+               "and the heading says one row "
+               + "(\(single.titleLabel.stringValue.debugDescription))")
+
+    // MARK: 30 — with SEVERAL rows, a shared value is shown and the rest counted
+
+    // A column constant across the selection is a strong indicator and worth
+    // seeing at a glance; that is what the old sheet's distinct count was for.
+    expectString(listing.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+                 "3 values|shared.example",
+                 "a column the three rows differ on is COUNTED, and one they all "
+                 + "share shows the value itself")
+
+    // MARK: 31 — every box starts UNTICKED
+
+    // A tag is a durable artifact and the choice should be deliberate.
+    expectTrue(listing.captureList.rows.allSatisfy { $0.box.state == .off },
+               "no capture box starts ticked")
+    expectTrue(listing.model.checkedCaptureColumns.isEmpty,
+               "and the model agrees nothing is ticked")
+
+    // MARK: 32 — with nothing ticked, a save writes no rules at all
+
+    // Save is held back by the ordinary `noChanges` blocker first...
+    select(listing, row: 0)
+    expectTrue(!listing.saveButton.isEnabled,
+               "an untouched `.add` sheet cannot be saved")
+    expectString(listing.statusLabel.stringValue, "Nothing has changed yet.",
+                 "and says so in the ordinary words, not in a special case")
+    // ...and when something ELSE makes the save legal, the untouched checklist
+    // still contributes nothing. Asserted through a real save, because that is
+    // where an accidentally-full draft would actually escape.
+    let untickedCommitter = RecordingCommitter()
+    let unticked = makeSheet(untickedCommitter, mode: .add(capture: fixtureCapture()),
+                             columns: countColumns(), loadedRows: countRows())
+    host(unticked)
+    select(unticked, row: 0)
+    type(unticked.nameField, "Renamed Only")
+    unticked.saveButton.performClick(nil)
+    expectInt(untickedCommitter.applied.count, 1, "the rename alone saves")
+    expectInt(addedRules(untickedCommitter.applied.first ?? []).count, 0,
+              "and writes NO add-rules command, because nothing was ticked")
+    expectInt(createdTags(untickedCommitter.applied.first ?? []).count, 0,
+              "and creates no tag either")
+
+    // MARK: 33 — a tick moves the LIVE COUNT
+
+    // The whole reason the checklist rebuilds the draft rather than carrying a
+    // fixed list: the analyst must see immediately that ticking one more column
+    // narrowed the tag — including to nothing.
+    let counted = makeSheet(RecordingCommitter(),
+                            mode: .add(capture: capture([["10.0.0.2", "b.example"]])),
+                            columns: countColumns(), loadedRows: countRows())
+    host(counted)
+    select(counted, row: 0)
+    let countBeforeTick = counted.countLabel.stringValue
+    expectString(countBeforeTick, "Matches 1 of 10 loaded rows.",
+                 "before any tick the count is the tag's own")
+    tickCapture(counted, 0, true, "the address column")
+    expectTrue(counted.countLabel.stringValue != countBeforeTick,
+               "ticking a box moves the count "
+               + "(\(countBeforeTick.debugDescription) -> "
+               + "\(counted.countLabel.stringValue.debugDescription))")
+    expectString(counted.countLabel.stringValue, "Matches 3 of 10 loaded rows.",
+                 "to what the tag would reach WITH the captured address")
+    // Ticking a SECOND column makes the captured rule strictly narrower — it now
+    // needs BOTH values present in one row — and that IS what would be written.
+    tickCapture(counted, 1, true, "the host column")
+    expectInt(counted.model.draftRules.first?.conditions.count ?? 0, 2,
+              "ticking a second column narrows the captured rule to both values")
+    // The FOOTER's number does not come down, and that is pinned as it is rather
+    // than as it ought to be. `TagRuleMatcher.matchCount` counts every row the
+    // tag TOUCHES — dashed as well as solid — so a second condition can only add
+    // touches, never remove one: 10.0.0.2 still touches rows 1 and 2 even though
+    // only row 1 satisfies the whole rule now. That is pre-existing behaviour,
+    // shared with the `TagSheet` this modal replaced, and it means "Matches N"
+    // overstates what the tag actually applies to. It is NOT introduced here and
+    // is not fixed here — a change to the count's meaning is its own task, with
+    // its own reading of what the footer should promise.
+    expectString(counted.countLabel.stringValue, "Matches 3 of 10 loaded rows.",
+                 "while the footer's number counts every row TOUCHED, so it does "
+                 + "not come down (a known pre-existing overstatement)")
+    tickCapture(counted, 0, false, "the address column")
+    tickCapture(counted, 1, false, "the host column")
+    expectString(counted.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
+                 "unticking everything returns the count to the tag's own")
+
+    // MARK: 34 — a NULL cell contributes no condition
+
+    // A NULL is the ABSENCE of a value, not a value: a slot nothing can satisfy
+    // would make the whole rule inert.
+    let nullCommitter = RecordingCommitter()
+    let nulled = makeSheet(nullCommitter,
+                           mode: .add(capture: capture([["10.0.0.2", nil]])),
+                           columns: countColumns(), loadedRows: countRows())
+    host(nulled)
+    expectString(nulled.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+                 "10.0.0.2|NULL",
+                 "a NULL cell says so, rather than drawing an empty row that reads "
+                 + "as a rendering fault")
+    select(nulled, row: 0)
+    tickCapture(nulled, 0, true, "the address column")
+    tickCapture(nulled, 1, true, "the NULL host column")
+    nulled.saveButton.performClick(nil)
+    expectInt(nullCommitter.applied.count, 1, "saving commits once")
+    let nullAdds = addedRules(nullCommitter.applied.first ?? [])
+    expectInt(nullAdds.count, 1, "with one add-rules command")
+    if let add = nullAdds.first {
+        expectInt(add.rules.count, 1, "carrying the one selected row")
+        if let rule = add.rules.first {
+            expectInt(rule.conditions.count, 1,
+                      "as a NARROWER rule — the NULL column contributes nothing")
+            expectString(rule.conditions.first?.display ?? "<none>", "10.0.0.2",
+                         "keeping only the column that held a value")
+        }
+    }
+
+    // MARK: 35 — a hostile value is ESCAPED in the checklist
+
+    // The row is drawn in this app's own voice and is what the analyst reads
+    // before ticking. `safe<U+202E>gpj.exe` DISPLAYS as `safeexe.jpg`, so an
+    // unescaped row would have them tick a value they never saw.
+    let hostile = makeSheet(RecordingCommitter(),
+                            mode: .add(capture: capture([["10.0.0.2", hostileValue]])),
+                            columns: countColumns(), loadedRows: countRows())
+    host(hostile)
+    guard hostile.captureList.rows.count == 2 else {
+        failures += 1
+        print("FAIL the hostile-value sheet drew no checklist to read")
+        finish()
+        return
+    }
+    expectString(hostile.captureList.rows[1].valueLabel.stringValue,
+                 DisplayEscape.escaped(hostileValue),
+                 "the row shows the escaped value")
+    expectTrue(!hostile.captureList.rows[1].valueLabel.stringValue.contains(bidi),
+               "so the override itself never reaches the label")
+    // The escape is DISPLAY only: what a save writes is the value as it was
+    // seen, or the indicator would be corrupt the moment it was filed.
+    let hostileCommitter = RecordingCommitter()
+    let hostileSaving = makeSheet(hostileCommitter,
+                                  mode: .add(capture: capture([["10.0.0.2", hostileValue]])),
+                                  columns: countColumns(), loadedRows: countRows())
+    host(hostileSaving)
+    select(hostileSaving, row: 0)
+    tickCapture(hostileSaving, 1, true, "the hostile host column")
+    hostileSaving.saveButton.performClick(nil)
+    let hostileAdds = addedRules(hostileCommitter.applied.first ?? [])
+    if let rule = hostileAdds.first?.rules.first, let condition = rule.conditions.first {
+        expectString(condition.display, hostileValue,
+                     "while the STORED value keeps its bytes — an escaped indicator "
+                     + "would be a corrupt one")
+    } else {
+        failures += 1
+        print("FAIL the hostile capture wrote no condition to inspect")
+    }
+
+    // MARK: 36 — the checklist scrolls, and never squeezes the rules grid
+
+    // A sixty-column result draws sixty rows. Measured rather than assumed: an
+    // earlier task found a value field silently collapsed to zero width because
+    // two views hugged at the same priority.
+    let wide = (0..<60).map {
+        ColumnDef(name: "c\($0)", dataType: $0 % 2 == 0 ? "inet" : "text",
+                  relationOid: nil, relationAttno: nil)
+    }
+    let wideRow: [String?] = (0..<60).map { $0 % 2 == 0 ? "10.0.0.\($0 % 250)" : "host\($0)" }
+    let wideSheet = makeSheet(
+        RecordingCommitter(),
+        mode: .add(capture: TagCapture(columns: wide, selectedRows: [wideRow],
+                                       originConnection: "conn-42",
+                                       originTable: "public.certs")),
+        columns: countColumns(), loadedRows: countRows())
+    host(wideSheet)
+    wideSheet.view.layoutSubtreeIfNeeded()
+    expectInt(wideSheet.captureList.rows.count, 60, "sixty columns draw sixty rows")
+    // ONE selected row, like the wide sheet: the caption is a line longer when
+    // several rows are selected, and that alone moves the grid by a dozen
+    // points. Holding the row count equal leaves the COLUMN count as the only
+    // difference, which is the thing under test.
+    let narrowList = makeSheet(RecordingCommitter(),
+                               mode: .add(capture: capture([["10.0.0.2", "b.example"]])),
+                               columns: countColumns(), loadedRows: countRows())
+    host(narrowList)
+    narrowList.view.layoutSubtreeIfNeeded()
+    // The rows are drawn at full height and the VIEWPORT does not grow, which is
+    // what "it scrolls" means in measurements rather than in words.
+    expectTrue(wideSheet.captureList.frame.height
+                > wideSheet.captureScroll.contentView.bounds.height,
+               "the rows overflow the checklist's viewport "
+               + "(\(Int(wideSheet.captureList.frame.height))pt of rows in "
+               + "\(Int(wideSheet.captureScroll.contentView.bounds.height))pt), so it scrolls")
+    expectInt(Int(wideSheet.captureScroll.frame.height),
+              Int(narrowList.captureScroll.frame.height),
+              "and the viewport is the same height beside sixty rows as beside two")
+    // The grid below keeps its floor whatever the checklist holds, because the
+    // checklist's viewport is a fixed height rather than a share of the sheet.
+    expectInt(Int(wideSheet.gridScroll.frame.height),
+              Int(narrowList.gridScroll.frame.height),
+              "so the rules grid is not squeezed by a wide result "
+              + "(\(Int(wideSheet.gridScroll.frame.height))pt vs "
+              + "\(Int(narrowList.gridScroll.frame.height))pt)")
+    expectTrue(wideSheet.gridScroll.frame.height >= 220,
+               "and still has its own floor "
+               + "(\(Int(wideSheet.gridScroll.frame.height))pt)")
+    // Every value must have real width. Zero would draw a blank row, which reads
+    // as missing data rather than as a layout fault.
+    let squeezed = wideSheet.captureList.rows.filter { $0.valueLabel.frame.width < 40 }
+    expectInt(squeezed.count, 0,
+              "and no value label is squeezed to nothing by the family beside it")
 
     finish()
 }

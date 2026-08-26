@@ -100,9 +100,12 @@ struct TagManagerModel {
     enum Mode: Equatable {
         /// Opened from the menu. Every tag, nothing preselected.
         case manage
-        /// Opened from a grid selection. The draft rules join a tag the analyst
-        /// picks, or a new one.
-        case add(draft: [NewTagRule])
+        /// Opened from a grid selection. What the selection OFFERS, not what it
+        /// captures: the analyst ticks the values a tag takes from it, and the
+        /// draft is derived from those ticks. A fixed list of rules here would
+        /// have to be replaced to change a tick, and replacing the model would
+        /// throw away a rename typed a moment earlier.
+        case add(capture: TagCapture)
         /// Opened from "Remove from tag" on a row. The sidebar narrows to the
         /// tags holding these rules, and they start ticked.
         case remove(ruleIds: Set<String>)
@@ -136,10 +139,50 @@ struct TagManagerModel {
         }
     }
 
-    /// The rules a grid selection brought in, for `.add`. Empty otherwise.
+    /// What a grid selection offers, for `.add`. nil in every other mode.
+    var capture: TagCapture? {
+        if case .add(let capture) = mode { return capture }
+        return nil
+    }
+
+    /// The result columns the analyst has TICKED, by index.
+    ///
+    /// Starts EMPTY, deliberately. A tag is a durable artifact and the choice of
+    /// what it captures should be a deliberate one — and capturing every column
+    /// by default produces a rule that matches almost nothing but the row it
+    /// came from, which is the opposite of a useful indicator. With nothing
+    /// ticked the draft is empty and contributes no rules, so Save falls back to
+    /// the ordinary `noChanges` blocker.
+    private(set) var checkedCaptureColumns: Set<Int> = []
+
+    /// Tick or untick one capture column. Answers false when there is nothing to
+    /// tick — no capture, or an index the result does not hold — rather than
+    /// trapping, so a checklist and a result that disagree cannot take the app
+    /// down.
+    ///
+    /// A MUTATION on the model that already exists, never a new model: the
+    /// analyst may have renamed a tag a moment earlier, and a rebuilt
+    /// `TagManagerModel` would throw that away.
+    @discardableResult
+    mutating func setCaptureColumn(_ index: Int, checked: Bool) -> Bool {
+        guard let capture, capture.columns.indices.contains(index) else { return false }
+        if checked {
+            checkedCaptureColumns.insert(index)
+        } else {
+            checkedCaptureColumns.remove(index)
+        }
+        return true
+    }
+
+    /// The rules a grid selection would write, for `.add`. Empty otherwise, and
+    /// empty until something is ticked.
+    ///
+    /// DERIVED on every read rather than stored. `commits()`, the live count and
+    /// the footer all ask this question, and a stored copy updated by hand is
+    /// exactly how the number on screen comes to disagree with what saves.
     var draftRules: [NewTagRule] {
-        if case .add(let draft) = mode { return draft }
-        return []
+        guard let capture else { return [] }
+        return capture.rules(checkedColumns: checkedCaptureColumns)
     }
 
     /// Which tags the sidebar shows, by index.
@@ -435,7 +478,7 @@ struct TagManagerModel {
     /// `originConnection` and `originTable` are empty for an authored rule: it
     /// has no origin row. They are provenance only and no code gates on them. A
     /// rule that came from a grid selection carries the real values through
-    /// `Mode.add`'s draft, which a later phase wires up.
+    /// `Mode.add`'s capture, which the sheet folds in at save.
     private static func newRule(_ rule: EditableRule) -> NewTagRule? {
         guard let key = ruleKey(rule) else { return nil }
         return NewTagRule(conditions: rule.conditions, tupleKey: key,

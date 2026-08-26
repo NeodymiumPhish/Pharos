@@ -25,6 +25,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/SanitiseNotice.swift \
   Pharos/Core/TagConditionEditor.swift \
   Pharos/Core/TagConditionKind.swift \
+  Pharos/Core/TagCapture.swift \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \
@@ -39,6 +40,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Views/HostileTextBadge.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
+  Pharos/Views/TagCaptureListView.swift \
   Pharos/Views/TagConditionRowView.swift \
   Pharos/Views/TagRuleGridView.swift \
   Pharos/Views/Toast.swift \

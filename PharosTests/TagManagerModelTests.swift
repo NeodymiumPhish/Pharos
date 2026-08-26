@@ -19,6 +19,24 @@ func storedRule(_ id: String, _ conditions: [TagCondition]) -> TagRule {
             originConnection: "c1", originTable: "public.certs", createdAt: "2026-08-01T00:00:00Z")
 }
 
+/// What a grid selection offers: two columns of different families, and three
+/// selected rows — the last with a NULL in the second column, so the NULL rule
+/// is exercised by the same fixture.
+func fixtureCapture() -> TagCapture {
+    TagCapture(
+        columns: [
+            ColumnDef(name: "ip", dataType: "inet", relationOid: nil, relationAttno: nil),
+            ColumnDef(name: "host", dataType: "text", relationOid: nil, relationAttno: nil),
+        ],
+        selectedRows: [
+            ["10.0.0.1", "evil.com"],
+            ["10.0.0.2", "other.com"],
+            ["10.0.0.3", nil],
+        ],
+        originConnection: "c1",
+        originTable: "public.certs")
+}
+
 func storedTag(_ id: String, _ name: String, _ rules: [TagRule]) -> Tag {
     Tag(id: id, name: name, colorIndex: 2, note: "a note",
         createdAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", rules: rules)
@@ -99,15 +117,93 @@ func runTests() {
     expect(!TagManagerModel(tags: two, mode: .manage).isPreselected(ruleId: "r4"),
            "manage mode preselects nothing")
 
-    // Add mode carries draft rules and shows every tag, because the analyst
-    // chooses which one they join — or makes a new one.
-    let draft = [NewTagRule(conditions: [ip], tupleKey: "k", originConnection: "c1",
-                            originTable: "public.certs")]
-    let adding = TagManagerModel(tags: two, mode: .add(draft: draft))
+    // Add mode carries what the selection OFFERS and shows every tag, because
+    // the analyst chooses which one the capture joins — or makes a new one.
+    var adding = TagManagerModel(tags: two, mode: .add(capture: fixtureCapture()))
     expect(adding.visibleTagIndices == [0, 1], "add mode shows every tag")
-    expect(adding.draftRules.count == 1, "and carries the draft rules")
+    expect(adding.capture != nil, "and carries the capture")
+    expect(TagManagerModel(tags: two, mode: .manage).capture == nil,
+           "manage mode carries no capture")
     expect(TagManagerModel(tags: two, mode: .manage).draftRules.isEmpty,
            "manage mode carries no draft rules")
+
+    // MARK: the capture checklist
+
+    // NOTHING starts ticked. A tag is a durable artifact and the choice of what
+    // it captures should be deliberate; capturing every column by default gives
+    // a rule that matches almost nothing but the row it came from.
+    expect(adding.checkedCaptureColumns.isEmpty, "no capture column starts ticked")
+    expect(adding.draftRules.isEmpty, "so the draft starts empty")
+
+    // Ticking one column: one rule per selected row, each of one condition.
+    expect(adding.setCaptureColumn(0, checked: true), "a capture column can be ticked")
+    expect(adding.checkedCaptureColumns == [0], "and the model records it")
+    let oneTicked = adding.draftRules
+    expect(oneTicked.count == 3, "one rule per selected row")
+    expect(oneTicked.allSatisfy { $0.conditions.count == 1 },
+           "each holding just the ticked column's value")
+    expect(oneTicked.allSatisfy { $0.originConnection == "c1" && $0.originTable == "public.certs" },
+           "carrying the provenance the capture came with")
+
+    // Ticking a second widens each rule, never the rule count: a cross product
+    // would invent pairs no observation ever showed.
+    expect(adding.setCaptureColumn(1, checked: true), "a second column can be ticked")
+    let twoTicked = adding.draftRules
+    expect(twoTicked.count == 3, "still one rule per selected row")
+    // Two conditions each, except the row whose host is NULL — see the NULL
+    // assertions below, which is the same fixture read the other way round.
+    expect(twoTicked.map(\.conditions.count) == [2, 2, 1],
+           "each now holding both ticked columns, bar the row with a NULL in one")
+
+    // The conditions arrive in RESULT COLUMN order whatever order the boxes
+    // were ticked in, so two analysts ticking the same two columns write the
+    // same rule.
+    expect(twoTicked.first.map { $0.conditions.map(\.family) == ["address", "text"] } ?? false,
+           "in result-column order")
+
+    // Unticking takes it back out again.
+    expect(adding.setCaptureColumn(0, checked: false), "a column can be unticked")
+    expect(adding.draftRules.allSatisfy { $0.conditions.count == 1 },
+           "and the rules narrow again")
+    expect(adding.setCaptureColumn(1, checked: false), "the last column can be unticked")
+    expect(adding.draftRules.isEmpty, "leaving no draft at all")
+
+    // A NULL is the ABSENCE of a value: it drops out of the tuple rather than
+    // becoming a slot nothing can satisfy, so a row whose ticked column is NULL
+    // yields a NARROWER rule than its neighbours.
+    var nulling = TagManagerModel(tags: two, mode: .add(capture: fixtureCapture()))
+    nulling.setCaptureColumn(0, checked: true)
+    nulling.setCaptureColumn(1, checked: true)
+    let nulled = nulling.draftRules
+    expect(nulled.count == 3, "a NULL cell still yields a rule for its row")
+    if nulled.count == 3 {
+        expect(nulled[2].conditions.count == 1,
+               "but a narrower one, with no condition for the NULL column")
+        expect(nulled[2].conditions.allSatisfy { $0.family == "address" },
+               "keeping only the column that held a value")
+    }
+
+    // An index the result does not hold is REFUSED rather than trapping: the
+    // checklist and the grid could disagree after a Load More.
+    expect(!nulling.setCaptureColumn(9, checked: true),
+           "a column the result does not hold cannot be ticked")
+    expect(!nulling.setCaptureColumn(-1, checked: true),
+           "nor can a negative index")
+
+    // Ticking is meaningless outside add mode, and must not pretend otherwise.
+    var managing = TagManagerModel(tags: two, mode: .manage)
+    expect(!managing.setCaptureColumn(0, checked: true),
+           "manage mode has nothing to capture from, so it refuses a tick")
+    expect(managing.draftRules.isEmpty, "and still carries no draft rules")
+
+    // The property the whole design turns on: a tick MUTATES the model rather
+    // than replacing it, so an edit made a moment earlier survives.
+    var renamingThenTicking = TagManagerModel(tags: two, mode: .add(capture: fixtureCapture()))
+    renamingThenTicking.rename(tagAt: 0, to: "Renamed First")
+    renamingThenTicking.setCaptureColumn(0, checked: true)
+    expect(renamingThenTicking.tags[0].name == "Renamed First",
+           "a tick does not discard a rename typed before it")
+    expect(!renamingThenTicking.draftRules.isEmpty, "and the tick took effect")
 
     // MARK: rule and condition edits
 

@@ -135,6 +135,7 @@
 		A120CA2AA04F952185155B87 /* QueryDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */; };
 		A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */; };
 		A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */; };
+		A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B18675CC8E31A7FF367C89 /* TagCapture.swift */; };
 		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
@@ -189,6 +190,7 @@
 		F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDED3E898043241B00FE18D7 /* ResizeGripView.swift */; };
 		F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */; };
 		F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */; };
+		F23754CC0FFF0580A1A07197 /* TagCaptureListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D2B2CA603B406A57B7D207 /* TagCaptureListView.swift */; };
 		F2C880B8BDC0D89AB3380A47 /* FilterValueSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EE0E6CA75016ED53876601 /* FilterValueSort.swift */; };
 		F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA969614B127DE629649F33 /* SQLTextView.swift */; };
 		F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */; };
@@ -230,6 +232,7 @@
 		20973E948617F8AF21A804FE /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDataSheet.swift; sourceTree = "<group>"; };
 		21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataCache.swift; sourceTree = "<group>"; };
+		21D2B2CA603B406A57B7D207 /* TagCaptureListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCaptureListView.swift; sourceTree = "<group>"; };
 		233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariable.swift; sourceTree = "<group>"; };
 		23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariablesPanelVC.swift; sourceTree = "<group>"; };
 		24970168104D1359837B89EF /* TaggedRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaggedRowView.swift; sourceTree = "<group>"; };
@@ -244,6 +247,7 @@
 		3100894A7037A0DB0C24E782 /* TagConditionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagConditionKind.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
 		324E7295B398823974915B5A /* AuthoredLabelSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthoredLabelSanitizer.swift; sourceTree = "<group>"; };
+		34B18675CC8E31A7FF367C89 /* TagCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCapture.swift; sourceTree = "<group>"; };
 		364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRowPipeline.swift; sourceTree = "<group>"; };
 		3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleMatcher.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
@@ -640,6 +644,7 @@
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
+				34B18675CC8E31A7FF367C89 /* TagCapture.swift */,
 				29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */,
 				3100894A7037A0DB0C24E782 /* TagConditionKind.swift */,
 				0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */,
@@ -719,6 +724,7 @@
 				0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */,
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
+				21D2B2CA603B406A57B7D207 /* TagCaptureListView.swift */,
 				7353499DAF1364777E974B1F /* TagConditionRowView.swift */,
 				9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */,
 				20973E948617F8AF21A804FE /* Toast.swift */,
@@ -977,6 +983,8 @@
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
+				A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */,
+				F23754CC0FFF0580A1A07197 /* TagCaptureListView.swift in Sources */,
 				A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */,
 				C15E7F3DE79893F32AB4E3B7 /* TagConditionKind.swift in Sources */,
 				8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */,

@@ -26,10 +26,13 @@ swiftc -o /tmp/tag-rule-grid-view-tests \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \
+  Pharos/Core/TagCapture.swift \
+  Pharos/Core/TagDraft.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagPredicate.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/Tag.swift \
+  Pharos/Models/QueryResult.swift \
   Pharos/Views/HostileTextBadge.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Views/TagConditionRowView.swift \

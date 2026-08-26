@@ -129,6 +129,11 @@ final class TagManagerSheet: NSViewController,
     /// altered — see rule 2 above.
     let noteBadge = HostileTextBadge()
     let grid = TagRuleGridView()
+    /// The capture checklist, drawn in `.add` only. Empty in every other mode.
+    let captureList = TagCaptureListView()
+    /// What the checklist is asking, and — with several rows selected — what
+    /// ticking a box will produce.
+    let captureCaption = NSTextField(labelWithString: "")
     let newTagButton = NSButton()
     let deleteTagButton = NSButton()
     let saveButton = NSButton()
@@ -149,7 +154,16 @@ final class TagManagerSheet: NSViewController,
     /// selected. An `NSStackView` detaches a hidden arranged subview, so an
     /// empty sidebar leaves no phantom tag drawn beside it.
     private let identityStack = NSStackView()
-    private let gridScroll = NSScrollView()
+    /// Internal, unlike the stacks around it: the suite MEASURES the two
+    /// viewports against each other, because "the checklist scrolls instead of
+    /// squeezing the rules" is a claim about heights and nothing else can
+    /// check it.
+    let gridScroll = NSScrollView()
+    /// The caption and the checklist together, hidden whole in `.manage` and
+    /// `.remove` — an `NSStackView` detaches a hidden arranged subview, so those
+    /// modes lose the space as well as the rows.
+    private let captureBox = NSStackView()
+    let captureScroll = NSScrollView()
 
     // MARK: Construction
 
@@ -179,6 +193,7 @@ final class TagManagerSheet: NSViewController,
 
         buildSidebar()
         buildIdentity()
+        buildCaptureList()
         buildGrid()
         buildFooterControls()
 
@@ -325,6 +340,61 @@ final class TagManagerSheet: NSViewController,
         identityStack.spanArrangedSubviewsFullWidth()
     }
 
+    /// The capture checklist and its caption.
+    ///
+    /// The checklist SCROLLS inside a fixed height, and that is the whole point
+    /// of the scroll view: a 60-column result would otherwise draw sixty rows
+    /// and push the rules grid off the bottom of the sheet. A fixed height means
+    /// the two cannot compete for space at all — the grid keeps its own
+    /// `>= 220`, whatever the result's shape.
+    private func buildCaptureList() {
+        captureCaption.font = .preferredFont(forTextStyle: .caption1)
+        captureCaption.textColor = .secondaryLabelColor
+        captureCaption.lineBreakMode = .byWordWrapping
+        captureCaption.maximumNumberOfLines = 0
+        captureCaption.cell?.wraps = true
+
+        captureScroll.hasVerticalScroller = true
+        captureScroll.drawsBackground = false
+        captureScroll.borderType = .bezelBorder
+
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        captureList.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(captureList)
+        captureScroll.documentView = document
+        NSLayoutConstraint.activate([
+            document.leadingAnchor.constraint(equalTo: captureScroll.contentView.leadingAnchor),
+            document.trailingAnchor.constraint(equalTo: captureScroll.contentView.trailingAnchor),
+            document.topAnchor.constraint(equalTo: captureScroll.contentView.topAnchor),
+            // Inset on both sides, so a row's checkbox does not sit against the
+            // scroll view's border and a value has room before the scroller.
+            captureList.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 8),
+            captureList.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -8),
+            captureList.topAnchor.constraint(equalTo: document.topAnchor, constant: 6),
+            captureList.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -6),
+            captureScroll.heightAnchor.constraint(equalToConstant: Self.captureListHeight),
+        ])
+
+        captureBox.orientation = .vertical
+        captureBox.alignment = .leading
+        captureBox.spacing = 6
+        captureBox.addArrangedSubview(captureCaption)
+        captureBox.addArrangedSubview(captureScroll)
+        captureBox.spanArrangedSubviewsFullWidth()
+        // Only `.add` captures anything. A checklist in the other two modes
+        // would be asking a question they are not there to answer.
+        captureBox.isHidden = model.capture == nil
+
+        captureList.onToggle = { [weak self] index, checked in
+            self?.captureColumnToggled(index, checked)
+        }
+        renderCaptureList()
+    }
+
+    /// How tall the checklist is, whatever the result's width in columns.
+    private static let captureListHeight: CGFloat = 118
+
     private func buildGrid() {
         gridScroll.hasVerticalScroller = true
         gridScroll.drawsBackground = false
@@ -347,7 +417,10 @@ final class TagManagerSheet: NSViewController,
     }
 
     private func detailColumn() -> NSView {
-        let column = NSStackView(views: [emptyLabel, identityStack, gridScroll])
+        // The checklist sits ABOVE the rules, because it is what the analyst
+        // came here to decide: in `.add` the rules below are the tag's existing
+        // ones, and the new rule is being built up here.
+        let column = NSStackView(views: [emptyLabel, identityStack, captureBox, gridScroll])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 12
@@ -366,8 +439,13 @@ final class TagManagerSheet: NSViewController,
         switch mode {
         case .manage:
             return "Tags"
-        case .add(let draft):
-            return draft.count == 1 ? "Add to Tag — 1 row" : "Add to Tag — \(draft.count) rows"
+        case .add(let capture):
+            // The SELECTED ROWS, not the draft rules. The heading answers "did
+            // the sheet catch the selection I made", which must not change as
+            // boxes are ticked — a heading that read "0 rows" until the first
+            // tick would answer a different question than it appears to.
+            let rows = capture.selectedRows.count
+            return rows == 1 ? "Add to Tag — 1 row" : "Add to Tag — \(rows) rows"
         case .remove:
             return "Remove from Tag"
         }
@@ -502,6 +580,45 @@ final class TagManagerSheet: NSViewController,
         let selection: Set<String>?
         if case .remove = model.mode { selection = tickedRuleIds } else { selection = nil }
         grid.render(tag, callbacks: gridCallbacks(), selection: selection)
+    }
+
+    /// Draw the capture checklist, and say what it is asking.
+    ///
+    /// Called ONCE, from `buildCaptureList`. The rows never change afterwards:
+    /// the capture is fixed at the moment the sheet opens, and each box carries
+    /// its own state, so a tick has nothing structural to rebuild. Re-rendering
+    /// on a tick would destroy the very box that was just clicked.
+    private func renderCaptureList() {
+        captureList.render(model.capture, checked: model.checkedCaptureColumns)
+        guard let capture = model.capture else {
+            captureCaption.stringValue = ""
+            return
+        }
+        let rows = capture.selectedRows.count
+        // With several rows the checklist is describing a SET, and the two
+        // things that are then easy to get wrong are both said here: a value is
+        // only shown when every selected row shares it, and ticking makes one
+        // rule per row rather than one rule holding everything.
+        captureCaption.stringValue = rows > 1
+            ? "Tick the values this tag captures. A value is shown where all "
+                + "\(rows) rows share it, otherwise a count. Ticking makes one "
+                + "rule per selected row."
+            : "Tick the values this tag captures."
+    }
+
+    /// A capture box was ticked or unticked.
+    ///
+    /// The model is MUTATED, never rebuilt: an analyst who renamed a tag a
+    /// moment ago would lose the rename to a rebuild. Everything downstream —
+    /// the footer, the live count, and what a save writes — reads
+    /// `model.draftRules` at call time, so all three follow one tick.
+    private func captureColumnToggled(_ index: Int, _ checked: Bool) {
+        guard model.setCaptureColumn(index, checked: checked) else { return }
+        refreshFooter()
+        // The whole point of the checklist: ticking one more column narrows the
+        // tag, and the analyst must see that immediately — including when it
+        // narrows the tag to nothing.
+        refreshCount()
     }
 
     /// A tick changed. The grid reports the ticked rules of the tag ON SCREEN,
@@ -650,8 +767,14 @@ final class TagManagerSheet: NSViewController,
         // not like a decision. This is the line that makes it one.
         if !model.draftRules.isEmpty, let index = selectedTagIndex {
             let rules = model.draftRules.count
+            // "one per selected row" only when that is literally true. Two rows
+            // whose captured values normalise the same collapse into ONE rule —
+            // `TagDraft` does that so the live count is honest — so the count
+            // and the row count can legitimately differ, and the clause must not
+            // claim otherwise.
+            let perRow = rules > 1 && rules == model.capture?.selectedRows.count
             notices.append("Saving adds \(rules) rule\(rules == 1 ? "" : "s") to "
-                + "\(tagName(index)).")
+                + "\(tagName(index))\(perRow ? ", one per selected row" : "").")
         }
         statusLabel.stringValue = notices.joined(separator: " ")
         statusLabel.textColor = notices.isEmpty ? .secondaryLabelColor : .systemOrange
