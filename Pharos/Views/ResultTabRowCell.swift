@@ -146,8 +146,17 @@ class ResultTabRowCell: NSTableCellView {
     /// Where the pointer actually is, asked directly rather than remembered.
     /// `mouseLocationOutsideOfEventStream` answers without needing an event,
     /// which is what a reload needs: no mouse moved, so no enter/exit will fire.
-    private var isPointerInside: Bool {
-        guard let window, window.isVisible else { return false }
+    ///
+    /// The key-window test mirrors the tracking area's `.activeInKeyWindow`
+    /// below, so the reload path and the live path agree on what "hovered"
+    /// means. Without it, a query finishing while the user works in another app
+    /// would reload these rows and derive hover from an incidental pointer
+    /// position, showing a close button that live hover never would.
+    ///
+    /// Internal, not private, so a test can substitute a pointer position: a
+    /// test cannot move the real pointer.
+    var isPointerInside: Bool {
+        guard let window, window.isVisible, window.isKeyWindow else { return false }
         return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 

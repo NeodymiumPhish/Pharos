@@ -20,6 +20,15 @@ func expectFalse(_ actual: Bool, _ name: String) {
     if !actual { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected false") }
 }
 
+/// A cell whose pointer probe answers a value the test controls. A test cannot
+/// move the real pointer, and an unhosted cell has no window, so without this
+/// the positive case — pointer genuinely over the row through a reload — has no
+/// coverage, and reverting the fix to a blind `isHovered = false` would pass.
+private final class PointerStubCell: ResultTabRowCell {
+    var pointerIsInside = false
+    override var isPointerInside: Bool { pointerIsInside }
+}
+
 private func makeModel(
     label: String = "L60-81: tcp_udp_sessions",
     counts: String = "46×240",
@@ -72,6 +81,13 @@ func runTests() {
     expectEqual(cell.accessibilityLabel() ?? "", "L60-81: tcp_udp_sessions, 46×240",
                 "recycled cell drops the stale announcement")
 
+    // `ResultTab.rowModel` yields empty counts for a tab holding neither a
+    // query result nor an execute result. The announcement has to end at the
+    // label — without the emptiness guard it trails a bare ", ".
+    cell.configure(model: makeModel(counts: ""), isActive: false)
+    expectEqual(cell.accessibilityLabel() ?? "", "L60-81: tcp_udp_sessions",
+                "empty counts are not announced as a trailing comma")
+
     // The dot colour, asserted on ONE RECYCLED cell so that deleting the
     // assignment cannot pass. WorkspaceHistoryMatchTests.swift:216 records why
     // this shape is required: nothing there read the dot colour, so removing
@@ -110,6 +126,20 @@ func runTests() {
     hoverCell.configure(model: makeModel(label: "another row"), isActive: false)
     expectTrue(hoverCell.closeButton.isHidden,
                "a recycled row does not inherit the previous row's hover")
+
+    // The positive case the fix exists for: the pointer is genuinely over this
+    // row, and a reload reconfigures it. Hover must be re-derived as true, not
+    // blindly cleared — a blind clear would hide the close button until the
+    // user moved the mouse.
+    let stub = PointerStubCell(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+    stub.pointerIsInside = true
+    stub.configure(model: makeModel(), isActive: false)
+    expectFalse(stub.closeButton.isHidden,
+                "a reload under a stationary pointer keeps the close button")
+    stub.pointerIsInside = false
+    stub.configure(model: makeModel(), isActive: false)
+    expectTrue(stub.closeButton.isHidden,
+               "a reload with the pointer elsewhere clears the close button")
 
     // Hostile label: escaped exactly once, for display and accessibility both.
     let hostile = "evil\u{202E}label"
