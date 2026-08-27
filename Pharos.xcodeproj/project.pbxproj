@@ -48,6 +48,7 @@
 		34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE224A37E3FEC0F67F65D19 /* Settings.swift */; };
 		3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13897D85C05525947FD11603 /* ColumnIdentifier.swift */; };
 		37C04B0603F88D3D77CAD964 /* ChartTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 264FF44EDD39F675DE642D7B /* ChartTypes.swift */; };
+		386F692498C6E13CFF43B64A /* ResultTabRowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 941E5BFDEEC9EBA47AA09527 /* ResultTabRowText.swift */; };
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
@@ -313,6 +314,7 @@
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
 		935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayEscape.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
+		941E5BFDEEC9EBA47AA09527 /* ResultTabRowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabRowText.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
 		984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableMetadata.swift"; sourceTree = "<group>"; };
@@ -641,6 +643,7 @@
 				BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */,
 				B924DFE2722E648667C6764E /* QueryFailureChannel.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
+				941E5BFDEEC9EBA47AA09527 /* ResultTabRowText.swift */,
 				47B17C6DAEB102B2E14CF156 /* ResultTabsPanelPrefs.swift */,
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				660F536C895497044AF79E8C /* RuleKey.swift */,
@@ -943,6 +946,7 @@
 				D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */,
 				0754C2EB81577A660A258460 /* ResultTabResolver.swift in Sources */,
 				513C80516AEB2404C48261A1 /* ResultTabRowCell.swift in Sources */,
+				386F692498C6E13CFF43B64A /* ResultTabRowText.swift in Sources */,
 				B20E602343E6D8D64724FC72 /* ResultTabsPanelPrefs.swift in Sources */,
 				71C89D3BC7CB5B56923C4DBB /* ResultTabsPanelVC.swift in Sources */,
 				8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */,
