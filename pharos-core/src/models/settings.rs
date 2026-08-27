@@ -256,6 +256,10 @@ mod tests {
     /// silently flip existing users to the horizontal bar.
     #[test]
     fn app_settings_default_vertical_result_tabs() {
+        // Every field spelled out below is present only because it has no
+        // serde default of its own and the parse fails without it. None of
+        // them is what this test checks — the subject is the ABSENT
+        // `verticalResultTabs` key, and nothing here asserts on these values.
         let json = r#"{
             "theme": "auto",
             "editor": {"fontFamily": "Menlo", "fontSize": 13, "tabSize": 2, "lineNumbers": true, "wordWrap": false, "minimap": false},
@@ -263,7 +267,9 @@ mod tests {
             "ui": {"navigatorWidth": 260, "savedQueriesWidth": 180, "resultsPanelHeight": 300}
         }"#;
         let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
-        assert!(parsed.vertical_result_tabs, "the field defaults to true");
-        assert!(AppSettings::default().vertical_result_tabs);
+        // Two separate code paths, each hand-written and each able to regress
+        // alone: the serde attribute, then the Default impl.
+        assert!(parsed.vertical_result_tabs, "the serde default gives true");
+        assert!(AppSettings::default().vertical_result_tabs, "the Default impl also gives true");
     }
 }
