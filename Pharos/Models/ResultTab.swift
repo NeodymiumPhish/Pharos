@@ -106,3 +106,23 @@ struct ResultTab: Identifiable {
         colorIndex = 0
     }
 }
+
+extension ResultTab {
+    /// The view-model handed to the vertical result-tabs panel. The mapping
+    /// lives here (not in the cell file) because it reads QueryResult /
+    /// ExecuteResult, which the standalone cell test cannot link.
+    var rowModel: ResultTabRowModel {
+        let counts: String
+        if let result = queryResult {
+            counts = ResultTabRowText.countsText(
+                columnCount: result.columns.count,
+                rowCount: totalRowCountHint ?? result.rowCount
+            )
+        } else if let exec = executeResult {
+            counts = ResultTabRowText.affectedText(rowsAffected: exec.rowsAffected)
+        } else {
+            counts = ""
+        }
+        return ResultTabRowModel(id: id, label: label, color: color, countsText: counts, isStale: isStale)
+    }
+}
