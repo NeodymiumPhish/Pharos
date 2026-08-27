@@ -39,11 +39,6 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
 
-    func simulateRowClose(at index: Int) {
-        guard index >= 0, index < rows.count else { return }
-        onCloseRow?(rows[index].id)
-    }
-
     /// The realised cell for a row, so a test can click the control the user
     /// actually clicks rather than trusting the closure wiring by inspection.
     func cellForTesting(row: Int) -> ResultTabRowCell? {
@@ -110,15 +105,31 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 
             emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             emptyLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: Self.headerHeight + 12),
+            // Bounded like the header above: "No results" fits the 160pt minimum
+            // panel width, but longer copy would silently overflow the panel.
+            emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 8),
+            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
         ])
     }
 
     // MARK: - Input
 
+    /// What was last rendered, so an unchanged push can be skipped. `nil` until
+    /// the first push, which must always render however empty it is.
+    private var lastPushed: (rows: [ResultTabRowModel], activeId: String?)?
+
     /// Full reload. Rows arrive already ordered (creation order, same as the
-    /// horizontal bar); `activeId` nil means no row in this panel is the live
-    /// grid's result (an unfocused pane).
+    /// horizontal bar); `activeId` is the row this panel's own editor tab holds
+    /// as its result, and is nil only when that tab has no result at all.
     func update(rows: [ResultTabRowModel], activeId: String?) {
+        // ContentViewController re-pushes on every result-tab change AND on the
+        // 250 ms re-resolve tick that fires while the user types. Reloading and
+        // scrolling on an unchanged push would yank a user who had scrolled
+        // down to an older result back to the active row on their next
+        // keystroke, so identical input does nothing at all.
+        if let lastPushed, lastPushed.rows == rows, lastPushed.activeId == activeId { return }
+        lastPushed = (rows, activeId)
+
         self.rows = rows
         self.activeId = activeId
 
@@ -142,15 +153,19 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let identifier = NSUserInterfaceItemIdentifier("ResultTabRowCell")
-        let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? ResultTabRowCell
-            ?? {
-                let c = ResultTabRowCell(frame: .zero)
-                c.identifier = identifier
-                return c
-            }()
+        let cell: ResultTabRowCell
+        if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? ResultTabRowCell {
+            cell = existing
+        } else {
+            cell = ResultTabRowCell(frame: .zero)
+            cell.identifier = identifier
+            // Set once per cell, not per configure: the closure never varies,
+            // because the row's id arrives as its parameter from the cell at
+            // click time.
+            cell.onClose = { [weak self] id in self?.onCloseRow?(id) }
+        }
         let model = rows[row]
         cell.configure(model: model, isActive: model.id == activeId)
-        cell.onClose = { [weak self] id in self?.onCloseRow?(id) }
         return cell
     }
 

@@ -856,8 +856,9 @@ class EditorPaneVC: NSViewController {
     }
 
     /// Rows for this pane's panel, pushed by ContentViewController's
-    /// refreshResultTabViews(). `activeId` is nil for an unfocused pane —
-    /// its rows exist but none of them is the grid's live result.
+    /// refreshResultTabViews(). `activeId` is the result this pane's own tab
+    /// holds, whether or not that tab is the focused one — an unfocused pane
+    /// still highlights its own result rather than showing none.
     func updateResultTabs(_ rows: [ResultTabRowModel], activeId: String?) {
         resultTabsPanelVC.update(rows: rows, activeId: activeId)
     }

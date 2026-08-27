@@ -1992,7 +1992,11 @@ class ContentViewController: NSViewController {
                 activeId = activeResultTabId
             } else if let paneTabId {
                 tabs = resultTabsByEditorTab[paneTabId] ?? []
-                activeId = nil
+                // The remembered result, not nil: this panel is scoped to its
+                // own pane's tab, so highlighting the result that tab holds is
+                // the truth. Passing nil drew an unfocused pane as though it
+                // had no result at all.
+                activeId = activeResultTabIdByEditorTab[paneTabId]
             } else {
                 tabs = []
                 activeId = nil

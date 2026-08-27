@@ -73,20 +73,19 @@ func runTests() {
     var selected: [String] = []
     vc.onSelectRow = { selected.append($0) }
     vc.update(rows: rows, activeId: "c")
+    // Let any deferred notification arrive, so this holds regardless of how
+    // AppKit chooses to deliver the selection change.
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     expectEqual("\(selected.count)", "0", "programmatic update does not fire onSelectRow")
     vc.simulateRowClick(at: 0)
     expectEqual(selected.joined(separator: ","), "a", "clicking row 0 reports id a")
 
-    // Close callback plumbs through.
+    // A row's own close button reaches onCloseRow, driven through the cell the
+    // user actually clicks rather than through a seam that would only re-state
+    // the wiring.
     var closed: [String] = []
     vc.onCloseRow = { closed.append($0) }
-    vc.simulateRowClose(at: 2)
-    expectEqual(closed.joined(separator: ","), "c", "closing row 2 reports id c")
-
-    // A row's own close button must reach the same callback — the cell is what
-    // the user actually clicks, so wiring it is not covered by the seam above.
     vc.update(rows: rows, activeId: "a")
-    closed.removeAll()
     if let cell = vc.cellForTesting(row: 1) {
         cell.closeButton.performClick(nil)
         expectEqual(closed.joined(separator: ","), "b", "a cell's close button reports its own row")
