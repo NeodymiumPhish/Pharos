@@ -19,6 +19,9 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
     func editorPane(_ pane: EditorPaneVC, didEditText paneId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestShowErrors paneId: String)
+    func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String)
+    func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
 }
 
 /// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
@@ -55,6 +58,12 @@ class EditorPaneVC: NSViewController {
     private let variablesDivider = ResizeDividerView()
     private let variablesDividerWidth: CGFloat = 5
 
+    // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
+    private let resultTabsToggle = NSButton()
+    private let resultTabsPanelVC = ResultTabsPanelVC()
+    private let resultTabsDivider = ResizeDividerView()
+    private var resultTabsPanelWidthAtDragStart: CGFloat = 0
+
     /// Coalesces the `{{token}}` scan behind editor typing. The scan is a full
     /// regex pass over the text, so it runs once per pause rather than once per
     /// keystroke.
@@ -70,6 +79,13 @@ class EditorPaneVC: NSViewController {
         guard let tabId = lastActiveTabId,
               let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
         return tab.variablesPanelVisible
+    }
+
+    private var isResultTabsPanelVisible: Bool {
+        guard stateManager.settings.verticalResultTabs,
+              let tabId = lastActiveTabId,
+              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.resultTabsPanelVisible
     }
 
     weak var delegate: EditorPaneDelegate?
@@ -171,13 +187,37 @@ class EditorPaneVC: NSViewController {
             self?.resizeVariablesPanel(byOffset: offset)
         }
 
+        addChild(resultTabsPanelVC)
+        resultTabsPanelVC.onSelectRow = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didSelectResultTab: id)
+        }
+        resultTabsPanelVC.onCloseRow = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didCloseResultTab: id)
+        }
+        resultTabsPanelVC.onViewDetail = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestResultTabDetail: id)
+        }
+        resultTabsDivider.onDragBegan = { [weak self] in
+            self?.resultTabsPanelWidthAtDragStart = ResultTabsPanelPrefs.width
+        }
+        resultTabsDivider.onDrag = { [weak self] offset in
+            self?.resizeResultTabsPanel(byOffset: offset)
+        }
+
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(editorVC.view)
         container.addSubview(variablesPanelVC.view)
         container.addSubview(variablesDivider)
+        container.addSubview(resultTabsPanelVC.view)
+        container.addSubview(resultTabsDivider)
         variablesPanelVC.view.isHidden = true
         variablesDivider.isHidden = true
+        resultTabsPanelVC.view.isHidden = true
+        resultTabsDivider.isHidden = true
 
         NSLayoutConstraint.activate([
             paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
@@ -298,19 +338,46 @@ class EditorPaneVC: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
+        // Horizontal order: editor | divider | variables | divider | result tabs.
         let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
-        let showPanel = isVariablesPanelVisible
-        let panelW = showPanel ? VariablesPanelPrefs.width : 0
-        let dividerW = showPanel ? variablesDividerWidth : 0
-        let editorW = max(0, view.bounds.width - panelW - dividerW)
+        let showVariables = isVariablesPanelVisible
+        let showResults = isResultTabsPanelVisible
 
+        var variablesW = showVariables ? VariablesPanelPrefs.width : 0
+        var resultsW = showResults ? ResultTabsPanelPrefs.width : 0
+        let dividersW = (showVariables ? variablesDividerWidth : 0)
+            + (showResults ? variablesDividerWidth : 0)
+
+        // Keep the editor usable when the pane is narrow: shrink the panels
+        // proportionally for DISPLAY only. Prefs are never written from here,
+        // so a temporarily narrow window does not destroy the user's widths.
+        let minEditorWidth: CGFloat = 200
+        let available = view.bounds.width - dividersW - minEditorWidth
+        let wanted = variablesW + resultsW
+        if wanted > available, wanted > 0 {
+            let scale = max(0, available) / wanted
+            variablesW = floor(variablesW * scale)
+            resultsW = floor(resultsW * scale)
+        }
+
+        let editorW = max(0, view.bounds.width - variablesW - resultsW - dividersW)
         editorVC.view.frame = NSRect(x: 0, y: 0, width: editorW, height: editorHeight)
 
-        variablesDivider.isHidden = !showPanel
-        variablesPanelVC.view.isHidden = !showPanel
-        if showPanel {
-            variablesDivider.frame = NSRect(x: editorW, y: 0, width: dividerW, height: editorHeight)
-            variablesPanelVC.view.frame = NSRect(x: editorW + dividerW, y: 0, width: panelW, height: editorHeight)
+        var x = editorW
+        variablesDivider.isHidden = !showVariables
+        variablesPanelVC.view.isHidden = !showVariables
+        if showVariables {
+            variablesDivider.frame = NSRect(x: x, y: 0, width: variablesDividerWidth, height: editorHeight)
+            x += variablesDividerWidth
+            variablesPanelVC.view.frame = NSRect(x: x, y: 0, width: variablesW, height: editorHeight)
+            x += variablesW
+        }
+        resultTabsDivider.isHidden = !showResults
+        resultTabsPanelVC.view.isHidden = !showResults
+        if showResults {
+            resultTabsDivider.frame = NSRect(x: x, y: 0, width: variablesDividerWidth, height: editorHeight)
+            x += variablesDividerWidth
+            resultTabsPanelVC.view.frame = NSRect(x: x, y: 0, width: resultsW, height: editorHeight)
         }
     }
 
@@ -386,6 +453,7 @@ class EditorPaneVC: NSViewController {
               let tab = stateManager.tabs.first(where: { $0.id == newTabId }) else {
             editorVC.tabId = nil
             editorVC.setSQL("")
+            syncResultTabsPanel()
             return
         }
 
@@ -416,6 +484,7 @@ class EditorPaneVC: NSViewController {
         rebuildConnectionMenu()
         updateSchemaPopupTitle()
         syncVariablesPanel()
+        syncResultTabsPanel()
     }
 
     // MARK: - Focus Tracking
@@ -631,11 +700,21 @@ class EditorPaneVC: NSViewController {
         variablesToggle.target = self
         variablesToggle.action = #selector(toggleVariablesPanel)
 
+        let resultTabsConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        resultTabsToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Result Tabs")?.withSymbolConfiguration(resultTabsConfig)
+        resultTabsToggle.bezelStyle = .recessed
+        resultTabsToggle.isBordered = false
+        resultTabsToggle.toolTip = "Result Tabs"
+        resultTabsToggle.contentTintColor = .secondaryLabelColor
+        resultTabsToggle.target = self
+        resultTabsToggle.action = #selector(toggleResultTabsPanel)
+
         errorButton.target = self
         errorButton.action = #selector(showErrors)
 
         let trailingGroup = ErrorBadgeButton.makeToolbarTrailingGroup(
-            errorButton: errorButton, variablesToggle: variablesToggle
+            errorButton: errorButton, variablesToggle: variablesToggle,
+            resultTabsToggle: resultTabsToggle
         )
         editorToolbar.addSubview(trailingGroup)
 
@@ -680,6 +759,18 @@ class EditorPaneVC: NSViewController {
         syncVariablesPanel()
     }
 
+    @objc private func toggleResultTabsPanel() {
+        guard let tabId = lastActiveTabId else { return }
+        var nowVisible = false
+        stateManager.updateTab(id: tabId) {
+            $0.resultTabsPanelVisible.toggle()
+            nowVisible = $0.resultTabsPanelVisible
+        }
+        // Remember the choice so new tabs inherit it.
+        ResultTabsPanelPrefs.visibleByDefault = nowVisible
+        syncResultTabsPanel()
+    }
+
     /// Push the failure-log state of this pane's active tab onto the badge.
     /// Called by ContentViewController; the `$tabs` sink cannot do this, because
     /// its `removeDuplicates` whitelist does not watch the failure log.
@@ -702,6 +793,13 @@ class EditorPaneVC: NSViewController {
     /// the divider stuck to the cursor after an overshoot past the min or max.
     private func resizeVariablesPanel(byOffset offset: CGFloat) {
         VariablesPanelPrefs.width = variablesPanelWidthAtDragStart - offset
+        view.needsLayout = true
+    }
+
+    /// Same sign convention as resizeVariablesPanel: the panel sits to the
+    /// right of its divider, so dragging left (negative) widens it.
+    private func resizeResultTabsPanel(byOffset offset: CGFloat) {
+        ResultTabsPanelPrefs.width = resultTabsPanelWidthAtDragStart - offset
         view.needsLayout = true
     }
 
@@ -740,6 +838,28 @@ class EditorPaneVC: NSViewController {
         variablesToggle.contentTintColor = (tab?.variablesPanelVisible ?? false)
             ? .controlAccentColor : .secondaryLabelColor
         view.needsLayout = true
+    }
+
+    /// Refresh the result-tabs toggle tint, its visibility (the button hides
+    /// entirely while the setting selects the horizontal bar), and relayout.
+    /// Driven imperatively — `resultTabsPanelVisible` is deliberately absent
+    /// from the `$tabs` `removeDuplicates` whitelist, same as the variables
+    /// panel fields. Called on toggle, on tab switch, and by
+    /// ContentViewController when the setting flips.
+    func syncResultTabsPanel() {
+        let tab = lastActiveTabId.flatMap { id in stateManager.tabs.first(where: { $0.id == id }) }
+        let verticalMode = stateManager.settings.verticalResultTabs
+        resultTabsToggle.isHidden = !verticalMode
+        resultTabsToggle.contentTintColor = (verticalMode && (tab?.resultTabsPanelVisible ?? false))
+            ? .controlAccentColor : .secondaryLabelColor
+        view.needsLayout = true
+    }
+
+    /// Rows for this pane's panel, pushed by ContentViewController's
+    /// refreshResultTabViews(). `activeId` is nil for an unfocused pane —
+    /// its rows exist but none of them is the grid's live result.
+    func updateResultTabs(_ rows: [ResultTabRowModel], activeId: String?) {
+        resultTabsPanelVC.update(rows: rows, activeId: activeId)
     }
 
     @objc private func formatSQLTapped() {

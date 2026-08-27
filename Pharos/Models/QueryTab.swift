@@ -60,6 +60,10 @@ struct QueryTab: Identifiable {
     /// here rather than at each `QueryTab(...)` call site covers every path that
     /// makes a tab — new, initial, duplicate, and reopen-from-history.
     var variablesPanelVisible: Bool = VariablesPanelPrefs.visibleByDefault
+    /// Whether the right-docked vertical result-tabs panel is shown for this
+    /// tab. Same seeding rationale as `variablesPanelVisible` above. Only
+    /// consulted while `AppSettings.verticalResultTabs` is ON.
+    var resultTabsPanelVisible: Bool = ResultTabsPanelPrefs.visibleByDefault
     /// The persisted workspace history record this tab is bound to. nil until
     /// the first query executes (or until reopened from history). When set,
     /// executed results associate to this workspace and appear as one history item.

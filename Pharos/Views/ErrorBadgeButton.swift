@@ -97,13 +97,15 @@ final class ErrorBadgeButton: NSButton {
 
     /// The right-aligned group at the trailing edge of the editor toolbar. The
     /// error button goes to the left of the variables toggle, and the toggle
-    /// keeps the position and the size it had before this button existed.
+    /// keeps the position and the size it had before this button existed. An
+    /// optional result-tabs toggle is appended after both.
     ///
-    /// Call this once per button pair. A second call with the same views would
-    /// activate a duplicate set of constraints and move both views into a
+    /// Call this once per set of buttons. A second call with the same views
+    /// would activate a duplicate set of constraints and move every view into a
     /// second stack.
     static func makeToolbarTrailingGroup(
-        errorButton: ErrorBadgeButton, variablesToggle: NSButton
+        errorButton: ErrorBadgeButton, variablesToggle: NSButton,
+        resultTabsToggle: NSButton? = nil
     ) -> NSStackView {
         variablesToggle.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -112,7 +114,16 @@ final class ErrorBadgeButton: NSButton {
             errorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
             errorButton.heightAnchor.constraint(equalToConstant: 28),
         ])
-        let stack = NSStackView(views: [errorButton, variablesToggle])
+        var views: [NSView] = [errorButton, variablesToggle]
+        if let resultTabsToggle {
+            resultTabsToggle.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                resultTabsToggle.widthAnchor.constraint(equalToConstant: 28),
+                resultTabsToggle.heightAnchor.constraint(equalToConstant: 28),
+            ])
+            views.append(resultTabsToggle)
+        }
+        let stack = NSStackView(views: views)
         stack.orientation = .horizontal
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false

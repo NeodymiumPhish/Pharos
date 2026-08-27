@@ -107,6 +107,54 @@ func runTests() {
     expectClose(variablesToggle.frame.width, 28, "the variables toggle keeps its 28 pt width", tolerance: 0.5)
     expectTrue(errorButton.frame.width >= 28, "the error button is at least 28 pt wide")
 
+    testTrailingGroupPlacesResultTabsToggleLast()
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// The result-tabs toggle is appended, so it must land to the RIGHT of the
+/// variables toggle — the order the editor toolbar reads left to right. Sizes
+/// are asserted too: the third button is constrained by the same 28x28 pair as
+/// the second, and a missing constraint would leave it at its intrinsic size.
+private func testTrailingGroupPlacesResultTabsToggleLast() {
+    // Hosted in a window for the same reason as the group test above: an
+    // unhosted view never runs a layout pass, so measuring one proves nothing.
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 400, height: 32),
+        styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 32))
+    window.contentView = container
+
+    let errorButton = ErrorBadgeButton()
+    errorButton.setState(total: 2, unread: 0)
+    let variablesToggle = NSButton()
+    variablesToggle.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: nil)
+    variablesToggle.isBordered = false
+    let resultTabsToggle = NSButton()
+    resultTabsToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: nil)
+    resultTabsToggle.isBordered = false
+
+    let group = ErrorBadgeButton.makeToolbarTrailingGroup(
+        errorButton: errorButton, variablesToggle: variablesToggle,
+        resultTabsToggle: resultTabsToggle
+    )
+    container.addSubview(group)
+    NSLayoutConstraint.activate([
+        group.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+        group.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+    ])
+    container.layoutSubtreeIfNeeded()
+
+    expectTrue(variablesToggle.frame.maxX <= resultTabsToggle.frame.minX,
+               "the result-tabs toggle sits to the right of the variables toggle")
+    expectTrue(errorButton.frame.maxX <= variablesToggle.frame.minX,
+               "the error button still sits left of the variables toggle")
+    // Auto Layout sizes a button's ALIGNMENT RECT, and an image-only NSButton
+    // carries non-zero vertical alignmentRectInsets, so its frame is a few
+    // points taller than the constraint. Measure what the constraint governs.
+    let alignmentRect = resultTabsToggle.alignmentRect(forFrame: resultTabsToggle.frame)
+    expectClose(alignmentRect.width, 28, "the third button is 28pt wide", tolerance: 0.5)
+    expectClose(alignmentRect.height, 28, "the third button is 28pt tall", tolerance: 0.5)
 }

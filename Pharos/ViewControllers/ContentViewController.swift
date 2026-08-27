@@ -66,6 +66,11 @@ class ContentViewController: NSViewController {
     /// when associating executed results with a workspace. Seeded to the restored
     /// count when a workspace is reopened (see handleOpenWorkspace).
     private var resultOrderByEditorTab: [String: Int] = [:]
+    /// A result-row click in an UNFOCUSED pane must first activate that pane's
+    /// editor tab; activeTabChanged runs asynchronously (the $activeTabId sink
+    /// is delivered via RunLoop.main), so the result selection is parked here
+    /// and consumed at the end of activeTabChanged.
+    private var pendingResultTabSelection: (editorTabId: String, resultTabId: String)?
     private static let resultTabBarHeight: CGFloat = 26
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
@@ -382,6 +387,20 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Flip the result-tab surface live when the Settings checkbox changes.
+        // dropFirst: the initial publish is the loaded settings, not a change.
+        stateManager.$settings
+            .map(\.verticalResultTabs)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.refreshResultTabViews()
+                for paneVC in self.editorPanes { paneVC.syncResultTabsPanel() }
+            }
+            .store(in: &cancellables)
+
         // Drive the action-bar pulse from the focused pane's active tab's
         // executing state. We map down to the single Bool we actually care
         // about and removeDuplicates so unrelated mutations (any keystroke
@@ -582,6 +601,10 @@ class ContentViewController: NSViewController {
         }
 
         updateSplitViewVisibility()
+
+        // A pane just appeared, disappeared, or changed which tab it shows —
+        // push each surviving pane the rows for its current tab.
+        refreshResultTabViews()
     }
 
     // MARK: - Active Tab Changed (results grid update)
@@ -620,9 +643,10 @@ class ContentViewController: NSViewController {
             resultsVC.clear()
             resultTabs = []
             activeResultTabId = nil
-            updateResultTabBarVisibility()
+            refreshResultTabViews()
             syncChartToggleToActiveTab()
             updateSplitViewVisibility()
+            pendingResultTabSelection = nil
             return
         }
 
@@ -631,7 +655,7 @@ class ContentViewController: NSViewController {
         // Restore result tabs for the new editor tab
         resultTabs = resultTabsByEditorTab[tabId] ?? []
         activeResultTabId = activeResultTabIdByEditorTab[tabId]
-        updateResultTabBarVisibility()
+        refreshResultTabViews()
 
         // Pin override: while pinned, the grid stays on the pinned result no
         // matter which editor tab is active. Result tab bar still reflects the
@@ -679,6 +703,16 @@ class ContentViewController: NSViewController {
 
         // Restore grid vs. chart view mode for the newly-active result tab.
         syncChartToggleToActiveTab()
+
+        // A cross-pane result-row click parked its selection until this restore
+        // ran. Consume it only if it targets the tab that just became active.
+        if let pending = pendingResultTabSelection {
+            pendingResultTabSelection = nil
+            if pending.editorTabId == tabId,
+               resultTabs.contains(where: { $0.id == pending.resultTabId }) {
+                selectResultTab(pending.resultTabId)
+            }
+        }
     }
 
     /// Update the results grid banner from the currently displayed result tab.
@@ -1207,7 +1241,7 @@ class ContentViewController: NSViewController {
     }
 
     private func applyExpandState() {
-        let rtBarH = resultTabs.isEmpty ? 0 : Self.resultTabBarHeight
+        let rtBarH = resultTabBarHeightConstraint.constant
         let totalHeight = contentStack.bounds.height - Self.actionBarHeight - rtBarH
         guard totalHeight > 0 else { return }
 
@@ -1818,7 +1852,7 @@ class ContentViewController: NSViewController {
 
         resultTabs.append(tab)
         activeResultTabId = tab.id
-        updateResultTabBarVisibility()
+        refreshResultTabViews()
 
         // Set segment color in gutter
         focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
@@ -1863,7 +1897,7 @@ class ContentViewController: NSViewController {
         }
 
         activeResultTabId = tabId
-        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+        refreshResultTabViews()
 
         guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
 
@@ -1900,19 +1934,21 @@ class ContentViewController: NSViewController {
 
         if resultTabs.isEmpty {
             activeResultTabId = nil
-            updateResultTabBarVisibility()
+            refreshResultTabViews()
             resultsVC.clear()
             syncChartToggleToActiveTab()
         } else if activeResultTabId == tabId {
             let newIdx = min(idx, resultTabs.count - 1)
             selectResultTab(resultTabs[newIdx].id)
         } else {
-            resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+            refreshResultTabViews()
         }
     }
 
     private func showResultTabDetail(_ tabId: String) {
-        guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
+        let found = resultTabs.first(where: { $0.id == tabId })
+            ?? resultTabsByEditorTab.values.flatMap { $0 }.first(where: { $0.id == tabId })
+        guard let tab = found else { return }
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
@@ -1927,11 +1963,42 @@ class ContentViewController: NSViewController {
         presentAsSheet(sheet)
     }
 
-    private func updateResultTabBarVisibility() {
+    /// The single feed point for every result-tab surface. Decides between the
+    /// horizontal bar and the per-pane vertical panels from the setting, and
+    /// pushes each pane the rows of ITS active editor tab (the globally active
+    /// tab reads the live array; background tabs read the persisted store).
+    private func refreshResultTabViews() {
+        let vertical = stateManager.settings.verticalResultTabs
         let hasResultTabs = !resultTabs.isEmpty
-        resultTabBar.isHidden = !hasResultTabs
-        resultTabBarHeightConstraint.constant = hasResultTabs ? Self.resultTabBarHeight : 0
+        let showBar = !vertical && hasResultTabs
+
+        resultTabBar.isHidden = !showBar
+        resultTabBarHeightConstraint.constant = showBar ? Self.resultTabBarHeight : 0
         resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+
+        guard vertical else {
+            // Panels stay in the hierarchy; empty them so a stale list is never
+            // shown if the user flips the setting back and forth.
+            for paneVC in editorPanes { paneVC.updateResultTabs([], activeId: nil) }
+            return
+        }
+
+        for paneVC in editorPanes {
+            let paneTabId = stateManager.panes.first(where: { $0.id == paneVC.paneId })?.activeTabId
+            let tabs: [ResultTab]
+            let activeId: String?
+            if let paneTabId, paneTabId == stateManager.activeTabId {
+                tabs = resultTabs
+                activeId = activeResultTabId
+            } else if let paneTabId {
+                tabs = resultTabsByEditorTab[paneTabId] ?? []
+                activeId = nil
+            } else {
+                tabs = []
+                activeId = nil
+            }
+            paneVC.updateResultTabs(tabs.map { $0.rowModel }, activeId: activeId)
+        }
     }
 
     /// Pending debounced re-resolve work item, cancellable when a new edit
@@ -1973,7 +2040,7 @@ class ContentViewController: NSViewController {
                 self.focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
             }
 
-            self.resultTabBar.update(tabs: self.resultTabs, activeTabId: self.activeResultTabId)
+            self.refreshResultTabViews()
         }
 
         if immediate {
@@ -2329,6 +2396,39 @@ extension ContentViewController: EditorPaneDelegate {
               let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
               let index = log.newestUnreadIndex else { return }
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String) {
+        guard let paneTabId = stateManager.panes.first(where: { $0.id == pane.paneId })?.activeTabId else { return }
+        if paneTabId == stateManager.activeTabId {
+            selectResultTab(resultTabId)
+        } else {
+            pendingResultTabSelection = (editorTabId: paneTabId, resultTabId: resultTabId)
+            stateManager.selectTab(id: paneTabId, inPane: pane.paneId)
+        }
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String) {
+        guard let paneTabId = stateManager.panes.first(where: { $0.id == pane.paneId })?.activeTabId else { return }
+        if paneTabId == stateManager.activeTabId {
+            closeResultTab(resultTabId)
+            return
+        }
+        // Background editor tab: mutate its persisted store directly. Gutter
+        // colors and the grid are untouched — they belong to the active tab.
+        var stored = resultTabsByEditorTab[paneTabId] ?? []
+        stored.removeAll { $0.id == resultTabId }
+        resultTabsByEditorTab[paneTabId] = stored
+        if activeResultTabIdByEditorTab[paneTabId] == resultTabId {
+            // nil assignment removes the key; the last remaining result becomes
+            // the one restored when the user switches back.
+            activeResultTabIdByEditorTab[paneTabId] = stored.last?.id
+        }
+        refreshResultTabViews()
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String) {
+        showResultTabDetail(resultTabId)
     }
 
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
@@ -3488,7 +3588,7 @@ extension ContentViewController {
             guard isDragging else { return }
             // Window coordinates: y increases upward. Dragging down = negative delta = editor grows.
             let deltaY = dragStartY - event.locationInWindow.y
-            let rtBarH = resultTabs.isEmpty ? CGFloat(0) : Self.resultTabBarHeight
+            let rtBarH = resultTabBarHeightConstraint.constant
             let totalAvailable = contentStack.bounds.height - Self.actionBarHeight - rtBarH
             let newHeight = max(100, min(totalAvailable - 60, dragStartEditorHeight + deltaY))
             editorHeightConstraint.constant = newHeight
