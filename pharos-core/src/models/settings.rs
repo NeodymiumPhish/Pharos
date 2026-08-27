@@ -203,11 +203,14 @@ pub struct AppSettings {
     pub check_for_updates: bool,
     #[serde(default)]
     pub show_leaf_partitions: bool,
+    #[serde(default = "default_vertical_result_tabs")]
+    pub vertical_result_tabs: bool,
     #[serde(default)]
     pub charts: ChartSettings,
 }
 
 fn default_check_for_updates() -> bool { true }
+fn default_vertical_result_tabs() -> bool { true }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -222,6 +225,7 @@ impl Default for AppSettings {
             bool_display: BoolDisplay::default(),
             check_for_updates: default_check_for_updates(),
             show_leaf_partitions: false,
+            vertical_result_tabs: default_vertical_result_tabs(),
             charts: ChartSettings::default(),
         }
     }
@@ -245,5 +249,21 @@ mod tests {
         let parsed: QuerySettings = serde_json::from_str(json).expect("old settings must still parse");
         assert_eq!(parsed.default_limit, 500);
         assert!(parsed.show_cancelled_query_dialog, "the field defaults to true");
+    }
+
+    /// Settings stored before this field existed must still load, and the
+    /// field must default ON — bare #[serde(default)] would yield false and
+    /// silently flip existing users to the horizontal bar.
+    #[test]
+    fn app_settings_default_vertical_result_tabs() {
+        let json = r#"{
+            "theme": "auto",
+            "editor": {"fontFamily": "Menlo", "fontSize": 13, "tabSize": 2, "lineNumbers": true, "wordWrap": false, "minimap": false},
+            "query": {"defaultLimit": 500, "timeoutSeconds": 30, "autoCommit": true, "confirmDestructive": true},
+            "ui": {"navigatorWidth": 260, "savedQueriesWidth": 180, "resultsPanelHeight": 300}
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
+        assert!(parsed.vertical_result_tabs, "the field defaults to true");
+        assert!(AppSettings::default().vertical_result_tabs);
     }
 }
