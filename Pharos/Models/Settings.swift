@@ -116,5 +116,6 @@ struct AppSettings: Codable, Equatable {
     var boolDisplay: BoolDisplay = .trueFalse
     var checkForUpdates: Bool = true
     var showLeafPartitions: Bool = false
+    var verticalResultTabs: Bool = true
     var charts: ChartSettings = ChartSettings()
 }

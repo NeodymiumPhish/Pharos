@@ -13,6 +13,7 @@ class SettingsSheet: NSViewController {
     private let boolDisplayPopup = NSPopUpButton()
     private let checkForUpdatesCheck = NSButton(checkboxWithTitle: "Check for updates in the background", target: nil, action: nil)
     private let showLeafPartitionsCheck = NSButton(checkboxWithTitle: "Show leaf partitions in the Database Navigator", target: nil, action: nil)
+    private let verticalResultTabsCheck = NSButton(checkboxWithTitle: "Show result tabs in a vertical panel", target: nil, action: nil)
 
     // Editor
     private let fontPopup = NSPopUpButton()
@@ -125,6 +126,7 @@ class SettingsSheet: NSViewController {
             [boolLabel, boolDisplayPopup],
             [NSGridCell.emptyContentView, checkForUpdatesCheck],
             [NSGridCell.emptyContentView, showLeafPartitionsCheck],
+            [NSGridCell.emptyContentView, verticalResultTabsCheck],
         ])
         configureGrid(grid)
 
@@ -282,6 +284,7 @@ class SettingsSheet: NSViewController {
 
         checkForUpdatesCheck.state = settings.checkForUpdates ? .on : .off
         showLeafPartitionsCheck.state = settings.showLeafPartitions ? .on : .off
+        verticalResultTabsCheck.state = settings.verticalResultTabs ? .on : .off
 
         // Editor
         selectFont(settings.editor.fontFamily)
@@ -330,6 +333,7 @@ class SettingsSheet: NSViewController {
 
         s.checkForUpdates = checkForUpdatesCheck.state == .on
         s.showLeafPartitions = showLeafPartitionsCheck.state == .on
+        s.verticalResultTabs = verticalResultTabsCheck.state == .on
 
         // Editor
         if let selected = fontPopup.titleOfSelectedItem {
