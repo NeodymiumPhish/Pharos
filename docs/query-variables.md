@@ -35,7 +35,7 @@ Variable names are identifiers (letters, digits, underscores; not starting with 
 
 ## The Variables Panel
 
-Click the **braces button** at the right end of the editor toolbar to toggle the **Variables** panel, docked to the right of the editor. It's open by default for a new tab.
+Click the **braces button** in the group at the right of the editor toolbar to toggle the **Variables** panel, docked to the right of the editor text. It's open by default for a new tab. When the [Result Tabs](results-grid.md#where-the-tabs-appear) panel is open too, it sits further right and the Variables panel keeps the place next to the editor.
 
 The panel is a two-level list and detail, similar to Settings on iOS:
 

@@ -29,6 +29,7 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Bool Display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
 | Show leaf partitions in the Database Navigator | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
+| Show result tabs in a vertical panel, not a horizontal bar | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of each editor pane, instead of along a bar above the results grid. The two never show together. |
 
 ## Editor Tab
 

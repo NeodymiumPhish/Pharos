@@ -18,7 +18,7 @@ nav_order: 7
 
 ## Overview
 
-Pharos executes SQL against the editor tab's active connection and shows the output in [result tabs](results-grid.md#result-tabs) below the editor. Multiple queries can run concurrently, each statement gets its own result tab, and long-running queries can notify you when they finish.
+Pharos executes SQL against the editor tab's active connection and shows the output in the results area below the editor, with one [result tab](results-grid.md#result-tabs) per statement. Multiple queries can run concurrently, each statement gets its own result tab, and long-running queries can notify you when they finish.
 
 ## Running Queries
 

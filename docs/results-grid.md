@@ -22,12 +22,25 @@ The results grid displays query output in a native table below the SQL editor. I
 
 ## Result Tabs
 
-Each executed statement gets its own tab in the result tab bar (below the action bar). Tabs are labeled with the statement's line range and the table it touches (e.g., "L1-3: users"), or a preview of the SQL, and each tab's colored dot matches the statement's bar in the editor gutter.
+Each executed statement gets its own result tab, labeled with the statement's line range and the table it touches (e.g., "L1-3: users"), or a preview of the SQL. Each tab's colored dot matches the statement's bar in the editor gutter.
 
 - **Select** a tab to show its result; its source lines are highlighted in the editor, and the tab's grid state (sort, filters, column widths, scroll position, selection) is restored exactly.
 - **Close** a tab with its ✕ button or right-click > **Close**.
 - Right-click > **View SQL Query** shows the exact SQL that produced the result.
-- If you edit the SQL a result came from, the tab dims to indicate it is **stale** — the result no longer matches the current editor text.
+- If you edit the SQL a result came from, the tab dims to indicate it is **stale** — the result no longer matches the current editor text. Selecting a stale tab still shows its result, but no longer highlights lines in the editor, because the statement has moved.
+
+### Where the tabs appear
+
+Two layouts are available, chosen by **Show result tabs in a vertical panel, not a horizontal bar** in [Settings > General](settings.md#general-tab). Only one is ever shown.
+
+**Vertical panel (default).** Result tabs list down a panel at the right edge of each editor pane, to the right of the [Query Variables](query-variables.md) panel. Each row shows the colored dot, the label, and the result's size as columns×rows. This is the layout to prefer when you run many statements in one tab: a long list scrolls in place instead of pushing tabs off the edge of the window.
+
+- Toggle the panel per editor tab with the **Result Tabs** button at the right of the pane's toolbar, next to the Query Variables toggle. Your last choice becomes the default for new tabs.
+- Drag the panel's left edge to resize it. The width is shared by every pane and survives a relaunch.
+- With the editor [split into panes](query-editor.md#tab-and-pane-management), each pane lists the result tabs of its own active tab, and highlights the one that tab holds. Clicking a row in an unfocused pane focuses that pane first, then shows the result.
+- Collapsing the panel hides the result tabs. The grid keeps showing the current result, and a new query still shows its own result.
+
+**Horizontal bar.** Result tabs run along a bar between the action bar and the results grid. With many results the bar scrolls sideways.
 
 ## Column Headers
 
