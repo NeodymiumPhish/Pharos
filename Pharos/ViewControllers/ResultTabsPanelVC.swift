@@ -120,6 +120,12 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        // Legacy (always-visible) scrollers reserve their 17pt from the clip
+        // view whether or not the list overflows. Left at the default `false`,
+        // that made every row stop 18pt short of the panel's edge — and the
+        // close button 24pt short — even with three rows in a 300pt panel.
+        // Overlay scrollers float over the content and are unaffected.
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
