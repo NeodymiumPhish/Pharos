@@ -35,8 +35,20 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
     var numberOfRowsShown: Int { tableView.numberOfRows }
     var selectedRowIndex: Int { tableView.selectedRow }
 
+    /// The panel's scroll offset, so a test can prove an unchanged push does not
+    /// move it. The debounce tick pushes identical rows while the user types, and
+    /// a reload there would yank the list back to the active row.
+    var scrollOffsetY: CGFloat { scrollView.contentView.bounds.origin.y }
+
     func simulateRowClick(at index: Int) {
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+    }
+
+    /// Scroll the list the way a user's trackpad would, so a test can put the
+    /// panel somewhere a reload would drag it away from.
+    func simulateScroll(toY y: CGFloat) {
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     /// The realised cell for a row, so a test can click the control the user

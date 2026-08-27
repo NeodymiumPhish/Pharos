@@ -102,6 +102,30 @@ func runTests() {
     vc.update(rows: [model("a", label: "one", stale: true), model("b", label: "two")], activeId: "b")
     expectEqual("\(vc.numberOfRowsShown)", "2", "a stale row is still listed")
 
+    // An unchanged push must not disturb the user's scroll position.
+    // ContentViewController re-pushes on the 250 ms re-resolve tick that fires
+    // while the user types, so a reload here would snap the list back to the
+    // active row on the next keystroke. 40 rows overflow the 400pt host, and the
+    // active row is the FIRST one, so a reload has somewhere to drag the list to.
+    let manyRows = (0..<40).map { model("r\($0)", label: "row \($0)") }
+    vc.update(rows: manyRows, activeId: "r0")
+    vc.view.layoutSubtreeIfNeeded()
+    vc.simulateScroll(toY: 300)
+    let scrolled = vc.scrollOffsetY
+    // Asserted first: on a panel that never scrolled, everything below would
+    // hold at zero and prove nothing at all.
+    expectTrue(scrolled > 0, "the panel scrolls away from the top")
+    vc.update(rows: manyRows, activeId: "r0")
+    vc.view.layoutSubtreeIfNeeded()
+    expectEqual("\(vc.scrollOffsetY)", "\(scrolled)",
+                "an unchanged push leaves the user's scroll position alone")
+
+    // The other half of the guard: a real change must still reload, or the panel
+    // would silently stop tracking result tabs at all.
+    vc.update(rows: Array(manyRows.dropLast()), activeId: "r0")
+    vc.view.layoutSubtreeIfNeeded()
+    expectEqual("\(vc.numberOfRowsShown)", "39", "a changed push still reloads")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
