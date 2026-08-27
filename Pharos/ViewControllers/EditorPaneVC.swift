@@ -80,16 +80,26 @@ class EditorPaneVC: NSViewController {
     /// Panel width when the current divider drag began. The width is re-derived
     /// from this on every drag event rather than nudged, so overshooting the
     /// min/max is not absorbed — see `ResizeDividerView`.
+    ///
+    /// This snapshots the **pref**, never the width last displayed. The two
+    /// differ whenever the narrow-window shrink in `viewDidLayout` is active,
+    /// and a drag assigns its result back to the pref — so anchoring on the
+    /// displayed width mixed the two units and made the drag move the panel the
+    /// WRONG WAY. Measured at pane 700 with prefs 300/400 (shrink active,
+    /// results displayed at 280): the first widening event collapsed the pref
+    /// from 400 to 285, the shrink re-divided the budget between both panels,
+    /// and the results panel fell to 238 — 42pt NARROWER — while the user
+    /// dragged to widen it. Each fresh drag re-anchored on the newly shrunk
+    /// width, ratcheting the pref down (400 → 320 → 272 → 213) and growing the
+    /// variables panel to absorb it.
+    ///
+    /// Anchoring on the pref costs a cosmetic mismatch, and that is deliberate:
+    /// while shrunk, the divider moves a fraction of the pointer travel (5pt of
+    /// travel moved the panel 1pt in the same measurement), and the committed
+    /// pref can be a width the user did not see until the window widens. A
+    /// divider that lags the pointer is a papercut; a divider that moves the
+    /// wrong way is the bug that was reported. Do not "fix" this back.
     private var variablesPanelWidthAtDragStart: CGFloat = 0
-
-    /// The panel widths `viewDidLayout` last actually put on screen. These are
-    /// the prefs unless the narrow-window shrink was active, in which case they
-    /// are smaller. A drag must start from what the user can see: snapshotting
-    /// the pref while a shrink was displayed moved the divider by only a
-    /// fraction of the pointer travel, and committed a width the user never saw
-    /// — which then appeared the moment the window widened.
-    private var displayedVariablesWidth: CGFloat = 0
-    private var displayedResultTabsWidth: CGFloat = 0
 
     private var isVariablesPanelVisible: Bool {
         guard let tabId = lastActiveTabId,
@@ -198,7 +208,7 @@ class EditorPaneVC: NSViewController {
         }
         variablesDivider.onDragBegan = { [weak self] in
             guard let self else { return }
-            self.variablesPanelWidthAtDragStart = self.displayedVariablesWidth
+            self.variablesPanelWidthAtDragStart = VariablesPanelPrefs.width
         }
         variablesDivider.onDrag = { [weak self] offset in
             self?.resizeVariablesPanel(byOffset: offset)
@@ -219,7 +229,7 @@ class EditorPaneVC: NSViewController {
         }
         resultTabsDivider.onDragBegan = { [weak self] in
             guard let self else { return }
-            self.resultTabsPanelWidthAtDragStart = self.displayedResultTabsWidth
+            self.resultTabsPanelWidthAtDragStart = ResultTabsPanelPrefs.width
         }
         resultTabsDivider.onDrag = { [weak self] offset in
             self?.resizeResultTabsPanel(byOffset: offset)
@@ -396,11 +406,6 @@ class EditorPaneVC: NSViewController {
             x += panelDividerWidth
             resultTabsPanelVC.view.frame = NSRect(x: x, y: 0, width: resultsW, height: editorHeight)
         }
-
-        // Remember what went on screen, not what the prefs asked for: a divider
-        // drag has to start from the width the user is looking at.
-        displayedVariablesWidth = variablesW
-        displayedResultTabsWidth = resultsW
     }
 
     // MARK: - State Observation
