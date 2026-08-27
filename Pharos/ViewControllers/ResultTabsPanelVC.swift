@@ -57,6 +57,15 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? ResultTabRowCell
     }
 
+    /// Build the row menu the way a right-click does, so a test can prove
+    /// opening it has no side effects. `clickedRow` is what AppKit sets on a
+    /// real right-click and is not settable from a test.
+    func simulateRightClickMenu(at index: Int) -> NSMenu {
+        let menu = NSMenu()
+        buildRowMenu(for: index, into: menu)
+        return menu
+    }
+
     // MARK: - View
 
     override func loadView() {
@@ -200,12 +209,20 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 extension ResultTabsPanelVC: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let row = tableView.clickedRow
+        buildRowMenu(for: tableView.clickedRow, into: menu)
+    }
+
+    /// Deliberately does NOT select the row it builds the menu for, which is a
+    /// divergence from `ResultTabBar.rightMouseDown` — that one calls its
+    /// `onSelectTab` before popping the menu up. The bar is a single surface
+    /// belonging to the one active editor tab, so selecting there costs nothing;
+    /// this panel exists once per pane, and selecting from it can switch which
+    /// editor tab is active, focus that pane and swap the results grid. Reading
+    /// a row's SQL should not change what the grid shows, and both items below
+    /// carry their own row id, so pre-selecting buys the menu nothing.
+    private func buildRowMenu(for row: Int, into menu: NSMenu) {
         guard row >= 0, row < rows.count else { return }
         let id = rows[row].id
-
-        // Right-click also selects, matching the horizontal bar's behaviour.
-        onSelectRow?(id)
 
         let detail = NSMenuItem(title: "View SQL Query", action: #selector(menuViewDetail(_:)), keyEquivalent: "")
         detail.target = self

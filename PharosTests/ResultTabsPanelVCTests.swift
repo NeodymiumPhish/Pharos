@@ -126,6 +126,39 @@ func runTests() {
     vc.view.layoutSubtreeIfNeeded()
     expectEqual("\(vc.numberOfRowsShown)", "39", "a changed push still reloads")
 
+    // Opening the row menu must have no side effects. onSelectRow is wired to
+    // the cross-pane path, so selecting here focuses the pane, changes the
+    // active editor tab and swaps the results grid — before the user has chosen
+    // a menu item, and even if they press Escape and choose nothing.
+    vc.update(rows: rows, activeId: "a")
+    var menuSelected: [String] = []
+    var menuClosed: [String] = []
+    var menuDetailed: [String] = []
+    vc.onSelectRow = { menuSelected.append($0) }
+    vc.onCloseRow = { menuClosed.append($0) }
+    vc.onViewDetail = { menuDetailed.append($0) }
+
+    let menu = vc.simulateRightClickMenu(at: 2)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expectEqual("\(menuSelected.count)", "0", "opening the row menu does not fire onSelectRow")
+    expectEqual("\(menuClosed.count)", "0", "opening the row menu does not fire onCloseRow")
+
+    // …and the menu it built still works.
+    expectEqual("\(menu.items.count)", "2", "the row menu carries two items")
+    expectEqual(menu.items.map { $0.title }.joined(separator: ","), "View SQL Query,Close",
+                "the row menu lists View SQL Query then Close")
+    for item in menu.items {
+        guard let action = item.action, let target = item.target else {
+            failures += 1
+            print("FAIL a row menu item is wired to a target — \(item.title) has none")
+            continue
+        }
+        _ = (target as AnyObject).perform(action, with: item)
+    }
+    expectEqual(menuDetailed.joined(separator: ","), "c", "View SQL Query reports the clicked row")
+    expectEqual(menuClosed.joined(separator: ","), "c", "Close reports the clicked row")
+    expectEqual("\(menuSelected.count)", "0", "invoking a menu item still does not select")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

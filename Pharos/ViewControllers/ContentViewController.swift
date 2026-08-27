@@ -2421,12 +2421,16 @@ extension ContentViewController: EditorPaneDelegate {
         // Background editor tab: mutate its persisted store directly. Gutter
         // colors and the grid are untouched — they belong to the active tab.
         var stored = resultTabsByEditorTab[paneTabId] ?? []
-        stored.removeAll { $0.id == resultTabId }
+        guard let idx = stored.firstIndex(where: { $0.id == resultTabId }) else { return }
+        stored.remove(at: idx)
         resultTabsByEditorTab[paneTabId] = stored
         if activeResultTabIdByEditorTab[paneTabId] == resultTabId {
-            // nil assignment removes the key; the last remaining result becomes
-            // the one restored when the user switches back.
-            activeResultTabIdByEditorTab[paneTabId] = stored.last?.id
+            // The neighbour, by the same rule `closeResultTab` uses on the
+            // focused pane — otherwise the same gesture moves the highlight to
+            // the bottom of the list here and to the next row there. A nil
+            // assignment removes the key, which is what an emptied list wants.
+            let newIdx = min(idx, stored.count - 1)
+            activeResultTabIdByEditorTab[paneTabId] = stored.isEmpty ? nil : stored[newIdx].id
         }
         refreshResultTabViews()
     }
