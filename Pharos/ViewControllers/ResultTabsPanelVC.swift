@@ -44,6 +44,16 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
 
+    /// Empty the selection the way a Command-click on the highlighted row — or a
+    /// click in the empty space below the last row — does. A test cannot produce
+    /// that gesture: NSTableView decides it inside `mouseDown`'s own tracking
+    /// loop, which needs a real event queue and an on-screen window. This drives
+    /// the same table API that gesture ends at, and deliberately does NOT set
+    /// `isProgrammaticSelection`, so the delegate sees it as the user's move.
+    func simulateDeselectAll() {
+        tableView.deselectAll(nil)
+    }
+
     /// Scroll the list the way a user's trackpad would, so a test can put the
     /// panel somewhere a reload would drag it away from.
     func simulateScroll(toY y: CGFloat) {
@@ -93,6 +103,15 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         tableView.rowHeight = Self.rowHeight
         tableView.style = .plain
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        // Stays true. An empty selection IS a meaningful state here: `activeId`
+        // is nil whenever this panel's editor tab holds no result, and the panel
+        // must be able to say "nothing is on screen" rather than highlight a row
+        // the grid is not showing. With this false, AppKit refuses the
+        // `deselectAll` in `update` and re-selects a row of its own after a
+        // reload, which would make the highlight lie. The user CAN empty the
+        // selection by hand (Command-click, or a click below the last row); that
+        // is repaired by the unconditional reconcile in `update`, not by
+        // forbidding the state.
         tableView.allowsEmptySelection = true
         tableView.allowsMultipleSelection = false
         tableView.dataSource = self
@@ -147,34 +166,65 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
     /// the first push, which must always render however empty it is.
     private var lastPushed: Pushed?
 
-    /// Full reload. Rows arrive already ordered (creation order, same as the
+    /// Render a push. Rows arrive already ordered (creation order, same as the
     /// horizontal bar); `activeId` is the row this panel's own editor tab holds
     /// as its result, and is nil only when that tab has no result at all.
+    ///
+    /// Three separate concerns, deliberately gated separately rather than all
+    /// behind one no-op guard:
+    ///
+    /// - **Reload** only when `rows` changed. ContentViewController re-pushes on
+    ///   every result-tab change AND on the 250 ms re-resolve tick that fires
+    ///   while the user types; reloading there would yank a user who had
+    ///   scrolled down to an older result back to the active row.
+    /// - **Reconcile the selection every time**, unconditionally. The user can
+    ///   empty the selection themselves (Command-click the highlighted row, or
+    ///   click the empty space below the last row); the delegate reports nothing
+    ///   for an empty selection, so controller state does not move and every
+    ///   later push is identical. Gating the selection on "something changed"
+    ///   therefore lost the highlight for good — and in the default vertical
+    ///   mode this panel is the only surface saying which result the grid shows.
+    ///   `selectRowIndexes`/`deselectAll` do not scroll, so this costs nothing.
+    /// - **Scroll** only when `activeId` moved, or when the reload already
+    ///   disturbed the list. Never on an identical push.
     func update(rows: [ResultTabRowModel], activeId: String?) {
-        // ContentViewController re-pushes on every result-tab change AND on the
-        // 250 ms re-resolve tick that fires while the user types. Reloading and
-        // scrolling on an unchanged push would yank a user who had scrolled
-        // down to an older result back to the active row on their next
-        // keystroke, so identical input does nothing at all.
-        let pushed = Pushed(rows: rows, activeId: activeId)
-        if let lastPushed, lastPushed == pushed { return }
-        lastPushed = pushed
+        let previous = lastPushed
+        lastPushed = Pushed(rows: rows, activeId: activeId)
+        // `previous` is nil until the first push, which must render in full
+        // however empty it is — an Optional comparison against a non-Optional
+        // reports "changed" for it, which is exactly what the first push wants.
+        let rowsChanged = previous?.rows != rows
+        let activeIdChanged = previous == nil || previous?.activeId != activeId
 
         self.rows = rows
         self.activeId = activeId
 
-        headerLabel.stringValue = rows.isEmpty ? "Results" : "Results · \(rows.count)"
-        emptyLabel.isHidden = !rows.isEmpty
-
+        // The whole body is wrapped: `reloadData` can drop a selection that no
+        // longer has a row, and the reconcile below moves it on purpose. Either
+        // one firing `onSelectRow` would re-enter the controller and, from an
+        // unfocused pane, switch the active editor tab and swap the grid.
         isProgrammaticSelection = true
-        tableView.reloadData()
-        if let activeId, let idx = rows.firstIndex(where: { $0.id == activeId }) {
-            tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
-            tableView.scrollRowToVisible(idx)
-        } else {
-            tableView.deselectAll(nil)
+        defer { isProgrammaticSelection = false }
+
+        // Header text and the empty placeholder are functions of `rows` alone.
+        if rowsChanged {
+            headerLabel.stringValue = rows.isEmpty ? "Results" : "Results · \(rows.count)"
+            emptyLabel.isHidden = !rows.isEmpty
+            tableView.reloadData()
         }
-        isProgrammaticSelection = false
+
+        guard let activeId, let idx = rows.firstIndex(where: { $0.id == activeId }) else {
+            // No active result — say so honestly rather than leaving a stale
+            // highlight. This is why `allowsEmptySelection` stays true.
+            if tableView.selectedRow != -1 { tableView.deselectAll(nil) }
+            return
+        }
+        if tableView.selectedRow != idx {
+            tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+        }
+        if rowsChanged || activeIdChanged {
+            tableView.scrollRowToVisible(idx)
+        }
     }
 
     // MARK: - NSTableViewDataSource / Delegate

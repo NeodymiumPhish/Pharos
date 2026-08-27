@@ -102,6 +102,26 @@ func runTests() {
     vc.update(rows: [model("a", label: "one", stale: true), model("b", label: "two")], activeId: "b")
     expectEqual("\(vc.numberOfRowsShown)", "2", "a stale row is still listed")
 
+    // A user CAN empty the selection by hand: Command-click the highlighted row,
+    // or click the empty space below the last row. The delegate reports nothing
+    // for an empty selection, so controller state does not move and the next
+    // push carries the SAME rows and the SAME activeId. That push must still put
+    // the highlight back — in the default vertical mode this panel is the only
+    // surface saying which result the grid is showing, so without this the user
+    // is left unable to tell what is on screen, permanently.
+    vc.update(rows: rows, activeId: "b")
+    expectEqual("\(vc.selectedRowIndex)", "1", "the active row starts highlighted")
+    var afterDeselect: [String] = []
+    vc.onSelectRow = { afterDeselect.append($0) }
+    vc.simulateDeselectAll()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expectEqual("\(vc.selectedRowIndex)", "-1", "the deselect gesture empties the selection")
+    expectEqual("\(afterDeselect.count)", "0", "an empty selection reports nothing to the controller")
+    vc.update(rows: rows, activeId: "b")
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expectEqual("\(vc.selectedRowIndex)", "1", "an identical push restores the lost highlight")
+    expectEqual("\(afterDeselect.count)", "0", "restoring the highlight does not re-enter the controller")
+
     // An unchanged push must not disturb the user's scroll position.
     // ContentViewController re-pushes on the 250 ms re-resolve tick that fires
     // while the user types, so a reload here would snap the list back to the
@@ -122,9 +142,20 @@ func runTests() {
 
     // The other half of the guard: a real change must still reload, or the panel
     // would silently stop tracking result tabs at all.
-    vc.update(rows: Array(manyRows.dropLast()), activeId: "r0")
+    let shortened = Array(manyRows.dropLast())
+    vc.update(rows: shortened, activeId: "r0")
     vc.view.layoutSubtreeIfNeeded()
     expectEqual("\(vc.numberOfRowsShown)", "39", "a changed push still reloads")
+
+    // The third concern, gated on its own: a push whose activeId MOVED must
+    // scroll to the new row even though `rows` did not change, or a result made
+    // active from elsewhere — the other pane, or a query finishing — would be
+    // highlighted off the bottom of the list where the user cannot see it.
+    expectTrue(vc.scrollOffsetY == 0, "the reload left the list at the active row")
+    vc.update(rows: shortened, activeId: "r38")
+    vc.view.layoutSubtreeIfNeeded()
+    expectEqual("\(vc.selectedRowIndex)", "38", "the moved activeId highlights its row")
+    expectTrue(vc.scrollOffsetY > 0, "an activeId change scrolls the new row into view")
 
     // Opening the row menu must have no side effects. onSelectRow is wired to
     // the cross-pane path, so selecting here focuses the pane, changes the

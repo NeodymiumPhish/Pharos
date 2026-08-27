@@ -103,6 +103,12 @@ final class ErrorBadgeButton: NSButton {
     /// Call this once per set of buttons. A second call with the same views
     /// would activate a duplicate set of constraints and move every view into a
     /// second stack.
+    ///
+    /// `resultTabsToggle` defaults to nil for the tests, not for production:
+    /// `EditorPaneVC` — the only caller in the app — always passes one. Two
+    /// older cases in ErrorBadgeButtonTests predate the toggle and assert the
+    /// two-button layout, so the default keeps them building unchanged. Removing
+    /// it would only mean editing those two calls.
     static func makeToolbarTrailingGroup(
         errorButton: ErrorBadgeButton, variablesToggle: NSButton,
         resultTabsToggle: NSButton? = nil
