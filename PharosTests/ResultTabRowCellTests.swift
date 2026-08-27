@@ -99,6 +99,18 @@ func runTests() {
     closeCell.closeButton.performClick(nil)
     expectEqual(closed.joined(separator: ","), "second", "close reports the recycled row's id")
 
+    // Hover must not survive recycling. Drive the real entry point, then hand
+    // the cell a different, inactive row — the close button has to go away.
+    // `hoverChanged` stands in for `mouseEntered(with:)` because `NSEvent` has
+    // no public plain initialiser this test could construct.
+    let hoverCell = ResultTabRowCell(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+    hoverCell.configure(model: makeModel(), isActive: false)
+    hoverCell.hoverChanged(true)
+    expectFalse(hoverCell.closeButton.isHidden, "hovering shows the close button")
+    hoverCell.configure(model: makeModel(label: "another row"), isActive: false)
+    expectTrue(hoverCell.closeButton.isHidden,
+               "a recycled row does not inherit the previous row's hover")
+
     // Hostile label: escaped exactly once, for display and accessibility both.
     let hostile = "evil\u{202E}label"
     cell.configure(model: makeModel(label: hostile), isActive: false)

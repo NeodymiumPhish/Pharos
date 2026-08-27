@@ -126,6 +126,11 @@ class ResultTabRowCell: NSTableCellView {
         secondaryLabel.stringValue = model.countsText
         secondaryLabel.textColor = model.isStale ? .tertiaryLabelColor : .secondaryLabelColor
 
+        // Recycled cells cannot remember hover: a stale `true` would leave a
+        // close button on an unrelated row, inviting a click that closes the
+        // wrong result. Re-derive it instead of resetting it blindly, so a
+        // reload under a stationary pointer keeps the button the user can see.
+        isHovered = isPointerInside
         updateCloseVisibility()
 
         var announced = escaped
@@ -136,6 +141,14 @@ class ResultTabRowCell: NSTableCellView {
 
     private func updateCloseVisibility() {
         closeButton.isHidden = !(isActive || isHovered)
+    }
+
+    /// Where the pointer actually is, asked directly rather than remembered.
+    /// `mouseLocationOutsideOfEventStream` answers without needing an event,
+    /// which is what a reload needs: no mouse moved, so no enter/exit will fire.
+    private var isPointerInside: Bool {
+        guard let window, window.isVisible else { return false }
+        return bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
     @objc private func closeTapped() {
@@ -158,12 +171,19 @@ class ResultTabRowCell: NSTableCellView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        updateCloseVisibility()
+        hoverChanged(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
+        hoverChanged(false)
+    }
+
+    /// Shared body for both `NSTrackingArea` callbacks above. Internal, not
+    /// private: `NSEvent` has no public plain initialiser, so a standalone
+    /// test cannot call `mouseEntered(with:)` itself and drives hover through
+    /// this forwarder instead.
+    func hoverChanged(_ inside: Bool) {
+        isHovered = inside
         updateCloseVisibility()
     }
 }
