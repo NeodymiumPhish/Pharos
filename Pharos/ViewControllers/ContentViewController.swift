@@ -1831,6 +1831,14 @@ class ContentViewController: NSViewController {
             stored.append(tab)
             resultTabsByEditorTab[editorTabId] = stored
             activeResultTabIdByEditorTab[editorTabId] = tab.id
+            // A background tab still needs its surface refreshed. The old
+            // horizontal bar was one surface showing only the globally active
+            // tab, so a deposit here genuinely had nothing to draw. The vertical
+            // panel exists once per pane and shows ITS pane's tab, which may be
+            // on screen in an unfocused pane while a query finishes in it — so
+            // the rows and the header count must be pushed now, not left until
+            // the user types, clicks into that pane or switches tabs.
+            refreshResultTabViews()
             return
         }
 
@@ -2431,12 +2439,20 @@ extension ContentViewController: EditorPaneDelegate {
             closeResultTab(resultTabId)
             return
         }
-        // Background editor tab: mutate its persisted store directly. Gutter
-        // colors and the grid are untouched — they belong to the active tab.
+        // Background editor tab: mutate its persisted store directly. The grid
+        // and the live `resultTabs` array belong to whichever tab is active now,
+        // so they are deliberately left alone. The gutter is NOT: it is per
+        // pane, and `setSegmentColor` is only ever called on the focused pane,
+        // so this pane still carries the stripe it was painted while focused and
+        // nothing else will clear it. Clear this row's stripe on `pane` — the
+        // pane the closed row actually belongs to — or it keeps a coloured bar
+        // for a result that no longer exists.
         var stored = resultTabsByEditorTab[paneTabId] ?? []
         guard let idx = stored.firstIndex(where: { $0.id == resultTabId }) else { return }
+        let closedSegmentIndex = stored[idx].segmentIndex
         stored.remove(at: idx)
         resultTabsByEditorTab[paneTabId] = stored
+        pane.setSegmentColor(nil, forSegmentIndex: closedSegmentIndex)
         if activeResultTabIdByEditorTab[paneTabId] == resultTabId {
             // The neighbour, by the same rule `closeResultTab` uses on the
             // focused pane — otherwise the same gesture moves the highlight to
