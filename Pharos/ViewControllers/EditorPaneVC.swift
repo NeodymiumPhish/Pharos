@@ -56,7 +56,14 @@ class EditorPaneVC: NSViewController {
     let errorButton = ErrorBadgeButton()
     private let variablesPanelVC = QueryVariablesPanelVC()
     private let variablesDivider = ResizeDividerView()
-    private let variablesDividerWidth: CGFloat = 5
+
+    /// Shared by both side-panel dividers, which are the same width by design.
+    /// One constant genuinely shared says that; two that must be kept equal
+    /// would only look accidental.
+    private let panelDividerWidth: CGFloat = 5
+
+    /// Smallest editor the narrow-window shrink in `viewDidLayout` will leave.
+    private let minEditorWidth: CGFloat = 200
 
     // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
     private let resultTabsToggle = NSButton()
@@ -74,6 +81,15 @@ class EditorPaneVC: NSViewController {
     /// from this on every drag event rather than nudged, so overshooting the
     /// min/max is not absorbed — see `ResizeDividerView`.
     private var variablesPanelWidthAtDragStart: CGFloat = 0
+
+    /// The panel widths `viewDidLayout` last actually put on screen. These are
+    /// the prefs unless the narrow-window shrink was active, in which case they
+    /// are smaller. A drag must start from what the user can see: snapshotting
+    /// the pref while a shrink was displayed moved the divider by only a
+    /// fraction of the pointer travel, and committed a width the user never saw
+    /// — which then appeared the moment the window widened.
+    private var displayedVariablesWidth: CGFloat = 0
+    private var displayedResultTabsWidth: CGFloat = 0
 
     private var isVariablesPanelVisible: Bool {
         guard let tabId = lastActiveTabId,
@@ -181,7 +197,8 @@ class EditorPaneVC: NSViewController {
             self?.variablesDidChange(vars)
         }
         variablesDivider.onDragBegan = { [weak self] in
-            self?.variablesPanelWidthAtDragStart = VariablesPanelPrefs.width
+            guard let self else { return }
+            self.variablesPanelWidthAtDragStart = self.displayedVariablesWidth
         }
         variablesDivider.onDrag = { [weak self] offset in
             self?.resizeVariablesPanel(byOffset: offset)
@@ -201,7 +218,8 @@ class EditorPaneVC: NSViewController {
             self.delegate?.editorPane(self, didRequestResultTabDetail: id)
         }
         resultTabsDivider.onDragBegan = { [weak self] in
-            self?.resultTabsPanelWidthAtDragStart = ResultTabsPanelPrefs.width
+            guard let self else { return }
+            self.resultTabsPanelWidthAtDragStart = self.displayedResultTabsWidth
         }
         resultTabsDivider.onDrag = { [weak self] offset in
             self?.resizeResultTabsPanel(byOffset: offset)
@@ -345,13 +363,12 @@ class EditorPaneVC: NSViewController {
 
         var variablesW = showVariables ? VariablesPanelPrefs.width : 0
         var resultsW = showResults ? ResultTabsPanelPrefs.width : 0
-        let dividersW = (showVariables ? variablesDividerWidth : 0)
-            + (showResults ? variablesDividerWidth : 0)
+        let dividersW = (showVariables ? panelDividerWidth : 0)
+            + (showResults ? panelDividerWidth : 0)
 
         // Keep the editor usable when the pane is narrow: shrink the panels
         // proportionally for DISPLAY only. Prefs are never written from here,
         // so a temporarily narrow window does not destroy the user's widths.
-        let minEditorWidth: CGFloat = 200
         let available = view.bounds.width - dividersW - minEditorWidth
         let wanted = variablesW + resultsW
         if wanted > available, wanted > 0 {
@@ -367,18 +384,23 @@ class EditorPaneVC: NSViewController {
         variablesDivider.isHidden = !showVariables
         variablesPanelVC.view.isHidden = !showVariables
         if showVariables {
-            variablesDivider.frame = NSRect(x: x, y: 0, width: variablesDividerWidth, height: editorHeight)
-            x += variablesDividerWidth
+            variablesDivider.frame = NSRect(x: x, y: 0, width: panelDividerWidth, height: editorHeight)
+            x += panelDividerWidth
             variablesPanelVC.view.frame = NSRect(x: x, y: 0, width: variablesW, height: editorHeight)
             x += variablesW
         }
         resultTabsDivider.isHidden = !showResults
         resultTabsPanelVC.view.isHidden = !showResults
         if showResults {
-            resultTabsDivider.frame = NSRect(x: x, y: 0, width: variablesDividerWidth, height: editorHeight)
-            x += variablesDividerWidth
+            resultTabsDivider.frame = NSRect(x: x, y: 0, width: panelDividerWidth, height: editorHeight)
+            x += panelDividerWidth
             resultTabsPanelVC.view.frame = NSRect(x: x, y: 0, width: resultsW, height: editorHeight)
         }
+
+        // Remember what went on screen, not what the prefs asked for: a divider
+        // drag has to start from the width the user is looking at.
+        displayedVariablesWidth = variablesW
+        displayedResultTabsWidth = resultsW
     }
 
     // MARK: - State Observation

@@ -658,8 +658,9 @@ class ContentViewController: NSViewController {
         refreshResultTabViews()
 
         // Pin override: while pinned, the grid stays on the pinned result no
-        // matter which editor tab is active. Result tab bar still reflects the
-        // destination tab — clicking a result tab in it explicitly unpins.
+        // matter which editor tab is active. The result-tab surface still
+        // reflects the destination tab — clicking a result tab in it explicitly
+        // unpins.
         if let pinnedResult = stateManager.pinnedResult {
             resultsVC.showResult(pinnedResult)
             resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
@@ -1947,7 +1948,7 @@ class ContentViewController: NSViewController {
 
     private func showResultTabDetail(_ tabId: String) {
         let found = resultTabs.first(where: { $0.id == tabId })
-            ?? resultTabsByEditorTab.values.flatMap { $0 }.first(where: { $0.id == tabId })
+            ?? resultTabsByEditorTab.values.lazy.flatMap { $0 }.first(where: { $0.id == tabId })
         guard let tab = found else { return }
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
@@ -1969,40 +1970,52 @@ class ContentViewController: NSViewController {
     /// tab reads the live array; background tabs read the persisted store).
     private func refreshResultTabViews() {
         let vertical = stateManager.settings.verticalResultTabs
-        let hasResultTabs = !resultTabs.isEmpty
-        let showBar = !vertical && hasResultTabs
-
-        resultTabBar.isHidden = !showBar
-        resultTabBarHeightConstraint.constant = showBar ? Self.resultTabBarHeight : 0
-        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
-
-        guard vertical else {
-            // Panels stay in the hierarchy; empty them so a stale list is never
-            // shown if the user flips the setting back and forth.
-            for paneVC in editorPanes { paneVC.updateResultTabs([], activeId: nil) }
-            return
-        }
-
+        updateHorizontalResultTabBar(visible: !vertical && !resultTabs.isEmpty)
         for paneVC in editorPanes {
-            let paneTabId = stateManager.panes.first(where: { $0.id == paneVC.paneId })?.activeTabId
-            let tabs: [ResultTab]
-            let activeId: String?
-            if let paneTabId, paneTabId == stateManager.activeTabId {
-                tabs = resultTabs
-                activeId = activeResultTabId
-            } else if let paneTabId {
-                tabs = resultTabsByEditorTab[paneTabId] ?? []
-                // The remembered result, not nil: this panel is scoped to its
-                // own pane's tab, so highlighting the result that tab holds is
-                // the truth. Passing nil drew an unfocused pane as though it
-                // had no result at all.
-                activeId = activeResultTabIdByEditorTab[paneTabId]
-            } else {
-                tabs = []
-                activeId = nil
-            }
-            paneVC.updateResultTabs(tabs.map { $0.rowModel }, activeId: activeId)
+            // In horizontal mode the panels stay in the hierarchy but are fed
+            // nothing, so a stale list is never shown if the user flips the
+            // setting back and forth.
+            let feed = vertical
+                ? resultTabFeed(forPane: paneVC.paneId)
+                : (rows: [ResultTabRowModel](), activeId: nil)
+            paneVC.updateResultTabs(feed.rows, activeId: feed.activeId)
         }
+    }
+
+    /// Show or hide the horizontal bar, and rebuild its buttons only when it is
+    /// on screen. `ResultTabBar.update` tears down and re-creates every button;
+    /// in the default vertical mode the bar is hidden behind a zero-height
+    /// constraint, and that work ran on every `$panes` mutation and every 250 ms
+    /// re-resolve tick while the user typed, only to be thrown away.
+    ///
+    /// Safe to gate on `visible` because this is the only place the bar's
+    /// visibility is decided, so it cannot become visible without this call
+    /// refreshing it in the same breath — including the `$settings` sink that
+    /// fires when the user turns the setting off.
+    private func updateHorizontalResultTabBar(visible: Bool) {
+        resultTabBar.isHidden = !visible
+        resultTabBarHeightConstraint.constant = visible ? Self.resultTabBarHeight : 0
+        guard visible else { return }
+        resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
+    }
+
+    /// The rows one pane's vertical panel should show, and which of them to
+    /// highlight. A pane showing the globally active editor tab reads the live
+    /// array; a pane showing any other tab reads that tab's persisted store.
+    ///
+    /// The highlight for a background tab is its remembered result, not nil:
+    /// the panel is scoped to its own pane's tab, so the result that tab holds
+    /// is the truth. Passing nil drew an unfocused pane as though it had no
+    /// result at all.
+    private func resultTabFeed(forPane paneId: String) -> (rows: [ResultTabRowModel], activeId: String?) {
+        guard let paneTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId else {
+            return (rows: [], activeId: nil)
+        }
+        if paneTabId == stateManager.activeTabId {
+            return (rows: resultTabs.map { $0.rowModel }, activeId: activeResultTabId)
+        }
+        let stored = resultTabsByEditorTab[paneTabId] ?? []
+        return (rows: stored.map { $0.rowModel }, activeId: activeResultTabIdByEditorTab[paneTabId])
     }
 
     /// Pending debounced re-resolve work item, cancellable when a new edit

@@ -135,9 +135,17 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 
     // MARK: - Input
 
+    /// Everything `update` renders, as one `Equatable` value. Compared whole, so
+    /// a parameter added to `update` in future has to be added here too rather
+    /// than being silently left out of the no-op guard.
+    private struct Pushed: Equatable {
+        let rows: [ResultTabRowModel]
+        let activeId: String?
+    }
+
     /// What was last rendered, so an unchanged push can be skipped. `nil` until
     /// the first push, which must always render however empty it is.
-    private var lastPushed: (rows: [ResultTabRowModel], activeId: String?)?
+    private var lastPushed: Pushed?
 
     /// Full reload. Rows arrive already ordered (creation order, same as the
     /// horizontal bar); `activeId` is the row this panel's own editor tab holds
@@ -148,8 +156,9 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         // scrolling on an unchanged push would yank a user who had scrolled
         // down to an older result back to the active row on their next
         // keystroke, so identical input does nothing at all.
-        if let lastPushed, lastPushed.rows == rows, lastPushed.activeId == activeId { return }
-        lastPushed = (rows, activeId)
+        let pushed = Pushed(rows: rows, activeId: activeId)
+        if let lastPushed, lastPushed == pushed { return }
+        lastPushed = pushed
 
         self.rows = rows
         self.activeId = activeId
