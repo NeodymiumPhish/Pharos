@@ -371,6 +371,28 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
+        // Release the per-editor-tab result state of tabs that no longer exist.
+        // This reacts to the tab actually disappearing from `stateManager.tabs`
+        // rather than hooking each close action, because the close paths are
+        // several and not all of them come through this controller:
+        // `closeOtherTabs` and `closeTabsToRight` are called straight from
+        // `PaneTabBar`, `closePane` retires every tab of a pane at once, and
+        // `AppStateManager.closeTab` itself can cascade into `closePane`. One
+        // reactive sweep covers all of them, and any future one.
+        //
+        // Deduped on the id set so the sweep does not run on every keystroke
+        // ($tabs republishes on each SQL edit). The sweep reads the live
+        // `stateManager.tabs`, not the delivered snapshot: a snapshot can be
+        // older than a tab seeded synchronously after its `createTab`
+        // (handleOpenWorkspace / handleOpenHistoryEntry both do this), and
+        // pruning against a stale snapshot would throw that seed away.
+        stateManager.$tabs
+            .map { Set($0.map(\.id)) }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.pruneRetiredEditorTabState() }
+            .store(in: &cancellables)
+
         // Observe active tab changes to update results grid
         stateManager.$activeTabId
             .receive(on: RunLoop.main)
@@ -611,6 +633,28 @@ class ContentViewController: NSViewController {
 
     private var lastActiveTabId: String?
 
+    /// Drop the per-editor-tab result state of every tab that is no longer in
+    /// `stateManager.tabs`.
+    ///
+    /// Each stored `ResultTab` holds a whole `QueryResult` — every fetched row
+    /// plus the `RowIdentity` block — so without this a session that opens and
+    /// closes query tabs holds the row data of every result those tabs ever
+    /// produced until it quits.
+    ///
+    /// Nothing is lost. A result reaches SQLite when it runs
+    /// (`captureExecutedResult` → `associateResult`), its chart config is
+    /// written by `persistChartState`, and reopening the workspace rebuilds the
+    /// result tabs from `PharosCore.loadWorkspace` +
+    /// `getQueryHistoryResult` — never from these dictionaries. The order
+    /// counter is likewise re-seeded from `MAX(result_order) + 1` on reopen,
+    /// and tab ids are UUIDs, so a dropped key can never be asked for again.
+    private func pruneRetiredEditorTabState() {
+        let liveTabIds = Set(stateManager.tabs.map { $0.id })
+        resultTabsByEditorTab = resultTabsByEditorTab.filter { liveTabIds.contains($0.key) }
+        activeResultTabIdByEditorTab = activeResultTabIdByEditorTab.filter { liveTabIds.contains($0.key) }
+        resultOrderByEditorTab = resultOrderByEditorTab.filter { liveTabIds.contains($0.key) }
+    }
+
     private func activeTabChanged(_ tabId: String?) {
         // Save grid state and result tabs of the tab we're leaving
         if let previousTabId = lastActiveTabId {
@@ -618,23 +662,36 @@ class ContentViewController: NSViewController {
             // addResultTab / selectResultTab): switching editor tabs is another
             // outgoing path where the transient drill filter would otherwise leak
             // into the saved gridState and lose the manual filter it displaced.
+            // This runs even for a retired tab: the drill is controller-wide
+            // state that must be cleared before the incoming tab loads.
             tearDownDrill(restoreManual: true)
-            let gridState = resultsVC.captureGridState()
-            stateManager.updateTab(id: previousTabId) { tab in
-                tab.gridState = gridState
-            }
-            // Also save grid state (and any live chart config) to the active result tab
-            if let activeRTId = activeResultTabId,
-               let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
-                resultTabs[rtIdx].gridState = gridState
-                captureChartConfig(intoTabAt: rtIdx)
-            }
-            // Persist result tabs for the previous editor tab
-            resultTabsByEditorTab[previousTabId] = resultTabs
-            if let activeRTId = activeResultTabId {
-                activeResultTabIdByEditorTab[previousTabId] = activeRTId
-            } else {
-                activeResultTabIdByEditorTab.removeValue(forKey: previousTabId)
+
+            // The tab we are leaving may be the one that was just CLOSED. Both
+            // $tabs and $activeTabId are delivered on the run loop, so the
+            // prune sweep can run either before or after this handler. Writing
+            // blind would resurrect the closed tab's entries — with every row
+            // of every result it ever produced — whenever the sweep won the
+            // race. Skipping the write for a retired tab makes both orderings
+            // converge on the same empty state, and a retired tab has nothing
+            // left to restore into anyway.
+            if stateManager.tabs.contains(where: { $0.id == previousTabId }) {
+                let gridState = resultsVC.captureGridState()
+                stateManager.updateTab(id: previousTabId) { tab in
+                    tab.gridState = gridState
+                }
+                // Also save grid state (and any live chart config) to the active result tab
+                if let activeRTId = activeResultTabId,
+                   let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
+                    resultTabs[rtIdx].gridState = gridState
+                    captureChartConfig(intoTabAt: rtIdx)
+                }
+                // Persist result tabs for the previous editor tab
+                resultTabsByEditorTab[previousTabId] = resultTabs
+                if let activeRTId = activeResultTabId {
+                    activeResultTabIdByEditorTab[previousTabId] = activeRTId
+                } else {
+                    activeResultTabIdByEditorTab.removeValue(forKey: previousTabId)
+                }
             }
         }
         lastActiveTabId = tabId
@@ -1823,6 +1880,16 @@ class ContentViewController: NSViewController {
     /// state, which belongs to whichever tab is focused now.
     private func addResultTab(_ tab: ResultTab, forEditorTab editorTabId: String) {
         guard editorTabId == stateManager.activeTabId else {
+            // A query can outlive its editor tab: `closeTab` asks the server to
+            // cancel the in-flight queries, but a result already on the wire
+            // still lands here. Depositing it would re-create the entry
+            // `pruneRetiredEditorTabState` just dropped, and the sweep cannot
+            // catch it a second time — the tab set will not change again on its
+            // account. The result itself is already in SQLite and is still
+            // associated with the workspace by `captureExecutedResult`, so
+            // only the in-memory copy is dropped.
+            guard stateManager.tabs.contains(where: { $0.id == editorTabId }) else { return }
+
             // Background tab: append to its persisted result tabs without
             // touching the live display or the focused pane's gutter. The
             // gutter color and grid are restored from this state when the user
@@ -2253,6 +2320,13 @@ class ContentViewController: NSViewController {
     private func captureExecutedResult(historyId: String, editorTabId: String, workspaceId: String, color: NSColor, rawSQL: String) {
         let order = resultOrderByEditorTab[editorTabId, default: 0]
         resultOrderByEditorTab[editorTabId] = order + 1
+        // Same late-result case as `addResultTab`: the association below still
+        // belongs in the workspace, but the counter must not outlive the tab.
+        // Removing it after the read costs nothing — had the sweep got here
+        // first, this result would have read 0 anyway.
+        if !stateManager.tabs.contains(where: { $0.id == editorTabId }) {
+            resultOrderByEditorTab.removeValue(forKey: editorTabId)
+        }
         let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
         do {
             try PharosCore.associateResult(.init(
