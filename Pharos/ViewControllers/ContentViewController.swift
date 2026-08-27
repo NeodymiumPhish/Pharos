@@ -721,25 +721,8 @@ class ContentViewController: NSViewController {
         if let pinnedResult = stateManager.pinnedResult {
             resultsVC.showResult(pinnedResult)
             resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
-        } else if let activeRTId = activeResultTabId,
-                  let activeRT = resultTabs.first(where: { $0.id == activeRTId }) {
-            if let result = activeRT.queryResult {
-                resultsVC.showResult(result)
-            } else if let execResult = activeRT.executeResult {
-                resultsVC.showExecuteResult(execResult)
-            }
-            if let gridState = activeRT.gridState {
-                resultsVC.restoreGridState(gridState)
-            }
-        } else if let result = tab.result {
-            resultsVC.showResult(result)
-            if let gridState = tab.gridState {
-                resultsVC.restoreGridState(gridState)
-            }
-        } else if let execResult = tab.executeResult {
-            resultsVC.showExecuteResult(execResult)
         } else {
-            resultsVC.clear()
+            restoreGrid(for: tab)
         }
 
         // Re-resolve and restore segment colors in the gutter.
@@ -750,7 +733,7 @@ class ContentViewController: NSViewController {
         // Otherwise the legacy inline-result path falls back to the editor
         // tab's stored execution time and schema. Suppressed while pinned
         // (the grid is showing the pinned tab's data, not the active tab's).
-        let activeRT = activeResultTabId.flatMap { id in resultTabs.first { $0.id == id } }
+        let activeRT = activeResultTab
         if activeRT != nil {
             applyResultBanner(from: activeRT)
         } else if tab.result != nil || tab.executeResult != nil {
@@ -2241,25 +2224,79 @@ class ContentViewController: NSViewController {
 
     // MARK: - Pin Results
 
+    /// The result tab the grid is currently showing for the active editor tab,
+    /// or nil when this editor tab's results still live in the legacy inline
+    /// fields.
+    private var activeResultTab: ResultTab? {
+        activeResultTabId.flatMap { id in resultTabs.first { $0.id == id } }
+    }
+
+    /// Put the grid back on whatever the active editor tab owns: the result tab
+    /// the result-tab surface highlights when there is one, else the legacy
+    /// inline fields. Shared by the unpin branch and the (unpinned) tab-switch
+    /// restore, so the two cannot drift apart over what a tab is showing.
+    private func restoreGrid(for tab: QueryTab) {
+        if let activeRT = activeResultTab {
+            if let result = activeRT.queryResult {
+                resultsVC.showResult(result)
+            } else if let execResult = activeRT.executeResult {
+                resultsVC.showExecuteResult(execResult)
+            }
+            if let gridState = activeRT.gridState {
+                resultsVC.restoreGridState(gridState)
+            }
+        } else if let result = tab.result {
+            resultsVC.showResult(result)
+            if let gridState = tab.gridState {
+                resultsVC.restoreGridState(gridState)
+            }
+        } else if let execResult = tab.executeResult {
+            resultsVC.showExecuteResult(execResult)
+        } else {
+            resultsVC.clear()
+        }
+    }
+
     private func handlePinToggle(_ pinned: Bool) {
+        guard let tab = stateManager.activeTab else {
+            // No active editor tab, so there is nothing to pin or to restore.
+            // The button toggled its own look before calling here, so put it
+            // back rather than leaving an engaged pin over no pinned result.
+            resultsVC.setPinState(pinned: false, tabName: nil)
+            return
+        }
         if pinned {
-            guard let tab = stateManager.activeTab, let result = tab.result else { return }
-            stateManager.pinnedResult = result
+            // Pin what the grid is ACTUALLY showing. Every normal run (Cmd+R on
+            // a statement, Run All) puts its result in a ResultTab and leaves
+            // the legacy `tab.result` nil, so reading only that field pinned
+            // nothing at all for such a result: the guard failed, this method
+            // returned early, and `pinnedResult` stayed nil while the button
+            // still looked engaged. When a result tab owns the grid its result
+            // is the only correct source — the legacy field can still hold an
+            // older direct-SQL result, which is not what the user is looking at.
+            let displayed: QueryResult?
+            if let activeRT = activeResultTab {
+                displayed = activeRT.queryResult
+            } else {
+                displayed = tab.result
+            }
+            guard let displayed else {
+                // Nothing pinnable (no result yet, or the active result tab
+                // holds a non-SELECT execute result, which the grid cannot pin).
+                // Reset the button so it does not claim otherwise.
+                resultsVC.setPinState(pinned: false, tabName: nil)
+                return
+            }
+            stateManager.pinnedResult = displayed
+            // The EDITOR tab's id, deliberately: AppStateManager's auto-unpin in
+            // closeTab/closePane matches `pinnedTabId` against editor tab ids.
             stateManager.pinnedTabId = tab.id
             stateManager.pinnedTabName = tab.name
             resultsVC.setPinState(pinned: true, tabName: tab.name)
         } else {
             stateManager.unpinResults()
             resultsVC.setPinState(pinned: false, tabName: nil)
-            if let tab = stateManager.activeTab {
-                if let result = tab.result {
-                    resultsVC.showResult(result)
-                } else if let execResult = tab.executeResult {
-                    resultsVC.showExecuteResult(execResult)
-                } else {
-                    resultsVC.clear()
-                }
-            }
+            restoreGrid(for: tab)
         }
     }
 
