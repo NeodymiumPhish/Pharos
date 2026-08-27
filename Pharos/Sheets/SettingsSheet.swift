@@ -13,7 +13,11 @@ class SettingsSheet: NSViewController {
     private let boolDisplayPopup = NSPopUpButton()
     private let checkForUpdatesCheck = NSButton(checkboxWithTitle: "Check for updates in the background", target: nil, action: nil)
     private let showLeafPartitionsCheck = NSButton(checkboxWithTitle: "Show leaf partitions in the Database Navigator", target: nil, action: nil)
-    private let verticalResultTabsCheck = NSButton(checkboxWithTitle: "Show result tabs in a vertical panel", target: nil, action: nil)
+    /// Names both states on purpose. Its neighbours only add or remove
+    /// something when switched off, but this one swaps between two layouts, and
+    /// "Show result tabs…" alone reads as though clearing it takes the result
+    /// tabs away.
+    private let verticalResultTabsCheck = NSButton(checkboxWithTitle: "Show result tabs in a vertical panel, not a horizontal bar", target: nil, action: nil)
 
     // Editor
     private let fontPopup = NSPopUpButton()
