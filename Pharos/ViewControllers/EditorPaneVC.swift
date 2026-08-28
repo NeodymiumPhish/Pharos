@@ -62,8 +62,23 @@ class EditorPaneVC: NSViewController {
     /// would only look accidental.
     private let panelDividerWidth: CGFloat = 5
 
-    /// Smallest editor the narrow-window shrink in `viewDidLayout` will leave.
-    private let minEditorWidth: CGFloat = 200
+    /// Smallest editor `viewDidLayout` will leave before it starts reducing the
+    /// panels. Deliberately small: the panel widths are the user's explicit
+    /// choice — they dragged the dividers there, and each panel has its own
+    /// toggle if they want the space back — so the EDITOR yields first and the
+    /// panels render at their prefs.
+    ///
+    /// A 200pt floor here made the panels yield instead, proportionally, which
+    /// is what decoupled a divider from the pointer: with one budget shared
+    /// between both panels, the results panel's displayed width was a function
+    /// of the VARIABLES pref, so 10pt of pointer travel moved the divider 4-5pt
+    /// and dragging one divider moved the other panel.
+    ///
+    /// When even this floor plus the chosen widths will not fit, the panels are
+    /// reduced in a fixed order — results first, then variables, each no
+    /// further than its own `minWidth` — and only then does the editor take
+    /// what is left. Fixed order, never proportional.
+    private let minEditorWidth: CGFloat = 80
 
     // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
     private let resultTabsToggle = NSButton()
@@ -376,18 +391,29 @@ class EditorPaneVC: NSViewController {
         let dividersW = (showVariables ? panelDividerWidth : 0)
             + (showResults ? panelDividerWidth : 0)
 
-        // Keep the editor usable when the pane is narrow: shrink the panels
-        // proportionally for DISPLAY only. Prefs are never written from here,
-        // so a temporarily narrow window does not destroy the user's widths.
-        let available = view.bounds.width - dividersW - minEditorWidth
-        let wanted = variablesW + resultsW
-        if wanted > available, wanted > 0 {
-            let scale = max(0, available) / wanted
-            variablesW = floor(variablesW * scale)
-            resultsW = floor(resultsW * scale)
+        // The panels render at the widths the user chose; the editor absorbs
+        // what is left. Only when the editor would fall under its floor are the
+        // panels reduced, in a FIXED order and never below their own minimums —
+        // results first, then variables. Display only: prefs are never written
+        // from here, so a temporarily narrow window does not destroy them.
+        //
+        // The order matters more than it looks. Reducing both panels
+        // proportionally, as this did, made the results panel's displayed width
+        // depend on the VARIABLES pref, so dragging the results divider moved
+        // the variables panel and tracked the pointer at less than half speed.
+        var editorW = view.bounds.width - variablesW - resultsW - dividersW
+        if editorW < minEditorWidth {
+            var deficit = minEditorWidth - editorW
+            func take(_ width: inout CGFloat, downTo floor: CGFloat) {
+                let give = min(deficit, max(0, width - floor))
+                width -= give
+                deficit -= give
+            }
+            take(&resultsW, downTo: showResults ? ResultTabsPanelPrefs.minWidth : 0)
+            take(&variablesW, downTo: showVariables ? VariablesPanelPrefs.minWidth : 0)
+            editorW = view.bounds.width - variablesW - resultsW - dividersW
         }
-
-        let editorW = max(0, view.bounds.width - variablesW - resultsW - dividersW)
+        editorW = max(0, editorW)
         editorVC.view.frame = NSRect(x: 0, y: 0, width: editorW, height: editorHeight)
 
         var x = editorW
@@ -819,14 +845,50 @@ class EditorPaneVC: NSViewController {
     /// snapshot each time — rather than nudging the current width — is what keeps
     /// the divider stuck to the cursor after an overshoot past the min or max.
     private func resizeVariablesPanel(byOffset offset: CGFloat) {
-        VariablesPanelPrefs.width = variablesPanelWidthAtDragStart - offset
+        VariablesPanelPrefs.width = widthForDrag(
+            requested: variablesPanelWidthAtDragStart - offset,
+            current: VariablesPanelPrefs.width,
+            ceiling: view.bounds.width - currentDividersWidth - minEditorWidth
+                - (isResultTabsPanelVisible ? ResultTabsPanelPrefs.width : 0)
+        )
         view.needsLayout = true
+    }
+
+    /// Total width the visible dividers take, so a drag's ceiling is computed
+    /// from the same budget `viewDidLayout` divides.
+    private var currentDividersWidth: CGFloat {
+        (isVariablesPanelVisible ? panelDividerWidth : 0)
+            + (isResultTabsPanelVisible ? panelDividerWidth : 0)
+    }
+
+    /// Resolve one drag event into a width to store, holding two invariants:
+    ///
+    /// - **Narrowing is always honoured**, unconditionally. The stored width is
+    ///   the user's, and a drag that asks for less always gets less.
+    /// - **Widening never LOWERS the stored width.** If the room is not there
+    ///   the panel simply stops; the pref must not fall. An earlier attempt
+    ///   clamped unconditionally to the free space, which forced the pref down
+    ///   whenever the free space was below the panel's own minimum — and
+    ///   collapsed it on a touch that never moved the pointer.
+    ///
+    /// The ceiling stops the pref running away past what can ever be displayed.
+    /// Without it, over-widening left the pref far above the on-screen width, so
+    /// the next drag had to travel that whole difference before the divider
+    /// moved at all: measured as a 210pt dead zone.
+    private func widthForDrag(requested: CGFloat, current: CGFloat, ceiling: CGFloat) -> CGFloat {
+        guard requested > current else { return requested }
+        return min(requested, max(current, ceiling))
     }
 
     /// Same sign convention as resizeVariablesPanel: the panel sits to the
     /// right of its divider, so dragging left (negative) widens it.
     private func resizeResultTabsPanel(byOffset offset: CGFloat) {
-        ResultTabsPanelPrefs.width = resultTabsPanelWidthAtDragStart - offset
+        ResultTabsPanelPrefs.width = widthForDrag(
+            requested: resultTabsPanelWidthAtDragStart - offset,
+            current: ResultTabsPanelPrefs.width,
+            ceiling: view.bounds.width - currentDividersWidth - minEditorWidth
+                - (isVariablesPanelVisible ? VariablesPanelPrefs.width : 0)
+        )
         view.needsLayout = true
     }
 
