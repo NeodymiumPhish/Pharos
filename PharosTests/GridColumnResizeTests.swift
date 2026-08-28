@@ -1,18 +1,22 @@
 // Standalone test runner for the results grid's column-resize handle, compiled
 // by scripts/test-grid-column-resize.sh.
 //
-// The header advertises a grab zone 6pt either side of a divider
-// (`columnIndexForResizeEdge`). It used to hand a hit to `super.mouseDown`, and
-// `NSTableHeaderView` starts a resize only within about 2pt — so 4 of the 6
-// points did nothing. On the LAST column that is the whole target: its divider
-// sits at the table's right edge, so once the grid is scrolled fully right the
-// only points a pointer can reach are the ones on the inside, and only 1pt and
-// 2pt of those worked.
+// Three defects met at the last column's right edge, and these tests hold all
+// three shut:
 //
-// These tests therefore assert on POINTS, not on "resizing works": a real
+// 1. The header advertises a grab zone 6pt either side of a divider, but used to
+//    hand a hit to `super.mouseDown`, and `NSTableHeaderView` starts a resize
+//    only within about 2pt — so 4 of the 6 points did nothing.
+// 2. Scrolling used to stop with the last divider EXACTLY on the visible edge,
+//    and shrinking that column moved the scroll limit down with it, so the edge
+//    could never be brought inboard. `InsetScrollView.trailingScrollRoom` is
+//    what fixed that, and the assertions on "pt inside the edge" are its guard.
+// 3. A column cut off by the grid's right edge had no reachable handle at all.
+//
+// The tests therefore assert on POINTS, not on "resizing works": a real
 // mouse-down is delivered at a measured distance from a divider, with a drag and
 // a mouse-up already posted so the tracking loop consumes them, and the
-// column's width is read back.
+// column's width or its divider position is read back.
 import AppKit
 
 var failures = 0
@@ -51,15 +55,15 @@ private final class HeaderSpy: FilterableHeaderViewDelegate {
 
 /// The grid's header in a never-shown window, laid out the way `ResultsGridVC`
 /// lays its own out: a `#` column plus data columns, no column autoresizing,
-/// zero intercell spacing, a 34pt two-row header, and always-visible legacy
-/// scrollers — which is what insets the clip view and puts the last column's
-/// divider hard against the scroller.
+/// zero intercell spacing, a 34pt two-row header, always-visible legacy
+/// scrollers, and the grid's own `InsetScrollView` — which is what decides where
+/// the last column's divider can come to rest.
 private final class Rig {
     static let paneWidth: CGFloat = 500
     static let paneHeight: CGFloat = 300
 
     let window: NSWindow
-    let scrollView: NSScrollView
+    let scrollView: InsetScrollView
     let tableView: NSTableView
     let header: FilterableHeaderView
     let spy = HeaderSpy()
@@ -91,7 +95,7 @@ private final class Rig {
             tableView.addTableColumn(column)
         }
 
-        scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: Rig.paneWidth, height: Rig.paneHeight))
+        scrollView = InsetScrollView(frame: NSRect(x: 0, y: 0, width: Rig.paneWidth, height: Rig.paneHeight))
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -138,6 +142,20 @@ private final class Rig {
         scrollView.reflectScrolledClipView(scrollView.contentView)
         scrollView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
+    }
+
+    /// Run layout until the scroll position has re-clamped.
+    ///
+    /// A width change and the scroll clamp it forces do not land in the same
+    /// pass: the first lays out the new document width, the second brings the
+    /// scroll origin back inside it. A live drag settles between frames, so the
+    /// settled state is the one a user sees and the one worth asserting on.
+    func settle() {
+        for _ in 0..<2 {
+            scrollView.layoutSubtreeIfNeeded()
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            window.displayIfNeeded()
+        }
     }
 
     /// True when the header is scrolled to the same offset as the rows.
@@ -235,8 +253,9 @@ func runTests() {
     let scrolled = Rig(widths: wide)
     scrolled.scrollToRightEnd()
     expectTrue(scrolled.headerTracksContent, "the rig's header scrolls with its rows")
-    expectEqual("\(scrolled.visibleRightEdge - scrolled.divider(ofColumn: 3))", "0.0",
-                "scrolled fully right, the last divider lands exactly on the visible edge")
+    expectEqual("\(scrolled.visibleRightEdge - scrolled.divider(ofColumn: 3))",
+                "\(InsetScrollView.trailingScrollRoom)",
+                "scrolled fully right, the last divider stops clear of the visible edge")
     for offset in [CGFloat(1), 4, 6] {
         let r = grabInside(widths: wide, column: 3, offset: offset, scrollToEnd: true)
         expectTrue(r.reachable, "\(Int(offset))pt inside the last divider is on screen when scrolled right")
@@ -279,6 +298,39 @@ func runTests() {
         expectEqual("\(rig.divider(ofColumn: 2))", "\(edge - 2 + dx)",
                     "the cut-off column's edge lands on the pointer, \(Int(-dx))pt in")
     }
+
+    // The scroll room is what makes the end of the table reachable, and it has to
+    // survive the resize. Without it the divider parks ON the visible edge and
+    // shrinking the column takes the scroll limit down with it, so the edge never
+    // moves inboard however far it is dragged — measured, and the shape of the
+    // second bug report.
+    let pinned = Rig(widths: wide)
+    pinned.scrollToRightEnd()
+    for step in 1...4 {
+        pinned.tableView.tableColumns[3].width -= 40
+        pinned.settle()
+        // At least, not exactly: the scroll clamp lands one width change behind
+        // the document, so mid-drag the divider is sometimes further inside than
+        // the room alone would put it. Never LESS is the property that matters —
+        // without the room it is 0 at every step, flush with the scroller.
+        expectTrue(pinned.visibleRightEdge - pinned.divider(ofColumn: 3)
+                    >= InsetScrollView.trailingScrollRoom,
+                   "shrink \(step) of 4 at the right end leaves the last divider clear of the edge")
+    }
+
+    // The room is charged only when the columns overflow. With room to spare the
+    // rows must still reach the scroller — an unconditional inset would end them
+    // short of it for nothing.
+    let noRoomNeeded = Rig(widths: narrow)
+    expectEqual("\(noRoomNeeded.scrollView.contentInsets.right)", "0.0",
+                "columns that fit are charged no scroll room")
+    expectEqual("\(noRoomNeeded.tableView.frame.width)",
+                "\(noRoomNeeded.scrollView.contentView.frame.width)",
+                "columns that fit still stretch the table to the full viewport")
+    let roomNeeded = Rig(widths: wide)
+    expectEqual("\(roomNeeded.scrollView.contentInsets.right)",
+                "\(InsetScrollView.trailingScrollRoom)",
+                "columns that overflow are given the scroll room")
 
     // The edge is a handle only when a column is actually cut off there. With
     // room to spare after the last column it grabs nothing, and the click stays
