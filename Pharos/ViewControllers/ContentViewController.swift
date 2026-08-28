@@ -1623,6 +1623,9 @@ class ContentViewController: NSViewController {
                             rt.totalRowCountHint = result.rowCount
                             self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
+                            // Legacy inline path: it replaces the grid without
+                            // making a result tab, so it must unpin too.
+                            self.unpinBecauseGridIsChanging()
                             self.resultsVC.showResult(result)
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
@@ -1659,6 +1662,9 @@ class ContentViewController: NSViewController {
                             rt.executionTimeMs = result.executionTimeMs
                             self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
+                            // Legacy inline path: it replaces the grid without
+                            // making a result tab, so it must unpin too.
+                            self.unpinBecauseGridIsChanging()
                             self.resultsVC.showExecuteResult(result)
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
@@ -1899,6 +1905,12 @@ class ContentViewController: NSViewController {
         // makes the captured state reflect the user's real manual filters.
         tearDownDrill(restoreManual: true)
 
+        // Running a query is as explicit a request as clicking a result tab, so
+        // it releases a pin. Only on this foreground path: a background tab's
+        // query never touches the grid, so unpinning there would clear the
+        // badge while the pinned rows were still on screen.
+        unpinBecauseGridIsChanging()
+
         // Capture the outgoing result tab's grid state before switching away,
         // so filters/sorts/column widths applied to it survive when the user
         // returns (mirrors selectResultTab). Without this, running a new query
@@ -1933,13 +1945,22 @@ class ContentViewController: NSViewController {
         applyResultBanner(from: tab)
     }
 
+    /// Release a pin because the grid is about to show something else.
+    ///
+    /// Every path that replaces what the grid displays must call this, or the
+    /// badge goes on claiming a pinned result from another tab while the grid
+    /// shows the new one — and `applyResultBanner` stays suppressed, so the new
+    /// result loses its "schema · executed-at" line too.
+    private func unpinBecauseGridIsChanging() {
+        guard stateManager.pinnedResult != nil else { return }
+        stateManager.unpinResults()
+        resultsVC.setPinState(pinned: false, tabName: nil)
+    }
+
     private func selectResultTab(_ tabId: String) {
         // Clicking a result tab is an explicit request to view that result —
         // unpin so the grid follows the selection.
-        if stateManager.pinnedResult != nil {
-            stateManager.unpinResults()
-            resultsVC.setPinState(pinned: false, tabName: nil)
-        }
+        unpinBecauseGridIsChanging()
 
         reResolveAllResultTabs(immediate: true)
 

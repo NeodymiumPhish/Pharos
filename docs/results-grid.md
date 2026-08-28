@@ -82,7 +82,9 @@ When a query has more rows than the current page (see [Row Limit](query-executio
 
 ## Pin Results
 
-Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name; selecting any result tab unpins.
+Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name.
+
+The pin releases as soon as you ask the grid to show something else: selecting any result tab, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result is deposited into its own tab without touching the grid, so the pinned rows stay on screen.
 
 ## Status Text
 
