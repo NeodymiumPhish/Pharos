@@ -107,6 +107,11 @@ private final class Rig {
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         scrollView.tile()
+        // The scroll view only moves the table's header into its own header clip
+        // view when it draws. Until that happens the header has no superview, so
+        // it cannot be asked where the grid ends — which is exactly what the
+        // edge grab depends on.
+        window.displayIfNeeded()
     }
 
     var lastColumnIndex: Int { tableView.tableColumns.count - 1 }
@@ -121,15 +126,29 @@ private final class Rig {
         scrollView.contentView.bounds.origin.x + scrollView.contentView.frame.width
     }
 
-    /// Scroll as far right as the clip view allows, exactly as dragging the
-    /// horizontal scroller to its end does.
+    /// Scroll right until the last column is fully in view, which for these
+    /// column widths is as far right as the grid goes.
+    ///
+    /// It has to go through the TABLE. Moving the clip view's bounds directly
+    /// does not carry the header clip with it, so the header would stay at zero
+    /// and every screen position measured off it would be a fiction.
+    /// `headerTracksContent` is the guard on that.
     func scrollToRightEnd() {
-        let want = NSRect(origin: NSPoint(x: 100_000, y: scrollView.contentView.bounds.origin.y),
-                          size: scrollView.contentView.bounds.size)
-        let allowed = scrollView.contentView.constrainBoundsRect(want)
-        scrollView.contentView.scroll(to: allowed.origin)
+        tableView.scrollColumnToVisible(tableView.numberOfColumns - 1)
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        window.layoutIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
+
+    /// True when the header is scrolled to the same offset as the rows.
+    var headerTracksContent: Bool {
+        header.superview?.bounds.origin.x == scrollView.contentView.bounds.origin.x
+    }
+
+    /// The grid's visible right edge, in the header's own coordinates.
+    var visibleRightEdge: CGFloat {
+        header.convert(NSPoint(x: scrollView.contentView.bounds.maxX, y: 0),
+                       from: scrollView.contentView).x
     }
 
     private func event(_ type: NSEvent.EventType, at point: NSPoint, clicks: Int = 1) -> NSEvent {
@@ -209,16 +228,68 @@ func runTests() {
     let rowNum = grabInside(widths: narrow, column: 0, offset: 2)
     expectEqual("\(rowNum.delta)", "20.0", "the # column's divider resizes to its maximum")
 
-    // THE REPORTED BUG. Columns wider than the pane, scrolled as far right as
-    // the grid goes: the last divider lands exactly on the visible right edge,
-    // so only the inside of the zone can be reached at all.
+    // THE REPORTED BUG, part one. Columns wider than the pane, scrolled as far
+    // right as the grid goes: the last divider lands exactly on the visible
+    // right edge, so only the inside of the zone can be reached at all.
     let wide: [CGFloat] = [40, 200, 200, 200]
+    let scrolled = Rig(widths: wide)
+    scrolled.scrollToRightEnd()
+    expectTrue(scrolled.headerTracksContent, "the rig's header scrolls with its rows")
+    expectEqual("\(scrolled.visibleRightEdge - scrolled.divider(ofColumn: 3))", "0.0",
+                "scrolled fully right, the last divider lands exactly on the visible edge")
     for offset in [CGFloat(1), 4, 6] {
         let r = grabInside(widths: wide, column: 3, offset: offset, scrollToEnd: true)
         expectTrue(r.reachable, "\(Int(offset))pt inside the last divider is on screen when scrolled right")
         expectEqual("\(r.delta)", "40.0",
                     "the last column resizes from \(Int(offset))pt inside its divider at the right edge")
     }
+
+    // THE REPORTED BUG, part two. NOT scrolled right: the last column is cut off
+    // by the grid's own right edge, and its divider is off screen behind the
+    // scroller and the grey corner above it. The visible edge is that column's
+    // handle, and dragging it brings the edge TO the pointer — so the column
+    // ends where the pointer left it, not somewhere out of sight.
+    // One wide text column is the shape that provokes this: it starts on screen
+    // and ends far off it.
+    let cutOff: [CGFloat] = [40, 100, 600]
+    let cut = Rig(widths: cutOff)
+    let cutIndex = 2
+    let widthsBeforeCut = cut.tableView.tableColumns.map(\.width)
+    expectEqual("\(cut.scrollView.contentView.bounds.origin.x)", "0.0", "the cut-off rig starts unscrolled")
+    expectTrue(cut.divider(ofColumn: cutIndex) > cut.visibleRightEdge,
+               "unscrolled, the last divider is off screen past the visible edge")
+    let cutEdge = cut.visibleRightEdge
+    cut.drag(fromX: cutEdge - 2, dx: -60)
+    expectEqual("\(cut.divider(ofColumn: cutIndex))", "\(cutEdge - 62)",
+                "a grab on the visible edge puts the cut-off column's edge under the pointer")
+    expectTrue(cut.divider(ofColumn: cutIndex) < cut.visibleRightEdge,
+               "the cut-off column's edge is now on screen")
+    expectEqual("\(cut.tableView.tableColumns[0].width),\(cut.tableView.tableColumns[1].width)",
+                "\(widthsBeforeCut[0]),\(widthsBeforeCut[1])",
+                "the edge grab moves no other column")
+
+    // The edge follows the pointer wherever the pointer goes, so the gesture is
+    // "put the column's edge here", not a fixed nudge. A cut-off column's edge
+    // is off screen to the RIGHT, so every reachable pointer position is a
+    // narrower column — to widen one, scroll right and drag its own divider.
+    for dx in [CGFloat(-150), -60, -20] {
+        let rig = Rig(widths: cutOff)
+        let edge = rig.visibleRightEdge
+        rig.drag(fromX: edge - 2, dx: dx)
+        expectEqual("\(rig.divider(ofColumn: 2))", "\(edge - 2 + dx)",
+                    "the cut-off column's edge lands on the pointer, \(Int(-dx))pt in")
+    }
+
+    // The edge is a handle only when a column is actually cut off there. With
+    // room to spare after the last column it grabs nothing, and the click stays
+    // the sort's.
+    let roomy = Rig(widths: narrow)
+    let roomyBefore = roomy.tableView.tableColumns.map(\.width)
+    expectTrue(roomy.divider(ofColumn: 2) < roomy.visibleRightEdge - 6,
+               "the roomy rig's last divider is clear of the visible edge")
+    roomy.drag(fromX: roomy.visibleRightEdge - 2, dx: -60)
+    expectEqual("\(roomy.tableView.tableColumns.map(\.width))", "\(roomyBefore)",
+                "a grab on the visible edge resizes nothing when no column is cut off")
 
     // The two locks AppKit itself honours are honoured here too.
     let tableLocked = grabInside(widths: narrow, column: 2, offset: 4) { rig in

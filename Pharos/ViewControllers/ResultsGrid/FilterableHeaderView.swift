@@ -155,19 +155,19 @@ class FilterableHeaderView: NSTableHeaderView {
 
         // Detect double-click near column right edge for auto-fit
         if event.clickCount == 2 {
-            if let resizeColIndex = columnIndexForResizeEdge(at: point) {
-                filterDelegate?.headerView(self, didDoubleClickResizeForColumn: resizeColIndex)
+            if let grab = columnEdgeGrab(at: point) {
+                filterDelegate?.headerView(self, didDoubleClickResizeForColumn: grab.columnIndex)
                 return
             }
         }
 
-        // A divider grab is decided BEFORE anything else, and is run here rather
-        // than handed to super — see `trackResize(ofColumn:from:)`. It also has
-        // to come before `column(at:)`, which reports -1 for the empty header
-        // region past the last column: half of that column's grab zone lives
-        // there.
-        if let resizeColIndex = columnIndexForResizeEdge(at: point) {
-            trackResize(ofColumn: resizeColIndex, from: event)
+        // A grab on a column's right edge is decided BEFORE anything else, and is
+        // run here rather than handed to super — see `trackResize(_:from:)`. It
+        // also has to come before `column(at:)`, which reports -1 both for the
+        // empty header region past the last column and for a point beyond the
+        // last column's own edge; grabs live in both places.
+        if let grab = columnEdgeGrab(at: point) {
+            trackResize(grab, from: event)
             return
         }
 
@@ -327,22 +327,75 @@ class FilterableHeaderView: NSTableHeaderView {
     /// have.
     private static let resizeEdgeThreshold: CGFloat = 6
 
-    /// The column whose right edge the point grabs, or nil for a point that
-    /// grabs no edge.
-    private func columnIndexForResizeEdge(at point: NSPoint) -> Int? {
+    /// A grab on a column's right edge: which column, and the x the drag is
+    /// measured from, in WINDOW coordinates.
+    private struct ColumnEdgeGrab {
+        let columnIndex: Int
+        let anchorX: CGFloat
+    }
+
+    /// The column whose right edge `point` grabs, or nil for a point that grabs
+    /// no edge.
+    ///
+    /// There are two ways to grab one. The plain one is within
+    /// `resizeEdgeThreshold` of the divider itself; the drag then measures from
+    /// the pointer, so the edge does not jump out from under it.
+    ///
+    /// The other is the grid's OWN visible right edge, and only when a column is
+    /// cut off there. That column's divider is off screen — behind the vertical
+    /// scroller and the grey corner above it — and no amount of scrolling brings
+    /// it inboard, because scrolling stops when the document's right edge meets
+    /// the clip's. So the visible edge is the only place a pointer can reach that
+    /// column's handle, and it is where the eye reads the column as ending. This
+    /// grab measures from the divider instead of the pointer, so the first drag
+    /// brings the edge TO the pointer rather than moving it further out of sight.
+    private func columnEdgeGrab(at point: NSPoint) -> ColumnEdgeGrab? {
         guard let tableView = tableView else { return nil }
         for (index, _) in tableView.tableColumns.enumerated() {
             let rect = headerRect(ofColumn: index)
             if abs(point.x - rect.maxX) <= Self.resizeEdgeThreshold {
-                return index
+                return ColumnEdgeGrab(columnIndex: index, anchorX: windowX(point.x))
             }
         }
-        return nil
+
+        guard let edge = visibleRightEdgeX,
+              abs(point.x - edge) <= Self.resizeEdgeThreshold,
+              let index = columnCutOff(at: edge) else { return nil }
+        return ColumnEdgeGrab(columnIndex: index,
+                              anchorX: windowX(headerRect(ofColumn: index).maxX))
+    }
+
+    /// Where the grid stops being visible, in this view's coordinates: the right
+    /// edge of the scroll view's clip. The rows' clip, not this view's own —
+    /// under overlay scrollers the two are not the same width, and the rows are
+    /// what the user sees ending.
+    ///
+    /// Asked of the TABLE, not of self: a header view sits in the scroll view's
+    /// separate header clip, so its own `enclosingScrollView` is nil. The table
+    /// is the document view, so its answer is the real one.
+    private var visibleRightEdgeX: CGFloat? {
+        guard let clipView = tableView?.enclosingScrollView?.contentView else { return nil }
+        return convert(NSPoint(x: clipView.bounds.maxX, y: 0), from: clipView).x
+    }
+
+    /// The column that `x` cuts through — the one whose body starts before `x`
+    /// and ends after it. nil when `x` falls on a divider or past the last
+    /// column, which is the case whenever nothing is actually cut off.
+    private func columnCutOff(at x: CGFloat) -> Int? {
+        guard let tableView = tableView else { return nil }
+        return tableView.tableColumns.indices.first { index in
+            let rect = headerRect(ofColumn: index)
+            return rect.minX < x && rect.maxX > x
+        }
+    }
+
+    private func windowX(_ x: CGFloat) -> CGFloat {
+        convert(NSPoint(x: x, y: 0), to: nil).x
     }
 
     // MARK: - Resize Drag
 
-    /// Resize the column at `index` from the pointer until the button comes up.
+    /// Resize the grabbed column from the pointer until the button comes up.
     ///
     /// The drag is run here instead of being handed to `super.mouseDown` because
     /// `NSTableHeaderView` starts a resize only within about 2pt of a divider,
@@ -354,24 +407,23 @@ class FilterableHeaderView: NSTableHeaderView {
     /// left a 2pt target against the scroll bar, which reads as a column that
     /// cannot be resized at all.
     ///
-    /// Deltas are measured in WINDOW coordinates. This view's own coordinates
-    /// move with the horizontal scroll, which a resize can itself provoke by
-    /// changing the document width.
+    /// The grab's anchor and the pointer are both in WINDOW coordinates. This
+    /// view's own coordinates move with the horizontal scroll, which a resize can
+    /// itself provoke by changing the document width.
     ///
     /// The gate is AppKit's own: the table must allow column resizing and the
     /// column must be user-resizable. Anything refused here falls through to
     /// super, so a locked column keeps whatever super makes of the click.
-    private func trackResize(ofColumn index: Int, from startEvent: NSEvent) {
+    private func trackResize(_ grab: ColumnEdgeGrab, from startEvent: NSEvent) {
         guard let tableView = tableView,
-              index < tableView.tableColumns.count,
+              grab.columnIndex < tableView.tableColumns.count,
               tableView.allowsColumnResizing,
-              tableView.tableColumns[index].resizingMask.contains(.userResizingMask) else {
+              tableView.tableColumns[grab.columnIndex].resizingMask.contains(.userResizingMask) else {
             super.mouseDown(with: startEvent)
             return
         }
 
-        let column = tableView.tableColumns[index]
-        let startX = startEvent.locationInWindow.x
+        let column = tableView.tableColumns[grab.columnIndex]
         let startWidth = column.width
 
         while let event = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
@@ -379,7 +431,7 @@ class FilterableHeaderView: NSTableHeaderView {
             // No clamping here: `NSTableColumn.width` holds the width inside
             // [minWidth, maxWidth] itself, so a second clamp would only be a
             // copy of that rule waiting to fall out of step with it.
-            column.width = startWidth + (event.locationInWindow.x - startX)
+            column.width = startWidth + (event.locationInWindow.x - grab.anchorX)
         }
     }
 
@@ -391,12 +443,21 @@ class FilterableHeaderView: NSTableHeaderView {
         guard let tableView = tableView, tableView.allowsColumnResizing else { return }
         for (index, column) in tableView.tableColumns.enumerated() {
             guard column.resizingMask.contains(.userResizingMask) else { continue }
-            let rect = headerRect(ofColumn: index)
-            addCursorRect(
-                NSRect(x: rect.maxX - Self.resizeEdgeThreshold, y: rect.minY,
-                       width: Self.resizeEdgeThreshold * 2, height: rect.height),
-                cursor: .resizeLeftRight)
+            addResizeCursor(centredOn: headerRect(ofColumn: index).maxX)
         }
+        // The grid's visible right edge, when a column is cut off there — the
+        // other way `columnEdgeGrab` lets a handle be grabbed.
+        if let edge = visibleRightEdgeX, let index = columnCutOff(at: edge),
+           tableView.tableColumns[index].resizingMask.contains(.userResizingMask) {
+            addResizeCursor(centredOn: edge)
+        }
+    }
+
+    private func addResizeCursor(centredOn x: CGFloat) {
+        addCursorRect(
+            NSRect(x: x - Self.resizeEdgeThreshold, y: bounds.minY,
+                   width: Self.resizeEdgeThreshold * 2, height: bounds.height),
+            cursor: .resizeLeftRight)
     }
 }
 

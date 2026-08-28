@@ -47,6 +47,8 @@ Two layouts are available, chosen by **Show result tabs in a vertical panel, not
 
 Each column header has two rows: the **column name** on top and its **PostgreSQL data type** below (e.g., `INTEGER`, `TIMESTAMP WITH TIME ZONE`). Columns start at a content-aware width — sized to fit the name, type, and sampled cell content, up to 1000px — and can be resized or reordered by dragging. Double-click a column's right divider to auto-fit it.
 
+The resize cursor appears a few points either side of a divider, and that whole band grabs it. When a column runs off the **right edge of the grid**, its divider is out of reach behind the scroll bar — so the grid's right edge becomes that column's handle: drag it and the column's edge follows your pointer, which pulls the column back into view. Double-click there to auto-fit the same column.
+
 The type row also hosts two overlay affordances on its right edge:
 
 - a **▲/▼ sort triangle** while a sort is active
