@@ -63,22 +63,22 @@ class EditorPaneVC: NSViewController {
     private let panelDividerWidth: CGFloat = 5
 
     /// Smallest editor `viewDidLayout` will leave before it starts reducing the
-    /// panels. Deliberately small: the panel widths are the user's explicit
-    /// choice — they dragged the dividers there, and each panel has its own
-    /// toggle if they want the space back — so the EDITOR yields first and the
-    /// panels render at their prefs.
-    ///
-    /// A 200pt floor here made the panels yield instead, proportionally, which
-    /// is what decoupled a divider from the pointer: with one budget shared
-    /// between both panels, the results panel's displayed width was a function
-    /// of the VARIABLES pref, so 10pt of pointer travel moved the divider 4-5pt
-    /// and dragging one divider moved the other panel.
+    /// panels. The panels render at the widths the user chose and the editor
+    /// absorbs the rest, until the editor reaches this floor.
     ///
     /// When even this floor plus the chosen widths will not fit, the panels are
     /// reduced in a fixed order — results first, then variables, each no
     /// further than its own `minWidth` — and only then does the editor take
-    /// what is left. Fixed order, never proportional.
-    private let minEditorWidth: CGFloat = 80
+    /// what is left. Fixed order, never proportional: reducing both panels
+    /// proportionally made the results panel's displayed width a function of
+    /// the VARIABLES pref, so 10pt of pointer travel moved the divider 4-5pt
+    /// and dragging one divider moved the other panel.
+    ///
+    /// The floor's value is not what makes a drag exact — `widthForDrag` is. By
+    /// stopping a widen at the ceiling, it keeps the prefs inside what can be
+    /// displayed, so the ordered reduction above never engages mid-drag whatever
+    /// this floor is set to.
+    private let minEditorWidth: CGFloat = 200
 
     // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
     private let resultTabsToggle = NSButton()
