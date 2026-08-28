@@ -202,6 +202,9 @@ class ContentViewController: NSViewController {
         resultTabBar.onViewDetail = { [weak self] tabId in
             self?.showResultTabDetail(tabId)
         }
+        resultTabBar.onRenameTab = { [weak self] tabId in
+            self?.renameResultTab(tabId)
+        }
 
         // Action bar setup
         setupActionBar()
@@ -1621,6 +1624,7 @@ class ContentViewController: NSViewController {
                             rt.queryResult = result
                             rt.executionTimeMs = result.executionTimeMs
                             rt.totalRowCountHint = result.rowCount
+                            rt.historyResultId = result.historyEntryId
                             self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
                             // Legacy inline path: it replaces the grid without
@@ -1660,6 +1664,7 @@ class ContentViewController: NSViewController {
                             rt.customLabel = customLabel
                             rt.executeResult = result
                             rt.executionTimeMs = result.executionTimeMs
+                            rt.historyResultId = result.historyEntryId
                             self.addResultTab(rt, forEditorTab: tabId)
                         } else if self.stateManager.activeTabId == tabId {
                             // Legacy inline path: it replaces the grid without
@@ -2025,10 +2030,89 @@ class ContentViewController: NSViewController {
         }
     }
 
-    private func showResultTabDetail(_ tabId: String) {
-        let found = resultTabs.first(where: { $0.id == tabId })
+    /// One result tab by id, wherever it lives: the live array belongs to the
+    /// active editor tab, and every other editor tab's results sit in the
+    /// persisted store. Both surfaces can name a tab that is not the active
+    /// one — a vertical panel in an unfocused pane lists its own tab's results.
+    private func resultTab(withId tabId: String) -> ResultTab? {
+        resultTabs.first(where: { $0.id == tabId })
             ?? resultTabsByEditorTab.values.lazy.flatMap { $0 }.first(where: { $0.id == tabId })
-        guard let tab = found else { return }
+    }
+
+    /// Apply a change to a result tab wherever it lives, and hand back the
+    /// changed tab. The live array is searched FIRST and is authoritative for
+    /// the active editor tab: its entry in `resultTabsByEditorTab` is only
+    /// written on a tab switch, so it can be behind.
+    private func mutateResultTab(id: String, _ body: (inout ResultTab) -> Void) -> ResultTab? {
+        if let idx = resultTabs.firstIndex(where: { $0.id == id }) {
+            body(&resultTabs[idx])
+            return resultTabs[idx]
+        }
+        for (editorTabId, stored) in resultTabsByEditorTab {
+            guard let idx = stored.firstIndex(where: { $0.id == id }) else { continue }
+            var updated = stored
+            body(&updated[idx])
+            resultTabsByEditorTab[editorTabId] = updated
+            return updated[idx]
+        }
+        return nil
+    }
+
+    /// Rename one result tab, from either surface's right-click menu.
+    ///
+    /// The field is prefilled with the name on screen and confirming it
+    /// unchanged is a no-op, not a freeze — `ResultTabName` decides that.
+    /// Clearing it restores the name derived from the query, which is the only
+    /// way back and so is stated in the dialog rather than left to be guessed.
+    private func renameResultTab(_ tabId: String) {
+        guard let tab = resultTab(withId: tabId), let window = view.window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Rename Result"
+        alert.informativeText = "Leave the field empty to restore the name taken from the query."
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = AuthoredLabelSanitizer.sanitized(tab.label)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        // Captured now, not read from the tab inside the completion: the editor
+        // text can move while the sheet is open, and the name the user was
+        // shown is the one their answer should be compared against.
+        let automatic = tab.automaticLabel
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            self.applyResultTabName(
+                ResultTabName.committed(field.stringValue, automatic: automatic),
+                to: tabId
+            )
+        }
+    }
+
+    /// Set (or clear) a result tab's custom name and save it.
+    ///
+    /// A result with no `historyResultId` — a workspace-less run, a result whose
+    /// history row was pruned — renames on screen and has nowhere to be saved.
+    /// That is not a failure and is deliberately silent: the rename did happen.
+    private func applyResultTabName(_ name: String?, to tabId: String) {
+        guard let updated = mutateResultTab(id: tabId, { $0.customLabel = name }) else { return }
+        refreshResultTabViews()
+
+        guard let historyResultId = updated.historyResultId else { return }
+        do {
+            // The empty string CLEARS the stored name; nil would mean "leave it
+            // alone" (see the note on `updateResultMeta`).
+            try PharosCore.updateResultMeta(resultId: historyResultId, customLabel: name ?? "")
+            NotificationCoalescer.post(.workspaceHistoryDidChange)
+        } catch {
+            NSLog("updateResultMeta failed for result \(historyResultId): \(error)")
+        }
+    }
+
+    private func showResultTabDetail(_ tabId: String) {
+        guard let tab = resultTab(withId: tabId) else { return }
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
@@ -2600,6 +2684,14 @@ extension ContentViewController: EditorPaneDelegate {
         showResultTabDetail(resultTabId)
     }
 
+    /// Like the detail handler above, this deliberately ignores `pane` and does
+    /// not select the row: naming a result is not a request to look at it, and
+    /// from an unfocused pane's panel selecting would switch the active editor
+    /// tab and swap the grid. `renameResultTab` finds the tab wherever it lives.
+    func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String) {
+        renameResultTab(resultTabId)
+    }
+
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
         renameTab(id: tabId)
     }
@@ -2695,6 +2787,7 @@ extension ContentViewController {
             rt.totalRowCountHint = result.rowCount
             rt.historySchema = entry.schema
             rt.historyTimestamp = entry.executedAt
+            rt.historyResultId = entry.id
 
             // We CAN'T call addResultTab here: createTab() updates activeTabId
             // synchronously, but activeTabChanged (the Combine sink that swaps
@@ -2774,6 +2867,7 @@ extension ContentViewController {
                 rt.executionTimeMs = UInt64(meta.executionTimeMs)
                 rt.historySchema = meta.schema
                 rt.historyTimestamp = meta.executedAt
+                rt.historyResultId = meta.id
                 rt.isStale = true
                 rt.totalRowCountHint = meta.rowCount
                 // Restore persisted chart config + view mode for this result.

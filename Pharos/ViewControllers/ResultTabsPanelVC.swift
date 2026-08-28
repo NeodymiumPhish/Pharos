@@ -13,6 +13,7 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
     var onSelectRow: ((String) -> Void)?
     var onCloseRow: ((String) -> Void)?
     var onViewDetail: ((String) -> Void)?
+    var onRenameRow: ((String) -> Void)?
 
     private(set) var rows: [ResultTabRowModel] = []
     private var activeId: String?
@@ -320,6 +321,23 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
 
     // MARK: - Context menu
 
+    /// The item set, its order and its wiring, shared with the horizontal
+    /// `ResultTabBar` so the two surfaces cannot drift on what a result tab can
+    /// do.
+    ///
+    /// Wired where it is BUILT, not from `loadView`: `buildRowMenu` is also
+    /// reachable from the `simulateRightClickMenu` seam, and closures attached
+    /// during view loading would leave that path firing nothing. The closures
+    /// read this controller's own callbacks at click time, so they see whatever
+    /// `EditorPaneVC` assigned after init.
+    private lazy var rowMenu: ResultTabContextMenu = {
+        let builder = ResultTabContextMenu()
+        builder.onViewDetail = { [weak self] id in self?.onViewDetail?(id) }
+        builder.onRename = { [weak self] id in self?.onRenameRow?(id) }
+        builder.onClose = { [weak self] id in self?.onCloseRow?(id) }
+        return builder
+    }()
+
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.delegate = self
@@ -339,31 +357,12 @@ extension ResultTabsPanelVC: NSMenuDelegate {
     /// belonging to the one active editor tab, so selecting there costs nothing;
     /// this panel exists once per pane, and selecting from it can switch which
     /// editor tab is active, focus that pane and swap the results grid. Reading
-    /// a row's SQL should not change what the grid shows, and both items below
-    /// carry their own row id, so pre-selecting buys the menu nothing.
+    /// a row's SQL should not change what the grid shows, and every item the
+    /// builder makes carries its own row id, so pre-selecting buys the menu
+    /// nothing.
     private func buildRowMenu(for row: Int, into menu: NSMenu) {
         guard row >= 0, row < rows.count else { return }
-        let id = rows[row].id
-
-        let detail = NSMenuItem(title: "View SQL Query", action: #selector(menuViewDetail(_:)), keyEquivalent: "")
-        detail.target = self
-        detail.representedObject = id
-        menu.addItem(detail)
-
-        let close = NSMenuItem(title: "Close", action: #selector(menuClose(_:)), keyEquivalent: "")
-        close.target = self
-        close.representedObject = id
-        menu.addItem(close)
-    }
-
-    @objc private func menuViewDetail(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        onViewDetail?(id)
-    }
-
-    @objc private func menuClose(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        onCloseRow?(id)
+        rowMenu.build(forTabId: rows[row].id, into: menu)
     }
 }
 

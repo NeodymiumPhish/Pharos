@@ -25,7 +25,7 @@ The **Results History** panel is the second panel of the sidebar (clock icon). P
 Each workspace row shows its name with a subtitle like "4 queries · 2h ago · Local Dev". Workspaces are named after their connection automatically (e.g., "analytics", or "analytics +1" if a second database was also queried); rename them to anything you like.
 
 - **Reopen** — double-click a workspace to restore it as a live editor tab with all of its result tabs rebuilt. If the workspace is already open, Pharos focuses that tab instead. Double-clicking a specific result in the preview reopens the workspace focused on that result.
-- **Preview** — selecting a workspace lists its results in the lower half of the panel: each with its color dot, label, and column/row counts. Selecting a result previews its SQL in the [Inspector](inspector.md).
+- **Preview** — selecting a workspace lists its results in the lower half of the panel: each with its color dot, label, and column/row counts. A result [renamed from its result tab](results-grid.md#result-tabs) shows that name here too. Selecting a result previews its SQL in the [Inspector](inspector.md).
 - **Context menu** — **Rename…**, **Duplicate**, and **Delete** (multi-select supported for deleting several at once). Individual results in the preview offer **Copy SQL** and **Delete this result**.
 
 ## Cached Results

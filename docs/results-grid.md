@@ -27,6 +27,7 @@ Each executed statement gets its own result tab, labeled with the statement's li
 - **Select** a tab to show its result; its source lines are highlighted in the editor, and the tab's grid state (sort, filters, column widths, scroll position, selection) is restored exactly.
 - **Close** a tab with its ✕ button or right-click > **Close**.
 - Right-click > **View SQL Query** shows the exact SQL that produced the result.
+- Right-click > **Rename…** gives the result a name of your own — useful once several tabs read "L4-9: orders" and the line range no longer tells them apart. The name is saved with the result, so [reopening the workspace](query-history.md) brings it back, and the same name appears for that result in the Results History preview list. Leave the field empty to restore the name taken from the query, which then follows the statement again as you edit the SQL.
 - If you edit the SQL a result came from, the tab dims to indicate it is **stale** — the result no longer matches the current editor text. Selecting a stale tab still shows its result, but no longer highlights lines in the editor, because the statement has moved.
 
 ### Where the tabs appear

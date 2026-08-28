@@ -182,20 +182,27 @@ func runTests() {
     var menuSelected: [String] = []
     var menuClosed: [String] = []
     var menuDetailed: [String] = []
+    var menuRenamed: [String] = []
     vc.onSelectRow = { menuSelected.append($0) }
     vc.onCloseRow = { menuClosed.append($0) }
     vc.onViewDetail = { menuDetailed.append($0) }
+    vc.onRenameRow = { menuRenamed.append($0) }
 
     let menu = vc.simulateRightClickMenu(at: 2)
     RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     expectEqual("\(menuSelected.count)", "0", "opening the row menu does not fire onSelectRow")
     expectEqual("\(menuClosed.count)", "0", "opening the row menu does not fire onCloseRow")
+    expectEqual("\(menuRenamed.count)", "0", "opening the row menu does not fire onRenameRow")
 
-    // …and the menu it built still works.
-    expectEqual("\(menu.items.count)", "2", "the row menu carries two items")
-    expectEqual(menu.items.map { $0.title }.joined(separator: ","), "View SQL Query,Close",
-                "the row menu lists View SQL Query then Close")
-    for item in menu.items {
+    // …and the menu it built still works. The item set itself is covered by
+    // scripts/test-result-tab-context-menu.sh, which owns the shared builder;
+    // what this asserts is that THIS panel routes it — a rename that reached no
+    // closure, or reached the wrong one, would leave the row unrenameable.
+    expectEqual("\(menu.items.count)", "4", "the row menu carries four items")
+    expectEqual(menu.items.map { $0.isSeparatorItem ? "—" : $0.title }.joined(separator: ","),
+                "View SQL Query,Rename…,—,Close",
+                "the row menu lists View SQL Query, Rename…, a separator, then Close")
+    for item in menu.items where !item.isSeparatorItem {
         guard let action = item.action, let target = item.target else {
             failures += 1
             print("FAIL a row menu item is wired to a target — \(item.title) has none")
@@ -204,6 +211,7 @@ func runTests() {
         _ = (target as AnyObject).perform(action, with: item)
     }
     expectEqual(menuDetailed.joined(separator: ","), "c", "View SQL Query reports the clicked row")
+    expectEqual(menuRenamed.joined(separator: ","), "c", "Rename… reports the clicked row")
     expectEqual(menuClosed.joined(separator: ","), "c", "Close reports the clicked row")
     expectEqual("\(menuSelected.count)", "0", "invoking a menu item still does not select")
 

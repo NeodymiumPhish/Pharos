@@ -9,6 +9,7 @@ class ResultTabBar: NSView {
     var onSelectTab: ((String) -> Void)?
     var onCloseTab: ((String) -> Void)?
     var onViewDetail: ((String) -> Void)?
+    var onRenameTab: ((String) -> Void)?
 
     // MARK: - State
 
@@ -144,32 +145,20 @@ class ResultTabBar: NSView {
         showContextMenu(tabId: tabId, event: event)
     }
 
+    /// The item set, its order and its wiring, shared with the vertical
+    /// `ResultTabsPanelVC` so the two surfaces cannot drift on what a result tab
+    /// can do. The closures read this view's own callbacks at click time, so
+    /// they see whatever `ContentViewController` assigned after init.
+    private lazy var tabMenu: ResultTabContextMenu = {
+        let builder = ResultTabContextMenu()
+        builder.onViewDetail = { [weak self] id in self?.onViewDetail?(id) }
+        builder.onRename = { [weak self] id in self?.onRenameTab?(id) }
+        builder.onClose = { [weak self] id in self?.onCloseTab?(id) }
+        return builder
+    }()
+
     private func showContextMenu(tabId: String, event: NSEvent) {
-        let menu = NSMenu()
-
-        let viewItem = NSMenuItem(title: "View SQL Query", action: #selector(contextViewDetail(_:)), keyEquivalent: "")
-        viewItem.representedObject = tabId
-        viewItem.target = self
-        menu.addItem(viewItem)
-
-        menu.addItem(.separator())
-
-        let closeItem = NSMenuItem(title: "Close", action: #selector(contextClose(_:)), keyEquivalent: "")
-        closeItem.representedObject = tabId
-        closeItem.target = self
-        menu.addItem(closeItem)
-
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
-
-    @objc private func contextViewDetail(_ sender: NSMenuItem) {
-        guard let tabId = sender.representedObject as? String else { return }
-        onViewDetail?(tabId)
-    }
-
-    @objc private func contextClose(_ sender: NSMenuItem) {
-        guard let tabId = sender.representedObject as? String else { return }
-        onCloseTab?(tabId)
+        NSMenu.popUpContextMenu(tabMenu.menu(forTabId: tabId), with: event, for: self)
     }
 
     // MARK: - Drawing

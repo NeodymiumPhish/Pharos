@@ -1517,6 +1517,13 @@ pub fn delete_workspace_result(conn: &Connection, result_id: &str) -> SqliteResu
 }
 
 /// Update a child result's display metadata (custom label and/or color index).
+///
+/// `None` means "leave this field alone", so a caller changing only the colour
+/// need not know the name. That leaves no way to express "clear the name", which
+/// a result-tab rename needs — an emptied field restores the name derived from
+/// the query — so the EMPTY STRING is that instruction: `Some("")` sets
+/// `custom_label` back to NULL. An empty name is not a name, so nothing is lost
+/// by spending the value this way.
 pub fn update_result_meta(
     conn: &Connection,
     result_id: &str,
@@ -1525,7 +1532,9 @@ pub fn update_result_meta(
 ) -> SqliteResult<bool> {
     let n = conn.execute(
         "UPDATE query_history
-         SET custom_label = COALESCE(?2, custom_label),
+         SET custom_label = CASE WHEN ?2 IS NULL THEN custom_label
+                                 WHEN ?2 = ''    THEN NULL
+                                 ELSE ?2 END,
              color_index  = COALESCE(?3, color_index)
          WHERE id = ?1",
         (result_id, custom_label, color_index),
@@ -2969,5 +2978,113 @@ mod tag_schema_tests {
             )
             .unwrap();
         assert_eq!(kept, 2, "the tag tables must survive the drop");
+    }
+}
+
+#[cfg(test)]
+mod result_meta_tests {
+    use super::*;
+
+    /// A database with the full schema, built the way init_database builds it.
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    /// One history row to rename. Real "now" so it never trips the retention
+    /// prune, and a colour index set up front so the label-only updates below
+    /// can be shown not to disturb it.
+    fn seed(conn: &Connection, id: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO query_history \
+             (id, connection_id, connection_name, sql, row_count, execution_time_ms, \
+              executed_at, color_index) \
+             VALUES (?1, 'c1', 'prod-db', 'SELECT * FROM users', 3, 12, ?2, 4)",
+            (id, &now),
+        )
+        .unwrap();
+    }
+
+    fn label(conn: &Connection, id: &str) -> Option<String> {
+        conn.query_row("SELECT custom_label FROM query_history WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn color(conn: &Connection, id: &str) -> Option<i64> {
+        conn.query_row("SELECT color_index FROM query_history WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_name_is_stored() {
+        let conn = db();
+        seed(&conn, "h1");
+        assert!(update_result_meta(&conn, "h1", Some("Revenue by month"), None).unwrap());
+        assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue by month"));
+    }
+
+    #[test]
+    fn none_leaves_an_existing_name_alone() {
+        // What a colour-only caller relies on: it does not have to know, or
+        // re-send, the name the user chose.
+        let conn = db();
+        seed(&conn, "h1");
+        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        update_result_meta(&conn, "h1", None, Some(2)).unwrap();
+        assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue"));
+        assert_eq!(color(&conn, "h1"), Some(2));
+    }
+
+    #[test]
+    fn the_empty_string_clears_the_name() {
+        // The rename path's "restore the derived name" answer. It must land as
+        // NULL, not as an empty string: the reopen path reads the column and
+        // would show a blank result tab.
+        let conn = db();
+        seed(&conn, "h1");
+        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        assert!(update_result_meta(&conn, "h1", Some(""), None).unwrap());
+        assert_eq!(label(&conn, "h1"), None, "an emptied name is NULL, not \"\"");
+    }
+
+    #[test]
+    fn clearing_a_name_that_was_never_set_is_harmless() {
+        let conn = db();
+        seed(&conn, "h1");
+        assert!(update_result_meta(&conn, "h1", Some(""), None).unwrap());
+        assert_eq!(label(&conn, "h1"), None);
+    }
+
+    #[test]
+    fn a_name_only_update_does_not_disturb_the_colour() {
+        // The result tab's dot is drawn from color_index, so a rename that reset
+        // it would recolour the tab and its gutter stripe.
+        let conn = db();
+        seed(&conn, "h1");
+        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        assert_eq!(color(&conn, "h1"), Some(4), "the seeded colour survives a rename");
+        update_result_meta(&conn, "h1", Some(""), None).unwrap();
+        assert_eq!(color(&conn, "h1"), Some(4), "and survives a cleared name too");
+    }
+
+    #[test]
+    fn an_unknown_result_reports_no_update() {
+        // The Swift side treats false as "nothing was saved"; a silent true here
+        // would hide a rename that went nowhere.
+        let conn = db();
+        seed(&conn, "h1");
+        assert!(!update_result_meta(&conn, "nope", Some("Revenue"), None).unwrap());
+    }
+
+    #[test]
+    fn one_result_is_renamed_and_not_its_siblings() {
+        let conn = db();
+        seed(&conn, "h1");
+        seed(&conn, "h2");
+        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue"));
+        assert_eq!(label(&conn, "h2"), None);
     }
 }

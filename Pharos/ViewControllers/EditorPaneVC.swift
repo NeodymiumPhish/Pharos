@@ -22,6 +22,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
 }
 
 /// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
@@ -237,6 +238,10 @@ class EditorPaneVC: NSViewController {
         resultTabsPanelVC.onCloseRow = { [weak self] id in
             guard let self else { return }
             self.delegate?.editorPane(self, didCloseResultTab: id)
+        }
+        resultTabsPanelVC.onRenameRow = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestResultTabRename: id)
         }
         resultTabsPanelVC.onViewDetail = { [weak self] id in
             guard let self else { return }

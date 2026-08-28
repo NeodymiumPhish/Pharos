@@ -25,6 +25,17 @@ struct ResultTab: Identifiable {
     var historySchema: String?
     var historyTimestamp: String?
 
+    /// The `query_history` row this result was recorded as, when it has one.
+    ///
+    /// The address a rename is persisted to (`PharosCore.updateResultMeta`
+    /// takes exactly this id). `queryResult?.historyEntryId` almost serves and
+    /// deliberately is not used: it is nil for a statement, which reports its
+    /// history id on `ExecuteResult` instead, and nil again for a restored
+    /// "SQL only" stub, which has a stored row but no rows in memory. Nil means
+    /// there is nothing to write to, not that the result is invalid — a rename
+    /// still applies on screen.
+    var historyResultId: String?
+
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
@@ -42,9 +53,19 @@ struct ResultTab: Identifiable {
     /// Whether the editor text has been modified since this result was produced.
     var isStale: Bool = false
 
-    /// Short label for the tab, e.g. "L1-3: users" or a custom name for browse actions.
-    var label: String {
-        if let custom = customLabel { return custom }
+    /// Short label for the tab, e.g. "L1-3: users" or a custom name for browse
+    /// actions. The name the user renamed it to, if any, otherwise the name
+    /// derived from the query.
+    var label: String { customLabel ?? automaticLabel }
+
+    /// The name derived from the query itself, with no custom name applied.
+    ///
+    /// Split out of `label` for the rename dialog, which prefills with the name
+    /// on screen: a user who opens it and confirms without typing would
+    /// otherwise freeze this string as a custom name, and the tab would silently
+    /// stop following its statement as the editor text moves. `ResultTabName`
+    /// compares against this to refuse that.
+    var automaticLabel: String {
         let lineStr: String
         if lineRange.count == 1 {
             lineStr = "L\(lineRange.lowerBound)"

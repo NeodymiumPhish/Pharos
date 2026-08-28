@@ -82,6 +82,16 @@ extension PharosCore {
 
     struct UpdateResultMetaPayload: Codable { let resultId: String; let customLabel: String?; let colorIndex: Int? }
 
+    /// Change a saved result's display metadata.
+    ///
+    /// `resultId` is the `query_history` row id — `ResultTab.historyResultId`,
+    /// or `WorkspaceResultMeta.id`.
+    ///
+    /// Each field is optional and nil means "leave it alone", so a caller
+    /// changing one need not know the other. To CLEAR a custom name, pass the
+    /// empty string: `nil` would leave the stored name in place. That is the
+    /// core's convention, not this wrapper's — see `update_result_meta` in
+    /// `pharos-core/src/db/sqlite.rs`.
     @discardableResult
     static func updateResultMeta(resultId: String, customLabel: String? = nil, colorIndex: Int? = nil) throws -> Bool {
         let payload = UpdateResultMetaPayload(resultId: resultId, customLabel: customLabel, colorIndex: colorIndex)
