@@ -190,6 +190,69 @@ func runTests() {
     expectEqual(menuClosed.joined(separator: ","), "c", "Close reports the clicked row")
     expectEqual("\(menuSelected.count)", "0", "invoking a menu item still does not select")
 
+    // A row's contents must fill the panel after a resize that pushes NO rows.
+    // This is the divider-drag path: `update` is not called, so nothing reloads
+    // the table and nothing rebuilds the cells. The reported symptom was a row
+    // whose highlight filled the panel while its contents sat in the leftmost
+    // part of it, with a gap beyond the counts — which is what a column
+    // narrower than the clip view looks like, because the highlight is drawn by
+    // the full-width ROW view and the contents live in the CELL view.
+    //
+    // Read as a regression guard, not as a proof: these assertions also hold
+    // with `viewDidLayout` removed, because the column's `.autoresizingMask`
+    // already tracks the clip view in every condition reproducible here. They
+    // pin the invariant both mechanisms exist to keep.
+    let sizeVC = ResultTabsPanelVC()
+    let sizeWindow = host(sizeVC, width: 300, height: 200)
+    defer { sizeWindow.orderOut(nil) }
+
+    // Pushed ONCE. Every measurement below resizes without pushing again.
+    sizeVC.update(rows: rows, activeId: "a")
+    sizeVC.view.layoutSubtreeIfNeeded()
+
+    /// Resize the panel the way a divider drag does and report the realised row.
+    /// Deliberately no `update` call: a reload would rebuild the cells at the
+    /// current width and hide exactly what this is testing.
+    func resize(to width: CGFloat) -> (cell: ResultTabRowCell?, clip: CGFloat) {
+        sizeVC.view.frame = NSRect(x: 0, y: 0, width: width, height: 200)
+        sizeVC.view.needsLayout = true
+        sizeVC.view.layoutSubtreeIfNeeded()
+        return (sizeVC.cellForTesting(row: 0), sizeVC.clipWidth)
+    }
+
+    /// The three things the user can see: the row fills the visible width, the
+    /// trailing group sits at the row's right edge, and the dot stays put.
+    func expectRowFills(_ width: CGFloat, _ stage: String) {
+        let (cell, clip) = resize(to: width)
+        guard let cell else {
+            failures += 1
+            print("FAIL \(stage) — no cell view at row 0")
+            return
+        }
+        expectEqual("\(abs(cell.frame.width - clip) < 1.0)", "true",
+                    "\(stage): the row fills the visible width (cell \(cell.frame.width), clip \(clip))")
+        // The close button is pinned 6pt inside the trailing edge, so its right
+        // edge must land just short of the row's. This is the user's complaint:
+        // the counts and the close button stranding mid-row.
+        let trailingGap = cell.frame.width - cell.closeButton.frame.maxX
+        expectEqual("\(trailingGap > 0 && trailingGap < 10)", "true",
+                    "\(stage): the close button sits at the row's right edge (gap \(trailingGap))")
+        expectEqual("\(cell.dot.frame.minX)", "8.0",
+                    "\(stage): the dot keeps its 8pt leading inset")
+    }
+
+    // Non-vacuity: the two widths must actually differ, or none of this proves
+    // the row tracked anything.
+    let narrowClip = resize(to: 200).clip
+    let wideClip = resize(to: 460).clip
+    expectTrue(wideClip > narrowClip + 100,
+               "the panel really resized (clip \(narrowClip) -> \(wideClip))")
+
+    // Both directions, because the user hit both.
+    expectRowFills(200, "narrow")
+    expectRowFills(460, "widened")
+    expectRowFills(200, "narrowed again")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

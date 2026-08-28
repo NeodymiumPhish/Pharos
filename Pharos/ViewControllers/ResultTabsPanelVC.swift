@@ -40,6 +40,12 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
     /// a reload there would yank the list back to the active row.
     var scrollOffsetY: CGFloat { scrollView.contentView.bounds.origin.y }
 
+    /// The visible content width the rows must fill, so a test can prove a cell
+    /// tracks the panel across a resize rather than asserting a magic number.
+    /// Not the panel's own width: the scroll view is inset 1pt for the leading
+    /// hairline, and a visible scroller takes its width from this too.
+    var clipWidth: CGFloat { scrollView.contentView.bounds.width }
+
     func simulateRowClick(at index: Int) {
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
@@ -97,6 +103,15 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("result"))
+        // Kept, deliberately, even though `viewDidLayout` now sets the width
+        // explicitly. Autoresizing is the mechanism measured to work in every
+        // reproducible condition; the explicit set covers the environment where
+        // it apparently does not. Turning it off — with `[]` and
+        // `.noColumnAutoresizing` — would leave only the unproven mechanism and
+        // make any layout path that skips `viewDidLayout` strictly worse. There
+        // is no fight: both want the same value, and the assignment is guarded.
+        // The mask deliberately omits `.userResizingMask`: there is no header,
+        // so there is no divider to drag, and the width is not the user's to set.
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
         tableView.headerView = nil
@@ -156,6 +171,37 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
             emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 8),
             emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
         ])
+    }
+
+    // MARK: - Layout
+
+    /// Pin the single column to the visible content width.
+    ///
+    /// Honest note on why this is here. The reported symptom is a row whose
+    /// selection highlight fills the panel while its contents — dot, label,
+    /// counts, close button — sit in the leftmost part of the row, with a gap
+    /// beyond the counts. A row's highlight is drawn by its ROW view, which
+    /// always spans the table, while the contents live in the CELL view, whose
+    /// width is the column's. So the symptom says the column was narrower than
+    /// the clip view on the user's machine.
+    ///
+    /// I could not reproduce that. With `resizingMask = .autoresizingMask` the
+    /// column tracked the clip view in every condition I could build: frames set
+    /// from a parent's `viewDidLayout`, deferred passes, coalesced drag steps,
+    /// both scroller styles, with and without overflow, and — checked
+    /// specifically — resizes with no `update`/`reloadData` in between, holding
+    /// the same cell instance throughout.
+    ///
+    /// This is therefore insurance, not a demonstrated repair: it makes the
+    /// invariant explicit and cheap to hold instead of relying on AppKit's
+    /// implicit autoresizing, which evidently behaves differently somewhere. The
+    /// guard keeps it idempotent, so it cannot fight the autoresizing that is
+    /// already doing the job, and cannot loop.
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard let column = tableView.tableColumns.first else { return }
+        let width = scrollView.contentView.bounds.width
+        if abs(column.width - width) > 0.5 { column.width = width }
     }
 
     // MARK: - Input
