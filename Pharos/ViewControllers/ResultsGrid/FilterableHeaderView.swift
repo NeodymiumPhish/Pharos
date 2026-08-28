@@ -446,7 +446,30 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
             // [minWidth, maxWidth] itself, so a second clamp would only be a
             // copy of that rule waiting to fall out of step with it.
             column.width = startWidth + (event.locationInWindow.x - grab.anchorX)
+            keepDraggedEdgeVisible(columnIndex: grab.columnIndex)
         }
+    }
+
+    /// Scroll so the divider being dragged stays in view — the Finder behaviour.
+    ///
+    /// Widening tracks the pointer, and the pointer is free to travel past the
+    /// grid's right edge into whatever sits beyond it. Without this, the width
+    /// keeps growing but the dragged edge slides out of sight behind the
+    /// scroller, so the user is resizing something they can no longer see. The
+    /// grid scrolls under the pointer instead, keeping the edge pinned at the
+    /// viewport edge for as long as the drag continues, in either direction.
+    ///
+    /// Scrolled through the TABLE, not the clip: a direct clip-origin move does
+    /// not carry the header clip with it, and this view would then be drawing
+    /// at a stale offset while the rows moved.
+    private func keepDraggedEdgeVisible(columnIndex: Int) {
+        guard let tableView = tableView,
+              let clip = tableView.enclosingScrollView?.contentView else { return }
+        let divider = headerRect(ofColumn: columnIndex).maxX
+        // A sliver either side of the divider, at the top of whatever is
+        // already visible so no vertical scroll can result.
+        tableView.scrollToVisible(NSRect(
+            x: divider - 1, y: clip.bounds.origin.y, width: 2, height: 1))
     }
 
     /// The resize cursor covers the same zone the click does. `super` installs

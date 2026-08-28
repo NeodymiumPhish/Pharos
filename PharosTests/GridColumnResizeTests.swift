@@ -326,6 +326,36 @@ func runTests() {
                     "the cut-off column's edge lands on the pointer, \(Int(-dx))pt in")
     }
 
+    // Widening past the viewport edge keeps the dragged edge in view — the
+    // Finder behaviour. The pointer travels beyond the grid, the width follows
+    // it, and the grid scrolls underneath so the divider stays pinned at the
+    // viewport edge instead of sliding out of sight behind the scroller.
+    let widen = Rig(widths: narrow)
+    let widenBefore = widen.width(ofColumn: 2)
+    widen.drag(fromX: widen.divider(ofColumn: 2) - 2, dx: 400)
+    widen.settle()
+    expectEqual("\(widen.width(ofColumn: 2) - widenBefore)", "400.0",
+                "a 400pt widening drag grows the column by 400pt")
+    expectTrue(widen.headerTracksContent, "the widening drag keeps the header on the rows' offset")
+    // The drag pins the divider at the viewport edge; when it ends, the newly
+    // overflowing columns earn the trailing scroll room and the settle parks
+    // the divider that far inside. Anywhere in [0, room] is on screen and
+    // grabbable — behind the scroller (negative) is the bug.
+    let widenGap = widen.visibleRightEdge - widen.divider(ofColumn: 2)
+    expectTrue(widenGap >= 0 && widenGap <= InsetScrollView.trailingScrollRoom,
+               "the widened edge comes to rest on screen, not behind the scroller (gap \(widenGap))")
+
+    // And the same drag continued in the other direction brings the divider
+    // back inboard with the view still tracking it.
+    let shrinkBack = Rig(widths: narrow)
+    shrinkBack.drag(fromX: shrinkBack.divider(ofColumn: 2) - 2, dx: 400)
+    shrinkBack.settle()
+    shrinkBack.drag(fromX: shrinkBack.visibleRightEdge - 2, dx: -100)
+    shrinkBack.settle()
+    expectTrue(shrinkBack.divider(ofColumn: 2) <= shrinkBack.visibleRightEdge,
+               "shrinking back keeps the divider on screen")
+    expectTrue(shrinkBack.headerTracksContent, "the shrinking drag keeps the header on the rows' offset")
+
     // The corner cap above the vertical scroller may cover nothing left of the
     // scroller's own column: with the trailing room in force AppKit parks it
     // 16pt further left, exactly over the parked divider, hiding it and its
