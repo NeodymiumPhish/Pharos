@@ -157,6 +157,23 @@ func runTests() {
     expectEqual("\(vc.selectedRowIndex)", "38", "the moved activeId highlights its row")
     expectTrue(vc.scrollOffsetY > 0, "an activeId change scrolls the new row into view")
 
+    // A close button belongs to the ACTIVE row and to no other. `configure`
+    // runs only from `viewFor`, so an activeId-only push used to move the
+    // highlight while leaving the outgoing row's ✕ on screen — reachable by
+    // switching editor tabs and back, then selecting a different result.
+    let two = [model("k0", label: "zero"), model("k1", label: "one")]
+    vc.update(rows: two, activeId: "k0")
+    expectFalse(vc.cellForTesting(row: 0)?.closeButton.isHidden ?? true,
+                "the active row shows its close button")
+    expectTrue(vc.cellForTesting(row: 1)?.closeButton.isHidden ?? false,
+               "an inactive row shows none")
+
+    vc.update(rows: two, activeId: "k1")
+    expectTrue(vc.cellForTesting(row: 0)?.closeButton.isHidden ?? false,
+               "the row that lost active state loses its close button")
+    expectFalse(vc.cellForTesting(row: 1)?.closeButton.isHidden ?? true,
+                "the row that gained it shows one")
+
     // Opening the row menu must have no side effects. onSelectRow is wired to
     // the cross-pane path, so selecting here focuses the pane, changes the
     // active editor tab and swaps the results grid — before the user has chosen

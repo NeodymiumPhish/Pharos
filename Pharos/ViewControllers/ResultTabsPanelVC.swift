@@ -262,6 +262,16 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         if rowsChanged {
             headerLabel.stringValue = rows.isEmpty ? "Results" : "Results · \(rows.count)"
             emptyLabel.isHidden = !rows.isEmpty
+        }
+        // Reload on an activeId change too, not just a rows change. A cell's
+        // close button is shown by `configure(model:isActive:)`, which runs
+        // ONLY from `viewFor` — so without a reload the outgoing row keeps its
+        // `isActive` and its ✕ while the incoming row never gets one. Moving
+        // the table's selection below repaints the highlight but cannot fix
+        // that. This does not reopen the scroll-fight: the 250 ms re-resolve
+        // tick pushes identical rows AND an identical activeId, so it still
+        // reloads nothing, and `scrollRowToVisible` stays separately guarded.
+        if rowsChanged || activeIdChanged {
             tableView.reloadData()
         }
 
