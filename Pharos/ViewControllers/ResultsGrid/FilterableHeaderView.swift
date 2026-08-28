@@ -36,7 +36,7 @@ protocol FilterableHeaderViewDelegate: AnyObject {
 /// - Sort chevron on the LEFT side of the column name (always visible when sort active)
 /// - Filter icon on the RIGHT side (shown on hover or when filter active)
 /// - Double-click on column right edge triggers auto-fit
-class FilterableHeaderView: NSTableHeaderView {
+class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
 
     weak var filterDelegate: FilterableHeaderViewDelegate?
 
@@ -326,6 +326,20 @@ class FilterableHeaderView: NSTableHeaderView {
     /// cursor advertises and the click does not honour is what this view used to
     /// have.
     private static let resizeEdgeThreshold: CGFloat = 6
+
+    /// First claim on the header band, consulted by `InsetScrollView.hitTest`.
+    /// The scroll view's macOS 26 glass furniture — the scroll pocket, its
+    /// backdrops, the corner cap — otherwise takes the click before it can
+    /// reach this view, exactly over the strip where the last column's resize
+    /// handle lives.
+    ///
+    /// Claimed narrowly — the resize handles only, not the whole band. Today's
+    /// chrome does nothing with a header-band click, so a greedy claim would be
+    /// invisible in behaviour; it stays narrow so a future piece of chrome that
+    /// IS interactive loses only the handles to us.
+    func claimsHeaderBandPoint(_ point: NSPoint) -> Bool {
+        columnEdgeGrab(at: point) != nil
+    }
 
     /// A grab on a column's right edge: which column, and the x the drag is
     /// measured from, in WINDOW coordinates.

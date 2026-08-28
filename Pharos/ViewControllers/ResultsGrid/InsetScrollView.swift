@@ -1,5 +1,23 @@
 import AppKit
 
+// MARK: - Header Band Claims
+
+/// A table header that wants first claim on pointer events in the header band,
+/// ahead of the scroll view's own chrome.
+///
+/// On macOS 26 the band around a header is layered with Liquid Glass furniture —
+/// an `NSScrollPocket`, `BackdropView`s, the legacy-scroller corner cap — and the
+/// header clip view passes hit-tests through wherever a content inset is in
+/// force. Measured result: a click on the last column's resize handle landed on
+/// a backdrop or the corner, never on the header, and the column could not be
+/// resized. The header cannot defend itself from below that chrome, so the
+/// scroll view asks it FIRST — see `InsetScrollView.hitTest`.
+protocol HeaderBandClaiming: AnyObject {
+    /// Whether a pointer at `point`, in the header's own coordinates, is on
+    /// something the header must receive — a resize handle, today.
+    func claimsHeaderBandPoint(_ point: NSPoint) -> Bool
+}
+
 // MARK: - Scroll View with Non-Overlapping Scrollers
 
 /// NSScrollView subclass that positions scrollers outside the content area
@@ -8,6 +26,24 @@ import AppKit
 /// It also keeps a little scroll room past the last column — see
 /// `trailingScrollRoom`, which is what makes the end of the table reachable.
 class InsetScrollView: NSScrollView {
+
+    /// Route header-band clicks on a resize handle to the header, over whatever
+    /// chrome is stacked there. See `HeaderBandClaiming` for why the header
+    /// cannot win this from below.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let superview,
+           bounds.contains(convert(point, from: superview)),
+           let header = (documentView as? NSTableView)?.headerView,
+           header.superview != nil,
+           let claiming = header as? HeaderBandClaiming {
+            let inHeader = header.convert(point, from: superview)
+            if inHeader.y >= 0, inHeader.y < header.bounds.height,
+               claiming.claimsHeaderBandPoint(inHeader) {
+                return header
+            }
+        }
+        return super.hitTest(point)
+    }
 
     /// Scroll room past the right end of the columns.
     ///
@@ -56,6 +92,21 @@ class InsetScrollView: NSScrollView {
         // Horizontal scroller: right below the clip view
         if hasHoriz, let hs = horizontalScroller {
             hs.frame = NSRect(x: 0, y: clipFrame.maxY, width: clipFrame.width, height: horizH)
+        }
+
+        // The grey cap above the vertical scroller (`NSTableView.cornerView`,
+        // created for legacy scrollers only). `super.tile()` puts its LEFT edge
+        // at `width − scroller − contentInsets.right`, so the trailing scroll
+        // room below moved it 16pt left — directly over the strip of header
+        // where the last column's divider comes to rest. There it hid the
+        // divider, the funnel and the sort mark, and being the front view it
+        // swallowed every click on them: the column could not be resized at
+        // all. Pin it over the scroller's own column, where it caps the band
+        // and covers nothing that can be interacted with.
+        if hasVert, let corner = (documentView as? NSTableView)?.cornerView,
+           corner.superview === self {
+            corner.frame = NSRect(x: bounds.width - vertW, y: corner.frame.minY,
+                                  width: vertW, height: corner.frame.height)
         }
 
         updateTrailingScrollRoom(clipWidth: clipFrame.width)

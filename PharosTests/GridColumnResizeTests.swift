@@ -180,18 +180,45 @@ private final class Rig {
     /// FIRST so whichever tracking loop the mouse-down starts — ours or
     /// AppKit's — finds them in the queue; a headless binary has no run loop
     /// pumping events behind it.
+    ///
+    /// The mouse-down is delivered to whichever view HIT-TESTING chooses, not
+    /// straight to the header — the same routing the window gives a real
+    /// pointer. Delivering to the header directly is how this suite once stayed
+    /// green while `_NSCornerView` — the grey cap above the vertical scroller —
+    /// was swallowing the user's clicks on the last column's divider.
+    /// (`window.sendEvent` would be the full path, but a never-shown window
+    /// drops mouse events outright, so the dispatch is done by hand.)
+    private func deliverMouseDown(_ e: NSEvent) {
+        hitView(at: e.locationInWindow)?.mouseDown(with: e)
+    }
+
+    /// `NSView.hitTest` takes the point in the receiver's SUPERVIEW's
+    /// coordinates; the content view's superview is the window's frame view,
+    /// whose coordinates are the window's.
+    private func hitView(at locationInWindow: NSPoint) -> NSView? {
+        guard let root = window.contentView, let frameView = root.superview else { return nil }
+        return root.hitTest(frameView.convert(locationInWindow, from: nil))
+    }
+
+    /// The type name of the view a pointer at `x` in the header band lands on.
+    func hitName(atX x: CGFloat) -> String {
+        let inWindow = header.convert(NSPoint(x: x, y: 17), to: nil)
+        guard let hit = hitView(at: inWindow) else { return "nil" }
+        return String(describing: type(of: hit))
+    }
+
     func drag(fromX x: CGFloat, dx: CGFloat) {
         let y: CGFloat = 17
         NSApp.postEvent(event(.leftMouseUp, at: NSPoint(x: x + dx, y: y)), atStart: false)
         NSApp.postEvent(event(.leftMouseDragged, at: NSPoint(x: x + dx, y: y)), atStart: true)
-        header.mouseDown(with: event(.leftMouseDown, at: NSPoint(x: x, y: y)))
+        deliverMouseDown(event(.leftMouseDown, at: NSPoint(x: x, y: y)))
         drainEvents()
     }
 
     func click(atX x: CGFloat, clicks: Int = 1) {
         let y: CGFloat = 17
         NSApp.postEvent(event(.leftMouseUp, at: NSPoint(x: x, y: y)), atStart: false)
-        header.mouseDown(with: event(.leftMouseDown, at: NSPoint(x: x, y: y), clicks: clicks))
+        deliverMouseDown(event(.leftMouseDown, at: NSPoint(x: x, y: y), clicks: clicks))
         drainEvents()
     }
 
@@ -297,6 +324,21 @@ func runTests() {
         rig.drag(fromX: edge - 2, dx: dx)
         expectEqual("\(rig.divider(ofColumn: 2))", "\(edge - 2 + dx)",
                     "the cut-off column's edge lands on the pointer, \(Int(-dx))pt in")
+    }
+
+    // The corner cap above the vertical scroller may cover nothing left of the
+    // scroller's own column: with the trailing room in force AppKit parks it
+    // 16pt further left, exactly over the parked divider, hiding it and its
+    // funnel. Clicks are saved by the scroll view's hit-test routing either
+    // way, but the pixels are not — this is the guard on the visual.
+    let capped = Rig(widths: wide)
+    capped.scrollToRightEnd()
+    if let corner = capped.tableView.cornerView {
+        let cornerMinX = capped.scrollView.convert(corner.frame, from: corner.superview).minX
+        expectTrue(cornerMinX >= capped.scrollView.contentView.frame.maxX,
+                   "the corner cap covers nothing left of the scroller column")
+    } else {
+        expectTrue(true, "no corner cap on this scroller style; nothing to cover the divider")
     }
 
     // The scroll room is what makes the end of the table reachable, and it has to
