@@ -161,6 +161,16 @@ class FilterableHeaderView: NSTableHeaderView {
             }
         }
 
+        // A divider grab is decided BEFORE anything else, and is run here rather
+        // than handed to super — see `trackResize(ofColumn:from:)`. It also has
+        // to come before `column(at:)`, which reports -1 for the empty header
+        // region past the last column: half of that column's grab zone lives
+        // there.
+        if let resizeColIndex = columnIndexForResizeEdge(at: point) {
+            trackResize(ofColumn: resizeColIndex, from: event)
+            return
+        }
+
         let colIndex = column(at: point)
         guard colIndex >= 0, let tableView = tableView else {
             super.mouseDown(with: event)
@@ -184,12 +194,6 @@ class FilterableHeaderView: NSTableHeaderView {
         }
 
         let headerRect = self.headerRect(ofColumn: colIndex)
-        // Near column edge -> let super handle resize drag
-        if columnIndexForResizeEdge(at: point) != nil {
-            super.mouseDown(with: event)
-            return
-        }
-
         let iconRect = filterIconRect(inHeaderRect: headerRect)
 
         if iconRect.contains(point) {
@@ -316,17 +320,83 @@ class FilterableHeaderView: NSTableHeaderView {
         return NSRect(x: headerRect.maxX - side - 8, y: row2MidY - side / 2, width: side, height: side)
     }
 
-    /// Returns the column index to auto-fit if the point is near a column's right edge (~4px).
+    /// How far either side of a column's right edge counts as grabbing that
+    /// edge — for the resize drag, for the auto-fit double-click, and for the
+    /// resize cursor. One constant so the three cannot drift apart: a zone the
+    /// cursor advertises and the click does not honour is what this view used to
+    /// have.
+    private static let resizeEdgeThreshold: CGFloat = 6
+
+    /// The column whose right edge the point grabs, or nil for a point that
+    /// grabs no edge.
     private func columnIndexForResizeEdge(at point: NSPoint) -> Int? {
         guard let tableView = tableView else { return nil }
-        let threshold: CGFloat = 6
         for (index, _) in tableView.tableColumns.enumerated() {
             let rect = headerRect(ofColumn: index)
-            if abs(point.x - rect.maxX) <= threshold {
+            if abs(point.x - rect.maxX) <= Self.resizeEdgeThreshold {
                 return index
             }
         }
         return nil
+    }
+
+    // MARK: - Resize Drag
+
+    /// Resize the column at `index` from the pointer until the button comes up.
+    ///
+    /// The drag is run here instead of being handed to `super.mouseDown` because
+    /// `NSTableHeaderView` starts a resize only within about 2pt of a divider,
+    /// while the grab zone above promises 6. The points in between did nothing
+    /// at all — the click was swallowed, not passed on — and on the LAST column
+    /// they are the only points a pointer can reach: that divider sits at the
+    /// table's right edge, so once the grid is scrolled fully right, the divider
+    /// itself and everything outside it are behind the vertical scroller. That
+    /// left a 2pt target against the scroll bar, which reads as a column that
+    /// cannot be resized at all.
+    ///
+    /// Deltas are measured in WINDOW coordinates. This view's own coordinates
+    /// move with the horizontal scroll, which a resize can itself provoke by
+    /// changing the document width.
+    ///
+    /// The gate is AppKit's own: the table must allow column resizing and the
+    /// column must be user-resizable. Anything refused here falls through to
+    /// super, so a locked column keeps whatever super makes of the click.
+    private func trackResize(ofColumn index: Int, from startEvent: NSEvent) {
+        guard let tableView = tableView,
+              index < tableView.tableColumns.count,
+              tableView.allowsColumnResizing,
+              tableView.tableColumns[index].resizingMask.contains(.userResizingMask) else {
+            super.mouseDown(with: startEvent)
+            return
+        }
+
+        let column = tableView.tableColumns[index]
+        let startX = startEvent.locationInWindow.x
+        let startWidth = column.width
+
+        while let event = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if event.type == .leftMouseUp { break }
+            // No clamping here: `NSTableColumn.width` holds the width inside
+            // [minWidth, maxWidth] itself, so a second clamp would only be a
+            // copy of that rule waiting to fall out of step with it.
+            column.width = startWidth + (event.locationInWindow.x - startX)
+        }
+    }
+
+    /// The resize cursor covers the same zone the click does. `super` installs
+    /// it over its own ~2pt only, which is why the last column's edge — the one
+    /// standing against the scroller — did not look grabbable.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let tableView = tableView, tableView.allowsColumnResizing else { return }
+        for (index, column) in tableView.tableColumns.enumerated() {
+            guard column.resizingMask.contains(.userResizingMask) else { continue }
+            let rect = headerRect(ofColumn: index)
+            addCursorRect(
+                NSRect(x: rect.maxX - Self.resizeEdgeThreshold, y: rect.minY,
+                       width: Self.resizeEdgeThreshold * 2, height: rect.height),
+                cursor: .resizeLeftRight)
+        }
     }
 }
 
