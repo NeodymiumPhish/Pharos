@@ -47,6 +47,13 @@ struct WorkspaceResultMeta: Codable {
     let executedAt: String
     let chartViewStateJson: String?
     let rawSql: String?
+    /// The editor line range this result was produced from — 1-based and
+    /// inclusive. Both nil when the result came from no editor segment (a browse
+    /// action, a whole-editor run, a drill), and on rows recorded before the
+    /// range was stored. `ResultTabName.derived` then leaves the `L…:` prefix
+    /// off the result tab's name.
+    let lineStart: Int?
+    let lineEnd: Int?
 }
 
 /// Full workspace payload for reopen.

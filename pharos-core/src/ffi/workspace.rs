@@ -23,28 +23,19 @@ pub extern "C" fn pharos_upsert_workspace(json: *const c_char) -> *mut c_char {
     })
 }
 
-/// Associate a result. `json` = {historyId, workspaceId, resultOrder, colorIndex}.
+/// Associate a result. `json` = ResultAssociation
+/// ({historyId, workspaceId, resultOrder, colorIndex, rawSql?, lineStart?, lineEnd?, customLabel?}).
 #[no_mangle]
 pub extern "C" fn pharos_associate_result(json: *const c_char) -> *mut c_char {
     ffi_sync!({
         let state = app_state();
         let rt = runtime();
         let s = unsafe { c_str_to_string(json) };
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Assoc {
-            history_id: String,
-            workspace_id: String,
-            result_order: i64,
-            color_index: i64,
-            #[serde(default)]
-            raw_sql: Option<String>,
-        }
-        let a: Assoc = match serde_json::from_str(&s) {
+        let a: crate::models::ResultAssociation = match serde_json::from_str(&s) {
             Ok(a) => a,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
-        match rt.block_on(crate::commands::associate_result(a.history_id, a.workspace_id, a.result_order, a.color_index, a.raw_sql, state)) {
+        match rt.block_on(crate::commands::associate_result(a, state)) {
             Ok(()) => to_c_string("true"),
             Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
         }

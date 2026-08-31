@@ -1,9 +1,10 @@
 // Standalone test runner for ResultTabName. Not part of the app target —
 // compiled together with the implementation by scripts/test-result-tab-name.sh.
 //
-// This is the whole rule for what a result-tab rename commits, so the two
-// answers that mean "no custom name" are covered here rather than being left to
-// inspection of the caller.
+// This is the whole rule for a result tab's name: what a rename commits, and
+// what the tab is called when nothing was renamed. The two answers that mean
+// "no custom name" are covered here rather than being left to inspection of the
+// caller — and so is the derived name they hand the tab back to.
 import Foundation
 
 var failures = 0
@@ -102,10 +103,65 @@ func runTests() {
                    "committing an already-committed name changes nothing")
     }
 
+    // MARK: The derived name
+
+    // The name a live run shows: the statement's line range, then its table.
+    expectDerived(ResultTabName.derived(lineRange: 1...3, sql: "SELECT *\nFROM users\nWHERE id = 1"),
+                  "L1-3: users",
+                  "a multi-line statement names its line range and its table")
+    expectDerived(ResultTabName.derived(lineRange: 4...4, sql: "SELECT * FROM users"),
+                  "L4: users",
+                  "a one-line statement names the single line")
+
+    // No line range means the result came from no editor segment — a browse
+    // action, a whole-editor run, a drill, or a result restored from a workspace
+    // recorded before the range was stored. `L0:` would state a line the
+    // statement is not on, so the prefix is left off entirely.
+    expectDerived(ResultTabName.derived(lineRange: 0...0, sql: "SELECT * FROM users"),
+                  "users",
+                  "with no line range the name is the table alone")
+
+    // The statement's own shape, not its position, decides the subject.
+    expectDerived(ResultTabName.derived(lineRange: 2...2, sql: "UPDATE public.orders SET x = 1"),
+                  "L2: orders",
+                  "a schema prefix is not part of the table name")
+    expectDerived(ResultTabName.derived(lineRange: 2...2, sql: #"SELECT * FROM "Odd Name""#),
+                  "L2: Odd Name",
+                  "a quoted table name is unquoted")
+    expectDerived(ResultTabName.derived(lineRange: 1...1, sql: "INSERT INTO logs VALUES (1)"),
+                  "L1: logs",
+                  "INSERT INTO names its target")
+
+    // No table to read: the first line stands in, cut to 30 characters.
+    expectDerived(ResultTabName.derived(lineRange: 1...1, sql: "SELECT now()"),
+                  "L1: SELECT now()",
+                  "a statement with no table falls back to its first line")
+    expectDerived(ResultTabName.derived(lineRange: 1...1, sql: String(repeating: "a", count: 40)),
+                  "L1: " + String(repeating: "a", count: 30) + "…",
+                  "a long first line is cut to 30 characters")
+
+    // A name must be visible. An empty SQL string would otherwise give an empty
+    // tab, which the user cannot click with confidence.
+    expectDerived(ResultTabName.derived(lineRange: 0...0, sql: "   "), "Result",
+                  "an empty statement still gets a visible name")
+
+    // The rename rule and the derived name have to agree, or the prefilled
+    // dialog confirmed unchanged would freeze the derived name as a custom one.
+    let derived = ResultTabName.derived(lineRange: 1...3, sql: "SELECT *\nFROM users\nWHERE id = 1")
+    expectNil(ResultTabName.committed(derived, automatic: derived),
+              "the derived name is refused as a custom name by the rename rule")
+
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     if failures > 0 { exit(1) }
 }
 
 func expectTrueName(_ actual: Bool, _ name: String) {
     if actual { print("PASS \(name)") } else { failures += 1; print("FAIL \(name) — expected true") }
+}
+
+func expectDerived(_ actual: String, _ expected: String, _ name: String) {
+    if actual == expected { print("PASS \(name)") } else {
+        failures += 1
+        print("FAIL \(name)\n  expected: \(expected)\n  actual:   \(actual)")
+    }
 }

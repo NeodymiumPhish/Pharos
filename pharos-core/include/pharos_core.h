@@ -383,7 +383,8 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_upsert_workspace(const char *json);
 
 /**
- * Associate a result. `json` = {historyId, workspaceId, resultOrder, colorIndex}.
+ * Associate a result. `json` = ResultAssociation
+ * ({historyId, workspaceId, resultOrder, colorIndex, rawSql?, lineStart?, lineEnd?, customLabel?}).
  */
  char *pharos_associate_result(const char *json);
 

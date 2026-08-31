@@ -1,5 +1,5 @@
 use crate::db::sqlite;
-use crate::models::{WorkspaceDetail, WorkspaceSummary, WorkspaceUpsert};
+use crate::models::{ResultAssociation, WorkspaceDetail, WorkspaceSummary, WorkspaceUpsert};
 use crate::state::AppState;
 
 pub async fn upsert_workspace(w: WorkspaceUpsert, state: &AppState) -> Result<(), String> {
@@ -7,15 +7,10 @@ pub async fn upsert_workspace(w: WorkspaceUpsert, state: &AppState) -> Result<()
     sqlite::upsert_workspace(&db, &w).map_err(|e| format!("Failed to upsert workspace: {}", e))
 }
 
-pub async fn associate_result(
-    history_id: String, workspace_id: String, result_order: i64, color_index: i64,
-    raw_sql: Option<String>, state: &AppState,
-) -> Result<(), String> {
+pub async fn associate_result(a: ResultAssociation, state: &AppState) -> Result<(), String> {
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
-    sqlite::associate_result_to_workspace(
-        &db, &history_id, &workspace_id, result_order, color_index, raw_sql.as_deref(),
-    )
-    .map_err(|e| format!("Failed to associate result: {}", e))
+    sqlite::associate_result_to_workspace(&db, &a)
+        .map_err(|e| format!("Failed to associate result: {}", e))
 }
 
 pub async fn load_workspaces(

@@ -523,6 +523,25 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
+    // Migration: Add the editor line range a result was produced from.
+    // 1-based and inclusive, and NULL when the result came from no editor
+    // segment at all — a browse action, a whole-editor run, a drill. The result
+    // tab's derived name ("L1-3: users") is built from this, so without it a
+    // reopened workspace could only show the table name. Migration-only, as
+    // above.
+    let has_line_range_cols: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'line_start'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_line_range_cols {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN line_start INTEGER;
+             ALTER TABLE query_history ADD COLUMN line_end INTEGER;"
+        )?;
+    }
+
     // Migration: Backfill FTS5 index if it's empty but history has data
     let fts_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM query_history_fts", [], |row| row.get(0))
@@ -1237,17 +1256,26 @@ const WORKSPACE_BUDGET_BYTES: i64 = 100 * 1024 * 1024; // 100 MB compressed
 /// results to "SQL only".
 pub fn associate_result_to_workspace(
     conn: &Connection,
-    history_id: &str,
-    workspace_id: &str,
-    result_order: i64,
-    color_index: i64,
-    raw_sql: Option<&str>,
+    a: &crate::models::ResultAssociation,
 ) -> SqliteResult<()> {
+    // `COALESCE` on the line range and the name, plain assignment on the rest.
+    // The range and the name are the two fields a caller can legitimately have
+    // nothing to say about — a browse action sits at no editor line, an ordinary
+    // run authors no name — and this row may already hold a name the user typed.
+    // Erasing that on a re-association would be a silent data loss.
     conn.execute(
-        "UPDATE query_history SET workspace_id = ?1, result_order = ?2, color_index = ?3, raw_sql = ?4 WHERE id = ?5",
-        (workspace_id, result_order, color_index, raw_sql, history_id),
+        "UPDATE query_history
+            SET workspace_id = ?1, result_order = ?2, color_index = ?3, raw_sql = ?4,
+                line_start   = COALESCE(?5, line_start),
+                line_end     = COALESCE(?6, line_end),
+                custom_label = COALESCE(?7, custom_label)
+          WHERE id = ?8",
+        (
+            &a.workspace_id, a.result_order, a.color_index, a.raw_sql.as_deref(),
+            a.line_start, a.line_end, a.custom_label.as_deref(), &a.history_id,
+        ),
     )?;
-    enforce_workspace_budget(conn, workspace_id)?;
+    enforce_workspace_budget(conn, &a.workspace_id)?;
     Ok(())
 }
 
@@ -1451,7 +1479,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
     let mut stmt = conn.prepare(
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
-                execution_time_ms, executed_at, chart_view_state_json, raw_sql
+                execution_time_ms, executed_at, chart_view_state_json, raw_sql,
+                line_start, line_end
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -1472,6 +1501,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 executed_at: row.get(11)?,
                 chart_view_state_json: row.get(12)?,
                 raw_sql: row.get(13)?,
+                line_start: row.get(14)?,
+                line_end: row.get(15)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -1580,7 +1611,8 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
     let mut stmt = conn.prepare(
         "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                 result_columns, result_rows, schema, column_count, table_names,
-                result_order, color_index, custom_label, chart_view_state_json, raw_sql
+                result_order, color_index, custom_label, chart_view_state_json, raw_sql,
+                line_start, line_end
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -1592,6 +1624,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<String>>(8)?, r.get::<_, Option<i64>>(9)?, r.get::<_, Option<String>>(10)?,
                 r.get::<_, Option<i64>>(11)?, r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?,
                 r.get::<_, Option<String>>(14)?, r.get::<_, Option<String>>(15)?,
+                r.get::<_, Option<i64>>(16)?, r.get::<_, Option<i64>>(17)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -1601,12 +1634,14 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
             "INSERT INTO query_history
                 (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                  result_columns, result_rows, schema, column_count, table_names,
-                 workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                 workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql,
+                 line_start, line_end)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
             rusqlite::params![
                 child_id, row.0, row.1, row.2, row.3, row.4, row.5,
                 row.6, row.7, row.8, row.9, row.10,
                 new_id, row.11, row.12, row.13, row.14, row.15,
+                row.16, row.17,
             ],
         )?;
     }
@@ -1800,7 +1835,7 @@ mod budget_tests {
 #[cfg(test)]
 mod workspace_roundtrip_tests {
     use super::*;
-    use crate::models::WorkspaceUpsert;
+    use crate::models::{ResultAssociation, WorkspaceUpsert};
     use std::path::PathBuf;
 
     /// Unique temp dir per test so parallel `cargo test` runs never collide.
@@ -1828,6 +1863,25 @@ mod workspace_roundtrip_tests {
             column_count: Some(2),
             table_names: Some("t".to_string()),
             source: None,
+        }
+    }
+
+    /// The ordinary association: a run that recorded no editor line range and
+    /// authored no name. Tests that care about those two fields build the struct
+    /// themselves.
+    fn assoc(
+        history_id: &str, workspace_id: &str, result_order: i64, color_index: i64,
+        raw_sql: Option<&str>,
+    ) -> ResultAssociation {
+        ResultAssociation {
+            history_id: history_id.to_string(),
+            workspace_id: workspace_id.to_string(),
+            result_order,
+            color_index,
+            raw_sql: raw_sql.map(str::to_string),
+            line_start: None,
+            line_end: None,
+            custom_label: None,
         }
     }
 
@@ -1900,8 +1954,8 @@ mod workspace_roundtrip_tests {
         let h2 = history_entry("h2", "c2", "other-db", &now_offset(1));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         save_query_history(&conn, &h2, None, None, None).expect("save h2");
-        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
-        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
+        associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 0, None)).expect("associate h1");
+        associate_result_to_workspace(&conn, &assoc("h2", "ws1", 1, 1, None)).expect("associate h2");
 
         // 4. load_workspaces: resolved name ("prod-db +1" for 2 distinct dbs),
         // query_count, distinct_db_count all come back through the real decode.
@@ -2026,7 +2080,7 @@ mod workspace_roundtrip_tests {
         for (i, id) in ["h6", "h7", "h8"].iter().enumerate() {
             let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
             save_query_history(&conn, &entry, Some("[]"), Some("[]"), Some("[]")).expect("save history row");
-            associate_result_to_workspace(&conn, id, "ws9", i as i64, 0, None).expect("associate");
+            associate_result_to_workspace(&conn, &assoc(id, "ws9", i as i64, 0, None)).expect("associate");
         }
 
         // Exact sizes (bypassing gzip): 20MB of columns + 20MB of identity per row.
@@ -2090,7 +2144,7 @@ mod workspace_roundtrip_tests {
         for (i, id) in ["h3", "h4", "h5"].iter().enumerate() {
             let entry = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
             save_query_history(&conn, &entry, Some("[]"), Some("[]"), None).expect("save history row");
-            associate_result_to_workspace(&conn, id, "ws2", i as i64, 0, None).expect("associate");
+            associate_result_to_workspace(&conn, &assoc(id, "ws2", i as i64, 0, None)).expect("associate");
         }
 
         // Overwrite with large blobs (bypassing gzip so sizes are exact) to exercise
@@ -2144,7 +2198,7 @@ mod workspace_roundtrip_tests {
 
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
-        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
+        associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 0, None)).expect("associate h1");
 
         let json = r#"{"viewMode":"chart","chartConfig":{"chartType":"bar"}}"#;
         let ok = update_result_chart_state(&conn, "h1", json).expect("update_result_chart_state");
@@ -2175,6 +2229,26 @@ mod workspace_roundtrip_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Mirrors `raw_sql_migration_is_idempotent_and_present` for the line-range
+    /// columns: a guarded ALTER has to survive a second init, and the guard reads
+    /// `line_start` only, so `line_end` must be proved present too.
+    #[test]
+    fn line_range_migration_is_idempotent_and_present() {
+        let dir = temp_db_dir("line_range_migration");
+        let conn = init_database(&dir).expect("init 1");
+        drop(conn);
+        let conn = init_database(&dir).expect("init 2 idempotent");
+        let count: i64 = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history')
+                      WHERE name IN ('line_start', 'line_end')")
+            .expect("prepare")
+            .query_row([], |r| r.get(0))
+            .expect("query_row");
+        assert_eq!(count, 2, "both line-range columns present after migration");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn raw_sql_round_trips_through_associate_and_load() {
         let dir = temp_db_dir("raw_sql_round_trip");
@@ -2195,13 +2269,84 @@ mod workspace_roundtrip_tests {
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         associate_result_to_workspace(
-            &conn, "h1", "ws1", 0, 0,
-            Some("SELECT * FROM users WHERE id = {{id}}"),
+            &conn,
+            &assoc("h1", "ws1", 0, 0, Some("SELECT * FROM users WHERE id = {{id}}")),
         ).expect("associate h1");
 
         let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
         let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
         assert_eq!(r.raw_sql.as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"));
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The result tab's derived name ("L1-3: users") is built from the editor
+    /// line range, so the range has to survive the round trip — and so does a
+    /// name the caller authored at run time (a browse action names its own
+    /// result). Before this, neither was written: a reopened workspace could
+    /// only ever show the table name.
+    #[test]
+    fn associate_result_records_line_range_and_authored_name() {
+        let dir = temp_db_dir("assoc_line_range");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        // h1: an editor segment on lines 4..6, no authored name.
+        // h2: a browse action — no line range, but a name of its own.
+        let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        let h2 = history_entry("h2", "c1", "prod-db", &now_offset(1));
+        save_query_history(&conn, &h1, None, None, None).expect("save h1");
+        save_query_history(&conn, &h2, None, None, None).expect("save h2");
+
+        associate_result_to_workspace(&conn, &ResultAssociation {
+            line_start: Some(4),
+            line_end: Some(6),
+            ..assoc("h1", "ws1", 0, 0, None)
+        }).expect("associate h1");
+        associate_result_to_workspace(&conn, &ResultAssociation {
+            custom_label: Some("users (browse)".to_string()),
+            ..assoc("h2", "ws1", 1, 1, None)
+        }).expect("associate h2");
+
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let r0 = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
+        assert_eq!(r0.line_start, Some(4), "line_start survives the round trip");
+        assert_eq!(r0.line_end, Some(6), "line_end survives the round trip");
+        assert_eq!(r0.custom_label, None, "an ordinary run authors no name");
+
+        let r1 = detail.results.iter().find(|r| r.id == "h2").expect("h2 present");
+        assert_eq!(r1.line_start, None, "a browse action sits at no editor line");
+        assert_eq!(r1.line_end, None);
+        assert_eq!(r1.custom_label.as_deref(), Some("users (browse)"));
+
+        // A rename must not be erased by a later association that says nothing
+        // about the name — the COALESCE in associate_result_to_workspace.
+        assert!(update_result_meta(&conn, "h1", Some("Revenue"), None).expect("rename h1"));
+        associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 0, None))
+            .expect("re-associate h1");
+        let detail2 = load_workspace(&conn, "ws1").expect("load again").expect("ws1 exists");
+        let r0b = detail2.results.iter().find(|r| r.id == "h1").expect("h1 present");
+        assert_eq!(r0b.custom_label.as_deref(), Some("Revenue"), "the rename is kept");
+        assert_eq!(r0b.line_start, Some(4), "…and so is the recorded line range");
+
+        // The duplicate carries both new columns.
+        let new_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("new id");
+        let dup = load_workspace(&conn, &new_id).expect("load dup").expect("dup exists");
+        let d0 = dup.results.iter().find(|r| r.line_start.is_some()).expect("the ranged child copied");
+        assert_eq!(d0.line_start, Some(4), "line_start copied");
+        assert_eq!(d0.line_end, Some(6), "line_end copied");
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2227,8 +2372,8 @@ mod workspace_roundtrip_tests {
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save h1");
         associate_result_to_workspace(
-            &conn, "h1", "ws1", 0, 0,
-            Some("SELECT * FROM users WHERE id = {{id}}"),
+            &conn,
+            &assoc("h1", "ws1", 0, 0, Some("SELECT * FROM users WHERE id = {{id}}")),
         ).expect("associate h1");
         update_result_chart_state(&conn, "h1", r#"{"viewMode":"chart"}"#).expect("chart state");
 
@@ -2269,8 +2414,8 @@ mod workspace_roundtrip_tests {
         h2.sql = "SELECT * FROM customers".to_string();
         save_query_history(&conn, &h1, None, None, None).expect("save h1");
         save_query_history(&conn, &h2, None, None, None).expect("save h2");
-        associate_result_to_workspace(&conn, "h1", "ws1", 0, 0, None).expect("associate h1");
-        associate_result_to_workspace(&conn, "h2", "ws1", 1, 1, None).expect("associate h2");
+        associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 0, None)).expect("associate h1");
+        associate_result_to_workspace(&conn, &assoc("h2", "ws1", 1, 1, None)).expect("associate h2");
         (conn, dir)
     }
 
@@ -2368,9 +2513,9 @@ mod workspace_roundtrip_tests {
         save_query_history(&conn, &first, None, None, None).expect("save first");
         save_query_history(&conn, &second, None, None, None).expect("save second");
         // Deliberately inverted: the second-inserted row is the first tab.
-        associate_result_to_workspace(&conn, "h_inserted_first", "ws1", 1, 0, None)
+        associate_result_to_workspace(&conn, &assoc("h_inserted_first", "ws1", 1, 0, None))
             .expect("associate first");
-        associate_result_to_workspace(&conn, "h_inserted_second", "ws1", 0, 1, None)
+        associate_result_to_workspace(&conn, &assoc("h_inserted_second", "ws1", 0, 1, None))
             .expect("associate second");
 
         let summaries = load_workspaces(&conn, Some("select"), 50, 0).expect("load_workspaces");
@@ -2439,7 +2584,7 @@ mod workspace_roundtrip_tests {
             let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
             h.sql = "SELECT * FROM orders".to_string();
             save_query_history(&conn, &h, None, None, None).expect("save history");
-            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+            associate_result_to_workspace(&conn, &assoc(history_id, workspace_id, 0, 0, None))
                 .expect("associate");
         }
 
@@ -2519,7 +2664,7 @@ mod workspace_roundtrip_tests {
             let mut h = history_entry(history_id, "c1", "prod-db", &now_offset(executed_offset));
             h.sql = "SELECT * FROM orders".to_string();
             save_query_history(&conn, &h, None, None, None).expect("save history");
-            associate_result_to_workspace(&conn, history_id, workspace_id, 0, 0, None)
+            associate_result_to_workspace(&conn, &assoc(history_id, workspace_id, 0, 0, None))
                 .expect("associate");
         }
 

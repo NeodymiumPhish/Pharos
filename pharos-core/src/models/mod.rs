@@ -14,4 +14,4 @@ pub use saved_query::*;
 pub use schema::*;
 pub use settings::*;
 pub use tag::*;
-pub use workspace::{WorkspaceDetail, WorkspaceResultMeta, WorkspaceSummary, WorkspaceUpsert};
+pub use workspace::{ResultAssociation, WorkspaceDetail, WorkspaceResultMeta, WorkspaceSummary, WorkspaceUpsert};

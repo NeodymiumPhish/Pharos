@@ -65,38 +65,11 @@ struct ResultTab: Identifiable {
     /// otherwise freeze this string as a custom name, and the tab would silently
     /// stop following its statement as the editor text moves. `ResultTabName`
     /// compares against this to refuse that.
+    ///
+    /// The rule itself lives in `ResultTabName`, beside the rename rule that
+    /// must compare against it, and where it is tested without AppKit.
     var automaticLabel: String {
-        let lineStr: String
-        if lineRange.count == 1 {
-            lineStr = "L\(lineRange.lowerBound)"
-        } else {
-            lineStr = "L\(lineRange.lowerBound)-\(lineRange.upperBound)"
-        }
-        if let table = Self.extractTableName(from: sql) {
-            return "\(lineStr): \(table)"
-        }
-        let sqlPreview = sql.trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .newlines).first ?? ""
-        let truncated = sqlPreview.count > 30 ? String(sqlPreview.prefix(30)) + "…" : sqlPreview
-        return "\(lineStr): \(truncated)"
-    }
-
-    /// Extract the primary table name from a SQL statement.
-    /// Handles SELECT/DELETE FROM, INSERT INTO, UPDATE, with optional schema prefix and quoted identifiers.
-    private static func extractTableName(from sql: String) -> String? {
-        let pattern = #"(?i)(?:FROM|INTO|UPDATE)\s+(?:(?:"[^"]+"|[\w]+)\s*\.\s*)?(?:"([^"]+)"|(\w+))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: sql, range: NSRange(sql.startIndex..., in: sql)) else {
-            return nil
-        }
-        // Group 1: quoted table name, Group 2: unquoted table name
-        if let range1 = Range(match.range(at: 1), in: sql), !sql[range1].isEmpty {
-            return String(sql[range1])
-        }
-        if let range2 = Range(match.range(at: 2), in: sql), !sql[range2].isEmpty {
-            return String(sql[range2])
-        }
-        return nil
+        ResultTabName.derived(lineRange: lineRange, sql: sql)
     }
 
     // MARK: - Color Palette

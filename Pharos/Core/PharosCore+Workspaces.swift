@@ -16,12 +16,23 @@ extension PharosCore {
         _ = try scalarResult(input: w) { pharos_upsert_workspace($0) }
     }
 
+    /// Everything about a result that only the run itself knows.
+    ///
+    /// `lineStart`/`lineEnd` are the editor line range, 1-based and inclusive;
+    /// pass nil for both when the result came from no editor segment. Pass
+    /// `customLabel` only for a caller that authors its own name (a browse
+    /// action). A nil in any of the three leaves the stored value alone — a
+    /// later rename is written through `updateResultMeta` and must not be
+    /// erased by a re-association.
     struct ResultAssociation: Codable {
         let historyId: String
         let workspaceId: String
         let resultOrder: Int
         let colorIndex: Int
         let rawSql: String?
+        var lineStart: Int? = nil
+        var lineEnd: Int? = nil
+        var customLabel: String? = nil
     }
 
     /// Associate a produced result (by its history id) with a workspace.

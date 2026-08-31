@@ -1634,7 +1634,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL, lineRange: lineRange, customLabel: customLabel)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
@@ -1674,7 +1674,7 @@ class ContentViewController: NSViewController {
                         }
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
-                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL)
+                            self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL, lineRange: lineRange, customLabel: customLabel)
                         }
                         self.cancelledQueryIds.remove(queryId)
                         self.fireCompletionNotification(
@@ -2459,7 +2459,10 @@ class ContentViewController: NSViewController {
     /// Associate a produced result (by its history id) with the editor tab's
     /// workspace, at the next order slot. `color` supplies the persisted palette
     /// index (falls back to an order-cycled color for inline results).
-    private func captureExecutedResult(historyId: String, editorTabId: String, workspaceId: String, color: NSColor, rawSQL: String) {
+    private func captureExecutedResult(
+        historyId: String, editorTabId: String, workspaceId: String, color: NSColor,
+        rawSQL: String, lineRange: ClosedRange<Int>, customLabel: String?
+    ) {
         let order = resultOrderByEditorTab[editorTabId, default: 0]
         resultOrderByEditorTab[editorTabId] = order + 1
         // Same late-result case as `addResultTab`: the association below still
@@ -2471,9 +2474,18 @@ class ContentViewController: NSViewController {
         }
         let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
         do {
+            // The line range is what the result tab's derived name is built
+            // from, so it is recorded here, at the only moment it is known. A
+            // run with no editor segment (a browse action, a whole-editor run, a
+            // drill) reports 0...0 and stores nothing, which is what leaves the
+            // `L…:` prefix off the name on reopen.
+            let hasLineRange = lineRange.lowerBound > 0
             try PharosCore.associateResult(.init(
                 historyId: historyId, workspaceId: workspaceId,
-                resultOrder: order, colorIndex: colorIndex, rawSql: rawSQL
+                resultOrder: order, colorIndex: colorIndex, rawSql: rawSQL,
+                lineStart: hasLineRange ? lineRange.lowerBound : nil,
+                lineEnd: hasLineRange ? lineRange.upperBound : nil,
+                customLabel: customLabel
             ))
             NotificationCoalescer.post(.workspaceHistoryDidChange)
         } catch {
@@ -2859,11 +2871,18 @@ extension ContentViewController {
                     segmentIndex: -1,
                     sql: meta.sql,
                     rawSQL: meta.rawSql ?? meta.sql,
-                    lineRange: 0...0,
+                    lineRange: Self.restoredLineRange(meta),
                     color: color,
                     timestamp: Date()
                 )
-                rt.customLabel = meta.customLabel ?? meta.tableNames
+                // Only a name somebody authored. The derived name (`L1-3: users`)
+                // is NOT copied into `customLabel` as a stand-in: a custom name
+                // has priority over the derived one for good, so a stand-in
+                // would stop the tab ever showing its statement's position
+                // again, here and after every later edit. With this nil, the tab
+                // derives its own name from the restored line range, and
+                // `reResolveAllResultTabs` keeps it current from then on.
+                rt.customLabel = meta.customLabel
                 rt.executionTimeMs = UInt64(meta.executionTimeMs)
                 rt.historySchema = meta.schema
                 rt.historyTimestamp = meta.executedAt
@@ -2928,6 +2947,18 @@ extension ContentViewController {
                 self.resultOrderByEditorTab[tab.id] = (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1
             }
         }
+    }
+
+    /// The editor line range a restored result was produced from.
+    ///
+    /// `0...0` — the "no editor segment" value — covers three cases that all
+    /// have to read the same way: a result that genuinely came from none (a
+    /// browse action, a whole-editor run, a drill), a row recorded before the
+    /// range was stored, and a stored pair that is not a usable 1-based range.
+    private static func restoredLineRange(_ meta: WorkspaceResultMeta) -> ClosedRange<Int> {
+        guard let start = meta.lineStart, let end = meta.lineEnd,
+              start > 0, end >= start else { return 0...0 }
+        return start...end
     }
 
     /// Select the live result tab whose cached result came from the given
