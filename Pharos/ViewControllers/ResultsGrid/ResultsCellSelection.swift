@@ -307,6 +307,46 @@ class CellSelectionController {
 class ResultsTableView: NSTableView {
     var cellSelectionController: CellSelectionController?
 
+    /// Scroll room past the right end of the columns: the table keeps itself
+    /// this much wider than they are whenever they overflow the viewport, so
+    /// the grid can scroll a little past the last column.
+    ///
+    /// Without it, scrolling stops the instant the document's right edge meets
+    /// the clip's, which parks the last column's divider EXACTLY on the visible
+    /// edge, against the vertical scroller. Nothing can bring it inboard from
+    /// there: shrinking the column narrows the document, which lowers the
+    /// scroll limit by the very same amount, so the scroll position follows the
+    /// column and the divider stays pinned to the edge however far it is
+    /// dragged — the resize handle is then permanently out of reach.
+    ///
+    /// 16pt: wider than the header's grab zone, so the handle is not just
+    /// visible but comfortably grabbable.
+    static let trailingScrollRoom: CGFloat = 16
+
+    /// The table keeps itself `trailingScrollRoom` wider than
+    /// its columns whenever they overflow the viewport, so the grid can scroll
+    /// a little past the last column and its divider comes to rest clear of the
+    /// vertical scroller instead of pinned behind it.
+    ///
+    /// Widening the DOCUMENT is deliberate. The first cut used
+    /// `NSScrollView.contentInsets`, and on macOS 26 an inset drags the whole
+    /// glass apparatus into play: the corner cap and the header clip are placed
+    /// inset-aware, the clip passes hit-tests through inside the inset, and the
+    /// always-visible legacy scroll bars stopped staying visible. A wider
+    /// document is invisible to all of it — the scrollers, the corner, the
+    /// clip and the header see a perfectly ordinary table that happens to end
+    /// a little after its last column.
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let clip = superview as? NSClipView, numberOfColumns > 0 {
+            let columnsWidth = rect(ofColumn: numberOfColumns - 1).maxX
+            if columnsWidth > clip.frame.width {
+                size.width = max(size.width, columnsWidth + Self.trailingScrollRoom)
+            }
+        }
+        super.setFrameSize(size)
+    }
+
     override func mouseDown(with event: NSEvent) {
         cellSelectionController?.handleMouseDown(with: event)
         // Do NOT call super.mouseDown -- we replace row selection with cell selection.

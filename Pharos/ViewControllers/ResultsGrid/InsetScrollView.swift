@@ -23,8 +23,12 @@ protocol HeaderBandClaiming: AnyObject {
 /// NSScrollView subclass that positions scrollers outside the content area
 /// instead of overlaying them on top of the document view.
 ///
-/// It also keeps a little scroll room past the last column — see
-/// `trailingScrollRoom`, which is what makes the end of the table reachable.
+/// The scroll room past the last column lives on the DOCUMENT — see
+/// `ResultsTableView.trailingScrollRoom`. It was briefly implemented here with
+/// `contentInsets`, and on macOS 26 a non-zero inset re-places the corner cap
+/// and the header clip, opens a hit-test pass-through inside the inset, and
+/// stopped the always-visible legacy scroll bars staying visible. Nothing in
+/// this class may set `contentInsets`.
 class InsetScrollView: NSScrollView {
 
     /// Route header-band clicks on a resize handle to the header, over whatever
@@ -44,22 +48,6 @@ class InsetScrollView: NSScrollView {
         }
         return super.hitTest(point)
     }
-
-    /// Scroll room past the right end of the columns.
-    ///
-    /// Without it, scrolling stops the instant the document's right edge meets
-    /// the clip's, which parks the last column's divider EXACTLY on the visible
-    /// edge, against the vertical scroller and the grey corner above it. Nothing
-    /// can bring it inboard from there: shrinking that column narrows the
-    /// document, which lowers the scroll limit by the very same amount, so the
-    /// scroll position follows the column and the divider stays pinned to the
-    /// edge however far it is dragged. The end of the table is then permanently
-    /// out of view and its resize handle out of reach — measured, and the reason
-    /// this constant exists.
-    ///
-    /// 16pt: wider than the header's grab zone, so the handle is not just
-    /// visible but comfortably grabbable.
-    static let trailingScrollRoom: CGFloat = 16
 
     override func tile() {
         super.tile()
@@ -95,47 +83,15 @@ class InsetScrollView: NSScrollView {
         }
 
         // The grey cap above the vertical scroller (`NSTableView.cornerView`,
-        // created for legacy scrollers only). `super.tile()` puts its LEFT edge
-        // at `width − scroller − contentInsets.right`, so the trailing scroll
-        // room below moved it 16pt left — directly over the strip of header
-        // where the last column's divider comes to rest. There it hid the
-        // divider, the funnel and the sort mark, and being the front view it
-        // swallowed every click on them: the column could not be resized at
-        // all. Pin it over the scroller's own column, where it caps the band
-        // and covers nothing that can be interacted with.
+        // created for legacy scrollers only). `super.tile()` normally puts it
+        // exactly there, but it places it inset-aware, and once it drifted over
+        // the strip of header where the last column's divider rests it hid the
+        // divider and swallowed every click on it. Pinned as insurance: the cap
+        // may cover nothing left of the scroller's own column.
         if hasVert, let corner = (documentView as? NSTableView)?.cornerView,
            corner.superview === self {
             corner.frame = NSRect(x: bounds.width - vertW, y: corner.frame.minY,
                                   width: vertW, height: corner.frame.height)
         }
-
-        updateTrailingScrollRoom(clipWidth: clipFrame.width)
-    }
-
-    /// Give the room only while the columns actually overflow the viewport.
-    ///
-    /// A right content inset also stops the document view being stretched to the
-    /// full clip width, so charging for it when the columns already fit would end
-    /// the rows 16pt short of the scroller for no reason at all.
-    ///
-    /// Writing `contentInsets` re-enters `tile()`. That settles at once: the
-    /// second pass reads the same column geometry — `clipWidth` is forced above
-    /// and does not depend on the inset — computes the same answer, and returns
-    /// without writing.
-    private func updateTrailingScrollRoom(clipWidth: CGFloat) {
-        var wanted: CGFloat = 0
-        if let table = documentView as? NSTableView, table.numberOfColumns > 0 {
-            // The last column's own right edge: the width the table wants before
-            // any stretching to fill the clip. `table.frame.width` would answer
-            // the same today — it is `max(that, clipWidth - inset)`, and the test
-            // below is against `clipWidth` — but it lags the columns by a layout
-            // pass, and the columns are the thing actually being asked about.
-            let columnsWidth = table.rect(ofColumn: table.numberOfColumns - 1).maxX
-            if columnsWidth > clipWidth { wanted = Self.trailingScrollRoom }
-        }
-
-        guard contentInsets.right != wanted else { return }
-        automaticallyAdjustsContentInsets = false
-        contentInsets.right = wanted
     }
 }

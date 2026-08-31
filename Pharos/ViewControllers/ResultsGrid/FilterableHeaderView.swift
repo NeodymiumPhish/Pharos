@@ -463,13 +463,18 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     /// not carry the header clip with it, and this view would then be drawing
     /// at a stale offset while the rows moved.
     private func keepDraggedEdgeVisible(columnIndex: Int) {
-        guard let tableView = tableView,
-              let clip = tableView.enclosingScrollView?.contentView else { return }
+        guard let tableView = tableView else { return }
+        let visible = tableView.visibleRect
+        guard !visible.isEmpty else { return }
         let divider = headerRect(ofColumn: columnIndex).maxX
-        // A sliver either side of the divider, at the top of whatever is
-        // already visible so no vertical scroll can result.
+        // A sliver either side of the divider, VERTICALLY CENTRED in what is
+        // already on screen so the reveal can only ever scroll sideways. The
+        // top edge is not safe for this: macOS 26 treats the band under the
+        // glass header pocket as obscured, so a rect at the very top is
+        // "revealed" by scrolling up one header-height — per drag event, which
+        // walked the grid to the top of the table while a column was resized.
         tableView.scrollToVisible(NSRect(
-            x: divider - 1, y: clip.bounds.origin.y, width: 2, height: 1))
+            x: divider - 1, y: visible.midY, width: 2, height: 1))
     }
 
     /// The resize cursor covers the same zone the click does. `super` installs

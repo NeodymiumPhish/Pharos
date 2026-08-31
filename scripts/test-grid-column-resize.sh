@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/grid-column-resize-tests \
   Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift \
   Pharos/ViewControllers/ResultsGrid/InsetScrollView.swift \
+  Pharos/ViewControllers/ResultsGrid/ResultsCellSelection.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsSortController.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Utilities/PGTypeCategory.swift \

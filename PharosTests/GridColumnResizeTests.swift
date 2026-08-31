@@ -9,7 +9,7 @@
 //    only within about 2pt — so 4 of the 6 points did nothing.
 // 2. Scrolling used to stop with the last divider EXACTLY on the visible edge,
 //    and shrinking that column moved the scroll limit down with it, so the edge
-//    could never be brought inboard. `InsetScrollView.trailingScrollRoom` is
+//    could never be brought inboard. `ResultsTableView.trailingScrollRoom` is
 //    what fixed that, and the assertions on "pt inside the edge" are its guard.
 // 3. A column cut off by the grid's right edge had no reachable handle at all.
 //
@@ -51,6 +51,15 @@ private final class HeaderSpy: FilterableHeaderViewDelegate {
     }
 }
 
+// MARK: - Rows
+
+/// Enough rows that the grid can scroll vertically — the drag-creep regression
+/// is invisible without them, which is how it got past this suite once.
+private final class Rows: NSObject, NSTableViewDataSource {
+    func numberOfRows(in tableView: NSTableView) -> Int { 200 }
+    func tableView(_ tableView: NSTableView, objectValueFor tableColumn: NSTableColumn?, row: Int) -> Any? { "r\(row)" }
+}
+
 // MARK: - Rig
 
 /// The grid's header in a never-shown window, laid out the way `ResultsGridVC`
@@ -64,12 +73,15 @@ private final class Rig {
 
     let window: NSWindow
     let scrollView: InsetScrollView
-    let tableView: NSTableView
+    // The real grid table: its `setFrameSize` is what grants the trailing
+    // scroll room, so a plain NSTableView here would test a different grid.
+    let tableView: ResultsTableView
     let header: FilterableHeaderView
     let spy = HeaderSpy()
+    private let rows = Rows()
 
     init(widths: [CGFloat]) {
-        tableView = NSTableView()
+        tableView = ResultsTableView()
         tableView.rowSizeStyle = .custom
         tableView.rowHeight = 22
         tableView.style = .fullWidth
@@ -83,6 +95,7 @@ private final class Rig {
         header.frame = headerFrame
         header.filterDelegate = spy
         tableView.headerView = header
+        tableView.dataSource = rows
 
         for (index, width) in widths.enumerated() {
             let isRowNum = index == 0
@@ -130,31 +143,35 @@ private final class Rig {
         scrollView.contentView.bounds.origin.x + scrollView.contentView.frame.width
     }
 
-    /// Scroll right until the last column is fully in view, which for these
-    /// column widths is as far right as the grid goes.
+    /// Scroll right as far as the grid goes: reveal the DOCUMENT's right edge,
+    /// which sits `trailingScrollRoom` past the last column while the columns
+    /// overflow (`ResultsTableView.setFrameSize`).
     ///
     /// It has to go through the TABLE. Moving the clip view's bounds directly
     /// does not carry the header clip with it, so the header would stay at zero
     /// and every screen position measured off it would be a fiction.
     /// `headerTracksContent` is the guard on that.
     func scrollToRightEnd() {
-        tableView.scrollColumnToVisible(tableView.numberOfColumns - 1)
+        tableView.scrollToVisible(NSRect(
+            x: tableView.frame.width - 1, y: tableView.visibleRect.midY, width: 1, height: 1))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         scrollView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
     }
 
-    /// Run layout until the scroll position has re-clamped.
+    /// Run layout until the scroll position has re-clamped and stopped moving.
     ///
     /// A width change and the scroll clamp it forces do not land in the same
-    /// pass: the first lays out the new document width, the second brings the
+    /// pass: the first lays out the new document width, the next brings the
     /// scroll origin back inside it. A live drag settles between frames, so the
     /// settled state is the one a user sees and the one worth asserting on.
     func settle() {
-        for _ in 0..<2 {
+        for _ in 0..<6 {
+            let before = scrollView.contentView.bounds.origin
             scrollView.layoutSubtreeIfNeeded()
             scrollView.reflectScrolledClipView(scrollView.contentView)
             window.displayIfNeeded()
+            if scrollView.contentView.bounds.origin == before { break }
         }
     }
 
@@ -281,7 +298,7 @@ func runTests() {
     scrolled.scrollToRightEnd()
     expectTrue(scrolled.headerTracksContent, "the rig's header scrolls with its rows")
     expectEqual("\(scrolled.visibleRightEdge - scrolled.divider(ofColumn: 3))",
-                "\(InsetScrollView.trailingScrollRoom)",
+                "\(ResultsTableView.trailingScrollRoom)",
                 "scrolled fully right, the last divider stops clear of the visible edge")
     for offset in [CGFloat(1), 4, 6] {
         let r = grabInside(widths: wide, column: 3, offset: offset, scrollToEnd: true)
@@ -342,7 +359,7 @@ func runTests() {
     // the divider that far inside. Anywhere in [0, room] is on screen and
     // grabbable — behind the scroller (negative) is the bug.
     let widenGap = widen.visibleRightEdge - widen.divider(ofColumn: 2)
-    expectTrue(widenGap >= 0 && widenGap <= InsetScrollView.trailingScrollRoom,
+    expectTrue(widenGap >= 0 && widenGap <= ResultsTableView.trailingScrollRoom,
                "the widened edge comes to rest on screen, not behind the scroller (gap \(widenGap))")
 
     // And the same drag continued in the other direction brings the divider
@@ -355,6 +372,20 @@ func runTests() {
     expectTrue(shrinkBack.divider(ofColumn: 2) <= shrinkBack.visibleRightEdge,
                "shrinking back keeps the divider on screen")
     expectTrue(shrinkBack.headerTracksContent, "the shrinking drag keeps the header on the rows' offset")
+
+    // A resize drag must not move the grid vertically. It once crept toward the
+    // top of the table, one header-height per drag event: the mid-drag reveal
+    // anchored its rect at the clip's top edge, and macOS 26 counts the band
+    // under the glass header pocket as obscured, so every "reveal" scrolled up.
+    let steady = Rig(widths: wide)
+    steady.tableView.scrollRowToVisible(120)
+    steady.scrollToRightEnd()
+    let steadyY = steady.scrollView.contentView.bounds.origin.y
+    expectTrue(steadyY > 0, "the creep rig starts scrolled down into the rows (y \(steadyY))")
+    steady.drag(fromX: steady.divider(ofColumn: 3) - 3, dx: -60)
+    steady.settle()
+    expectEqual("\(steady.scrollView.contentView.bounds.origin.y)", "\(steadyY)",
+                "a resize drag leaves the vertical scroll position alone")
 
     // The corner cap above the vertical scroller may cover nothing left of the
     // scroller's own column: with the trailing room in force AppKit parks it
@@ -386,23 +417,47 @@ func runTests() {
         // the room alone would put it. Never LESS is the property that matters —
         // without the room it is 0 at every step, flush with the scroller.
         expectTrue(pinned.visibleRightEdge - pinned.divider(ofColumn: 3)
-                    >= InsetScrollView.trailingScrollRoom,
+                    >= ResultsTableView.trailingScrollRoom,
                    "shrink \(step) of 4 at the right end leaves the last divider clear of the edge")
     }
 
-    // The room is charged only when the columns overflow. With room to spare the
-    // rows must still reach the scroller — an unconditional inset would end them
-    // short of it for nothing.
+    // The room is granted only when the columns overflow, by making the TABLE
+    // that much wider than its columns. With room to spare the rows must still
+    // reach the scroller — an unconditional widening would push a fitting
+    // table's edge past the viewport and invent a scrollbar for nothing.
     let noRoomNeeded = Rig(widths: narrow)
-    expectEqual("\(noRoomNeeded.scrollView.contentInsets.right)", "0.0",
-                "columns that fit are charged no scroll room")
     expectEqual("\(noRoomNeeded.tableView.frame.width)",
                 "\(noRoomNeeded.scrollView.contentView.frame.width)",
                 "columns that fit still stretch the table to the full viewport")
     let roomNeeded = Rig(widths: wide)
-    expectEqual("\(roomNeeded.scrollView.contentInsets.right)",
-                "\(InsetScrollView.trailingScrollRoom)",
-                "columns that overflow are given the scroll room")
+    let columnsWidth = roomNeeded.divider(ofColumn: roomNeeded.lastColumnIndex)
+    expectEqual("\(roomNeeded.tableView.frame.width - columnsWidth)",
+                "\(ResultsTableView.trailingScrollRoom)",
+                "columns that overflow get a document wider by the scroll room")
+
+    // A NEAR fit is the case that catches over-eager widening: columns just a
+    // few points narrower than the viewport must not be widened past it, or the
+    // grid grows a scrollbar for 16pt of nothing.
+    let nearFit = Rig(widths: [40, 200, 230])
+    expectTrue(nearFit.divider(ofColumn: 2) < nearFit.scrollView.contentView.frame.width,
+               "the near-fit rig's columns really do fit")
+    expectEqual("\(nearFit.tableView.frame.width)",
+                "\(nearFit.scrollView.contentView.frame.width)",
+                "columns that nearly fill the viewport get no scroll room")
+
+    // The room must NOT come from `contentInsets`: on macOS 26 a non-zero inset
+    // re-places the corner cap and the header clip, opens a hit-test
+    // pass-through inside the inset, and stopped the always-visible legacy
+    // scroll bars staying visible. These pin the mechanism to the document
+    // width so the inset regression cannot quietly come back.
+    for rig in [noRoomNeeded, roomNeeded] {
+        expectEqual("\(rig.scrollView.contentInsets)", "\(NSEdgeInsets())",
+                    "the scroll room charges no content insets")
+        expectTrue(rig.scrollView.automaticallyAdjustsContentInsets,
+                   "the scroll view keeps its automatic content insets")
+        expectEqual("\(rig.scrollView.scrollerStyle.rawValue)", "0",
+                    "the scroll bars stay in the always-visible legacy style")
+    }
 
     // The edge is a handle only when a column is actually cut off there. With
     // room to spare after the last column it grabs nothing, and the click stays
