@@ -100,7 +100,7 @@ private func taggedItem(of subject: ResultsCopyExport) -> (menu: NSMenu, item: N
 /// plainly in the failure line.
 private func copied(_ subject: ResultsCopyExport) -> String {
     guard let data = subject.gatherData() else { return "<nil>" }
-    return data.rows.map { $0.joined() }.joined(separator: ",")
+    return data.rows.map { $0.map { $0 ?? "" }.joined() }.joined(separator: ",")
 }
 
 private func cellRange(_ subject: ResultsCopyExport, fromDisplayRow lo: Int, to hi: Int) {

@@ -79,22 +79,52 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     /// needsDisplay on this view) and header hover sweeps.
     private var cachedActiveIcon: NSImage?
     private var cachedHoverIcon: NSImage?
+    private var cachedSortUpIcon: NSImage?
+    private var cachedSortDownIcon: NSImage?
     private var cachedIconAppearanceName: NSAppearance.Name?
 
-    private func filterIcon(active: Bool) -> NSImage? {
+    /// Point size of the sort chevron. Small, like the system's own header
+    /// indicator, and drawn as an SF Symbol rather than the "▲" text glyph
+    /// that used to stand in for it.
+    private let sortIconSize: CGFloat = 8
+
+    private func refreshIconCacheIfNeeded() {
         let currentName = effectiveAppearance.name
-        if cachedIconAppearanceName != currentName {
-            cachedActiveIcon = Self.makeFilterIcon(filled: true, tint: .controlAccentColor, size: iconSize)
-            cachedHoverIcon = Self.makeFilterIcon(filled: false, tint: .tertiaryLabelColor, size: iconSize)
-            cachedIconAppearanceName = currentName
-        }
+        guard cachedIconAppearanceName != currentName else { return }
+        cachedActiveIcon = Self.makeFilterIcon(filled: true, tint: .controlAccentColor, size: iconSize)
+        cachedHoverIcon = Self.makeFilterIcon(filled: false, tint: .tertiaryLabelColor, size: iconSize)
+        cachedSortUpIcon = Self.makeSymbol("chevron.up", tint: .secondaryLabelColor, size: sortIconSize, weight: .bold)
+        cachedSortDownIcon = Self.makeSymbol("chevron.down", tint: .secondaryLabelColor, size: sortIconSize, weight: .bold)
+        cachedIconAppearanceName = currentName
+    }
+
+    private func filterIcon(active: Bool) -> NSImage? {
+        refreshIconCacheIfNeeded()
         return active ? cachedActiveIcon : cachedHoverIcon
+    }
+
+    private func sortIcon(ascending: Bool) -> NSImage? {
+        refreshIconCacheIfNeeded()
+        return ascending ? cachedSortUpIcon : cachedSortDownIcon
+    }
+
+    /// Drop the tinted icons so the next draw rebuilds them. The accent
+    /// colour can change without the appearance name changing, and the
+    /// funnel is accent-tinted.
+    func invalidateIconCache() {
+        cachedIconAppearanceName = nil
+        needsDisplay = true
     }
 
     private static func makeFilterIcon(filled: Bool, tint: NSColor, size: CGFloat) -> NSImage? {
         let name = filled ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
-        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: "Filter")?
-            .withSymbolConfiguration(.init(pointSize: size, weight: .medium)) else { return nil }
+        return makeSymbol(name, tint: tint, size: size, weight: .medium, description: "Filter")
+    }
+
+    private static func makeSymbol(_ name: String, tint: NSColor, size: CGFloat,
+                                   weight: NSFont.Weight, description: String? = nil) -> NSImage? {
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: description)?
+            .withSymbolConfiguration(.init(pointSize: size, weight: weight)) else { return nil }
         return base.tinted(with: tint)
     }
 
@@ -227,11 +257,20 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         // Two-row text (name / type) drawn by the view, clipped per column, so the
         // header cells stay Swift-property-free (see SortAwareHeaderCell) and names
         // can't bleed into neighbouring columns.
+        let funnelSlot = iconSize + iconPadding * 2 + 8   // width the funnel occupies at the right
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
             guard colId != "__rownum__" else { continue }
+            // Reserve the overlay's room so the text truncates BEFORE the
+            // funnel and the sort chevron instead of running under them.
+            var reserved: CGFloat = 0
+            if sortDirections[colId] != nil {
+                reserved = funnelSlot + (sortIcon(ascending: true)?.size.width ?? sortIconSize) + 4
+            } else if activeFilterColumns.contains(colId) || colIndex == hoveredColumnIndex {
+                reserved = funnelSlot
+            }
             drawHeaderText(name: column.title, type: columnTypes[colId] ?? "",
-                           in: headerRect(ofColumn: colIndex))
+                           in: headerRect(ofColumn: colIndex), reservedTrailing: reserved)
         }
 
         // Filter icons drawn AFTER text (topmost visual element)
@@ -268,28 +307,25 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
             let colId = column.identifier.rawValue
             guard colId != "__rownum__", let dir = sortDirections[colId] else { continue }
             let headerRect = self.headerRect(ofColumn: colIndex)
-            let arrow = (dir == .ascending) ? "▲" : "▼"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
-            let sz = (arrow as NSString).size(withAttributes: attrs)
-            let funnelSlot = iconSize + iconPadding * 2 + 8   // width the funnel occupies at the right
+            guard let chevron = sortIcon(ascending: dir == .ascending) else { continue }
+            let sz = chevron.size
             let iconRect = filterIconRect(inHeaderRect: headerRect)
             let x = headerRect.maxX - funnelSlot - sz.width - 2
             let y = iconRect.midY - sz.height / 2
-            (arrow as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+            chevron.draw(in: NSRect(x: x, y: y, width: sz.width, height: sz.height))
         }
     }
 
     /// Draws the column name (row 1) and data type (row 2), block-centred and
     /// clipped to `headerRect`. NSTableHeaderView is FLIPPED (y increases
     /// downward → smaller y = top), so the name draws at the smaller y.
-    private func drawHeaderText(name: String, type: String, in headerRect: NSRect) {
+    private func drawHeaderText(name: String, type: String, in headerRect: NSRect, reservedTrailing: CGFloat = 0) {
         guard let ctx = NSGraphicsContext.current else { return }
         ctx.saveGraphicsState()
         defer { ctx.restoreGraphicsState() }
-        NSBezierPath(rect: headerRect.insetBy(dx: SortAwareHeaderCell.hInset, dy: 0)).setClip()
+        var clip = headerRect.insetBy(dx: SortAwareHeaderCell.hInset, dy: 0)
+        clip.size.width = max(0, clip.width - reservedTrailing)
+        NSBezierPath(rect: clip).setClip()
 
         let nameAttrs: [NSAttributedString.Key: Any] =
             [.font: SortAwareHeaderCell.nameFont, .foregroundColor: NSColor.labelColor]

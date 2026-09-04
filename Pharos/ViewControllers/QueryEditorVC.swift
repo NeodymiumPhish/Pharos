@@ -301,13 +301,17 @@ class QueryEditorVC: NSViewController {
         let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
         let fontSize = CGFloat(editor.fontSize)
 
+        let editorFont: NSFont
         if fontName == "System Monospace" {
-            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         } else if let font = NSFont(name: fontName, size: fontSize) {
-            textView.font = font
+            editorFont = font
         } else {
-            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
+        textView.font = editorFont
+        // The gutter's numbers follow the editor size (see LineNumberGutter.setFont).
+        gutter?.setFont(editorFont)
 
         // Tab size
         textView.tabSize = Int(editor.tabSize)

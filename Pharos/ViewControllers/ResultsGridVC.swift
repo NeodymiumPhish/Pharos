@@ -118,6 +118,8 @@ class ResultsGridVC: NSViewController {
     /// if a future refactor makes this VC per-tab or per-pane, the removal is
     /// already in place rather than something the next change has to remember.
     private var tagStoreObserver: NSObjectProtocol?
+    /// Key-window and accent-colour observers; see `viewDidLoad`.
+    private var appearanceObservers: [NSObjectProtocol] = []
 
     // Formatters
     static let rowCountFormatter: NumberFormatter = {
@@ -239,9 +241,40 @@ class ResultsGridVC: NSViewController {
         }
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        guard appearanceObservers.isEmpty else { return }
+        // The selection colour and the header's accent-tinted funnel are
+        // cached on the appearance NAME. Two things change them without
+        // changing that name: the window losing or gaining key (the system
+        // greys a selection in a non-key window) and the accent colour in
+        // System Settings. Repaint on both.
+        let center = NotificationCenter.default
+        let keyChanged: (Notification) -> Void = { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let window = note.object as? NSWindow, window === self.view.window else { return }
+                self.dataSource.invalidateAppearanceColors()
+            }
+        }
+        appearanceObservers = [
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: keyChanged),
+            center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main, using: keyChanged),
+            center.addObserver(forName: NSColor.currentControlTintDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.dataSource.invalidateAppearanceColors()
+                    self.filterableHeaderView.invalidateIconCache()
+                }
+            },
+        ]
+    }
+
     deinit {
         if let tagStoreObserver {
             NotificationCenter.default.removeObserver(tagStoreObserver)
+        }
+        for observer in appearanceObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

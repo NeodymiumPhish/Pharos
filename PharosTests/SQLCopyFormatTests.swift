@@ -27,7 +27,7 @@ private func expectContains(_ haystack: String, _ needle: String, _ name: String
 
 // MARK: - Fixtures
 
-private func data(_ names: [String], _ rows: [[String]]) -> CopyData {
+private func data(_ names: [String], _ rows: [[String?]]) -> CopyData {
     CopyData(columnNames: names,
              columnIndices: Array(names.indices),
              rows: rows,
@@ -111,7 +111,7 @@ private func testWholeStatementShape() {
 private func testNullFirstRowKeepsCast() {
     let types = ["int4"]
     let out = ResultsCopyExport.sqlWithStatement(
-        data: data(["Row Count"], [["NULL"], ["7"]]),
+        data: data(["Row Count"], [[nil], ["7"]]),
         categories: cats(types), columns: cols(types))
 
     expect(out, """
@@ -135,6 +135,37 @@ private func testInsertQuotesTheSameWay() {
            "INSERT quotes an aliased name and doubles an embedded quote")
 }
 
+/// NULL, the empty string and the text `NULL` are three different values.
+/// `CopyData` used to carry all three as `""`/`"NULL"`, so an empty string
+/// exported as SQL NULL and a text value that read `NULL` did too.
+private func testNullEmptyAndNullTextAreDistinct() {
+    let out = ResultsCopyExport.sqlInsertStatements(
+        data: data(["a", "b", "c"], [[nil, "", "NULL"]]),
+        categories: cats(["text", "text", "text"]))
+    expect(out, #"INSERT INTO table_name ("a", "b", "c") VALUES (NULL, '', 'NULL');"#,
+           "INSERT tells NULL from '' from 'NULL'")
+
+    let with = ResultsCopyExport.sqlWithStatement(
+        data: data(["a", "b"], [["", nil], [nil, "NULL"]]),
+        categories: cats(["text", "text"]), columns: cols(["text", "text"]))
+    expectContains(with, "(''::text, NULL::text)", "WITH keeps an empty string as ''")
+    expectContains(with, "(NULL, 'NULL')", "WITH keeps the text NULL as a literal")
+}
+
+/// Text formats: NULL is an empty field; a field holding the separator or a
+/// line break is quoted so it stays one cell on paste.
+private func testTextFieldRendering() {
+    expect(ResultsCopyExport.tsvField(nil), "", "TSV NULL is an empty field")
+    expect(ResultsCopyExport.tsvField("plain"), "plain", "TSV plain value is untouched")
+    expect(ResultsCopyExport.tsvField("a\tb"), "\"a\tb\"", "TSV quotes an embedded tab")
+    expect(ResultsCopyExport.tsvField("a\nb"), "\"a\nb\"", "TSV quotes an embedded newline")
+    expect(ResultsCopyExport.tsvField("say \"hi\""), "\"say \"\"hi\"\"\"", "TSV doubles an embedded quote")
+    expect(ResultsCopyExport.csvEscape("a\rb"), "\"a\rb\"", "CSV quotes a bare carriage return")
+    expect(ResultsCopyExport.markdownField(nil), "", "Markdown NULL is an empty cell")
+    expect(ResultsCopyExport.markdownField("x|y"), "x\\|y", "Markdown escapes a pipe")
+    expect(ResultsCopyExport.markdownField("a\r\nb"), "a<br>b", "Markdown folds CRLF to one <br>")
+}
+
 func runTests() {
     testAliasWithSpaceIsQuoted()
     testUnnamedExpressionColumnIsQuoted()
@@ -143,6 +174,8 @@ func runTests() {
     testWholeStatementShape()
     testNullFirstRowKeepsCast()
     testInsertQuotesTheSameWay()
+    testNullEmptyAndNullTextAreDistinct()
+    testTextFieldRendering()
 
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     exit(failures == 0 ? 0 : 1)

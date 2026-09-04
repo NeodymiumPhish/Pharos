@@ -36,14 +36,30 @@ private class ResultCellView: NSTableCellView {
         }
     }
 
+    /// True while the grid's window is key. A selected cell in a non-key
+    /// window paints the system's unemphasized (grey) selection, and its
+    /// text must stay readable on that grey, so the text colour follows.
+    var selectionEmphasized: Bool = true {
+        didSet {
+            guard oldValue != selectionEmphasized else { return }
+            updateTextColor()
+        }
+    }
+
     private func updateTextColor() {
         // Row-emphasis (.emphasized) wins when NSTableView sets it via
         // selectRowIndexes (row-number-column selection). Cell-mode selection
         // never sets .emphasized, so isSelected drives the color.
         if backgroundStyle == .emphasized {
             textField?.textColor = .alternateSelectedControlTextColor
+        } else if isSelected {
+            // The system's own pair for selected content: white on the accent
+            // fill, label-ish grey on the unemphasized fill. `.white` was hard
+            // coded here, and stayed white on the grey fill of a non-key window.
+            textField?.textColor = selectionEmphasized
+                ? .alternateSelectedControlTextColor : .unemphasizedSelectedTextColor
         } else {
-            textField?.textColor = isSelected ? .white : normalTextColor
+            textField?.textColor = normalTextColor
         }
     }
 
@@ -144,25 +160,53 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var cachedSelectionBg: CGColor = NSColor.selectedContentBackgroundColor.cgColor
     private var cachedFindBorder: CGColor = FindMatchDecoration.borderColor(isDark: false).cgColor
     private var cachedAppearanceName: NSAppearance.Name?
+    /// Key-window state the cached selection colour was resolved for. Part of
+    /// the cache key beside the appearance name: the system paints a selection
+    /// in a non-key window with the unemphasized grey, and so does this grid.
+    private var cachedIsKey: Bool = true
 
     /// Refresh the appearance-dependent cgColors — the selection background
-    /// and the find border — when the effective appearance changes.
-    /// Called from viewFor and updateVisibleCellSelectionAppearance — both run
-    /// after AppKit has resolved effectiveAppearance on the table view.
+    /// and the find border — when the effective appearance or the key-window
+    /// state changes. Called from viewFor and
+    /// updateVisibleCellSelectionAppearance — both run after AppKit has
+    /// resolved effectiveAppearance on the table view.
     private func refreshAppearanceColorsIfNeeded() {
         let name = tableView.effectiveAppearance.name
-        guard name != cachedAppearanceName else { return }
+        let isKey = tableView.window?.isKeyWindow ?? true
+        guard name != cachedAppearanceName || isKey != cachedIsKey else { return }
         cachedAppearanceName = name
+        cachedIsKey = isKey
         let isDark = tableView.effectiveAppearance
             .bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        var selection: CGColor = NSColor.selectedContentBackgroundColor.cgColor
+        let selectionColor: NSColor = isKey
+            ? .selectedContentBackgroundColor : .unemphasizedSelectedContentBackgroundColor
+        var selection: CGColor = selectionColor.cgColor
         var border: CGColor = FindMatchDecoration.borderColor(isDark: isDark).cgColor
         tableView.effectiveAppearance.performAsCurrentDrawingAppearance {
-            selection = NSColor.selectedContentBackgroundColor.cgColor
+            selection = selectionColor.cgColor
             border = FindMatchDecoration.borderColor(isDark: isDark).cgColor
         }
         cachedSelectionBg = selection
         cachedFindBorder = border
+    }
+
+    /// Drop the colour cache and repaint the selected cells. For the accent
+    /// colour changing in System Settings and for the window gaining or
+    /// losing key — neither flips `effectiveAppearance.name`, which was the
+    /// cache's only key, so the old accent stayed on screen until light/dark
+    /// happened to change.
+    func invalidateAppearanceColors() {
+        cachedAppearanceName = nil
+        // Forget the last-applied rect so the whole current selection counts
+        // as dirty, not just its difference from the previous drag tick.
+        lastAppliedSelectionRect = nil
+        updateVisibleCellSelectionAppearance()
+    }
+
+    /// The one writer of a cell's selected look, for both realize sites.
+    private func applySelection(_ selected: Bool, to cell: ResultCellView) {
+        cell.selectionEmphasized = cachedIsKey
+        cell.isSelected = selected
     }
 
     /// Paint (or clear) one cell's find border. Shared by the realize path
@@ -417,7 +461,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // Always assign so a recycled cell can't carry stale selected-state
         // into a non-selected slot. Find-match cells suppress the white text
         // override even when within the selection rectangle.
-        cell.isSelected = isInSelection && !isFindHighlighted
+        applySelection(isInSelection && !isFindHighlighted, to: cell)
 
         return cell
     }
@@ -534,7 +578,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     // the border has ONE owner across both write sites, the
                     // same rule the tint background follows.
                     applyFindBorder(findState, to: cell)
-                    cell.isSelected = isInSelection && !isFindHighlighted
+                    applySelection(isInSelection && !isFindHighlighted, to: cell)
                 }
             }
 

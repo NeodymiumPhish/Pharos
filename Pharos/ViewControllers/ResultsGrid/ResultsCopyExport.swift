@@ -6,7 +6,12 @@ import UniformTypeIdentifiers
 struct CopyData {
     let columnNames: [String]
     let columnIndices: [Int]
-    let rows: [[String]]
+    /// One entry per column. `nil` is SQL NULL; `""` is an empty string. The
+    /// two used to arrive as the same `""`, so an empty string exported as
+    /// `NULL` and a text value that read `NULL` did too. Each format decides
+    /// its own rendering of nil: the SQL builders write `NULL`, JSON writes
+    /// `null`, the text formats write an empty field.
+    let rows: [[String?]]
     let includeHeaders: Bool
 }
 
@@ -103,7 +108,7 @@ class ResultsCopyExport: NSObject {
         let displayNames = resolved.map(\.name)
         let indices = resolved.map(\.index)
 
-        var rowData: [[String]] = []
+        var rowData: [[String?]] = []
         var droppedByScope = false
         for row in range.topLeft.row...range.bottomRight.row {
             guard row >= 0, row < displayRows.count else { continue }
@@ -116,7 +121,7 @@ class ResultsCopyExport: NSObject {
             }
             let data = rows[dataIdx]
             let values = indices.map { idx in
-                idx < data.count ? data[idx].displayString : ""
+                idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
             }
             rowData.append(values)
         }
@@ -159,7 +164,7 @@ class ResultsCopyExport: NSObject {
         let displayNames = resolved.map(\.name)
         let indices = resolved.map(\.index)
 
-        var rowData: [[String]] = []
+        var rowData: [[String?]] = []
 
         if !selectedRows.isEmpty {
             for row in selectedRows {
@@ -168,7 +173,7 @@ class ResultsCopyExport: NSObject {
                                            taggedRows: taggedRows) else { continue }
                 let data = rows[displayRows[row]]
                 let values = indices.map { idx in
-                    idx < data.count ? data[idx].displayString : ""
+                    idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
                 }
                 rowData.append(values)
             }
@@ -178,7 +183,7 @@ class ResultsCopyExport: NSObject {
                                            taggedRows: taggedRows) else { continue }
                 let data = rows[displayRows[row]]
                 let values = indices.map { idx in
-                    idx < data.count ? data[idx].displayString : ""
+                    idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
                 }
                 rowData.append(values)
             }
@@ -296,7 +301,7 @@ class ResultsCopyExport: NSObject {
 
     @objc func copyAsTSV(_: Any?) {
         copyOnBackground { data in
-            var lines = data.rows.map { $0.joined(separator: "\t") }
+            var lines = data.rows.map { $0.map { Self.tsvField($0) }.joined(separator: "\t") }
             if data.includeHeaders {
                 lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
             }
@@ -306,7 +311,7 @@ class ResultsCopyExport: NSObject {
 
     @objc func copyAsCSV(_: Any?) {
         copyOnBackground { data in
-            var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+            var lines = data.rows.map { $0.map { Self.csvEscape($0 ?? "") }.joined(separator: ",") }
             if data.includeHeaders {
                 let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
                 lines.insert(header, at: 0)
@@ -317,7 +322,7 @@ class ResultsCopyExport: NSObject {
 
     @objc func copyAsMarkdown(_: Any?) {
         copyOnBackground { data in
-            let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
+            let rows = data.rows.map { "| " + $0.map { Self.markdownField($0) }.joined(separator: " | ") + " |" }
             if data.includeHeaders {
                 let header = "| " + data.columnNames.joined(separator: " | ") + " |"
                 let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"
@@ -343,7 +348,7 @@ class ResultsCopyExport: NSObject {
         let colList = data.columnNames.map { quotedSqlIdentifier($0) }.joined(separator: ", ")
         let statements = data.rows.map { row in
             let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                if val.isEmpty || val == "NULL" { return "NULL" }
+                guard let val else { return "NULL" }
                 let category = colIdx < categories.count ? categories[colIdx] : .string
                 switch category {
                 case .numeric:
@@ -391,7 +396,7 @@ class ResultsCopyExport: NSObject {
                 // NULLs in row 0 still need the type cast — otherwise PG has
                 // nothing to anchor type inference on for that column and
                 // mixed-type unification across rows can fail downstream.
-                if val.isEmpty || val == "NULL" {
+                guard let val else {
                     return rowIdx == 0 ? "NULL::\(pgType)" : "NULL"
                 }
                 let category = colIdx < categories.count ? categories[colIdx] : .string
@@ -436,7 +441,7 @@ class ResultsCopyExport: NSObject {
     }
 
     static func csvEscape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") {
+        if s.contains(",") || s.contains("\"") || s.contains("\n") || s.contains("\r") {
             // RFC 4180 CSV quoting doubles embedded quotes. This shares the
             // mechanic with SQL identifier quoting but is a separate domain:
             // exported bytes must stay exact, so it keeps its own quoting and
@@ -444,6 +449,29 @@ class ResultsCopyExport: NSObject {
             return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return s
+    }
+
+    /// One TSV field. NULL is an empty field. A value holding a tab, a line
+    /// break or a quote is quoted the CSV way — TSV has no standard of its
+    /// own, and this is the form spreadsheets read back as one cell. Without
+    /// it an embedded tab shifted every following column on paste.
+    static func tsvField(_ s: String?) -> String {
+        guard let s else { return "" }
+        if s.contains("\t") || s.contains("\n") || s.contains("\r") || s.contains("\"") {
+            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        return s
+    }
+
+    /// One Markdown table cell. NULL is empty; a `|` is escaped so it cannot
+    /// split the row; line breaks become `<br>`, the only form a table cell
+    /// can carry.
+    static func markdownField(_ s: String?) -> String {
+        guard let s else { return "" }
+        return s.replacingOccurrences(of: "|", with: "\\|")
+            .replacingOccurrences(of: "\r\n", with: "<br>")
+            .replacingOccurrences(of: "\n", with: "<br>")
+            .replacingOccurrences(of: "\r", with: "<br>")
     }
 
     // MARK: - Copy Popover
@@ -550,7 +578,7 @@ class ResultsCopyExport: NSObject {
 
     @objc private func exportAsCSV(_: Any?) {
         exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
-            var lines = data.rows.map { $0.map { Self.csvEscape($0) }.joined(separator: ",") }
+            var lines = data.rows.map { $0.map { Self.csvEscape($0 ?? "") }.joined(separator: ",") }
             if data.includeHeaders {
                 let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
                 lines.insert(header, at: 0)
@@ -561,7 +589,7 @@ class ResultsCopyExport: NSObject {
 
     @objc private func exportAsTSV(_: Any?) {
         exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
-            var lines = data.rows.map { $0.joined(separator: "\t") }
+            var lines = data.rows.map { $0.map { Self.tsvField($0) }.joined(separator: "\t") }
             if data.includeHeaders {
                 lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
             }
@@ -580,8 +608,10 @@ class ResultsCopyExport: NSObject {
             guard response == .OK, let url = panel.url else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let jsonArray = data.rows.map { row in
-                        Dictionary(zip(data.columnNames, row), uniquingKeysWith: { _, last in last })
+                    // NULL becomes JSON `null`, not `""`.
+                    let jsonArray: [[String: Any]] = data.rows.map { row in
+                        let values: [Any] = row.map { $0.map { $0 as Any } ?? NSNull() }
+                        return Dictionary(zip(data.columnNames, values), uniquingKeysWith: { _, last in last })
                     }
                     let jsonData = try JSONSerialization.data(withJSONObject: jsonArray, options: [.prettyPrinted, .sortedKeys])
                     try jsonData.write(to: url)
@@ -596,31 +626,19 @@ class ResultsCopyExport: NSObject {
     }
 
     @objc private func exportAsSQLInsert(_: Any?) {
+        // Same builder as "Copy as SQL INSERT": one quoting rule, one NULL
+        // rule. The export used to keep its own copy that wrapped names in
+        // bare quotes, so an alias with an embedded `"` broke the file but
+        // not the pasteboard text.
         let cats = columnCategories
         exportToFile(filename: "export.sql", contentType: UTType(filenameExtension: "sql") ?? .plainText) { data in
-            let colList = data.columnNames.map { "\"\($0)\"" }.joined(separator: ", ")
-            let statements = data.rows.map { row in
-                let values = zip(data.columnIndices, row).map { (colIdx, val) -> String in
-                    if val.isEmpty || val == "NULL" { return "NULL" }
-                    let category = colIdx < cats.count ? cats[colIdx] : .string
-                    switch category {
-                    case .numeric:
-                        return val
-                    case .boolean:
-                        return Self.sqlBooleanLiteral(val)
-                    default:
-                        return "'\(val.replacingOccurrences(of: "'", with: "''"))'"
-                    }
-                }
-                return "INSERT INTO table_name (\(colList)) VALUES (\(values.joined(separator: ", ")));"
-            }
-            return statements.joined(separator: "\n")
+            Self.sqlInsertStatements(data: data, categories: cats)
         }
     }
 
     @objc private func exportAsMarkdown(_: Any?) {
         exportToFile(filename: "export.md", contentType: UTType(filenameExtension: "md") ?? .plainText) { data in
-            let rows = data.rows.map { "| " + $0.joined(separator: " | ") + " |" }
+            let rows = data.rows.map { "| " + $0.map { Self.markdownField($0) }.joined(separator: " | ") + " |" }
             if data.includeHeaders {
                 let header = "| " + data.columnNames.joined(separator: " | ") + " |"
                 let divider = "| " + data.columnNames.map { _ in "---" }.joined(separator: " | ") + " |"

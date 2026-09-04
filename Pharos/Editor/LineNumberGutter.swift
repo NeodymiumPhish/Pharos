@@ -134,11 +134,7 @@ class LineNumberGutter: NSView {
         self.metrics = metrics
         super.init(frame: .zero)
 
-        lineAttributes = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.tertiaryLabelColor,
-        ]
-        cachedDigitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
+        applyNumberFont(NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular))
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(textDidChange(_:)),
@@ -173,6 +169,32 @@ class LineNumberGutter: NSView {
     }
 
     // MARK: - Public API
+
+    /// Follow the editor font. The numbers use the system monospaced-digit
+    /// face one point smaller than the editor text (never below 9 pt), so a
+    /// 16 pt editor does not sit beside 11 pt numbers. Resets the cached
+    /// digit width and the width short-circuit so `desiredWidth` is
+    /// recomputed for the new size, then redraws.
+    func setFont(_ editorFont: NSFont) {
+        let size = max(9, editorFont.pointSize - 1)
+        applyNumberFont(NSFont.monospacedDigitSystemFont(ofSize: size, weight: .regular))
+        lastDigitCount = 0
+        recalculateWidth()
+        needsDisplay = true
+    }
+
+    private func applyNumberFont(_ font: NSFont) {
+        lineAttributes = [
+            .font: font,
+            .foregroundColor: NSColor.tertiaryLabelColor,
+        ]
+        cachedDigitWidth = NSAttributedString(string: "8", attributes: lineAttributes).size().width
+    }
+
+    /// The number font in force — `lineAttributes[.font]`, typed.
+    private var numberFont: NSFont {
+        (lineAttributes[.font] as? NSFont) ?? NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    }
 
     func setErrorLines(_ lines: Set<Int>) {
         errorLines = lines
@@ -598,6 +620,28 @@ class LineNumberGutter: NSView {
         var activeAttributes = lineAttributes
         activeAttributes[.foregroundColor] = NSColor.labelColor
 
+        // Baseline alignment. A number centred in its line fragment sits on a
+        // different baseline from the text whenever the two fonts differ in
+        // ascent (they do: system monospaced digits beside JetBrains Mono, or
+        // beside a larger editor size). So place each number by baseline: the
+        // fragment's baseline comes from the layout manager, the number's from
+        // the same default-baseline rule NSStringDrawing applies to `draw(at:)`.
+        let numberBaseline = layoutManager.defaultBaselineOffset(for: numberFont)
+        let numberX = desiredWidth - metrics.segmentBarWidth - metrics.segmentBarGap
+            - metrics.numberTrailingPadding
+        func drawNumber(_ lineNumber: Int, lineTop y: CGFloat, lineHeight: CGFloat, textBaseline: CGFloat) {
+            let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
+            let attrString = NSAttributedString(string: "\(lineNumber)", attributes: attrs)
+            let stringSize = attrString.size()
+            // Baseline of the text line, in gutter coordinates, minus the
+            // number's own baseline offset gives the number's top. Fall back
+            // to centring only if the layout manager gave no baseline.
+            let top = textBaseline > 0
+                ? y + textBaseline - numberBaseline
+                : y + (lineHeight - stringSize.height) / 2
+            attrString.draw(at: NSPoint(x: numberX - stringSize.width, y: top))
+        }
+
         // Visible range in the text view — see `visibleTextContainerRect()`.
         guard let visibleCharRange = visibleCharacterRange() else { return }
 
@@ -666,20 +710,39 @@ class LineNumberGutter: NSView {
                 }
             }
 
-            // Line number text — right-aligned before the segment bar column
-            let numberString = "\(lineNumber)"
-            let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
-            let attrString = NSAttributedString(string: numberString, attributes: attrs)
-            let stringSize = attrString.size()
-            let drawPoint = NSPoint(
-                x: desiredWidth - metrics.segmentBarWidth - metrics.segmentBarGap
-                    - metrics.numberTrailingPadding - stringSize.width,
-                y: y + (lineRect.height - stringSize.height) / 2
-            )
-            attrString.draw(at: drawPoint)
+            // Line number text — right-aligned before the segment bar column,
+            // on the line's baseline. `location(forGlyphAt:)` is the glyph's
+            // origin within its fragment; its y is the baseline offset — for a
+            // glyph that draws. A line holding only its newline reports the
+            // fragment HEIGHT there (measured: 19 for a 15 baseline), so an
+            // empty line's number sat a few points low. Fall back to the
+            // font's default baseline, which is what the typesetter used.
+            let fontBaseline = layoutManager.defaultBaselineOffset(for: textView.font ?? numberFont)
+            var textBaseline = fontBaseline
+            if glyphRange.location < layoutManager.numberOfGlyphs {
+                let reported = layoutManager.location(forGlyphAt: glyphRange.location).y
+                if reported > 0, reported < lineRect.height { textBaseline = reported }
+            }
+            drawNumber(lineNumber, lineTop: y, lineHeight: lineRect.height, textBaseline: textBaseline)
 
             lineNumber += 1
             charIndex = NSMaxRange(lineRange)
+        }
+
+        // The trailing line. An empty document, and a document that ends in a
+        // newline, both end in a line with NO glyphs, so the glyph-based
+        // visible range never reaches it and the loop above never numbers it
+        // — a fresh tab showed no "1", and the caret's last line had no
+        // number. The layout manager keeps that line's geometry in
+        // `extraLineFragmentRect`; number it from there when the walk has
+        // reached the end of the text.
+        if lineNumber == lineStarts.count,
+           text.length == 0 || text.character(at: text.length - 1) == 0x0A,
+           !layoutManager.extraLineFragmentRect.isEmpty,
+           let y = gutterY(forTextContainerRect: layoutManager.extraLineFragmentRect) {
+            let extra = layoutManager.extraLineFragmentRect
+            drawNumber(lineNumber, lineTop: y, lineHeight: extra.height,
+                       textBaseline: layoutManager.defaultBaselineOffset(for: textView.font ?? numberFont))
         }
 
         // Draw segment bars / phantom pulse
