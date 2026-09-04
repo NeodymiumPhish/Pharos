@@ -55,14 +55,20 @@ final class FoldState {
 
     /// Adjust fold ranges after a text edit. Removes folds that overlap the edit, shifts
     /// folds that come after. Call this from didChangeText() or similar.
-    func adjustForEdit(editedRange: NSRange, changeInLength: Int) {
+    ///
+    /// Returns the ranges (pre-edit coordinates) of the folds it removed. The
+    /// caller must invalidate those ranges: their glyphs were suppressed while
+    /// folded, and nothing else knows where they were once the entry is gone.
+    @discardableResult
+    func adjustForEdit(editedRange: NSRange, changeInLength: Int) -> [NSRange] {
         let editEnd = NSMaxRange(editedRange)
 
         // Remove folds that intersect the edit (reverse order to preserve indices)
+        var removed: [NSRange] = []
         for idx in stride(from: entries.count - 1, through: 0, by: -1) {
             let foldEnd = NSMaxRange(entries[idx].range)
             if entries[idx].range.location < editEnd && foldEnd > editedRange.location {
-                entries.remove(at: idx)
+                removed.append(entries.remove(at: idx).range)
             }
         }
 
@@ -72,5 +78,6 @@ final class FoldState {
                 entries[idx].range.location += changeInLength
             }
         }
+        return removed
     }
 }

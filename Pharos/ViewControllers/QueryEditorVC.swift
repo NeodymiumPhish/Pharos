@@ -129,6 +129,10 @@ class QueryEditorVC: NSViewController {
             gutterWidth = 0
         }
         scrollView.frame = NSRect(x: gutterWidth, y: 0, width: bounds.width - gutterWidth, height: bounds.height)
+        // No-wrap mode keeps the text view at least as large as the clip.
+        if textView.textContainer?.widthTracksTextView == false {
+            textView.minSize = scrollView.contentSize
+        }
     }
 
     // MARK: - Public API
@@ -159,9 +163,17 @@ class QueryEditorVC: NSViewController {
         // Suppress the onTextChange callback to avoid double-parsing:
         // setSQL already parses segments, and onTextChange would trigger
         // recalculateSegments which parses again.
+        // A direct `string =` skips didChangeText, so nothing else resets the
+        // per-document state: folds would keep hiding the OLD text's ranges in
+        // the new text, and ⌘Z would replay the previous tab's edits here.
+        textView.unfoldAll()
         suppressTextChange = true
-        textView.string = sql
+        // AppKit keeps CRLF as typed; `\r` is invisible in the editor and
+        // breaks line-based segment math. Store one line ending.
+        textView.string = sql.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         suppressTextChange = false
+        textView.undoManager?.removeAllActions()
         textView.highlightSyntax()
         gutter?.invalidateLineNumbers()
         // Immediately recalculate segments for the new text
@@ -309,10 +321,18 @@ class QueryEditorVC: NSViewController {
             textView.textContainer?.widthTracksTextView = true
             textView.textContainer?.size.width = textView.enclosingScrollView?.contentSize.width ?? 0
             textView.isHorizontallyResizable = false
+            textView.minSize = NSSize(width: 0, height: 0)
+            scrollView.hasHorizontalScroller = false
         } else {
+            // Apple's non-wrapping recipe: an unbounded container, a text view
+            // that grows with its longest line, a horizontal scroller to reach
+            // it, and `minSize` = the clip so the view never shrinks below the
+            // visible area (a click right of short text would otherwise miss).
             textView.textContainer?.widthTracksTextView = false
             textView.textContainer?.size.width = CGFloat.greatestFiniteMagnitude
             textView.isHorizontallyResizable = true
+            textView.minSize = scrollView.contentSize
+            scrollView.hasHorizontalScroller = true
         }
 
         if needsRehighlight {

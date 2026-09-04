@@ -82,8 +82,15 @@ class SQLTextView: NSTextView {
     /// Pending debounced highlightSyntax task, replaced on each keystroke.
     /// Full-document syntax passes are expensive on large docs (multi-KB
     /// WITH clauses, query results pasted in, etc.), so the visible-color
-    /// refresh is deferred ~100 ms after typing stops to keep input snappy.
+    /// refresh is deferred 150 ms after typing stops to keep input snappy.
     private var highlightDebounceTask: Task<Void, Never>?
+
+    /// One undo stack per editor. Without this, NSResponder hands back the
+    /// WINDOW's undo manager, shared by every text view and field in it, so
+    /// ⌘Z in one pane could undo an edit made in the other. `setSQL` clears
+    /// this stack on a tab switch, and that must not touch anyone else's history.
+    private let editorUndoManager = UndoManager()
+    override var undoManager: UndoManager? { editorUndoManager }
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -118,6 +125,11 @@ class SQLTextView: NSTextView {
         isAutomaticSpellingCorrectionEnabled = false
         isContinuousSpellCheckingEnabled = false
         isGrammarCheckingEnabled = false
+        // Smart insert/delete adds and strips spaces around a cut or pasted
+        // word — wrong for code. The system word completion is a second
+        // completion UI that would compete with SQLCompletionProvider.
+        smartInsertDeleteEnabled = false
+        isAutomaticTextCompletionEnabled = false
         usesFindBar = true
 
         font = .monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -187,14 +199,24 @@ class SQLTextView: NSTextView {
         if let editRange = pendingEditRange {
             let changeInLength = (pendingReplacementLength ?? 0) - editRange.length
             let hadFolds = !foldState.entries.isEmpty
-            foldState.adjustForEdit(editedRange: editRange, changeInLength: changeInLength)
+            let removed = foldState.adjustForEdit(editedRange: editRange, changeInLength: changeInLength)
             if hadFolds {
-                invalidateFoldLayout()
+                // A removed fold's range is in pre-edit coordinates. Text after
+                // the edit moved by `changeInLength`, so widen each range by any
+                // growth; `invalidateFoldLayout` clamps to the new length.
+                let shifted = removed.map {
+                    NSRange(location: $0.location, length: $0.length + max(0, changeInLength))
+                }
+                invalidateFoldLayout(revealing: shifted)
             }
         }
         pendingEditRange = nil
         pendingReplacementLength = nil
 
+        // The text changed under any in-flight highlight pass: its spans were
+        // computed for the OLD text and can now reach past the end of the new
+        // one. Bumping the generation here makes that pass discard itself.
+        highlightGeneration &+= 1
         scheduleDebouncedHighlight()
         onTextChange?(string)
 
@@ -480,8 +502,9 @@ class SQLTextView: NSTextView {
         let cursor = selectedRange().location
         let text = self.string as NSString
 
-        // If deleting an open bracket and the next char is its matching close, delete both
-        if cursor > 0, cursor < text.length,
+        // If deleting an open bracket and the next char is its matching close, delete both.
+        // Only with a caret — with a selection, Backspace deletes the selection.
+        if selectedRange().length == 0, cursor > 0, cursor < text.length,
            let prevScalar = UnicodeScalar(text.character(at: cursor - 1)),
            let nextScalar = UnicodeScalar(text.character(at: cursor)) {
             let prevChar = String(Character(prevScalar))
@@ -608,21 +631,28 @@ class SQLTextView: NSTextView {
 
     /// Unfold a specific fold by its UUID.
     func unfold(id: UUID) {
-        guard foldState.remove(id: id) != nil else { return }
-        invalidateFoldLayout()
+        guard let removed = foldState.remove(id: id) else { return }
+        invalidateFoldLayout(revealing: [removed.range])
     }
 
     /// Unfold all folded regions.
     func unfoldAll() {
         guard !foldState.entries.isEmpty else { return }
+        let removed = foldState.foldedCharacterRanges
         foldState.removeAll()
-        invalidateFoldLayout()
+        invalidateFoldLayout(revealing: removed)
     }
 
     /// Invalidate layout for fold-affected ranges so the layout manager recomputes glyphs.
     /// Only invalidates the specific fold ranges instead of the entire document to avoid
     /// layout thrashing that causes visible text jumping.
-    private func invalidateFoldLayout() {
+    ///
+    /// `revealing` carries the ranges of folds that were JUST removed. Their
+    /// glyphs are still suppressed, and they are no longer in `foldState`, so
+    /// the caller has to hand them over — with two or more folds active, the
+    /// live ranges alone would leave the unfolded text hidden until a full
+    /// relayout (a window resize) happened to come along.
+    private func invalidateFoldLayout(revealing removed: [NSRange] = []) {
         guard let layoutManager else { return }
         let textLength = (string as NSString).length
         guard textLength > 0 else { return }
@@ -630,23 +660,12 @@ class SQLTextView: NSTextView {
         // Invalidate each fold's range individually instead of the entire document.
         // This is what triggers FoldingLayoutManager.setGlyphs() to re-evaluate
         // which glyphs should be suppressed, but only for affected regions.
-        let foldRanges = foldState.foldedCharacterRanges
-        if foldRanges.isEmpty {
-            // No folds remain — still need one invalidation pass so previously
-            // suppressed glyphs become visible again. Use a targeted range
-            // covering from the first fold start to the end of the document
-            // (we don't know exact old ranges, but the layout manager will
-            // quickly no-op for non-folded regions in setGlyphs).
-            let fullRange = NSRange(location: 0, length: textLength)
-            layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
-            layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-        } else {
-            for range in foldRanges {
-                let safeRange = NSRange(location: range.location, length: min(range.length, textLength - range.location))
-                guard safeRange.length > 0 else { continue }
-                layoutManager.invalidateGlyphs(forCharacterRange: safeRange, changeInLength: 0, actualCharacterRange: nil)
-                layoutManager.invalidateLayout(forCharacterRange: safeRange, actualCharacterRange: nil)
-            }
+        for range in foldState.foldedCharacterRanges + removed {
+            let location = min(range.location, textLength)
+            let safeRange = NSRange(location: location, length: min(range.length, textLength - location))
+            guard safeRange.length > 0 else { continue }
+            layoutManager.invalidateGlyphs(forCharacterRange: safeRange, changeInLength: 0, actualCharacterRange: nil)
+            layoutManager.invalidateLayout(forCharacterRange: safeRange, actualCharacterRange: nil)
         }
 
         needsDisplay = true
@@ -680,7 +699,7 @@ class SQLTextView: NSTextView {
     private func scheduleDebouncedHighlight() {
         highlightDebounceTask?.cancel()
         highlightDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 750_000_000)  // 750 ms
+            try? await Task.sleep(nanoseconds: 150_000_000)  // 150 ms
             guard !Task.isCancelled, let self else { return }
             self.highlightSyntax()
         }
@@ -719,13 +738,22 @@ class SQLTextView: NSTextView {
     /// CATransaction with implicit animations disabled so the layout manager
     /// doesn't animate temporary-attribute changes during the bulk update.
     private func applyHighlightAttributes(_ attrs: [SQLSyntaxHighlighter.Span], layoutManager: NSLayoutManager) {
+        // Clamp every span to the live text. The generation check catches a
+        // pass that started before an edit; this catches anything else that
+        // could hand a range past the end to the layout manager, which raises
+        // NSRangeException rather than ignoring it.
+        let length = (string as NSString).length
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for attr in attrs {
+            guard attr.range.location < length else { continue }
+            let range = NSRange(location: attr.range.location,
+                                length: min(attr.range.length, length - attr.range.location))
+            guard range.length > 0 else { continue }
             if let color = attr.color {
-                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: attr.range)
+                layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
             } else {
-                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: attr.range)
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             }
         }
         CATransaction.commit()
