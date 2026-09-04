@@ -136,6 +136,9 @@ class ResultsGridVC: NSViewController {
         dataSource.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
+        // Type-select would let NSTableView select rows behind the cell
+        // selection controller's back; every selection goes through it.
+        tableView.allowsTypeSelect = false
         tableView.allowsColumnReordering = true
         tableView.allowsColumnResizing = true
         tableView.rowSizeStyle = .custom
@@ -348,10 +351,14 @@ class ResultsGridVC: NSViewController {
 
     /// Restores previously captured grid view state after `showResult()`.
     func restoreGridState(_ state: ResultsGridState) {
-        // 0. Column order
+        // 0. Column order. `__rownum__` is never moved: the selection controller
+        // and the row-number click path rely on it staying at index 0, and
+        // `shouldReorderColumn` refuses a drag into or out of that slot — a
+        // saved order from before that guard must not put it back.
         if let order = state.columnOrder {
             for (targetIndex, colId) in order.enumerated() {
-                guard targetIndex < tableView.tableColumns.count else { continue }
+                guard targetIndex < tableView.tableColumns.count,
+                      targetIndex != 0, colId != "__rownum__" else { continue }
                 if let currentIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == colId }),
                    currentIndex != targetIndex {
                     tableView.moveColumn(currentIndex, toColumn: targetIndex)
@@ -381,17 +388,29 @@ class ResultsGridVC: NSViewController {
             recomputeColumnFilteredRows()
         }
 
-        // 4. Scroll position
-        scrollView.contentView.setBoundsOrigin(state.scrollPosition)
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        // 4. Scroll position — through the table, not the clip. A direct
+        // `setBoundsOrigin` on the content clip does not carry the header clip
+        // with it (see FilterableHeaderView), so the header would draw at x = 0
+        // while the rows sat at the saved offset.
+        tableView.scroll(state.scrollPosition)
 
-        // 5. Selection
+        // 5. Selection — through the controller, so `state.selectedRows`,
+        // the Clear Selection button and `reconcileSelection` all see it.
+        // A bare `selectRowIndexes` leaves the controller empty, and the
+        // next `reloadData` silently drops the rows.
         if !state.selectedRows.isEmpty {
-            tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
+            cellSelectionController.selectRows(state.selectedRows)
         }
     }
 
     func appendRows(from result: QueryResult) {
+        // A page belongs to THIS result only if its shape matches. A Load More
+        // that lands after the tab re-ran a different query would otherwise
+        // put rows with the wrong column count under this header.
+        guard result.columns.count == columns.count else {
+            setLoadingMore(false)
+            return
+        }
         let oldCount = rows.count
         rows.append(contentsOf: result.rows)
         rowIdentity = rowIdentity?.appendingPage(result.rowIdentity, pageRowCount: result.rows.count)
@@ -995,7 +1014,11 @@ class ResultsGridVC: NSViewController {
         if state.isRowMode {
             dataSource.cellSelection = nil
             copyExport.cellSelection = nil
-            tableView.reloadData()
+            // Clear any cell-range paint through the same fast path the cell
+            // mode uses; the row views repaint their own selection. A full
+            // `reloadData` here re-realized every visible cell on each row the
+            // drag crossed.
+            dataSource.updateVisibleCellSelectionAppearance()
             tableView.selectRowIndexes(state.selectedRows, byExtendingSelection: false)
             filterableHeaderView.highlightedColumnIndices = IndexSet()
             filterableHeaderView.needsDisplay = true
@@ -1062,7 +1085,7 @@ class ResultsGridVC: NSViewController {
         // Padding = the 6/6 text insets (both header text and body cells use them)
         // + the table's intercell gap (eats into a cell's drawable width) + a small
         // rounding safety, so the rendered text never lands a hair short and truncates.
-        let pad: CGFloat = SortAwareHeaderCell.hInset * 2 + tableView.intercellSpacing.width + 2
+        let pad: CGFloat = ResultsGridMetrics.cellInset * 2 + tableView.intercellSpacing.width + 2
         // Header contributes the wider of the two rows: name (row 1) and type (row 2).
         // Measured from the title rather than re-derived from the model, so there
         // is only ONE escape site (`col.title`, above) and a one-sided edit is
@@ -1084,7 +1107,7 @@ class ResultsGridVC: NSViewController {
             let vr = tableView.rows(in: tableView.visibleRect)
             if vr.length > 0 { for i in vr.location..<(vr.location + vr.length) { sampleIndices.insert(i) } }
         }
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
+        let attrs: [NSAttributedString.Key: Any] = [.font: ResultsGridMetrics.cellFont]
         for r in sampleIndices {
             guard r < displayRows.count else { continue }
             let d = displayRows[r]

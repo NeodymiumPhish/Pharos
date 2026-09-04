@@ -14,7 +14,8 @@ import AppKit
 class SortAwareHeaderCell: NSTableHeaderCell {
     static let nameFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
     static let typeFont = NSFont.systemFont(ofSize: 9, weight: .regular)
-    static let hInset: CGFloat = 6
+    /// Same inset as the body cell label — see `ResultsGridMetrics`.
+    static let hInset: CGFloat = ResultsGridMetrics.cellInset
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         // Intentionally empty: the two-row text is drawn by FilterableHeaderView

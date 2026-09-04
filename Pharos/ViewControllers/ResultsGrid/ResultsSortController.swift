@@ -86,38 +86,37 @@ class ResultsSortController: NSObject {
         let category = sortIdx < categories.count ? categories[sortIdx] : .string
         let ascending = currentSortAscending
 
+        // `less` compares two NON-NULL values. Descending order swaps the
+        // arguments rather than negating the result: `!less(a, b)` is true for
+        // EQUAL keys in both directions, which is not a strict weak ordering,
+        // and `sort` then shuffles ties unpredictably between reloads.
+        let less: (AnyCodable, AnyCodable) -> Bool
+        switch category {
+        case .numeric:
+            less = { [unowned self] in self.numericValue($0) < self.numericValue($1) }
+        case .boolean:
+            less = { a, b in
+                let sA = (a.value as? Bool).map { $0 ? "t" : "f" } ?? (a.value as? String) ?? ""
+                let sB = (b.value as? Bool).map { $0 ? "t" : "f" } ?? (b.value as? String) ?? ""
+                return sA < sB // "f" < "t"
+            }
+        default:
+            less = { $0.displayString.localizedStandardCompare($1.displayString) == .orderedAscending }
+        }
+
         // Sort all rows
         var unfilteredDisplayRows = Array(0..<rows.count)
         unfilteredDisplayRows.sort { a, b in
             let valA: AnyCodable? = sortIdx < rows[a].count ? rows[a][sortIdx] : nil
             let valB: AnyCodable? = sortIdx < rows[b].count ? rows[b][sortIdx] : nil
 
-            // NULLs always sort to end
-            if valA?.isNull ?? true {
-                if valB?.isNull ?? true { return false }
-                return false
-            }
-            if valB?.isNull ?? true { return true }
+            // NULLs always sort to end, in either direction
+            let nullA = valA?.isNull ?? true
+            let nullB = valB?.isNull ?? true
+            if nullA || nullB { return !nullA && nullB }
+            guard let valA, let valB else { return false }
 
-            let result: Bool
-            switch category {
-            case .numeric:
-                let dA = numericValue(valA)
-                let dB = numericValue(valB)
-                result = dA < dB
-            case .boolean:
-                let sA = (valA?.value as? Bool).map { $0 ? "t" : "f" }
-                    ?? (valA?.value as? String) ?? ""
-                let sB = (valB?.value as? Bool).map { $0 ? "t" : "f" }
-                    ?? (valB?.value as? String) ?? ""
-                result = sA < sB // "f" < "t"
-            default:
-                let sA = valA?.displayString ?? ""
-                let sB = valB?.displayString ?? ""
-                result = sA.localizedStandardCompare(sB) == .orderedAscending
-            }
-
-            return ascending ? result : !result
+            return ascending ? less(valA, valB) : less(valB, valA)
         }
 
         resetSortButton.isHidden = false

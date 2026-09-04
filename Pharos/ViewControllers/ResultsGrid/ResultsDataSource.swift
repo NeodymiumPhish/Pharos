@@ -116,8 +116,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var boolDisplayTrue: String { boolTrueString }
     var boolDisplayFalse: String { boolFalseString }
     var nullDisplay: String { nullDisplayString }
-    private var regularFont: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)
-    private var italicFont: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
+    private var regularFont: NSFont = ResultsGridMetrics.cellFont
+    private var italicFont: NSFont = ResultsGridMetrics.cellItalicFont
     private var rownumFont: NSFont = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 
     private var settingsCancellable: AnyCancellable?
@@ -334,9 +334,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     // its bar is the row view's 4pt band in the grid's leading
                     // gutter, and a matched cell's tint is a background. Neither
                     // needs room, so nothing here varies per row or per column,
-                    // and the row numbers cannot go ragged.
-                    constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                    // and the row numbers cannot go ragged. The header draws its
+                    // text at the same `ResultsGridMetrics.cellInset`.
+                    constant: ResultsGridMetrics.cellInset),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor,
+                                                    constant: -ResultsGridMetrics.cellInset),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
         }
@@ -542,6 +544,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         lastAppliedSelectionRect = newRect
     }
 
+    /// The `#` column stays at index 0. The selection controller and the
+    /// row-number click path locate it there, and a saved column order is
+    /// restored by position.
+    func tableView(_ tableView: NSTableView, shouldReorderColumn columnIndex: Int, toColumn newColumnIndex: Int) -> Bool {
+        columnIndex != 0 && newColumnIndex != 0
+    }
+
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         delegate?.dataSourceSortDescriptorsDidChange(oldDescriptors)
     }
@@ -557,6 +566,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         textField.stringValue = ResultCellText.rendered(
             value: value, category: category,
             boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString)
+
+        // Numbers line up on their last digit; everything else reads from the
+        // left. Assigned on EVERY realize so a recycled cell cannot keep the
+        // alignment of the column it last served.
+        textField.alignment = category == .numeric ? .right : .left
 
         if value.isNull {
             textField.font = italicFont

@@ -57,10 +57,27 @@ class CellSelectionController {
     var totalRows: Int { tableView?.numberOfRows ?? 0 }
     var totalColumns: Int { tableView?.numberOfColumns ?? 0 }
 
+    /// Identifier of the `#` column. It lives at index 0 — the data source
+    /// refuses to reorder it — so an index-0 check is enough once the
+    /// identifier confirms the column is there at all.
+    static let rowNumberColumnId = NSUserInterfaceItemIdentifier("__rownum__")
+
+    /// Enter row mode with `rows`, as a click on the `#` column would. Used
+    /// by state restore and Select All so those paths keep the controller,
+    /// the Clear Selection button and `reconcileSelection` in step.
+    func selectRows(_ rows: IndexSet) {
+        state.anchor = nil
+        state.active = nil
+        state.isSelecting = false
+        state.selectedRows = rows
+        rowAnchor = rows.first
+        onChange?(state)
+    }
+
     /// Returns 1 if column 0 is the __rownum__ column, else 0.
     var firstDataColumn: Int {
         guard let tv = tableView, tv.numberOfColumns > 0 else { return 0 }
-        return tv.tableColumns[0].identifier.rawValue == "__rownum__" ? 1 : 0
+        return tv.tableColumns[0].identifier == Self.rowNumberColumnId ? 1 : 0
     }
 
     /// Anchor row for row-drag selection.
@@ -76,7 +93,7 @@ class CellSelectionController {
         guard row >= 0, col >= 0 else { return nil }
 
         // Skip __rownum__ column
-        if col == 0 && tv.tableColumns[0].identifier.rawValue == "__rownum__" {
+        if col == 0 && tv.tableColumns[0].identifier == Self.rowNumberColumnId {
             return nil
         }
 
@@ -90,7 +107,7 @@ class CellSelectionController {
         let row = tv.row(at: point)
         let col = tv.column(at: point)
         guard row >= 0, col >= 0 else { return nil }
-        guard col == 0, tv.tableColumns[0].identifier.rawValue == "__rownum__" else { return nil }
+        guard col == 0, tv.tableColumns[0].identifier == Self.rowNumberColumnId else { return nil }
         return row
     }
 
@@ -360,6 +377,15 @@ class ResultsTableView: NSTableView {
 
     override func mouseUp(with event: NSEvent) {
         cellSelectionController?.handleMouseUp(with: event)
+    }
+
+    /// ⌘A selects every row through the controller. NSTableView's own
+    /// `selectAll` would select rows behind the controller's back, so the
+    /// Inspector, the Clear Selection button and copy would disagree about
+    /// what is selected.
+    override func selectAll(_ sender: Any?) {
+        guard numberOfRows > 0 else { return }
+        cellSelectionController?.selectRows(IndexSet(integersIn: 0..<numberOfRows))
     }
 
     override func keyDown(with event: NSEvent) {

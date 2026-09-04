@@ -141,6 +141,7 @@
 		A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */; };
 		A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B18675CC8E31A7FF367C89 /* TagCapture.swift */; };
 		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
+		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
@@ -404,6 +405,7 @@
 		F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
+		F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridMetrics.swift; sourceTree = "<group>"; };
 		F891B6EAB834D607054C3750 /* ChartHostingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartHostingController.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
 		FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Settings.swift"; sourceTree = "<group>"; };
@@ -434,6 +436,7 @@
 				F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */,
 				D662512D7219078869005EED /* ResultsDataSource.swift */,
 				1DEE8A90621927B4A546E936 /* ResultsFindController.swift */,
+				F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */,
 				5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */,
 				7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */,
 				6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */,
@@ -966,6 +969,7 @@
 				9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */,
 				325C5B2F6705581E09653999 /* ResultsDataSource.swift in Sources */,
 				DD4B5437E848E45EA5D1F6C4 /* ResultsFindController.swift in Sources */,
+				A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */,
 				050C066E656CA927DAE47838 /* ResultsGridVC+Delegates.swift in Sources */,
 				3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */,
 				B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */,
