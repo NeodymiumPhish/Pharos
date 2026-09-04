@@ -396,8 +396,13 @@ class ContentViewController: NSViewController {
             .sink { [weak self] _ in self?.pruneRetiredEditorTabState() }
             .store(in: &cancellables)
 
-        // Observe active tab changes to update results grid
+        // Observe active tab changes to update results grid. `selectTab` and
+        // `focusPane` assign `activeTabId` even when it does not change (a
+        // click on the current tab, every Run from the pane button), and
+        // `@Published` emits on every assignment — without the dedup each of
+        // those tore the grid down and rebuilt it, dropping the cell selection.
         stateManager.$activeTabId
+            .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] tabId in self?.activeTabChanged(tabId) }
             .store(in: &cancellables)
@@ -535,6 +540,12 @@ class ContentViewController: NSViewController {
 
     // MARK: - Pane Sync
 
+    /// The pane ids arranged in `paneSplitView` after the last sync, in order.
+    /// The even split below runs only when this list changes — `$panes`
+    /// publishes on every tab select, and re-splitting then would snap a
+    /// divider the user had dragged straight back to the middle.
+    private var lastArrangedPaneIds: [String] = []
+
     /// Add/remove EditorPaneVC instances to match the state manager's panes.
     private func syncPaneViewControllers(with panes: [EditorPane]) {
         let currentPaneIds = Set(editorPanes.map(\.paneId))
@@ -610,8 +621,12 @@ class ContentViewController: NSViewController {
 
         paneSplitView.adjustSubviews()
 
-        // Split evenly when we have multiple visible panes
-        if visiblePaneVCs.count > 1 {
+        // Split evenly when a pane was added, removed, or swapped in — not on
+        // every publish (see `lastArrangedPaneIds`).
+        let arrangedPaneIds = visiblePaneVCs.map(\.paneId)
+        let paneSetChanged = arrangedPaneIds != lastArrangedPaneIds
+        lastArrangedPaneIds = arrangedPaneIds
+        if visiblePaneVCs.count > 1 && paneSetChanged {
             DispatchQueue.main.async {
                 let totalWidth = self.paneSplitView.bounds.width
                 let dividerThickness = self.paneSplitView.dividerThickness
@@ -659,6 +674,11 @@ class ContentViewController: NSViewController {
     }
 
     private func activeTabChanged(_ tabId: String?) {
+        // The sink is deduplicated; this guard covers any direct caller. A
+        // same-tab pass would capture the grid into the tab and restore it
+        // straight back, losing the cell selection on the way.
+        if let tabId, tabId == lastActiveTabId { return }
+
         // Save grid state and result tabs of the tab we're leaving
         if let previousTabId = lastActiveTabId {
             // Tear down any active drill BEFORE capturing grid state (see
@@ -678,15 +698,21 @@ class ContentViewController: NSViewController {
             // converge on the same empty state, and a retired tab has nothing
             // left to restore into anyway.
             if stateManager.tabs.contains(where: { $0.id == previousTabId }) {
-                let gridState = resultsVC.captureGridState()
-                stateManager.updateTab(id: previousTabId) { tab in
-                    tab.gridState = gridState
-                }
-                // Also save grid state (and any live chart config) to the active result tab
-                if let activeRTId = activeResultTabId,
-                   let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
-                    resultTabs[rtIdx].gridState = gridState
-                    captureChartConfig(intoTabAt: rtIdx)
+                // While pinned, the grid shows the PINNED result, not the tab
+                // we are leaving. Column ids are positional (`col_N`), so its
+                // widths, sort column and filters would be stored on this
+                // tab's result and restored onto the wrong columns later.
+                if stateManager.pinnedResult == nil {
+                    let gridState = resultsVC.captureGridState()
+                    stateManager.updateTab(id: previousTabId) { tab in
+                        tab.gridState = gridState
+                    }
+                    // Also save grid state (and any live chart config) to the active result tab
+                    if let activeRTId = activeResultTabId,
+                       let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
+                        resultTabs[rtIdx].gridState = gridState
+                        captureChartConfig(intoTabAt: rtIdx)
+                    }
                 }
                 // Persist result tabs for the previous editor tab
                 resultTabsByEditorTab[previousTabId] = resultTabs
@@ -1353,10 +1379,29 @@ class ContentViewController: NSViewController {
 
     // MARK: - Query Execution
 
+    /// True when the active tab has a connected connection — the precondition
+    /// `executeQuery` needs. Shared with menu validation so Run is greyed out
+    /// for the same reason it would do nothing.
+    var canRunQuery: Bool {
+        guard let tab = stateManager.activeTab, let connectionId = tab.connectionId else { return false }
+        return stateManager.status(for: connectionId) == .connected
+    }
+
+    /// True when the active tab has a query in flight.
+    var canCancelQuery: Bool {
+        !(stateManager.activeTab?.runningQueries.isEmpty ?? true)
+    }
+
     func executeQuery(_ sql: String? = nil) {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
-              stateManager.status(for: connectionId) == .connected else { return }
+              stateManager.status(for: connectionId) == .connected else {
+            // Say so. A silent return on ⌘↩ reads as a key the app did not receive.
+            if isViewLoaded {
+                Toast.show(in: view, message: "Connect to a database to run a query.", style: .warning)
+            }
+            return
+        }
 
         if let sql {
             // Explicit SQL passed (e.g., from context menu, saved query) — use direct execution
@@ -4024,10 +4069,12 @@ extension ContentViewController: QueryErrorSheetDelegate {
 // MARK: - NSMenuItemValidation
 
 extension ContentViewController: NSMenuItemValidation {
-    /// The first validation conformance in the app. Only the two tag items are
-    /// gated — `menuTagRow` and `menuManageTags`; every other menu item keeps
-    /// its always-enabled behaviour, so the default MUST stay `true`.
+    /// Only the items named here are gated — the two tag items, Run and
+    /// Cancel; every other menu item keeps its always-enabled behaviour, so
+    /// the default MUST stay `true`.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
+        if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
             // on menu-open and key-equivalent resolution, which can happen long

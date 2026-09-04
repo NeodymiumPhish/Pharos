@@ -12,7 +12,7 @@ import AppKit
 // `toggleInspector(_:)` actions short-circuit during validation and never
 // fire. The menu and toolbar use our own selectors (`pharosToggleSidebar:`,
 // `pharosToggleInspector:`) so we control both dispatch and validation.
-class PharosSplitViewController: NSSplitViewController {
+class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     let sidebarVC = SidebarViewController()
     let contentVC = ContentViewController()
@@ -80,6 +80,32 @@ class PharosSplitViewController: NSSplitViewController {
     @objc func pharosToggleInspector(_ sender: Any?) {
         guard let item = splitViewItems.last else { return }
         item.animator().isCollapsed.toggle()
+    }
+
+    // MARK: - Query and tab menu forwarding
+
+    // The Query and File menu items target `ContentViewController` selectors
+    // with a nil target. The content controller is a SIBLING of the sidebar
+    // and the inspector in the responder chain, so with the focus in either
+    // of those the chain never reaches it and ⌘↩, ⌘., ⌘T, ⌘W go dead. This
+    // controller is an ancestor of all three panes; it forwards those items
+    // and their validation to the content controller. When the focus is
+    // inside the content pane the chain finds the content controller first,
+    // so nothing here runs twice.
+
+    @objc func menuRunQuery(_ sender: Any?) { contentVC.menuRunQuery(sender) }
+    @objc func menuCancelQuery(_ sender: Any?) { contentVC.menuCancelQuery(sender) }
+    @objc func menuFormatSQL(_ sender: Any?) { contentVC.menuFormatSQL(sender) }
+    @objc func menuNewTab(_ sender: Any?) { contentVC.menuNewTab(sender) }
+    @objc func menuCloseTab(_ sender: Any?) { contentVC.menuCloseTab(sender) }
+    @objc func menuReopenTab(_ sender: Any?) { contentVC.menuReopenTab(sender) }
+    @objc func menuSelectTab(_ sender: NSMenuItem) { contentVC.menuSelectTab(sender) }
+    @objc func menuSaveQuery(_ sender: Any?) { contentVC.menuSaveQuery(sender) }
+    @objc func menuSaveQueryAs(_ sender: Any?) { contentVC.menuSaveQueryAs(sender) }
+    @objc func menuExportEditorAsSQL(_ sender: Any?) { contentVC.menuExportEditorAsSQL(sender) }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        contentVC.validateMenuItem(menuItem)
     }
 
     /// Reveals the inspector if it's currently collapsed. Unlike
