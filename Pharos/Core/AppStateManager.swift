@@ -62,19 +62,45 @@ final class AppStateManager: ObservableObject {
     @Published var lastError: String?
 
     // Tab management
-    @Published var tabs: [QueryTab] = []
-    @Published var activeTabId: String?
+    @Published var tabs: [QueryTab] = [] {
+        didSet { tabsSettled.send(tabs) }
+    }
+    @Published var activeTabId: String? {
+        didSet { activeTabIdSettled.send(activeTabId) }
+    }
     private var closedTabHistory: [QueryTab] = []
     private let maxClosedHistory = 20
 
     // Pane management
-    @Published var panes: [EditorPane] = []
-    @Published var focusedPaneId: String?
+    @Published var panes: [EditorPane] = [] {
+        didSet { panesSettled.send(panes) }
+    }
+    @Published var focusedPaneId: String? {
+        didSet { focusedPaneIdSettled.send(focusedPaneId) }
+    }
 
     // Pin state
     @Published var pinnedResult: QueryResult?
-    @Published var pinnedTabId: String?
+    @Published var pinnedTabId: String? {
+        didSet { pinnedTabIdSettled.send(pinnedTabId) }
+    }
     @Published var pinnedTabName: String?
+
+    // MARK: - Settled publishers
+
+    // `@Published` emits from `willSet`: a subscriber that runs on the same
+    // stack reads the OLD value back through the manager, which is why every
+    // sink used to hop to `RunLoop.main` and every caller that then needed
+    // the UI to have caught up waited one turn (`DispatchQueue.main.async`).
+    // These emit from `didSet`, carry the current value, and are delivered
+    // synchronously: when `selectTab` or `createTab` returns, the content
+    // controller and every pane have already applied the change. The class
+    // is `@MainActor`, so every send is on main.
+    let tabsSettled = CurrentValueSubject<[QueryTab], Never>([])
+    let activeTabIdSettled = CurrentValueSubject<String?, Never>(nil)
+    let panesSettled = CurrentValueSubject<[EditorPane], Never>([])
+    let focusedPaneIdSettled = CurrentValueSubject<String?, Never>(nil)
+    let pinnedTabIdSettled = CurrentValueSubject<String?, Never>(nil)
 
     // MARK: - Notifications
 

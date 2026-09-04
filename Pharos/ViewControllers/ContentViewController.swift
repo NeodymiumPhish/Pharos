@@ -66,11 +66,6 @@ class ContentViewController: NSViewController {
     /// when associating executed results with a workspace. Seeded to the restored
     /// count when a workspace is reopened (see handleOpenWorkspace).
     private var resultOrderByEditorTab: [String: Int] = [:]
-    /// A result-row click in an UNFOCUSED pane must first activate that pane's
-    /// editor tab; activeTabChanged runs asynchronously (the $activeTabId sink
-    /// is delivered via RunLoop.main), so the result selection is parked here
-    /// and consumed at the end of activeTabChanged.
-    private var pendingResultTabSelection: (editorTabId: String, resultTabId: String)?
     private static let resultTabBarHeight: CGFloat = 26
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
@@ -366,9 +361,12 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Observe pane changes to sync pane view controllers
-        stateManager.$panes
-            .receive(on: RunLoop.main)
+        // Observe pane changes to sync pane view controllers. The tab and pane
+        // sinks below subscribe to the SETTLED publishers and take no run-loop
+        // hop: they run on the mutating caller's stack, after the property
+        // is set, so `stateManager.selectTab(...)` returns with the grid and
+        // the panes already switched. See `AppStateManager.tabsSettled`.
+        stateManager.panesSettled
             .sink { [weak self] panes in
                 self?.syncPaneViewControllers(with: panes)
             }
@@ -384,32 +382,27 @@ class ContentViewController: NSViewController {
         // reactive sweep covers all of them, and any future one.
         //
         // Deduped on the id set so the sweep does not run on every keystroke
-        // ($tabs republishes on each SQL edit). The sweep reads the live
-        // `stateManager.tabs`, not the delivered snapshot: a snapshot can be
-        // older than a tab seeded synchronously after its `createTab`
-        // (handleOpenWorkspace / handleOpenHistoryEntry both do this), and
-        // pruning against a stale snapshot would throw that seed away.
-        stateManager.$tabs
+        // (tabs republish on each SQL edit). The sweep reads the live
+        // `stateManager.tabs`, which the settled publisher guarantees is
+        // already the new value.
+        stateManager.tabsSettled
             .map { Set($0.map(\.id)) }
             .removeDuplicates()
-            .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.pruneRetiredEditorTabState() }
             .store(in: &cancellables)
 
         // Observe active tab changes to update results grid. `selectTab` and
         // `focusPane` assign `activeTabId` even when it does not change (a
-        // click on the current tab, every Run from the pane button), and
-        // `@Published` emits on every assignment — without the dedup each of
+        // click on the current tab, every Run from the pane button), and the
+        // publisher emits on every assignment — without the dedup each of
         // those tore the grid down and rebuilt it, dropping the cell selection.
-        stateManager.$activeTabId
+        stateManager.activeTabIdSettled
             .removeDuplicates()
-            .receive(on: RunLoop.main)
             .sink { [weak self] tabId in self?.activeTabChanged(tabId) }
             .store(in: &cancellables)
 
         // Observe pin state changes (e.g. auto-unpin on tab close)
-        stateManager.$pinnedTabId
-            .receive(on: RunLoop.main)
+        stateManager.pinnedTabIdSettled
             .sink { [weak self] pinnedId in
                 if pinnedId == nil {
                     self?.resultsVC.setPinState(pinned: false, tabName: nil)
@@ -434,11 +427,11 @@ class ContentViewController: NSViewController {
         // Drive the action-bar pulse from the focused pane's active tab's
         // executing state. We map down to the single Bool we actually care
         // about and removeDuplicates so unrelated mutations (any keystroke
-        // republishes $tabs) don't reassign isPulsing every time.
+        // republishes the tabs) don't reassign isPulsing every time.
         Publishers.CombineLatest3(
-            stateManager.$tabs,
-            stateManager.$panes,
-            stateManager.$focusedPaneId
+            stateManager.tabsSettled,
+            stateManager.panesSettled,
+            stateManager.focusedPaneIdSettled
         )
         .map { tabs, panes, focusedPaneId -> Bool in
             let focusedPane = panes.first { $0.id == focusedPaneId }
@@ -446,7 +439,6 @@ class ContentViewController: NSViewController {
             return tabs.first { $0.id == activeTabId }?.isExecuting == true
         }
         .removeDuplicates()
-        .receive(on: RunLoop.main)
         .sink { [weak self] isExecuting in
             self?.actionBar.isPulsing = isExecuting
         }
@@ -689,14 +681,15 @@ class ContentViewController: NSViewController {
             // state that must be cleared before the incoming tab loads.
             tearDownDrill(restoreManual: true)
 
-            // The tab we are leaving may be the one that was just CLOSED. Both
-            // $tabs and $activeTabId are delivered on the run loop, so the
-            // prune sweep can run either before or after this handler. Writing
-            // blind would resurrect the closed tab's entries — with every row
-            // of every result it ever produced — whenever the sweep won the
-            // race. Skipping the write for a retired tab makes both orderings
-            // converge on the same empty state, and a retired tab has nothing
-            // left to restore into anyway.
+            // The tab we are leaving may be the one that was just CLOSED.
+            // `closeTab` removes it from `tabs` (the prune sweep runs there,
+            // synchronously) before it moves `activeTabId`, so by the time
+            // this runs the sweep has dropped the tab's entries. Writing
+            // blind would resurrect them — with every row of every result the
+            // tab ever produced. Skipping the write for a retired tab keeps
+            // the empty state, and a retired tab has nothing left to restore
+            // into anyway. The guard also covers any mutator that orders the
+            // two writes the other way round.
             if stateManager.tabs.contains(where: { $0.id == previousTabId }) {
                 // While pinned, the grid shows the PINNED result, not the tab
                 // we are leaving. Column ids are positional (`col_N`), so its
@@ -732,11 +725,21 @@ class ContentViewController: NSViewController {
             refreshResultTabViews()
             syncChartToggleToActiveTab()
             updateSplitViewVisibility()
-            pendingResultTabSelection = nil
             return
         }
 
         updateSplitViewVisibility()
+        loadResultState(for: tab)
+    }
+
+    /// Bring the live result surface — `resultTabs`, the grid, the gutter
+    /// colours, the banner, the chart toggle — in line with what is stored
+    /// for `tab`. The tail of `activeTabChanged`, and also called by the two
+    /// paths that create a tab and then seed its stored results: with
+    /// synchronous delivery the switch has already run by the time they seed,
+    /// so they must apply the seed themselves.
+    private func loadResultState(for tab: QueryTab) {
+        let tabId = tab.id
 
         // Restore result tabs for the new editor tab
         resultTabs = resultTabsByEditorTab[tabId] ?? []
@@ -773,16 +776,6 @@ class ContentViewController: NSViewController {
 
         // Restore grid vs. chart view mode for the newly-active result tab.
         syncChartToggleToActiveTab()
-
-        // A cross-pane result-row click parked its selection until this restore
-        // ran. Consume it only if it targets the tab that just became active.
-        if let pending = pendingResultTabSelection {
-            pendingResultTabSelection = nil
-            if pending.editorTabId == tabId,
-               resultTabs.contains(where: { $0.id == pending.resultTabId }) {
-                selectResultTab(pending.resultTabId)
-            }
-        }
     }
 
     /// Update the results grid banner from the currently displayed result tab.
@@ -1448,16 +1441,25 @@ class ContentViewController: NSViewController {
 
         runAllSubscription?.cancel()
         runAllSubscription = Publishers.Merge(
-            stateManager.$tabs.map { _ in () },
-            stateManager.$activeTabId.map { _ in () }
+            stateManager.tabsSettled.map { _ in () },
+            stateManager.activeTabIdSettled.map { _ in () }
         )
-        .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in self?.refillRunAllSlots() }
 
         refillRunAllSlots()
     }
 
+    /// True while `refillRunAllSlots` is launching. The settled publishers
+    /// deliver synchronously, so a launch (which registers its running query
+    /// through `updateTab`) re-enters the sink before the loop below has
+    /// finished counting its slots. The nested call returns; the query's
+    /// completion publishes again and refills then.
+    private var isRefillingRunAll = false
+
     private func refillRunAllSlots() {
+        guard !isRefillingRunAll else { return }
+        isRefillingRunAll = true
+        defer { isRefillingRunAll = false }
         guard let tabId = runAllTabId,
               let tab = stateManager.tabs.first(where: { $0.id == tabId }),
               let connectionId = tab.connectionId,
@@ -2698,12 +2700,12 @@ extension ContentViewController: EditorPaneDelegate {
 
     func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String) {
         guard let paneTabId = stateManager.panes.first(where: { $0.id == pane.paneId })?.activeTabId else { return }
-        if paneTabId == stateManager.activeTabId {
-            selectResultTab(resultTabId)
-        } else {
-            pendingResultTabSelection = (editorTabId: paneTabId, resultTabId: resultTabId)
+        if paneTabId != stateManager.activeTabId {
+            // Synchronous: `activeTabChanged` has swapped `resultTabs` over to
+            // this tab by the time this returns.
             stateManager.selectTab(id: paneTabId, inPane: pane.paneId)
         }
+        selectResultTab(resultTabId)
     }
 
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String) {
@@ -2846,20 +2848,12 @@ extension ContentViewController {
             rt.historyTimestamp = entry.executedAt
             rt.historyResultId = entry.id
 
-            // We CAN'T call addResultTab here: createTab() updates activeTabId
-            // synchronously, but activeTabChanged (the Combine sink that swaps
-            // the live `resultTabs` array and grid contents) is dispatched on
-            // RunLoop.main and fires later. If we appended now, the result
-            // would land in the *outgoing* tab's live `resultTabs` array, and
-            // when activeTabChanged eventually ran, it would persist that
-            // polluted array under the previous tab and load empty results
-            // for the new one.
-            //
-            // Instead, seed the per-editor-tab dictionaries directly. When
-            // activeTabChanged fires for the new tab, it reads these,
-            // populates the live grid, and applies the history banner.
+            // `createTab` has already switched the live surface to the new
+            // (empty) tab — delivery is synchronous. Seed the stored results
+            // and apply them, so the grid and the history banner show now.
             resultTabsByEditorTab[tab.id] = [rt]
             activeResultTabIdByEditorTab[tab.id] = rt.id
+            applySeededResultState(forTabId: tab.id)
         } catch {
             NSLog("Failed to load history results: \(error)")
         }
@@ -2878,19 +2872,10 @@ extension ContentViewController {
 
         // Already open in a live tab? Just focus it (and the requested result, if any).
         if let existing = stateManager.tabs.first(where: { $0.workspaceId == wsId }) {
-            let alreadyActive = stateManager.activeTabId == existing.id
+            // Synchronous: `resultTabs` is this tab's when `selectTab` returns.
             stateManager.selectTab(id: existing.id)
             if let fid = focusResultId {
-                if alreadyActive {
-                    focusResultTab(historyId: fid)
-                } else {
-                    // activeTabChanged is dispatched via RunLoop.main and hasn't
-                    // swapped `resultTabs` over to this tab yet — defer so we
-                    // search the right array (mirrors handleRunQueryInNewTab).
-                    DispatchQueue.main.async { [weak self] in
-                        self?.focusResultTab(historyId: fid)
-                    }
-                }
+                focusResultTab(historyId: fid)
             }
             return
         }
@@ -2957,16 +2942,9 @@ extension ContentViewController {
                 // Re-check already-open: another reopen request could have
                 // created a tab for this workspace while we were off-main.
                 if let existing = self.stateManager.tabs.first(where: { $0.workspaceId == wsId }) {
-                    let alreadyActive = self.stateManager.activeTabId == existing.id
                     self.stateManager.selectTab(id: existing.id)
                     if let fid = focusResultId {
-                        if alreadyActive {
-                            self.focusResultTab(historyId: fid)
-                        } else {
-                            DispatchQueue.main.async { [weak self] in
-                                self?.focusResultTab(historyId: fid)
-                            }
-                        }
+                        self.focusResultTab(historyId: fid)
                     }
                     return
                 }
@@ -2979,10 +2957,9 @@ extension ContentViewController {
                     $0.cursorPosition = detail.cursorPosition ?? 0
                 }
 
-                // Seed the per-editor-tab dictionaries directly (same reasoning
-                // as the legacy handleOpenHistoryEntry path above —
-                // activeTabChanged fires later on RunLoop.main and will read
-                // these).
+                // Seed the per-editor-tab dictionaries, then apply them: the
+                // live surface already switched to the new tab inside
+                // `createTab` (synchronous delivery) and read them empty.
                 self.resultTabsByEditorTab[tab.id] = restored
                 let focus = focusResultId.flatMap { fid in restored.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restored.last
                 self.activeResultTabIdByEditorTab[tab.id] = focus?.id
@@ -2990,6 +2967,7 @@ extension ContentViewController {
                 // results. Seed from MAX(result_order)+1 (not count) so a workspace whose
                 // middle results were deleted can't collide a new result's order.
                 self.resultOrderByEditorTab[tab.id] = (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1
+                self.applySeededResultState(forTabId: tab.id)
             }
         }
     }
@@ -3004,6 +2982,15 @@ extension ContentViewController {
         guard let start = meta.lineStart, let end = meta.lineEnd,
               start > 0, end >= start else { return 0...0 }
         return start...end
+    }
+
+    /// Apply results seeded into the per-editor-tab dictionaries for a tab
+    /// that is already active. Reads the tab back from the state manager so
+    /// any `updateTab` done since `createTab` is included.
+    private func applySeededResultState(forTabId tabId: String) {
+        guard stateManager.activeTabId == tabId,
+              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return }
+        loadResultState(for: tab)
     }
 
     /// Select the live result tab whose cached result came from the given
@@ -3702,10 +3689,10 @@ extension ContentViewController {
     @objc private func handleRunQueryInNewTab(_ notification: Notification) {
         guard let sql = notification.userInfo?["sql"] as? String else { return }
         let tab = stateManager.createTab(sql: sql, name: "Query")
-        DispatchQueue.main.async {
-            if self.stateManager.activeTabId == tab.id {
-                self.executeQuery(sql)
-            }
+        // The new tab is active and its pane has loaded the text: delivery is
+        // synchronous, so no turn has to pass first.
+        if stateManager.activeTabId == tab.id {
+            executeQuery(sql)
         }
     }
 
@@ -4040,25 +4027,22 @@ extension ContentViewController: QueryErrorSheetDelegate {
         guard let location = failure.location,
               let paneId = stateManager.tabs.first(where: { $0.id == failure.tabId })?.paneId,
               let pane = editorPanes.first(where: { $0.paneId == paneId }) else { return }
-        // The pane loads the tab's text through a Combine sink on the main run
-        // loop, so this must wait one turn or it would read the old text.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.markEditor(with: failure, in: pane)
-            guard let range = location.range(of: failure.sql, in: pane.getSQL()) else {
-                // The sheet cannot know the document text, so its button stays
-                // enabled whenever the message holds a position. Say why nothing
-                // moved, rather than answering the click with silence.
-                Toast.show(
-                    in: self.view,
-                    message: "The editor text has changed since this query ran",
-                    style: .warning,
-                    duration: 3.0
-                )
-                return
-            }
-            pane.revealError(range: range)
+        // The pane loaded the tab's text inside `selectTab` (settled, synchronous
+        // delivery), so `getSQL()` already reads the failing document.
+        markEditor(with: failure, in: pane)
+        guard let range = location.range(of: failure.sql, in: pane.getSQL()) else {
+            // The sheet cannot know the document text, so its button stays
+            // enabled whenever the message holds a position. Say why nothing
+            // moved, rather than answering the click with silence.
+            Toast.show(
+                in: view,
+                message: "The editor text has changed since this query ran",
+                style: .warning,
+                duration: 3.0
+            )
+            return
         }
+        pane.revealError(range: range)
     }
 
     func errorSheetDidRequestClose(_ sheet: QueryErrorSheet) {

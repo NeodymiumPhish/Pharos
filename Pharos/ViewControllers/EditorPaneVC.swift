@@ -287,9 +287,10 @@ class EditorPaneVC: NSViewController {
             height: max(0, container.bounds.height - totalHeaderHeight)
         )
 
-        // Observe pane state changes
-        stateManager.$panes
-            .receive(on: RunLoop.main)
+        // Observe pane state changes. Settled publishers, no run-loop hop: the
+        // pane has loaded its tab's text by the time `selectTab` returns (see
+        // `AppStateManager.tabsSettled`).
+        stateManager.panesSettled
             .sink { [weak self] panes in
                 self?.paneStateChanged(panes)
             }
@@ -298,9 +299,9 @@ class EditorPaneVC: NSViewController {
         // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus.
         // Dedup on the fields this sink actually reads: id / name / isDirty /
         // isExecuting / paneId / segmentIndex set. Without this, every
-        // keystroke (which updates `tab.sql` via updateTab) republishes $tabs
+        // keystroke (which updates `tab.sql` via updateTab) republishes the tabs
         // and re-rebuilt all four UI surfaces on every pane in the window.
-        stateManager.$tabs
+        stateManager.tabsSettled
             .removeDuplicates { lhs, rhs in
                 guard lhs.count == rhs.count else { return false }
                 for i in 0..<lhs.count {
@@ -323,7 +324,6 @@ class EditorPaneVC: NSViewController {
                 }
                 return true
             }
-            .receive(on: RunLoop.main)
             .sink { [weak self] tabs in
                 guard let self else { return }
                 self.refreshTabBar()
@@ -335,8 +335,7 @@ class EditorPaneVC: NSViewController {
             .store(in: &cancellables)
 
         // Observe focused pane changes
-        stateManager.$focusedPaneId
-            .receive(on: RunLoop.main)
+        stateManager.focusedPaneIdSettled
             .sink { [weak self] focusedId in
                 guard let self else { return }
                 self.paneTabBar.setFocused(focusedId == self.paneId)
