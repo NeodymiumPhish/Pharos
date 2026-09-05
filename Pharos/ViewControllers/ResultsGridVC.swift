@@ -1305,12 +1305,11 @@ class ResultsToolbarBar: NSView {
         }
     }
 
-    /// Returns true if the deepest view at the given point is an interactive control (button, text field).
-    private func isInteractiveControl(at windowPoint: NSPoint) -> Bool {
-        let loc = convert(windowPoint, from: nil)
-        guard let hit = hitTest(loc) else { return false }
-        return hit is NSButton || hit is NSTextField || hit is NSSearchField || hit is NSSegmentedControl
-    }
+    // Drag-to-resize lives in `EditorResultsSplitView` now: this bar's frame
+    // is the split's additional divider rect, so a click on its blank
+    // stretch reaches the split view directly and the standard divider
+    // tracking runs. The cursor rects below stay, so the resize cursor shows
+    // over the blank stretch and the arrow over the controls.
 
     override func resetCursorRects() {
         super.resetCursorRects()
@@ -1335,18 +1334,4 @@ class ResultsToolbarBar: NSView {
         }
     }
 
-    override func mouseDown(with event: NSEvent) {
-        guard let vc = contentViewController else { super.mouseDown(with: event); return }
-        if isInteractiveControl(at: event.locationInWindow) {
-            super.mouseDown(with: event)
-            return
-        }
-        // Start drag tracking loop for resize
-        vc.handleActionBarDrag(event: event)
-        while true {
-            guard let nextEvent = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
-            vc.handleActionBarDrag(event: nextEvent)
-            if nextEvent.type == .leftMouseUp { break }
-        }
-    }
 }

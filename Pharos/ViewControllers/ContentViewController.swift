@@ -52,7 +52,10 @@ class ContentViewController: NSViewController {
     private let contentStack = NSView()
 
     // Layout constraints for the editor/results split
-    private var editorHeightConstraint: NSLayoutConstraint!
+    /// Editor panes above, results area below. See `EditorResultsSplitView`.
+    private let editorResultsSplit = EditorResultsSplitView()
+    /// Bottom pane of `editorResultsSplit`: action bar, result tab bar, grid/chart.
+    private let resultsArea = NSView()
     private var resultsTopToResultTabBar: NSLayoutConstraint!
     private var resultsBottomToContainer: NSLayoutConstraint!
     private var resultTabBarHeightConstraint: NSLayoutConstraint!
@@ -133,12 +136,15 @@ class ContentViewController: NSViewController {
     enum ContentExpandState { case normal, editorExpanded, resultsExpanded }
     private(set) var expandState: ContentExpandState = .normal
     private var savedSplitRatio: CGFloat = 0.6
+    /// Debounced UserDefaults write of `savedSplitRatio` during a divider drag.
+    private var splitRatioPersistWork: DispatchWorkItem?
 
-    // Drag-to-resize state
-    private var isDragging = false
-    private var dragStartY: CGFloat = 0
-    private var dragStartEditorHeight: CGFloat = 0
     private static let actionBarHeight: CGFloat = 32
+    /// Divider limits for `editorResultsSplit`: the editor never goes below
+    /// this, and the results grid keeps at least `minResultsGridHeight` under
+    /// the action bar and the result tab bar.
+    private static let minEditorHeight: CGFloat = 100
+    private static let minResultsGridHeight: CGFloat = 60
 
     deinit {
         if let m = escKeyMonitor { NSEvent.removeMonitor(m) }
@@ -167,23 +173,42 @@ class ContentViewController: NSViewController {
 
         addChild(resultsVC)
 
-        // Content stack: paneSplitView (top) | actionBar (middle, 28pt) | resultsVC (bottom)
+        // Content stack: `editorResultsSplit` fills it. The split's top pane is
+        // `paneSplitView` (the side-by-side editors); its bottom pane is
+        // `resultsArea`: actionBar (32pt) | resultTabBar | results grid / chart.
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        paneSplitView.translatesAutoresizingMaskIntoConstraints = false
+        editorResultsSplit.translatesAutoresizingMaskIntoConstraints = false
+        editorResultsSplit.isVertical = false
+        editorResultsSplit.delegate = self
+        editorResultsSplit.onWillBeginDividerDrag = { [weak self] in
+            self?.leaveExpandedStateForDividerDrag()
+        }
         actionBar.translatesAutoresizingMaskIntoConstraints = false
         resultsVC.view.translatesAutoresizingMaskIntoConstraints = false
 
-        contentStack.addSubview(paneSplitView)
-        contentStack.addSubview(actionBar)
-        contentStack.addSubview(resultTabBar)
-        contentStack.addSubview(resultsVC.view)
+        // The two arranged subviews are frame-managed by the split view; their
+        // own children lay out against them with Auto Layout.
+        paneSplitView.translatesAutoresizingMaskIntoConstraints = true
+        resultsArea.translatesAutoresizingMaskIntoConstraints = true
+        editorResultsSplit.addArrangedSubview(paneSplitView)
+        editorResultsSplit.addArrangedSubview(resultsArea)
+        // The results area, not the editor, absorbs a window resize. Both
+        // priorities stay low and only RELATIVE — a high one blocks the drag
+        // (tasks/lessons.md).
+        editorResultsSplit.setHoldingPriority(.defaultLow + 1, forSubviewAt: 0)
+        editorResultsSplit.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+        contentStack.addSubview(editorResultsSplit)
+
+        resultsArea.addSubview(actionBar)
+        resultsArea.addSubview(resultTabBar)
+        resultsArea.addSubview(resultsVC.view)
 
         // Chart host: sibling of the results grid, pinned to the same region,
         // hidden until the user switches a result tab to Chart mode.
         addChild(chartHost)
         chartHost.view.translatesAutoresizingMaskIntoConstraints = false
         chartHost.view.isHidden = true
-        contentStack.addSubview(chartHost.view)
+        resultsArea.addSubview(chartHost.view)
 
         // Result tab bar setup
         resultTabBar.translatesAutoresizingMaskIntoConstraints = false
@@ -217,13 +242,9 @@ class ContentViewController: NSViewController {
 
         let safeTop = container.safeAreaLayoutGuide.topAnchor
 
-        // Editor height starts at a default; will be updated in viewDidLayout
-        editorHeightConstraint = paneSplitView.heightAnchor.constraint(equalToConstant: 300)
-        editorHeightConstraint.priority = .defaultHigh
-
         resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
         resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
-        resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor)
+        resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor)
 
         NSLayoutConstraint.activate([
             contentStack.topAnchor.constraint(equalTo: safeTop),
@@ -231,35 +252,37 @@ class ContentViewController: NSViewController {
             contentStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            // PaneSplitView: top, full width
-            paneSplitView.topAnchor.constraint(equalTo: contentStack.topAnchor),
-            paneSplitView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            paneSplitView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            editorHeightConstraint,
+            // The editor/results split fills the content stack. The split
+            // view positions its two panes itself; the divider position is
+            // driven by `applyExpandState` and by the user's drag.
+            editorResultsSplit.topAnchor.constraint(equalTo: contentStack.topAnchor),
+            editorResultsSplit.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            editorResultsSplit.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            editorResultsSplit.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor),
 
-            // Action bar: below editor, full width, fixed height
-            actionBar.topAnchor.constraint(equalTo: paneSplitView.bottomAnchor),
-            actionBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            actionBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            // Action bar: top of the results area, full width, fixed height
+            actionBar.topAnchor.constraint(equalTo: resultsArea.topAnchor),
+            actionBar.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            actionBar.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: Self.actionBarHeight),
 
             // Result tab bar: below action bar, full width
             resultTabBar.topAnchor.constraint(equalTo: actionBar.bottomAnchor),
-            resultTabBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            resultTabBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            resultTabBar.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            resultTabBar.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             resultTabBarHeightConstraint,
 
             // Results: below result tab bar, full width, fills remaining space
             resultsTopToResultTabBar,
-            resultsVC.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            resultsVC.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            resultsVC.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            resultsVC.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             resultsBottomToContainer,
 
             // Chart host occupies the same region as the results grid.
             chartHost.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor),
-            chartHost.view.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            chartHost.view.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            chartHost.view.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor),
+            chartHost.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            chartHost.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
+            chartHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor),
 
             emptyState.topAnchor.constraint(equalTo: safeTop),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -522,7 +545,7 @@ class ContentViewController: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         // Restore saved split ratio once the content area has real height
-        if !hasSetInitialSplit, contentStack.bounds.height > 0 {
+        if !hasSetInitialSplit, editorResultsSplit.bounds.height > 0 {
             hasSetInitialSplit = true
             let saved = UserDefaults.standard.double(forKey: Self.splitRatioKey)
             savedSplitRatio = saved > 0 ? saved : 0.6
@@ -1277,12 +1300,7 @@ class ContentViewController: NSViewController {
         if expandState == .editorExpanded {
             expandState = .normal
         } else {
-            if expandState == .normal {
-                let totalHeight = contentStack.bounds.height - Self.actionBarHeight
-                if totalHeight > 0 {
-                    savedSplitRatio = paneSplitView.frame.height / totalHeight
-                }
-            }
+            if expandState == .normal { rememberSplitRatio() }
             expandState = .editorExpanded
         }
         applyExpandState()
@@ -1292,44 +1310,66 @@ class ContentViewController: NSViewController {
         if expandState == .resultsExpanded {
             expandState = .normal
         } else {
-            if expandState == .normal {
-                let totalHeight = contentStack.bounds.height - Self.actionBarHeight
-                if totalHeight > 0 {
-                    savedSplitRatio = paneSplitView.frame.height / totalHeight
-                }
-            }
+            if expandState == .normal { rememberSplitRatio() }
             expandState = .resultsExpanded
         }
         applyExpandState()
     }
 
+    /// Height of the results area's fixed chrome: the action bar plus the
+    /// result tab bar when it is shown. The grid sits below both.
+    private var resultsAreaChromeHeight: CGFloat {
+        Self.actionBarHeight + resultTabBarHeightConstraint.constant
+    }
+
+    /// The editor's share of the split, as the split view has it now.
+    private func rememberSplitRatio() {
+        let total = editorResultsSplit.bounds.height
+        guard total > 0, !paneSplitView.isHidden else { return }
+        savedSplitRatio = paneSplitView.frame.height / total
+    }
+
     private func applyExpandState() {
-        let rtBarH = resultTabBarHeightConstraint.constant
-        let totalHeight = contentStack.bounds.height - Self.actionBarHeight - rtBarH
-        guard totalHeight > 0 else { return }
+        let total = editorResultsSplit.bounds.height
+        guard total > 0 else { return }
 
         switch expandState {
         case .normal:
+            // A hidden arranged subview is a collapsed one; un-hide first so
+            // the divider has a pane to move.
             paneSplitView.isHidden = false
-            let editorHeight = totalHeight * savedSplitRatio
-            editorHeightConstraint.constant = max(100, editorHeight)
+            let editorHeight = min(total - resultsAreaChromeHeight - Self.minResultsGridHeight,
+                                   max(Self.minEditorHeight, total * savedSplitRatio))
+            editorResultsSplit.setPosition(editorHeight, ofDividerAt: 0)
 
         case .editorExpanded:
-            // Hide results area (grid + chart), editor fills all available space
+            // The results area keeps only its chrome (the action bar holds the
+            // expand buttons); the grid and chart are hidden below.
             paneSplitView.isHidden = false
-            editorHeightConstraint.constant = totalHeight
+            editorResultsSplit.setPosition(total - resultsAreaChromeHeight, ofDividerAt: 0)
 
         case .resultsExpanded:
-            // Hide editor panes, results area fills all available space
+            // Collapse the editor panes; the results area fills the split.
             paneSplitView.isHidden = true
-            editorHeightConstraint.constant = 0
         }
+        editorResultsSplit.adjustSubviews()
         // Show grid vs. chart per the active result tab's mode + expand state.
         applyResultAreaVisibility()
 
         updateExpandButtonUI()
         persistSplitRatio()
-        contentStack.layoutSubtreeIfNeeded()
+        editorResultsSplit.layoutSubtreeIfNeeded()
+    }
+
+    /// A mouse-down on the action bar in an expanded state. Restore the
+    /// normal layout at the saved ratio. In both expanded states the bar
+    /// sits inside the divider's min or max zone, so no restore can leave it
+    /// under the cursor for the drag to continue (tried and measured); the
+    /// click restores, the next drag resizes.
+    private func leaveExpandedStateForDividerDrag() {
+        guard expandState != .normal else { return }
+        expandState = .normal
+        applyExpandState()
     }
 
     private func updateExpandButtonUI() {
@@ -3881,52 +3921,47 @@ extension ContentViewController {
 
 // MARK: - NSSplitViewDelegate
 
+// Delegate for BOTH split views: `paneSplitView` (editor panes, side by
+// side) and `editorResultsSplit` (editor above results). Every method
+// branches on which one is asking.
 extension ContentViewController: NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if splitView === editorResultsSplit { return Self.minEditorHeight }
         return 100 // Minimum editor pane width
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if splitView === editorResultsSplit {
+            // `setPosition` consults this too (measured: the editor-expanded
+            // position stopped 60pt short), so the expanded state may take
+            // the grid's minimum; a drag never can, because a drag from an
+            // expanded state restores the normal state first.
+            let gridMinimum = expandState == .editorExpanded ? 0 : Self.minResultsGridHeight
+            return splitView.bounds.height - resultsAreaChromeHeight - gridMinimum
+        }
         return splitView.bounds.width - 100 // Minimum right editor pane width
     }
-}
 
-// MARK: - Action Bar Drag-to-Resize
+    /// The action bar is the editor/results divider: its blank stretch starts
+    /// a drag. Controls on it still win the click — see
+    /// `EditorResultsSplitView.hitTest`.
+    func splitView(_ splitView: NSSplitView, additionalEffectiveRectOfDividerAt dividerIndex: Int) -> NSRect {
+        guard splitView === editorResultsSplit, actionBar.window != nil else { return .zero }
+        return splitView.convert(actionBar.bounds, from: actionBar)
+    }
 
-extension ContentViewController {
-
-    func handleActionBarDrag(event: NSEvent) {
-        switch event.type {
-        case .leftMouseDown:
-            // If in an expanded state, restore normal before dragging
-            if expandState != .normal {
-                expandState = .normal
-                paneSplitView.isHidden = false
-                applyResultAreaVisibility()
-                updateExpandButtonUI()
-            }
-            isDragging = true
-            dragStartY = event.locationInWindow.y
-            dragStartEditorHeight = editorHeightConstraint.constant
-
-        case .leftMouseDragged:
-            guard isDragging else { return }
-            // Window coordinates: y increases upward. Dragging down = negative delta = editor grows.
-            let deltaY = dragStartY - event.locationInWindow.y
-            let rtBarH = resultTabBarHeightConstraint.constant
-            let totalAvailable = contentStack.bounds.height - Self.actionBarHeight - rtBarH
-            let newHeight = max(100, min(totalAvailable - 60, dragStartEditorHeight + deltaY))
-            editorHeightConstraint.constant = newHeight
-            savedSplitRatio = newHeight / totalAvailable
-            persistSplitRatio()
-
-        case .leftMouseUp:
-            isDragging = false
-
-        default:
-            break
-        }
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard (notification.object as? NSSplitView) === editorResultsSplit,
+              hasSetInitialSplit, expandState == .normal else { return }
+        // A drag or a window resize moved the divider: remember the editor's
+        // share, and write it out once the movement settles rather than on
+        // every tick.
+        rememberSplitRatio()
+        splitRatioPersistWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.persistSplitRatio() }
+        splitRatioPersistWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 }
 

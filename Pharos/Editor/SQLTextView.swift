@@ -865,7 +865,22 @@ class SQLTextView: NSTextView {
         let cursorRange = selectedRange()
         if cursorRange.length == 0 {
             let glyphRange = layoutManager.glyphRange(forCharacterRange: cursorRange, actualCharacterRange: nil)
-            var lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let glyphCount = layoutManager.numberOfGlyphs
+            var lineRect: NSRect
+            if glyphRange.location < glyphCount {
+                lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            } else if !layoutManager.extraLineFragmentRect.isEmpty {
+                // Caret on the trailing line: an empty document, or text that
+                // ends in a newline. There is no glyph to ask about — asking
+                // logged "invalid glyph index" on every empty editor.
+                lineRect = layoutManager.extraLineFragmentRect
+            } else if glyphCount > 0 {
+                // Caret after the last character of a document with no final
+                // newline: that character's line is the current line.
+                lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphCount - 1, effectiveRange: nil)
+            } else {
+                return
+            }
             lineRect.origin.x = 0
             lineRect.size.width = bounds.width
             lineRect.origin.y += textContainerInset.height
