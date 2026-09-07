@@ -132,6 +132,13 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         tableView.allowsMultipleSelection = false
         tableView.dataSource = self
         tableView.delegate = self
+        // Clicks are reported through the table's action, not through the
+        // selection notification: the notification is silent when the clicked
+        // row is ALREADY selected, and in an unfocused pane it always is —
+        // the panel keeps its tab's active result highlighted. A click on
+        // that row must still bring the pane's tab and result to the front.
+        tableView.target = self
+        tableView.action = #selector(rowClicked)
         tableView.menu = makeContextMenu()
 
         scrollView.documentView = tableView
@@ -312,19 +319,37 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         return cell
     }
 
+    /// Every left click on a row, selected already or not (the table's
+    /// `action`). Keyboard moves arrive through `tableViewSelectionDidChange`.
+    @objc private func rowClicked() {
+        let idx = tableView.clickedRow
+        guard idx >= 0, idx < rows.count else { return }
+        reportSelection(of: rows[idx].id)
+    }
+
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isProgrammaticSelection else { return }
+        // A mouse click reports through `rowClicked`; reporting here too would
+        // switch the tab twice for one click. Keyboard selection (arrow keys)
+        // never reaches the action, so it reports from here.
+        if let type = NSApp.currentEvent?.type,
+           type == .leftMouseDown || type == .leftMouseUp || type == .leftMouseDragged {
+            return
+        }
         let idx = tableView.selectedRow
         guard idx >= 0, idx < rows.count else { return }
-        let id = rows[idx].id
-        // Leave NSTableView's mouse-down tracking before telling anyone. The
-        // controller switches the active editor tab synchronously (settled
-        // publishers), and that switch pushes `update(rows:activeId:)` back
-        // into THIS table — a reload and a re-select while the table is
-        // still inside the click that caused them. Measured in the app: the
-        // click did nothing until the next event. One turn later the click
-        // has finished and the push lands on a table that is at rest. This
-        // is a tracking-loop boundary, not a state-ordering wait.
+        reportSelection(of: rows[idx].id)
+    }
+
+    /// Leave NSTableView's tracking before telling anyone. The controller
+    /// switches the active editor tab synchronously (settled publishers), and
+    /// that switch pushes `update(rows:activeId:)` back into THIS table — a
+    /// reload and a re-select while the table is still inside the click that
+    /// caused them. Measured in the app: the click did nothing until the next
+    /// event. One turn later the click has finished and the push lands on a
+    /// table that is at rest. This is a tracking-loop boundary, not a
+    /// state-ordering wait.
+    private func reportSelection(of id: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.rows.contains(where: { $0.id == id }) else { return }
             self.onSelectRow?(id)
