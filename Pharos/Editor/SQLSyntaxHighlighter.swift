@@ -113,9 +113,11 @@ enum SQLSyntaxHighlighter {
         let fullRange = NSRange(location: 0, length: nsText.length)
         guard nsText.length > 0 else { return [] }
 
-        let chars = Array(text.utf16)
-        let length = chars.count
-        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
+        // Shared with the segment and folding parsers — one lex per edit. Safe
+        // off the main actor: the snapshot is immutable and the cache is locked.
+        let snapshot = SQLLexSnapshot.shared(for: text)
+        let length = snapshot.length
+        let stateMap = snapshot.stateMap
 
         var attrs: [Span] = []
         attrs.reserveCapacity(64)

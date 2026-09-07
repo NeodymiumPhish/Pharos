@@ -18,6 +18,7 @@ swiftc -o /tmp/variable-detail-vc-tests \
   Pharos/Editor/FoldingLayoutManager.swift \
   Pharos/Core/PulseClock.swift \
   Pharos/Editor/SQLLexer.swift \
+  Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \

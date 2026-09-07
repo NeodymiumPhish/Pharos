@@ -8,6 +8,7 @@ swiftc -o /tmp/sql-pushdown-tests \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
   Pharos/Editor/SQLLexer.swift \
+  Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Models/Charts/PushdownQuery.swift \
   Pharos/Utilities/SqlIdentifierQuoting.swift \

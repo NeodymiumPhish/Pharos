@@ -37,16 +37,11 @@ struct SQLFoldingParser {
     static func parse(_ text: String) -> [SQLFoldRegion] {
         guard !text.isEmpty else { return [] }
 
-        let chars = Array(text.utf16)
-        let length = chars.count
-
-        // Build line start offsets (0-based char index for each 1-based line)
-        var lineStarts: [Int] = [0] // line 1 starts at char 0
-        for i in 0..<length {
-            if chars[i] == 0x0A { // newline
-                lineStarts.append(i + 1)
-            }
-        }
+        // Shared with the segment parser and the highlighter — one lex per edit.
+        let snapshot = SQLLexSnapshot.shared(for: text)
+        let chars = snapshot.chars
+        let length = snapshot.length
+        let lineStarts = snapshot.lineStarts
         let totalLines = lineStarts.count
 
         // Helper: get 1-based line number for a 0-based char index
@@ -78,8 +73,8 @@ struct SQLFoldingParser {
             }
         }
 
-        // First pass: build a lex-state map so we know what's in strings/comments
-        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
+        // Lex-state map so we know what's in strings/comments (from the snapshot)
+        let stateMap = snapshot.stateMap
 
         // Helper: check if a char index is in normal code (not string/comment)
         func isNormal(_ idx: Int) -> Bool {

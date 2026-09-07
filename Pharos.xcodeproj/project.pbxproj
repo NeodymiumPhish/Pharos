@@ -134,6 +134,7 @@
 		9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9D2681720A71CCE84786DE54 /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F2105483936AE6C2C9AEB8 /* Tag.swift */; };
+		9E783607775B25FA87D42A2B /* SQLLexSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */; };
 		9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */; };
 		9FAE872307D0C9BFBD8D0236 /* TagRuleRemoving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478AE9084B7DAB02CD46EF65 /* TagRuleRemoving.swift */; };
 		A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE109495071281357840CE57 /* QueryHistoryVC.swift */; };
@@ -351,6 +352,7 @@
 		B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Workspaces.swift"; sourceTree = "<group>"; };
 		B924DFE2722E648667C6764E /* QueryFailureChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryFailureChannel.swift; sourceTree = "<group>"; };
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
+		B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexSnapshot.swift; sourceTree = "<group>"; };
 		B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableSubstitutor.swift; sourceTree = "<group>"; };
 		BADF5D89720A5AA09490F63F /* ResultTabsPanelVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabsPanelVC.swift; sourceTree = "<group>"; };
 		BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryErrorPresenter.swift; sourceTree = "<group>"; };
@@ -701,6 +703,7 @@
 				A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */,
 				72D48095594419F14207C82F /* SQLFoldingParser.swift */,
 				3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */,
+				B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */,
 				EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */,
 				B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */,
 				B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */,
@@ -987,6 +990,7 @@
 				E949A5D1F590F48E67B8D61D /* SQLErrorLocation.swift in Sources */,
 				A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */,
 				7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */,
+				9E783607775B25FA87D42A2B /* SQLLexSnapshot.swift in Sources */,
 				FCBF77F5B8DC69383348CE5A /* SQLLexer.swift in Sources */,
 				2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */,
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,

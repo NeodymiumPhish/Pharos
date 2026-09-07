@@ -28,9 +28,11 @@ struct SQLSegmentParser {
     static func parse(_ text: String) -> [SQLSegment] {
         guard !text.isEmpty else { return [] }
 
-        let chars = Array(text.utf16)
-        let length = chars.count
-        let stateMap = SQLLexer.buildStateMap(chars: chars, length: length)
+        // Shared with the highlighter and the folding parser — one lex per edit.
+        let snapshot = SQLLexSnapshot.shared(for: text)
+        let chars = snapshot.chars
+        let length = snapshot.length
+        let stateMap = snapshot.stateMap
 
         var segments: [SQLSegment] = []
         var segmentStart = 0

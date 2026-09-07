@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/result-tab-resolver-tests \
   Pharos/Editor/SQLLexer.swift \
+  Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/ViewControllers/ResultTabResolver.swift \
   PharosTests/ResultTabResolverTests.swift \
