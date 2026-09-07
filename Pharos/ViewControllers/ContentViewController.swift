@@ -2296,6 +2296,10 @@ class ContentViewController: NSViewController {
                     applyMerged(merged)
                     // Only mutate the visible grid if the paginated result is still shown.
                     if isStillDisplaying() {
+                        // Say so when the pages cannot be trusted to line up:
+                        // without an outermost ORDER BY, PostgreSQL may return
+                        // a different order for this second execution.
+                        self.resultsVC.pagedWithoutOrderBy = !SQLOrderStability.hasTopLevelOrderBy(querySQL)
                         self.resultsVC.appendRows(from: moreResult)
                     } else {
                         self.resultsVC.setLoadingMore(false)

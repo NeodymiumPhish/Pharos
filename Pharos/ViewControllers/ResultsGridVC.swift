@@ -73,6 +73,12 @@ class ResultsGridVC: NSViewController {
     /// refresh the Inspector's Tags section in place.
     var onTagMapChanged: (() -> Void)?
     var hasMore: Bool = false
+    /// True once Load More has appended a page for a statement with no
+    /// outermost ORDER BY. PostgreSQL does not promise the same row order
+    /// between two executions of such a statement, and each page is a new
+    /// execution wrapped in LIMIT/OFFSET, so a page can repeat or skip rows.
+    /// The status text says so; the pages are not one continuous result.
+    var pagedWithoutOrderBy: Bool = false
     var executionTimeMs: UInt64 = 0
     var columnCategories: [PGTypeCategory] = []
 
@@ -319,6 +325,7 @@ class ResultsGridVC: NSViewController {
         self.rowIdentity = result.rowIdentity
         self.hasMore = result.hasMore
         self.executionTimeMs = result.executionTimeMs
+        pagedWithoutOrderBy = false
 
         columnCategories = columns.map { PGTypeCategory(dataType: $0.dataType) }
 
@@ -708,7 +715,8 @@ class ResultsGridVC: NSViewController {
 
     func updateStatusBarText() {
         let timeStr = formatDuration(executionTimeMs)
-        let moreStr = hasMore ? " (more available)" : ""
+        let moreStr = (hasMore ? " (more available)" : "")
+            + (pagedWithoutOrderBy ? " \u{2022} page order not guaranteed (no ORDER BY)" : "")
         let filterCount = columnFilterController.activeFilterCount
         let filterSuffix = filterCount > 0
             ? " \u{2022} \(filterCount) filter\(filterCount == 1 ? "" : "s")"
