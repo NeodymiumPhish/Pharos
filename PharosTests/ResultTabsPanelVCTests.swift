@@ -78,7 +78,13 @@ func runTests() {
     RunLoop.current.run(until: Date().addingTimeInterval(0.05))
     expectEqual("\(selected.count)", "0", "programmatic update does not fire onSelectRow")
     vc.simulateRowClick(at: 0)
-    expectEqual(selected.joined(separator: ","), "a", "clicking row 0 reports id a")
+    // The report is deferred one turn on purpose: the controller's response
+    // pushes a reload back into this table, which must not happen while the
+    // table is still inside the click that caused it (see
+    // tableViewSelectionDidChange). So: nothing yet, then the id.
+    expectEqual("\(selected.count)", "0", "a click reports nothing while the table is still in the click")
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expectEqual(selected.joined(separator: ","), "a", "clicking row 0 reports id a once the click has finished")
 
     // A row's own close button reaches onCloseRow, driven through the cell the
     // user actually clicks rather than through a seam that would only re-state

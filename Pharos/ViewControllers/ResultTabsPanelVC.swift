@@ -316,7 +316,19 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
         guard !isProgrammaticSelection else { return }
         let idx = tableView.selectedRow
         guard idx >= 0, idx < rows.count else { return }
-        onSelectRow?(rows[idx].id)
+        let id = rows[idx].id
+        // Leave NSTableView's mouse-down tracking before telling anyone. The
+        // controller switches the active editor tab synchronously (settled
+        // publishers), and that switch pushes `update(rows:activeId:)` back
+        // into THIS table — a reload and a re-select while the table is
+        // still inside the click that caused them. Measured in the app: the
+        // click did nothing until the next event. One turn later the click
+        // has finished and the push lands on a table that is at rest. This
+        // is a tracking-loop boundary, not a state-ordering wait.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.rows.contains(where: { $0.id == id }) else { return }
+            self.onSelectRow?(id)
+        }
     }
 
     // MARK: - Context menu
