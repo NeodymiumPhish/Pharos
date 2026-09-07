@@ -60,15 +60,28 @@ class ContentViewController: NSViewController {
     private var resultsBottomToContainer: NSLayoutConstraint!
     private var resultTabBarHeightConstraint: NSLayoutConstraint!
 
-    // Result tab management — scoped per editor tab
-    private var resultTabs: [ResultTab] = []
-    private var activeResultTabId: String?
-    private var resultTabsByEditorTab: [String: [ResultTab]] = [:]
-    private var activeResultTabIdByEditorTab: [String: String] = [:]
-    /// Monotonic result-ordering counter per editor tab, used as `result_order`
-    /// when associating executed results with a workspace. Seeded to the restored
-    /// count when a workspace is reopened (see handleOpenWorkspace).
-    private var resultOrderByEditorTab: [String: Int] = [:]
+    // Result tab management — one store for every editor tab. See ResultTabStore.
+    private var resultStore = ResultTabStore()
+
+    /// The editor tab whose results the grid is showing. Set by
+    /// `activeTabChanged` once the outgoing tab's state has been captured, so
+    /// during that capture it still names the outgoing tab.
+    private var lastActiveTabId: String?
+
+    /// The displayed editor tab's result tabs — a view onto `resultStore`,
+    /// not a copy. There is no flush on a tab switch and nothing can be
+    /// behind. With no displayed tab the view is empty and writes are dropped.
+    private var resultTabs: [ResultTab] {
+        get { lastActiveTabId.map { resultStore[$0].tabs } ?? [] }
+        set { if let id = lastActiveTabId { resultStore[id].tabs = newValue } }
+    }
+
+    /// The displayed editor tab's selected result tab — same view.
+    private var activeResultTabId: String? {
+        get { lastActiveTabId.flatMap { resultStore[$0].activeId } }
+        set { if let id = lastActiveTabId { resultStore[id].activeId = newValue } }
+    }
+
     private static let resultTabBarHeight: CGFloat = 26
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
@@ -664,8 +677,6 @@ class ContentViewController: NSViewController {
 
     // MARK: - Active Tab Changed (results grid update)
 
-    private var lastActiveTabId: String?
-
     /// Drop the per-editor-tab result state of every tab that is no longer in
     /// `stateManager.tabs`.
     ///
@@ -678,14 +689,11 @@ class ContentViewController: NSViewController {
     /// (`captureExecutedResult` → `associateResult`), its chart config is
     /// written by `persistChartState`, and reopening the workspace rebuilds the
     /// result tabs from `PharosCore.loadWorkspace` +
-    /// `getQueryHistoryResult` — never from these dictionaries. The order
-    /// counter is likewise re-seeded from `MAX(result_order) + 1` on reopen,
-    /// and tab ids are UUIDs, so a dropped key can never be asked for again.
+    /// `getQueryHistoryResult` — never from the store. The order counter is
+    /// likewise re-seeded from `MAX(result_order) + 1` on reopen, and tab ids
+    /// are UUIDs, so a dropped key can never be asked for again.
     private func pruneRetiredEditorTabState() {
-        let liveTabIds = Set(stateManager.tabs.map { $0.id })
-        resultTabsByEditorTab = resultTabsByEditorTab.filter { liveTabIds.contains($0.key) }
-        activeResultTabIdByEditorTab = activeResultTabIdByEditorTab.filter { liveTabIds.contains($0.key) }
-        resultOrderByEditorTab = resultOrderByEditorTab.filter { liveTabIds.contains($0.key) }
+        resultStore.prune(keeping: Set(stateManager.tabs.map { $0.id }))
     }
 
     private func activeTabChanged(_ tabId: String?) {
@@ -707,35 +715,24 @@ class ContentViewController: NSViewController {
             // The tab we are leaving may be the one that was just CLOSED.
             // `closeTab` removes it from `tabs` (the prune sweep runs there,
             // synchronously) before it moves `activeTabId`, so by the time
-            // this runs the sweep has dropped the tab's entries. Writing
-            // blind would resurrect them — with every row of every result the
-            // tab ever produced. Skipping the write for a retired tab keeps
-            // the empty state, and a retired tab has nothing left to restore
-            // into anyway. The guard also covers any mutator that orders the
-            // two writes the other way round.
+            // this runs the sweep has dropped the tab's store entry. Writing
+            // into `resultTabs` now would re-create it — with every row of
+            // every result the tab ever produced. A retired tab has nothing
+            // left to restore into anyway. The guard also covers any mutator
+            // that orders the two writes the other way round.
             if stateManager.tabs.contains(where: { $0.id == previousTabId }) {
                 // While pinned, the grid shows the PINNED result, not the tab
                 // we are leaving. Column ids are positional (`col_N`), so its
                 // widths, sort column and filters would be stored on this
                 // tab's result and restored onto the wrong columns later.
-                if stateManager.pinnedResult == nil {
-                    let gridState = resultsVC.captureGridState()
-                    stateManager.updateTab(id: previousTabId) { tab in
-                        tab.gridState = gridState
-                    }
-                    // Also save grid state (and any live chart config) to the active result tab
-                    if let activeRTId = activeResultTabId,
-                       let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
-                        resultTabs[rtIdx].gridState = gridState
-                        captureChartConfig(intoTabAt: rtIdx)
-                    }
-                }
-                // Persist result tabs for the previous editor tab
-                resultTabsByEditorTab[previousTabId] = resultTabs
-                if let activeRTId = activeResultTabId {
-                    activeResultTabIdByEditorTab[previousTabId] = activeRTId
-                } else {
-                    activeResultTabIdByEditorTab.removeValue(forKey: previousTabId)
+                if stateManager.pinnedResult == nil,
+                   let activeRTId = activeResultTabId,
+                   let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
+                    // Save grid state (and any live chart config) to the active
+                    // result tab. `resultTabs` still views the outgoing tab
+                    // here — `lastActiveTabId` moves below.
+                    resultTabs[rtIdx].gridState = resultsVC.captureGridState()
+                    captureChartConfig(intoTabAt: rtIdx)
                 }
             }
         }
@@ -743,8 +740,6 @@ class ContentViewController: NSViewController {
 
         guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
             resultsVC.clear()
-            resultTabs = []
-            activeResultTabId = nil
             refreshResultTabViews()
             syncChartToggleToActiveTab()
             updateSplitViewVisibility()
@@ -762,11 +757,8 @@ class ContentViewController: NSViewController {
     /// synchronous delivery the switch has already run by the time they seed,
     /// so they must apply the seed themselves.
     private func loadResultState(for tab: QueryTab) {
-        let tabId = tab.id
-
-        // Restore result tabs for the new editor tab
-        resultTabs = resultTabsByEditorTab[tabId] ?? []
-        activeResultTabId = activeResultTabIdByEditorTab[tabId]
+        // `resultTabs` / `activeResultTabId` already view this tab's store
+        // entry: `lastActiveTabId` is `tab.id` by the time this runs.
         refreshResultTabViews()
 
         // Pin override: while pinned, the grid stays on the pinned result no
@@ -788,14 +780,7 @@ class ContentViewController: NSViewController {
         // Otherwise the legacy inline-result path falls back to the editor
         // tab's stored execution time and schema. Suppressed while pinned
         // (the grid is showing the pinned tab's data, not the active tab's).
-        let activeRT = activeResultTab
-        if activeRT != nil {
-            applyResultBanner(from: activeRT)
-        } else if tab.result != nil || tab.executeResult != nil {
-            applyResultBanner(schema: tab.schemaName, date: tab.resultExecutedAt)
-        } else {
-            applyResultBanner(from: nil)
-        }
+        applyResultBanner(from: activeResultTab)
 
         // Restore grid vs. chart view mode for the newly-active result tab.
         syncChartToggleToActiveTab()
@@ -823,16 +808,6 @@ class ContentViewController: NSViewController {
             return
         }
         let schema = resultTab.historySchema ?? stateManager.activeTab?.schemaName
-        resultsVC.showResultBanner(schema: schema, date: date)
-    }
-
-    /// Banner variant for the legacy inline-result path (no ResultTab, result
-    /// stored directly on the editor tab).
-    private func applyResultBanner(schema: String?, date: Date?) {
-        guard stateManager.pinnedResult == nil, let date else {
-            resultsVC.hideResultBanner()
-            return
-        }
         resultsVC.showResultBanner(schema: schema, date: date)
     }
 
@@ -1457,8 +1432,7 @@ class ContentViewController: NSViewController {
             segment.sql,
             segmentIndex: segment.index,
             lineRange: segment.startLine...segment.endLine,
-            customLabel: nil,
-            createResultTab: true
+            customLabel: nil
         )
     }
 
@@ -1543,17 +1517,15 @@ class ContentViewController: NSViewController {
 
     /// Execute SQL directly without creating a result tab (fallback when no segments parsed).
     private func executeDirectSQL(_ querySQL: String) {
-        performQuery(querySQL, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: false)
+        performQuery(querySQL, segmentIndex: -1, lineRange: 0...0, customLabel: nil)
     }
 
     /// Unified query execution.
-    /// - `createResultTab`: if true, results go into a new result tab; if false, shown inline.
     private func performQuery(
         _ querySQL: String,
         segmentIndex: Int,
         lineRange: ClosedRange<Int>,
-        customLabel: String?,
-        createResultTab: Bool
+        customLabel: String?
     ) {
         guard let activeTab = stateManager.activeTab,
               let connectionId = activeTab.connectionId,
@@ -1586,8 +1558,7 @@ class ContentViewController: NSViewController {
                         tabSchema: tabSchema,
                         segmentIndex: segmentIndex,
                         lineRange: lineRange,
-                        customLabel: customLabel,
-                        createResultTab: createResultTab
+                        customLabel: customLabel
                     )
                 }
                 return
@@ -1602,8 +1573,7 @@ class ContentViewController: NSViewController {
             tabSchema: tabSchema,
             segmentIndex: segmentIndex,
             lineRange: lineRange,
-            customLabel: customLabel,
-            createResultTab: createResultTab
+            customLabel: customLabel
         )
     }
 
@@ -1619,8 +1589,7 @@ class ContentViewController: NSViewController {
         tabSchema: String?,
         segmentIndex: Int,
         lineRange: ClosedRange<Int>,
-        customLabel: String?,
-        createResultTab: Bool
+        customLabel: String?
     ) {
         guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
               stateManager.status(for: connectionId) == .connected else { return }
@@ -1647,17 +1616,8 @@ class ContentViewController: NSViewController {
             return
         }
 
-        // Direct-SQL inline-result protection: if another direct-SQL run is already
-        // in flight, route this one to a result tab so the two completions don't
-        // race to overwrite tab.result.
-        var effectiveCreateResultTab = createResultTab
-        if segmentIndex == -1,
-           tab.runningQueries.contains(where: { $0.segmentIndex == -1 }) {
-            effectiveCreateResultTab = true
-        }
-
         let queryId = UUID().uuidString
-        let color = effectiveCreateResultTab ? ResultTab.nextColor() : .clear
+        let color = ResultTab.nextColor()
         let startTime = CACurrentMediaTime()
 
         let runningQuery = RunningQuery(
@@ -1670,13 +1630,7 @@ class ContentViewController: NSViewController {
 
         stateManager.updateTab(id: tabId) { tab in
             tab.runningQueries.append(runningQuery)
-            if !effectiveCreateResultTab {
-                tab.result = nil
-                tab.executeResult = nil
-                tab.resultExecutedAt = nil
-            }
         }
-        if !effectiveCreateResultTab { resultsVC.clear() }
         focusedPaneVC?.clearErrorMarkers()
 
         // Ensure this tab has a workspace history record (created lazily on first
@@ -1697,28 +1651,21 @@ class ContentViewController: NSViewController {
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
-                            if !effectiveCreateResultTab {
-                                tab.result = result
-                                tab.resultExecutedAt = Date()
-                            }
                         }
-                        if effectiveCreateResultTab {
-                            var rt = ResultTab(
-                                id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
-                            )
-                            rt.customLabel = customLabel
-                            rt.queryResult = result
-                            rt.executionTimeMs = result.executionTimeMs
-                            rt.totalRowCountHint = result.rowCount
-                            rt.historyResultId = result.historyEntryId
-                            self.addResultTab(rt, forEditorTab: tabId)
-                        } else if self.stateManager.activeTabId == tabId {
-                            // Legacy inline path: it replaces the grid without
-                            // making a result tab, so it must unpin too.
-                            self.unpinBecauseGridIsChanging()
-                            self.resultsVC.showResult(result)
-                        }
+                        // Every result lives in a ResultTab — a direct-SQL run
+                        // (segmentIndex -1) included. The inline `tab.result`
+                        // path is gone: it was a second store for the same
+                        // thing, and two direct runs raced to overwrite it.
+                        var rt = ResultTab(
+                            id: UUID().uuidString, segmentIndex: segmentIndex,
+                            sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
+                        )
+                        rt.customLabel = customLabel
+                        rt.queryResult = result
+                        rt.executionTimeMs = result.executionTimeMs
+                        rt.totalRowCountHint = result.rowCount
+                        rt.historyResultId = result.historyEntryId
+                        self.addResultTab(rt, forEditorTab: tabId)
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
                             self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL, lineRange: lineRange, customLabel: customLabel)
@@ -1738,27 +1685,16 @@ class ContentViewController: NSViewController {
                     await MainActor.run {
                         self.stateManager.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
-                            if !effectiveCreateResultTab {
-                                tab.executeResult = result
-                                tab.resultExecutedAt = Date()
-                            }
                         }
-                        if effectiveCreateResultTab {
-                            var rt = ResultTab(
-                                id: UUID().uuidString, segmentIndex: segmentIndex,
-                                sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
-                            )
-                            rt.customLabel = customLabel
-                            rt.executeResult = result
-                            rt.executionTimeMs = result.executionTimeMs
-                            rt.historyResultId = result.historyEntryId
-                            self.addResultTab(rt, forEditorTab: tabId)
-                        } else if self.stateManager.activeTabId == tabId {
-                            // Legacy inline path: it replaces the grid without
-                            // making a result tab, so it must unpin too.
-                            self.unpinBecauseGridIsChanging()
-                            self.resultsVC.showExecuteResult(result)
-                        }
+                        var rt = ResultTab(
+                            id: UUID().uuidString, segmentIndex: segmentIndex,
+                            sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
+                        )
+                        rt.customLabel = customLabel
+                        rt.executeResult = result
+                        rt.executionTimeMs = result.executionTimeMs
+                        rt.historyResultId = result.historyEntryId
+                        self.addResultTab(rt, forEditorTab: tabId)
                         NotificationCoalescer.post(.queryHistoryDidChange)
                         if let wsId = workspaceId, let hid = result.historyEntryId {
                             self.captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, color: color, rawSQL: rawSQL, lineRange: lineRange, customLabel: customLabel)
@@ -1971,14 +1907,12 @@ class ContentViewController: NSViewController {
             // only the in-memory copy is dropped.
             guard stateManager.tabs.contains(where: { $0.id == editorTabId }) else { return }
 
-            // Background tab: append to its persisted result tabs without
-            // touching the live display or the focused pane's gutter. The
-            // gutter color and grid are restored from this state when the user
-            // switches back (activeTabChanged → reResolveAllResultTabs).
-            var stored = resultTabsByEditorTab[editorTabId] ?? []
-            stored.append(tab)
-            resultTabsByEditorTab[editorTabId] = stored
-            activeResultTabIdByEditorTab[editorTabId] = tab.id
+            // Background tab: append to its store entry without touching the
+            // grid or the focused pane's gutter. The gutter color and grid are
+            // restored from the store when the user switches back
+            // (activeTabChanged → reResolveAllResultTabs).
+            resultStore[editorTabId].tabs.append(tab)
+            resultStore[editorTabId].activeId = tab.id
             // A background tab still needs its surface refreshed. The old
             // horizontal bar was one surface showing only the globally active
             // tab, so a deposit here genuinely had nothing to draw. The vertical
@@ -2117,32 +2051,17 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// One result tab by id, wherever it lives: the live array belongs to the
-    /// active editor tab, and every other editor tab's results sit in the
-    /// persisted store. Both surfaces can name a tab that is not the active
-    /// one — a vertical panel in an unfocused pane lists its own tab's results.
+    /// One result tab by id, whichever editor tab holds it. Both surfaces can
+    /// name a tab that is not the active editor tab's — a vertical panel in an
+    /// unfocused pane lists its own tab's results.
     private func resultTab(withId tabId: String) -> ResultTab? {
-        resultTabs.first(where: { $0.id == tabId })
-            ?? resultTabsByEditorTab.values.lazy.flatMap { $0 }.first(where: { $0.id == tabId })
+        resultStore.tab(withId: tabId)
     }
 
     /// Apply a change to a result tab wherever it lives, and hand back the
-    /// changed tab. The live array is searched FIRST and is authoritative for
-    /// the active editor tab: its entry in `resultTabsByEditorTab` is only
-    /// written on a tab switch, so it can be behind.
+    /// changed tab.
     private func mutateResultTab(id: String, _ body: (inout ResultTab) -> Void) -> ResultTab? {
-        if let idx = resultTabs.firstIndex(where: { $0.id == id }) {
-            body(&resultTabs[idx])
-            return resultTabs[idx]
-        }
-        for (editorTabId, stored) in resultTabsByEditorTab {
-            guard let idx = stored.firstIndex(where: { $0.id == id }) else { continue }
-            var updated = stored
-            body(&updated[idx])
-            resultTabsByEditorTab[editorTabId] = updated
-            return updated[idx]
-        }
-        return nil
+        resultStore.mutateTab(id: id, body)
     }
 
     /// Rename one result tab, from either surface's right-click menu.
@@ -2261,11 +2180,9 @@ class ContentViewController: NSViewController {
         guard let paneTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId else {
             return (rows: [], activeId: nil)
         }
-        if paneTabId == stateManager.activeTabId {
-            return (rows: resultTabs.map { $0.rowModel }, activeId: activeResultTabId)
-        }
-        let stored = resultTabsByEditorTab[paneTabId] ?? []
-        return (rows: stored.map { $0.rowModel }, activeId: activeResultTabIdByEditorTab[paneTabId])
+        // One store for every editor tab, active or not — no branch.
+        let entry = resultStore[paneTabId]
+        return (rows: entry.tabs.map { $0.rowModel }, activeId: entry.activeId)
     }
 
     /// Pending debounced re-resolve work item, cancellable when a new edit
@@ -2328,41 +2245,20 @@ class ContentViewController: NSViewController {
         // Don't paginate a pinned cross-tab snapshot.
         guard stateManager.pinnedResult == nil else { return }
 
-        // Resolve the currently displayed result, its SQL, where to write the
-        // merged result back, and whether it's still on-screen at completion time.
-        // Mirrors the display priority in updateContent: active ResultTab → inline tab.result.
-        let existingResult: QueryResult
-        let querySQL: String
-        let applyMerged: (QueryResult) -> Void
-        let isStillDisplaying: () -> Bool
-
-        if let activeRTId = activeResultTabId,
-           let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }),
-           let rtResult = resultTabs[rtIdx].queryResult {
-            existingResult = rtResult
-            querySQL = resultTabs[rtIdx].sql
-            applyMerged = { [weak self] merged in
-                guard let self,
-                      let idx = self.resultTabs.firstIndex(where: { $0.id == activeRTId }) else { return }
-                self.resultTabs[idx].queryResult = merged
-            }
-            isStillDisplaying = { [weak self] in
-                self?.stateManager.pinnedResult == nil && self?.activeResultTabId == activeRTId
-            }
-        } else if let inlineResult = tab.result {
-            existingResult = inlineResult
-            querySQL = tab.sql
-            let editorTabId = tab.id
-            applyMerged = { [weak self] merged in
-                self?.stateManager.updateTab(id: editorTabId) { $0.result = merged }
-            }
-            isStillDisplaying = { [weak self] in
-                self?.stateManager.pinnedResult == nil
-                    && self?.activeResultTabId == nil
-                    && self?.stateManager.activeTabId == editorTabId
-            }
-        } else {
-            return
+        // The displayed result tab, its SQL, where to write the merged result
+        // back, and whether it is still on screen at completion time.
+        guard let activeRTId = activeResultTabId,
+              let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }),
+              let existingResult = resultTabs[rtIdx].queryResult else { return }
+        let querySQL = resultTabs[rtIdx].sql
+        // Through the store, so the page lands on its result tab even after the
+        // user has switched editor tabs while it was loading; it used to be
+        // dropped then, and `hasMore` went stale.
+        let applyMerged: (QueryResult) -> Void = { [weak self] merged in
+            self?.resultStore.mutateTab(id: activeRTId) { $0.queryResult = merged }
+        }
+        let isStillDisplaying: () -> Bool = { [weak self] in
+            self?.stateManager.pinnedResult == nil && self?.activeResultTabId == activeRTId
         }
 
         guard existingResult.hasMore else { return }
@@ -2437,13 +2333,6 @@ class ContentViewController: NSViewController {
             if let gridState = activeRT.gridState {
                 resultsVC.restoreGridState(gridState)
             }
-        } else if let result = tab.result {
-            resultsVC.showResult(result)
-            if let gridState = tab.gridState {
-                resultsVC.restoreGridState(gridState)
-            }
-        } else if let execResult = tab.executeResult {
-            resultsVC.showExecuteResult(execResult)
         } else {
             resultsVC.clear()
         }
@@ -2458,21 +2347,9 @@ class ContentViewController: NSViewController {
             return
         }
         if pinned {
-            // Pin what the grid is ACTUALLY showing. Every normal run (Cmd+R on
-            // a statement, Run All) puts its result in a ResultTab and leaves
-            // the legacy `tab.result` nil, so reading only that field pinned
-            // nothing at all for such a result: the guard failed, this method
-            // returned early, and `pinnedResult` stayed nil while the button
-            // still looked engaged. When a result tab owns the grid its result
-            // is the only correct source — the legacy field can still hold an
-            // older direct-SQL result, which is not what the user is looking at.
-            let displayed: QueryResult?
-            if let activeRT = activeResultTab {
-                displayed = activeRT.queryResult
-            } else {
-                displayed = tab.result
-            }
-            guard let displayed else {
+            // Pin what the grid is ACTUALLY showing: the active result tab's
+            // result. Every run puts its result in a ResultTab.
+            guard let displayed = activeResultTab?.queryResult else {
                 // Nothing pinnable (no result yet, or the active result tab
                 // holds a non-SELECT execute result, which the grid cannot pin).
                 // Reset the button so it does not claim otherwise.
@@ -2550,14 +2427,12 @@ class ContentViewController: NSViewController {
         historyId: String, editorTabId: String, workspaceId: String, color: NSColor,
         rawSQL: String, lineRange: ClosedRange<Int>, customLabel: String?
     ) {
-        let order = resultOrderByEditorTab[editorTabId, default: 0]
-        resultOrderByEditorTab[editorTabId] = order + 1
+        let order = resultStore[editorTabId].nextOrder
         // Same late-result case as `addResultTab`: the association below still
-        // belongs in the workspace, but the counter must not outlive the tab.
-        // Removing it after the read costs nothing — had the sweep got here
-        // first, this result would have read 0 anyway.
-        if !stateManager.tabs.contains(where: { $0.id == editorTabId }) {
-            resultOrderByEditorTab.removeValue(forKey: editorTabId)
+        // belongs in the workspace, but the counter must not outlive the tab —
+        // the store subscript would create an entry for a retired tab.
+        if stateManager.tabs.contains(where: { $0.id == editorTabId }) {
+            resultStore[editorTabId].nextOrder = order + 1
         }
         let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
         do {
@@ -2754,28 +2629,28 @@ extension ContentViewController: EditorPaneDelegate {
             closeResultTab(resultTabId)
             return
         }
-        // Background editor tab: mutate its persisted store directly. The grid
-        // and the live `resultTabs` array belong to whichever tab is active now,
-        // so they are deliberately left alone. The gutter is NOT: it is per
-        // pane, and `setSegmentColor` is only ever called on the focused pane,
-        // so this pane still carries the stripe it was painted while focused and
-        // nothing else will clear it. Clear this row's stripe on `pane` — the
-        // pane the closed row actually belongs to — or it keeps a coloured bar
-        // for a result that no longer exists.
-        var stored = resultTabsByEditorTab[paneTabId] ?? []
-        guard let idx = stored.firstIndex(where: { $0.id == resultTabId }) else { return }
-        let closedSegmentIndex = stored[idx].segmentIndex
-        stored.remove(at: idx)
-        resultTabsByEditorTab[paneTabId] = stored
+        // Background editor tab: mutate its store entry directly. The grid
+        // belongs to whichever tab is active now, so it is deliberately left
+        // alone. The gutter is NOT: it is per pane, and `setSegmentColor` is
+        // only ever called on the focused pane, so this pane still carries the
+        // stripe it was painted while focused and nothing else will clear it.
+        // Clear this row's stripe on `pane` — the pane the closed row actually
+        // belongs to — or it keeps a coloured bar for a result that no longer
+        // exists.
+        var entry = resultStore[paneTabId]
+        guard let idx = entry.tabs.firstIndex(where: { $0.id == resultTabId }) else { return }
+        let closedSegmentIndex = entry.tabs[idx].segmentIndex
+        entry.tabs.remove(at: idx)
         pane.setSegmentColor(nil, forSegmentIndex: closedSegmentIndex)
-        if activeResultTabIdByEditorTab[paneTabId] == resultTabId {
+        if entry.activeId == resultTabId {
             // The neighbour, by the same rule `closeResultTab` uses on the
             // focused pane — otherwise the same gesture moves the highlight to
-            // the bottom of the list here and to the next row there. A nil
-            // assignment removes the key, which is what an emptied list wants.
-            let newIdx = min(idx, stored.count - 1)
-            activeResultTabIdByEditorTab[paneTabId] = stored.isEmpty ? nil : stored[newIdx].id
+            // the bottom of the list here and to the next row there. An
+            // emptied list has no active result.
+            let newIdx = min(idx, entry.tabs.count - 1)
+            entry.activeId = entry.tabs.isEmpty ? nil : entry.tabs[newIdx].id
         }
+        resultStore[paneTabId] = entry
         refreshResultTabViews()
     }
 
@@ -2889,10 +2764,9 @@ extension ContentViewController {
             rt.historyResultId = entry.id
 
             // `createTab` has already switched the live surface to the new
-            // (empty) tab — delivery is synchronous. Seed the stored results
-            // and apply them, so the grid and the history banner show now.
-            resultTabsByEditorTab[tab.id] = [rt]
-            activeResultTabIdByEditorTab[tab.id] = rt.id
+            // (empty) tab — delivery is synchronous. Seed the store entry and
+            // apply it, so the grid and the history banner show now.
+            resultStore[tab.id] = EditorTabResults(tabs: [rt], activeId: rt.id)
             applySeededResultState(forTabId: tab.id)
         } catch {
             NSLog("Failed to load history results: \(error)")
@@ -2997,16 +2871,17 @@ extension ContentViewController {
                     $0.cursorPosition = detail.cursorPosition ?? 0
                 }
 
-                // Seed the per-editor-tab dictionaries, then apply them: the
-                // live surface already switched to the new tab inside
-                // `createTab` (synchronous delivery) and read them empty.
-                self.resultTabsByEditorTab[tab.id] = restored
+                // Seed the store entry, then apply it: the live surface already
+                // switched to the new tab inside `createTab` (synchronous
+                // delivery) and read it empty.
                 let focus = focusResultId.flatMap { fid in restored.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restored.last
-                self.activeResultTabIdByEditorTab[tab.id] = focus?.id
                 // Subsequently-executed queries in this tab append AFTER the restored
                 // results. Seed from MAX(result_order)+1 (not count) so a workspace whose
                 // middle results were deleted can't collide a new result's order.
-                self.resultOrderByEditorTab[tab.id] = (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1
+                self.resultStore[tab.id] = EditorTabResults(
+                    tabs: restored,
+                    activeId: focus?.id,
+                    nextOrder: (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1)
                 self.applySeededResultState(forTabId: tab.id)
             }
         }
@@ -3470,7 +3345,7 @@ extension ContentViewController {
             .joined(separator: " AND ")
         guard !predicate.isEmpty else { return }
         let sql = "SELECT * FROM ( \(resultTab.sql) ) AS _pharos_src WHERE \(predicate)"
-        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: nil, createResultTab: true)
+        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: nil)
     }
 
     /// Whether the chart type can use server mode: aggregating types, plus
@@ -3618,7 +3493,9 @@ extension ContentViewController {
 
     private func persistChartState(forTabId id: String) {
         chartPersistWorkItems[id] = nil
-        guard let tab = resultTabs.first(where: { $0.id == id }) else { return }
+        // Any editor tab's result: a debounced persist can fire after the
+        // user has switched tabs, and used to be dropped silently then.
+        guard let tab = resultStore.tab(withId: id) else { return }
         // Only persist for results that belong to a workspace (have a history id).
         guard let resultId = tab.queryResult?.historyEntryId else { return }
         let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)
@@ -3739,7 +3616,7 @@ extension ContentViewController {
     @objc private func handleRunQueryInCurrentTab(_ notification: Notification) {
         guard let sql = notification.userInfo?["sql"] as? String,
               let resultName = notification.userInfo?["resultName"] as? String else { return }
-        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: resultName, createResultTab: true)
+        performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: resultName)
     }
 
     @objc private func handleInsertTextInEditor(_ notification: Notification) {

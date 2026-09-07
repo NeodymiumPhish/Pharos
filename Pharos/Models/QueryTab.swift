@@ -35,19 +35,11 @@ struct QueryTab: Identifiable {
     var runningQueries: [RunningQuery] = []
     /// Computed: any in-flight query means this tab is executing.
     var isExecuting: Bool { !runningQueries.isEmpty }
-    var result: QueryResult?
-    var executeResult: ExecuteResult?
-    /// When the inline `result` / `executeResult` was produced. Powers the
-    /// "schema · timestamp" banner under the results grid for the legacy
-    /// (single-result-per-editor-tab) path. Not used when results live in
-    /// ResultTab instances — those carry their own `timestamp` field.
-    var resultExecutedAt: Date?
     /// Failures from this tab, newest first. Replaces the old single `error`
     /// string: a failure now shows in a sheet and stays available from the tab's
     /// error button, instead of taking over the results grid.
     var failureLog = QueryFailureLog()
     var savedQueryId: String?
-    var gridState: ResultsGridState?
     var paneId: String?
     /// Filesystem URL this tab was opened from, if any. Set when the tab is
     /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
