@@ -79,6 +79,30 @@ extension PharosCore {
         }
     }
 
+    /// Re-run a statement through a server cursor inside one transaction and
+    /// return every row up to `maxRows` as one consistent snapshot. Unlike
+    /// `fetchMoreRows`, the rows come from a single execution, so they line
+    /// up even without an ORDER BY. Cancellable through `queryId`.
+    static func fetchAllRows(
+        connectionId: String,
+        sql: String,
+        queryId: String,
+        maxRows: Int64,
+        schema: String? = nil
+    ) async throws -> QueryResult {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                sql.withCString { cSql in
+                    queryId.withCString { cQid in
+                        withOptionalCString(schema) { cSchema in
+                            pharos_fetch_all_rows(cConn, cSql, cQid, maxRows, cSchema, callback, context)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Cancel a running query.
     static func cancelQuery(connectionId: String, queryId: String) async throws -> Bool {
         let result: String = try await withAsyncCallback { callback, context in

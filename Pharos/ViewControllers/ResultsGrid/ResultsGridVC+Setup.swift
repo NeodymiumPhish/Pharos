@@ -13,22 +13,28 @@ extension ResultsGridVC {
         loadMoreButton.bezelStyle = .rounded
         loadMoreButton.target = self
         loadMoreButton.action = #selector(loadMoreTapped)
-        loadMoreButton.translatesAutoresizingMaskIntoConstraints = false
+        loadMoreButton.toolTip = "Fetch the next page. Each page is a new execution wrapped in LIMIT/OFFSET."
+
+        loadAllButton.bezelStyle = .rounded
+        loadAllButton.target = self
+        loadAllButton.action = #selector(loadAllTapped)
+        loadAllButton.toolTip = "Re-run the statement through a server cursor and replace the result with one consistent snapshot of every row."
 
         loadMoreSpinner.style = .spinning
         loadMoreSpinner.controlSize = .small
-        loadMoreSpinner.translatesAutoresizingMaskIntoConstraints = false
         loadMoreSpinner.isHidden = true
 
-        loadMoreBar.addSubview(loadMoreButton)
-        loadMoreBar.addSubview(loadMoreSpinner)
+        // One centred row: Load More · Load All · spinner.
+        let row = NSStackView(views: [loadMoreButton, loadAllButton, loadMoreSpinner])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+        row.translatesAutoresizingMaskIntoConstraints = false
+        loadMoreBar.addSubview(row)
 
         NSLayoutConstraint.activate([
-            loadMoreButton.centerXAnchor.constraint(equalTo: loadMoreBar.centerXAnchor),
-            loadMoreButton.centerYAnchor.constraint(equalTo: loadMoreBar.centerYAnchor),
-
-            loadMoreSpinner.leadingAnchor.constraint(equalTo: loadMoreButton.trailingAnchor, constant: 8),
-            loadMoreSpinner.centerYAnchor.constraint(equalTo: loadMoreBar.centerYAnchor),
+            row.centerXAnchor.constraint(equalTo: loadMoreBar.centerXAnchor),
+            row.centerYAnchor.constraint(equalTo: loadMoreBar.centerYAnchor),
         ])
     }
 }

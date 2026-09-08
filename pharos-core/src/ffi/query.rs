@@ -216,6 +216,38 @@ pub extern "C" fn pharos_fetch_more_rows(
     });
 }
 
+/// Re-run a statement through a cursor in one transaction and return every
+/// row up to `max_rows` as one consistent snapshot. Registered under
+/// `query_id` for cancellation. Returns JSON QueryResult via callback.
+#[no_mangle]
+pub extern "C" fn pharos_fetch_all_rows(
+    connection_id: *const c_char,
+    sql: *const c_char,
+    query_id: *const c_char,
+    max_rows: i64,
+    schema: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let sql_str = unsafe { c_str_to_string(sql) };
+    let qid = unsafe { c_str_to_string(query_id) };
+    let schema_str = unsafe { c_str_to_option(schema) };
+
+    let ctx = context as usize;
+    ffi_spawn!(callback, context, async move {
+
+        match crate::commands::fetch_all_rows_snapshot(conn_id, sql_str, qid, max_rows, schema_str, state).await {
+            Ok(result) => {
+                let json = serde_json::to_string(&result).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Cancel a running query. Returns immediately (synchronous).
 #[no_mangle]
 pub extern "C" fn pharos_cancel_query(

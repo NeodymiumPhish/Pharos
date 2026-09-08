@@ -303,9 +303,12 @@ class ContentViewController: NSViewController {
             emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        // Wire up load more
+        // Wire up load more / load all
         resultsVC.onLoadMore = { [weak self] in
             self?.loadMoreRows()
+        }
+        resultsVC.onLoadAll = { [weak self] in
+            self?.loadAllRowsSnapshot()
         }
 
         // Wire up pin toggle
@@ -3433,55 +3436,121 @@ extension ContentViewController {
         }
     }
 
-    /// Loop the existing fetch-more FFI path (mirrors `loadMoreRows`), appending
-    /// rows into the active result tab's in-memory `queryResult` until `hasMore`
-    /// is false or the cap is reached. Does NOT write back to the workspace/history
-    /// blob — this is an in-memory expansion for charting only.
+    /// Replace the active result tab's in-memory `queryResult` with one
+    /// consistent snapshot of every row (up to `cap`), through the server
+    /// cursor path. Does NOT write back to the workspace/history blob — this
+    /// is an in-memory expansion for charting only. It used to loop the
+    /// OFFSET pager, which can repeat or skip rows between pages without an
+    /// ORDER BY; a chart over such rows was quietly wrong.
     private func fetchAllRemaining(upTo cap: Int, completion: @escaping () -> Void) {
-        guard let editorTab = stateManager.activeTab,
-              let connectionId = editorTab.connectionId,
-              stateManager.status(for: connectionId) == .connected,
-              let id = activeResultTabId,
+        guard let id = activeResultTabId,
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               let current = resultTabs[idx].queryResult, current.hasMore else {
             completion(); return
         }
-        let sql = resultTabs[idx].sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        runSnapshotLoad(forResultTab: id, cap: cap, showInGrid: false) { _ in completion() }
+    }
+
+    /// Rows a "Load All Rows" snapshot will take before it stops and says the
+    /// result is larger. A hard ceiling on client memory, not a page size.
+    private static let snapshotRowCap = 500_000
+
+    /// "Load All Rows": the explicit alternative to paging by OFFSET. Re-runs
+    /// the displayed result's statement through a server cursor in one
+    /// transaction and replaces the result with a consistent snapshot.
+    private func loadAllRowsSnapshot() {
+        guard stateManager.pinnedResult == nil,
+              let id = activeResultTabId,
+              let idx = resultTabs.firstIndex(where: { $0.id == id }),
+              resultTabs[idx].queryResult?.hasMore == true else { return }
+        runSnapshotLoad(forResultTab: id, cap: Self.snapshotRowCap, showInGrid: true) { [weak self] capped in
+            guard let self, capped else { return }
+            Toast.show(
+                in: self.view,
+                message: "Loaded the first \(ResultsGridVC.rowCountFormatter.string(from: NSNumber(value: Self.snapshotRowCap)) ?? "\(Self.snapshotRowCap)") rows as one snapshot. The result is larger.",
+                style: .warning, duration: 4.0)
+        }
+    }
+
+    /// Shared body of "Load All Rows" and the chart's load-all. Registers a
+    /// running query on the editor tab so the pulse, the running-queries
+    /// popover and Cancel (⌘.) all see it, then replaces the result tab's
+    /// rows with the snapshot. `completion` receives whether the cap cut the
+    /// snapshot short.
+    private func runSnapshotLoad(forResultTab rtId: String, cap: Int, showInGrid: Bool,
+                                 completion: @escaping (Bool) -> Void) {
+        guard let editorTabId = resultStore.editorTabId(forResultTab: rtId),
+              let editorTab = stateManager.tabs.first(where: { $0.id == editorTabId }),
+              let connectionId = editorTab.connectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let rt = resultStore.tab(withId: rtId),
+              let current = rt.queryResult else {
+            completion(false); return
+        }
+        let sql = rt.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         let schema = editorTab.schemaName
-        let limit = Int64(stateManager.settings.query.defaultLimit)
-        let rtId = id
+        let queryId = UUID().uuidString
+
+        // A distinct normalized key: this must not be deduplicated against a
+        // normal run of the same statement, nor block one.
+        let running = RunningQuery(
+            id: queryId,
+            normalizedSQL: "snapshot:" + Self.normalizeSQL(sql),
+            segmentIndex: rt.segmentIndex,
+            lineRange: rt.lineRange,
+            startTime: CACurrentMediaTime()
+        )
+        stateManager.updateTab(id: editorTabId) { $0.runningQueries.append(running) }
+        if showInGrid { resultsVC.setLoadingMore(true) }
 
         Task {
-            var accumulated = current
+            let outcome: Result<QueryResult, Error>
             do {
-                while accumulated.hasMore && accumulated.rows.count < cap {
-                    let offset = Int64(accumulated.rows.count)
-                    let more = try await PharosCore.fetchMoreRows(
-                        connectionId: connectionId, sql: sql, limit: limit, offset: offset, schema: schema
-                    )
-                    // Mirror loadMoreRows' merge, keeping columns/exec time/history id.
-                    accumulated = QueryResult(
-                        columns: accumulated.columns,
-                        rows: accumulated.rows + more.rows,
-                        rowCount: accumulated.rows.count + more.rows.count,
-                        executionTimeMs: accumulated.executionTimeMs,
-                        hasMore: more.hasMore,
-                        historyEntryId: accumulated.historyEntryId,
-                        // Same rule as loadMoreRows: concatenate, never replace.
-                        rowIdentity: accumulated.rowIdentity?.appendingPage(
-                            more.rowIdentity, pageRowCount: more.rows.count)
-                    )
-                    if more.rows.isEmpty { break }   // guard against a no-progress loop
-                }
+                outcome = .success(try await PharosCore.fetchAllRows(
+                    connectionId: connectionId, sql: sql, queryId: queryId,
+                    maxRows: Int64(cap), schema: schema))
             } catch {
-                NSLog("Chart load-all failed: \(error)")
+                outcome = .failure(error)
             }
-            let finalResult = accumulated
             await MainActor.run {
-                if let i = self.resultTabs.firstIndex(where: { $0.id == rtId }) {
-                    self.resultTabs[i].queryResult = finalResult
+                self.stateManager.updateTab(id: editorTabId) { $0.runningQueries.removeAll { $0.id == queryId } }
+                let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
+                let stillDisplaying = self.stateManager.pinnedResult == nil && self.activeResultTabId == rtId
+                if stillDisplaying { self.resultsVC.setLoadingMore(false) }
+
+                switch outcome {
+                case .failure(let error):
+                    if !wasCancelled {
+                        Toast.show(in: self.view, message: "Load All failed: \(error.localizedDescription)",
+                                   style: .error, duration: 4.0)
+                    }
+                    completion(false)
+                case .success(let snapshot):
+                    // The snapshot replaces the rows wholesale — it is one
+                    // execution, and the first page came from another. Keep
+                    // the original timing and history id: the result tab is
+                    // the same result, now complete.
+                    let replaced = QueryResult(
+                        columns: snapshot.columns.isEmpty ? current.columns : snapshot.columns,
+                        rows: snapshot.rows,
+                        rowCount: snapshot.rows.count,
+                        executionTimeMs: current.executionTimeMs,
+                        hasMore: snapshot.hasMore,
+                        historyEntryId: current.historyEntryId,
+                        rowIdentity: snapshot.rowIdentity ?? current.rowIdentity
+                    )
+                    self.resultStore.mutateTab(id: rtId) {
+                        $0.queryResult = replaced
+                        if !snapshot.hasMore { $0.totalRowCountHint = snapshot.rows.count }
+                    }
+                    if showInGrid && stillDisplaying {
+                        // Keep the user's widths, sort and filters across the swap.
+                        let gridState = self.resultsVC.captureGridState()
+                        self.resultsVC.showResult(replaced)
+                        if let gridState { self.resultsVC.restoreGridState(gridState) }
+                    }
+                    completion(snapshot.hasMore)
                 }
-                completion()
             }
         }
     }

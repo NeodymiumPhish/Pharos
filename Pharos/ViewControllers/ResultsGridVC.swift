@@ -100,6 +100,10 @@ class ResultsGridVC: NSViewController {
     // Load more
     let loadMoreBar = NSView()
     let loadMoreButton = NSButton(title: "Load More Rows", target: nil, action: nil)
+    /// Re-runs the statement through a server cursor and replaces the result
+    /// with one consistent snapshot — the explicit, paid-for alternative to
+    /// paging by OFFSET when the order between pages is not guaranteed.
+    let loadAllButton = NSButton(title: "Load All Rows", target: nil, action: nil)
     let loadMoreSpinner = NSProgressIndicator()
     private var isLoadingMore = false
 
@@ -109,6 +113,7 @@ class ResultsGridVC: NSViewController {
 
     // Callbacks
     var onLoadMore: (() -> Void)?
+    var onLoadAll: (() -> Void)?
     var onPinToggle: ((Bool) -> Void)?
     var onSelectionChanged: ((IndexSet) -> Void)?
 
@@ -557,6 +562,7 @@ class ResultsGridVC: NSViewController {
     func setLoadingMore(_ loading: Bool) {
         isLoadingMore = loading
         loadMoreButton.isEnabled = !loading
+        loadAllButton.isEnabled = !loading
         loadMoreSpinner.isHidden = !loading
         if loading {
             loadMoreSpinner.startAnimation(nil)
@@ -751,6 +757,10 @@ class ResultsGridVC: NSViewController {
 
     @objc func loadMoreTapped() {
         onLoadMore?()
+    }
+
+    @objc func loadAllTapped() {
+        onLoadAll?()
     }
 
     // MARK: - Escape to Deselect

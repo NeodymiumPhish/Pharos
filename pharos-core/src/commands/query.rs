@@ -540,6 +540,193 @@ pub async fn fetch_more_rows(
     })
 }
 
+/// Rows per FETCH in `fetch_all_rows_snapshot`. Bounds one round trip and
+/// gives the cancel flag a place to be checked.
+const SNAPSHOT_FETCH_CHUNK: i64 = 5_000;
+
+/// Re-run a statement inside ONE transaction on ONE connection, read it
+/// through a cursor from start to end, and return every row up to `max_rows`
+/// as a single consistent snapshot.
+///
+/// `fetch_more_rows` re-executes the statement per page wrapped in
+/// LIMIT/OFFSET. Without an outermost ORDER BY, PostgreSQL does not promise
+/// the same order for two executions, so pages can repeat or skip rows. A
+/// cursor reads one execution, so the rows line up.
+///
+/// It is a plain cursor, not WITH HOLD, on purpose. WITH HOLD materialises
+/// the whole result on the server at commit — the load paging exists to
+/// avoid — and is only needed when a cursor must outlive its transaction.
+/// This transaction lasts exactly as long as the load, so the snapshot and
+/// any locks it holds are released the moment the rows are in hand.
+///
+/// `has_more` is true when the statement has more rows than `max_rows`; the
+/// caller then shows the first `max_rows` and says so. Cancel works as for
+/// `execute_query`: the query is registered under `query_id`, and a
+/// `pg_cancel_backend` aborts the running FETCH, which rolls back.
+pub async fn fetch_all_rows_snapshot(
+    connection_id: String,
+    sql: String,
+    query_id: String,
+    max_rows: i64,
+    schema: Option<String>,
+    state: &AppState,
+) -> Result<QueryResult, String> {
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let start = Instant::now();
+    let max_rows = max_rows.max(1);
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    // Backend PID for cancellation, as in execute_query. A server without
+    // pg_backend_pid() cannot run a cursor either, so a failure here is an
+    // error rather than a fallback.
+    let backend_pid: i32 = {
+        let mut stream = sqlx::raw_sql("SELECT pg_backend_pid()").fetch(&mut *conn);
+        match stream.next().await {
+            Some(Ok(row)) => row.try_get::<i32, _>(0).unwrap_or(0),
+            Some(Err(e)) => return Err(format_db_error(&e)),
+            None => return Err("Could not determine the backend PID".to_string()),
+        }
+    };
+    let cancelled = state.register_query(query_id.clone(), backend_pid);
+
+    // The per-statement timeout applies to the DECLARE and to each FETCH.
+    let _ = apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await;
+    if let Some(ref schema_name) = schema {
+        let _ = set_search_path(&mut conn, schema_name).await;
+    }
+
+    // One name per query id: two snapshots on the pool never share a
+    // connection, but a distinct name keeps a stray CLOSE from being ambiguous.
+    let cursor = format!(
+        "_pharos_snapshot_{}",
+        query_id.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>()
+    );
+    let statement = sql.trim().trim_end_matches(';').trim();
+
+    // Every failure path below rolls back, resets the timeout and unregisters.
+    // A macro, not a nested async fn: a helper borrowing `conn` and `state`
+    // gives the spawned future a lifetime the `Executor`/`Send` bounds on
+    // `ffi_spawn!` cannot prove ("implementation is not general enough").
+    macro_rules! abort {
+        () => {{
+            let _ = (&mut *conn).execute(sqlx::raw_sql("ROLLBACK")).await;
+            reset_statement_timeout(&mut conn).await;
+            state.unregister_query(&query_id);
+        }};
+    }
+
+    let open = format!("BEGIN; DECLARE {} NO SCROLL CURSOR FOR {}", cursor, statement);
+    if let Err(e) = (&mut *conn).execute(sqlx::raw_sql(&open)).await {
+        abort!();
+        return Err(format_db_error(&e));
+    }
+
+    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::new();
+    let mut has_more = false;
+    loop {
+        if cancelled.load(Ordering::SeqCst) {
+            abort!();
+            return Err("Query was cancelled".to_string());
+        }
+        // Ask for one row past the cap so `has_more` is known without a
+        // separate probe.
+        let want = std::cmp::min(SNAPSHOT_FETCH_CHUNK, max_rows - rows.len() as i64 + 1);
+        let fetch = format!("FETCH FORWARD {} FROM {}", want, cursor);
+        let mut stream = sqlx::raw_sql(&fetch).fetch(&mut *conn);
+        let mut got: i64 = 0;
+        let mut fetch_error: Option<String> = None;
+        while let Some(row_result) = stream.next().await {
+            match row_result {
+                Ok(row) => {
+                    got += 1;
+                    rows.push(row);
+                }
+                Err(e) => {
+                    fetch_error = Some(format_db_error(&e));
+                    break;
+                }
+            }
+        }
+        drop(stream);
+        if let Some(err) = fetch_error {
+            let was_cancelled = cancelled.load(Ordering::SeqCst);
+            abort!();
+            return Err(if was_cancelled { "Query was cancelled".to_string() } else { err });
+        }
+        if rows.len() as i64 > max_rows {
+            has_more = true;
+            rows.truncate(max_rows as usize);
+            break;
+        }
+        if got < want {
+            break; // the cursor is exhausted
+        }
+    }
+
+    // Column metadata for an empty result, before the transaction ends.
+    let empty_columns = if rows.is_empty() {
+        match (&mut *conn).describe(statement).await {
+            Ok(desc) => pg_columns_to_defs(desc.columns()),
+            Err(_) => vec![],
+        }
+    } else {
+        vec![]
+    };
+
+    let close = format!("CLOSE {}; COMMIT", cursor);
+    if let Err(e) = (&mut *conn).execute(sqlx::raw_sql(&close)).await {
+        abort!();
+        return Err(format_db_error(&e));
+    }
+    reset_statement_timeout(&mut conn).await;
+    state.unregister_query(&query_id);
+
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+
+    if rows.is_empty() {
+        return Ok(QueryResult {
+            columns: empty_columns,
+            rows: vec![],
+            row_count: 0,
+            execution_time_ms,
+            has_more: false,
+            history_entry_id: None,
+            row_identity: None,
+        });
+    }
+
+    let columns: Vec<ColumnDef> = pg_columns_to_defs(rows[0].columns());
+    let json_rows: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|row| {
+            let values: Vec<serde_json::Value> = columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| extract_value(&row, i, &col.data_type))
+                .collect();
+            serde_json::Value::Array(values)
+        })
+        .collect();
+    let row_count = json_rows.len();
+
+    // Release this connection before the identity block acquires one of its own.
+    drop(conn);
+    let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
+
+    Ok(QueryResult {
+        columns,
+        rows: json_rows,
+        row_count,
+        execution_time_ms,
+        has_more,
+        history_entry_id: None,
+        row_identity,
+    })
+}
+
 /// Execute a statement that doesn't return rows (INSERT, UPDATE, DELETE, etc.)
 pub async fn execute_statement(
     connection_id: String,
@@ -915,7 +1102,7 @@ fn parse_identifier(s: &str) -> Option<(String, &str)> {
 /// Fixture: `scripts/tagtest-schema.sql`.
 #[cfg(test)]
 mod live_query_identity_tests {
-    use super::{execute_query, QueryResult, RowIdentity};
+    use super::{execute_query, QueryResult, RowIdentity, fetch_all_rows_snapshot};
     use crate::commands::row_identity::KeySet;
     use crate::state::AppState;
     use rusqlite::Connection as SqliteConnection;
@@ -1326,5 +1513,79 @@ mod live_query_identity_tests {
             assert_eq!(pk.keys, vec!["V1:2", "V1:3"], "case 10: rows 2 and 3, in order");
         });
     }
-}
 
+    /// The cursor path reads ONE execution: every row, in that execution's
+    /// order, cut at the cap with `has_more` set, and the connection is left
+    /// usable afterwards (the transaction is closed on every path).
+    #[test]
+    #[ignore = "needs a live PostgreSQL (any database; uses generate_series only)"]
+    fn snapshot_reads_one_execution_end_to_end() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                .max_connections(2)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| panic!("cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.", url, e));
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool(CONN.to_string(), pool.clone());
+
+            // 12,000 rows: more than two FETCH chunks, with an ORDER BY so the
+            // expected order is exact.
+            let sql = "SELECT g AS n, md5(g::text) AS h FROM generate_series(1, 12000) g ORDER BY g";
+            let snap = |max_rows: i64, sql: &'static str| {
+                let state = &state;
+                async move {
+                    fetch_all_rows_snapshot(
+                        CONN.to_string(), sql.to_string(), format!("snap-{}", max_rows), max_rows, None, state,
+                    )
+                    .await
+                }
+            };
+
+            // Whole result under the cap.
+            let all = snap(100_000, sql).await.expect("snapshot under cap");
+            assert_eq!(all.rows.len(), 12_000, "every row of one execution");
+            assert!(!all.has_more, "nothing beyond the cap");
+            assert_eq!(all.row_count, 12_000);
+            assert_eq!(all.columns.len(), 2);
+            assert_eq!(all.rows[0][0], serde_json::json!("1"), "first row is the first of the ORDER BY");
+            assert_eq!(all.rows[11_999][0], serde_json::json!("12000"), "last row is the last of the ORDER BY");
+            assert!(all.history_entry_id.is_none(), "a snapshot is not a new history entry");
+
+            // Cap inside the result: exactly the cap, and has_more says so.
+            let capped = snap(5_000, sql).await.expect("snapshot at cap");
+            assert_eq!(capped.rows.len(), 5_000);
+            assert!(capped.has_more, "the cap cut the snapshot short");
+            assert_eq!(capped.rows[4_999][0], serde_json::json!("5000"));
+
+            // Cap exactly at the row count: full result, no has_more.
+            let exact = snap(12_000, sql).await.expect("snapshot at exact count");
+            assert_eq!(exact.rows.len(), 12_000);
+            assert!(!exact.has_more, "a cap equal to the row count is not a cut");
+
+            // Empty result keeps its column metadata.
+            let empty = snap(100, "SELECT 1 AS one WHERE false").await.expect("empty snapshot");
+            assert!(empty.rows.is_empty());
+            assert_eq!(empty.columns.len(), 1, "columns come from describe when there are no rows");
+            assert_eq!(empty.columns[0].name, "one");
+
+            // A failing statement is an error, and the connection is not left
+            // inside an aborted transaction: a normal query on the pool works.
+            let err = snap(100, "SELECT * FROM no_such_table_pharos_snapshot").await;
+            assert!(err.is_err(), "a bad statement errors");
+            assert!(err.unwrap_err().contains("no_such_table_pharos_snapshot"));
+            let after = execute_query(CONN.to_string(), "SELECT 41 + 1 AS x".to_string(), None, None, None, None, &state)
+                .await
+                .expect("the pool is usable after a failed snapshot");
+            assert_eq!(after.rows[0][0], serde_json::json!("42"));
+
+            // Nothing left registered.
+            for id in ["snap-100000", "snap-5000", "snap-12000", "snap-100"] {
+                assert!(state.get_query_backend_pid(id).is_none(), "{} unregistered", id);
+            }
+        });
+    }
+}

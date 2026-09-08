@@ -123,6 +123,20 @@ void pharos_fetch_more_rows(const char *connection_id,
                             void *context);
 
 /**
+ * Re-run a statement through a cursor in one transaction and return every
+ * row up to `max_rows` as one consistent snapshot. Registered under
+ * `query_id` for cancellation. Returns JSON QueryResult via callback.
+ */
+
+void pharos_fetch_all_rows(const char *connection_id,
+                           const char *sql,
+                           const char *query_id,
+                           int64_t max_rows,
+                           const char *schema,
+                           AsyncCallback callback,
+                           void *context);
+
+/**
  * Cancel a running query. Returns immediately (synchronous).
  */
 
