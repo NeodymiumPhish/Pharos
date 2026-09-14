@@ -108,7 +108,7 @@ final class AppStateManager: ObservableObject {
     static let connectionsDidChange = Notification.Name("PharosConnectionsDidChange")
     /// Posted when a connection's status changes. UserInfo has "connectionId" key.
     static let connectionStatusDidChange = Notification.Name("PharosConnectionStatusDidChange")
-    /// Posted just before tabs are removed via close/closeOthers/closeToRight/closePane.
+    /// Posted just before tabs are removed via close/closeOthers/closeToRight.
     /// userInfo carries `queryIds: [String]` — the queryIds whose completion
     /// notifications should be suppressed.
     static let queriesWillBeCancelled = Notification.Name("PharosQueriesWillBeCancelled")
@@ -321,76 +321,6 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    /// Create a new pane with a default tab and focus it.
-    @discardableResult
-    func addPane() -> EditorPane {
-        // Collapse any expanded pane
-        for i in panes.indices {
-            panes[i].isExpanded = false
-        }
-        var pane = EditorPane(id: UUID().uuidString)
-        let tab = QueryTab(name: "Query \(tabs.count + 1)", paneId: pane.id)
-        tabs.append(tab)
-        pane.tabIds = [tab.id]
-        pane.activeTabId = tab.id
-        panes.append(pane)
-        focusedPaneId = pane.id
-        activeTabId = tab.id
-        return pane
-    }
-
-    /// Close a pane and archive its tabs. If it's the last pane, create a new empty one.
-    func closePane(id: String) {
-        guard let paneIdx = panes.firstIndex(where: { $0.id == id }) else { return }
-        let pane = panes[paneIdx]
-
-        // Cancel in-flight queries for all tabs in this pane
-        let closingTabs = tabs.filter { pane.tabIds.contains($0.id) }
-        cancelQueriesBeforeClose(for: closingTabs)
-
-        // Archive tabs from this pane
-        for tabId in pane.tabIds {
-            if let tab = tabs.first(where: { $0.id == tabId }) {
-                closedTabHistory.append(tab)
-            }
-        }
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
-        }
-
-        // Remove the tabs belonging to this pane
-        tabs.removeAll { pane.tabIds.contains($0.id) }
-
-        // Auto-unpin if the pinned tab was in this pane
-        if let pinnedId = pinnedTabId, pane.tabIds.contains(pinnedId) {
-            unpinResults()
-        }
-
-        panes.remove(at: paneIdx)
-
-        if panes.isEmpty {
-            // Always keep at least one pane
-            ensurePaneAndTab()
-        } else {
-            // Focus adjacent pane
-            let newIdx = min(paneIdx, panes.count - 1)
-            focusedPaneId = panes[newIdx].id
-            syncActiveTabId()
-        }
-    }
-
-    /// Toggle a pane's expanded state.
-    func togglePaneExpansion(id: String) {
-        guard let idx = panes.firstIndex(where: { $0.id == id }) else { return }
-        panes[idx].isExpanded.toggle()
-        // If expanding, collapse all others
-        if panes[idx].isExpanded {
-            for i in panes.indices where i != idx {
-                panes[i].isExpanded = false
-            }
-        }
-    }
-
     /// Set the focused pane.
     func focusPane(id: String) {
         guard panes.contains(where: { $0.id == id }) else { return }
@@ -510,20 +440,12 @@ final class AppStateManager: ObservableObject {
             if panes[paneIdx].activeTabId == id {
                 let remainingIds = panes[paneIdx].tabIds
                 if remainingIds.isEmpty {
-                    // If this is the only pane, create a new tab; otherwise close the pane
-                    if panes.count == 1 {
-                        panes[paneIdx].activeTabId = nil
-                        tabs.remove(at: idx)
-                        if pinnedTabId == id { unpinResults() }
-                        // Create a fresh tab in this pane
-                        createTab(inPane: paneId)
-                        return
-                    } else {
-                        tabs.remove(at: idx)
-                        if pinnedTabId == id { unpinResults() }
-                        closePane(id: paneId)
-                        return
-                    }
+                    // Last tab closed: the pane always keeps one fresh tab.
+                    panes[paneIdx].activeTabId = nil
+                    tabs.remove(at: idx)
+                    if pinnedTabId == id { unpinResults() }
+                    createTab(inPane: paneId)
+                    return
                 } else {
                     // Select adjacent tab within the pane
                     let tabIdxInPane = min(panes[paneIdx].tabIds.count - 1,

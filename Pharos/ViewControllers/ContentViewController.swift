@@ -416,9 +416,9 @@ class ContentViewController: NSViewController {
         // rather than hooking each close action, because the close paths are
         // several and not all of them come through this controller:
         // `closeOtherTabs` and `closeTabsToRight` are called straight from
-        // `PaneTabBar`, `closePane` retires every tab of a pane at once, and
-        // `AppStateManager.closeTab` itself can cascade into `closePane`. One
-        // reactive sweep covers all of them, and any future one.
+        // `PaneTabBar`, and `AppStateManager.closeTab` replaces the last tab
+        // with a fresh one. One reactive sweep covers all of them, and any
+        // future one.
         //
         // Deduped on the id set so the sweep does not run on every keystroke
         // (tabs republish on each SQL edit). The sweep reads the live
@@ -597,15 +597,7 @@ class ContentViewController: NSViewController {
         }
         editorPanes = ordered
 
-        // Determine which pane views should be arranged in the split view
-        let expandedPane = panes.first(where: { $0.isExpanded })
-        let visiblePaneVCs: [EditorPaneVC]
-        if let expanded = expandedPane {
-            // Only show the expanded pane
-            visiblePaneVCs = editorPanes.filter { $0.paneId == expanded.id }
-        } else {
-            visiblePaneVCs = editorPanes
-        }
+        let visiblePaneVCs = editorPanes
 
         // Rebuild paneSplitView's arranged subviews to match visiblePaneVCs.
         // Remove subviews that shouldn't be visible, add those that should be.
@@ -2359,7 +2351,7 @@ class ContentViewController: NSViewController {
             }
             stateManager.pinnedResult = displayed
             // The EDITOR tab's id, deliberately: AppStateManager's auto-unpin in
-            // closeTab/closePane matches `pinnedTabId` against editor tab ids.
+            // closeTab matches `pinnedTabId` against editor tab ids.
             stateManager.pinnedTabId = tab.id
             stateManager.pinnedTabName = tab.name
             resultsVC.setPinState(pinned: true, tabName: tab.name)
@@ -2579,18 +2571,6 @@ class ContentViewController: NSViewController {
 // MARK: - EditorPaneDelegate
 
 extension ContentViewController: EditorPaneDelegate {
-
-    func editorPane(_ pane: EditorPaneVC, didRequestClosePane paneId: String) {
-        stateManager.closePane(id: paneId)
-    }
-
-    func editorPane(_ pane: EditorPaneVC, didRequestExpandPane paneId: String) {
-        stateManager.togglePaneExpansion(id: paneId)
-    }
-
-    func editorPane(_ pane: EditorPaneVC, didRequestAddPane paneId: String) {
-        stateManager.addPane()
-    }
 
     func editorPane(_ pane: EditorPaneVC, didFocus paneId: String) {
         // Pane focus is handled by state manager; results update via activeTabId

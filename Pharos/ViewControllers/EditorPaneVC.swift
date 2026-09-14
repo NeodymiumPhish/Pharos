@@ -3,9 +3,6 @@ import Combine
 
 /// Delegate for EditorPaneVC events that need to be handled by the parent.
 protocol EditorPaneDelegate: AnyObject {
-    func editorPane(_ pane: EditorPaneVC, didRequestClosePane paneId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestExpandPane paneId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestAddPane paneId: String)
     func editorPane(_ pane: EditorPaneVC, didFocus paneId: String)
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
@@ -174,18 +171,6 @@ class EditorPaneVC: NSViewController {
             guard let self else { return }
             self.stateManager.createTab(inPane: self.paneId)
         }
-        paneTabBar.onAddPane = { [weak self] in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestAddPane: self.paneId)
-        }
-        paneTabBar.onClosePane = { [weak self] in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestClosePane: self.paneId)
-        }
-        paneTabBar.onExpandPane = { [weak self] in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestExpandPane: self.paneId)
-        }
         paneTabBar.onDoubleClickTab = { [weak self] tabId in
             guard let self else { return }
             self.delegate?.editorPane(self, didRequestRenameTab: tabId)
@@ -334,14 +319,6 @@ class EditorPaneVC: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Observe focused pane changes
-        stateManager.focusedPaneIdSettled
-            .sink { [weak self] focusedId in
-                guard let self else { return }
-                self.paneTabBar.setFocused(focusedId == self.paneId)
-            }
-            .store(in: &cancellables)
-
         // Push schema metadata to editor
         Publishers.CombineLatest3(
             metadataCache.$schemas,
@@ -446,14 +423,7 @@ class EditorPaneVC: NSViewController {
         guard let pane = panes.first(where: { $0.id == paneId }) else { return }
 
         let paneTabs = stateManager.tabs(forPane: paneId)
-        let canClose = panes.count > 1
-
-        paneTabBar.update(
-            tabs: paneTabs,
-            activeTabId: pane.activeTabId,
-            isExpanded: pane.isExpanded,
-            canClose: canClose
-        )
+        paneTabBar.update(tabs: paneTabs, activeTabId: pane.activeTabId)
 
         // Detect active tab change
         if pane.activeTabId != lastActiveTabId {
@@ -487,14 +457,7 @@ class EditorPaneVC: NSViewController {
     private func refreshTabBar() {
         guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
         let paneTabs = stateManager.tabs(forPane: paneId)
-        let canClose = stateManager.panes.count > 1
-
-        paneTabBar.update(
-            tabs: paneTabs,
-            activeTabId: pane.activeTabId,
-            isExpanded: pane.isExpanded,
-            canClose: canClose
-        )
+        paneTabBar.update(tabs: paneTabs, activeTabId: pane.activeTabId)
     }
 
     // MARK: - Tab Switching

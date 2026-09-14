@@ -6,7 +6,6 @@ struct EditorPane: Identifiable {
     let id: String
     var tabIds: [String]          // Ordered tab IDs in this pane
     var activeTabId: String?      // Currently selected tab within this pane
-    var isExpanded: Bool = false   // When true, fills the entire editor area
 
     init(id: String = UUID().uuidString, tabIds: [String] = [], activeTabId: String? = nil) {
         self.id = id

@@ -3,7 +3,7 @@ import Combine
 
 /// Tab bar for a single editor pane using a native NSSegmentedControl with capsule style.
 ///
-/// Layout: [X close] [↗ expand] [  ‹SegmentedControl›  ] [+ add]
+/// Layout: [  ‹SegmentedControl›  ] [+ add]
 class PaneTabBar: NSView {
 
     // MARK: - Callbacks
@@ -11,9 +11,6 @@ class PaneTabBar: NSView {
     var onSelectTab: ((String) -> Void)?
     var onCloseTab: ((String) -> Void)?
     var onNewTab: (() -> Void)?
-    var onAddPane: (() -> Void)?
-    var onClosePane: (() -> Void)?
-    var onExpandPane: (() -> Void)?
     var onDoubleClickTab: ((String) -> Void)?
     var onReorderTabs: (([String]) -> Void)?
 
@@ -22,14 +19,9 @@ class PaneTabBar: NSView {
     let paneId: String
     private var tabs: [QueryTab] = []
     private var activeTabId: String?
-    private var isExpanded: Bool = false
-    private var canClose: Bool = true
-    private var isFocused: Bool = false
 
     // MARK: - UI Elements
 
-    private let closePaneButton = NSButton()
-    private let expandPaneButton = NSButton()
     private let addButton = NSButton()
     private let segmentedControl = NSSegmentedControl()
 
@@ -45,7 +37,6 @@ class PaneTabBar: NSView {
     private var hoveredSegmentIndex: Int = -1
 
     // Layout constants
-    private let paneButtonWidth: CGFloat = 30
     private let addButtonWidth: CGFloat = 30
     private let barHeight: CGFloat = 32
     private let segmentInsetH: CGFloat = 4
@@ -66,37 +57,16 @@ class PaneTabBar: NSView {
     private func setup() {
         wantsLayer = true
 
-        // Close pane button (X)
-        let closeConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-        closePaneButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Pane")?.withSymbolConfiguration(closeConfig)
-        closePaneButton.bezelStyle = .recessed
-        closePaneButton.isBordered = false
-        closePaneButton.imageScaling = .scaleNone
-        closePaneButton.contentTintColor = .secondaryLabelColor
-        closePaneButton.target = self
-        closePaneButton.action = #selector(closePaneTapped)
-        addSubview(closePaneButton)
-
-        // Expand pane button (↗)
-        let expandConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-        expandPaneButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Expand Pane")?.withSymbolConfiguration(expandConfig)
-        expandPaneButton.bezelStyle = .recessed
-        expandPaneButton.isBordered = false
-        expandPaneButton.imageScaling = .scaleNone
-        expandPaneButton.contentTintColor = .secondaryLabelColor
-        expandPaneButton.target = self
-        expandPaneButton.action = #selector(expandPaneTapped)
-        addSubview(expandPaneButton)
-
-        // Add button (+)
+        // Add button (+): one click adds a tab.
         let addConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add")?.withSymbolConfiguration(addConfig)
+        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")?.withSymbolConfiguration(addConfig)
+        addButton.toolTip = "New Tab"
         addButton.bezelStyle = .recessed
         addButton.isBordered = false
         addButton.imageScaling = .scaleNone
         addButton.contentTintColor = .secondaryLabelColor
         addButton.target = self
-        addButton.action = #selector(addButtonClicked(_:))
+        addButton.action = #selector(addTabTapped)
         addSubview(addButton)
 
         // Segmented control
@@ -114,32 +84,10 @@ class PaneTabBar: NSView {
 
     // MARK: - Public API
 
-    func update(tabs: [QueryTab], activeTabId: String?, isExpanded: Bool, canClose: Bool) {
+    func update(tabs: [QueryTab], activeTabId: String?) {
         self.tabs = tabs
         self.activeTabId = activeTabId
-        self.isExpanded = isExpanded
-        self.canClose = canClose
-
-        // Update expand button appearance
-        if isExpanded {
-            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-            expandPaneButton.image = NSImage(systemSymbolName: "arrow.down.right.and.arrow.up.left", accessibilityDescription: "Collapse Pane")?.withSymbolConfiguration(config)
-            expandPaneButton.contentTintColor = .controlAccentColor
-        } else {
-            let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-            expandPaneButton.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: "Expand Pane")?.withSymbolConfiguration(config)
-            expandPaneButton.contentTintColor = .secondaryLabelColor
-        }
-
-        closePaneButton.isHidden = !canClose
-        expandPaneButton.isHidden = !canClose
-
         rebuildSegments()
-    }
-
-    func setFocused(_ focused: Bool) {
-        isFocused = focused
-        needsDisplay = true
     }
 
     // MARK: - Layout
@@ -159,26 +107,12 @@ class PaneTabBar: NSView {
     }
 
     private func layoutSubviews() {
-        var x: CGFloat = 0
-
-        // Close pane button
-        if canClose {
-            closePaneButton.frame = NSRect(x: x, y: 0, width: paneButtonWidth, height: barHeight)
-            x += paneButtonWidth
-        }
-
-        // Expand button (hidden in single-pane mode)
-        if canClose {
-            expandPaneButton.frame = NSRect(x: x, y: 0, width: paneButtonWidth, height: barHeight)
-            x += paneButtonWidth
-        }
-
         // Add button at trailing edge
         addButton.frame = NSRect(x: bounds.width - addButtonWidth, y: 0, width: addButtonWidth, height: barHeight)
 
-        // Segmented control fills between pane buttons and add button
-        let segX = x + segmentInsetH
-        let segWidth = bounds.width - x - addButtonWidth - segmentInsetH * 2
+        // Segmented control fills up to the add button
+        let segX = segmentInsetH
+        let segWidth = bounds.width - addButtonWidth - segmentInsetH * 2
         segmentedControl.frame = NSRect(
             x: segX,
             y: segmentInsetV,
@@ -378,37 +312,8 @@ class PaneTabBar: NSView {
 
     // MARK: - Button Actions
 
-    @objc private func closePaneTapped() {
-        onClosePane?()
-    }
-
-    @objc private func expandPaneTapped() {
-        onExpandPane?()
-    }
-
-    @objc private func addButtonClicked(_ sender: NSButton) {
-        let menu = NSMenu()
-
-        let tabItem = NSMenuItem(title: "Tab", action: #selector(menuNewTab), keyEquivalent: "")
-        tabItem.target = self
-        tabItem.image = NSImage(systemSymbolName: "plus.square", accessibilityDescription: nil)
-        menu.addItem(tabItem)
-
-        let splitItem = NSMenuItem(title: "Editor Pane on Right", action: #selector(menuAddPane), keyEquivalent: "")
-        splitItem.target = self
-        splitItem.image = NSImage(systemSymbolName: "square.split.2x1", accessibilityDescription: nil)
-        menu.addItem(splitItem)
-
-        let location = NSPoint(x: 0, y: sender.bounds.maxY + 2)
-        menu.popUp(positioning: nil, at: location, in: sender)
-    }
-
-    @objc private func menuNewTab() {
+    @objc private func addTabTapped() {
         onNewTab?()
-    }
-
-    @objc private func menuAddPane() {
-        onAddPane?()
     }
 
     // MARK: - Right-Click Context Menu
@@ -524,12 +429,6 @@ class PaneTabBar: NSView {
         borderPath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
         borderPath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
         borderPath.stroke()
-
-        // Focused indicator: thin accent color top line
-        if isFocused {
-            NSColor.controlAccentColor.setFill()
-            NSRect(x: 0, y: 0, width: bounds.width, height: 1.5).fill()
-        }
     }
 }
 
