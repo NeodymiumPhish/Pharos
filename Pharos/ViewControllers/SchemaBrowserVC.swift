@@ -2,7 +2,6 @@ import AppKit
 import Combine
 
 extension Notification.Name {
-    static let runQueryInNewTab = Notification.Name("PharosRunQueryInNewTab")
     static let runQueryInCurrentTab = Notification.Name("PharosRunQueryInCurrentTab")
     static let insertTextInEditor = Notification.Name("PharosInsertTextInEditor")
     static let connectionMetadataRefreshRequested = Notification.Name("PharosConnectionMetadataRefreshRequested")

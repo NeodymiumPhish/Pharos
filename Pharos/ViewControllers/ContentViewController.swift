@@ -507,12 +507,6 @@ class ContentViewController: NSViewController {
             name: .showSQLInInspector, object: nil
         )
 
-        // Observe "run query in new tab" from schema browser context menu
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(handleRunQueryInNewTab(_:)),
-            name: .runQueryInNewTab, object: nil
-        )
-
         // Observe "run query in current tab" — execute silently, results in named result tab
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRunQueryInCurrentTab(_:)),
@@ -3675,16 +3669,6 @@ extension ContentViewController {
 // MARK: - Run Query / Insert Text (from schema browser context menu)
 
 extension ContentViewController {
-
-    @objc private func handleRunQueryInNewTab(_ notification: Notification) {
-        guard let sql = notification.userInfo?["sql"] as? String else { return }
-        let tab = stateManager.createTab(sql: sql, name: "Query")
-        // The new tab is active and its pane has loaded the text: delivery is
-        // synchronous, so no turn has to pass first.
-        if stateManager.activeTabId == tab.id {
-            executeQuery(sql)
-        }
-    }
 
     @objc private func handleRunQueryInCurrentTab(_ notification: Notification) {
         guard let sql = notification.userInfo?["sql"] as? String,
