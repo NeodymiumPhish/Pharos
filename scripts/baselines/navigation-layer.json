@@ -1,6 +1,6 @@
 {
-  "app": "build/hig-phase0/Build/Products/Debug/Pharos.app",
-  "captured_at": "2026-09-14T20:17:26+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.7Nvxip/Pharos.app",
+  "captured_at": "2026-09-14T20:40:57+00:00",
   "tree": {
     "children": [
       {
@@ -13,9 +13,9 @@
                     "description": "Queries",
                     "frame": {
                       "h": 24,
-                      "w": 98,
-                      "x": 9,
-                      "y": 90
+                      "w": 63,
+                      "x": 1968,
+                      "y": 228
                     },
                     "role": "AXRadioButton",
                     "subrole": "AXSegment",
@@ -25,9 +25,9 @@
                     "description": "History",
                     "frame": {
                       "h": 24,
-                      "w": 94,
-                      "x": 108,
-                      "y": 90
+                      "w": 60,
+                      "x": 2032,
+                      "y": 228
                     },
                     "role": "AXRadioButton",
                     "subrole": "AXSegment",
@@ -37,9 +37,9 @@
                     "description": "Database",
                     "frame": {
                       "h": 24,
-                      "w": 94,
-                      "x": 203,
-                      "y": 90
+                      "w": 59,
+                      "x": 2093,
+                      "y": 228
                     },
                     "role": "AXRadioButton",
                     "subrole": "AXSegment",
@@ -48,9 +48,9 @@
                 ],
                 "frame": {
                   "h": 26,
-                  "w": 290,
-                  "x": 8,
-                  "y": 89
+                  "w": 186,
+                  "x": 1967,
+                  "y": 227
                 },
                 "role": "AXRadioGroup"
               },
@@ -61,8 +61,8 @@
                     "frame": {
                       "h": 9,
                       "w": 15,
-                      "x": 19,
-                      "y": 130
+                      "x": 1978,
+                      "y": 268
                     },
                     "role": "AXButton",
                     "title": ""
@@ -70,9 +70,9 @@
                 ],
                 "frame": {
                   "h": 26,
-                  "w": 282,
-                  "x": 12,
-                  "y": 121
+                  "w": 178,
+                  "x": 1971,
+                  "y": 259
                 },
                 "role": "AXTextField",
                 "subrole": "AXSearchField",
@@ -90,8 +90,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 62,
-                                  "x": 47,
-                                  "y": 167
+                                  "x": 2006,
+                                  "y": 305
                                 },
                                 "role": "AXStaticText",
                                 "value": "Honeypot"
@@ -99,18 +99,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 164
+                              "w": 214,
+                              "x": 1960,
+                              "y": 302
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 164
+                          "w": 214,
+                          "x": 1960,
+                          "y": 302
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -123,8 +123,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 75,
-                                  "x": 61,
-                                  "y": 191
+                                  "x": 2020,
+                                  "y": 329
                                 },
                                 "role": "AXStaticText",
                                 "value": "DLink - July"
@@ -132,18 +132,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 188
+                              "w": 214,
+                              "x": 1960,
+                              "y": 326
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 188
+                          "w": 214,
+                          "x": 1960,
+                          "y": 326
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -156,8 +156,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 86,
-                                  "x": 61,
-                                  "y": 215
+                                  "x": 2020,
+                                  "y": 353
                                 },
                                 "role": "AXStaticText",
                                 "value": "DrayTek Coda"
@@ -165,18 +165,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 212
+                              "w": 214,
+                              "x": 1960,
+                              "y": 350
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 212
+                          "w": 214,
+                          "x": 1960,
+                          "y": 350
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -189,8 +189,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 78,
-                                  "x": 61,
-                                  "y": 239
+                                  "x": 2020,
+                                  "y": 377
                                 },
                                 "role": "AXStaticText",
                                 "value": "Ruckus_cert"
@@ -198,18 +198,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 236
+                              "w": 214,
+                              "x": 1960,
+                              "y": 374
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 236
+                          "w": 214,
+                          "x": 1960,
+                          "y": 374
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -222,8 +222,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 58,
-                                  "x": 47,
-                                  "y": 263
+                                  "x": 2006,
+                                  "y": 401
                                 },
                                 "role": "AXStaticText",
                                 "value": "Template"
@@ -231,18 +231,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 260
+                              "w": 214,
+                              "x": 1960,
+                              "y": 398
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 260
+                          "w": 214,
+                          "x": 1960,
+                          "y": 398
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -254,9 +254,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 188,
-                                  "x": 61,
-                                  "y": 287
+                                  "w": 135,
+                                  "x": 2020,
+                                  "y": 425
                                 },
                                 "role": "AXStaticText",
                                 "value": "Open Ports - Peers from Flows"
@@ -264,18 +264,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 284
+                              "w": 214,
+                              "x": 1960,
+                              "y": 422
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 284
+                          "w": 214,
+                          "x": 1960,
+                          "y": 422
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -287,9 +287,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 160,
-                                  "x": 61,
-                                  "y": 311
+                                  "w": 135,
+                                  "x": 2020,
+                                  "y": 449
                                 },
                                 "role": "AXStaticText",
                                 "value": "Seed Details - Flowsplode"
@@ -297,18 +297,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 308
+                              "w": 214,
+                              "x": 1960,
+                              "y": 446
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 308
+                          "w": 214,
+                          "x": 1960,
+                          "y": 446
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -320,9 +320,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 239,
-                                  "x": 61,
-                                  "y": 335
+                                  "w": 135,
+                                  "x": 2020,
+                                  "y": 473
                                 },
                                 "role": "AXStaticText",
                                 "value": "selector_peer_flows - sessions_by_peer"
@@ -330,18 +330,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 332
+                              "w": 214,
+                              "x": 1960,
+                              "y": 470
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 332
+                          "w": 214,
+                          "x": 1960,
+                          "y": 470
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -354,8 +354,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 28,
-                                  "x": 47,
-                                  "y": 359
+                                  "x": 2006,
+                                  "y": 497
                                 },
                                 "role": "AXStaticText",
                                 "value": "Test"
@@ -363,18 +363,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 356
+                              "w": 214,
+                              "x": 1960,
+                              "y": 494
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 356
+                          "w": 214,
+                          "x": 1960,
+                          "y": 494
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -387,8 +387,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 105,
-                                  "x": 61,
-                                  "y": 383
+                                  "x": 2020,
+                                  "y": 521
                                 },
                                 "role": "AXStaticText",
                                 "value": "Test ip_summary"
@@ -396,18 +396,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 380
+                              "w": 214,
+                              "x": 1960,
+                              "y": 518
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 380
+                          "w": 214,
+                          "x": 1960,
+                          "y": 518
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -420,8 +420,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 128,
-                                  "x": 61,
-                                  "y": 407
+                                  "x": 2020,
+                                  "y": 545
                                 },
                                 "role": "AXStaticText",
                                 "value": "open_ports_raw - all"
@@ -429,18 +429,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 404
+                              "w": 214,
+                              "x": 1960,
+                              "y": 542
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 404
+                          "w": 214,
+                          "x": 1960,
+                          "y": 542
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -453,8 +453,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 112,
-                                  "x": 61,
-                                  "y": 431
+                                  "x": 2020,
+                                  "y": 569
                                 },
                                 "role": "AXStaticText",
                                 "value": "tcp_udp_sessions"
@@ -462,18 +462,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 428
+                              "w": 214,
+                              "x": 1960,
+                              "y": 566
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 428
+                          "w": 214,
+                          "x": 1960,
+                          "y": 566
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -486,8 +486,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 87,
-                                  "x": 47,
-                                  "y": 455
+                                  "x": 2006,
+                                  "y": 593
                                 },
                                 "role": "AXStaticText",
                                 "value": "exfil_sessions"
@@ -495,18 +495,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 452
+                              "w": 214,
+                              "x": 1960,
+                              "y": 590
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 452
+                          "w": 214,
+                          "x": 1960,
+                          "y": 590
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -518,9 +518,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 167,
-                                  "x": 47,
-                                  "y": 479
+                                  "w": 149,
+                                  "x": 2006,
+                                  "y": 617
                                 },
                                 "role": "AXStaticText",
                                 "value": "Flowsplode Queries (T603)"
@@ -528,18 +528,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 476
+                              "w": 214,
+                              "x": 1960,
+                              "y": 614
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 476
+                          "w": 214,
+                          "x": 1960,
+                          "y": 614
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -551,9 +551,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 186,
-                                  "x": 47,
-                                  "y": 503
+                                  "w": 149,
+                                  "x": 2006,
+                                  "y": 641
                                 },
                                 "role": "AXStaticText",
                                 "value": "Flowsplode Selector Summary"
@@ -561,18 +561,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 500
+                              "w": 214,
+                              "x": 1960,
+                              "y": 638
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 500
+                          "w": 214,
+                          "x": 1960,
+                          "y": 638
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -585,8 +585,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 117,
-                                  "x": 47,
-                                  "y": 527
+                                  "x": 2006,
+                                  "y": 665
                                 },
                                 "role": "AXStaticText",
                                 "value": "SoS - Ransomware"
@@ -594,18 +594,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 524
+                              "w": 214,
+                              "x": 1960,
+                              "y": 662
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 524
+                          "w": 214,
+                          "x": 1960,
+                          "y": 662
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -618,8 +618,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 35,
-                                  "x": 47,
-                                  "y": 551
+                                  "x": 2006,
+                                  "y": 689
                                 },
                                 "role": "AXStaticText",
                                 "value": "T540"
@@ -627,18 +627,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 548
+                              "w": 214,
+                              "x": 1960,
+                              "y": 686
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 548
+                          "w": 214,
+                          "x": 1960,
+                          "y": 686
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -651,8 +651,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 114,
-                                  "x": 47,
-                                  "y": 575
+                                  "x": 2006,
+                                  "y": 713
                                 },
                                 "role": "AXStaticText",
                                 "value": "T603 - ODIN Zeek"
@@ -660,18 +660,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 572
+                              "w": 214,
+                              "x": 1960,
+                              "y": 710
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 572
+                          "w": 214,
+                          "x": 1960,
+                          "y": 710
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -684,8 +684,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 139,
-                                  "x": 47,
-                                  "y": 599
+                                  "x": 2006,
+                                  "y": 737
                                 },
                                 "role": "AXStaticText",
                                 "value": "T603 - Spam Domains"
@@ -693,18 +693,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 596
+                              "w": 214,
+                              "x": 1960,
+                              "y": 734
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 596
+                          "w": 214,
+                          "x": 1960,
+                          "y": 734
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -717,8 +717,8 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 35,
-                                  "x": 47,
-                                  "y": 623
+                                  "x": 2006,
+                                  "y": 761
                                 },
                                 "role": "AXStaticText",
                                 "value": "T609"
@@ -726,18 +726,18 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 620
+                              "w": 214,
+                              "x": 1960,
+                              "y": 758
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 620
+                          "w": 214,
+                          "x": 1960,
+                          "y": 758
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
@@ -749,9 +749,9 @@
                               {
                                 "frame": {
                                   "h": 18,
-                                  "w": 217,
-                                  "x": 47,
-                                  "y": 647
+                                  "w": 149,
+                                  "x": 2006,
+                                  "y": 785
                                 },
                                 "role": "AXStaticText",
                                 "value": "x509_summary-common_selectors"
@@ -759,37 +759,37 @@
                             ],
                             "frame": {
                               "h": 24,
-                              "w": 318,
-                              "x": 1,
-                              "y": 644
+                              "w": 214,
+                              "x": 1960,
+                              "y": 782
                             },
                             "role": "AXCell"
                           }
                         ],
                         "frame": {
                           "h": 24,
-                          "w": 318,
-                          "x": 1,
-                          "y": 644
+                          "w": 214,
+                          "x": 1960,
+                          "y": 782
                         },
                         "role": "AXRow",
                         "subrole": "AXOutlineRow"
                       }
                     ],
                     "frame": {
-                      "h": 1194,
-                      "w": 320,
-                      "x": 0,
-                      "y": 153
+                      "h": 646,
+                      "w": 216,
+                      "x": 1959,
+                      "y": 291
                     },
                     "role": "AXOutline"
                   }
                 ],
                 "frame": {
-                  "h": 1192,
-                  "w": 304,
-                  "x": 1,
-                  "y": 154
+                  "h": 644,
+                  "w": 200,
+                  "x": 1960,
+                  "y": 292
                 },
                 "role": "AXScrollArea"
               },
@@ -798,8 +798,8 @@
                 "frame": {
                   "h": 30,
                   "w": 30,
-                  "x": 8,
-                  "y": 1347
+                  "x": 1967,
+                  "y": 937
                 },
                 "role": "AXButton",
                 "title": ""
@@ -807,13 +807,13 @@
               {
                 "enabled": false,
                 "frame": {
-                  "h": 1296,
+                  "h": 748,
                   "w": 1,
-                  "x": 305,
-                  "y": 82
+                  "x": 2160,
+                  "y": 220
                 },
                 "role": "AXSplitter",
-                "value": 304
+                "value": 200
               },
               {
                 "children": [
@@ -822,8 +822,8 @@
                     "frame": {
                       "h": 30,
                       "w": 32,
-                      "x": 2268,
-                      "y": 83
+                      "x": 3129,
+                      "y": 221
                     },
                     "role": "AXButton",
                     "title": ""
@@ -834,9 +834,9 @@
                         "description": "Query 1",
                         "frame": {
                           "h": 24,
-                          "w": 1955,
-                          "x": 310,
-                          "y": 86
+                          "w": 961,
+                          "x": 2165,
+                          "y": 224
                         },
                         "role": "AXRadioButton",
                         "subrole": "AXSegment",
@@ -845,9 +845,9 @@
                     ],
                     "frame": {
                       "h": 26,
-                      "w": 1957,
-                      "x": 309,
-                      "y": 85
+                      "w": 963,
+                      "x": 2164,
+                      "y": 223
                     },
                     "role": "AXRadioGroup"
                   },
@@ -856,8 +856,8 @@
                     "frame": {
                       "h": 15,
                       "w": 18,
-                      "x": 2244,
-                      "y": 90
+                      "x": 3105,
+                      "y": 228
                     },
                     "role": "AXButton",
                     "title": ""
@@ -867,8 +867,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 313,
-                      "y": 115
+                      "x": 2168,
+                      "y": 253
                     },
                     "role": "AXButton",
                     "title": ""
@@ -877,8 +877,8 @@
                     "frame": {
                       "h": 19,
                       "w": 34,
-                      "x": 345,
-                      "y": 120
+                      "x": 2200,
+                      "y": 258
                     },
                     "role": "AXMenuButton",
                     "title": ""
@@ -888,8 +888,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 381,
-                      "y": 115
+                      "x": 2236,
+                      "y": 253
                     },
                     "role": "AXButton",
                     "title": ""
@@ -898,8 +898,8 @@
                     "frame": {
                       "h": 18,
                       "w": 142,
-                      "x": 413,
-                      "y": 121
+                      "x": 2268,
+                      "y": 259
                     },
                     "role": "AXMenuButton",
                     "title": "Select Connection"
@@ -909,8 +909,8 @@
                     "frame": {
                       "h": 18,
                       "w": 102,
-                      "x": 557,
-                      "y": 121
+                      "x": 2412,
+                      "y": 259
                     },
                     "role": "AXMenuButton",
                     "title": "No Schema"
@@ -920,8 +920,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 2230,
-                      "y": 115
+                      "x": 3091,
+                      "y": 253
                     },
                     "role": "AXButton",
                     "title": ""
@@ -931,8 +931,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 2262,
-                      "y": 115
+                      "x": 3123,
+                      "y": 253
                     },
                     "role": "AXButton",
                     "title": ""
@@ -941,20 +941,72 @@
                     "children": [
                       {
                         "frame": {
-                          "h": 521,
-                          "w": 1670,
-                          "x": 356.98,
-                          "y": 146
+                          "h": 385,
+                          "w": 458,
+                          "x": 2211.98,
+                          "y": 284
                         },
                         "role": "AXTextArea",
                         "value": ""
                       }
                     ],
                     "frame": {
-                      "h": 538,
-                      "w": 1669.86,
-                      "x": 356.98,
-                      "y": 146
+                      "h": 385,
+                      "w": 458.02,
+                      "x": 2211.98,
+                      "y": 284
+                    },
+                    "role": "AXScrollArea"
+                  },
+                  {
+                    "frame": {
+                      "h": 16,
+                      "w": 53,
+                      "x": 2685,
+                      "y": 291
+                    },
+                    "role": "AXStaticText",
+                    "value": "Variables"
+                  },
+                  {
+                    "frame": {
+                      "h": 16,
+                      "w": 2,
+                      "x": 2741,
+                      "y": 291
+                    },
+                    "role": "AXStaticText",
+                    "value": ""
+                  },
+                  {
+                    "description": "Add variable",
+                    "frame": {
+                      "h": 10,
+                      "w": 13,
+                      "x": 2915,
+                      "y": 294
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "children": [
+                      {
+                        "frame": {
+                          "h": 16,
+                          "w": 224,
+                          "x": 2685,
+                          "y": 323
+                        },
+                        "role": "AXStaticText",
+                        "value": "No variables \u2014 click + to add one."
+                      }
+                    ],
+                    "frame": {
+                      "h": 355,
+                      "w": 259,
+                      "x": 2676,
+                      "y": 314
                     },
                     "role": "AXScrollArea"
                   },
@@ -962,8 +1014,8 @@
                     "frame": {
                       "h": 16,
                       "w": 43,
-                      "x": 2040.84,
-                      "y": 151
+                      "x": 2949,
+                      "y": 289
                     },
                     "role": "AXStaticText",
                     "value": "Results"
@@ -972,19 +1024,19 @@
                     "children": [
                       {
                         "frame": {
-                          "h": 514,
-                          "w": 268,
-                          "x": 2031.84,
-                          "y": 171
+                          "h": 361,
+                          "w": 221,
+                          "x": 2940,
+                          "y": 309
                         },
                         "role": "AXTable"
                       }
                     ],
                     "frame": {
-                      "h": 512,
-                      "w": 266,
-                      "x": 2032.84,
-                      "y": 172
+                      "h": 359,
+                      "w": 219,
+                      "x": 2941,
+                      "y": 310
                     },
                     "role": "AXScrollArea"
                   },
@@ -992,8 +1044,8 @@
                     "frame": {
                       "h": 17,
                       "w": 60,
-                      "x": 2134.84,
-                      "y": 183
+                      "x": 3020,
+                      "y": 321
                     },
                     "role": "AXStaticText",
                     "value": "No results"
@@ -1002,12 +1054,12 @@
                     "enabled": false,
                     "frame": {
                       "h": 0,
-                      "w": 1993,
-                      "x": 306,
-                      "y": 684
+                      "w": 999,
+                      "x": 2161,
+                      "y": 669
                     },
                     "role": "AXSplitter",
-                    "value": 602
+                    "value": 449
                   },
                   {
                     "children": [
@@ -1016,8 +1068,8 @@
                         "frame": {
                           "h": 24,
                           "w": 46,
-                          "x": 314,
-                          "y": 688
+                          "x": 2169,
+                          "y": 673
                         },
                         "role": "AXRadioButton",
                         "subrole": "AXSegment",
@@ -1028,8 +1080,8 @@
                         "frame": {
                           "h": 24,
                           "w": 54,
-                          "x": 361,
-                          "y": 688
+                          "x": 2216,
+                          "y": 673
                         },
                         "role": "AXRadioButton",
                         "subrole": "AXSegment",
@@ -1039,8 +1091,8 @@
                     "frame": {
                       "h": 26,
                       "w": 103,
-                      "x": 313,
-                      "y": 687
+                      "x": 2168,
+                      "y": 672
                     },
                     "role": "AXRadioGroup"
                   },
@@ -1049,8 +1101,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 416,
-                      "y": 685
+                      "x": 2271,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1060,8 +1112,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 446,
-                      "y": 685
+                      "x": 2301,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1071,8 +1123,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 476,
-                      "y": 685
+                      "x": 2331,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1082,8 +1134,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 506,
-                      "y": 685
+                      "x": 2361,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1092,8 +1144,8 @@
                     "frame": {
                       "h": 16,
                       "w": 2,
-                      "x": 2224,
-                      "y": 692
+                      "x": 3085,
+                      "y": 677
                     },
                     "role": "AXStaticText",
                     "value": ""
@@ -1103,8 +1155,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 2232,
-                      "y": 685
+                      "x": 3093,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1114,8 +1166,8 @@
                     "frame": {
                       "h": 30,
                       "w": 30,
-                      "x": 2262,
-                      "y": 685
+                      "x": 3123,
+                      "y": 670
                     },
                     "role": "AXButton",
                     "title": ""
@@ -1124,48 +1176,38 @@
                     "frame": {
                       "h": 18,
                       "w": 164,
-                      "x": 1221,
-                      "y": 1038
+                      "x": 2579,
+                      "y": 825
                     },
                     "role": "AXStaticText",
                     "value": "Run a query to see results"
                   }
                 ],
                 "frame": {
-                  "h": 1296,
-                  "w": 1993,
-                  "x": 306,
-                  "y": 82
+                  "h": 748,
+                  "w": 999,
+                  "x": 2161,
+                  "y": 220
                 },
                 "role": "AXSplitGroup"
               },
               {
                 "enabled": false,
                 "frame": {
-                  "h": 1296,
+                  "h": 748,
                   "w": 1,
-                  "x": 2299,
-                  "y": 82
+                  "x": 3160,
+                  "y": 220
                 },
                 "role": "AXSplitter",
-                "value": 1993
-              },
-              {
-                "frame": {
-                  "h": 18,
-                  "w": 85,
-                  "x": 2416,
-                  "y": 695
-                },
-                "role": "AXStaticText",
-                "value": "No Selection"
+                "value": 999
               }
             ],
             "frame": {
-              "h": 1348,
-              "w": 2616,
-              "x": 1,
-              "y": 30
+              "h": 800,
+              "w": 1200,
+              "x": 1960,
+              "y": 168
             },
             "role": "AXSplitGroup"
           },
@@ -1176,17 +1218,17 @@
                 "frame": {
                   "h": 52,
                   "w": 48,
-                  "x": 2565,
-                  "y": 30
+                  "x": 3108,
+                  "y": 168
                 },
                 "role": "AXButton"
               }
             ],
             "frame": {
               "h": 52,
-              "w": 2616,
-              "x": 1,
-              "y": 30
+              "w": 1200,
+              "x": 1960,
+              "y": 168
             },
             "role": "AXToolbar"
           },
@@ -1195,8 +1237,8 @@
             "frame": {
               "h": 54,
               "w": 38,
-              "x": 88,
-              "y": 29
+              "x": 2047,
+              "y": 167
             },
             "role": "AXButton",
             "title": ""
@@ -1205,8 +1247,8 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 19,
-              "y": 48
+              "x": 1978,
+              "y": 186
             },
             "role": "AXButton",
             "subrole": "AXCloseButton"
@@ -1217,8 +1259,8 @@
                 "frame": {
                   "h": 14,
                   "w": 14,
-                  "x": 66,
-                  "y": 49
+                  "x": 2025,
+                  "y": 187
                 },
                 "role": "AXGroup"
               }
@@ -1226,8 +1268,8 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 65,
-              "y": 48
+              "x": 2024,
+              "y": 186
             },
             "role": "AXButton",
             "subrole": "AXFullScreenButton"
@@ -1236,18 +1278,18 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 42,
-              "y": 48
+              "x": 2001,
+              "y": 186
             },
             "role": "AXButton",
             "subrole": "AXMinimizeButton"
           }
         ],
         "frame": {
-          "h": 1348,
-          "w": 2616,
-          "x": 1,
-          "y": 30
+          "h": 800,
+          "w": 1200,
+          "x": 1960,
+          "y": 168
         },
         "role": "AXWindow",
         "subrole": "AXStandardWindow",
@@ -1260,12 +1302,12 @@
   "windows": [
     {
       "bounds": {
-        "Height": 1348,
-        "Width": 2616,
-        "X": 1,
-        "Y": 30
+        "Height": 800,
+        "Width": 1200,
+        "X": 1960,
+        "Y": 168
       },
-      "number": 61381
+      "number": 61545
     }
   ]
 }

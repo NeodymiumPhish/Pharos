@@ -1,12 +1,19 @@
 use keyring::Entry;
 use std::collections::HashMap;
 
-const SERVICE_NAME: &str = "com.pharos.client";
+const DEFAULT_SERVICE_NAME: &str = "com.pharos.client";
 const CREDENTIALS_KEY: &str = "connection-passwords";
+
+/// Keychain service name. `PHAROS_KEYCHAIN_SERVICE` overrides it so a
+/// re-identified test copy of the app keeps its passwords apart from the
+/// user's; the shipped app never sets it.
+fn service_name() -> String {
+    std::env::var("PHAROS_KEYCHAIN_SERVICE").unwrap_or_else(|_| DEFAULT_SERVICE_NAME.to_string())
+}
 
 /// Get the single keychain entry that stores all connection passwords
 fn get_credentials_entry() -> Result<Entry, String> {
-    Entry::new(SERVICE_NAME, CREDENTIALS_KEY)
+    Entry::new(&service_name(), CREDENTIALS_KEY)
         .map_err(|e| format!("Failed to create keyring entry: {}", e))
 }
 
@@ -79,7 +86,7 @@ pub fn migrate_legacy_passwords(connection_ids: &[String]) -> Result<HashMap<Str
         }
 
         // Try to read from the old per-connection entry
-        let legacy_entry = match Entry::new(SERVICE_NAME, connection_id) {
+        let legacy_entry = match Entry::new(&service_name(), connection_id) {
             Ok(entry) => entry,
             Err(_) => continue,
         };

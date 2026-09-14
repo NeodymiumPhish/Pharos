@@ -130,13 +130,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Helpers
 
+    /// `~/Library/Application Support/<bundle id>`. The folder follows the
+    /// bundle identifier so a re-identified test copy of the app gets its own
+    /// empty store; the shipped app resolves to `com.pharos.client` as before.
+    /// (`HOME` is not a way to redirect this: `NSHomeDirectory()` ignores it.)
     private static func appSupportDirectory() -> String {
         let fm = FileManager.default
         let urls = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)
         guard let baseURL = urls.first else {
             return fm.temporaryDirectory.path
         }
-        let dir = baseURL.appendingPathComponent("com.pharos.client")
+        let dir = baseURL.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.pharos.client")
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.path
     }
