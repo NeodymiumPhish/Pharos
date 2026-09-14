@@ -62,7 +62,6 @@ struct EditorSettings: Codable, Equatable {
     var fontFamily: String = "JetBrains Mono, Monaco, Menlo, monospace"
     var tabSize: UInt32 = 2
     var wordWrap: Bool = false
-    var minimap: Bool = false
     var lineNumbers: Bool = true
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 }
@@ -70,9 +69,6 @@ struct EditorSettings: Codable, Equatable {
 struct QuerySettings: Codable, Equatable {
     var defaultLimit: UInt32 = 1000
     var timeoutSeconds: UInt32 = 300
-    // Kept only so stored settings JSON round-trips; no UI and no effect —
-    // queries run in PostgreSQL's implicit auto-commit mode.
-    var autoCommit: Bool = true
     var confirmDestructive: Bool = true
     var notifyWhenAppInactive: Bool = true
     var notifyWhenBackgroundTab: Bool = true
@@ -80,25 +76,8 @@ struct QuerySettings: Codable, Equatable {
     /// Whether a query the user cancelled opens the error sheet. The failure is
     /// recorded on its tab either way.
     var showCancelledQueryDialog: Bool = true
-}
-
-struct UISettings: Codable, Equatable {
-    var navigatorWidth: UInt32 = 250
-    var savedQueriesWidth: UInt32 = 250
-    var resultsPanelHeight: UInt32 = 300
-    var editorSplitPosition: UInt32 = 50
-}
-
-struct KeyboardShortcut: Codable, Equatable {
-    var id: String
-    var label: String
-    var description: String
-    var key: String
-    var modifiers: [String]
-}
-
-struct KeyboardSettings: Codable, Equatable {
-    var shortcuts: [KeyboardShortcut] = []
+    /// Whether the tabs open at quit are put back at the next launch.
+    var restoreOpenTabs: Bool = true
 }
 
 struct ChartSettings: Codable, Equatable {
@@ -109,8 +88,6 @@ struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
     var query: QuerySettings = QuerySettings()
-    var ui: UISettings = UISettings()
-    var keyboard: KeyboardSettings = KeyboardSettings()
     var emptyFolders: [String] = []
     var nullDisplay: NullDisplay = .uppercase
     var boolDisplay: BoolDisplay = .trueFalse

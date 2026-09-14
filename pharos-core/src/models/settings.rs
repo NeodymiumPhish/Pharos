@@ -67,8 +67,6 @@ pub struct EditorSettings {
     pub tab_size: u32,
     #[serde(default)]
     pub word_wrap: bool,
-    #[serde(default)]
-    pub minimap: bool,
     #[serde(default = "default_line_numbers")]
     pub line_numbers: bool,
 }
@@ -85,7 +83,6 @@ impl Default for EditorSettings {
             font_family: default_font_family(),
             tab_size: default_tab_size(),
             word_wrap: false,
-            minimap: false,
             line_numbers: default_line_numbers(),
         }
     }
@@ -98,10 +95,6 @@ pub struct QuerySettings {
     pub default_limit: u32,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u32,
-    // Kept only so stored settings JSON round-trips; no UI and no effect —
-    // queries run in PostgreSQL's implicit auto-commit mode.
-    #[serde(default = "default_auto_commit")]
-    pub auto_commit: bool,
     #[serde(default = "default_confirm_destructive")]
     pub confirm_destructive: bool,
     #[serde(default = "default_notify_when_app_inactive")]
@@ -115,85 +108,33 @@ pub struct QuerySettings {
     /// interrupts the user.
     #[serde(default = "default_show_cancelled_query_dialog")]
     pub show_cancelled_query_dialog: bool,
+    /// Whether the tabs open at quit are put back at the next launch.
+    #[serde(default = "default_restore_open_tabs")]
+    pub restore_open_tabs: bool,
 }
 
 fn default_default_limit() -> u32 { 1000 }
 fn default_timeout_seconds() -> u32 { 300 }
-fn default_auto_commit() -> bool { true }
 fn default_confirm_destructive() -> bool { true }
 fn default_notify_when_app_inactive() -> bool { true }
 fn default_notify_when_background_tab() -> bool { true }
 fn default_notify_min_duration_seconds() -> u32 { 5 }
 fn default_show_cancelled_query_dialog() -> bool { true }
+fn default_restore_open_tabs() -> bool { true }
 
 impl Default for QuerySettings {
     fn default() -> Self {
         QuerySettings {
             default_limit: default_default_limit(),
             timeout_seconds: default_timeout_seconds(),
-            auto_commit: default_auto_commit(),
             confirm_destructive: default_confirm_destructive(),
             notify_when_app_inactive: default_notify_when_app_inactive(),
             notify_when_background_tab: default_notify_when_background_tab(),
             notify_min_duration_seconds: default_notify_min_duration_seconds(),
             show_cancelled_query_dialog: default_show_cancelled_query_dialog(),
+            restore_open_tabs: default_restore_open_tabs(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UISettings {
-    #[serde(default = "default_navigator_width")]
-    pub navigator_width: u32,
-    #[serde(default = "default_saved_queries_width")]
-    pub saved_queries_width: u32,
-    #[serde(default = "default_results_panel_height")]
-    pub results_panel_height: u32,
-    #[serde(default = "default_editor_split_position")]
-    pub editor_split_position: u32,
-}
-
-// A bare #[serde(default)] on these would give 0 — a zero-width navigator is
-// worse than the missing key it replaces, so each needs the real default.
-fn default_navigator_width() -> u32 { 260 }
-fn default_saved_queries_width() -> u32 { 180 }
-fn default_results_panel_height() -> u32 { 300 }
-fn default_editor_split_position() -> u32 { 40 }
-
-impl Default for UISettings {
-    fn default() -> Self {
-        UISettings {
-            navigator_width: default_navigator_width(),
-            saved_queries_width: default_saved_queries_width(),
-            results_panel_height: default_results_panel_height(),
-            editor_split_position: default_editor_split_position(),
-        }
-    }
-}
-
-/// Keyboard shortcut configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyboardShortcut {
-    // Every field is a string or a list, so the zero value — empty — is the
-    // right default. One malformed entry must not sink the whole blob.
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub label: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub key: String,
-    #[serde(default)]
-    pub modifiers: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct KeyboardSettings {
-    #[serde(default)]
-    pub shortcuts: Vec<KeyboardShortcut>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,10 +167,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub query: QuerySettings,
     #[serde(default)]
-    pub ui: UISettings,
-    #[serde(default)]
-    pub keyboard: KeyboardSettings,
-    #[serde(default)]
     pub empty_folders: Vec<String>,
     #[serde(default)]
     pub null_display: NullDisplay,
@@ -254,8 +191,6 @@ impl Default for AppSettings {
             theme: ThemeMode::default(),
             editor: EditorSettings::default(),
             query: QuerySettings::default(),
-            ui: UISettings::default(),
-            keyboard: KeyboardSettings::default(),
             empty_folders: Vec::new(),
             null_display: NullDisplay::default(),
             bool_display: BoolDisplay::default(),
@@ -279,7 +214,6 @@ mod tests {
         let json = r#"{
             "defaultLimit": 500,
             "timeoutSeconds": 30,
-            "autoCommit": true,
             "confirmDestructive": true
         }"#;
         let parsed: QuerySettings = serde_json::from_str(json).expect("old settings must still parse");
@@ -297,9 +231,8 @@ mod tests {
         // key, and nothing here asserts on these values.
         let json = r#"{
             "theme": "auto",
-            "editor": {"fontFamily": "Menlo", "fontSize": 13, "tabSize": 2, "lineNumbers": true, "wordWrap": false, "minimap": false},
-            "query": {"defaultLimit": 500, "timeoutSeconds": 30, "autoCommit": true, "confirmDestructive": true},
-            "ui": {"navigatorWidth": 260, "savedQueriesWidth": 180, "resultsPanelHeight": 300}
+            "editor": {"fontFamily": "Menlo", "fontSize": 13, "tabSize": 2, "lineNumbers": true, "wordWrap": false},
+            "query": {"defaultLimit": 500, "timeoutSeconds": 30, "confirmDestructive": true}
         }"#;
         let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
         // Two separate code paths, each hand-written and each able to regress
@@ -322,7 +255,6 @@ mod tests {
         assert_eq!(parsed.font_family, d.font_family);
         assert_eq!(parsed.tab_size, d.tab_size);
         assert_eq!(parsed.word_wrap, d.word_wrap);
-        assert_eq!(parsed.minimap, d.minimap);
         assert_eq!(parsed.line_numbers, d.line_numbers);
         // The two values that must not be zero, spelled out so a change to
         // `impl Default` alone cannot make this test vacuous.
@@ -336,7 +268,6 @@ mod tests {
         let d = QuerySettings::default();
         assert_eq!(parsed.default_limit, d.default_limit);
         assert_eq!(parsed.timeout_seconds, d.timeout_seconds);
-        assert_eq!(parsed.auto_commit, d.auto_commit);
         assert_eq!(parsed.confirm_destructive, d.confirm_destructive);
         assert_eq!(parsed.notify_when_app_inactive, d.notify_when_app_inactive);
         assert_eq!(parsed.notify_when_background_tab, d.notify_when_background_tab);
@@ -346,41 +277,6 @@ mod tests {
         assert_eq!(parsed.default_limit, 1000);
         assert_eq!(parsed.timeout_seconds, 300);
         assert!(parsed.confirm_destructive, "the guard must not default OFF");
-    }
-
-    #[test]
-    fn ui_settings_parse_from_empty_object() {
-        let parsed: UISettings = serde_json::from_str("{}").expect("an empty object must parse");
-        let d = UISettings::default();
-        assert_eq!(parsed.navigator_width, d.navigator_width);
-        assert_eq!(parsed.saved_queries_width, d.saved_queries_width);
-        assert_eq!(parsed.results_panel_height, d.results_panel_height);
-        assert_eq!(parsed.editor_split_position, d.editor_split_position);
-        // Each pane must come back at its real width. A bare
-        // #[serde(default)] would give 0 and collapse the pane.
-        assert_eq!(parsed.navigator_width, 260);
-        assert_eq!(parsed.saved_queries_width, 180);
-        assert_eq!(parsed.results_panel_height, 300);
-        assert_eq!(parsed.editor_split_position, 40);
-    }
-
-    #[test]
-    fn keyboard_settings_parse_from_empty_object() {
-        let parsed: KeyboardSettings = serde_json::from_str("{}").expect("an empty object must parse");
-        assert!(parsed.shortcuts.is_empty(), "no stored shortcuts gives an empty list");
-    }
-
-    #[test]
-    fn keyboard_shortcut_parse_from_partial_object() {
-        // A shortcut entry written by an older build can miss a key. That
-        // entry must come back empty, not sink the whole settings blob.
-        let json = r#"{"id": "run-query", "key": "Return"}"#;
-        let parsed: KeyboardShortcut = serde_json::from_str(json).expect("a partial entry must still parse");
-        assert_eq!(parsed.id, "run-query");
-        assert_eq!(parsed.key, "Return");
-        assert_eq!(parsed.label, "");
-        assert_eq!(parsed.description, "");
-        assert!(parsed.modifiers.is_empty());
     }
 
     #[test]
@@ -403,10 +299,9 @@ mod tests {
         assert_eq!(parsed.show_leaf_partitions, d.show_leaf_partitions);
         assert_eq!(parsed.vertical_result_tabs, d.vertical_result_tabs);
         assert!(parsed.empty_folders.is_empty());
-        // The four nested structs must also come back at their defaults.
+        // The nested structs must also come back at their defaults.
         assert_eq!(parsed.editor.font_size, d.editor.font_size);
         assert_eq!(parsed.query.default_limit, d.query.default_limit);
-        assert_eq!(parsed.ui.navigator_width, d.ui.navigator_width);
         assert_eq!(parsed.charts.palette, d.charts.palette);
     }
 
@@ -419,8 +314,7 @@ mod tests {
         let json = r#"{
             "theme": "dark",
             "editor": {"fontSize": 18, "fontFamily": "Menlo"},
-            "query": {"defaultLimit": 42},
-            "ui": {"navigatorWidth": 400}
+            "query": {"defaultLimit": 42}
         }"#;
         let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
         // Stored values survive.
@@ -428,13 +322,41 @@ mod tests {
         assert_eq!(parsed.editor.font_size, 18);
         assert_eq!(parsed.editor.font_family, "Menlo");
         assert_eq!(parsed.query.default_limit, 42);
-        assert_eq!(parsed.ui.navigator_width, 400);
         // Absent keys fall back, each on its own.
         assert_eq!(parsed.editor.tab_size, 2);
         assert!(parsed.editor.line_numbers);
         assert_eq!(parsed.query.timeout_seconds, 300);
         assert!(parsed.query.confirm_destructive);
-        assert_eq!(parsed.ui.saved_queries_width, 180);
-        assert_eq!(parsed.ui.results_panel_height, 300);
+    }
+
+    /// Settings written by a build that still had `keyboard`, `ui`,
+    /// `editor.minimap` and `query.autoCommit` must still parse after those
+    /// fields were removed (serde ignores unknown keys by default), the live
+    /// keys in the same blob must survive, and re-serializing must not bring
+    /// the removed keys back.
+    #[test]
+    fn app_settings_ignores_removed_keys_from_older_builds() {
+        let json = r#"{
+            "theme": "dark",
+            "editor": {"fontSize": 18, "fontFamily": "Menlo", "minimap": true},
+            "query": {"defaultLimit": 42, "autoCommit": false},
+            "ui": {"navigatorWidth": 400, "savedQueriesWidth": 200, "resultsPanelHeight": 320, "editorSplitPosition": 60},
+            "keyboard": {"shortcuts": [{"id": "run-query", "label": "Run Query", "description": "Runs the current query", "key": "Return", "modifiers": ["cmd"]}]}
+        }"#;
+        let parsed: AppSettings =
+            serde_json::from_str(json).expect("old settings with removed keys must still parse");
+
+        // Live values in the same blob survive untouched.
+        assert_eq!(parsed.theme, ThemeMode::Dark);
+        assert_eq!(parsed.editor.font_size, 18);
+        assert_eq!(parsed.editor.font_family, "Menlo");
+        assert_eq!(parsed.query.default_limit, 42);
+
+        // Re-serializing must not emit the removed keys.
+        let re_serialized = serde_json::to_string(&parsed).expect("must re-serialize");
+        assert!(!re_serialized.contains("\"ui\""), "removed `ui` key must not reappear");
+        assert!(!re_serialized.contains("keyboard"), "removed `keyboard` key must not reappear");
+        assert!(!re_serialized.contains("minimap"), "removed `minimap` key must not reappear");
+        assert!(!re_serialized.contains("autoCommit"), "removed `autoCommit` key must not reappear");
     }
 }
