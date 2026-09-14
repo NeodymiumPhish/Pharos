@@ -1,7 +1,7 @@
 import AppKit
 import Combine
 
-/// Tab bar for a single editor pane using a native NSSegmentedControl with capsule style.
+/// The editor's tab bar: a native NSSegmentedControl with capsule style.
 ///
 /// Layout: [  ‹SegmentedControl›  ] [+ add]
 class PaneTabBar: NSView {
@@ -12,11 +12,9 @@ class PaneTabBar: NSView {
     var onCloseTab: ((String) -> Void)?
     var onNewTab: (() -> Void)?
     var onDoubleClickTab: ((String) -> Void)?
-    var onReorderTabs: (([String]) -> Void)?
 
     // MARK: - State
 
-    let paneId: String
     private var tabs: [QueryTab] = []
     private var activeTabId: String?
 
@@ -44,8 +42,7 @@ class PaneTabBar: NSView {
 
     // MARK: - Init
 
-    init(paneId: String) {
-        self.paneId = paneId
+    init() {
         super.init(frame: .zero)
         setup()
     }

@@ -10,15 +10,14 @@ private struct ActiveConnectionStatus: Equatable {
     let status: ConnectionStatus?
 }
 
-/// Main content area: editor panes + results grid.
-/// Manages multiple EditorPaneVCs and query execution.
+/// Main content area: the editor above the results grid.
+/// Owns the one EditorPaneVC and runs queries.
 class ContentViewController: NSViewController {
 
     private let resultsVC = ResultsGridVC()
-    private let paneSplitView = NSSplitView()       // Horizontal: side-by-side editor panes
     private let emptyState = NSView()
 
-    // Action bar — independent element between editor panes and results grid
+    // Action bar — independent element between the editor and the results grid
     let actionBar = ResultsToolbarBar()
 
     // Result tab bar — between action bar and results grid
@@ -48,11 +47,11 @@ class ContentViewController: NSViewController {
     /// Debounce coalescing rapid rail edits into one push-down execution.
     private var chartServerAggWorkItem: DispatchWorkItem?
 
-    // Container that holds paneSplitView + actionBar + resultTabBar + resultsVC.view with constraints
+    // Container that holds the editor + actionBar + resultTabBar + resultsVC.view with constraints
     private let contentStack = NSView()
 
     // Layout constraints for the editor/results split
-    /// Editor panes above, results area below. See `EditorResultsSplitView`.
+    /// Editor above, results area below. See `EditorResultsSplitView`.
     private let editorResultsSplit = EditorResultsSplitView()
     /// Bottom pane of `editorResultsSplit`: action bar, result tab bar, grid/chart.
     private let resultsArea = NSView()
@@ -109,16 +108,12 @@ class ContentViewController: NSViewController {
     private var drillColumns: [String] = []
     private var displacedFilters: [String: ColumnFilter] = [:]
 
-    private var editorPanes: [EditorPaneVC] = []
+    /// The editor: tab bar, SQL editor, variables and result-tabs panels.
+    private let editorPane = EditorPaneVC()
 
     /// Owns the one live query-error sheet. Its `showSheet`/`closeSheet` seams
     /// are filled in `viewDidLoad`.
     private let errorPresenter = QueryErrorPresenter()
-
-    /// The focused editor pane.
-    private var focusedPaneVC: EditorPaneVC? {
-        editorPanes.first { $0.paneId == stateManager.focusedPaneId }
-    }
 
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
@@ -179,16 +174,13 @@ class ContentViewController: NSViewController {
         let container = NSView()
         self.view = container
 
-        // Pane split view: horizontal split for side-by-side editor panes
-        paneSplitView.isVertical = true
-        paneSplitView.dividerStyle = .thin
-        paneSplitView.delegate = self
-
+        editorPane.delegate = self
+        addChild(editorPane)
         addChild(resultsVC)
 
         // Content stack: `editorResultsSplit` fills it. The split's top pane is
-        // `paneSplitView` (the side-by-side editors); its bottom pane is
-        // `resultsArea`: actionBar (32pt) | resultTabBar | results grid / chart.
+        // the editor; its bottom pane is `resultsArea`: actionBar (32pt) |
+        // resultTabBar | results grid / chart.
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         editorResultsSplit.translatesAutoresizingMaskIntoConstraints = false
         editorResultsSplit.isVertical = false
@@ -201,9 +193,9 @@ class ContentViewController: NSViewController {
 
         // The two arranged subviews are frame-managed by the split view; their
         // own children lay out against them with Auto Layout.
-        paneSplitView.translatesAutoresizingMaskIntoConstraints = true
+        editorPane.view.translatesAutoresizingMaskIntoConstraints = true
         resultsArea.translatesAutoresizingMaskIntoConstraints = true
-        editorResultsSplit.addArrangedSubview(paneSplitView)
+        editorResultsSplit.addArrangedSubview(editorPane.view)
         editorResultsSplit.addArrangedSubview(resultsArea)
         // The results area, not the editor, absorbs a window resize. Both
         // priorities stay low and only RELATIVE — a high one blocks the drag
@@ -400,17 +392,10 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Observe pane changes to sync pane view controllers. The tab and pane
-        // sinks below subscribe to the SETTLED publishers and take no run-loop
-        // hop: they run on the mutating caller's stack, after the property
-        // is set, so `stateManager.selectTab(...)` returns with the grid and
-        // the panes already switched. See `AppStateManager.tabsSettled`.
-        stateManager.panesSettled
-            .sink { [weak self] panes in
-                self?.syncPaneViewControllers(with: panes)
-            }
-            .store(in: &cancellables)
-
+        // The tab sinks below subscribe to the SETTLED publishers and take no
+        // run-loop hop: they run on the mutating caller's stack, after the
+        // property is set, so `stateManager.selectTab(...)` returns with the
+        // grid and the editor already switched. See `AppStateManager.tabsSettled`.
         // Release the per-editor-tab result state of tabs that no longer exist.
         // This reacts to the tab actually disappearing from `stateManager.tabs`
         // rather than hooking each close action, because the close paths are
@@ -430,9 +415,9 @@ class ContentViewController: NSViewController {
             .sink { [weak self] _ in self?.pruneRetiredEditorTabState() }
             .store(in: &cancellables)
 
-        // Observe active tab changes to update results grid. `selectTab` and
-        // `focusPane` assign `activeTabId` even when it does not change (a
-        // click on the current tab, every Run from the pane button), and the
+        // Observe active tab changes to update results grid. `selectTab`
+        // assigns `activeTabId` even when it does not change (a click on the
+        // current tab), and the
         // publisher emits on every assignment — without the dedup each of
         // those tore the grid down and rebuilt it, dropping the cell selection.
         stateManager.activeTabIdSettled
@@ -459,23 +444,17 @@ class ContentViewController: NSViewController {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.refreshResultTabViews()
-                for paneVC in self.editorPanes { paneVC.syncResultTabsPanel() }
+                self.editorPane.syncResultTabsPanel()
             }
             .store(in: &cancellables)
 
-        // Drive the action-bar pulse from the focused pane's active tab's
-        // executing state. We map down to the single Bool we actually care
-        // about and removeDuplicates so unrelated mutations (any keystroke
-        // republishes the tabs) don't reassign isPulsing every time.
-        Publishers.CombineLatest3(
-            stateManager.tabsSettled,
-            stateManager.panesSettled,
-            stateManager.focusedPaneIdSettled
-        )
-        .map { tabs, panes, focusedPaneId -> Bool in
-            let focusedPane = panes.first { $0.id == focusedPaneId }
-            let activeTabId = focusedPane?.activeTabId
-            return tabs.first { $0.id == activeTabId }?.isExecuting == true
+        // Drive the action-bar pulse from the active tab's executing state. We
+        // map down to the single Bool we actually care about and
+        // removeDuplicates so unrelated mutations (any keystroke republishes
+        // the tabs) don't reassign isPulsing every time.
+        Publishers.CombineLatest(stateManager.tabsSettled, stateManager.activeTabIdSettled)
+        .map { tabs, activeTabId -> Bool in
+            tabs.first { $0.id == activeTabId }?.isExecuting == true
         }
         .removeDuplicates()
         .sink { [weak self] isExecuting in
@@ -561,107 +540,6 @@ class ContentViewController: NSViewController {
             savedSplitRatio = saved > 0 ? saved : 0.6
             applyExpandState()
         }
-    }
-
-    // MARK: - Pane Sync
-
-    /// The pane ids arranged in `paneSplitView` after the last sync, in order.
-    /// The even split below runs only when this list changes — `$panes`
-    /// publishes on every tab select, and re-splitting then would snap a
-    /// divider the user had dragged straight back to the middle.
-    private var lastArrangedPaneIds: [String] = []
-
-    /// Add/remove EditorPaneVC instances to match the state manager's panes.
-    private func syncPaneViewControllers(with panes: [EditorPane]) {
-        let currentPaneIds = Set(editorPanes.map(\.paneId))
-        let targetPaneIds = Set(panes.map(\.id))
-
-        // Remove panes that no longer exist
-        for paneVC in editorPanes where !targetPaneIds.contains(paneVC.paneId) {
-            paneVC.view.removeFromSuperview()
-            paneVC.removeFromParent()
-        }
-        editorPanes.removeAll { !targetPaneIds.contains($0.paneId) }
-
-        // Add new panes (don't add to split view yet — we rebuild below)
-        for pane in panes where !currentPaneIds.contains(pane.id) {
-            let paneVC = EditorPaneVC(paneId: pane.id)
-            paneVC.delegate = self
-            addChild(paneVC)
-            editorPanes.append(paneVC)
-        }
-
-        // Reorder to match state manager order
-        let ordered = panes.compactMap { pane in
-            editorPanes.first { $0.paneId == pane.id }
-        }
-        editorPanes = ordered
-
-        let visiblePaneVCs = editorPanes
-
-        // Rebuild paneSplitView's arranged subviews to match visiblePaneVCs.
-        // Remove subviews that shouldn't be visible, add those that should be.
-        let currentArranged = paneSplitView.arrangedSubviews
-        let targetViews = visiblePaneVCs.map(\.view)
-
-        // Remove views that are no longer visible
-        for view in currentArranged where !targetViews.contains(view) {
-            paneSplitView.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-
-        // Add views that are missing, in the correct order
-        for (index, paneVC) in visiblePaneVCs.enumerated() {
-            let view = paneVC.view
-            view.isHidden = false
-            if !paneSplitView.arrangedSubviews.contains(view) {
-                if index < paneSplitView.arrangedSubviews.count {
-                    // Insert at correct position
-                    paneSplitView.insertArrangedSubview(view, at: index)
-                } else {
-                    paneSplitView.addArrangedSubview(view)
-                }
-            }
-        }
-
-        // Ensure correct ordering of arranged subviews
-        let arranged = paneSplitView.arrangedSubviews
-        for (index, paneVC) in visiblePaneVCs.enumerated() {
-            let view = paneVC.view
-            if index < arranged.count && arranged[index] !== view {
-                // Wrong order — remove and re-insert
-                paneSplitView.removeArrangedSubview(view)
-                view.removeFromSuperview()
-                paneSplitView.insertArrangedSubview(view, at: index)
-            }
-        }
-
-        paneSplitView.adjustSubviews()
-
-        // Split evenly when a pane was added, removed, or swapped in — not on
-        // every publish (see `lastArrangedPaneIds`).
-        let arrangedPaneIds = visiblePaneVCs.map(\.paneId)
-        let paneSetChanged = arrangedPaneIds != lastArrangedPaneIds
-        lastArrangedPaneIds = arrangedPaneIds
-        if visiblePaneVCs.count > 1 && paneSetChanged {
-            DispatchQueue.main.async {
-                let totalWidth = self.paneSplitView.bounds.width
-                let dividerThickness = self.paneSplitView.dividerThickness
-                let count = CGFloat(visiblePaneVCs.count)
-                let totalDividers = dividerThickness * (count - 1)
-                let paneWidth = (totalWidth - totalDividers) / count
-                for i in 0..<(visiblePaneVCs.count - 1) {
-                    let position = paneWidth * CGFloat(i + 1) + dividerThickness * CGFloat(i)
-                    self.paneSplitView.setPosition(position, ofDividerAt: i)
-                }
-            }
-        }
-
-        updateSplitViewVisibility()
-
-        // A pane just appeared, disappeared, or changed which tab it shows —
-        // push each surviving pane the rows for its current tab.
-        refreshResultTabViews()
     }
 
     // MARK: - Active Tab Changed (results grid update)
@@ -1289,8 +1167,8 @@ class ContentViewController: NSViewController {
     /// The editor's share of the split, as the split view has it now.
     private func rememberSplitRatio() {
         let total = editorResultsSplit.bounds.height
-        guard total > 0, !paneSplitView.isHidden else { return }
-        savedSplitRatio = paneSplitView.frame.height / total
+        guard total > 0, !editorPane.view.isHidden else { return }
+        savedSplitRatio = editorPane.view.frame.height / total
     }
 
     private func applyExpandState() {
@@ -1301,7 +1179,7 @@ class ContentViewController: NSViewController {
         case .normal:
             // A hidden arranged subview is a collapsed one; un-hide first so
             // the divider has a pane to move.
-            paneSplitView.isHidden = false
+            editorPane.view.isHidden = false
             let editorHeight = min(total - resultsAreaChromeHeight - Self.minResultsGridHeight,
                                    max(Self.minEditorHeight, total * savedSplitRatio))
             editorResultsSplit.setPosition(editorHeight, ofDividerAt: 0)
@@ -1309,12 +1187,12 @@ class ContentViewController: NSViewController {
         case .editorExpanded:
             // The results area keeps only its chrome (the action bar holds the
             // expand buttons); the grid and chart are hidden below.
-            paneSplitView.isHidden = false
+            editorPane.view.isHidden = false
             editorResultsSplit.setPosition(total - resultsAreaChromeHeight, ofDividerAt: 0)
 
         case .resultsExpanded:
-            // Collapse the editor panes; the results area fills the split.
-            paneSplitView.isHidden = true
+            // Collapse the editor; the results area fills the split.
+            editorPane.view.isHidden = true
         }
         editorResultsSplit.adjustSubviews()
         // Show grid vs. chart per the active result tab's mode + expand state.
@@ -1405,12 +1283,11 @@ class ContentViewController: NSViewController {
             executeDirectSQL(sql)
         } else {
             // Cmd+Return — execute the segment at the cursor
-            if let segment = focusedPaneVC?.editorVC.getSegmentSQLAtCursor() {
+            if let segment = editorPane.editorVC.getSegmentSQLAtCursor() {
                 executeSegment(segment)
             } else {
                 // Fallback: no segments parsed, execute full editor text
-                let fullSQL = focusedPaneVC?.getSQL() ?? ""
-                executeDirectSQL(fullSQL)
+                executeDirectSQL(editorPane.getSQL())
             }
         }
     }
@@ -1425,17 +1302,16 @@ class ContentViewController: NSViewController {
         )
     }
 
-    /// Fires every SQL segment in the focused editor with a max of 3 concurrent
+    /// Fires every SQL segment in the editor with a max of 3 concurrent
     /// queries. As each finishes, the next from the queue starts. Identical-SQL
     /// segments are naturally deduplicated by the in-flight dedup check in
     /// `performQuery`.
     func runAllSegments() {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
-              stateManager.status(for: connectionId) == .connected,
-              let editor = focusedPaneVC?.editorVC else { return }
+              stateManager.status(for: connectionId) == .connected else { return }
 
-        let segments = editor.segments
+        let segments = editorPane.editorVC.segments
         guard !segments.isEmpty else { return }
 
         // Replace any in-progress batch (calling Run All twice = restart).
@@ -1620,7 +1496,7 @@ class ContentViewController: NSViewController {
         stateManager.updateTab(id: tabId) { tab in
             tab.runningQueries.append(runningQuery)
         }
-        focusedPaneVC?.clearErrorMarkers()
+        editorPane.clearErrorMarkers()
 
         // Ensure this tab has a workspace history record (created lazily on first
         // execute) and snapshot its editor text/variables now. The produced result
@@ -1743,7 +1619,7 @@ class ContentViewController: NSViewController {
             style: .error,
             duration: 3.0
         )
-        focusedPaneVC?.revealVariablesPanel()
+        editorPane.revealVariablesPanel()
     }
 
     /// Confirmation sheet for destructive SQL run from the editor. Same style
@@ -1941,7 +1817,7 @@ class ContentViewController: NSViewController {
         refreshResultTabViews()
 
         // Set segment color in gutter
-        focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
+        editorPane.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
 
         // Show this result in the grid
         if let result = tab.queryResult {
@@ -2013,7 +1889,7 @@ class ContentViewController: NSViewController {
 
         // Highlight source lines in the editor (skip if stale — line numbers may have shifted)
         if !tab.isStale {
-            focusedPaneVC?.highlightLines(tab.lineRange)
+            editorPane.highlightLines(tab.lineRange)
         }
 
         // History banner follows the selected result tab.
@@ -2025,7 +1901,7 @@ class ContentViewController: NSViewController {
         let closedTab = resultTabs.remove(at: idx)
 
         // Clear the segment color
-        focusedPaneVC?.setSegmentColor(nil, forSegmentIndex: closedTab.segmentIndex)
+        editorPane.setSegmentColor(nil, forSegmentIndex: closedTab.segmentIndex)
 
         if resultTabs.isEmpty {
             activeResultTabId = nil
@@ -2123,27 +1999,22 @@ class ContentViewController: NSViewController {
     }
 
     /// The single feed point for every result-tab surface. Decides between the
-    /// horizontal bar and the per-pane vertical panels from the setting, and
-    /// pushes each pane the rows of ITS active editor tab (the globally active
-    /// tab reads the live array; background tabs read the persisted store).
+    /// horizontal bar and the vertical panel from the setting, and pushes the
+    /// panel the rows of the active editor tab.
     private func refreshResultTabViews() {
         let vertical = stateManager.settings.verticalResultTabs
         updateHorizontalResultTabBar(visible: !vertical && !resultTabs.isEmpty)
-        for paneVC in editorPanes {
-            // In horizontal mode the panels stay in the hierarchy but are fed
-            // nothing, so a stale list is never shown if the user flips the
-            // setting back and forth.
-            let feed = vertical
-                ? resultTabFeed(forPane: paneVC.paneId)
-                : (rows: [ResultTabRowModel](), activeId: nil)
-            paneVC.updateResultTabs(feed.rows, activeId: feed.activeId)
-        }
+        // In horizontal mode the panel stays in the hierarchy but is fed
+        // nothing, so a stale list is never shown if the user flips the
+        // setting back and forth.
+        let feed = vertical ? resultTabFeed() : (rows: [ResultTabRowModel](), activeId: nil)
+        editorPane.updateResultTabs(feed.rows, activeId: feed.activeId)
     }
 
     /// Show or hide the horizontal bar, and rebuild its buttons only when it is
     /// on screen. `ResultTabBar.update` tears down and re-creates every button;
     /// in the default vertical mode the bar is hidden behind a zero-height
-    /// constraint, and that work ran on every `$panes` mutation and every 250 ms
+    /// constraint, and that work ran on every tab mutation and every 250 ms
     /// re-resolve tick while the user typed, only to be thrown away.
     ///
     /// Safe to gate on `visible` because this is the only place the bar's
@@ -2157,20 +2028,11 @@ class ContentViewController: NSViewController {
         resultTabBar.update(tabs: resultTabs, activeTabId: activeResultTabId)
     }
 
-    /// The rows one pane's vertical panel should show, and which of them to
-    /// highlight. A pane showing the globally active editor tab reads the live
-    /// array; a pane showing any other tab reads that tab's persisted store.
-    ///
-    /// The highlight for a background tab is its remembered result, not nil:
-    /// the panel is scoped to its own pane's tab, so the result that tab holds
-    /// is the truth. Passing nil drew an unfocused pane as though it had no
-    /// result at all.
-    private func resultTabFeed(forPane paneId: String) -> (rows: [ResultTabRowModel], activeId: String?) {
-        guard let paneTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId else {
-            return (rows: [], activeId: nil)
-        }
-        // One store for every editor tab, active or not — no branch.
-        let entry = resultStore[paneTabId]
+    /// The rows the vertical panel should show for the active editor tab, and
+    /// which of them to highlight.
+    private func resultTabFeed() -> (rows: [ResultTabRowModel], activeId: String?) {
+        guard let tabId = stateManager.activeTabId else { return (rows: [], activeId: nil) }
+        let entry = resultStore[tabId]
         return (rows: entry.tabs.map { $0.rowModel }, activeId: entry.activeId)
     }
 
@@ -2190,7 +2052,7 @@ class ContentViewController: NSViewController {
 
         let body: () -> Void = { [weak self] in
             guard let self else { return }
-            let text = self.focusedPaneVC?.getSQL() ?? ""
+            let text = self.editorPane.getSQL() ?? ""
             let segments = SQLSegmentParser.parse(text)
 
             for i in self.resultTabs.indices {
@@ -2208,9 +2070,9 @@ class ContentViewController: NSViewController {
                 }
             }
 
-            self.focusedPaneVC?.clearSegmentColors()
+            self.editorPane.clearSegmentColors()
             for tab in self.resultTabs where !tab.isStale {
-                self.focusedPaneVC?.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
+                self.editorPane.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
             }
 
             self.refreshResultTabViews()
@@ -2461,16 +2323,13 @@ class ContentViewController: NSViewController {
 
     // MARK: - Query Failures
 
-    /// Push the log state of `tabId` to the pane that holds it. No effect when
-    /// that pane shows a different tab — the state arrives later, through
-    /// `didChangeActiveTab`. The failed tab is often not the focused pane's tab,
-    /// which is why this never uses `focusedPaneVC`.
+    /// Push the log state of `tabId` to the editor. No effect when the editor
+    /// shows a different tab — the state arrives later, through
+    /// `didChangeActiveTab`.
     private func refreshErrorBadge(forTabId tabId: String) {
         guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
-              let paneId = tab.paneId,
-              let pane = editorPanes.first(where: { $0.paneId == paneId }),
-              pane.showsTab(tabId) else { return }
-        pane.setErrorState(total: tab.failureLog.count, unread: tab.failureLog.unreadCount)
+              editorPane.showsTab(tabId) else { return }
+        editorPane.setErrorState(total: tab.failureLog.count, unread: tab.failureLog.unreadCount)
     }
 
     /// Record a failure on its tab, then decide what the user sees. The sheet and
@@ -2480,7 +2339,7 @@ class ContentViewController: NSViewController {
         stateManager.updateTab(id: failure.tabId) { $0.failureLog.append(failure) }
 
         if stateManager.activeTabId == failure.tabId {
-            markEditor(with: failure, in: focusedPaneVC)
+            markEditor(with: failure, in: editorPane)
             let entries = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.entries ?? []
             errorPresenter.failureDidArrive(failure, entries: entries, delegate: self)
         }
@@ -2502,9 +2361,8 @@ class ContentViewController: NSViewController {
     /// and gives nil when the move would be a guess (substitution changed the
     /// text, the user has edited, or the segment is in the document twice). Nil
     /// marks nothing: a red underline under innocent text is worse than none.
-    private func markEditor(with failure: QueryFailure, in pane: EditorPaneVC?) {
-        guard let pane,
-              let location = failure.location,
+    private func markEditor(with failure: QueryFailure, in pane: EditorPaneVC) {
+        guard let location = failure.location,
               let range = location.range(of: failure.sql, in: pane.getSQL()) else { return }
         pane.markError(range: range)
     }
@@ -2516,10 +2374,9 @@ class ContentViewController: NSViewController {
         // A cancellation is the user's own doing, so it never raises an alert.
         guard failure.kind == .error else { return }
 
-        let focusedPane = stateManager.panes.first { $0.id == stateManager.focusedPaneId }
         let channel = QueryFailureChannel.choose(
             appInactive: !NSApp.isActive,
-            isBackgroundTab: focusedPane?.activeTabId != failure.tabId,
+            isBackgroundTab: stateManager.activeTabId != failure.tabId,
             notifyWhenAppInactive: stateManager.settings.query.notifyWhenAppInactive,
             notifyWhenBackgroundTab: stateManager.settings.query.notifyWhenBackgroundTab
         )
@@ -2572,14 +2429,10 @@ class ContentViewController: NSViewController {
 
 extension ContentViewController: EditorPaneDelegate {
 
-    func editorPane(_ pane: EditorPaneVC, didFocus paneId: String) {
-        // Pane focus is handled by state manager; results update via activeTabId
-    }
-
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?) {
-        // activeTabId publisher handles results grid update. The error badge is
-        // per pane, so it is refreshed here rather than from that publisher: a
-        // tab change in an unfocused pane does not always move activeTabId.
+        // activeTabId publisher handles results grid update. The error badge
+        // is refreshed here, after the editor has switched tabs, so it shows
+        // the incoming tab's log.
         guard let tabId else {
             pane.setErrorState(total: 0, unread: 0)
             return
@@ -2587,62 +2440,27 @@ extension ContentViewController: EditorPaneDelegate {
         refreshErrorBadge(forTabId: tabId)
     }
 
-    func editorPane(_ pane: EditorPaneVC, didRequestShowErrors paneId: String) {
-        guard let tabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId,
+    func editorPaneDidRequestShowErrors(_ pane: EditorPaneVC) {
+        guard let tabId = stateManager.activeTabId,
               let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
               let index = log.newestUnreadIndex else { return }
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
     }
 
     func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String) {
-        guard let paneTabId = stateManager.panes.first(where: { $0.id == pane.paneId })?.activeTabId else { return }
-        if paneTabId != stateManager.activeTabId {
-            // Synchronous: `activeTabChanged` has swapped `resultTabs` over to
-            // this tab by the time this returns.
-            stateManager.selectTab(id: paneTabId, inPane: pane.paneId)
-        }
         selectResultTab(resultTabId)
     }
 
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String) {
-        guard let paneTabId = stateManager.panes.first(where: { $0.id == pane.paneId })?.activeTabId else { return }
-        if paneTabId == stateManager.activeTabId {
-            closeResultTab(resultTabId)
-            return
-        }
-        // Background editor tab: mutate its store entry directly. The grid
-        // belongs to whichever tab is active now, so it is deliberately left
-        // alone. The gutter is NOT: it is per pane, and `setSegmentColor` is
-        // only ever called on the focused pane, so this pane still carries the
-        // stripe it was painted while focused and nothing else will clear it.
-        // Clear this row's stripe on `pane` — the pane the closed row actually
-        // belongs to — or it keeps a coloured bar for a result that no longer
-        // exists.
-        var entry = resultStore[paneTabId]
-        guard let idx = entry.tabs.firstIndex(where: { $0.id == resultTabId }) else { return }
-        let closedSegmentIndex = entry.tabs[idx].segmentIndex
-        entry.tabs.remove(at: idx)
-        pane.setSegmentColor(nil, forSegmentIndex: closedSegmentIndex)
-        if entry.activeId == resultTabId {
-            // The neighbour, by the same rule `closeResultTab` uses on the
-            // focused pane — otherwise the same gesture moves the highlight to
-            // the bottom of the list here and to the next row there. An
-            // emptied list has no active result.
-            let newIdx = min(idx, entry.tabs.count - 1)
-            entry.activeId = entry.tabs.isEmpty ? nil : entry.tabs[newIdx].id
-        }
-        resultStore[paneTabId] = entry
-        refreshResultTabViews()
+        closeResultTab(resultTabId)
     }
 
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String) {
         showResultTabDetail(resultTabId)
     }
 
-    /// Like the detail handler above, this deliberately ignores `pane` and does
-    /// not select the row: naming a result is not a request to look at it, and
-    /// from an unfocused pane's panel selecting would switch the active editor
-    /// tab and swap the grid. `renameResultTab` finds the tab wherever it lives.
+    /// Like the detail handler above, this does not select the row: naming a
+    /// result is not a request to look at it.
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String) {
         renameResultTab(resultTabId)
     }
@@ -2652,7 +2470,6 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC) {
-        stateManager.focusPane(id: pane.paneId)
         executeQuery()
     }
 
@@ -2677,16 +2494,14 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment) {
-        stateManager.focusPane(id: pane.paneId)
         executeSegment(segment)
     }
 
     func editorPaneDidRequestRunAll(_ pane: EditorPaneVC) {
-        stateManager.focusPane(id: pane.paneId)
         runAllSegments()
     }
 
-    func editorPane(_ pane: EditorPaneVC, didEditText paneId: String) {
+    func editorPaneDidEditText(_ pane: EditorPaneVC) {
         reResolveAllResultTabs()
     }
 }
@@ -3659,8 +3474,8 @@ extension ContentViewController {
     @objc private func handleInsertTextInEditor(_ notification: Notification) {
         guard let text = notification.userInfo?["text"] as? String else { return }
         guard stateManager.activeTab != nil else { return }
-        focusedPaneVC?.insertText(text)
-        focusedPaneVC?.focus()
+        editorPane.insertText(text)
+        editorPane.focus()
     }
 
     @objc private func handleQueriesWillBeCancelled(_ note: Notification) {
@@ -3696,7 +3511,7 @@ extension ContentViewController {
 
         // File-backed tab: write back to the source URL.
         if let url = tab.sourceURL {
-            let currentSQL = focusedPaneVC?.getSQL() ?? ""
+            let currentSQL = editorPane.getSQL()
             do {
                 try SQLFileWriter.write(currentSQL, to: url)
                 stateManager.updateTab(id: tab.id) {
@@ -3715,7 +3530,7 @@ extension ContentViewController {
 
         // Saved-query-backed tab: update the saved query in place.
         if let savedId = tab.savedQueryId {
-            let currentSQL = focusedPaneVC?.getSQL() ?? ""
+            let currentSQL = editorPane.getSQL()
             do {
                 let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: tab.variables.toSavedJSON())
                 _ = try PharosCore.updateSavedQuery(update)
@@ -3738,7 +3553,7 @@ extension ContentViewController {
 
     @objc func menuExportEditorAsSQL(_: Any?) {
         guard let tab = stateManager.activeTab else { return }
-        let raw = focusedPaneVC?.getSQL() ?? ""
+        let raw = editorPane.getSQL()
         let text = VariableSubstitutor.render(raw, with: tab.variables).sql
 
         let panel = NSSavePanel()
@@ -3766,7 +3581,7 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: focusedPaneVC?.getSQL() ?? "",
+            sql: editorPane.getSQL(),
             variables: tab.variables
         ) { [weak self] action in
             guard let self else { return }
@@ -3829,32 +3644,26 @@ extension ContentViewController {
     }
 
     @objc func menuFormatSQL(_: Any?) {
-        focusedPaneVC?.formatSQL()
+        editorPane.formatSQL()
     }
 }
 
 // MARK: - NSSplitViewDelegate
 
-// Delegate for BOTH split views: `paneSplitView` (editor panes, side by
-// side) and `editorResultsSplit` (editor above results). Every method
-// branches on which one is asking.
+// Delegate for `editorResultsSplit` (editor above results).
 extension ContentViewController: NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if splitView === editorResultsSplit { return Self.minEditorHeight }
-        return 100 // Minimum editor pane width
+        Self.minEditorHeight
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if splitView === editorResultsSplit {
-            // `setPosition` consults this too (measured: the editor-expanded
-            // position stopped 60pt short), so the expanded state may take
-            // the grid's minimum; a drag never can, because a drag from an
-            // expanded state restores the normal state first.
-            let gridMinimum = expandState == .editorExpanded ? 0 : Self.minResultsGridHeight
-            return splitView.bounds.height - resultsAreaChromeHeight - gridMinimum
-        }
-        return splitView.bounds.width - 100 // Minimum right editor pane width
+        // `setPosition` consults this too (measured: the editor-expanded
+        // position stopped 60pt short), so the expanded state may take
+        // the grid's minimum; a drag never can, because a drag from an
+        // expanded state restores the normal state first.
+        let gridMinimum = expandState == .editorExpanded ? 0 : Self.minResultsGridHeight
+        return splitView.bounds.height - resultsAreaChromeHeight - gridMinimum
     }
 
     /// The action bar is the editor/results divider: its blank stretch starts
@@ -3973,11 +3782,10 @@ extension ContentViewController: QueryErrorSheetDelegate {
     func errorSheet(_ sheet: QueryErrorSheet, didRequestGoToError failure: QueryFailure) {
         errorPresenter.close()
         stateManager.selectTab(id: failure.tabId)
-        guard let location = failure.location,
-              let paneId = stateManager.tabs.first(where: { $0.id == failure.tabId })?.paneId,
-              let pane = editorPanes.first(where: { $0.paneId == paneId }) else { return }
-        // The pane loaded the tab's text inside `selectTab` (settled, synchronous
-        // delivery), so `getSQL()` already reads the failing document.
+        guard let location = failure.location else { return }
+        let pane = editorPane
+        // The editor loaded the tab's text inside `selectTab` (settled,
+        // synchronous delivery), so `getSQL()` already reads the failing document.
         markEditor(with: failure, in: pane)
         guard let range = location.range(of: failure.sql, in: pane.getSQL()) else {
             // The sheet cannot know the document text, so its button stays

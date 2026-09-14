@@ -40,7 +40,6 @@ struct QueryTab: Identifiable {
     /// error button, instead of taking over the results grid.
     var failureLog = QueryFailureLog()
     var savedQueryId: String?
-    var paneId: String?
     /// Filesystem URL this tab was opened from, if any. Set when the tab is
     /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
     var sourceURL: URL?
@@ -61,12 +60,11 @@ struct QueryTab: Identifiable {
     /// executed results associate to this workspace and appear as one history item.
     var workspaceId: String?
 
-    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "", paneId: String? = nil) {
+    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "") {
         self.id = id
         self.name = name
         self.connectionId = connectionId
         self.schemaName = schemaName
         self.sql = sql
-        self.paneId = paneId
     }
 }

@@ -87,9 +87,7 @@ final class QueryNotifier: NSObject {
 
         // Gate 2: focus conditions (OR).
         let appInactive = !NSApp.isActive
-        let focusedPaneId = AppStateManager.shared.focusedPaneId
-        let focusedPane = AppStateManager.shared.panes.first { $0.id == focusedPaneId }
-        let isBackgroundTab = focusedPane?.activeTabId != tabId
+        let isBackgroundTab = AppStateManager.shared.activeTabId != tabId
 
         let appInactiveAllows = settings.notifyWhenAppInactive && appInactive
         let backgroundTabAllows = settings.notifyWhenBackgroundTab && isBackgroundTab

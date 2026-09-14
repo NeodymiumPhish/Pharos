@@ -90,7 +90,6 @@
 		6542D77ED87980EB583419A1 /* AuthoredLabelTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */; };
 		65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028712E3F9210287025ADAE8 /* AppStateManager.swift */; };
 		65F348FC51CDFF4E92D5E98D /* TagManagerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD157725BA52EAD6B6DCC696 /* TagManagerModel.swift */; };
-		685684742A13BC19F782590E /* EditorPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90A00A6C3C037EC51D40B003 /* EditorPane.swift */; };
 		694A0DA60C72BE7BC271173E /* TagGlob.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EB1F7A6CABE76CAD424B5B6 /* TagGlob.swift */; };
 		69E58A0903A6B27E9AA32F6E /* QueryProgressIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4039E0B791427A93B5D1A3EF /* QueryProgressIndicator.swift */; };
 		6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AC102665AFB681E295853B /* FilterCheckRowView.swift */; };
@@ -322,7 +321,6 @@
 		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
 		87AC310E071D54672B86BAFE /* InspectorOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorOwnership.swift; sourceTree = "<group>"; };
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
-		90A00A6C3C037EC51D40B003 /* EditorPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPane.swift; sourceTree = "<group>"; };
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
 		935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayEscape.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
@@ -548,7 +546,6 @@
 			children = (
 				46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */,
 				EBF3A05751881D6DB6B2AE26 /* Connection.swift */,
-				90A00A6C3C037EC51D40B003 /* EditorPane.swift */,
 				565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */,
 				E81B37D867FA93870C9481FC /* PartitionOrdering.swift */,
 				0E3B50BE19F7837639A56643 /* QueryFailure.swift */,
@@ -903,7 +900,6 @@
 				7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */,
 				F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */,
 				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
-				685684742A13BC19F782590E /* EditorPane.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
 				0B25DA68EEA7AD800FE3EEFF /* EditorResultsSplitView.swift in Sources */,
 				0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */,

@@ -3,7 +3,6 @@ import Combine
 
 /// Delegate for EditorPaneVC events that need to be handled by the parent.
 protocol EditorPaneDelegate: AnyObject {
-    func editorPane(_ pane: EditorPaneVC, didFocus paneId: String)
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
     func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
@@ -14,19 +13,19 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
-    func editorPane(_ pane: EditorPaneVC, didEditText paneId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestShowErrors paneId: String)
+    func editorPaneDidEditText(_ pane: EditorPaneVC)
+    func editorPaneDidRequestShowErrors(_ pane: EditorPaneVC)
     func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
 }
 
-/// Self-contained editor pane that owns a PaneTabBar and a QueryEditorVC.
-/// Each pane manages its own set of tabs independently.
+/// The editor area: the tab bar, the SQL editor and its toolbar, the
+/// variables panel and the vertical result-tabs panel. It shows
+/// `AppStateManager.activeTab`.
 class EditorPaneVC: NSViewController {
 
-    let paneId: String
     let editorVC = QueryEditorVC()
     private(set) var paneTabBar: PaneTabBar!
 
@@ -135,8 +134,7 @@ class EditorPaneVC: NSViewController {
 
     // MARK: - Init
 
-    init(paneId: String) {
-        self.paneId = paneId
+    init() {
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -156,12 +154,12 @@ class EditorPaneVC: NSViewController {
         self.view = container
 
         // Tab bar
-        paneTabBar = PaneTabBar(paneId: paneId)
+        paneTabBar = PaneTabBar()
         paneTabBar.translatesAutoresizingMaskIntoConstraints = false
 
         paneTabBar.onSelectTab = { [weak self] tabId in
             guard let self else { return }
-            self.stateManager.selectTab(id: tabId, inPane: self.paneId)
+            self.stateManager.selectTab(id: tabId)
         }
         paneTabBar.onCloseTab = { [weak self] tabId in
             guard let self else { return }
@@ -169,15 +167,11 @@ class EditorPaneVC: NSViewController {
         }
         paneTabBar.onNewTab = { [weak self] in
             guard let self else { return }
-            self.stateManager.createTab(inPane: self.paneId)
+            self.stateManager.createTab()
         }
         paneTabBar.onDoubleClickTab = { [weak self] tabId in
             guard let self else { return }
             self.delegate?.editorPane(self, didRequestRenameTab: tabId)
-        }
-        paneTabBar.onReorderTabs = { [weak self] newTabIds in
-            guard let self else { return }
-            self.stateManager.reorderTabs(newTabIds, inPane: self.paneId)
         }
 
         // Editor toolbar (below tab bar)
@@ -190,7 +184,7 @@ class EditorPaneVC: NSViewController {
         }
         editorVC.onTextEdited = { [weak self] in
             guard let self else { return }
-            self.delegate?.editorPane(self, didEditText: self.paneId)
+            self.delegate?.editorPaneDidEditText(self)
             // Adding or removing a `{{token}}` changes which variables are
             // referenced, and therefore which of them are flagged in the panel.
             self.scheduleReferencedNamesScan()
@@ -272,20 +266,20 @@ class EditorPaneVC: NSViewController {
             height: max(0, container.bounds.height - totalHeaderHeight)
         )
 
-        // Observe pane state changes. Settled publishers, no run-loop hop: the
-        // pane has loaded its tab's text by the time `selectTab` returns (see
-        // `AppStateManager.tabsSettled`).
-        stateManager.panesSettled
-            .sink { [weak self] panes in
-                self?.paneStateChanged(panes)
+        // Observe the active tab. Settled publisher, no run-loop hop: the
+        // editor has loaded its tab's text by the time `selectTab` returns
+        // (see `AppStateManager.tabsSettled`).
+        stateManager.activeTabIdSettled
+            .sink { [weak self] tabId in
+                self?.activeTabIdChanged(tabId)
             }
             .store(in: &cancellables)
 
         // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus.
         // Dedup on the fields this sink actually reads: id / name / isDirty /
-        // isExecuting / paneId / segmentIndex set. Without this, every
+        // isExecuting / segmentIndex set. Without this, every
         // keystroke (which updates `tab.sql` via updateTab) republishes the tabs
-        // and re-rebuilt all four UI surfaces on every pane in the window.
+        // and re-rebuilt all four UI surfaces.
         stateManager.tabsSettled
             .removeDuplicates { lhs, rhs in
                 guard lhs.count == rhs.count else { return false }
@@ -294,7 +288,6 @@ class EditorPaneVC: NSViewController {
                     if a.id != b.id
                         || a.name != b.name
                         || a.isDirty != b.isDirty
-                        || a.paneId != b.paneId
                         || a.isExecuting != b.isExecuting
                         || a.connectionId != b.connectionId
                         || a.schemaName != b.schemaName
@@ -350,12 +343,6 @@ class EditorPaneVC: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
             .store(in: &cancellables)
-
-        // Track focus: when editor text view becomes first responder, notify delegate
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(windowDidUpdate(_:)),
-            name: NSWindow.didUpdateNotification, object: nil
-        )
 
     }
 
@@ -419,14 +406,11 @@ class EditorPaneVC: NSViewController {
 
     private var lastActiveTabId: String?
 
-    private func paneStateChanged(_ panes: [EditorPane]) {
-        guard let pane = panes.first(where: { $0.id == paneId }) else { return }
+    private func activeTabIdChanged(_ tabId: String?) {
+        refreshTabBar()
 
-        let paneTabs = stateManager.tabs(forPane: paneId)
-        paneTabBar.update(tabs: paneTabs, activeTabId: pane.activeTabId)
-
-        // Detect active tab change
-        if pane.activeTabId != lastActiveTabId {
+        // Detect active tab change (the publisher also fires on a re-select).
+        if tabId != lastActiveTabId {
             let oldTabId = lastActiveTabId
             // Settle any pending variable-name edit in the OUTGOING tab's
             // panel *before* `lastActiveTabId` moves on to the new tab. This
@@ -437,16 +421,16 @@ class EditorPaneVC: NSViewController {
             // write the outgoing tab's rename into the incoming tab's stored
             // variables instead — see `QueryVariablesPanelVC.settlePendingEdit`.
             variablesPanelVC.settlePendingEdit()
-            lastActiveTabId = pane.activeTabId
-            tabChanged(from: oldTabId, to: pane.activeTabId)
-            delegate?.editorPane(self, didChangeActiveTab: pane.activeTabId)
+            lastActiveTabId = tabId
+            tabChanged(from: oldTabId, to: tabId)
+            delegate?.editorPane(self, didChangeActiveTab: tabId)
         }
     }
 
-    /// Read the pane's active tab from the tabs array and push its running-segment
+    /// Read the active tab from the tabs array and push its running-segment
     /// indices to the gutter (or empty set if the tab isn't executing).
     private func updateGutterPulseForActiveTab(tabs: [QueryTab]) {
-        guard let activeTabId = stateManager.panes.first(where: { $0.id == paneId })?.activeTabId,
+        guard let activeTabId = stateManager.activeTabId,
               let tab = tabs.first(where: { $0.id == activeTabId }) else {
             editorVC.setRunningSegmentIndices([])
             return
@@ -455,9 +439,7 @@ class EditorPaneVC: NSViewController {
     }
 
     private func refreshTabBar() {
-        guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
-        let paneTabs = stateManager.tabs(forPane: paneId)
-        paneTabBar.update(tabs: paneTabs, activeTabId: pane.activeTabId)
+        paneTabBar.update(tabs: stateManager.tabs, activeTabId: stateManager.activeTabId)
     }
 
     // MARK: - Tab Switching
@@ -505,20 +487,6 @@ class EditorPaneVC: NSViewController {
         updateSchemaPopupTitle()
         syncVariablesPanel()
         syncResultTabsPanel()
-    }
-
-    // MARK: - Focus Tracking
-
-    @objc private func windowDidUpdate(_ notification: Notification) {
-        // Early exit if this pane is already focused (most common case)
-        guard stateManager.focusedPaneId != paneId else { return }
-        guard let window = view.window,
-              let responder = window.firstResponder as? NSView else { return }
-
-        if responder === editorVC.textView || responder.isDescendant(of: editorVC.textView) {
-            stateManager.focusPane(id: paneId)
-            delegate?.editorPane(self, didFocus: paneId)
-        }
     }
 
     // MARK: - Public API
@@ -804,7 +772,7 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func showErrors() {
-        delegate?.editorPane(self, didRequestShowErrors: paneId)
+        delegate?.editorPaneDidRequestShowErrors(self)
     }
 
     /// `offset` is how far the pointer has moved since the drag began; dragging
@@ -1015,8 +983,7 @@ class EditorPaneVC: NSViewController {
     }
 
     private func updateEditorToolbarState() {
-        guard let pane = stateManager.panes.first(where: { $0.id == paneId }) else { return }
-        let activeTab = stateManager.tabs.first { $0.id == pane.activeTabId }
+        let activeTab = self.activeTab
         let count = activeTab?.runningQueries.count ?? 0
 
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
@@ -1045,19 +1012,17 @@ class EditorPaneVC: NSViewController {
 
     // MARK: - Per-Tab Connection / Schema Helpers
 
-    /// Returns the active tab for this pane.
+    /// The active tab.
     private var activeTab: QueryTab? {
-        guard let pane = stateManager.panes.first(where: { $0.id == paneId }),
-              let tabId = pane.activeTabId else { return nil }
-        return stateManager.tabs.first { $0.id == tabId }
+        stateManager.activeTab
     }
 
-    /// The connection ID for the active tab in this pane.
+    /// The connection ID for the active tab.
     private var tabConnectionId: String? {
         activeTab?.connectionId
     }
 
-    /// The schema name for the active tab in this pane.
+    /// The schema name for the active tab.
     private var tabSchemaName: String? {
         activeTab?.schemaName
     }
