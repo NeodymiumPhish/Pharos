@@ -33,7 +33,7 @@ protocol ResultsFindControllerDelegate: AnyObject {
 /// the cell's text anywhere in the find path, so display length and raw length
 /// never have to agree. Anything added here that DOES index into cell text must
 /// index the raw string and convert, or this stops being true.
-class ResultsFindController: NSObject, NSSearchFieldDelegate {
+class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRouting {
 
     // Find bar UI references (received at init)
     private let tableView: NSTableView
@@ -132,6 +132,17 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate {
         let displayRows = delegate?.findUnfilteredDisplayRows ?? []
         delegate?.findControllerDidClose(displayRows: displayRows)
         delegate?.findControllerDidToggleVisibility(visible: false)
+    }
+
+    /// "Use Selection for Find" (⌘E): reveals the find bar if needed, puts
+    /// `text` in the field, and runs the search immediately — mirrors the
+    /// standard Cocoa Find submenu behavior.
+    func setSearchString(_ text: String) {
+        if !isFindVisible {
+            showFind()
+        }
+        findField.stringValue = text
+        findFieldChanged(findField)
     }
 
     // MARK: - Filter Toggle & Clear

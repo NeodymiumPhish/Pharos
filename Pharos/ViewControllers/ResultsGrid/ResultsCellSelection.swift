@@ -319,10 +319,38 @@ class CellSelectionController {
     }
 }
 
+// MARK: - Find Routing
+
+/// The slice of `ResultsFindController` that `ResultsTableView` needs to
+/// route the Edit > Find submenu. Kept as its own protocol (rather than
+/// naming `ResultsFindController` directly) so this file — and the standalone
+/// test harnesses that compile it on its own (test-grid-column-resize.sh,
+/// test-sql-copy-format.sh, test-tag-copy-export.sh) — don't have to pull in
+/// `ResultsFindController.swift` and its `ResultsDataSource`/`CellAddress`
+/// dependencies just to link. `ResultsFindController` conforms to this in its
+/// own file.
+protocol ResultsTableFindRouting: AnyObject {
+    var isFindVisible: Bool { get }
+    func showFind()
+    func closeFind(_ sender: Any?)
+    func findNext(_ sender: Any?)
+    func findPrevious(_ sender: Any?)
+    func setSearchString(_ text: String)
+}
+
 // MARK: - ResultsTableView
 
 class ResultsTableView: NSTableView {
     var cellSelectionController: CellSelectionController?
+
+    /// Wired by `ResultsGridVC` alongside `findController` itself, so
+    /// `performTextFinderAction` below can route ⌘F / ⌘G / ⌘⇧G / ⌘E to it
+    /// without the table needing to know about `ResultsGridVC` at all.
+    weak var findController: ResultsTableFindRouting?
+
+    /// Supplies the display text for "Use Selection for Find" (⌘E). Wired by
+    /// `ResultsGridVC` next to `findController`.
+    var selectedCellDisplayText: (() -> String?)?
 
     /// Scroll room past the right end of the columns: the table keeps itself
     /// this much wider than they are whenever they overflow the viewport, so
@@ -423,5 +451,63 @@ class ResultsTableView: NSTableView {
         let clipped = clipRect.intersection(dataRegion)
         guard !clipped.isEmpty else { return }
         super.drawGrid(inClipRect: clipped)
+    }
+
+    // MARK: - Find (Edit > Find submenu)
+
+    /// Routes the standard Find submenu (nil-target, tag = `NSTextFinder.Action`)
+    /// to this table's `findController` when the table is first responder.
+    /// Mirrors `NSTextView`'s own `performTextFinderAction(_:)` so a single
+    /// menu item works for both the editor and the grid.
+    @objc override func performTextFinderAction(_ sender: Any?) {
+        guard let tag = Self.textFinderActionTag(from: sender),
+              let action = NSTextFinder.Action(rawValue: tag),
+              let findController else { return }
+
+        switch action {
+        case .showFindInterface:
+            // `showFind()` already no-ops to focusing the field when the bar
+            // is visible — never toggle-close it from here.
+            findController.showFind()
+        case .hideFindInterface:
+            findController.closeFind(nil)
+        case .nextMatch:
+            findController.findNext(nil)
+        case .previousMatch:
+            findController.findPrevious(nil)
+        case .setSearchString:
+            guard let text = selectedCellDisplayText?(), !text.isEmpty else { return }
+            findController.setSearchString(text)
+        default:
+            break
+        }
+    }
+
+    fileprivate static func textFinderActionTag(from sender: Any?) -> Int? {
+        if let menuItem = sender as? NSMenuItem { return menuItem.tag }
+        if let validated = sender as? NSValidatedUserInterfaceItem { return validated.tag }
+        return nil
+    }
+
+    /// Find Next / Find Previous are only meaningful while the find bar is
+    /// showing; Find… (and everything else routed elsewhere) always enabled.
+    /// NSTableView already conforms to `NSUserInterfaceValidations`, so this
+    /// overrides its default rather than declaring the conformance again;
+    /// unrelated actions fall back to "does this responder implement the
+    /// selector at all", which is what the inherited default does too.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(performTextFinderAction(_:)) else {
+            guard let action = item.action else { return false }
+            return responds(to: action)
+        }
+        guard let tag = Self.textFinderActionTag(from: item),
+              let action = NSTextFinder.Action(rawValue: tag) else { return true }
+
+        switch action {
+        case .nextMatch, .previousMatch:
+            return findController?.isFindVisible ?? false
+        default:
+            return true
+        }
     }
 }

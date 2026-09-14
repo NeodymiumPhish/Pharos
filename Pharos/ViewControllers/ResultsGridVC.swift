@@ -315,6 +315,8 @@ class ResultsGridVC: NSViewController {
             findNextButton: findNextButton, findCloseButton: findCloseButton
         )
         findController.delegate = self
+        tableView.findController = findController
+        tableView.selectedCellDisplayText = { [weak self] in self?.selectedCellDisplayTextForFind() }
 
         sortController = ResultsSortController(tableView: tableView, resetSortButton: resetSortButton)
         sortController.delegate = self
@@ -792,6 +794,28 @@ class ResultsGridVC: NSViewController {
         }
     }
     @objc func showFilter() { findController.showFilter() }
+
+    /// Display text for "Use Selection for Find" (⌘E): the active cell when
+    /// one is set, otherwise the first selected row's first data column.
+    func selectedCellDisplayTextForFind() -> String? {
+        guard let state = cellSelectionController?.state else { return nil }
+
+        func value(displayRow: Int, column: Int) -> String? {
+            guard displayRow >= 0, displayRow < displayRows.count else { return nil }
+            let dataRow = displayRows[displayRow]
+            guard dataRow >= 0, dataRow < rows.count else { return nil }
+            guard column >= 0, column < rows[dataRow].count else { return nil }
+            let cell = rows[dataRow][column]
+            return cell.isNull ? nil : cell.displayString
+        }
+
+        let fdc = cellSelectionController.firstDataColumn
+        if !state.isRowMode, let pos = state.active {
+            return value(displayRow: pos.row, column: pos.column - fdc)
+        }
+        guard let displayRow = state.selectedRowIndices().first else { return nil }
+        return value(displayRow: displayRow, column: fdc)
+    }
 
     // MARK: - Pin Results
 

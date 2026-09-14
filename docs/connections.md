@@ -18,7 +18,7 @@ nav_order: 3
 
 ## Overview
 
-Connections are managed in the **Connections Manager** window (**Cmd+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
+Connections are managed in the **Connections Manager** window (**Cmd+Shift+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
 
 ## The Connections Manager
 

@@ -29,7 +29,7 @@ nav_order: 17
 
 | Action | Shortcut |
 |--------|----------|
-| Manage Connections… | Cmd+N |
+| Manage Connections… | Cmd+Shift+N |
 | Refresh Metadata | Cmd+Shift+R |
 | Open… (SQL file) | Cmd+O |
 | New Tab | Cmd+T |
@@ -47,7 +47,11 @@ nav_order: 17
 | Redo | Cmd+Shift+Z |
 | Cut / Copy / Paste | Cmd+X / Cmd+C / Cmd+V |
 | Select All | Cmd+A |
-| Find… (in results) | Cmd+F |
+| Find… | Cmd+F |
+| Find Next | Cmd+G |
+| Find Previous | Cmd+Shift+G |
+| Use Selection for Find | Cmd+E |
+| Jump to Selection | Cmd+J |
 | Filter Results… | Cmd+Shift+F |
 
 ## Query
@@ -72,6 +76,12 @@ nav_order: 17
 | Action | Shortcut |
 |--------|----------|
 | Minimize | Cmd+M |
+
+## Help
+
+| Action | Shortcut |
+|--------|----------|
+| Pharos Help | Cmd+? |
 
 ## In the Editor
 

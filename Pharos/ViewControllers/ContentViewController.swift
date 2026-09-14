@@ -3681,6 +3681,35 @@ extension ContentViewController {
         resultsVC.showFilter()
     }
 
+    /// Fallback for the Edit > Find submenu when neither the editor nor the
+    /// results grid is first responder (both implement
+    /// `performTextFinderAction(_:)` themselves and are tried first via the
+    /// responder chain since the menu items use a nil target).
+    @objc override func performTextFinderAction(_ sender: Any?) {
+        let tag: Int?
+        if let menuItem = sender as? NSMenuItem {
+            tag = menuItem.tag
+        } else if let validated = sender as? NSValidatedUserInterfaceItem {
+            tag = validated.tag
+        } else {
+            tag = nil
+        }
+        guard let tag, let action = NSTextFinder.Action(rawValue: tag) else { return }
+
+        switch action {
+        case .showFindInterface:
+            resultsVC.showFind()
+        case .hideFindInterface:
+            resultsVC.findController.closeFind(nil)
+        case .nextMatch:
+            resultsVC.findController.findNext(nil)
+        case .previousMatch:
+            resultsVC.findController.findPrevious(nil)
+        default:
+            break
+        }
+    }
+
     @objc func menuTagRow(_ sender: Any?) {
         resultsVC.presentTagSheet(sender)
     }
@@ -3860,6 +3889,15 @@ extension ContentViewController: NSMenuItemValidation {
     /// Cancel; every other menu item keeps its always-enabled behaviour, so
     /// the default MUST stay `true`.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(performTextFinderAction(_:)) {
+            guard let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return true }
+            switch action {
+            case .nextMatch, .previousMatch:
+                return resultsVC.findController.isFindVisible
+            default:
+                return true
+            }
+        }
         if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
         if menuItem.action == #selector(menuRunAllQueries(_:)) { return canRunQuery }

@@ -93,6 +93,11 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuSaveQueryAs(_ sender: Any?) { contentVC.menuSaveQueryAs(sender) }
     @objc func menuExportEditorAsSQL(_ sender: Any?) { contentVC.menuExportEditorAsSQL(sender) }
 
+    /// Edit > Find with the focus in the sidebar or the inspector: the editor
+    /// and the grid handle it themselves when they are first responder; here
+    /// the content controller's fallback (the grid find bar) takes it.
+    override func performTextFinderAction(_ sender: Any?) { contentVC.performTextFinderAction(sender) }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         // The two standard split view actions are ours to validate: this
         // override shadows NSSplitViewController's own validation, which is

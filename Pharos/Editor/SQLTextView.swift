@@ -131,6 +131,7 @@ class SQLTextView: NSTextView {
         smartInsertDeleteEnabled = false
         isAutomaticTextCompletionEnabled = false
         usesFindBar = true
+        isIncrementalSearchingEnabled = true
 
         font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textColor = .labelColor

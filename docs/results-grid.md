@@ -70,7 +70,7 @@ Press **Esc** or click the **Clear Selection** button to clear. The selection dr
 
 ## Find in Results
 
-Press **Cmd+F** (or **Edit > Find…**) to open the find controls in the action bar. Type to highlight all matching cells, with a "N of M" match counter. Navigate matches with the Previous/Next buttons or **Enter**/**Shift+Enter** — the grid scrolls to each match. Press **Escape** to close.
+Press **Cmd+F** (or **Edit > Find > Find…**) to open the find controls in the action bar — ⌘F finds in whichever view has focus, so click into the grid first. Type to highlight all matching cells, with a "N of M" match counter. Navigate matches with the Previous/Next buttons, **Cmd+G**/**Cmd+Shift+G**, or **Enter**/**Shift+Enter** — the grid scrolls to each match. Press **Escape** to close.
 
 ## Filter Results
 

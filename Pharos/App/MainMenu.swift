@@ -10,7 +10,17 @@ enum MainMenu {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Pharos", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Settings...", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+
+        let settingsItem = appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+
+        // Empty submenu — AppKit populates it with the system-provided Services.
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        let servicesMenu = NSMenu(title: "Services")
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+        NSApp.servicesMenu = servicesMenu
+
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Pharos", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
 
@@ -26,11 +36,20 @@ enum MainMenu {
         // File menu (connections & queries)
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "Manage Connections…", action: #selector(MainWindowController.showConnectionsManager), keyEquivalent: "n")
-        fileMenu.addItem(withTitle: "Connect", action: #selector(ContentViewController.menuConnect(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: "Disconnect", action: #selector(ContentViewController.menuDisconnect(_:)), keyEquivalent: "")
+
+        let manageConnections = fileMenu.addItem(withTitle: "Manage Connections…", action: #selector(MainWindowController.showConnectionsManager), keyEquivalent: "N")
+        manageConnections.keyEquivalentModifierMask = [.command, .shift]
+        manageConnections.image = NSImage(systemSymbolName: "cylinder.split.1x2", accessibilityDescription: nil)
+
+        let connectItem = fileMenu.addItem(withTitle: "Connect", action: #selector(ContentViewController.menuConnect(_:)), keyEquivalent: "")
+        connectItem.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+
+        let disconnectItem = fileMenu.addItem(withTitle: "Disconnect", action: #selector(ContentViewController.menuDisconnect(_:)), keyEquivalent: "")
+        disconnectItem.image = NSImage(systemSymbolName: "bolt.slash", accessibilityDescription: nil)
+
         let refreshMetadata = fileMenu.addItem(withTitle: "Refresh Metadata", action: #selector(ContentViewController.menuRefreshMetadata(_:)), keyEquivalent: "r")
         refreshMetadata.keyEquivalentModifierMask = [.command, .shift]
+        refreshMetadata.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
 
         let openItem = fileMenu.addItem(withTitle: "Open…", action: #selector(AppDelegate.menuOpenSQLFile(_:)), keyEquivalent: "o")
         openItem.keyEquivalentModifierMask = [.command]
@@ -39,9 +58,11 @@ enum MainMenu {
 
         let newTab = fileMenu.addItem(withTitle: "New Tab", action: #selector(ContentViewController.menuNewTab(_:)), keyEquivalent: "t")
         newTab.keyEquivalentModifierMask = [.command]
+        newTab.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
 
         let closeTab = fileMenu.addItem(withTitle: "Close Tab", action: #selector(ContentViewController.menuCloseTab(_:)), keyEquivalent: "w")
         closeTab.keyEquivalentModifierMask = [.command]
+        closeTab.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
 
         let reopenTab = fileMenu.addItem(withTitle: "Reopen Closed Tab", action: #selector(ContentViewController.menuReopenTab(_:)), keyEquivalent: "T")
         reopenTab.keyEquivalentModifierMask = [.command, .shift]
@@ -50,6 +71,7 @@ enum MainMenu {
 
         let saveQuery = fileMenu.addItem(withTitle: "Save Query…", action: #selector(ContentViewController.menuSaveQuery(_:)), keyEquivalent: "s")
         saveQuery.keyEquivalentModifierMask = [.command]
+        saveQuery.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
 
         let exportEditor = fileMenu.addItem(withTitle: "Export Query as SQL File…", action: #selector(ContentViewController.menuExportEditorAsSQL(_:)), keyEquivalent: "s")
         exportEditor.keyEquivalentModifierMask = [.command, .option]
@@ -70,7 +92,35 @@ enum MainMenu {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Find…", action: #selector(ContentViewController.showFind), keyEquivalent: "f")
+
+        // Find submenu — routed through the responder chain (nil target) so
+        // whichever view is first responder (editor or results grid) handles
+        // it. See SQLTextView (NSTextView's own performTextFinderAction),
+        // ResultsTableView, and ContentViewController's fallback.
+        let findMenuItem = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
+        let findMenu = NSMenu(title: "Find")
+
+        let findShow = findMenu.addItem(withTitle: "Find…", action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "f")
+        findShow.keyEquivalentModifierMask = [.command]
+        findShow.tag = NSTextFinder.Action.showFindInterface.rawValue
+
+        let findNext = findMenu.addItem(withTitle: "Find Next", action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "g")
+        findNext.keyEquivalentModifierMask = [.command]
+        findNext.tag = NSTextFinder.Action.nextMatch.rawValue
+
+        let findPrevious = findMenu.addItem(withTitle: "Find Previous", action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "g")
+        findPrevious.keyEquivalentModifierMask = [.command, .shift]
+        findPrevious.tag = NSTextFinder.Action.previousMatch.rawValue
+
+        let useSelectionForFind = findMenu.addItem(withTitle: "Use Selection for Find", action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "e")
+        useSelectionForFind.keyEquivalentModifierMask = [.command]
+        useSelectionForFind.tag = NSTextFinder.Action.setSearchString.rawValue
+
+        let jumpToSelection = findMenu.addItem(withTitle: "Jump to Selection", action: #selector(NSTextView.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
+        jumpToSelection.keyEquivalentModifierMask = [.command]
+
+        findMenuItem.submenu = findMenu
+        editMenu.addItem(findMenuItem)
 
         let filterItem = editMenu.addItem(withTitle: "Filter Results…", action: #selector(ContentViewController.showFilter), keyEquivalent: "f")
         filterItem.keyEquivalentModifierMask = [.command, .shift]
@@ -91,17 +141,21 @@ enum MainMenu {
 
         let runItem = queryMenu.addItem(withTitle: "Run Query", action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "\r")
         runItem.keyEquivalentModifierMask = [.command]
+        runItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
 
         let runAllItem = queryMenu.addItem(withTitle: "Run All Queries", action: #selector(ContentViewController.menuRunAllQueries(_:)), keyEquivalent: "\r")
         runAllItem.keyEquivalentModifierMask = [.command, .option]
+        runAllItem.image = NSImage(systemSymbolName: "forward.fill", accessibilityDescription: nil)
 
         let cancelItem = queryMenu.addItem(withTitle: "Cancel Query", action: #selector(ContentViewController.menuCancelQuery(_:)), keyEquivalent: ".")
         cancelItem.keyEquivalentModifierMask = [.command]
+        cancelItem.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
 
         queryMenu.addItem(.separator())
 
         let formatItem = queryMenu.addItem(withTitle: "Format SQL", action: #selector(ContentViewController.menuFormatSQL(_:)), keyEquivalent: "i")
         formatItem.keyEquivalentModifierMask = [.control]
+        formatItem.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: nil)
 
         queryMenuItem.submenu = queryMenu
         mainMenu.addItem(queryMenuItem)
@@ -117,6 +171,7 @@ enum MainMenu {
             keyEquivalent: "s"
         )
         sidebarToggle.keyEquivalentModifierMask = [.command, .control]
+        sidebarToggle.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: nil)
 
         let inspectorToggle = viewMenu.addItem(
             withTitle: "Show Inspector",
@@ -124,9 +179,11 @@ enum MainMenu {
             keyEquivalent: "i"
         )
         inspectorToggle.keyEquivalentModifierMask = [.command, .option]
+        inspectorToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: nil)
 
         viewMenu.addItem(.separator())
-        viewMenu.addItem(withTitle: "Customize Toolbar…", action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
+        let customizeToolbar = viewMenu.addItem(withTitle: "Customize Toolbar…", action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
+        customizeToolbar.image = NSImage(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: nil)
 
         viewMenu.addItem(.separator())
 
@@ -154,6 +211,21 @@ enum MainMenu {
         windowMenuItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
         mainMenu.addItem(windowMenuItem)
+
+        // Help menu
+        let helpMenuItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+
+        let pharosHelp = helpMenu.addItem(withTitle: "Pharos Help", action: #selector(AppDelegate.openPharosHelp(_:)), keyEquivalent: "?")
+        pharosHelp.keyEquivalentModifierMask = [.command]
+        pharosHelp.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: nil)
+
+        helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(AppDelegate.openKeyboardShortcuts(_:)), keyEquivalent: "")
+        helpMenu.addItem(withTitle: "Release Notes", action: #selector(AppDelegate.openReleaseNotes(_:)), keyEquivalent: "")
+
+        helpMenuItem.submenu = helpMenu
+        NSApp.helpMenu = helpMenu
+        mainMenu.addItem(helpMenuItem)
 
         return mainMenu
     }
