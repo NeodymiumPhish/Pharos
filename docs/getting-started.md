@@ -18,7 +18,7 @@ nav_order: 2
 
 ## System Requirements
 
-- macOS 15.0 (Sequoia) or later
+- macOS 26 (Tahoe) or later
 - A PostgreSQL server (local or remote) to connect to
 
 ## Installation

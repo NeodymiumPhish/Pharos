@@ -56,5 +56,5 @@ Pharos combines a Swift frontend with a Rust core library. The interface is buil
 
 ## System Requirements
 
-- macOS 15.0 (Sequoia) or later
+- macOS 26 (Tahoe) or later
 - A PostgreSQL server to connect to (local or remote)

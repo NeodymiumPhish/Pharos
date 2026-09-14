@@ -24,7 +24,7 @@ Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/relea
 xattr -c Pharos.app
 ```
 
-Requires macOS 14.0 (Sonoma) or later. Supports PostgreSQL 10+ servers.
+Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers.
 
 ## Features
 
@@ -43,7 +43,7 @@ Requires macOS 14.0 (Sonoma) or later. Supports PostgreSQL 10+ servers.
 
 ## Build from Source
 
-Requires macOS 14.0+, Xcode 16+, and a [Rust toolchain](https://rustup.rs).
+Requires macOS 26+, Xcode 26+, and a [Rust toolchain](https://rustup.rs).
 
 ```
 git clone https://github.com/NeodymiumPhish/Pharos.git
