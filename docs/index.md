@@ -30,7 +30,7 @@ Pharos is a native macOS PostgreSQL client built with Swift and Rust. It provide
 
 ### Write SQL
 
-- **[Query Editor](query-editor.md)** — Syntax highlighting, auto-completion, code folding, SQL file support, and split panes
+- **[Query Editor](query-editor.md)** — Syntax highlighting, auto-completion, code folding, SQL file support, and multiple tabs
 - **[Query Variables](query-variables.md)** — Parameterize queries with `{{placeholders}}` and typed values
 - **[Query Execution](query-execution.md)** — Run statements individually or all at once, concurrently, with cancellation and completion notifications
 

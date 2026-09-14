@@ -18,11 +18,11 @@ nav_order: 5
 
 ## Overview
 
-The query editor is a native text view providing SQL editing with syntax highlighting, auto-completion, bracket matching, code folding, [query variables](query-variables.md), and multi-tab, multi-pane support. It occupies the top portion of the content area, above the results.
+The query editor is a native text view providing SQL editing with syntax highlighting, auto-completion, bracket matching, code folding, [query variables](query-variables.md), and multiple tabs. It occupies the top portion of the content area, above the results.
 
 ## Editor Toolbar
 
-Each editor pane has its own toolbar: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **Run/Stop** button, the **connection** pull-down, the **schema** selector, and — pinned to the right — the **Query Variables** toggle and the **Result Tabs** toggle. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **Run/Stop** button, the **connection** pull-down, the **schema** selector, and — pinned to the right — the **Query Variables** toggle and the **Result Tabs** toggle. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 Both right-hand toggles open a panel docked to the right of the editor text, and both can be open at once: variables first, then result tabs at the far edge. Each remembers its state per editor tab, and your last choice becomes the default for new tabs. The Result Tabs toggle is hidden when [Settings](settings.md#general-tab) is set to show result tabs on a horizontal bar instead. See [Result Tabs](results-grid.md#where-the-tabs-appear).
 
@@ -63,9 +63,9 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 - A tab opened from a file stays linked to it: **Cmd+S** writes straight back to the file, and the tab shows a dirty indicator for unsaved edits.
 - **File > Export Query as SQL File…** (**Cmd+Opt+S**) saves any tab's SQL to a new `.sql` file (with [query variables](query-variables.md) rendered into the output).
 
-## Tab and Pane Management
+## Tab Management
 
-Pharos supports multiple editor tabs, and multiple side-by-side editor panes each with their own tabs.
+Pharos supports multiple editor tabs. The **+** button at the right of the tab bar adds one.
 
 | Action | Shortcut |
 |--------|----------|
@@ -74,9 +74,7 @@ Pharos supports multiple editor tabs, and multiple side-by-side editor panes eac
 | Reopen Closed Tab | Cmd+Shift+T |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 
-Double-click a tab to rename it. Each tab keeps its own SQL text, connection, variables, and results.
-
-To split the editor, use the **add-pane** button in the pane's tab bar; each pane gets its own toolbar, tabs, and connection selection. Panes can be expanded to fill the editor area or closed from the same tab bar. Run and save actions target the pane you last clicked into.
+Double-click a tab to rename it. Each tab keeps its own SQL text, connection, variables, and results. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
 
 ## Indentation
 
