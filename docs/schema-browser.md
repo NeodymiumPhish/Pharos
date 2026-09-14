@@ -52,7 +52,7 @@ Partitioned tables are marked with a split-square icon and a RANGE/LIST/HASH bad
 
 ## Schema Selector
 
-The schema selector lives in the **editor toolbar** (between the connection picker and the format button). Click it to open a popover with:
+The schema selector lives in the **editor toolbar** (next to the Save dropdown). Click it to open a popover with:
 
 - A **Filter schemas…** search field
 - A scrollable list of schemas, with **All Schemas** pinned at the top; the active schema is checkmarked and the connection's default schema is marked "★ default"
@@ -107,6 +107,6 @@ Partitions get a read-only subset: **View All Contents**, **View Contents (Limit
 
 ## Refreshing
 
-The tree refreshes automatically when you connect, and after operations that change structure (clone, import, truncate, drop). To refresh manually — for example after running your own DDL — open the **connection picker in the editor toolbar** and choose **Refresh**.
+The tree refreshes automatically when you connect, and after operations that change structure (clone, import, truncate, drop). To refresh manually — for example after running your own DDL — choose **File > Refresh Metadata** (**Cmd+Shift+R**), or open the **connection pull-down in the window toolbar** and choose **Refresh Metadata**.
 
 The tree is cached per connection, so switching between connections restores instantly. Row-count estimates are gathered in the background (Pharos runs `ANALYZE` on unanalyzed tables where permitted) and fill in as they arrive.

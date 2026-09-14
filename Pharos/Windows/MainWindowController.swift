@@ -6,6 +6,7 @@ class MainWindowController: NSWindowController {
     let splitViewController = PharosSplitViewController()
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
+    private var toolbarController: MainToolbarController?
 
     private static let frameAutosaveKey = "PharosMainWindow"
 
@@ -37,10 +38,12 @@ class MainWindowController: NSWindowController {
             self, selector: #selector(saveWindowFrame),
             name: NSWindow.didMoveNotification, object: window)
 
-        let toolbar = NSToolbar(identifier: "PharosToolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
+        let toolbarController = MainToolbarController(
+            contentVC: splitViewController.contentVC,
+            sidebarVC: splitViewController.sidebarVC
+        )
+        toolbarController.install(on: window)
+        self.toolbarController = toolbarController
     }
 
     // Manual — setFrameAutosaveName doesn't reliably write on resize under macOS 26.
@@ -74,39 +77,6 @@ class MainWindowController: NSWindowController {
 
     @objc func showConnectionsManager() {
         ConnectionsManagerWindowController.show()
-    }
-}
-
-// MARK: - NSToolbarDelegate
-
-extension MainWindowController: NSToolbarDelegate {
-
-    // The sidebar and inspector toggles and the two tracking separators are
-    // system items: AppKit wires them to the split view controller's
-    // `.sidebar` / `.inspector` items and positions the separators over the
-    // split view dividers.
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        switch itemIdentifier {
-        case .toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
-             .inspectorTrackingSeparator, .toggleInspector:
-            return NSToolbarItem(itemIdentifier: itemIdentifier)
-        default:
-            return nil
-        }
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [
-            .toggleSidebar,
-            .sidebarTrackingSeparator,
-            .flexibleSpace,
-            .inspectorTrackingSeparator,
-            .toggleInspector,
-        ]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return toolbarDefaultItemIdentifiers(toolbar)
     }
 }
 

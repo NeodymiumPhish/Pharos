@@ -62,7 +62,7 @@ The Pharos window has three panes:
 - **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid or chart) and its action bar.
 - **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 
-Connections are chosen **per editor tab** from the connection pull-down in the editor toolbar — there is no global connection selector.
+Connections are chosen **per editor tab** from the connection pull-down in the window toolbar — there is no global connection selector.
 
 ## Creating Your First Connection
 
@@ -78,7 +78,7 @@ Connections are chosen **per editor tab** from the connection pull-down in the e
 4. Click **Test Connection** to verify — on success, the latency is shown and the **Default Schema** menu is populated
 5. Click **Save**
 
-Then, in the editor toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigation panel populates with your schema, and you're ready to run queries.
+Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigation panel populates with your schema, and you're ready to run queries.
 
 ## Running Your First Query
 

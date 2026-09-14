@@ -80,6 +80,10 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     @objc func menuRunQuery(_ sender: Any?) { contentVC.menuRunQuery(sender) }
     @objc func menuCancelQuery(_ sender: Any?) { contentVC.menuCancelQuery(sender) }
+    @objc func menuRunAllQueries(_ sender: Any?) { contentVC.menuRunAllQueries(sender) }
+    @objc func menuConnect(_ sender: Any?) { contentVC.menuConnect(sender) }
+    @objc func menuDisconnect(_ sender: Any?) { contentVC.menuDisconnect(sender) }
+    @objc func menuRefreshMetadata(_ sender: Any?) { contentVC.menuRefreshMetadata(sender) }
     @objc func menuFormatSQL(_ sender: Any?) { contentVC.menuFormatSQL(sender) }
     @objc func menuNewTab(_ sender: Any?) { contentVC.menuNewTab(sender) }
     @objc func menuCloseTab(_ sender: Any?) { contentVC.menuCloseTab(sender) }

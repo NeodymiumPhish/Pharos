@@ -5,9 +5,6 @@ import Combine
 protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
-    func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC)
-    func editorPaneDidRequestRunAll(_ pane: EditorPaneVC)
-    func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
@@ -32,16 +29,12 @@ class EditorPaneVC: NSViewController {
     // Editor toolbar (below tab bar)
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
-    private let runStopButton = NSButton()
     /// "Format as SQL list" — hidden until a paste qualifies for the offer.
     private let formatListButton = NSButton()
-    private let queryIndicator = QueryProgressIndicator()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
-    private var runningQueriesPopover: NSPopover?
-    private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
 
-    // Connection / Schema selectors (in editor toolbar, right side)
-    private let connectionPopup = NSPopUpButton(frame: .zero, pullsDown: true)
+    // Schema selector (in editor toolbar). Run, Cancel and the connection
+    // pull-down live in the window toolbar (`MainToolbarController`).
     private let schemaPopup = SchemaPopUpButton(frame: .zero, pullsDown: true)
     private let schemaSpinner = NSProgressIndicator()
     private var schemaPopover: NSPopover?
@@ -306,7 +299,6 @@ class EditorPaneVC: NSViewController {
                 guard let self else { return }
                 self.refreshTabBar()
                 self.updateEditorToolbarState()
-                self.rebuildConnectionMenu()
                 self.updateSchemaPopupTitle()
                 self.updateGutterPulseForActiveTab(tabs: tabs)
             }
@@ -323,15 +315,6 @@ class EditorPaneVC: NSViewController {
             self?.editorVC.updateSchemaMetadata(
                 schemas: schemas, tables: tables, columnsByTable: columns)
         }
-        .store(in: &cancellables)
-
-        // Coalesce connection/status changes to rebuild menus at most once per run loop pass
-        Publishers.CombineLatest(
-            stateManager.$connections,
-            stateManager.$connectionStatuses
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _, _ in self?.rebuildConnectionMenu() }
         .store(in: &cancellables)
 
         metadataCache.$schemas
@@ -483,7 +466,6 @@ class EditorPaneVC: NSViewController {
         // the QueryTab objects themselves are unchanged, so $tabs doesn't emit
         // and the popups would stay stuck on the previous tab's values. Rebuild
         // them explicitly here.
-        rebuildConnectionMenu()
         updateSchemaPopupTitle()
         syncVariablesPanel()
         syncResultTabsPanel()
@@ -565,18 +547,6 @@ class EditorPaneVC: NSViewController {
         formatButton.action = #selector(formatSQLTapped)
         formatButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // Run/Stop button
-        let runConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(runConfig)
-        runStopButton.bezelStyle = .recessed
-        runStopButton.isBordered = false
-        runStopButton.toolTip = "Run Query (Cmd+Return)"
-        runStopButton.contentTintColor = .controlAccentColor
-        runStopButton.target = self
-        runStopButton.action = #selector(runStopTapped)
-        runStopButton.translatesAutoresizingMaskIntoConstraints = false
-
-
         // Save dropdown (pull-down button)
         saveDropdown.bezelStyle = .recessed
         saveDropdown.isBordered = false
@@ -608,14 +578,7 @@ class EditorPaneVC: NSViewController {
         exportSQLItem.image = NSImage(systemSymbolName: "doc.badge.arrow.up", accessibilityDescription: nil)
         saveDropdown.menu?.addItem(exportSQLItem)
 
-        // Connection popup (right side)
-        connectionPopup.bezelStyle = .recessed
-        connectionPopup.isBordered = false
-        connectionPopup.controlSize = .small
-        connectionPopup.translatesAutoresizingMaskIntoConstraints = false
-        (connectionPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
-
-        // Schema popup (right side)
+        // Schema popup
         schemaPopup.bezelStyle = .recessed
         schemaPopup.isBordered = false
         schemaPopup.controlSize = .small
@@ -660,21 +623,13 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // All controls in one row: Format, Save, Run/Stop, Connection, Schema, Format-as-SQL-list
-        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, runStopButton, connectionPopup, schemaPopup, formatListButton])
+        // All controls in one row: Format, Save, Schema, Format-as-SQL-list
+        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, schemaPopup, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
 
         editorToolbar.addSubview(toolbarStack)
-
-        // Query progress indicator: overlays runStopButton exactly, hidden when idle.
-        // Added to editorToolbar (not toolbarStack) so the stack doesn't manage it
-        // as an arranged subview, while still constraining to runStopButton's anchors
-        // since both share the same coordinate space.
-        queryIndicator.translatesAutoresizingMaskIntoConstraints = false
-        queryIndicator.isHidden = true
-        editorToolbar.addSubview(queryIndicator)
 
         // Variables panel toggle and the error badge, right-aligned as one group
         // and not part of the leading stack. The error badge goes to the left of
@@ -709,12 +664,8 @@ class EditorPaneVC: NSViewController {
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
             formatButton.heightAnchor.constraint(equalToConstant: 28),
-            runStopButton.widthAnchor.constraint(equalToConstant: 28),
-            runStopButton.heightAnchor.constraint(equalToConstant: 28),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
 
-            connectionPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
-            connectionPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
             schemaPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
             schemaPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
 
@@ -724,11 +675,6 @@ class EditorPaneVC: NSViewController {
             separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: editorToolbar.bottomAnchor),
-
-            queryIndicator.leadingAnchor.constraint(equalTo: runStopButton.leadingAnchor),
-            queryIndicator.trailingAnchor.constraint(equalTo: runStopButton.trailingAnchor),
-            queryIndicator.topAnchor.constraint(equalTo: runStopButton.topAnchor),
-            queryIndicator.bottomAnchor.constraint(equalTo: runStopButton.bottomAnchor),
 
             trailingGroup.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
             trailingGroup.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
@@ -895,81 +841,6 @@ class EditorPaneVC: NSViewController {
         editorVC.textView.applyPendingSQLize()
     }
 
-    @objc private func runStopTapped() {
-        let running = activeTab?.runningQueries ?? []
-        switch running.count {
-        case 0:
-            let segmentCount = editorVC.segments.count
-            if segmentCount <= 1 {
-                delegate?.editorPaneDidRequestRunQuery(self)
-            } else {
-                showRunOptionsMenu()
-            }
-        case 1:
-            delegate?.editorPane(self, didRequestCancelQueryId: running[0].id)
-        default:
-            showRunningQueriesPopover(running)
-        }
-    }
-
-    private func showRunningQueriesPopover(_ queries: [RunningQuery]) {
-        runningQueriesPopover?.close()
-
-        guard queries.count > 1, let tabId = activeTab?.id else { return }
-        let vc = RunningQueriesPopoverVC(stateManager: stateManager, tabId: tabId)
-        vc.delegate = self
-
-        let popover = NSPopover()
-        popover.contentViewController = vc
-        popover.behavior = .transient
-        popover.show(relativeTo: runStopButton.bounds, of: runStopButton, preferredEdge: .minY)
-        runningQueriesPopover = popover
-
-        if let existing = runningQueriesPopoverCloseObserver {
-            NotificationCenter.default.removeObserver(existing)
-            runningQueriesPopoverCloseObserver = nil
-        }
-        runningQueriesPopoverCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSPopover.didCloseNotification,
-            object: popover,
-            queue: .main
-        ) { [weak self] _ in
-            self?.runningQueriesPopover = nil
-        }
-    }
-
-    private func showRunOptionsMenu() {
-        let menu = NSMenu()
-
-        let focusedItem = NSMenuItem(
-            title: "Run Focused Query",
-            action: #selector(runFocusedFromMenu),
-            keyEquivalent: "\r"
-        )
-        focusedItem.keyEquivalentModifierMask = .command
-        focusedItem.target = self
-        menu.addItem(focusedItem)
-
-        let runAllItem = NSMenuItem(
-            title: "Run All Queries",
-            action: #selector(runAllFromMenu),
-            keyEquivalent: ""
-        )
-        runAllItem.target = self
-        menu.addItem(runAllItem)
-
-        let origin = NSPoint(x: 0, y: runStopButton.bounds.maxY + 4)
-        menu.popUp(positioning: nil, at: origin, in: runStopButton)
-    }
-
-    @objc private func runFocusedFromMenu() {
-        delegate?.editorPaneDidRequestRunQuery(self)
-    }
-
-    @objc private func runAllFromMenu() {
-        delegate?.editorPaneDidRequestRunAll(self)
-    }
-
     @objc private func saveTapped() {
         delegate?.editorPaneDidRequestSave(self)
     }
@@ -983,27 +854,8 @@ class EditorPaneVC: NSViewController {
     }
 
     private func updateEditorToolbarState() {
-        let activeTab = self.activeTab
-        let count = activeTab?.runningQueries.count ?? 0
-
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        if count == 0 {
-            runStopButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")?.withSymbolConfiguration(config)
-            runStopButton.toolTip = "Run Query (Cmd+Return)"
-            runStopButton.contentTintColor = .controlAccentColor
-            queryIndicator.isHidden = true
-        } else {
-            // Hide the button's image so the indicator is the visible element.
-            runStopButton.image = nil
-            runStopButton.toolTip = count == 1
-                ? "Stop Query"
-                : "\(count) queries running — click to manage"
-            queryIndicator.count = count
-            queryIndicator.isHidden = false
-        }
-
-        // Update save dropdown: "Save" item enabled when the tab has somewhere
-        // to save to — either a saved query link or an on-disk source URL.
+        // "Save" item enabled when the tab has somewhere to save to — either
+        // a saved query link or an on-disk source URL.
         let canSaveInPlace = activeTab?.savedQueryId != nil || activeTab?.sourceURL != nil
         if let saveItem = saveDropdown.menu?.item(at: 1) {
             saveItem.isEnabled = canSaveInPlace
@@ -1027,80 +879,7 @@ class EditorPaneVC: NSViewController {
         activeTab?.schemaName
     }
 
-    // MARK: - Connection / Schema Selectors
-
-    private func rebuildConnectionMenu() {
-        connectionPopup.removeAllItems()
-
-        let connections = stateManager.connections
-        let activeId = tabConnectionId
-
-        // First item in a pull-down button is the button's displayed title
-        let buttonTitle: String
-        if let activeId,
-           let config = connections.first(where: { $0.id == activeId }) {
-            let status = stateManager.status(for: config.id)
-            let statusIcon = statusString(for: status)
-            buttonTitle = "\(statusIcon)\(DisplayEscape.escaped(config.name))"
-        } else if connections.isEmpty {
-            buttonTitle = "No Connections"
-        } else {
-            buttonTitle = "Select Connection"
-        }
-        connectionPopup.addItem(withTitle: buttonTitle)
-        connectionPopup.isEnabled = true
-
-        // Style the title item with colored status indicator
-        if let activeId,
-           let config = connections.first(where: { $0.id == activeId }) {
-            let status = stateManager.status(for: config.id)
-            if let titleItem = connectionPopup.item(at: 0) {
-                titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
-            }
-        }
-
-        if !connections.isEmpty {
-            connectionPopup.menu?.addItem(.separator())
-            for config in connections {
-                let status = stateManager.status(for: config.id)
-                let icon = statusString(for: status)
-                let title = "\(icon)\(DisplayEscape.escaped(config.name))"
-                let menuItem = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
-                menuItem.target = self
-                menuItem.representedObject = config.id
-                menuItem.attributedTitle = styledTitle(title, status: status)
-                if config.id == activeId {
-                    menuItem.state = .on
-                }
-                connectionPopup.menu?.addItem(menuItem)
-            }
-
-            connectionPopup.menu?.addItem(.separator())
-
-            let connectItem = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
-            connectItem.target = self
-            connectionPopup.menu?.addItem(connectItem)
-
-            let disconnectItem = NSMenuItem(title: "Disconnect", action: #selector(disconnectSelected), keyEquivalent: "")
-            disconnectItem.target = self
-            connectionPopup.menu?.addItem(disconnectItem)
-
-            let refreshItem = NSMenuItem(title: "Refresh Connection", action: #selector(refreshConnection), keyEquivalent: "")
-            refreshItem.target = self
-            if let activeId, stateManager.status(for: activeId) == .connected {
-                refreshItem.isEnabled = true
-            } else {
-                refreshItem.isEnabled = false
-            }
-            connectionPopup.menu?.addItem(refreshItem)
-
-        }
-
-        connectionPopup.menu?.addItem(.separator())
-        let manageItem = NSMenuItem(title: "Manage Connections…", action: #selector(showConnectionsManager), keyEquivalent: "")
-        manageItem.target = self
-        connectionPopup.menu?.addItem(manageItem)
-    }
+    // MARK: - Schema Selector
 
     private func updateSchemaPopupTitle() {
         schemaPopup.removeAllItems()
@@ -1142,85 +921,13 @@ class EditorPaneVC: NSViewController {
         }
     }
 
-    // MARK: - Connection / Schema Helpers
-
-    private func statusString(for status: ConnectionStatus) -> String {
-        switch status {
-        case .connected: return "\u{25CF} "   // filled circle
-        case .connecting: return "\u{25CB} "   // empty circle
-        case .error: return "\u{25CF} "        // filled circle (red)
-        case .disconnected: return "  "
-        }
-    }
-
-    private func styledTitle(_ title: String, status: ConnectionStatus) -> NSAttributedString {
-        let attributed = NSMutableAttributedString(string: title)
-        let color: NSColor?
-        switch status {
-        case .connected: color = .systemGreen
-        case .error: color = .systemRed
-        default: color = nil
-        }
-        if let color {
-            attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 2))
-        }
-        return attributed
-    }
-
-    // MARK: - Connection / Schema Actions
-
-    /// Update the active tab's connectionId and also sync global state.
-    private func setTabConnection(_ connectionId: String) {
-        guard let tab = activeTab else { return }
-        let connectionChanged = tab.connectionId != connectionId
-        // Apply the target connection's configured default schema when switching,
-        // falling back to "public" if none is configured.
-        let newSchema = stateManager.connections
-            .first(where: { $0.id == connectionId })?.defaultSchema ?? "public"
-        stateManager.updateTab(id: tab.id) {
-            $0.connectionId = connectionId
-            if connectionChanged { $0.schemaName = newSchema }
-        }
-        // Also update global active connection so sidebar/metadata stay in sync
-        stateManager.activeConnectionId = connectionId
-        if connectionChanged { stateManager.activeSchema = newSchema }
-    }
+    // MARK: - Schema Actions
 
     /// Update the active tab's schemaName and also sync global state.
     private func setTabSchema(_ schemaName: String?) {
         guard let tab = activeTab else { return }
         stateManager.updateTab(id: tab.id) { $0.schemaName = schemaName }
         stateManager.activeSchema = schemaName
-    }
-
-    @objc private func connectionItemClicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        setTabConnection(id)
-        let status = stateManager.status(for: id)
-        if status == .disconnected {
-            stateManager.connect(id: id)
-        }
-    }
-
-    @objc private func connectSelected() {
-        guard let id = tabConnectionId else { return }
-        stateManager.connect(id: id)
-    }
-
-    @objc private func disconnectSelected() {
-        guard let id = tabConnectionId else { return }
-        stateManager.disconnect(id: id)
-    }
-
-    @objc private func refreshConnection() {
-        guard let id = tabConnectionId,
-              stateManager.status(for: id) == .connected else { return }
-        metadataCache.load(connectionId: id, force: true)
-        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
-    }
-
-    @objc private func showConnectionsManager() {
-        ConnectionsManagerWindowController.show()
     }
 
     /// Build and present the searchable schema popover anchored to the schema
@@ -1268,18 +975,7 @@ class EditorPaneVC: NSViewController {
     }
 
     deinit {
-        if let observer = runningQueriesPopoverCloseObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
         NotificationCenter.default.removeObserver(self)
         referencedNamesScanTimer?.invalidate()
-    }
-}
-
-// MARK: - RunningQueriesPopoverDelegate
-
-extension EditorPaneVC: RunningQueriesPopoverDelegate {
-    func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String) {
-        delegate?.editorPane(self, didRequestCancelQueryId: id)
     }
 }

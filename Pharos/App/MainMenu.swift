@@ -27,6 +27,10 @@ enum MainMenu {
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "Manage Connections…", action: #selector(MainWindowController.showConnectionsManager), keyEquivalent: "n")
+        fileMenu.addItem(withTitle: "Connect", action: #selector(ContentViewController.menuConnect(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: "Disconnect", action: #selector(ContentViewController.menuDisconnect(_:)), keyEquivalent: "")
+        let refreshMetadata = fileMenu.addItem(withTitle: "Refresh Metadata", action: #selector(ContentViewController.menuRefreshMetadata(_:)), keyEquivalent: "r")
+        refreshMetadata.keyEquivalentModifierMask = [.command, .shift]
 
         let openItem = fileMenu.addItem(withTitle: "Open…", action: #selector(AppDelegate.menuOpenSQLFile(_:)), keyEquivalent: "o")
         openItem.keyEquivalentModifierMask = [.command]
@@ -88,6 +92,9 @@ enum MainMenu {
         let runItem = queryMenu.addItem(withTitle: "Run Query", action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "\r")
         runItem.keyEquivalentModifierMask = [.command]
 
+        let runAllItem = queryMenu.addItem(withTitle: "Run All Queries", action: #selector(ContentViewController.menuRunAllQueries(_:)), keyEquivalent: "\r")
+        runAllItem.keyEquivalentModifierMask = [.command, .option]
+
         let cancelItem = queryMenu.addItem(withTitle: "Cancel Query", action: #selector(ContentViewController.menuCancelQuery(_:)), keyEquivalent: ".")
         cancelItem.keyEquivalentModifierMask = [.command]
 
@@ -117,6 +124,9 @@ enum MainMenu {
             keyEquivalent: "i"
         )
         inspectorToggle.keyEquivalentModifierMask = [.command, .option]
+
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(withTitle: "Customize Toolbar…", action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
 
         viewMenu.addItem(.separator())
 

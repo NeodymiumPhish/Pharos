@@ -22,7 +22,7 @@ The query editor is a native text view providing SQL editing with syntax highlig
 
 ## Editor Toolbar
 
-The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **Run/Stop** button, the **connection** pull-down, the **schema** selector, and — pinned to the right — the **Query Variables** toggle and the **Result Tabs** toggle. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **schema** selector, and — pinned to the right — the **Query Variables** toggle and the **Result Tabs** toggle. **Run**, **Cancel** and the **connection** pull-down live in the window toolbar above (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Query or a sidebar filter field there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 Both right-hand toggles open a panel docked to the right of the editor text, and both can be open at once: variables first, then result tabs at the far edge. Each remembers its state per editor tab, and your last choice becomes the default for new tabs. The Result Tabs toggle is hidden when [Settings](settings.md#general-tab) is set to show result tabs on a horizontal bar instead. See [Result Tabs](results-grid.md#where-the-tabs-appear).
 

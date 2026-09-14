@@ -159,6 +159,27 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Binds tab `tabId` to `connectionId`: applies the connection's default
+    /// schema when the connection changes, syncs the global active connection
+    /// and schema when the tab is the active one, and connects when the
+    /// connection is idle. The toolbar pull-down goes through here.
+    func useConnection(_ connectionId: String, forTabId tabId: String) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        let connectionChanged = tab.connectionId != connectionId
+        let newSchema = connections.first(where: { $0.id == connectionId })?.defaultSchema ?? "public"
+        updateTab(id: tabId) {
+            $0.connectionId = connectionId
+            if connectionChanged { $0.schemaName = newSchema }
+        }
+        if tabId == activeTabId {
+            activeConnectionId = connectionId
+            if connectionChanged { activeSchema = newSchema }
+        }
+        if status(for: connectionId) == .disconnected {
+            connect(id: connectionId)
+        }
+    }
+
     func connect(id: String) {
         connectionStatuses[id] = .connecting
         postStatusChange(id)

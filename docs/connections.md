@@ -18,7 +18,7 @@ nav_order: 3
 
 ## Overview
 
-Connections are managed in the **Connections Manager** window (**Cmd+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in the editor toolbar. Different tabs can point at different databases at the same time.
+Connections are managed in the **Connections Manager** window (**Cmd+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
 
 ## The Connections Manager
 
@@ -49,7 +49,7 @@ Click **Test Connection** to verify the settings:
 
 ## Connecting and Disconnecting
 
-In the editor toolbar, open the **connection pull-down**. It lists every saved connection with a live status glyph and a checkmark on the tab's active connection, followed by:
+In the window toolbar, open the **connection pull-down**. It lists every saved connection with a live status glyph and a checkmark on the tab's active connection, followed by **Connect**, **Disconnect** and **Refresh Metadata** (also in the **File** menu; Refresh Metadata is **Cmd+Shift+R**), then:
 
 - **Connect** / **Disconnect** — open or close the connection for this tab
 - **Refresh Connection** — reload schema metadata (refreshes the schema browser)

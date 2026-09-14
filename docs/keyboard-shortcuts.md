@@ -30,6 +30,7 @@ nav_order: 17
 | Action | Shortcut |
 |--------|----------|
 | Manage Connections… | Cmd+N |
+| Refresh Metadata | Cmd+Shift+R |
 | Open… (SQL file) | Cmd+O |
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
@@ -54,6 +55,7 @@ nav_order: 17
 | Action | Shortcut |
 |--------|----------|
 | Run Query (statement under cursor) | Cmd+Return |
+| Run All Queries | Cmd+Opt+Return |
 | Cancel Query | Cmd+. |
 | Format SQL | Ctrl+I |
 

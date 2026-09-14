@@ -216,6 +216,15 @@ class SidebarViewController: NSViewController {
         }
     }
 
+    /// Sets the filter text from outside (the toolbar's filter item) and
+    /// applies it to the visible list at once, keeping the sidebar's own
+    /// field in step.
+    func setFilterText(_ text: String) {
+        searchField.stringValue = text
+        pendingFilterWorkItem?.cancel()
+        applyFilterToVisibleChild(text)
+    }
+
     // MARK: - Connection State
 
     private func activeConnectionChanged() {

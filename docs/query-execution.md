@@ -26,7 +26,7 @@ The editor splits your SQL into individual statements. There are three ways to r
 
 - **Cmd+Return** (or **Query > Run Query**) runs the **statement under the cursor** and opens a result tab for it. If nothing parses as a statement, the entire editor text is sent as one batch.
 - **Gutter run buttons** — each statement has its own run button in the line-number gutter.
-- **Run All Queries** — from the toolbar Run button's menu (shown when the tab has multiple statements): runs every statement, up to 3 at a time, in order. Run All pauses if you switch away from the tab and resumes when you return.
+- **Run All Queries** — **Query > Run All Queries** (**Cmd+Opt+Return**): runs every statement, up to 3 at a time, in order. Run All pauses if you switch away from the tab and resumes when you return.
 
 Each result tab is color-matched to its source statement's bar in the editor gutter, so you can always tell which result came from which SQL.
 
@@ -34,7 +34,7 @@ Each result tab is color-matched to its source statement's bar in the editor gut
 
 Queries run concurrently — starting a second statement doesn't wait for the first. While queries run:
 
-- The Run button becomes a **red progress ring showing the count** of running queries. With one running, clicking it cancels; with several, it opens a popover listing each in-flight query with its elapsed time and a per-query cancel button.
+- The toolbar **Run** button shows a **badge with the count** of running queries, and the **Cancel** button next to it becomes enabled. With one running, Cancel stops it; with several, Cancel opens a popover listing each in-flight query with its elapsed time and a per-query cancel button.
 - Each running statement's gutter bar **pulses** until its query completes.
 - Re-running SQL that is already in flight is skipped, with a toast pointing at the running query.
 

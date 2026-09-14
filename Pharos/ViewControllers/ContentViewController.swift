@@ -1285,6 +1285,25 @@ class ContentViewController: NSViewController {
         !(stateManager.activeTab?.runningQueries.isEmpty ?? true)
     }
 
+    // Connection predicates for the File menu and the toolbar pull-down.
+    // All read the active tab's connection.
+    var canConnect: Bool {
+        guard let id = stateManager.activeTab?.connectionId else { return false }
+        let status = stateManager.status(for: id)
+        return status == .disconnected || status == .error
+    }
+
+    var canDisconnect: Bool {
+        guard let id = stateManager.activeTab?.connectionId else { return false }
+        let status = stateManager.status(for: id)
+        return status == .connected || status == .connecting
+    }
+
+    var canRefreshMetadata: Bool {
+        guard let id = stateManager.activeTab?.connectionId else { return false }
+        return stateManager.status(for: id) == .connected
+    }
+
     func executeQuery(_ sql: String? = nil) {
         guard let tab = stateManager.activeTab,
               let connectionId = tab.connectionId,
@@ -2487,14 +2506,6 @@ extension ContentViewController: EditorPaneDelegate {
         renameTab(id: tabId)
     }
 
-    func editorPaneDidRequestRunQuery(_ pane: EditorPaneVC) {
-        executeQuery()
-    }
-
-    func editorPane(_ pane: EditorPaneVC, didRequestCancelQueryId queryId: String) {
-        cancelQuery(id: queryId)
-    }
-
     func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String) {
         closeTab(id: tabId)
     }
@@ -2513,10 +2524,6 @@ extension ContentViewController: EditorPaneDelegate {
 
     func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment) {
         executeSegment(segment)
-    }
-
-    func editorPaneDidRequestRunAll(_ pane: EditorPaneVC) {
-        runAllSegments()
     }
 
     func editorPaneDidEditText(_ pane: EditorPaneVC) {
@@ -3627,6 +3634,27 @@ extension ContentViewController {
         cancelQuery()
     }
 
+    @objc func menuRunAllQueries(_: Any?) {
+        runAllSegments()
+    }
+
+    @objc func menuConnect(_: Any?) {
+        guard let id = stateManager.activeTab?.connectionId else { return }
+        stateManager.connect(id: id)
+    }
+
+    @objc func menuDisconnect(_: Any?) {
+        guard let id = stateManager.activeTab?.connectionId else { return }
+        stateManager.disconnect(id: id)
+    }
+
+    @objc func menuRefreshMetadata(_: Any?) {
+        guard let id = stateManager.activeTab?.connectionId,
+              stateManager.status(for: id) == .connected else { return }
+        MetadataCache.shared.load(connectionId: id, force: true)
+        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
+    }
+
     @objc func menuNewTab(_: Any?) {
         stateManager.createTab()
     }
@@ -3834,6 +3862,10 @@ extension ContentViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
+        if menuItem.action == #selector(menuRunAllQueries(_:)) { return canRunQuery }
+        if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
+        if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
+        if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
             // on menu-open and key-equivalent resolution, which can happen long
