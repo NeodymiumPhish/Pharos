@@ -37,6 +37,9 @@ class SettingsSheet: NSViewController {
     private let notifyAppInactiveCheck = NSButton(checkboxWithTitle: "Notify when query completes and app is in background", target: nil, action: nil)
     private let notifyBackgroundTabCheck = NSButton(checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
     private let notifyMinDurationField = NSTextField()
+    private let restoreOpenTabsCheck = NSButton(
+        checkboxWithTitle: "Restore open tabs at launch", target: nil, action: nil
+    )
 
     // Charts
     private let paletteModel = ChartPaletteModel(palette: [])
@@ -232,6 +235,7 @@ class SettingsSheet: NSViewController {
             [NSGridCell.emptyContentView, notifyAppInactiveCheck],
             [NSGridCell.emptyContentView, notifyBackgroundTabCheck],
             [notifyMinDurationLabel, notifyMinDurationRow],
+            [NSGridCell.emptyContentView, restoreOpenTabsCheck],
         ])
         configureGrid(grid)
 
@@ -312,6 +316,7 @@ class SettingsSheet: NSViewController {
         notifyAppInactiveCheck.state = settings.query.notifyWhenAppInactive ? .on : .off
         notifyBackgroundTabCheck.state = settings.query.notifyWhenBackgroundTab ? .on : .off
         notifyMinDurationField.integerValue = Int(settings.query.notifyMinDurationSeconds)
+        restoreOpenTabsCheck.state = settings.query.restoreOpenTabs ? .on : .off
 
         // Charts
         paletteModel.palette = settings.charts.palette
@@ -360,6 +365,7 @@ class SettingsSheet: NSViewController {
         s.query.notifyWhenAppInactive = notifyAppInactiveCheck.state == .on
         s.query.notifyWhenBackgroundTab = notifyBackgroundTabCheck.state == .on
         s.query.notifyMinDurationSeconds = UInt32(clamping: notifyMinDurationField.integerValue)
+        s.query.restoreOpenTabs = restoreOpenTabsCheck.state == .on
 
         // Charts
         s.charts.palette = paletteModel.palette

@@ -63,10 +63,16 @@ final class AppStateManager: ObservableObject {
 
     // Tab management
     @Published var tabs: [QueryTab] = [] {
-        didSet { tabsSettled.send(tabs) }
+        didSet {
+            sessionDirty = true
+            tabsSettled.send(tabs)
+        }
     }
     @Published var activeTabId: String? {
-        didSet { activeTabIdSettled.send(activeTabId) }
+        didSet {
+            sessionDirty = true
+            activeTabIdSettled.send(activeTabId)
+        }
     }
     private var closedTabHistory: [QueryTab] = []
     private let maxClosedHistory = 20
@@ -188,6 +194,12 @@ final class AppStateManager: ObservableObject {
             do {
                 let info = try await PharosCore.connect(connectionId: id)
                 self.connectionStatuses[id] = info.status
+                // A refused connection comes back as a value, not a throw, so
+                // without this the reason was lost and the toolbar only turned
+                // red.
+                if info.status == .error {
+                    NSLog("Connection failed: \(info.error ?? "no reason given")")
+                }
                 self.activeConnectionId = id
                 // Apply default schema from connection config, falling back to "public"
                 let defaultSchema: String = {
@@ -299,9 +311,162 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    // MARK: - Session (open tabs across launches)
+
+    /// Set by the `tabs` / `activeTabId` hooks. The autosave timer writes only
+    /// when it is set, so an idle app never touches the database.
+    private var sessionDirty = false
+    private var sessionAutosaveTimer: Timer?
+    /// True from `prepareSessionRestore()` until the restore finishes. It gates
+    /// `ensureTab()` (no stray "Query 1") and `snapshotSession()` (a half-built
+    /// tab set must never overwrite the stored one).
+    private(set) var isRestoringSession = false
+    private var pendingSession: Session?
+
+    /// A name the user authored, as opposed to the generated "Query <n>".
+    private static func isCustomTabName(_ name: String) -> Bool {
+        let generated = try? Regex("^Query [0-9]+$")
+        guard let generated else { return true }
+        return name.wholeMatch(of: generated) == nil
+    }
+
+    /// Write the open tabs, their order and the active one to the store.
+    /// Called from the autosave timer and from `applicationShouldTerminate`.
+    func snapshotSession() {
+        guard !isRestoringSession else { return }
+        let saved = tabs.enumerated().map { idx, tab -> SessionTab in
+            // Same encoder the workspace snapshot uses, so the two copies of a
+            // tab's variables are byte-identical and decode the same way back.
+            let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
+            return SessionTab(
+                tabIndex: idx,
+                workspaceId: tab.workspaceId,
+                name: tab.name,
+                nameIsCustom: Self.isCustomTabName(tab.name),
+                connectionId: tab.connectionId,
+                schemaName: tab.schemaName,
+                sql: tab.sql,
+                cursorPosition: tab.cursorPosition,
+                variablesJson: varsJson,
+                isActive: tab.id == activeTabId
+            )
+        }
+        do {
+            try PharosCore.saveSession(Session(tabs: saved))
+            sessionDirty = false
+        } catch {
+            NSLog("Failed to save session: \(error)")
+        }
+    }
+
+    /// Start the 30-second autosave. Idempotent.
+    func startSessionAutosave() {
+        guard sessionAutosaveTimer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.sessionDirty else { return }
+                self.snapshotSession()
+            }
+        }
+        timer.tolerance = 5
+        sessionAutosaveTimer = timer
+    }
+
+    /// Read the stored session and, if it has tabs, hold back `ensureTab()`.
+    /// Call BEFORE the main window is built: its content controller asks for a
+    /// tab as soon as its view loads.
+    func prepareSessionRestore() {
+        guard settings.query.restoreOpenTabs else { return }
+        guard let session = try? PharosCore.loadSession(), !session.tabs.isEmpty else { return }
+        pendingSession = session
+        isRestoringSession = true
+    }
+
+    /// Put the stored tabs back. Call AFTER the main window is on screen: a tab
+    /// bound to a workspace is rebuilt by `ContentViewController`, which must be
+    /// alive and observing `.openWorkspace`.
+    func restoreSession() {
+        guard let session = pendingSession else {
+            startSessionAutosave()
+            return
+        }
+        pendingSession = nil
+
+        Task { @MainActor in
+            // One tab at a time: the workspace handler rebuilds off the main
+            // thread, so posting the whole set at once would land the tabs in
+            // completion order rather than in the order they were saved.
+            var restoredIds: [String] = []
+            for saved in session.tabs {
+                if let wsId = saved.workspaceId,
+                   let id = await self.restoreWorkspaceTab(saved, workspaceId: wsId) {
+                    restoredIds.append(id)
+                } else {
+                    // No workspace, or the workspace row is gone: the session's
+                    // own copy of the editor text still brings the tab back.
+                    restoredIds.append(self.restoreDraftTab(saved).id)
+                }
+            }
+
+            if let idx = session.tabs.firstIndex(where: { $0.isActive }), idx < restoredIds.count {
+                self.selectTab(id: restoredIds[idx])
+            }
+
+            self.isRestoringSession = false
+            self.ensureTab()
+            self.sessionDirty = false
+            self.startSessionAutosave()
+        }
+    }
+
+    /// Ask `ContentViewController` to rebuild a workspace tab, then wait for it
+    /// to appear. Returns nil when the workspace no longer exists (the handler
+    /// stays silent in that case, so the wait is what detects it).
+    private func restoreWorkspaceTab(_ saved: SessionTab, workspaceId: String) async -> String? {
+        if let existing = tabs.first(where: { $0.workspaceId == workspaceId }) { return existing.id }
+        NotificationCenter.default.post(
+            name: .openWorkspace, object: nil, userInfo: ["workspaceId": workspaceId]
+        )
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            guard let tab = tabs.first(where: { $0.workspaceId == workspaceId }) else { continue }
+            // The workspace row owns the editor text, variables and cursor. It
+            // does not store the schema, so that comes from the session.
+            updateTab(id: tab.id) { $0.schemaName = saved.schemaName }
+            return tab.id
+        }
+        return nil
+    }
+
+    /// Rebuild a tab that never ran a query straight from the session row.
+    @discardableResult
+    private func restoreDraftTab(_ saved: SessionTab) -> QueryTab {
+        let tab = createTab(sql: saved.sql, name: saved.name)
+        let variables: [QueryVariable] = saved.variablesJson.flatMap {
+            try? JSONDecoder.pharos.decode([QueryVariable].self, from: Data($0.utf8))
+        } ?? []
+        // The connection is recorded, not dialled: restoring must never open a
+        // database connection the user did not ask for.
+        updateTab(id: tab.id) {
+            $0.connectionId = saved.connectionId
+            $0.schemaName = saved.schemaName
+            $0.cursorPosition = saved.cursorPosition
+            $0.variables = variables
+            $0.isDirty = false
+        }
+        return tab
+    }
+
     /// Ensure at least one tab exists and one of them is active. Call after
     /// connections load.
+    ///
+    /// While a saved session is being put back this is a no-op: the content
+    /// controller calls it as soon as its view loads, which is before the
+    /// restored tabs exist, and an empty "Query 1" made here would survive as
+    /// an extra tab beside them.
     func ensureTab() {
+        guard !isRestoringSession else { return }
         if tabs.isEmpty {
             createTab()
         } else if !tabs.contains(where: { $0.id == activeTabId }) {

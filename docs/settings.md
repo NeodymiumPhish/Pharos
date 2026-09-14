@@ -51,6 +51,7 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Notify when query completes and app is in background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
 | Notify when query completes in a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
 | Notification minimum | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
+| Restore open tabs at launch | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 
 ## Update Checks
 

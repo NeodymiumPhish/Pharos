@@ -50,6 +50,8 @@ Pharos is a native macOS PostgreSQL client built with Swift and Rust. It provide
 - **[Settings](settings.md)** — Appearance, editor, and query behavior preferences
 - **[Keyboard Shortcuts](keyboard-shortcuts.md)** — Complete shortcut reference
 
+Pharos reopens the editor tabs you had open when you last quit, so a session picks up where it left off, and the window enters full screen from **View > Enter Full Screen**.
+
 ## Architecture
 
 Pharos combines a Swift frontend with a Rust core library. The interface is built entirely with AppKit (plus Swift Charts for visualization), providing native macOS controls, sheets, and system appearance support. The Rust core (`pharos-core`) handles PostgreSQL connections, query execution, and data processing via a C FFI bridge. Connection passwords live in the macOS Keychain; everything else is stored locally in SQLite.

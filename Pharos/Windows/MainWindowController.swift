@@ -10,6 +10,10 @@ class MainWindowController: NSWindowController {
 
     private static let frameAutosaveKey = "PharosMainWindow"
 
+    /// The window's restoration identity. AppKit writes it into the saved
+    /// application state and hands it back to `restoreWindow(withIdentifier:…)`.
+    static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("PharosMain")
+
     init() {
         let defaultContentRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
         let window = NSWindow(
@@ -23,6 +27,18 @@ class MainWindowController: NSWindowController {
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 800, height: 400)
         window.tabbingMode = .disallowed
+        // Opts the window into full screen. AppKit then adds View > Enter Full
+        // Screen itself — there is deliberately no menu item of our own.
+        window.collectionBehavior = [.fullScreenPrimary]
+
+        // Restoration: AppKit reopens the window after a relaunch (and after a
+        // Force Quit or a restart with "reopen windows" ticked). The window's
+        // FRAME is still saved by hand below — `setFrameAutosaveName` does not
+        // reliably write on resize under macOS 26 — so restoration and the
+        // manual frame path run side by side.
+        window.isRestorable = true
+        window.identifier = Self.mainWindowIdentifier
+        window.restorationClass = MainWindowController.self
 
         super.init(window: window)
 
@@ -83,3 +99,30 @@ class MainWindowController: NSWindowController {
 // MARK: - NSWindowDelegate
 
 extension MainWindowController: NSWindowDelegate {}
+
+// MARK: - NSWindowRestoration
+
+extension MainWindowController: NSWindowRestoration {
+
+    /// Hand AppKit the app's one main window. Pharos is single-window, so this
+    /// never builds a second controller: it returns the existing one, or makes
+    /// it the same way `AppStateManager.openTextFile(at:)` does when the app
+    /// has none yet.
+    static func restoreWindow(
+        withIdentifier identifier: NSUserInterfaceItemIdentifier,
+        state: NSCoder,
+        completionHandler: @escaping (NSWindow?, Error?) -> Void
+    ) {
+        DispatchQueue.main.async {
+            guard identifier == mainWindowIdentifier,
+                  let app = NSApp.delegate as? AppDelegate else {
+                completionHandler(nil, nil)
+                return
+            }
+            if app.mainWindowController == nil {
+                app.mainWindowController = MainWindowController()
+            }
+            completionHandler(app.mainWindowController?.window, nil)
+        }
+    }
+}

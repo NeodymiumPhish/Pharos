@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -409,6 +409,22 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
 
         CREATE INDEX IF NOT EXISTS idx_workspaces_last_activity
             ON workspaces(last_activity_at DESC);
+
+        -- The set of editor tabs open at the end of the last run, so the next
+        -- launch can put them back. One row per tab; `tab_index` is the tab's
+        -- position in the tab bar and the whole table is rewritten on each save.
+        CREATE TABLE IF NOT EXISTS session_tabs (
+            tab_index INTEGER PRIMARY KEY,
+            workspace_id TEXT,
+            name TEXT NOT NULL,
+            name_is_custom INTEGER NOT NULL DEFAULT 0,
+            connection_id TEXT,
+            schema_name TEXT,
+            sql TEXT NOT NULL,
+            cursor_position INTEGER NOT NULL DEFAULT 0,
+            variables_json TEXT,
+            is_active INTEGER NOT NULL DEFAULT 0
+        );
         "#,
     )?;
 
@@ -1148,6 +1164,73 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> SqliteResult<
         [&json],
     )?;
     Ok(())
+}
+
+// ==================== Session (open tabs) ====================
+
+/// Replace the stored session with `session`. One transaction: the table is
+/// emptied and rewritten, so a save can never leave a half-old, half-new tab
+/// set behind. The row's `tab_index` is the tab's position, not the index in
+/// the incoming vector, so the caller owns the ordering.
+pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM session_tabs", [])?;
+    for tab in &session.tabs {
+        tx.execute(
+            r#"
+            INSERT INTO session_tabs
+                (tab_index, workspace_id, name, name_is_custom, connection_id,
+                 schema_name, sql, cursor_position, variables_json, is_active)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "#,
+            rusqlite::params![
+                tab.tab_index,
+                tab.workspace_id,
+                tab.name,
+                tab.name_is_custom as i64,
+                tab.connection_id,
+                tab.schema_name,
+                tab.sql,
+                tab.cursor_position,
+                tab.variables_json,
+                tab.is_active as i64,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Read the stored session back, ordered by `tab_index`. An empty table is a
+/// valid answer: it means no tabs to restore, not an error.
+pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
+    let mut stmt = conn.prepare(
+        "SELECT tab_index, workspace_id, name, name_is_custom, connection_id,
+                schema_name, sql, cursor_position, variables_json, is_active
+         FROM session_tabs ORDER BY tab_index",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let name_is_custom: i64 = row.get(3)?;
+        let is_active: i64 = row.get(9)?;
+        Ok(SessionTab {
+            tab_index: row.get(0)?,
+            workspace_id: row.get(1)?,
+            name: row.get(2)?,
+            name_is_custom: name_is_custom != 0,
+            connection_id: row.get(4)?,
+            schema_name: row.get(5)?,
+            sql: row.get(6)?,
+            cursor_position: row.get(7)?,
+            variables_json: row.get(8)?,
+            is_active: is_active != 0,
+        })
+    })?;
+
+    let mut tabs = Vec::new();
+    for row in rows {
+        tabs.push(row?);
+    }
+    Ok(Session { tabs })
 }
 
 // ==================== Query History ====================
@@ -3231,5 +3314,96 @@ mod result_meta_tests {
         update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
         assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue"));
         assert_eq!(label(&conn, "h2"), None);
+    }
+}
+
+/// Round-trip tests for the session store, through a real on-disk database
+/// built by `init_database` — the same path the app uses — so the row ->
+/// struct decode is exercised, not a hand-built struct.
+#[cfg(test)]
+mod session_roundtrip_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn tab(index: i64, workspace_id: Option<&str>, name: &str, active: bool) -> SessionTab {
+        SessionTab {
+            tab_index: index,
+            workspace_id: workspace_id.map(|s| s.to_string()),
+            name: name.to_string(),
+            name_is_custom: workspace_id.is_some(),
+            connection_id: Some("conn-1".to_string()),
+            schema_name: Some("public".to_string()),
+            sql: format!("SELECT {}", index),
+            cursor_position: index * 7,
+            variables_json: Some("[]".to_string()),
+            is_active: active,
+        }
+    }
+
+    #[test]
+    fn saves_and_loads_two_tabs_in_order() {
+        let dir = temp_db_dir("session_two");
+        let mut conn = init_database(&dir).expect("init");
+
+        let session = Session {
+            tabs: vec![
+                tab(0, Some("ws-1"), "Analysis", false),
+                tab(1, None, "Query 2", true),
+            ],
+        };
+        save_session(&mut conn, &session).expect("save");
+
+        let loaded = load_session(&conn).expect("load");
+        assert_eq!(loaded, session);
+        assert_eq!(loaded.tabs[0].tab_index, 0);
+        assert_eq!(loaded.tabs[0].workspace_id.as_deref(), Some("ws-1"));
+        assert!(loaded.tabs[1].workspace_id.is_none());
+        assert!(loaded.tabs[1].is_active);
+        assert!(!loaded.tabs[0].is_active);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rows_come_back_ordered_by_tab_index_not_insert_order() {
+        let dir = temp_db_dir("session_order");
+        let mut conn = init_database(&dir).expect("init");
+
+        let session = Session {
+            tabs: vec![tab(2, None, "Third", false), tab(0, None, "First", true), tab(1, None, "Second", false)],
+        };
+        save_session(&mut conn, &session).expect("save");
+
+        let loaded = load_session(&conn).expect("load");
+        let names: Vec<&str> = loaded.tabs.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["First", "Second", "Third"]);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn empty_session_replaces_the_previous_one() {
+        let dir = temp_db_dir("session_empty");
+        let mut conn = init_database(&dir).expect("init");
+
+        save_session(&mut conn, &Session { tabs: vec![tab(0, None, "Query 1", true)] }).expect("save");
+        save_session(&mut conn, &Session::default()).expect("save empty");
+
+        let loaded = load_session(&conn).expect("load");
+        assert!(loaded.tabs.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_fresh_database_has_no_session() {
+        let dir = temp_db_dir("session_fresh");
+        let conn = init_database(&dir).expect("init");
+        assert!(load_session(&conn).expect("load").tabs.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

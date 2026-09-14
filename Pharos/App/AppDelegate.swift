@@ -48,12 +48,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // `checkForUpdates` setting, so no conditional is needed here.
         UpdateChecker.shared.start()
 
+        // Read the stored tab set BEFORE the window exists: its content
+        // controller asks for a tab as soon as its view loads, and that "Query 1"
+        // would otherwise sit beside the restored tabs.
+        state.prepareSessionRestore()
+
         // Show the main window
         mainWindowController = MainWindowController()
         mainWindowController?.showWindow(nil)
+
+        // Put the saved tabs back. This needs the content controller alive and
+        // observing, so it runs after the window is on screen.
+        state.restoreSession()
+    }
+
+    /// The main window exists, showing it if it was closed.
+    @MainActor
+    @discardableResult
+    func showMainWindow() -> MainWindowController {
+        if mainWindowController == nil {
+            mainWindowController = MainWindowController()
+        }
+        let controller = mainWindowController!
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        return controller
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Record the open tabs first: the session rows name the workspaces, and
+        // the workspace snapshot below then refreshes what each one holds.
+        AppStateManager.shared.snapshotSession()
+
         // Flush final editor snapshots for open workspaces before shutting down core.
         AppStateManager.shared.snapshotWorkspaces()
 
@@ -73,14 +99,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// Pharos does not ask to be quit when its window closes; the Dock icon
+    /// brings the window back (see `applicationShouldHandleReopen`).
+    ///
+    /// Note that macOS 26 may still quit the app a second or two later: it
+    /// sends a windowless app a quit Apple Event of its own, which runs the
+    /// normal `applicationShouldTerminate` path (so the session is saved) and
+    /// which neither this answer nor `ProcessInfo.disableAutomaticTermination`
+    /// prevents.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    /// A Dock click, or `open` on the bundle, with no window on screen.
+    /// `MainWindowController` is held by this delegate and survives the close,
+    /// so the usual path just shows it again; it is rebuilt only if it is gone.
+    @MainActor
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        showMainWindow()
         return true
     }
 
     @MainActor
     @objc private func handleActivateTabNotification(_ notification: Notification) {
         NSApp.activate(ignoringOtherApps: true)
-        mainWindowController?.window?.makeKeyAndOrderFront(nil)
+        // The window may have been closed — the app no longer quits with it.
+        showMainWindow()
 
         guard let tabId = notification.userInfo?["tabId"] as? String else { return }
         let state = AppStateManager.shared

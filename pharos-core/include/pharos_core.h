@@ -279,6 +279,17 @@ void pharos_get_schema_functions(const char *connection_id,
                                  void *context);
 
 /**
+ * Load the stored session. Returns JSON. Caller must free.
+ */
+ char *pharos_load_session(void);
+
+/**
+ * Save the session. `json` is a JSON-encoded Session. Returns NULL on success,
+ * an error C-string otherwise.
+ */
+ char *pharos_save_session(const char *json);
+
+/**
  * Load settings. Returns JSON. Caller must free.
  */
  char *pharos_load_settings(void);

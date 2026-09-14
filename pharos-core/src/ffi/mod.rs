@@ -48,6 +48,7 @@ mod query;
 mod query_history;
 mod saved_queries;
 mod schema;
+mod session;
 mod settings;
 mod table_metadata;
 mod table_ops;
