@@ -102,13 +102,19 @@ enum MainMenu {
         // View menu
         let viewMenuItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(withTitle: "Toggle Sidebar", action: #selector(PharosSplitViewController.pharosToggleSidebar(_:)), keyEquivalent: "s")
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
+        // Standard split view actions. `PharosSplitViewController.validateMenuItem`
+        // switches the titles between Show and Hide.
+        let sidebarToggle = viewMenu.addItem(
+            withTitle: "Hide Sidebar",
+            action: #selector(NSSplitViewController.toggleSidebar(_:)),
+            keyEquivalent: "s"
+        )
+        sidebarToggle.keyEquivalentModifierMask = [.command, .control]
 
         let inspectorToggle = viewMenu.addItem(
-            withTitle: "Toggle Inspector",
-            action: #selector(PharosSplitViewController.pharosToggleInspector(_:)),
-            keyEquivalent: "0"
+            withTitle: "Show Inspector",
+            action: #selector(NSSplitViewController.toggleInspector(_:)),
+            keyEquivalent: "i"
         )
         inspectorToggle.keyEquivalentModifierMask = [.command, .option]
 

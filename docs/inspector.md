@@ -22,7 +22,7 @@ The Inspector is the rightmost pane of the window. It shows a detailed view of w
 
 ## Opening the Inspector
 
-Toggle the Inspector with **Cmd+Opt+0**, via **View > Toggle Inspector**, or with the toolbar button. It is collapsed by default and updates live as the selection changes.
+Toggle the Inspector with **Cmd+Opt+I**, via **View > Show Inspector** / **Hide Inspector**, or with the toolbar button. It is collapsed by default and updates live as the selection changes.
 
 ## Single-Row Detail
 

@@ -61,8 +61,8 @@ nav_order: 17
 
 | Action | Shortcut |
 |--------|----------|
-| Toggle Sidebar | Cmd+Ctrl+S |
-| Toggle Inspector | Cmd+Opt+0 |
+| Show / Hide Sidebar | Cmd+Ctrl+S |
+| Show / Hide Inspector | Cmd+Opt+I |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 
 ## Window

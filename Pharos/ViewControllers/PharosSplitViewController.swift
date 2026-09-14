@@ -1,17 +1,17 @@
 import AppKit
 
-// All three items use init(viewController:) to bypass macOS 26's Liquid Glass
-// "floating" sidebar/inspector treatment, which insets the panels with rounded
-// corners and leaves a transparent gap to the window chrome. We want a classic
-// edge-to-edge sidebar so the trailing border meets the bottom of the window
-// cleanly. Holding priorities make the sidebar and inspector resize like
-// classic panels (content absorbs window resize).
+// The sidebar and the inspector are system split view items
+// (`sidebarWithViewController:` / `inspectorWithViewController:`), so on
+// macOS 26 they get the Liquid Glass material, the standard
+// `toggleSidebar:` / `toggleInspector:` actions, the tracking-separator
+// toolbar items and the system collapse animation for free. The content item
+// opts into `automaticallyAdjustsSafeAreaInsets`, so its safe area grows where
+// a glass pane overlays it; `ContentViewController` extends its background
+// under that overlay with an `NSBackgroundExtensionView`.
 //
-// Because the split items have `.default` behavior (not `.sidebar` /
-// `.inspector`), the built-in `NSSplitViewController.toggleSidebar(_:)` /
-// `toggleInspector(_:)` actions short-circuit during validation and never
-// fire. The menu and toolbar use our own selectors (`pharosToggleSidebar:`,
-// `pharosToggleInspector:`) so we control both dispatch and validation.
+// Holding priorities make the sidebar and inspector resize like classic
+// panels (content absorbs window resize). They must stay LOW and only
+// relative, or interactive divider drags snap back (tasks/lessons.md).
 class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     let sidebarVC = SidebarViewController()
@@ -21,12 +21,10 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Sidebar item — classic edge-to-edge.
-        let sidebarItem = NSSplitViewItem(viewController: sidebarVC)
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
-        sidebarItem.isCollapsed = false
         // Just one step above the content's holding priority — enough to make
         // content (not the sidebar) absorb window resizing, but low enough that
         // NSSplitView still honors interactive divider drags. A high priority
@@ -39,13 +37,12 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         let contentItem = NSSplitViewItem(viewController: contentVC)
         contentItem.minimumThickness = 400
         contentItem.holdingPriority = .defaultLow
+        contentItem.automaticallyAdjustsSafeAreaInsets = true
 
-        // Inspector item — classic edge-to-edge, starts collapsed.
-        let inspectorItem = NSSplitViewItem(viewController: inspectorVC)
+        let inspectorItem = NSSplitViewItem(inspectorWithViewController: inspectorVC)
         inspectorItem.minimumThickness = 220
         inspectorItem.maximumThickness = 400
         inspectorItem.canCollapse = true
-        inspectorItem.isCollapsed = true
         // The inspector needs a higher holding priority than the sidebar. When the
         // inspector shows row detail, its content (a scrollable stack of labels)
         // hugs horizontally at ~.defaultLow, which would otherwise out-rank a
@@ -60,26 +57,14 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         addSplitViewItem(contentItem)
         addSplitViewItem(inspectorItem)
 
+        // Initial state for a fresh install; the autosave below overrides it
+        // with the user's last layout.
+        sidebarItem.isCollapsed = false
+        inspectorItem.isCollapsed = true
+
         // Changed from "PharosSidebarSplit" to avoid 2-pane saved positions
         // corrupting the 3-pane layout
         splitView.autosaveName = "PharosMainSplit"
-    }
-
-    // MARK: - Responder Actions
-
-    /// Custom toggle for the sidebar — avoids NSSplitViewController's
-    /// built-in `toggleSidebar:` validation that disables the action when no
-    /// item has `.sidebar` behavior.
-    @objc func pharosToggleSidebar(_ sender: Any?) {
-        guard let item = splitViewItems.first else { return }
-        item.animator().isCollapsed.toggle()
-    }
-
-    /// Custom toggle for the inspector — mirror of the above for the
-    /// trailing pane.
-    @objc func pharosToggleInspector(_ sender: Any?) {
-        guard let item = splitViewItems.last else { return }
-        item.animator().isCollapsed.toggle()
     }
 
     // MARK: - Query and tab menu forwarding
@@ -105,13 +90,24 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuExportEditorAsSQL(_ sender: Any?) { contentVC.menuExportEditorAsSQL(sender) }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        contentVC.validateMenuItem(menuItem)
+        // The two standard split view actions are ours to validate: this
+        // override shadows NSSplitViewController's own validation, which is
+        // what rewrites the titles between Show and Hide.
+        if menuItem.action == #selector(NSSplitViewController.toggleSidebar(_:)) {
+            menuItem.title = (splitViewItems.first?.isCollapsed ?? false) ? "Show Sidebar" : "Hide Sidebar"
+            return true
+        }
+        if menuItem.action == #selector(NSSplitViewController.toggleInspector(_:)) {
+            menuItem.title = (splitViewItems.last?.isCollapsed ?? true) ? "Show Inspector" : "Hide Inspector"
+            return true
+        }
+        return contentVC.validateMenuItem(menuItem)
     }
 
     /// Reveals the inspector if it's currently collapsed. Unlike
-    /// `pharosToggleInspector`, this never collapses an already-visible
-    /// inspector — used when content is about to be pushed into it
-    /// programmatically (e.g. showing a preview row's SQL).
+    /// `toggleInspector:`, this never collapses an already-visible inspector —
+    /// used when content is about to be pushed into it programmatically
+    /// (e.g. showing a preview row's SQL).
     func showInspector() {
         if let item = splitViewItems.last, item.isCollapsed {
             item.animator().isCollapsed = false

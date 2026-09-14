@@ -60,7 +60,7 @@ The Pharos window has three panes:
 
 - **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with three views, switched by the icons at its top: **Query Library** (saved queries), **Results History** (workspaces and past queries), and **Database Navigation** (the schema browser). A shared **Filter** field searches whichever view is active.
 - **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid or chart) and its action bar.
-- **Inspector** (right, toggle with **Cmd+Opt+0**) — row details, selection statistics, and schema object details. Collapsed by default.
+- **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 
 Connections are chosen **per editor tab** from the connection pull-down in the editor toolbar — there is no global connection selector.
 

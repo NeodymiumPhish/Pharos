@@ -28,15 +28,10 @@ class SidebarViewController: NSViewController {
     }
 
     override func loadView() {
-        // Use a sidebar-material vibrancy view as our root so the sidebar has
-        // visible contrast against the content area in both active and inactive
-        // window states. We opted out of macOS 26's `sidebarWithViewController:`
-        // floating Liquid Glass treatment (see PharosSplitViewController), so
-        // we have to supply the sidebar material ourselves.
-        let container = NSVisualEffectView()
-        container.material = .sidebar
-        container.blendingMode = .behindWindow
-        container.state = .followsWindowActiveState
+        // A plain root. The split view item (`sidebarWithViewController:`)
+        // supplies the sidebar material; a vibrancy view of our own here would
+        // stack a second material under the system one.
+        let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         self.view = container
 

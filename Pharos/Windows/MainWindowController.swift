@@ -6,7 +6,6 @@ class MainWindowController: NSWindowController {
     let splitViewController = PharosSplitViewController()
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
-    private var didInstallTitlebarAccessory = false
 
     private static let frameAutosaveKey = "PharosMainWindow"
 
@@ -38,7 +37,6 @@ class MainWindowController: NSWindowController {
             self, selector: #selector(saveWindowFrame),
             name: NSWindow.didMoveNotification, object: window)
 
-        // Setup toolbar (only flexible space + inspector toggle remain)
         let toolbar = NSToolbar(identifier: "PharosToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -47,7 +45,7 @@ class MainWindowController: NSWindowController {
 
     // Manual — setFrameAutosaveName doesn't reliably write on resize under macOS 26.
     // A saved frame from a previous session may be 0x0 or on a disconnected display;
-    // either would hand the titlebar accessory an invalid layout context on first show.
+    // either would hand the first layout pass an invalid context on first show.
     private func restoreWindowFrame(defaultContentRect: NSRect) {
         guard let window = window else { return }
         let didRestore = window.setFrameUsingName(Self.frameAutosaveKey)
@@ -68,44 +66,6 @@ class MainWindowController: NSWindowController {
         window?.saveFrame(usingName: Self.frameAutosaveKey)
     }
 
-    // Attached post-show (from windowDidBecomeKey) rather than in init. Attaching
-    // before the window is on screen triggers _auxiliaryViewFrameChanged: to assert
-    // on macOS 26 when the first layout pass runs during makeKeyAndOrderFront.
-    private func installTitlebarAccessoryIfNeeded() {
-        guard !didInstallTitlebarAccessory else { return }
-        guard let window = window, window.styleMask.contains(.titled) else { return }
-
-        let accessorySize = NSSize(width: 36, height: 28)
-        let container = NSView(frame: NSRect(origin: .zero, size: accessorySize))
-        container.autoresizingMask = []
-
-        let button = NSButton(frame: .zero)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        button.image = NSImage(systemSymbolName: "sidebar.leading",
-                               accessibilityDescription: "Toggle Sidebar")?
-            .withSymbolConfiguration(symbolConfig)
-        button.bezelStyle = .recessed
-        button.isBordered = false
-        button.target = nil
-        button.action = #selector(PharosSplitViewController.pharosToggleSidebar(_:))
-
-        container.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            button.topAnchor.constraint(equalTo: container.topAnchor),
-            button.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-
-        let accessoryVC = NSTitlebarAccessoryViewController()
-        accessoryVC.view = container
-        accessoryVC.layoutAttribute = .leading
-        window.addTitlebarAccessoryViewController(accessoryVC)
-
-        didInstallTitlebarAccessory = true
-    }
-
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
@@ -119,29 +79,17 @@ class MainWindowController: NSWindowController {
 
 // MARK: - NSToolbarDelegate
 
-extension NSToolbarItem.Identifier {
-    /// Custom inspector toggle. The system `.toggleInspector` identifier
-    /// auto-wires to `NSSplitViewController.toggleInspector:`, which our
-    /// non-`.inspector`-behavior split items can't satisfy — using our own
-    /// identifier lets us bind the action to `pharosToggleInspector(_:)`.
-    static let pharosToggleInspector = NSToolbarItem.Identifier("PharosToggleInspector")
-}
-
 extension MainWindowController: NSToolbarDelegate {
 
+    // The sidebar and inspector toggles and the two tracking separators are
+    // system items: AppKit wires them to the split view controller's
+    // `.sidebar` / `.inspector` items and positions the separators over the
+    // split view dividers.
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .pharosToggleInspector:
-            let item = NSToolbarItem(itemIdentifier: .pharosToggleInspector)
-            item.label = "Inspector"
-            item.image = NSImage(systemSymbolName: "sidebar.trailing",
-                                 accessibilityDescription: "Toggle Inspector")
-            item.action = #selector(PharosSplitViewController.pharosToggleInspector(_:))
-            return item
-
-        case .flexibleSpace:
-            return NSToolbarItem(itemIdentifier: .flexibleSpace)
-
+        case .toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace,
+             .inspectorTrackingSeparator, .toggleInspector:
+            return NSToolbarItem(itemIdentifier: itemIdentifier)
         default:
             return nil
         }
@@ -149,24 +97,19 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         return [
+            .toggleSidebar,
+            .sidebarTrackingSeparator,
             .flexibleSpace,
-            .pharosToggleInspector,
+            .inspectorTrackingSeparator,
+            .toggleInspector,
         ]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        return [
-            .flexibleSpace,
-            .pharosToggleInspector,
-        ]
+        return toolbarDefaultItemIdentifiers(toolbar)
     }
 }
 
 // MARK: - NSWindowDelegate
 
-extension MainWindowController: NSWindowDelegate {
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        installTitlebarAccessoryIfNeeded()
-    }
-}
+extension MainWindowController: NSWindowDelegate {}

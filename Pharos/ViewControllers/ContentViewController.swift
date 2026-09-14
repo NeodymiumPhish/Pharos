@@ -171,8 +171,26 @@ class ContentViewController: NSViewController {
     }
 
     override func loadView() {
+        // The root extends the content's edges under the toolbar and under the
+        // sidebar / inspector glass where they overlay this pane (the split
+        // view item has `automaticallyAdjustsSafeAreaInsets`). `container` is
+        // the extension view's content and is placed inside the safe area, so
+        // every child below pins to `container`'s own edges.
+        let extensionView = NSBackgroundExtensionView()
         let container = NSView()
-        self.view = container
+        container.translatesAutoresizingMaskIntoConstraints = false
+        // Explicit placement against the safe-area guide: the guide follows
+        // the sidebar and inspector as they collapse and expand, so the
+        // content grows into the space a hidden pane leaves.
+        extensionView.automaticallyPlacesContentView = false
+        extensionView.contentView = container
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.topAnchor),
+            container.leadingAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.bottomAnchor),
+        ])
+        self.view = extensionView
 
         editorPane.delegate = self
         addChild(editorPane)
@@ -245,7 +263,7 @@ class ContentViewController: NSViewController {
         container.addSubview(contentStack)
         container.addSubview(emptyState)
 
-        let safeTop = container.safeAreaLayoutGuide.topAnchor
+        let safeTop = container.topAnchor
 
         resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
         resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
