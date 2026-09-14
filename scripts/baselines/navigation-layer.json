@@ -1,0 +1,1271 @@
+{
+  "app": "build/hig-phase0/Build/Products/Debug/Pharos.app",
+  "captured_at": "2026-09-14T20:17:26+00:00",
+  "tree": {
+    "children": [
+      {
+        "children": [
+          {
+            "children": [
+              {
+                "children": [
+                  {
+                    "description": "Queries",
+                    "frame": {
+                      "h": 24,
+                      "w": 98,
+                      "x": 9,
+                      "y": 90
+                    },
+                    "role": "AXRadioButton",
+                    "subrole": "AXSegment",
+                    "value": 1
+                  },
+                  {
+                    "description": "History",
+                    "frame": {
+                      "h": 24,
+                      "w": 94,
+                      "x": 108,
+                      "y": 90
+                    },
+                    "role": "AXRadioButton",
+                    "subrole": "AXSegment",
+                    "value": 0
+                  },
+                  {
+                    "description": "Database",
+                    "frame": {
+                      "h": 24,
+                      "w": 94,
+                      "x": 203,
+                      "y": 90
+                    },
+                    "role": "AXRadioButton",
+                    "subrole": "AXSegment",
+                    "value": 0
+                  }
+                ],
+                "frame": {
+                  "h": 26,
+                  "w": 290,
+                  "x": 8,
+                  "y": 89
+                },
+                "role": "AXRadioGroup"
+              },
+              {
+                "children": [
+                  {
+                    "description": "Search",
+                    "frame": {
+                      "h": 9,
+                      "w": 15,
+                      "x": 19,
+                      "y": 130
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  }
+                ],
+                "frame": {
+                  "h": 26,
+                  "w": 282,
+                  "x": 12,
+                  "y": 121
+                },
+                "role": "AXTextField",
+                "subrole": "AXSearchField",
+                "value": ""
+              },
+              {
+                "children": [
+                  {
+                    "children": [
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 62,
+                                  "x": 47,
+                                  "y": 167
+                                },
+                                "role": "AXStaticText",
+                                "value": "Honeypot"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 164
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 164
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 75,
+                                  "x": 61,
+                                  "y": 191
+                                },
+                                "role": "AXStaticText",
+                                "value": "DLink - July"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 188
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 188
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 86,
+                                  "x": 61,
+                                  "y": 215
+                                },
+                                "role": "AXStaticText",
+                                "value": "DrayTek Coda"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 212
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 212
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 78,
+                                  "x": 61,
+                                  "y": 239
+                                },
+                                "role": "AXStaticText",
+                                "value": "Ruckus_cert"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 236
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 236
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 58,
+                                  "x": 47,
+                                  "y": 263
+                                },
+                                "role": "AXStaticText",
+                                "value": "Template"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 260
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 260
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 188,
+                                  "x": 61,
+                                  "y": 287
+                                },
+                                "role": "AXStaticText",
+                                "value": "Open Ports - Peers from Flows"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 284
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 284
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 160,
+                                  "x": 61,
+                                  "y": 311
+                                },
+                                "role": "AXStaticText",
+                                "value": "Seed Details - Flowsplode"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 308
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 308
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 239,
+                                  "x": 61,
+                                  "y": 335
+                                },
+                                "role": "AXStaticText",
+                                "value": "selector_peer_flows - sessions_by_peer"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 332
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 332
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 28,
+                                  "x": 47,
+                                  "y": 359
+                                },
+                                "role": "AXStaticText",
+                                "value": "Test"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 356
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 356
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 105,
+                                  "x": 61,
+                                  "y": 383
+                                },
+                                "role": "AXStaticText",
+                                "value": "Test ip_summary"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 380
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 380
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 128,
+                                  "x": 61,
+                                  "y": 407
+                                },
+                                "role": "AXStaticText",
+                                "value": "open_ports_raw - all"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 404
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 404
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 112,
+                                  "x": 61,
+                                  "y": 431
+                                },
+                                "role": "AXStaticText",
+                                "value": "tcp_udp_sessions"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 428
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 428
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 87,
+                                  "x": 47,
+                                  "y": 455
+                                },
+                                "role": "AXStaticText",
+                                "value": "exfil_sessions"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 452
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 452
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 167,
+                                  "x": 47,
+                                  "y": 479
+                                },
+                                "role": "AXStaticText",
+                                "value": "Flowsplode Queries (T603)"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 476
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 476
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 186,
+                                  "x": 47,
+                                  "y": 503
+                                },
+                                "role": "AXStaticText",
+                                "value": "Flowsplode Selector Summary"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 500
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 500
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 117,
+                                  "x": 47,
+                                  "y": 527
+                                },
+                                "role": "AXStaticText",
+                                "value": "SoS - Ransomware"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 524
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 524
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 35,
+                                  "x": 47,
+                                  "y": 551
+                                },
+                                "role": "AXStaticText",
+                                "value": "T540"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 548
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 548
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 114,
+                                  "x": 47,
+                                  "y": 575
+                                },
+                                "role": "AXStaticText",
+                                "value": "T603 - ODIN Zeek"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 572
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 572
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 139,
+                                  "x": 47,
+                                  "y": 599
+                                },
+                                "role": "AXStaticText",
+                                "value": "T603 - Spam Domains"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 596
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 596
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 35,
+                                  "x": 47,
+                                  "y": 623
+                                },
+                                "role": "AXStaticText",
+                                "value": "T609"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 620
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 620
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 217,
+                                  "x": 47,
+                                  "y": 647
+                                },
+                                "role": "AXStaticText",
+                                "value": "x509_summary-common_selectors"
+                              }
+                            ],
+                            "frame": {
+                              "h": 24,
+                              "w": 318,
+                              "x": 1,
+                              "y": 644
+                            },
+                            "role": "AXCell"
+                          }
+                        ],
+                        "frame": {
+                          "h": 24,
+                          "w": 318,
+                          "x": 1,
+                          "y": 644
+                        },
+                        "role": "AXRow",
+                        "subrole": "AXOutlineRow"
+                      }
+                    ],
+                    "frame": {
+                      "h": 1194,
+                      "w": 320,
+                      "x": 0,
+                      "y": 153
+                    },
+                    "role": "AXOutline"
+                  }
+                ],
+                "frame": {
+                  "h": 1192,
+                  "w": 304,
+                  "x": 1,
+                  "y": 154
+                },
+                "role": "AXScrollArea"
+              },
+              {
+                "description": "New Folder",
+                "frame": {
+                  "h": 30,
+                  "w": 30,
+                  "x": 8,
+                  "y": 1347
+                },
+                "role": "AXButton",
+                "title": ""
+              },
+              {
+                "enabled": false,
+                "frame": {
+                  "h": 1296,
+                  "w": 1,
+                  "x": 305,
+                  "y": 82
+                },
+                "role": "AXSplitter",
+                "value": 304
+              },
+              {
+                "children": [
+                  {
+                    "description": "New Tab",
+                    "frame": {
+                      "h": 30,
+                      "w": 32,
+                      "x": 2268,
+                      "y": 83
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "children": [
+                      {
+                        "description": "Query 1",
+                        "frame": {
+                          "h": 24,
+                          "w": 1955,
+                          "x": 310,
+                          "y": 86
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXSegment",
+                        "value": 1
+                      }
+                    ],
+                    "frame": {
+                      "h": 26,
+                      "w": 1957,
+                      "x": 309,
+                      "y": 85
+                    },
+                    "role": "AXRadioGroup"
+                  },
+                  {
+                    "description": "Close Tab",
+                    "frame": {
+                      "h": 15,
+                      "w": 18,
+                      "x": 2244,
+                      "y": 90
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Format SQL",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 313,
+                      "y": 115
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "frame": {
+                      "h": 19,
+                      "w": 34,
+                      "x": 345,
+                      "y": 120
+                    },
+                    "role": "AXMenuButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Run Query",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 381,
+                      "y": 115
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "frame": {
+                      "h": 18,
+                      "w": 142,
+                      "x": 413,
+                      "y": 121
+                    },
+                    "role": "AXMenuButton",
+                    "title": "Select Connection"
+                  },
+                  {
+                    "enabled": false,
+                    "frame": {
+                      "h": 18,
+                      "w": 102,
+                      "x": 557,
+                      "y": 121
+                    },
+                    "role": "AXMenuButton",
+                    "title": "No Schema"
+                  },
+                  {
+                    "description": "Query Variables",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 2230,
+                      "y": 115
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Result Tabs",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 2262,
+                      "y": 115
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "children": [
+                      {
+                        "frame": {
+                          "h": 521,
+                          "w": 1670,
+                          "x": 356.98,
+                          "y": 146
+                        },
+                        "role": "AXTextArea",
+                        "value": ""
+                      }
+                    ],
+                    "frame": {
+                      "h": 538,
+                      "w": 1669.86,
+                      "x": 356.98,
+                      "y": 146
+                    },
+                    "role": "AXScrollArea"
+                  },
+                  {
+                    "frame": {
+                      "h": 16,
+                      "w": 43,
+                      "x": 2040.84,
+                      "y": 151
+                    },
+                    "role": "AXStaticText",
+                    "value": "Results"
+                  },
+                  {
+                    "children": [
+                      {
+                        "frame": {
+                          "h": 514,
+                          "w": 268,
+                          "x": 2031.84,
+                          "y": 171
+                        },
+                        "role": "AXTable"
+                      }
+                    ],
+                    "frame": {
+                      "h": 512,
+                      "w": 266,
+                      "x": 2032.84,
+                      "y": 172
+                    },
+                    "role": "AXScrollArea"
+                  },
+                  {
+                    "frame": {
+                      "h": 17,
+                      "w": 60,
+                      "x": 2134.84,
+                      "y": 183
+                    },
+                    "role": "AXStaticText",
+                    "value": "No results"
+                  },
+                  {
+                    "enabled": false,
+                    "frame": {
+                      "h": 0,
+                      "w": 1993,
+                      "x": 306,
+                      "y": 684
+                    },
+                    "role": "AXSplitter",
+                    "value": 602
+                  },
+                  {
+                    "children": [
+                      {
+                        "description": "Grid",
+                        "frame": {
+                          "h": 24,
+                          "w": 46,
+                          "x": 314,
+                          "y": 688
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXSegment",
+                        "value": 1
+                      },
+                      {
+                        "description": "Chart",
+                        "frame": {
+                          "h": 24,
+                          "w": 54,
+                          "x": 361,
+                          "y": 688
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXSegment",
+                        "value": 0
+                      }
+                    ],
+                    "frame": {
+                      "h": 26,
+                      "w": 103,
+                      "x": 313,
+                      "y": 687
+                    },
+                    "role": "AXRadioGroup"
+                  },
+                  {
+                    "description": "Pin Results",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 416,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Export",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 446,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Copy",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 476,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Find (Cmd+F)",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 506,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "frame": {
+                      "h": 16,
+                      "w": 2,
+                      "x": 2224,
+                      "y": 692
+                    },
+                    "role": "AXStaticText",
+                    "value": ""
+                  },
+                  {
+                    "description": "Expand Editor",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 2232,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "description": "Expand Results",
+                    "frame": {
+                      "h": 30,
+                      "w": 30,
+                      "x": 2262,
+                      "y": 685
+                    },
+                    "role": "AXButton",
+                    "title": ""
+                  },
+                  {
+                    "frame": {
+                      "h": 18,
+                      "w": 164,
+                      "x": 1221,
+                      "y": 1038
+                    },
+                    "role": "AXStaticText",
+                    "value": "Run a query to see results"
+                  }
+                ],
+                "frame": {
+                  "h": 1296,
+                  "w": 1993,
+                  "x": 306,
+                  "y": 82
+                },
+                "role": "AXSplitGroup"
+              },
+              {
+                "enabled": false,
+                "frame": {
+                  "h": 1296,
+                  "w": 1,
+                  "x": 2299,
+                  "y": 82
+                },
+                "role": "AXSplitter",
+                "value": 1993
+              },
+              {
+                "frame": {
+                  "h": 18,
+                  "w": 85,
+                  "x": 2416,
+                  "y": 695
+                },
+                "role": "AXStaticText",
+                "value": "No Selection"
+              }
+            ],
+            "frame": {
+              "h": 1348,
+              "w": 2616,
+              "x": 1,
+              "y": 30
+            },
+            "role": "AXSplitGroup"
+          },
+          {
+            "children": [
+              {
+                "description": "Inspector",
+                "frame": {
+                  "h": 52,
+                  "w": 48,
+                  "x": 2565,
+                  "y": 30
+                },
+                "role": "AXButton"
+              }
+            ],
+            "frame": {
+              "h": 52,
+              "w": 2616,
+              "x": 1,
+              "y": 30
+            },
+            "role": "AXToolbar"
+          },
+          {
+            "description": "Toggle Sidebar",
+            "frame": {
+              "h": 54,
+              "w": 38,
+              "x": 88,
+              "y": 29
+            },
+            "role": "AXButton",
+            "title": ""
+          },
+          {
+            "frame": {
+              "h": 16,
+              "w": 16,
+              "x": 19,
+              "y": 48
+            },
+            "role": "AXButton",
+            "subrole": "AXCloseButton"
+          },
+          {
+            "children": [
+              {
+                "frame": {
+                  "h": 14,
+                  "w": 14,
+                  "x": 66,
+                  "y": 49
+                },
+                "role": "AXGroup"
+              }
+            ],
+            "frame": {
+              "h": 16,
+              "w": 16,
+              "x": 65,
+              "y": 48
+            },
+            "role": "AXButton",
+            "subrole": "AXFullScreenButton"
+          },
+          {
+            "frame": {
+              "h": 16,
+              "w": 16,
+              "x": 42,
+              "y": 48
+            },
+            "role": "AXButton",
+            "subrole": "AXMinimizeButton"
+          }
+        ],
+        "frame": {
+          "h": 1348,
+          "w": 2616,
+          "x": 1,
+          "y": 30
+        },
+        "role": "AXWindow",
+        "subrole": "AXStandardWindow",
+        "title": "Pharos"
+      }
+    ],
+    "role": "AXApplication",
+    "title": "Pharos"
+  },
+  "windows": [
+    {
+      "bounds": {
+        "Height": 1348,
+        "Width": 2616,
+        "X": 1,
+        "Y": 30
+      },
+      "number": 61381
+    }
+  ]
+}
