@@ -2,7 +2,10 @@
 //
 // Usage:
 //   swiftc -O -o /tmp/ax-walk scripts/ax-walk.swift
-//   /tmp/ax-walk <pid> [--depth N] [--wait-window SECONDS] [--roles ROLE,ROLE] [--pretty]
+//   /tmp/ax-walk <pid> [--depth N] [--wait-window SECONDS] [--roles ROLE,ROLE] [--pretty] [--focused]
+//
+// --focused         Print only the focused element (role, title, description,
+//                   placeholder, identifier, frame) as one JSON object and exit.
 //
 // --wait-window S   Poll the window server up to S seconds for an on-screen window
 //                   owned by <pid>, then walk. Exit 3 if none appears. This is the
@@ -27,6 +30,7 @@ struct Options {
     var waitSeconds: Double = 0
     var roles: Set<String>? = nil
     var pretty = false
+    var focusedOnly = false
 }
 
 func parse() -> Options {
@@ -45,6 +49,7 @@ func parse() -> Options {
         case "--wait-window": o.waitSeconds = Double(args[i + 1]) ?? 0; i += 2
         case "--roles": o.roles = Set(args[i + 1].split(separator: ",").map(String.init)); i += 2
         case "--pretty": o.pretty = true; i += 1
+        case "--focused": o.focusedOnly = true; i += 1
         default: i += 1
         }
     }
@@ -131,6 +136,26 @@ if opts.waitSeconds > 0 {
 }
 
 let app = AXUIElementCreateApplication(opts.pid)
+
+if opts.focusedOnly {
+    var focused: [String: Any] = [:]
+    if let el = attr(app, kAXFocusedUIElementAttribute), CFGetTypeID(el) == AXUIElementGetTypeID() {
+        let e = el as! AXUIElement
+        focused["role"] = (attr(e, kAXRoleAttribute) as? String) ?? "?"
+        if let t = scalar(attr(e, kAXTitleAttribute)) { focused["title"] = t }
+        if let d = scalar(attr(e, kAXDescriptionAttribute)) { focused["description"] = d }
+        if let p = scalar(attr(e, kAXPlaceholderValueAttribute)) { focused["placeholder"] = p }
+        if let i = attr(e, kAXIdentifierAttribute) as? String, !i.isEmpty { focused["identifier"] = i }
+        if let v = scalar(attr(e, kAXValueAttribute)) as? String { focused["value"] = String(v.prefix(80)) }
+        if let p = point(e, kAXPositionAttribute), let s = size(e, kAXSizeAttribute) {
+            focused["frame"] = ["x": round2(p.x), "y": round2(p.y), "w": round2(s.width), "h": round2(s.height)]
+        }
+    }
+    let data = try JSONSerialization.data(withJSONObject: focused, options: [.sortedKeys])
+    FileHandle.standardOutput.write(data); FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+    exit(0)
+}
+
 var out: [String: Any] = ["pid": Int(opts.pid)]
 out["windows"] = windows.map { w -> [String: Any] in
     var d: [String: Any] = ["number": w[kCGWindowNumber as String] ?? 0]
