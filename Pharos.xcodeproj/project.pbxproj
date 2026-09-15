@@ -142,8 +142,10 @@
 		A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */; };
 		A23DFC3761AD2318E1EDDB35 /* ResultTabStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 771DEF663BAD701C2771EEA8 /* ResultTabStore.swift */; };
 		A26293B8AC466FF89FA34C39 /* TagConditionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */; };
+		A26D02C08A56B10243B8B93F /* AccessibilityProxyElement.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */; };
 		A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B18675CC8E31A7FF367C89 /* TagCapture.swift */; };
 		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
+		A38FB70285E0DB76A4DC045E /* MarkerShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369938D654B2C568F8707A08 /* MarkerShape.swift */; };
 		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
@@ -271,6 +273,7 @@
 		34B18675CC8E31A7FF367C89 /* TagCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCapture.swift; sourceTree = "<group>"; };
 		364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRowPipeline.swift; sourceTree = "<group>"; };
 		3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleMatcher.swift; sourceTree = "<group>"; };
+		369938D654B2C568F8707A08 /* MarkerShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkerShape.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Tags.swift"; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
@@ -425,6 +428,7 @@
 		F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridMetrics.swift; sourceTree = "<group>"; };
 		F891B6EAB834D607054C3750 /* ChartHostingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartHostingController.swift; sourceTree = "<group>"; };
 		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
+		FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityProxyElement.swift; sourceTree = "<group>"; };
 		FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Settings.swift"; sourceTree = "<group>"; };
 		FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTextField+FormLabel.swift"; sourceTree = "<group>"; };
 		FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPaletteEditor.swift; sourceTree = "<group>"; };
@@ -757,10 +761,12 @@
 		FD1640F44D2DB2B3B35D8884 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */,
 				AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */,
 				0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */,
 				CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */,
 				E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */,
+				369938D654B2C568F8707A08 /* MarkerShape.swift */,
 				FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */,
 				AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */,
 				FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */,
@@ -880,6 +886,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */,
+				A26D02C08A56B10243B8B93F /* AccessibilityProxyElement.swift in Sources */,
 				C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */,
 				F73FBF7D4575069DE4533EA4 /* AppDelegate+Help.swift in Sources */,
 				AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */,
@@ -946,6 +953,7 @@
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
 				BB0BE290763FF8F637A390F2 /* MainToolbarController.swift in Sources */,
 				BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */,
+				A38FB70285E0DB76A4DC045E /* MarkerShape.swift in Sources */,
 				19877E64248CE46809E223BA /* MetadataCache.swift in Sources */,
 				9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */,
 				5C3CCF03D9E5B9FE79F803B3 /* NSTextField+AuthoredLabel.swift in Sources */,

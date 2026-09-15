@@ -70,6 +70,10 @@ nav_order: 17
 | Show / Hide Sidebar | Cmd+Ctrl+S |
 | Show / Hide Inspector | Cmd+Opt+I |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
+| Show Next Tab | Cmd+Shift+] |
+| Show Previous Tab | Cmd+Shift+[ |
+| Show Next Result Tab | Ctrl+Tab |
+| Show Previous Result Tab | Ctrl+Shift+Tab |
 
 ## Window
 

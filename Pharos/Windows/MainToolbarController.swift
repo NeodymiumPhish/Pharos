@@ -186,6 +186,7 @@ final class MainToolbarController: NSObject {
             connectionButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
         ])
         connectionButton.setAccessibilityLabel("Connection")
+        connectionButton.setAccessibilityIdentifier("toolbar.connection")
     }
 
     private func rebuildConnectionMenu() {
@@ -308,6 +309,7 @@ final class MainToolbarController: NSObject {
         cancelButton.action = #selector(cancelTapped(_:))
         cancelButton.toolTip = "Cancel Query (⌘.)"
         cancelButton.setAccessibilityLabel("Cancel Query")
+        cancelButton.setAccessibilityIdentifier("toolbar.cancel")
     }
 }
 

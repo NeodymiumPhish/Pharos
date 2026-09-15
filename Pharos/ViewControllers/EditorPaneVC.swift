@@ -149,6 +149,12 @@ class EditorPaneVC: NSViewController {
         // Tab bar
         paneTabBar = PaneTabBar()
         paneTabBar.translatesAutoresizingMaskIntoConstraints = false
+        // A plain NSView wrapper is accessibility-ignored by default, which
+        // would flatten its identifier away and expose only its child
+        // segmented control to the AX tree — force it to be a real element
+        // so `editor.tabBar` is reachable by the AX walker and UI tests.
+        paneTabBar.setAccessibilityElement(true)
+        paneTabBar.setAccessibilityIdentifier("editor.tabBar")
 
         paneTabBar.onSelectTab = { [weak self] tabId in
             guard let self else { return }
@@ -486,8 +492,8 @@ class EditorPaneVC: NSViewController {
     }
 
     /// `range` is in document coordinates — see `QueryEditorVC.markError(range:)`.
-    func markError(range: NSRange) {
-        editorVC.markError(range: range)
+    func markError(range: NSRange, message: String? = nil) {
+        editorVC.markError(range: range, message: message)
     }
 
     func revealError(range: NSRange) {
@@ -563,19 +569,19 @@ class EditorPaneVC: NSViewController {
 
         let saveItem = NSMenuItem(title: "Save", action: #selector(saveTapped), keyEquivalent: "")
         saveItem.target = self
-        saveItem.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
+        saveItem.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Save")
         saveDropdown.menu?.addItem(saveItem)
 
         let saveAsItem = NSMenuItem(title: "Save As\u{2026}", action: #selector(saveAsTapped), keyEquivalent: "")
         saveAsItem.target = self
-        saveAsItem.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: nil)
+        saveAsItem.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: "Save As")
         saveDropdown.menu?.addItem(saveAsItem)
 
         saveDropdown.menu?.addItem(.separator())
 
         let exportSQLItem = NSMenuItem(title: "Export as SQL File\u{2026}", action: #selector(exportAsSQLTapped), keyEquivalent: "")
         exportSQLItem.target = self
-        exportSQLItem.image = NSImage(systemSymbolName: "doc.badge.arrow.up", accessibilityDescription: nil)
+        exportSQLItem.image = NSImage(systemSymbolName: "doc.badge.arrow.up", accessibilityDescription: "Export as SQL File")
         saveDropdown.menu?.addItem(exportSQLItem)
 
         // Schema popup

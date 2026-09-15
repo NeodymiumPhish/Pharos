@@ -198,6 +198,36 @@ enum MainMenu {
             item.tag = i - 1 // Zero-based index
         }
 
+        viewMenu.addItem(.separator())
+
+        let nextTabItem = viewMenu.addItem(
+            withTitle: "Show Next Tab",
+            action: #selector(ContentViewController.menuSelectNextTab(_:)),
+            keyEquivalent: "]"
+        )
+        nextTabItem.keyEquivalentModifierMask = [.command, .shift]
+
+        let previousTabItem = viewMenu.addItem(
+            withTitle: "Show Previous Tab",
+            action: #selector(ContentViewController.menuSelectPreviousTab(_:)),
+            keyEquivalent: "["
+        )
+        previousTabItem.keyEquivalentModifierMask = [.command, .shift]
+
+        let nextResultTabItem = viewMenu.addItem(
+            withTitle: "Show Next Result Tab",
+            action: #selector(ContentViewController.menuSelectNextResultTab(_:)),
+            keyEquivalent: "\t"
+        )
+        nextResultTabItem.keyEquivalentModifierMask = [.control]
+
+        let previousResultTabItem = viewMenu.addItem(
+            withTitle: "Show Previous Result Tab",
+            action: #selector(ContentViewController.menuSelectPreviousResultTab(_:)),
+            keyEquivalent: "\t"
+        )
+        previousResultTabItem.keyEquivalentModifierMask = [.control, .shift]
+
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
 

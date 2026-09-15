@@ -118,7 +118,7 @@ class TableDDLSheet: NSViewController {
         copyButton.action = #selector(copyDDL)
         copyButton.bezelStyle = .rounded
         let copyConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)?
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")?
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
@@ -143,6 +143,7 @@ class TableDDLSheet: NSViewController {
         doneButton.action = #selector(dismissSheet)
         doneButton.keyEquivalent = "\u{1b}"
         doneButton.bezelStyle = .rounded
+        doneButton.setAccessibilityIdentifier("sheet.tableddl.cancel")
         let doneRow = NSStackView(views: [doneButton])
         doneRow.orientation = .horizontal
 
@@ -195,6 +196,7 @@ class TableDDLSheet: NSViewController {
         cloneButton.action = #selector(doClone)
         cloneButton.keyEquivalent = "\r"
         cloneButton.bezelStyle = .rounded
+        cloneButton.setAccessibilityIdentifier("sheet.tableddl.default")
         let buttonStack = NSStackView(views: [cloneCancelButton, cloneButton])
         buttonStack.spacing = 8
 

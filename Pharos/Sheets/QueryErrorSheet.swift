@@ -223,7 +223,7 @@ final class QueryErrorSheet: NSViewController {
         guard let failure = current else { return }
 
         let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        symbolView.image = NSImage(systemSymbolName: failure.symbolName, accessibilityDescription: nil)?
+        symbolView.image = NSImage(systemSymbolName: failure.symbolName, accessibilityDescription: failure.title)?
             .withSymbolConfiguration(config)
         symbolView.contentTintColor = failure.kind == .error ? .systemRed : .systemOrange
         titleLabel.stringValue = failure.title

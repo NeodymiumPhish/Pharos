@@ -28,6 +28,10 @@ class InspectorViewController: NSViewController {
 
     override func loadView() {
         let container = NSView()
+        // A plain NSView is accessibility-ignored by default and its
+        // identifier would never surface — force it to be a real element.
+        container.setAccessibilityElement(true)
+        container.setAccessibilityIdentifier("pane.inspector")
 
         // No-selection placeholder label
         noSelectionLabel.font = .systemFont(ofSize: 13, weight: .medium)

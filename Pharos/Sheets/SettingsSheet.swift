@@ -86,12 +86,14 @@ class SettingsSheet: NSViewController, NSTabViewDelegate {
         cancelButton.target = self
         cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.setAccessibilityIdentifier("sheet.settings.cancel")
 
         saveButton.title = "Save"
         saveButton.target = self
         saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r"
         saveButton.bezelStyle = .rounded
+        saveButton.setAccessibilityIdentifier("sheet.settings.default")
 
         let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, saveButton])
         buttonRow.orientation = .horizontal

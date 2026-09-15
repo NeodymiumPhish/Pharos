@@ -33,6 +33,10 @@ class SidebarViewController: NSViewController {
         // stack a second material under the system one.
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        // A plain NSView is accessibility-ignored by default and its
+        // identifier would never surface — force it to be a real element.
+        container.setAccessibilityElement(true)
+        container.setAccessibilityIdentifier("pane.sidebar")
         self.view = container
 
         // Search field

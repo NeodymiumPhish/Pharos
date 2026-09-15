@@ -148,11 +148,13 @@ class ExportDataSheet: NSViewController {
         cancelButton.target = self
         cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.setAccessibilityIdentifier("sheet.exportdata.cancel")
         exportButton.title = "Export\u{2026}"
         exportButton.target = self
         exportButton.action = #selector(doExport)
         exportButton.keyEquivalent = "\r"
         exportButton.bezelStyle = .rounded
+        exportButton.setAccessibilityIdentifier("sheet.exportdata.default")
 
         let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, exportButton])
         buttonRow.spacing = 8

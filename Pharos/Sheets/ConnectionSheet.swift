@@ -122,12 +122,14 @@ class ConnectionSheet: NSViewController {
         cancelButton.target = self
         cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}" // Escape
+        cancelButton.setAccessibilityIdentifier("sheet.connection.cancel")
 
         saveButton.title = existingConfig != nil ? "Save" : "Add"
         saveButton.target = self
         saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r" // Return
         saveButton.bezelStyle = .rounded
+        saveButton.setAccessibilityIdentifier("sheet.connection.default")
 
         let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, saveButton])
         buttonRow.orientation = .horizontal

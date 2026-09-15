@@ -69,6 +69,7 @@ class SchemaDetailSheet: NSViewController {
         closeButton.action = #selector(closeSheet)
         closeButton.keyEquivalent = "\u{1b}" // Escape
         closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setAccessibilityIdentifier("sheet.schemadetail.cancel")
 
         // Empty state
         if rowCount == 0 {

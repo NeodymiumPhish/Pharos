@@ -92,12 +92,14 @@ class SaveQuerySheet: NSViewController {
         cancelButton.target = self
         cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.setAccessibilityIdentifier("sheet.savequery.cancel")
 
         saveButton.title = "Save"
         saveButton.target = self
         saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r"
         saveButton.bezelStyle = .rounded
+        saveButton.setAccessibilityIdentifier("sheet.savequery.default")
 
         let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, saveButton])
         buttonRow.orientation = .horizontal

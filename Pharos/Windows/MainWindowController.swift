@@ -39,6 +39,7 @@ class MainWindowController: NSWindowController {
         window.isRestorable = true
         window.identifier = Self.mainWindowIdentifier
         window.restorationClass = MainWindowController.self
+        window.setAccessibilityIdentifier("window.main")
 
         super.init(window: window)
 

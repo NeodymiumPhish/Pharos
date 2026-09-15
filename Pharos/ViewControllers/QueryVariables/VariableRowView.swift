@@ -174,7 +174,7 @@ final class VariableRowView: NSView {
         warningView.contentTintColor = .systemRed
         warningView.isHidden = true
 
-        chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
+        chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Show detail")?
             .withSymbolConfiguration(smallSymbol)
         chevronView.contentTintColor = .tertiaryLabelColor
         // Without this, the required leading/trailing pins on both sides of

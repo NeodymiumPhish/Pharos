@@ -63,11 +63,13 @@ class ImportDataSheet: NSViewController {
         cancelButton.target = self
         cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.setAccessibilityIdentifier("sheet.importdata.cancel")
         importButton.title = "Import"
         importButton.target = self
         importButton.action = #selector(doImport)
         importButton.keyEquivalent = "\r"
         importButton.bezelStyle = .rounded
+        importButton.setAccessibilityIdentifier("sheet.importdata.default")
 
         let buttonStack = NSStackView(views: [Self.spacer(), cancelButton, importButton])
         buttonStack.spacing = 8

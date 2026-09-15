@@ -36,7 +36,7 @@ class QueryDetailSheet: NSViewController {
         copyButton.action = #selector(copyQuery)
         copyButton.bezelStyle = .rounded
         let copyConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)?
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")?
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
@@ -45,7 +45,7 @@ class QueryDetailSheet: NSViewController {
         saveButton.action = #selector(saveQuery)
         saveButton.bezelStyle = .rounded
         let saveConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        saveButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)?
+        saveButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Save")?
             .withSymbolConfiguration(saveConfig)
         saveButton.imagePosition = .imageLeading
 

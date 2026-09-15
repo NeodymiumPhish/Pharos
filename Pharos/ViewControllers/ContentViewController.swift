@@ -184,6 +184,11 @@ class ContentViewController: NSViewController {
         // content grows into the space a hidden pane leaves.
         extensionView.automaticallyPlacesContentView = false
         extensionView.contentView = container
+        // A plain NSBackgroundExtensionView is accessibility-ignored by
+        // default and its identifier would never surface — force it to be
+        // a real element.
+        extensionView.setAccessibilityElement(true)
+        extensionView.setAccessibilityIdentifier("pane.content")
         NSLayoutConstraint.activate([
             container.topAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.topAnchor),
             container.leadingAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.leadingAnchor),
@@ -1101,7 +1106,7 @@ class ContentViewController: NSViewController {
         emptyState.translatesAutoresizingMaskIntoConstraints = false
 
         let imageView = NSImageView()
-        imageView.image = NSImage(systemSymbolName: "text.page.badge.magnifyingglass", accessibilityDescription: nil)
+        imageView.image = NSImage(systemSymbolName: "text.page.badge.magnifyingglass", accessibilityDescription: "No database connection")
         imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 48, weight: .light)
         imageView.contentTintColor = .tertiaryLabelColor
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -2401,7 +2406,7 @@ class ContentViewController: NSViewController {
     private func markEditor(with failure: QueryFailure, in pane: EditorPaneVC) {
         guard let location = failure.location,
               let range = location.range(of: failure.sql, in: pane.getSQL()) else { return }
-        pane.markError(range: range)
+        pane.markError(range: range, message: failure.message)
     }
 
     /// Temporary alert for a failure the user is not looking at. Nothing goes to
@@ -3673,6 +3678,34 @@ extension ContentViewController {
         stateManager.selectTabByIndex(index)
     }
 
+    @objc func menuSelectNextTab(_: Any?) {
+        let tabs = stateManager.tabs
+        guard tabs.count > 1, let activeId = stateManager.activeTabId,
+              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
+        stateManager.selectTab(id: tabs[(idx + 1) % tabs.count].id)
+    }
+
+    @objc func menuSelectPreviousTab(_: Any?) {
+        let tabs = stateManager.tabs
+        guard tabs.count > 1, let activeId = stateManager.activeTabId,
+              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
+        stateManager.selectTab(id: tabs[(idx - 1 + tabs.count) % tabs.count].id)
+    }
+
+    @objc func menuSelectNextResultTab(_: Any?) {
+        let tabs = resultTabs
+        guard tabs.count > 1, let activeId = activeResultTabId,
+              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
+        selectResultTab(tabs[(idx + 1) % tabs.count].id)
+    }
+
+    @objc func menuSelectPreviousResultTab(_: Any?) {
+        let tabs = resultTabs
+        guard tabs.count > 1, let activeId = activeResultTabId,
+              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
+        selectResultTab(tabs[(idx - 1 + tabs.count) % tabs.count].id)
+    }
+
     @objc func showFind() {
         resultsVC.showFind()
     }
@@ -3885,9 +3918,9 @@ extension ContentViewController: QueryErrorSheetDelegate {
 // MARK: - NSMenuItemValidation
 
 extension ContentViewController: NSMenuItemValidation {
-    /// Only the items named here are gated — the two tag items, Run and
-    /// Cancel; every other menu item keeps its always-enabled behaviour, so
-    /// the default MUST stay `true`.
+    /// Only the items named here are gated — the two tag items, Run, Cancel,
+    /// and the tab-cycling items; every other menu item keeps its
+    /// always-enabled behaviour, so the default MUST stay `true`.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(performTextFinderAction(_:)) {
             guard let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return true }
@@ -3904,6 +3937,12 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
+        if menuItem.action == #selector(menuSelectNextTab(_:)) || menuItem.action == #selector(menuSelectPreviousTab(_:)) {
+            return stateManager.tabs.count >= 2
+        }
+        if menuItem.action == #selector(menuSelectNextResultTab(_:)) || menuItem.action == #selector(menuSelectPreviousResultTab(_:)) {
+            return resultTabs.count >= 2
+        }
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
             // on menu-open and key-equivalent resolution, which can happen long
