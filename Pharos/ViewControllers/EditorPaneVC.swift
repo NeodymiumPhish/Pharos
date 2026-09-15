@@ -36,6 +36,11 @@ class EditorPaneVC: NSViewController {
     // Editor toolbar (below tab bar)
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
+    /// "Describe the query…" — hidden entirely unless Apple Intelligence is
+    /// available, and disabled until the tab has a live connection to read a
+    /// schema from.
+    private let describeQueryButton = NSButton()
+    private var describeQueryPopover: NSPopover?
     /// "Format as SQL list" — hidden until a paste qualifies for the offer.
     private let formatListButton = NSButton()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -371,6 +376,25 @@ class EditorPaneVC: NSViewController {
             .sink { [weak self] _ in self?.updateConnectionColorBand() }
             .store(in: &cancellables)
 
+        // "Describe the query…" appears and disappears with Apple
+        // Intelligence, and takes its enabled state from whether the tab has
+        // a connection whose schema the model could read.
+        ModelAvailability.shared.$isAvailable
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateDescribeQueryButton() }
+            .store(in: &cancellables)
+
+        // The status, not the tab's `connectionId`: a tab can name a
+        // connection long before it is connected, and the schema cache is
+        // empty until it is. The `tabsSettled` sink cannot see this — its
+        // dedup whitelist reads the tab, not the connection.
+        stateManager.$connectionStatuses
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateDescribeQueryButton() }
+            .store(in: &cancellables)
+
         // Turning Differentiate Without Color on makes the band carry the
         // connection's name, which changes its height.
         AccessibilityDisplay.shared.$differentiateWithoutColor
@@ -673,6 +697,26 @@ class EditorPaneVC: NSViewController {
         formatButton.action = #selector(formatSQLTapped)
         formatButton.translatesAutoresizingMaskIntoConstraints = false
 
+        // "Describe the query…" — next to Format, same treatment. The Apple
+        // Intelligence glyph where the SDK has it; `systemSymbolName:` answers
+        // nil for a name it does not know, so the fallback is a real check
+        // rather than a version test.
+        let describeDescription = String(localized: "Describe the query\u{2026}")
+        describeQueryButton.image = (NSImage(systemSymbolName: "apple.intelligence", accessibilityDescription: describeDescription)
+            ?? NSImage(systemSymbolName: "sparkles", accessibilityDescription: describeDescription))?
+            .withSymbolConfiguration(fmtConfig)
+        describeQueryButton.bezelStyle = .recessed
+        describeQueryButton.isBordered = false
+        describeQueryButton.contentTintColor = .secondaryLabelColor
+        describeQueryButton.target = self
+        describeQueryButton.action = #selector(describeQueryTapped)
+        describeQueryButton.translatesAutoresizingMaskIntoConstraints = false
+        describeQueryButton.setAccessibilityIdentifier("editor.describeQuery")
+        describeQueryButton.setAccessibilityLabel(describeDescription)
+        // Hidden until the availability sink says otherwise: a feature that
+        // cannot run must not leave a disabled stub behind.
+        describeQueryButton.isHidden = true
+
         // Save dropdown (pull-down button)
         saveDropdown.bezelStyle = .recessed
         saveDropdown.isBordered = false
@@ -749,8 +793,10 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // All controls in one row: Format, Save, Schema, Format-as-SQL-list
-        let toolbarStack = NSStackView(views: [formatButton, saveDropdown, schemaPopup, formatListButton])
+        // All controls in one row: Format, Describe, Save, Schema,
+        // Format-as-SQL-list
+        let toolbarStack = NSStackView(
+            views: [formatButton, describeQueryButton, saveDropdown, schemaPopup, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
@@ -790,6 +836,8 @@ class EditorPaneVC: NSViewController {
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 28),
             formatButton.heightAnchor.constraint(equalToConstant: 28),
+            describeQueryButton.widthAnchor.constraint(equalToConstant: 28),
+            describeQueryButton.heightAnchor.constraint(equalToConstant: 28),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
 
             schemaPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
@@ -986,6 +1034,61 @@ class EditorPaneVC: NSViewController {
         if let saveItem = saveDropdown.menu?.item(at: 1) {
             saveItem.isEnabled = canSaveInPlace
         }
+        updateDescribeQueryButton()
+    }
+
+    // MARK: - Describe the Query
+
+    /// Show the button only where the feature can run, and enable it only
+    /// where it has a schema to read.
+    private func updateDescribeQueryButton() {
+        let available = ModelAvailability.shared.isAvailable
+        describeQueryButton.isHidden = !available
+        guard available else {
+            // A popover left open while the feature is switched off would
+            // outlive its own button.
+            closeDescribeQueryPopover()
+            return
+        }
+
+        let connected = tabConnectionId.map { stateManager.status(for: $0) == .connected } ?? false
+        describeQueryButton.isEnabled = connected
+        describeQueryButton.toolTip = connected
+            ? String(localized: "Describe the query\u{2026}")
+            : String(localized: "Connect this tab to a database to draft a query.")
+    }
+
+    @objc private func describeQueryTapped() {
+        guard ModelAvailability.shared.isAvailable, describeQueryButton.isEnabled else { return }
+        if describeQueryPopover != nil {
+            closeDescribeQueryPopover()
+            return
+        }
+
+        // The snapshot is taken now, so the model reads the schema as it
+        // stands rather than whatever the cache held when the pane was built.
+        let popoverVC = DescribeQueryPopoverVC(
+            snapshot: .fromMetadataCache(metadataCache), defaultSchema: tabSchemaName)
+        popoverVC.onInsert = { [weak self] sql in
+            guard let self else { return }
+            // Close first: the editor can only take the keyboard back once
+            // the popover's window has given it up.
+            self.closeDescribeQueryPopover()
+            self.editorVC.insertDraft(sql)
+        }
+        popoverVC.onClose = { [weak self] in self?.closeDescribeQueryPopover() }
+
+        let popover = NSPopover()
+        popover.contentViewController = popoverVC
+        popover.behavior = .transient
+        popover.delegate = self
+        describeQueryPopover = popover
+        popover.show(relativeTo: describeQueryButton.bounds, of: describeQueryButton, preferredEdge: .maxY)
+    }
+
+    private func closeDescribeQueryPopover() {
+        describeQueryPopover?.performClose(nil)
+        describeQueryPopover = nil
     }
 
     // MARK: - Per-Tab Connection / Schema Helpers
@@ -1103,5 +1206,20 @@ class EditorPaneVC: NSViewController {
     deinit {
         NotificationCenter.default.removeObserver(self)
         referencedNamesScanTimer?.invalidate()
+    }
+}
+
+// MARK: - NSPopoverDelegate
+
+extension EditorPaneVC: NSPopoverDelegate {
+
+    /// A transient popover closes itself when the analyst clicks elsewhere,
+    /// and nothing else would tell the pane about it — leaving a stale
+    /// reference that makes the next press on the button a no-op toggle.
+    func popoverDidClose(_ notification: Notification) {
+        guard let popover = notification.object as? NSPopover, popover === describeQueryPopover else {
+            return
+        }
+        describeQueryPopover = nil
     }
 }

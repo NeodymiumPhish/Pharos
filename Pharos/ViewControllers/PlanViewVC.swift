@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// The query plan a result tab of kind "plan" shows, in place of the grid.
 ///
@@ -34,6 +35,25 @@ final class PlanViewVC: NSViewController {
     private let copyButton = NSButton()
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
+
+    // MARK: The generated summary
+
+    private let summaryView = PlanSummaryView()
+    private let summarizer = PlanSummarizer()
+    /// The generation in flight, so a second plan cancels the first rather
+    /// than racing it into the same view.
+    private var summaryTask: Task<Void, Never>?
+    /// The prompt the summary on screen answers. A repeat of the same plan
+    /// must not spend a second generation on it.
+    private var summarizedPrompt: String?
+    private var availabilityCancellable: AnyCancellable?
+
+    /// The outline starts under the header row when there is no summary, and
+    /// under the summary when there is one. Two constraints rather than a
+    /// collapsing height: a hidden view keeps its own internal constraints, so
+    /// a zero-height override would break one of them on every plan.
+    private var scrollTopBelowHeader: NSLayoutConstraint!
+    private var scrollTopBelowSummary: NSLayoutConstraint!
 
     override func loadView() {
         let container = NSView()
@@ -82,9 +102,15 @@ final class PlanViewVC: NSViewController {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
 
+        summaryView.onRetry = { [weak self] in self?.regenerateSummary() }
+
         container.addSubview(headerLabel)
         container.addSubview(copyButton)
+        container.addSubview(summaryView)
         container.addSubview(scrollView)
+
+        scrollTopBelowHeader = scrollView.topAnchor.constraint(equalTo: copyButton.bottomAnchor, constant: 6)
+        scrollTopBelowSummary = scrollView.topAnchor.constraint(equalTo: summaryView.bottomAnchor)
 
         NSLayoutConstraint.activate([
             headerLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
@@ -94,11 +120,23 @@ final class PlanViewVC: NSViewController {
             copyButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
             copyButton.centerYAnchor.constraint(equalTo: headerLabel.centerYAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: copyButton.bottomAnchor, constant: 6),
+            summaryView.topAnchor.constraint(equalTo: copyButton.bottomAnchor, constant: 6),
+            summaryView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            summaryView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+
+            scrollTopBelowHeader,
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
+        // The feature can be switched off while a plan is on screen, so the
+        // block follows availability rather than being decided once.
+        availabilityCancellable = ModelAvailability.shared.$isAvailable
+            .removeDuplicates()
+            .sink { [weak self] available in
+                MainActor.assumeIsolated { self?.availabilityChanged(to: available) }
+            }
     }
 
     // MARK: - Presenting a plan
@@ -116,6 +154,11 @@ final class PlanViewVC: NSViewController {
 
         headerLabel.stringValue = Self.headerText(for: plan, isAnalyze: isAnalyze)
         headerLabel.toolTip = headerLabel.stringValue
+
+        // Both kinds of plan are summarised. An estimate-only plan is the one
+        // the user is most likely to need read to them, because it has no
+        // measured times to rank its steps by eye.
+        startSummaryIfNeeded(for: plan)
 
         guard !isSamePlan else { return }
         outlineView.reloadData()
@@ -147,6 +190,86 @@ final class PlanViewVC: NSViewController {
         guard row >= 0 else { return }
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         outlineView.scrollRowToVisible(row)
+    }
+
+    // MARK: - The generated summary
+
+    /// Ask the model to read this plan, unless it has already read it.
+    ///
+    /// `available` is passed in by the availability sink and read from
+    /// `ModelAvailability` by everyone else. That is not a convenience: a
+    /// `@Published` property notifies its subscribers on `willSet`, so a sink
+    /// that reaches back for `ModelAvailability.shared.isAvailable` reads the
+    /// value being REPLACED. Measured — switching the feature back on in
+    /// Settings left the plan with no summary until the next plan arrived,
+    /// because this guard still saw `false`.
+    private func startSummaryIfNeeded(for plan: QueryPlan, available: Bool? = nil) {
+        guard available ?? ModelAvailability.shared.isAvailable else {
+            setSummaryVisible(false)
+            return
+        }
+        let prompt = PlanSummaryPrompt.build(plan: plan)
+        // Switching back to a result tab re-shows its plan. The summary it
+        // already carries is the answer to the same prompt, so leave it.
+        guard prompt != summarizedPrompt else { return }
+        generateSummary(prompt: prompt)
+    }
+
+    /// Ask again for the plan on screen — the Retry button.
+    private func regenerateSummary() {
+        guard let plan, ModelAvailability.shared.isAvailable else { return }
+        generateSummary(prompt: PlanSummaryPrompt.build(plan: plan))
+    }
+
+    private func generateSummary(prompt: String) {
+        summaryTask?.cancel()
+        summarizedPrompt = prompt
+        setSummaryVisible(true)
+        summaryView.promptHash = ModelFeedbackStore.promptHash(prompt)
+        summaryView.setState(.working)
+
+        summaryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let summary = try await self.summarizer.summarize(prompt: prompt)
+                guard !Task.isCancelled else { return }
+                self.summaryView.setState(.answered(summary))
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.intelligence.error(
+                    "Plan summary failed: \(error.localizedDescription, privacy: .public)")
+                // The prompt is forgotten so Retry is a real retry and not a
+                // no-op against a remembered answer.
+                self.summarizedPrompt = nil
+                self.summaryView.setState(
+                    .failed(String(localized: "The plan could not be summarised.")))
+            }
+        }
+    }
+
+    /// Show or hide the block, moving the outline up into the space when it
+    /// goes. Called on every availability change as well as per plan.
+    private func setSummaryVisible(_ visible: Bool) {
+        summaryView.isHidden = !visible
+        guard scrollTopBelowSummary.isActive != visible else { return }
+        scrollTopBelowSummary.isActive = false
+        scrollTopBelowHeader.isActive = false
+        (visible ? scrollTopBelowSummary : scrollTopBelowHeader).isActive = true
+    }
+
+    private func availabilityChanged(to available: Bool) {
+        guard isViewLoaded else { return }
+        if available {
+            if let plan { startSummaryIfNeeded(for: plan, available: true) }
+        } else {
+            summaryTask?.cancel()
+            summaryTask = nil
+            summarizedPrompt = nil
+            summaryView.setState(.idle)
+            setSummaryVisible(false)
+        }
     }
 
     @objc private func copyPlanJSON() {

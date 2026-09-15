@@ -15,11 +15,33 @@ protocol QueryErrorSheetDelegate: AnyObject {
     func errorSheetDidRequestClose(_ sheet: QueryErrorSheet)
 }
 
+/// The block the sheet shows under the error text: Apple Intelligence's reading
+/// of the failure.
+///
+/// A protocol, not the view itself, so the sheet keeps no dependency on
+/// `FoundationModels` — which also keeps it, and everything that compiles it,
+/// buildable without the on-device model. `ErrorExplanationView` is the only
+/// conformer in the app.
+@MainActor
+protocol QueryErrorExplaining: AnyObject {
+    /// The view to put in the sheet's stack.
+    var explanationView: NSView { get }
+    /// Explain this failure, replacing whatever is on screen. Nil clears the
+    /// block and ends any generation in flight.
+    func explain(_ failure: QueryFailure?)
+}
+
 /// Modal sheet for one query failure, with Previous/Next across the tab's log.
 ///
 /// It replaces the old behaviour, where a failure wiped the results grid. The
 /// grid now keeps the rows the user was reading.
 final class QueryErrorSheet: NSViewController {
+
+    /// How the sheet builds its explanation block. `ContentViewController` sets
+    /// it once at launch; a standalone test binary leaves it nil, and the sheet
+    /// then has no block at all — which is also what a Mac without Apple
+    /// Intelligence gets, because the view hides itself there.
+    static var explanationFactory: (() -> any QueryErrorExplaining)?
 
     weak var delegate: QueryErrorSheetDelegate?
 
@@ -48,6 +70,10 @@ final class QueryErrorSheet: NSViewController {
     let doneButton = NSButton(title: String(localized: "Done"), target: nil, action: nil)
     let copyErrorButton = NSButton(title: String(localized: "Copy Error"), target: nil, action: nil)
     let copyQueryButton = NSButton(title: String(localized: "Copy Query"), target: nil, action: nil)
+
+    /// The Apple Intelligence block, when one was built. Internal so the layout
+    /// test can hand the sheet a stand-in and read what it was asked.
+    private(set) var explanation: (any QueryErrorExplaining)?
 
     private var current: QueryFailure? {
         guard index >= 0, index < entries.count else { return nil }
@@ -163,7 +189,15 @@ final class QueryErrorSheet: NSViewController {
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
 
-        let root = NSStackView(views: [header, subheaderLabel, sqlScroll, errorScroll, buttonRow])
+        // Under the message, above the buttons: the model reads the message the
+        // user has just read, so it belongs next to it rather than at the foot
+        // of the sheet. Absent entirely when there is no factory.
+        explanation = Self.explanationFactory?()
+        let rows = [header, subheaderLabel, sqlScroll, errorScroll]
+            + (explanation.map { [$0.explanationView] } ?? [])
+            + [buttonRow]
+
+        let root = NSStackView(views: rows)
         root.orientation = .vertical
         // `.leading` plus the width pin, not `.width`: an NSStackView rejects
         // `.width` outright (the property reads back as `.notAnAttribute`), and
@@ -246,6 +280,12 @@ final class QueryErrorSheet: NSViewController {
         nextButton.isEnabled = index < entries.count - 1
         goToErrorButton.isEnabled = highlight != nil
 
+        // Only a real error is explained. A cancellation has no cause to name —
+        // the user stopped the query — so the block goes away for one, and the
+        // run behind the entry the user has just left is ended rather than
+        // finishing under the entry they moved to.
+        explanation?.explain(failure.kind == .error ? failure : nil)
+
         delegate?.errorSheet(self, didShow: failure.id, tabId: tabId)
     }
 
@@ -295,6 +335,13 @@ final class QueryErrorSheet: NSViewController {
         dismissAllButton.nextKeyView = doneButton
         // Closes the loop; a hidden arrow is skipped by nextValidKeyView.
         doneButton.nextKeyView = previousButton
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        // The sheet is gone; nothing is waiting for the answer. Generating on
+        // is a session held open for a window nobody can see.
+        explanation?.explain(nil)
     }
 
     // MARK: - Actions

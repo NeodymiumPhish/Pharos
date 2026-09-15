@@ -32,6 +32,10 @@ class ContentViewController: NSViewController {
     /// The query-plan outline, hosted over the same region as the grid for a
     /// result tab that holds a plan (`ResultTab.isPlan`).
     private let planHost = PlanViewVC()
+    /// Editor tabs whose name has already been put to the model. One ask per
+    /// tab, whatever the answer was — a tab that ran ten queries must not open
+    /// ten sessions, and a refusal is not worth retrying on the next run.
+    private var nameSuggestionAsked: Set<String> = []
     /// The chart's current staged selection (Task C commits it on button press).
     private var stagedChartKeys: [DrillKey] = []
     private var committedChartKeys: [DrillKey] = []
@@ -603,6 +607,11 @@ class ContentViewController: NSViewController {
         errorPresenter.showSheet = { [weak self] sheet in self?.presentAsSheet(sheet) }
         errorPresenter.closeSheet = { [weak self] sheet in self?.dismiss(sheet) }
         errorPresenter.showBanner = { [weak self] failure in self?.showErrorBanner(failure) }
+        // The one place the error sheet learns about Apple Intelligence. The
+        // sheet itself knows only the protocol, so nothing that compiles it
+        // needs FoundationModels; the view hides itself when the model is
+        // unavailable or the setting is off.
+        QueryErrorSheet.explanationFactory = { ErrorExplanationView() }
 
         // A click on a failure banner (in-app or system) lands here.
         NotificationCenter.default.addObserver(
@@ -1366,6 +1375,91 @@ class ContentViewController: NSViewController {
                 }
             }
         }
+        // Started after the sheet is up, so the dialog appears at once with the
+        // name it has always shown.
+        suggestName(into: textField, of: alert, sql: tab.sql, kind: .editorTab)
+    }
+
+    // MARK: - Suggested names
+
+    /// Fill a rename dialog's field with a suggested name, if the user has not
+    /// started typing by the time it arrives.
+    ///
+    /// The two rename dialogs are `NSAlert`s, and an alert's accessory view is
+    /// live while the sheet is up — they are opened with `beginSheetModal`, so
+    /// the main run loop is not blocked and the continuation below is
+    /// delivered. `runModal` would starve it.
+    private func suggestName(
+        into field: NSTextField,
+        of alert: NSAlert,
+        sql: String,
+        kind: NameSuggestion.Kind
+    ) {
+        guard ModelAvailability.shared.isAvailable else { return }
+        guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // The text on screen now. A suggestion only replaces THIS — anything
+        // else in the field is the user's own typing.
+        let untouched = field.stringValue
+        field.toolTip = String(localized: "Name suggested by Apple Intelligence")
+
+        Task { [weak alert] in
+            do {
+                let suggestion = try await NameSuggester().suggest(
+                    sql: sql, existingFolders: [], kind: kind)
+                guard let alert, alert.window.isVisible,
+                      !suggestion.title.isEmpty,
+                      field.stringValue == untouched else {
+                    field.toolTip = nil
+                    return
+                }
+                field.stringValue = suggestion.title
+                field.selectText(nil)
+            } catch {
+                field.toolTip = nil
+                Log.intelligence.error(
+                    "Name suggestion failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Give an editor tab a name from its SQL the first time it runs anything.
+    ///
+    /// Only a tab still carrying its generated "Query <n>" is touched, and it is
+    /// checked twice — once here and once when the answer lands — so a name the
+    /// user typed while the model was thinking always wins. A tab restored from
+    /// a session arrives with the name it was saved under, which is not
+    /// "Query <n>" once it has been suggested, so restoring never re-names.
+    private func suggestEditorTabNameIfAutomatic(forEditorTab tabId: String, sql: String) {
+        guard ModelAvailability.shared.isAvailable else { return }
+        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+              !AppStateManager.isCustomTabName(tab.name),
+              !nameSuggestionAsked.contains(tabId) else { return }
+        guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Asked once per tab, even if the answer never comes: a tab whose
+        // second query lands while the first suggestion is in flight must not
+        // open a second session for the same name.
+        nameSuggestionAsked.insert(tabId)
+
+        Task { [weak self] in
+            do {
+                let suggestion = try await NameSuggester().suggest(
+                    sql: sql, existingFolders: [], kind: .editorTab)
+                guard let self, !suggestion.title.isEmpty else { return }
+                guard let current = self.stateManager.tabs.first(where: { $0.id == tabId }),
+                      !AppStateManager.isCustomTabName(current.name) else { return }
+                self.stateManager.updateTab(id: tabId) {
+                    $0.name = suggestion.title
+                    // Still an automatic name, so the session records it as
+                    // one: the user has not named this tab, the model has.
+                    $0.nameIsSuggested = true
+                }
+            } catch {
+                Log.intelligence.error(
+                    "Tab name suggestion failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Query Execution
@@ -2015,6 +2109,12 @@ class ContentViewController: NSViewController {
     /// result into the originating tab's stored state — not the live (visible)
     /// state, which belongs to whichever tab is focused now.
     private func addResultTab(_ tab: ResultTab, forEditorTab editorTabId: String) {
+        // Every successful run arrives here — foreground and background, select
+        // and statement and plan — so this is the one place a tab's first run
+        // can be seen. It runs before the deposit because the deposit has three
+        // ways out.
+        suggestEditorTabNameIfAutomatic(forEditorTab: editorTabId, sql: tab.sql)
+
         guard editorTabId == stateManager.activeTabId else {
             // A query can outlive its editor tab: `closeTab` asks the server to
             // cancel the in-flight queries, but a result already on the wire
@@ -2219,6 +2319,7 @@ class ContentViewController: NSViewController {
                 to: tabId
             )
         }
+        suggestName(into: field, of: alert, sql: tab.sql, kind: .resultTab)
     }
 
     /// Set (or clear) a result tab's custom name and save it.

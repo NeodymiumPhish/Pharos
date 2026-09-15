@@ -215,6 +215,61 @@ func runTests() {
     expectString("\(spy3.closed)", "1", "an empty list asks the owner to close the sheet")
     expectTrue(many.entries.isEmpty, "an empty list leaves the sheet with no entries")
 
+    // MARK: the Apple Intelligence block
+    //
+    // The sheet knows the block only through `QueryErrorExplaining`, so this
+    // stand-in needs neither FoundationModels nor a model on the machine — and
+    // a suite that installs no factory gets no block at all, which is what
+    // every test above ran with.
+
+    final class FakeExplainer: NSView, QueryErrorExplaining {
+        var asked: [String?] = []
+        var explanationView: NSView { self }
+        func explain(_ failure: QueryFailure?) { asked.append(failure?.id) }
+    }
+
+    var built: [FakeExplainer] = []
+    QueryErrorSheet.explanationFactory = {
+        let view = FakeExplainer()
+        built.append(view)
+        return view
+    }
+    defer { QueryErrorSheet.explanationFactory = nil }
+
+    let spy4 = SpyDelegate()
+    let cancelled = QueryFailure(
+        id: "x", sql: "SELECT 1", message: "cancelled", kind: .cancelled,
+        tabId: "tab-1", tabName: "Query 1", connectionName: "localhost",
+        timestamp: Date(timeIntervalSince1970: 0))
+    let explained = QueryErrorSheet(
+        entries: [failure("e1"), cancelled, failure("e2")], index: 0,
+        tabId: "tab-1", delegate: spy4)
+    let explainedWindow = host(explained)
+    _ = explainedWindow
+
+    guard let block = built.first else {
+        failures += 1
+        print("FAIL the sheet builds its explanation block from the factory")
+        print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
+        exit(1)
+    }
+    expectTrue(explained.explanation === block, "the sheet keeps the block the factory built")
+    expectTrue(block.superview != nil, "the block is in the sheet's view hierarchy")
+    expectString(block.asked.map { $0 ?? "nil" }.joined(separator: ","), "e1",
+                 "opening explains the entry on screen")
+
+    explained.nextButton.performClick(nil)
+    expectString(block.asked.map { $0 ?? "nil" }.joined(separator: ","), "e1,nil",
+                 "a cancellation is not explained")
+
+    explained.nextButton.performClick(nil)
+    expectString(block.asked.map { $0 ?? "nil" }.joined(separator: ","), "e1,nil,e2",
+                 "the next error is explained in its turn")
+
+    explained.viewDidDisappear()
+    expectString(block.asked.map { $0 ?? "nil" }.joined(separator: ","), "e1,nil,e2,nil",
+                 "closing the sheet ends the run")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

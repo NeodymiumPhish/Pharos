@@ -92,6 +92,22 @@ class SQLTextView: NSTextView {
     private let editorUndoManager = UndoManager()
     override var undoManager: UndoManager? { editorUndoManager }
 
+    /// Edit ▸ Undo and Redo are `undo:` / `redo:` sent down the responder
+    /// chain, and `NSTextView` does not answer them: the first class that does
+    /// is `NSWindow`, which undoes on the WINDOW's manager. With a per-editor
+    /// manager that stack is always empty, so ⌘Z did nothing anywhere in the
+    /// editor from 2026-09-04 until this override (measured with a probe: a
+    /// stock text view undoes through the window, one with its own manager
+    /// does not). Answering here keeps the action on this editor's stack.
+    @objc func undo(_ sender: Any?) { editorUndoManager.undo() }
+    @objc func redo(_ sender: Any?) { editorUndoManager.redo() }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == Selector(("undo:")) { return editorUndoManager.canUndo }
+        if item.action == Selector(("redo:")) { return editorUndoManager.canRedo }
+        return super.validateUserInterfaceItem(item)
+    }
+
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
         commonInit()
@@ -763,6 +779,115 @@ class SQLTextView: NSTextView {
         layoutManager.removeTemporaryAttribute(.underlineColor, forCharacterRange: fullRange)
     }
 
+    // MARK: - Drafted SQL
+
+    /// The range holding the statement a model draft just put in, while it is
+    /// still marked. Nil once the analyst has edited anything.
+    private(set) var draftRange: NSRange?
+
+    /// Observes the first edit after an insert, which is what takes the mark
+    /// away. Removed as soon as it fires, so only ONE edit is ever watched.
+    private var draftEditObserver: NSObjectProtocol?
+
+    /// A wash of the accent colour — enough to say "this text is new and came
+    /// from the model", not enough to be read as a selection or an error.
+    private static var draftHighlightColor: NSColor {
+        .controlAccentColor.withAlphaComponent(0.15)
+    }
+
+    /// Put a drafted statement in over the current selection, as ONE undoable
+    /// edit named "Insert Draft", then select it and mark it.
+    ///
+    /// Returns the inserted range, or nil when there was nothing to insert or
+    /// the text system refused the edit.
+    ///
+    /// Nothing runs. This is an edit like any other; ⌘Z takes it back out in
+    /// a single step, which is why the grouping is explicit and why the
+    /// coalescing is broken on both sides — without that, the analyst's next
+    /// keystrokes would join the group and one undo would remove them too.
+    @discardableResult
+    func insertDraft(_ sql: String) -> NSRange? {
+        guard !sql.isEmpty, isEditable else { return nil }
+        let target = selectedRange()
+
+        // `insertText` runs its own `shouldChangeText`/`didChangeText` pair and
+        // registers the undo itself. Calling `shouldChangeText` here as well —
+        // the shape `applyPendingSQLize` uses — leaves a registration with no
+        // matching `didChangeText`, and the stack then raises
+        // `NSRangeException` when it is unwound ("Range {0, 16} out of bounds;
+        // string length 7", measured). Breaking the coalescing on both sides is
+        // what makes this one undo step: without it the analyst's next
+        // keystrokes join the group and one ⌘Z would take them out too.
+        breakUndoCoalescing()
+        insertText(sql, replacementRange: target)
+        breakUndoCoalescing()
+        // After, not before: `insertText` sets the name to "Typing" on its way
+        // through, so a name set first is the one that loses.
+        undoManager?.setActionName(String(localized: "Insert Draft"))
+
+        let inserted = NSRange(location: target.location, length: (sql as NSString).length)
+        setSelectedRange(inserted)
+        markDraft(inserted)
+        return inserted
+    }
+
+    /// Mark `range` and arrange for the next edit anywhere to clear it.
+    ///
+    /// Registered AFTER the insert, so the insert's own change notification
+    /// cannot be the edit that clears the mark it has just made.
+    private func markDraft(_ range: NSRange) {
+        removeDraftObserver()
+        draftRange = range
+        applyDraftHighlight()
+
+        draftEditObserver = NotificationCenter.default.addObserver(
+            forName: NSText.didChangeNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clearDraftHighlight() }
+        }
+    }
+
+    /// Take the mark away. Safe to call when there is none.
+    func clearDraftHighlight() {
+        removeDraftObserver()
+        guard let range = draftRange, let layoutManager else {
+            draftRange = nil
+            return
+        }
+        draftRange = nil
+        if let safe = clamped(range) {
+            layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: safe)
+        }
+    }
+
+    /// (Re-)paint the mark.
+    ///
+    /// `updateBracketHighlight` clears `.backgroundColor` across the whole
+    /// document on every caret move, so the mark has to be laid on again
+    /// after it — otherwise it would vanish on the first arrow key rather
+    /// than on the first edit.
+    private func applyDraftHighlight() {
+        guard let layoutManager, let range = draftRange, let safe = clamped(range) else { return }
+        layoutManager.addTemporaryAttribute(
+            .backgroundColor, value: Self.draftHighlightColor, forCharacterRange: safe)
+    }
+
+    /// `range` trimmed to the document, or nil when it no longer fits at all.
+    private func clamped(_ range: NSRange) -> NSRange? {
+        let length = (string as NSString).length
+        guard range.location < length else { return nil }
+        let clamped = NSRange(
+            location: range.location, length: min(range.length, length - range.location))
+        return clamped.length > 0 ? clamped : nil
+    }
+
+    private func removeDraftObserver() {
+        if let draftEditObserver {
+            NotificationCenter.default.removeObserver(draftEditObserver)
+        }
+        draftEditObserver = nil
+    }
+
     // MARK: - Syntax Highlighting
 
     /// Schedule a debounced full-document highlight pass. Cancels any
@@ -849,6 +974,10 @@ class SQLTextView: NSTextView {
 
         // Clear previous bracket highlights
         layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        // …which also wipes a drafted statement's mark, since both are drawn
+        // with the same temporary attribute. Lay it on again: the mark
+        // belongs to the text, not to where the caret happens to be.
+        applyDraftHighlight()
 
         let cursor = selectedRange().location
         guard cursor > 0, cursor <= nsText.length else { return }

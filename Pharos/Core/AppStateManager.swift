@@ -435,7 +435,12 @@ final class AppStateManager: ObservableObject {
     private var pendingSession: Session?
 
     /// A name the user authored, as opposed to the generated "Query <n>".
-    private static func isCustomTabName(_ name: String) -> Bool {
+    ///
+    /// A name the on-device model suggested is NOT covered here — it does not
+    /// read as "Query <n>", so this answers true for it. `QueryTab
+    /// .nameIsSuggested` is what tells the two apart, and `snapshotSession`
+    /// consults both.
+    static func isCustomTabName(_ name: String) -> Bool {
         let generated = try? Regex("^Query [0-9]+$")
         guard let generated else { return true }
         return name.wholeMatch(of: generated) == nil
@@ -453,7 +458,7 @@ final class AppStateManager: ObservableObject {
                 tabIndex: idx,
                 workspaceId: tab.workspaceId,
                 name: tab.name,
-                nameIsCustom: Self.isCustomTabName(tab.name),
+                nameIsCustom: !tab.nameIsSuggested && Self.isCustomTabName(tab.name),
                 connectionId: tab.connectionId,
                 schemaName: tab.schemaName,
                 sql: tab.sql,

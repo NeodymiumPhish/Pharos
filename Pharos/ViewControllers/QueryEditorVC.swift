@@ -171,6 +171,10 @@ class QueryEditorVC: NSViewController {
         // Programmatic replacement bypasses didChangeText — kill any pending
         // list-paste offer explicitly so it can't survive into new content.
         textView.invalidateListPasteOffer()
+        // Same reason: a drafted statement's mark names a range in the OLD
+        // text, so a tab switch must take it away rather than leave it
+        // sitting over whatever now occupies those characters.
+        textView.clearDraftHighlight()
         // Suppress the onTextChange callback to avoid double-parsing:
         // setSQL already parses segments, and onTextChange would trigger
         // recalculateSegments which parses again.
@@ -203,6 +207,16 @@ class QueryEditorVC: NSViewController {
 
     func getSQL() -> String {
         textView.string
+    }
+
+    /// Put a model draft in at the cursor and give the editor the keyboard
+    /// back. See `SQLTextView.insertDraft` — one undo step, selected, marked
+    /// until the next edit, and never run.
+    @discardableResult
+    func insertDraft(_ sql: String) -> NSRange? {
+        let inserted = textView.insertDraft(sql)
+        focus()
+        return inserted
     }
 
     /// Set the variable names used for `{{token}}` highlighting.

@@ -30,6 +30,11 @@ struct RunningQuery: Identifiable, Equatable {
 struct QueryTab: Identifiable {
     let id: String
     var name: String
+    /// True when `name` came from the on-device model at the tab's first run,
+    /// rather than from the user. Such a name is still an AUTOMATIC name — the
+    /// user has not chosen it — so the session records it as one even though it
+    /// no longer reads as "Query <n>".
+    var nameIsSuggested: Bool = false
     var connectionId: String?
     var schemaName: String?
     var sql: String

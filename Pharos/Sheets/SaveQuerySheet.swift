@@ -31,6 +31,21 @@ class SaveQuerySheet: NSViewController {
     private var existingQueries: [SavedQuery] = []
     private var onSave: ((SaveQueryAction) -> Void)?
 
+    // MARK: - Suggested name
+
+    /// The folders offered in the popup, in the popup's own spelling. Also the
+    /// list the model is allowed to choose from.
+    private var existingFolders: [String] = []
+    /// What the field held when the sheet opened. A suggestion replaces the
+    /// field only while it still holds exactly this.
+    private var defaultName = ""
+    /// Set the first time the user types. The text comparison alone would let
+    /// a suggestion land on top of a name the user had typed and then deleted
+    /// back to the default.
+    private var nameWasEdited = false
+    private var suggestionTask: Task<Void, Never>?
+    private var nameChangeObserver: NSObjectProtocol?
+
     init(tabName: String, sql: String, variables: [QueryVariable], onSave: @escaping (SaveQueryAction) -> Void) {
         self.initialName = tabName
         self.sql = sql
@@ -58,11 +73,13 @@ class SaveQuerySheet: NSViewController {
         let nameLabel = NSTextField.formLabel(String(localized: "Name"))
         nameField.placeholderString = String(localized: "Query name")
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(initialName)
+        defaultName = nameField.stringValue
 
         // Folder
         let folderLabel = NSTextField.formLabel(String(localized: "Folder"))
         // Load existing folders from cached queries
         let existingFolders = Set(existingQueries.compactMap { $0.folder }).filter { !$0.isEmpty }.sorted()
+        self.existingFolders = existingFolders
         PopupValueMenu.populate(folderPopup, sentinel: String(localized: "No Folder"), values: existingFolders)
         // The separator goes in after the fact so the sentinel and the folder
         // rows are still built by one call: a folder literally named
@@ -150,6 +167,88 @@ class SaveQuerySheet: NSViewController {
         // (opening the window, a control becoming key) triggers it.
         view.window?.autorecalculatesKeyViewLoop = false
         wireKeyViewLoop()
+        startNameSuggestion()
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        suggestionTask?.cancel()
+        suggestionTask = nil
+        if let nameChangeObserver {
+            NotificationCenter.default.removeObserver(nameChangeObserver)
+            self.nameChangeObserver = nil
+        }
+    }
+
+    // MARK: - Suggested name
+
+    /// Ask the on-device model for a name while the sheet is already open.
+    ///
+    /// Nothing waits for it. The sheet opens with the tab's own name, exactly
+    /// as it did before, and the suggestion replaces it only if it arrives
+    /// before the user has typed anything — the user is always faster than the
+    /// model when they already know what to call it.
+    ///
+    /// There is no `GeneratedContentLabel` here and no thumbs. The name is a
+    /// starting point that the user reads and edits inside a form they are
+    /// about to press Save on, not a generated answer they are asked to trust.
+    private func startNameSuggestion() {
+        guard suggestionTask == nil, ModelAvailability.shared.isAvailable else { return }
+        guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        nameChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSControl.textDidChangeNotification, object: nameField, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.nameWasEdited = true
+                self.nameField.toolTip = nil
+            }
+        }
+
+        // Only visible once the field is emptied, which is exactly when the
+        // user is waiting to be told something is coming.
+        nameField.placeholderString = String(localized: "Suggested…")
+        nameField.toolTip = String(localized: "Name suggested by Apple Intelligence")
+
+        let sql = self.sql
+        let folders = existingFolders
+        suggestionTask = Task { [weak self] in
+            let suggester = NameSuggester()
+            do {
+                let suggestion = try await suggester.suggest(
+                    sql: sql, existingFolders: folders, kind: .savedQuery)
+                guard !Task.isCancelled else { return }
+                self?.apply(suggestion)
+            } catch {
+                Log.intelligence.error(
+                    "Name suggestion failed: \(error.localizedDescription, privacy: .public)")
+                self?.nameField.placeholderString = String(localized: "Query name")
+                self?.nameField.toolTip = nil
+            }
+        }
+    }
+
+    private func apply(_ suggestion: NameSuggestion) {
+        nameField.placeholderString = String(localized: "Query name")
+        guard !nameWasEdited, nameField.stringValue == defaultName,
+              !suggestion.title.isEmpty else {
+            nameField.toolTip = nil
+            return
+        }
+
+        nameField.stringValue = suggestion.title
+        defaultName = suggestion.title
+        // Selected, not just typed in: the next character the user types
+        // replaces the whole suggestion, which is how a suggestion should
+        // behave when it is wrong.
+        nameField.selectText(nil)
+
+        // The folder follows only while the popup is untouched — the sentinel
+        // row is index 0 and is what the popup opens on.
+        if let folder = suggestion.folder, folderPopup.indexOfSelectedItem == 0 {
+            PopupValueMenu.selectValue(folder, in: folderPopup)
+        }
     }
 
     /// Explicit, because these fields sit in NSGridView rows: AppKit's
