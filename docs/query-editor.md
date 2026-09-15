@@ -59,9 +59,13 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 
 ## Opening and Saving SQL Files
 
-- **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files in new tabs; you can also double-click SQL files in Finder or drop them on the Dock icon. Files over 50 MB prompt before opening.
+- **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files in new tabs; you can also double-click SQL files in Finder, drop them on the Dock icon, or **drop them onto the editor** — each file opens in its own new tab. Files over 50 MB prompt before opening.
 - A tab opened from a file stays linked to it: **Cmd+S** writes straight back to the file, and the tab shows a dirty indicator for unsaved edits.
 - **File > Export Query as SQL File…** (**Cmd+Opt+S**) saves any tab's SQL to a new `.sql` file (with [query variables](query-variables.md) rendered into the output).
+
+## The "Run in Pharos" Service
+
+Select SQL in any app that offers macOS Services — a text editor, a browser, Mail — and choose **Services > Run in Pharos** from that app's menu (or from the right-click menu). Pharos comes forward and opens the selected text in a **new editor tab**. The name is the macOS convention for the item; Pharos does **not** run the query. Read it, pick the connection, then press **Run** as usual. An empty selection does nothing.
 
 ## Tab Management
 

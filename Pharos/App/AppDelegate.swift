@@ -39,6 +39,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Build the main menu
         NSApp.mainMenu = MainMenu.build()
 
+        // "Run in Pharos" in any app's Services menu. The item itself is
+        // declared in Info.plist; this is the object that answers it.
+        NSApp.servicesProvider = self
+
         // Register query-completion notification category and delegate.
         QueryNotifier.shared.registerCategories()
 
@@ -105,6 +109,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// Quick Look previews a cell by writing it to a temporary file. Closing
+    /// the panel removes that session's folder, so this only has anything to do
+    /// when the app is quit with the panel still open — or after a crash left
+    /// a folder behind, which the next quit then sweeps.
+    func applicationWillTerminate(_ notification: Notification) {
+        QuickLookItemBuilder.cleanUp()
+        ResultsCopyExport.cleanUpShareFiles()
+    }
+
     /// Pharos does not ask to be quit when its window closes; the Dock icon
     /// brings the window back (see `applicationShouldHandleReopen`).
     ///
@@ -144,6 +157,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         let textType = UTType.text
         for url in urls {
+            // A connection link is not a file. It opens the Connections window
+            // on a new, unsaved record; nothing is stored until Save.
+            if let scheme = url.scheme?.lowercased(),
+               ConnectionURLParser.schemes.contains(scheme) {
+                openConnectionLink(url)
+                continue
+            }
             let conforms: Bool
             if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
                 conforms = type.conforms(to: textType)
@@ -155,6 +175,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard conforms else { continue }
             AppStateManager.shared.openTextFile(at: url)
         }
+    }
+
+    /// A `postgres://` / `postgresql://` link, pre-filled into the Connections
+    /// window. The main window is brought up first, as the file-open path does,
+    /// so the app is not left with the Connections window and nothing behind it.
+    @MainActor
+    private func openConnectionLink(_ url: URL) {
+        showMainWindow()
+        guard let parsed = ConnectionURLParser.parse(url) else {
+            Log.ui.error("Unreadable connection link")
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Pharos could not read this connection link.")
+            // The link itself, escaped: it is the only thing that tells the
+            // user WHICH link failed, and it comes from outside the app.
+            alert.informativeText = DisplayEscape.escaped(url.absoluteString)
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: String(localized: "OK"))
+            alert.runModal()
+            return
+        }
+        ConnectionsManagerWindowController.show(prefill: parsed)
+    }
+
+    // MARK: - Services
+
+    /// The "Run in Pharos" service, declared in `Info.plist`. The selected text
+    /// opens in a NEW editor tab and is NOT run: a service fires from another
+    /// app's menu, where an accidental `DELETE` would have no confirmation step
+    /// in front of it.
+    ///
+    /// The signature is the one Services dispatch expects —
+    /// `-(void)message:(NSPasteboard *)pboard userData:(NSString *)data error:(NSString **)error`.
+    @MainActor
+    @objc func runSQLFromService(_ pboard: NSPasteboard,
+                                 userData: String,
+                                 error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        guard let text = pboard.string(forType: .string) else {
+            error.pointee = String(localized: "Pharos could not read the selected text.") as NSString
+            return
+        }
+        let sql = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sql.isEmpty else {
+            error.pointee = String(localized: "The selection has no SQL in it.") as NSString
+            return
+        }
+        showMainWindow()
+        let tab = AppStateManager.shared.createTab(sql: sql)
+        AppStateManager.shared.selectTab(id: tab.id)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @MainActor

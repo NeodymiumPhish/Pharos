@@ -20,6 +20,43 @@ final class ConnectionsManagerWindowController: NSWindowController, NSWindowDele
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Opens the window on a NEW, unsaved connection filled in from a
+    /// `postgres://` link. Nothing is stored — the record is a stub in the list
+    /// until the user presses Save.
+    @MainActor
+    static func show(prefill: ParsedConnectionURL) {
+        show()
+        guard let manager = shared?.window?.contentViewController as? ConnectionsManagerVC else { return }
+        manager.beginNewConnection(prefilled: config(from: prefill),
+                                   passwordFromLink: prefill.passwordWasInURL)
+    }
+
+    /// The link's fields as a connection record. The mapping lives here, not in
+    /// `ConnectionURLParser`: the parser stays Foundation-only so its rules can
+    /// be unit tested without AppKit.
+    @MainActor
+    private static func config(from parsed: ParsedConnectionURL) -> ConnectionConfig {
+        var config = ConnectionConfig(
+            id: UUID().uuidString,
+            name: parsed.suggestedName,
+            host: parsed.host,
+            // libpq's default, and the form's.
+            port: parsed.port ?? 5432,
+            database: parsed.database ?? "",
+            username: parsed.user ?? "",
+            password: parsed.password ?? ""
+        )
+        // An exhaustive switch, so a mode added to the parser cannot be dropped
+        // here without the build saying so. `nil` leaves the record's default.
+        switch parsed.sslMode {
+        case .disable: config.sslMode = .disable
+        case .prefer:  config.sslMode = .prefer
+        case .require: config.sslMode = .require
+        case nil:      break
+        }
+        return config
+    }
+
     init() {
         let defaultRect = NSRect(x: 0, y: 0, width: 860, height: 560)
         // Standard (non-fullSizeContentView) title bar: content sits naturally

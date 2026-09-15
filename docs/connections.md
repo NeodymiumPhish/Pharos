@@ -59,6 +59,27 @@ Click **Test Connection** to verify the settings:
 - **Success** — shows "Connected" with the round-trip latency in milliseconds, and populates the **Default Schema** menu with the database's schemas
 - **Failure** — shows the PostgreSQL error message in red
 
+## Connection Links
+
+Pharos opens `postgres://` and `postgresql://` links — the standard PostgreSQL connection URI, as used by `psql`, hosting dashboards and CI settings pages. Open one from a browser, a terminal (`open "postgresql://…"`), or any app that makes links clickable, and the Connections Manager comes forward with a **new, unsaved** connection filled in from it.
+
+Pharos reads the host, port, user, password, database name and the `sslmode` parameter:
+
+```
+postgresql://user:password@host:5432/dbname?sslmode=require
+```
+
+- Every part is optional. A missing port means 5432, and a missing host means `localhost`.
+- The link may instead carry its parts as query parameters — `postgresql:///dbname?host=/tmp&user=me` — which is what libpq accepts. Where both are given, the part in the address wins.
+- `sslmode` is mapped onto Pharos's three modes: `disable` → Disable, `allow` and `prefer` → Prefer, `require`, `verify-ca` and `verify-full` → Require. Anything else is ignored and the default stands.
+- A list of hosts (`host1,host2`) uses the first one. Other parameters are ignored.
+- The new connection is named `user@host/database`. Change it, or any other field, before saving.
+
+{: .note }
+A password in a link is put in the form only — the form shows "Password taken from the link." under the field. **Nothing is written to SQLite or the Keychain until you press Save**, so a link you did not want to keep is discarded by selecting another connection or pressing Revert.
+
+A link Pharos cannot read shows an alert with the link in it, and changes nothing.
+
 ## Connecting and Disconnecting
 
 In the window toolbar, open the **connection pull-down**. It lists every saved connection with a live status glyph and a checkmark on the tab's active connection, followed by **Connect**, **Disconnect** and **Refresh Metadata** (also in the **File** menu; Refresh Metadata is **Cmd+Shift+R**), then:

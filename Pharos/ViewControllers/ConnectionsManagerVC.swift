@@ -174,6 +174,11 @@ final class ConnectionsManagerVC: NSViewController {
     private var draft: ConnectionConfig?
     private var draftBaseline: ConnectionConfig?
 
+    /// The record whose password arrived in a `postgres://` link. The note
+    /// under the password field is shown for this record only, and is dropped
+    /// the moment the user types a password of their own.
+    private var passwordFromLinkId: String?
+
     private var isDirty: Bool {
         guard let draft, let draftBaseline else { return false }
         return draft != draftBaseline
@@ -203,6 +208,12 @@ final class ConnectionsManagerVC: NSViewController {
     private let databaseBadge = HostileTextBadge()
     private let usernameBadge = HostileTextBadge()
     private let passwordBadge = HostileTextBadge()
+
+    /// Caption under the password field, shown only for a connection opened
+    /// from a link that carried a password. Its row is hidden with it, so the
+    /// form does not keep an empty line when there is nothing to say.
+    private let passwordFromLinkLabel = NSTextField(labelWithString: "")
+    private var passwordFromLinkRow: NSView?
 
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
@@ -448,9 +459,18 @@ final class ConnectionsManagerVC: NSViewController {
             row(label: "Host", field: hostField, badge: hostBadge),
             row(label: "Port", field: portField, fieldFixedWidth: L.portWidth),
         ])
+        passwordFromLinkLabel.stringValue = String(localized: "Password taken from the link.")
+        passwordFromLinkLabel.font = .systemFont(ofSize: 11)
+        passwordFromLinkLabel.textColor = .secondaryLabelColor
+        passwordFromLinkLabel.setAccessibilityIdentifier("connections.passwordFromLink")
+        let passwordNoteRow = noteRow(passwordFromLinkLabel)
+        passwordNoteRow.isHidden = true
+        passwordFromLinkRow = passwordNoteRow
+
         let authSection = section(title: "Authentication", rows: [
             row(label: "Username", field: usernameField, badge: usernameBadge),
             row(label: "Password", field: passwordField, badge: passwordBadge),
+            passwordNoteRow,
             row(label: "SSL Mode", control: sslPopup),
         ])
         let dbSection = section(title: "Database", rows: [
@@ -582,6 +602,24 @@ final class ConnectionsManagerVC: NSViewController {
         return container
     }
 
+    /// A caption row: nothing in the label column, the text in the field
+    /// column, so it reads as a footnote to the row above it.
+    private func noteRow(_ label: NSTextField) -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.lineBreakMode = .byTruncatingTail
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor,
+                                           constant: L.labelColumnWidth + 10),
+            label.topAnchor.constraint(equalTo: container.topAnchor),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+        ])
+        return container
+    }
+
     private func section(title: String, rows: [NSView]) -> NSView {
         let headerLabel = NSTextField(labelWithString: title.uppercased())
         headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -643,6 +681,14 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Selection / detail population
 
     private func handleSelectionChange() {
+        // The selection publisher is delivered on the NEXT run loop turn, so it
+        // can arrive when the form ALREADY shows the record that was selected:
+        // `beginNewConnection` selects a new stub and loads it in one turn.
+        // The prompt below guards a move AWAY from an edited record; arriving
+        // where the form already is, is not that, and prompting there would ask
+        // the user to save the record they just asked for.
+        if let selected = listModel.selectedId, selected == draft?.id { return }
+
         // The current selection drives the detail form. If the user has
         // pending edits, prompt before clearing them.
         guard isDirty else {
@@ -694,6 +740,7 @@ final class ConnectionsManagerVC: NSViewController {
             draft = nil
             draftBaseline = nil
             listModel.dirtyConnectionId = nil
+            showPasswordFromLinkNote(false)
             updateButtonStates()
         }
     }
@@ -702,8 +749,18 @@ final class ConnectionsManagerVC: NSViewController {
         guard let id = listModel.selectedId,
               let config = connections.first(where: { $0.id == id }) else { return }
         draft = config
-        draftBaseline = config
+        // A stub has never been stored, so its baseline is an EMPTY record:
+        // every field on screen is already a change, Save is live from the
+        // start, and leaving the stub counts as discarding unsaved work. The
+        // rule lives here rather than at the `+`/link entry points because the
+        // selection publisher re-loads the form a turn later and would
+        // otherwise overwrite a baseline set there.
+        draftBaseline = pendingStubIds.contains(id)
+            ? ConnectionConfig(id: id, name: "", host: "", port: config.port,
+                               database: "", username: "")
+            : config
         listModel.dirtyConnectionId = nil
+        showPasswordFromLinkNote(passwordFromLinkId == id)
 
         // A display label, so it is ESCAPED rather than sanitised — matching the
         // list row and the delete confirmation for the same name. It is also the
@@ -991,27 +1048,50 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - +/- Actions
 
     private func addStub() {
-        confirmDiscardIfDirty { [weak self] proceed in
-            guard let self, proceed else { return }
-            let stub = ConnectionConfig(
+        beginNewConnection(
+            prefilled: ConnectionConfig(
                 id: UUID().uuidString,
                 name: "Untitled",
                 host: "localhost",
                 port: 5432,
                 database: "postgres",
                 username: "postgres"
-            )
+            ),
+            passwordFromLink: false
+        )
+    }
+
+    /// Opens a new, unsaved connection in the form, filled in from `prefilled`,
+    /// and selects it. This is the `+` button's path and the `postgres://` link
+    /// path both — the only difference between them is where the field values
+    /// came from.
+    ///
+    /// Nothing is written anywhere: the record is a stub in the list until the
+    /// user presses Save, which is the only path that reaches SQLite and the
+    /// Keychain. `passwordFromLink` raises the note under the password field,
+    /// so a password the user did not type is never silent.
+    @MainActor
+    func beginNewConnection(prefilled: ConnectionConfig, passwordFromLink: Bool) {
+        confirmDiscardIfDirty { [weak self] proceed in
+            guard let self, proceed else { return }
+            let stub = prefilled
+            self.passwordFromLinkId = passwordFromLink ? stub.id : nil
             self.pendingStubIds.insert(stub.id)
             self.connections.append(stub)
             self.listModel.selectedIds = [stub.id]
+            // Load the form NOW rather than waiting for the selection
+            // publisher's next turn, so the fields are filled in before the
+            // window comes forward and the name below is there to select.
+            self.updateDetailVisibility()
             self.view.window?.makeFirstResponder(self.nameField)
             self.nameField.selectText(nil)
-            self.draftBaseline = ConnectionConfig(
-                id: stub.id, name: "", host: "", port: stub.port,
-                database: "", username: ""
-            )
-            self.updateButtonStates()
         }
+    }
+
+    /// Shows or hides the "password came from the link" caption and its row.
+    private func showPasswordFromLinkNote(_ visible: Bool) {
+        passwordFromLinkLabel.isHidden = !visible
+        passwordFromLinkRow?.isHidden = !visible
     }
 
     private func deleteSelected(ids: Set<String>) {
@@ -1064,6 +1144,13 @@ extension ConnectionsManagerVC: NSTextFieldDelegate {
         // draft.
         if (obj.object as? NSTextField) === nameField {
             nameField.sanitizeAsAuthoredLabel()
+        }
+        // The note says where the password came from. Once the user types one,
+        // it no longer does, so it goes — and it does not come back on a later
+        // re-selection of this record.
+        if (obj.object as? NSTextField) === passwordField {
+            passwordFromLinkId = nil
+            showPasswordFromLinkNote(false)
         }
         refreshHostileTextBadges()
         syncFormIntoDraft()
