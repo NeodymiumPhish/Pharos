@@ -54,4 +54,12 @@ final class ConnectionsManagerWindowController: NSWindowController, NSWindowDele
     func windowWillClose(_ notification: Notification) {
         Self.shared = nil
     }
+
+    /// ⌘W is File > Close Tab, whose action only the content controller
+    /// answers, so in this window it did nothing. Closing the window is what
+    /// the key means for a window with no tabs in it.
+    @MainActor
+    @objc func menuCloseTab(_ sender: Any?) {
+        window?.performClose(sender)
+    }
 }

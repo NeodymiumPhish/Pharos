@@ -18,9 +18,11 @@ nav_order: 16
 
 ## Overview
 
-Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has three tabs: General, Editor, and Query. Click **Save** to apply, **Cancel** to discard. Settings are stored in the local SQLite database and persist across launches.
+Open Settings with **Cmd+,** or **Pharos > Settings…**. Settings is a window of its own, so it opens even when no query window is on screen. A toolbar across the top selects one of four panes — **General**, **Editor**, **Query**, and **Charts** — and the window resizes to the pane you select. Close it with **Cmd+W**; it reopens in the pane you left.
 
-## General Tab
+There is no Save button. **Every change applies at once**: a checkbox, popup, or radio applies the moment you click it, and a number field applies as you type (and again when you leave the field). Change the editor font size and the editor text changes behind the window. Settings are stored in the local SQLite database and persist across launches.
+
+## General Pane
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
@@ -31,7 +33,7 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Show leaf partitions in the Database Navigator | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
 | Show result tabs in a vertical panel, not a horizontal bar | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
 
-## Editor Tab
+## Editor Pane
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
@@ -41,7 +43,7 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Show line numbers | On/Off | On | Line numbers in the editor gutter. |
 | Wrap long lines | On/Off | Off | Soft-wrap long lines. |
 
-## Query Tab
+## Query Pane
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
@@ -52,6 +54,10 @@ Open Settings with **Cmd+,** or **Pharos > Settings…**. The settings sheet has
 | Notify when query completes in a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
 | Notification minimum | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
 | Restore open tabs at launch | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+
+## Charts Pane
+
+The default series palette used by every chart: one color well per slot, **Add color** and the minus button to change how many slots there are, and **Reset to defaults** for the built-in set. See [Charts](charts.md#colors) for how a chart chooses between this palette and its own override.
 
 ## Update Checks
 

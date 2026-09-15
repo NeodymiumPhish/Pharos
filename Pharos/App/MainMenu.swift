@@ -264,10 +264,11 @@ enum MainMenu {
 // MARK: - AppDelegate actions
 
 extension AppDelegate {
+    /// Settings is a window of its own, so it opens whether or not the main
+    /// window is on screen — the old sheet needed a window to attach to and
+    /// did nothing without one.
+    @MainActor
     @objc func openSettings(_: Any?) {
-        guard let window = NSApp.mainWindow,
-              let contentVC = window.contentViewController else { return }
-        let sheet = SettingsSheet()
-        contentVC.presentAsSheet(sheet)
+        SettingsWindowController.shared.show()
     }
 }

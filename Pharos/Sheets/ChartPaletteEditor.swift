@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// Mutable working copy of the palette for the Settings Charts tab. Held by
-/// `SettingsSheet`; its value is read back in `collectSettings()`.
+/// The palette shown in the Settings window's Charts pane. Held by
+/// `ChartsSettingsPaneVC`, which watches it and saves every change.
 final class ChartPaletteModel: ObservableObject {
     @Published var palette: [String]
     init(palette: [String]) { self.palette = palette }
 }
 
 /// SwiftUI palette editor hosted (via `NSHostingView`) in the Settings Charts
-/// tab: one color well per slot, add/remove, and reset-to-defaults.
+/// pane: one color well per slot, add/remove, and reset-to-defaults.
 struct ChartPaletteEditor: View {
     @ObservedObject var model: ChartPaletteModel
 

@@ -27,8 +27,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state.loadConnections()
         state.loadSettings()
 
-        // Apply saved theme
-        SettingsSheet.applyTheme(state.settings.theme)
+        // Apply the saved theme, and follow it from here on: the Settings
+        // window applies a new theme by saving it, with nothing to press.
+        ThemeApplier.shared.start()
+        // MetricKit hang and crash diagnostics land in ~/Library/Logs/Pharos/.
+        Diagnostics.start()
 
         // Build the main menu
         NSApp.mainMenu = MainMenu.build()
