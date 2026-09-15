@@ -207,7 +207,13 @@ final class MainToolbarController: NSObject {
         connectionButton.addItem(withTitle: buttonTitle)
         if let activeId, let config = connections.first(where: { $0.id == activeId }),
            let titleItem = connectionButton.item(at: 0) {
-            titleItem.attributedTitle = styledTitle(buttonTitle, status: stateManager.status(for: config.id))
+            let status = stateManager.status(for: config.id)
+            titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
+            connectionButton.toolTip = "\(DisplayEscape.escaped(config.name)) — \(statusName(for: status))"
+            connectionButton.setAccessibilityValue(statusName(for: status))
+        } else {
+            connectionButton.toolTip = "Connection for the active tab"
+            connectionButton.setAccessibilityValue(nil)
         }
 
         if !connections.isEmpty {
@@ -248,12 +254,23 @@ final class MainToolbarController: NSObject {
         connectionButton.menu?.autoenablesItems = false
     }
 
+    /// One glyph per state, so the state reads without its colour
+    /// (Differentiate Without Color, monochrome menus, VoiceOver text).
     private func statusString(for status: ConnectionStatus) -> String {
         switch status {
-        case .connected: return "\u{25CF} "   // filled circle
-        case .connecting: return "\u{25CB} "   // empty circle
-        case .error: return "\u{25CF} "        // filled circle (red)
-        case .disconnected: return "  "
+        case .connected: return "\u{25CF} "    // ● filled circle
+        case .connecting: return "\u{25D0} "   // ◐ half circle
+        case .error: return "\u{2715} "        // ✕ multiplication x
+        case .disconnected: return "\u{25CB} " // ○ empty circle
+        }
+    }
+
+    private func statusName(for status: ConnectionStatus) -> String {
+        switch status {
+        case .connected: return "Connected"
+        case .connecting: return "Connecting"
+        case .error: return "Connection error"
+        case .disconnected: return "Disconnected"
         }
     }
 

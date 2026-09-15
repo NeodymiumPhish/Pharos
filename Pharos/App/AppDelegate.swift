@@ -102,11 +102,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pharos does not ask to be quit when its window closes; the Dock icon
     /// brings the window back (see `applicationShouldHandleReopen`).
     ///
-    /// Note that macOS 26 may still quit the app a second or two later: it
-    /// sends a windowless app a quit Apple Event of its own, which runs the
-    /// normal `applicationShouldTerminate` path (so the session is saved) and
-    /// which neither this answer nor `ProcessInfo.disableAutomaticTermination`
-    /// prevents.
+    /// A third-party utility that quits windowless apps sends a quit Apple
+    /// Event a second or two after the close. That path still runs
+    /// `applicationShouldTerminate`, so the session is saved either way.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
