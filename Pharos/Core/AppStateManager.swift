@@ -75,90 +75,115 @@ final class AppStateManager: ObservableObject {
 
     @Published private(set) var connections: [ConnectionConfig] = []
     @Published private(set) var connectionStatuses: [String: ConnectionStatus] = [:]
-    @Published var activeConnectionId: String? {
-        didSet {
-            if activeConnectionId != oldValue {
-                // Save current schema selection for the old connection
-                if let oldId = oldValue, let schema = activeSchema {
-                    schemaSelections[oldId] = schema
-                }
-                // Restore schema selection for new connection (nil if none saved)
-                activeSchema = activeConnectionId.flatMap { schemaSelections[$0] }
-
-                // Tags are global; this is a cheap no-op after the first call.
-                // It stays on the connection hook so a first connection still
-                // primes the cache before the first result arrives.
-                //
-                // It sits OUTSIDE the `if let`, so it also runs when the id goes
-                // to nil — a disconnect, or a tab that is bound to nothing. That
-                // is harmless by design: the call is idempotent, and a nil id
-                // does not mean "drop the tags". Tags outlive a connection, so
-                // there is nothing to clear and nothing to reload.
-                do {
-                    try TagStore.shared.loadTagsIfNeeded()
-                } catch {
-                    // A failure must not block the connection. The user then has
-                    // a working database and no tags, which is a degraded view,
-                    // not a broken state.
-                    Log.state.warning("Failed to load tags: \(error.localizedDescription, privacy: .public)")
-                }
-            }
-        }
-    }
-    @Published var activeSchema: String? {
-        didSet {
-            // Keep per-connection selection in sync
-            if let connId = activeConnectionId {
-                if let schema = activeSchema {
-                    schemaSelections[connId] = schema
-                } else {
-                    schemaSelections.removeValue(forKey: connId)
-                }
-            }
-        }
-    }
-    private var schemaSelections: [String: String] = [:]  // connectionId → schemaName
     @Published private(set) var settings: AppSettings = AppSettings()
 
     /// Last error from a state operation (save, delete, load). Observed by UI to show alerts.
     @Published var lastError: String?
 
-    // Tab management
-    @Published var tabs: [QueryTab] = [] {
-        didSet {
-            sessionDirty = true
-            tabsSettled.send(tabs)
+    // MARK: - Window sessions
+
+    /// One per open main window, in the order the windows were made. The tabs,
+    /// the active tab, the window's connection and its results all live there
+    /// (`WindowSession`); this class keeps only what is app-wide.
+    private(set) var sessions: [WindowSession] = []
+
+    /// Build a session and wire it to the app around it. The caller
+    /// (`MainWindowController`) owns the window; this owns the registry.
+    func makeSession(id: String = UUID().uuidString) -> WindowSession {
+        let session = WindowSession(id: id)
+        session.hooks.defaultSchema = { [weak self] connId in
+            self?.connections.first { $0.id == connId }?.defaultSchema
         }
-    }
-    @Published var activeTabId: String? {
-        didSet {
-            sessionDirty = true
-            activeTabIdSettled.send(activeTabId)
+        session.hooks.cancelQueries = { [weak self] tabs in
+            self?.cancelQueries(beforeClosing: tabs)
         }
+        session.hooks.markDirty = { [weak self] in
+            self?.sessionDirty = true
+        }
+        session.hooks.activeConnectionDidChange = {
+            do {
+                try TagStore.shared.loadTagsIfNeeded()
+            } catch {
+                // A failure must not block the connection. The user then has
+                // a working database and no tags, which is a degraded view,
+                // not a broken state.
+                Log.state.warning("Failed to load tags: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        session.hooks.isRestoringSession = { [weak self] in
+            self?.isRestoringSession ?? false
+        }
+        sessions.append(session)
+        return session
     }
-    private var closedTabHistory: [QueryTab] = []
-    private let maxClosedHistory = 20
 
-    // Pin state
-    @Published var pinnedResult: QueryResult?
-    @Published var pinnedTabId: String? {
-        didSet { pinnedTabIdSettled.send(pinnedTabId) }
+    /// Drop a closed window's session. Its in-flight queries are cancelled
+    /// first: a query belongs to the window that started it.
+    /// Set by `applicationShouldTerminate` before its snapshot. AppKit closes
+    /// every window on the way out, and each close reaches `retire`, which
+    /// would rewrite the store with one window fewer each time until only the
+    /// last-closed window survived (measured 2026-09-15: two windows open,
+    /// quit, one stored). While terminating, the terminate snapshot is the
+    /// truth and the closes must not touch the store.
+    private(set) var isTerminating = false
+
+    func beginTerminating() { isTerminating = true }
+
+    func retire(_ session: WindowSession) {
+        session.cancelAllRunningQueries()
+        if isTerminating {
+            sessions.removeAll { $0 === session }
+            return
+        }
+        // The LAST window closing is the one case where the store must keep
+        // what is going away. The app outlives its windows, so someone who
+        // closes the window and then quits would otherwise find their tabs
+        // gone — and `snapshotSession()` refuses to write an empty window
+        // list, so nothing after this point would put them back.
+        if sessions.count == 1 { snapshotSession() }
+        sessions.removeAll { $0 === session }
+        // With windows left, the store now matches what is on screen: the
+        // closed one does not come back. With none left, this is a no-op and
+        // the snapshot above stands.
+        snapshotSession()
     }
-    @Published var pinnedTabName: String?
 
-    // MARK: - Settled publishers
+    /// The session of the window the user is working in.
+    ///
+    /// A sheet or a panel is key while it is up, so the sheet's parent is
+    /// tried next, then the frontmost main window, then the first session —
+    /// the app never has an action with nowhere to put it.
+    var keySession: WindowSession? {
+        if let session = Self.session(of: NSApp.keyWindow) { return session }
+        if let session = Self.session(of: NSApp.keyWindow?.sheetParent) { return session }
+        if let session = Self.session(of: NSApp.mainWindow) { return session }
+        for window in NSApp.orderedWindows {
+            if let session = Self.session(of: window) { return session }
+        }
+        return sessions.first
+    }
 
-    // `@Published` emits from `willSet`: a subscriber that runs on the same
-    // stack reads the OLD value back through the manager, which is why every
-    // sink used to hop to `RunLoop.main` and every caller that then needed
-    // the UI to have caught up waited one turn (`DispatchQueue.main.async`).
-    // These emit from `didSet`, carry the current value, and are delivered
-    // synchronously: when `selectTab` or `createTab` returns, the content
-    // controller and the editor have already applied the change. The class
-    // is `@MainActor`, so every send is on main.
-    let tabsSettled = CurrentValueSubject<[QueryTab], Never>([])
-    let activeTabIdSettled = CurrentValueSubject<String?, Never>(nil)
-    let pinnedTabIdSettled = CurrentValueSubject<String?, Never>(nil)
+    private static func session(of window: NSWindow?) -> WindowSession? {
+        (window?.windowController as? MainWindowController)?.session
+    }
+
+    /// The session holding tab `tabId` — the window that OWNS it, not the key
+    /// one. A notification tap, an App Intent and the workspace activity all
+    /// name a tab and must front the window it is in.
+    func session(owningTabId tabId: String) -> WindowSession? {
+        sessions.first { $0.tabs.contains { $0.id == tabId } }
+    }
+
+    /// The first tab anywhere that matches, with the window holding it. The
+    /// key window is looked at first, so a tab the user just opened wins over
+    /// an older copy in another window.
+    func findTab(where predicate: (QueryTab) -> Bool) -> (session: WindowSession, tab: QueryTab)? {
+        let ordered = [keySession].compactMap { $0 } + sessions.filter { $0 !== keySession }
+        for session in ordered {
+            if let tab = session.tabs.first(where: predicate) { return (session, tab) }
+        }
+        return nil
+    }
 
     // MARK: - Notifications
 
@@ -216,8 +241,10 @@ final class AppStateManager: ObservableObject {
         do {
             try PharosCore.deleteConnection(id: id)
             connectionStatuses.removeValue(forKey: id)
-            if activeConnectionId == id {
-                activeConnectionId = nil
+            // Every window that was pointed at the deleted record, not just
+            // the key one.
+            for session in sessions where session.activeConnectionId == id {
+                session.activeConnectionId = nil
             }
             loadConnections()
         } catch {
@@ -250,21 +277,21 @@ final class AppStateManager: ObservableObject {
     /// Nothing is held on the failed attempt — the Rust side registers no pool
     /// unless the pool is created — so a repeat attempt is free to run the
     /// whole path again.
-    func useConnection(_ connectionId: String, forTabId tabId: String) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+    func useConnection(_ connectionId: String, forTabId tabId: String, in session: WindowSession) {
+        guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         let connectionChanged = tab.connectionId != connectionId
         let newSchema = connections.first(where: { $0.id == connectionId })?.defaultSchema ?? "public"
-        updateTab(id: tabId) {
+        session.updateTab(id: tabId) {
             $0.connectionId = connectionId
             if connectionChanged { $0.schemaName = newSchema }
         }
-        if tabId == activeTabId {
-            activeConnectionId = connectionId
-            if connectionChanged { activeSchema = newSchema }
+        if tabId == session.activeTabId {
+            session.activeConnectionId = connectionId
+            if connectionChanged { session.activeSchema = newSchema }
         }
         switch status(for: connectionId) {
         case .disconnected, .error:
-            connect(id: connectionId)
+            connect(id: connectionId, in: session)
         case .connecting, .connected:
             break
         }
@@ -285,10 +312,15 @@ final class AppStateManager: ObservableObject {
     /// The status goes to `.connecting` before the prompt, so the toolbar is not
     /// silent while the sheet is up. A CANCEL returns it to `.disconnected`, not
     /// `.error`: nothing failed, and an error state here would be sticky.
-    func connect(id: String) {
+    ///
+    /// `session` is the window the attempt belongs to — the one whose active
+    /// connection and active tab follow a success. It defaults to the key
+    /// window's, which is what a menu command or a Shortcut means.
+    func connect(id: String, in session: WindowSession? = nil) {
+        let target = session ?? keySession
         guard let config = connections.first(where: { $0.id == id }),
               config.requiresAuthentication else {
-            performConnect(id: id)
+            performConnect(id: id, in: target)
             return
         }
 
@@ -302,7 +334,7 @@ final class AppStateManager: ObservableObject {
                 reason: String(localized: "connect to \(name)")
             ) {
             case .authenticated:
-                self.performConnect(id: id)
+                self.performConnect(id: id, in: target)
             case .cancelled:
                 self.connectionStatuses[id] = .disconnected
                 self.postStatusChange(id)
@@ -315,7 +347,7 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    private func performConnect(id: String) {
+    private func performConnect(id: String, in session: WindowSession?) {
         connectionStatuses[id] = .connecting
         connectionErrors.removeValue(forKey: id)
         postStatusChange(id)
@@ -332,7 +364,6 @@ final class AppStateManager: ObservableObject {
                     self.connectionErrors[id] = reason
                     Log.state.error("Connection failed: \(reason, privacy: .public)")
                 }
-                self.activeConnectionId = id
                 // Apply default schema from connection config, falling back to "public"
                 let defaultSchema: String = {
                     if let config = self.connections.first(where: { $0.id == id }),
@@ -341,14 +372,23 @@ final class AppStateManager: ObservableObject {
                     }
                     return "public"
                 }()
-                if self.schemaSelections[id] == nil {
-                    self.activeSchema = defaultSchema
-                }
-                // Also update the active tab's schema to match
-                if let tabId = self.activeTabId {
-                    self.updateTab(id: tabId) { tab in
-                        if tab.connectionId == id && tab.schemaName == nil {
-                            tab.schemaName = self.activeSchema ?? defaultSchema
+                // Only the window that asked follows the new connection. A
+                // second window stays on whatever it was showing.
+                if let session {
+                    session.activeConnectionId = id
+                    // Setting the id above already put back this window's
+                    // remembered schema for it, so a nil here means there was
+                    // none to remember — the same test the per-connection
+                    // selection table used to answer directly.
+                    if session.activeSchema == nil {
+                        session.activeSchema = defaultSchema
+                    }
+                    // Also update the active tab's schema to match
+                    if let tabId = session.activeTabId {
+                        session.updateTab(id: tabId) { tab in
+                            if tab.connectionId == id && tab.schemaName == nil {
+                                tab.schemaName = session.activeSchema ?? defaultSchema
+                            }
                         }
                     }
                 }
@@ -367,8 +407,9 @@ final class AppStateManager: ObservableObject {
             do {
                 try await PharosCore.disconnect(connectionId: id)
                 self.connectionStatuses[id] = .disconnected
-                if self.activeConnectionId == id {
-                    self.activeConnectionId = nil
+                // The pool is app-wide, so every window pointed at it loses it.
+                for session in self.sessions where session.activeConnectionId == id {
+                    session.activeConnectionId = nil
                 }
                 self.postStatusChange(id)
             } catch {
@@ -397,24 +438,6 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    // MARK: - Tab Management
-
-    var activeTab: QueryTab? {
-        guard let id = activeTabId else { return nil }
-        return tabs.first { $0.id == id }
-    }
-
-    func unpinResults() {
-        pinnedResult = nil
-        pinnedTabId = nil
-        pinnedTabName = nil
-    }
-
-    func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        updater(&tabs[idx])
-    }
-
     // MARK: - Workspace History Snapshots
 
     /// Build the upsert payload capturing a tab's current editor snapshot for the
@@ -438,9 +461,11 @@ final class AppStateManager: ObservableObject {
     /// Flush a final editor snapshot for every tab already bound to a workspace.
     /// Called on tab close and app termination so the last edits are persisted.
     func snapshotWorkspaces() {
-        for tab in tabs where tab.workspaceId != nil {
-            guard let payload = workspaceUpsertPayload(for: tab, workspaceId: tab.workspaceId!) else { continue }
-            try? PharosCore.upsertWorkspace(payload)
+        for session in sessions {
+            for tab in session.tabs where tab.workspaceId != nil {
+                guard let payload = workspaceUpsertPayload(for: tab, workspaceId: tab.workspaceId!) else { continue }
+                try? PharosCore.upsertWorkspace(payload)
+            }
         }
     }
 
@@ -468,29 +493,45 @@ final class AppStateManager: ObservableObject {
         return name.wholeMatch(of: generated) == nil
     }
 
-    /// Write the open tabs, their order and the active one to the store.
-    /// Called from the autosave timer and from `applicationShouldTerminate`.
+    /// Write every open window — its frame, its tabs, their order and its
+    /// active tab — to the store. Called from the autosave timer and from
+    /// `applicationShouldTerminate`.
+    ///
+    /// With NO window open this writes nothing at all. The app outlives its
+    /// last window (`applicationShouldTerminateAfterLastWindowClosed` is
+    /// false), and rewriting the table empty there would throw away the tab
+    /// set the user left behind — the damage the Phase 6 disclosure names.
     func snapshotSession() {
         guard !isRestoringSession else { return }
-        let saved = tabs.enumerated().map { idx, tab -> SessionTab in
-            // Same encoder the workspace snapshot uses, so the two copies of a
-            // tab's variables are byte-identical and decode the same way back.
-            let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
-            return SessionTab(
-                tabIndex: idx,
-                workspaceId: tab.workspaceId,
-                name: tab.name,
-                nameIsCustom: !tab.nameIsSuggested && Self.isCustomTabName(tab.name),
-                connectionId: tab.connectionId,
-                schemaName: tab.schemaName,
-                sql: tab.sql,
-                cursorPosition: tab.cursorPosition,
-                variablesJson: varsJson,
-                isActive: tab.id == activeTabId
+        guard !sessions.isEmpty else { return }
+        let windows = sessions.enumerated().map { windowIndex, session -> SessionWindow in
+            let saved = session.tabs.enumerated().map { idx, tab -> SessionTab in
+                // Same encoder the workspace snapshot uses, so the two copies of
+                // a tab's variables are byte-identical and decode the same way
+                // back.
+                let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
+                return SessionTab(
+                    tabIndex: idx,
+                    workspaceId: tab.workspaceId,
+                    name: tab.name,
+                    nameIsCustom: !tab.nameIsSuggested && Self.isCustomTabName(tab.name),
+                    connectionId: tab.connectionId,
+                    schemaName: tab.schemaName,
+                    sql: tab.sql,
+                    cursorPosition: tab.cursorPosition,
+                    variablesJson: varsJson,
+                    isActive: tab.id == session.activeTabId
+                )
+            }
+            return SessionWindow(
+                windowId: session.id,
+                windowIndex: windowIndex,
+                frame: session.frameDescription,
+                tabs: saved
             )
         }
         do {
-            try PharosCore.saveSession(Session(tabs: saved))
+            try PharosCore.saveSession(Session(windows: windows))
             sessionDirty = false
         } catch {
             Log.state.error("Failed to save session: \(error.localizedDescription, privacy: .public)")
@@ -510,68 +551,100 @@ final class AppStateManager: ObservableObject {
         sessionAutosaveTimer = timer
     }
 
-    /// Read the stored session and, if it has tabs, hold back `ensureTab()`.
-    /// Call BEFORE the main window is built: its content controller asks for a
-    /// tab as soon as its view loads.
+    /// Read the stored session and, if it has any tab, hold back `ensureTab()`.
+    /// Call BEFORE the first main window is built: its content controller asks
+    /// for a tab as soon as its view loads.
     func prepareSessionRestore() {
         guard settings.query.restoreOpenTabs else { return }
-        guard let session = try? PharosCore.loadSession(), !session.tabs.isEmpty else { return }
-        pendingSession = session
+        guard let stored = try? PharosCore.loadSession(),
+              stored.windows.contains(where: { !$0.tabs.isEmpty }) else { return }
+        pendingSession = stored
         isRestoringSession = true
     }
 
-    /// Put the stored tabs back. Call AFTER the main window is on screen: a tab
-    /// bound to a workspace is rebuilt by `ContentViewController`, which must be
-    /// alive and observing `.openWorkspace`.
+    /// The stored window the first main window should adopt — its frame, before
+    /// that window is shown. Nil when nothing is being restored.
+    var pendingFirstWindowFrame: NSRect? {
+        pendingSession?.windows.min { $0.windowIndex < $1.windowIndex }?
+            .frame.flatMap(SessionWindow.rect(from:))
+    }
+
+    /// Put the stored windows and their tabs back. Call AFTER the first main
+    /// window is on screen: a tab bound to a workspace is rebuilt by that
+    /// window's `ContentViewController`, which must be alive and observing
+    /// `.openWorkspace`.
     func restoreSession() {
-        guard let session = pendingSession else {
+        guard let stored = pendingSession else {
             startSessionAutosave()
             return
         }
         pendingSession = nil
 
         Task { @MainActor in
-            // One tab at a time: the workspace handler rebuilds off the main
-            // thread, so posting the whole set at once would land the tabs in
-            // completion order rather than in the order they were saved.
-            var restoredIds: [String] = []
-            for saved in session.tabs {
-                if let wsId = saved.workspaceId,
-                   let id = await self.restoreWorkspaceTab(saved, workspaceId: wsId) {
-                    restoredIds.append(id)
-                } else {
-                    // No workspace, or the workspace row is gone: the session's
-                    // own copy of the editor text still brings the tab back.
-                    restoredIds.append(self.restoreDraftTab(saved).id)
-                }
-            }
-
-            if let idx = session.tabs.firstIndex(where: { $0.isActive }), idx < restoredIds.count {
-                self.selectTab(id: restoredIds[idx])
+            let windows = stored.windows.sorted { $0.windowIndex < $1.windowIndex }
+            // One WINDOW at a time, and one TAB at a time inside it: the
+            // workspace handler rebuilds off the main thread, so two windows
+            // restoring at once would put two rebuilds in flight and land the
+            // tabs in completion order rather than the order they were saved.
+            for (index, window) in windows.enumerated() {
+                guard let session = self.sessionForRestore(at: index, stored: window) else { continue }
+                await self.restore(window, into: session)
             }
 
             self.isRestoringSession = false
-            self.ensureTab()
+            for session in self.sessions { session.ensureTab() }
             self.sessionDirty = false
             self.startSessionAutosave()
         }
     }
 
-    /// Ask `ContentViewController` to rebuild a workspace tab, then wait for it
-    /// to appear. Returns nil when the workspace no longer exists (the handler
-    /// stays silent in that case, so the wait is what detects it).
-    private func restoreWorkspaceTab(_ saved: SessionTab, workspaceId: String) async -> String? {
-        if let existing = tabs.first(where: { $0.workspaceId == workspaceId }) { return existing.id }
+    /// The session a stored window restores into. The first one is the window
+    /// the delegate already built and showed; the rest are opened here, in
+    /// stored order, each with its own frame.
+    private func sessionForRestore(at index: Int, stored: SessionWindow) -> WindowSession? {
+        if index == 0 { return sessions.first }
+        guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
+        let frame = stored.frame.flatMap(SessionWindow.rect(from:))
+        return delegate.openMainWindow(frame: frame).session
+    }
+
+    private func restore(_ window: SessionWindow, into session: WindowSession) async {
+        var restoredIds: [String] = []
+        for saved in window.tabs.sorted(by: { $0.tabIndex < $1.tabIndex }) {
+            if let wsId = saved.workspaceId,
+               let id = await restoreWorkspaceTab(saved, workspaceId: wsId, in: session) {
+                restoredIds.append(id)
+            } else {
+                // No workspace, or the workspace row is gone: the session's
+                // own copy of the editor text still brings the tab back.
+                restoredIds.append(restoreDraftTab(saved, in: session).id)
+            }
+        }
+        if let idx = window.tabs.firstIndex(where: { $0.isActive }), idx < restoredIds.count {
+            session.selectTab(id: restoredIds[idx])
+        }
+    }
+
+    /// Ask the window's `ContentViewController` to rebuild a workspace tab, then
+    /// wait for it to appear. Returns nil when the workspace no longer exists
+    /// (the handler stays silent in that case, so the wait is what detects it).
+    private func restoreWorkspaceTab(_ saved: SessionTab,
+                                     workspaceId: String,
+                                     in session: WindowSession) async -> String? {
+        if let existing = session.tabs.first(where: { $0.workspaceId == workspaceId }) { return existing.id }
+        // Named, not broadcast: every open window observes `.openWorkspace`,
+        // and without the session id each of them would rebuild the tab.
         NotificationCenter.default.post(
-            name: .openWorkspace, object: nil, userInfo: ["workspaceId": workspaceId]
+            name: .openWorkspace, object: nil,
+            userInfo: ["workspaceId": workspaceId, "sessionId": session.id]
         )
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 40_000_000)
-            guard let tab = tabs.first(where: { $0.workspaceId == workspaceId }) else { continue }
+            guard let tab = session.tabs.first(where: { $0.workspaceId == workspaceId }) else { continue }
             // The workspace row owns the editor text, variables and cursor. It
             // does not store the schema, so that comes from the session.
-            updateTab(id: tab.id) { $0.schemaName = saved.schemaName }
+            session.updateTab(id: tab.id) { $0.schemaName = saved.schemaName }
             return tab.id
         }
         return nil
@@ -579,14 +652,14 @@ final class AppStateManager: ObservableObject {
 
     /// Rebuild a tab that never ran a query straight from the session row.
     @discardableResult
-    private func restoreDraftTab(_ saved: SessionTab) -> QueryTab {
-        let tab = createTab(sql: saved.sql, name: saved.name)
+    private func restoreDraftTab(_ saved: SessionTab, in session: WindowSession) -> QueryTab {
+        let tab = session.createTab(sql: saved.sql, name: saved.name)
         let variables: [QueryVariable] = saved.variablesJson.flatMap {
             try? JSONDecoder.pharos.decode([QueryVariable].self, from: Data($0.utf8))
         } ?? []
         // The connection is recorded, not dialled: restoring must never open a
         // database connection the user did not ask for.
-        updateTab(id: tab.id) {
+        session.updateTab(id: tab.id) {
             $0.connectionId = saved.connectionId
             $0.schemaName = saved.schemaName
             $0.cursorPosition = saved.cursorPosition
@@ -596,148 +669,10 @@ final class AppStateManager: ObservableObject {
         return tab
     }
 
-    /// Ensure at least one tab exists and one of them is active. Call after
-    /// connections load.
-    ///
-    /// While a saved session is being put back this is a no-op: the content
-    /// controller calls it as soon as its view loads, which is before the
-    /// restored tabs exist, and an empty "Query 1" made here would survive as
-    /// an extra tab beside them.
-    func ensureTab() {
-        guard !isRestoringSession else { return }
-        if tabs.isEmpty {
-            createTab()
-        } else if !tabs.contains(where: { $0.id == activeTabId }) {
-            activeTabId = tabs.first?.id
-            syncActiveConnectionAndSchema()
-        }
-    }
-
-    // MARK: - Tab Management
-
-    /// Append a tab and make it active.
-    @discardableResult
-    func createTab(sql: String = "", name: String? = nil) -> QueryTab {
-        let tabName = name ?? "Query \(tabs.count + 1)"
-        var tab = QueryTab(name: tabName, sql: sql)
-        applyDefaultSchema(&tab)
-        tabs.append(tab)
-        activeTabId = tab.id
-        return tab
-    }
-
-    /// Apply the active connection's default schema to a new tab.
-    private func applyDefaultSchema(_ tab: inout QueryTab) {
-        guard let connId = activeConnectionId else { return }
-        if let config = connections.first(where: { $0.id == connId }),
-           let defaultSchema = config.defaultSchema {
-            tab.connectionId = connId
-            tab.schemaName = defaultSchema
-        }
-    }
-
-    /// Make a tab active. Assigns even when the tab is already active; the
-    /// settled publisher's subscribers dedupe.
-    func selectTab(id: String) {
-        activeTabId = id
-    }
-
-    /// Sync the global active connection/schema to the active tab's values so
-    /// the sidebar/schema browser follows the active tab. Guarded sets + the
-    /// `didSet` dedup on these properties make redundant calls (e.g. when
-    /// EditorPaneVC.tabChanged also runs) a no-op.
-    private func syncActiveConnectionAndSchema() {
-        guard let tab = activeTab else { return }
-        if let connId = tab.connectionId, connId != activeConnectionId {
-            activeConnectionId = connId
-        } else if tab.connectionId == nil && activeConnectionId != nil {
-            activeConnectionId = nil
-        }
-        if tab.schemaName != activeSchema {
-            activeSchema = tab.schemaName
-        }
-    }
-
-    // MARK: - Tab Closing
-
-    /// Close a tab. Closing the active tab makes the tab now at its index
-    /// active (the one to its right, or the last). Closing the last tab
-    /// replaces it with a fresh one.
-    func closeTab(id: String) {
-        if let tab = tabs.first(where: { $0.id == id }) {
-            cancelQueriesBeforeClose(for: [tab])
-        }
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        closedTabHistory.append(tabs[idx])
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory.removeFirst()
-        }
-
-        tabs.remove(at: idx)
-        if pinnedTabId == id { unpinResults() }
-
-        if tabs.isEmpty {
-            createTab()
-        } else if activeTabId == id {
-            activeTabId = tabs[min(idx, tabs.count - 1)].id
-            syncActiveConnectionAndSchema()
-        }
-    }
-
-    func closeOtherTabs(exceptId id: String) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
-        let others = tabs.filter { $0.id != id }
-        cancelQueriesBeforeClose(for: others)
-        closedTabHistory.append(contentsOf: others)
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
-        }
-        tabs = tabs.filter { $0.id == id }
-        activeTabId = id
-    }
-
-    func closeTabsToRight(ofId id: String) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let closing = Array(tabs[(idx + 1)...])
-        guard !closing.isEmpty else { return }
-        cancelQueriesBeforeClose(for: closing)
-        closedTabHistory.append(contentsOf: closing)
-        if closedTabHistory.count > maxClosedHistory {
-            closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
-        }
-        tabs = Array(tabs[...idx])
-
-        if let activeId = activeTabId, closing.contains(where: { $0.id == activeId }) {
-            activeTabId = id
-        }
-    }
-
-    /// Insert a copy right after the source and make it active.
-    func duplicateTab(id: String) {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let tab = tabs[idx]
-        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, sql: tab.sql)
-        tabs.insert(newTab, at: idx + 1)
-        activeTabId = newTab.id
-    }
-
-    func reopenLastClosedTab() {
-        guard !closedTabHistory.isEmpty else { return }
-        let tab = closedTabHistory.removeLast()
-        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, sql: tab.sql)
-        tabs.append(reopened)
-        activeTabId = reopened.id
-    }
-
-    func selectTabByIndex(_ index: Int) {
-        guard index >= 0, index < tabs.count else { return }
-        selectTab(id: tabs[index].id)
-    }
-
     // MARK: - Helpers
 
     var activeConnection: ConnectionConfig? {
-        guard let id = activeConnectionId else { return nil }
+        guard let id = keySession?.activeConnectionId else { return nil }
         return connections.first { $0.id == id }
     }
 
@@ -756,7 +691,7 @@ final class AppStateManager: ObservableObject {
     /// Cancel in-flight queries for the given tabs (FFI cancel) and post a
     /// notification so observers (e.g. ContentViewController) can suppress
     /// completion notifications for these queryIds.
-    private func cancelQueriesBeforeClose(for closingTabs: [QueryTab]) {
+    func cancelQueries(beforeClosing closingTabs: [QueryTab]) {
         var queryIds: [String] = []
         for tab in closingTabs {
             guard let connectionId = tab.connectionId else { continue }
@@ -783,22 +718,10 @@ final class AppStateManager: ObservableObject {
     /// `application(_:open:)`, and any future drag-to-dock handlers.
     @MainActor
     func openTextFile(at url: URL) {
-        let app = NSApp.delegate as? AppDelegate
-        if app?.mainWindowController == nil {
-            // App launched via file-open with no window yet — create one.
-            app?.mainWindowController = MainWindowController()
-        }
-        guard let controller = app?.mainWindowController else { return }
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
-
-        // Walk the split-view children to find the ContentViewController.
-        guard let split = controller.contentViewController as? PharosSplitViewController else { return }
-        for item in split.splitViewItems {
-            if let content = item.viewController as? ContentViewController {
-                content.openTextFile(at: url)
-                return
-            }
-        }
+        guard let app = NSApp.delegate as? AppDelegate else { return }
+        // The file opens in the window the user is in, or in a new one when
+        // the app has none.
+        let controller = app.showMainWindow()
+        controller.splitViewController.contentVC.openTextFile(at: url)
     }
 }

@@ -9,7 +9,17 @@ class QueryEditorVC: NSViewController {
     let completionProvider = SQLCompletionProvider()
     private var scrollView: NSScrollView!
     private var gutter: LineNumberGutter?
+    let session: WindowSession
     private let stateManager = AppStateManager.shared
+
+    init(session: WindowSession) {
+        self.session = session
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
     private var cancellables = Set<AnyCancellable>()
     private var validationTask: Task<Void, Never>?
     private var segmentTask: Task<Void, Never>?
@@ -663,7 +673,7 @@ class QueryEditorVC: NSViewController {
         // FoldState.adjustForEdit (called from SQLTextView.didChangeText) automatically
         // removes folds that overlap the edit and shifts folds after it.
 
-        stateManager.updateTab(id: tabId) { tab in
+        session.updateTab(id: tabId) { tab in
             tab.sql = self.textView.string
             tab.isDirty = true
         }
@@ -692,7 +702,7 @@ class QueryEditorVC: NSViewController {
     }
 
     private func validateSQL(_ sql: String) async {
-        guard let connectionId = stateManager.activeConnectionId,
+        guard let connectionId = session.activeConnectionId,
               stateManager.status(for: connectionId) == .connected,
               !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             await MainActor.run { self.clearErrorMarkers() }

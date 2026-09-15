@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // The Rust mirrors (`pharos-core/src/models/session.rs`) use
@@ -26,7 +27,40 @@ struct SessionTab: Codable, Equatable {
     var isActive: Bool
 }
 
-/// The whole set of open tabs, in tab-bar order.
-struct Session: Codable, Equatable {
+/// One main window as it was left at the end of the last run: where it was on
+/// screen, and the tabs it held.
+struct SessionWindow: Codable, Equatable {
+    /// The window's grouping key in the store. It is a fresh UUID each run —
+    /// nothing outside the table refers to it — so it only has to hold the
+    /// rows of one window together.
+    var windowId: String
+    /// Position in the window order, 0-based. Window 0 is the one the app
+    /// shows first; the rest are opened after it, in this order.
+    var windowIndex: Int
+    /// `"x,y,w,h"` in screen coordinates, or nil for a window that never
+    /// recorded one. One `saveFrame(usingName:)` key cannot serve N windows,
+    /// so each window's frame travels with its row.
+    var frame: String?
     var tabs: [SessionTab] = []
+
+    /// The stored `"x,y,w,h"` as a rect. Nil for anything that does not read
+    /// as four finite numbers — the store is a file, so a damaged value must
+    /// degrade to "no stored frame", never to a window at 0×0.
+    static func rect(from description: String) -> NSRect? {
+        let values = description.split(separator: ",").compactMap {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard values.count == 4, values.allSatisfy({ $0.isFinite }) else { return nil }
+        return NSRect(x: values[0], y: values[1], width: values[2], height: values[3])
+    }
+
+    /// The inverse of `rect(from:)`.
+    static func description(of rect: NSRect) -> String {
+        "\(rect.origin.x),\(rect.origin.y),\(rect.size.width),\(rect.size.height)"
+    }
+}
+
+/// Every open window, in window order.
+struct Session: Codable, Equatable {
+    var windows: [SessionWindow] = []
 }

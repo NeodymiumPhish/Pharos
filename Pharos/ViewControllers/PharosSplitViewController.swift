@@ -14,9 +14,24 @@ import AppKit
 // relative, or interactive divider drags snap back (tasks/lessons.md).
 class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
-    let sidebarVC = SidebarViewController()
-    let contentVC = ContentViewController()
+    let session: WindowSession
+    let sidebarVC: SidebarViewController
+    let contentVC: ContentViewController
     let inspectorVC = InspectorViewController()
+
+    /// The window's session is handed down here, not looked up from
+    /// `view.window`: a pane that is off screen, or one whose window is not
+    /// key, must still read and write the right window's tabs.
+    init(session: WindowSession) {
+        self.session = session
+        self.sidebarVC = SidebarViewController(session: session)
+        self.contentVC = ContentViewController(session: session)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()

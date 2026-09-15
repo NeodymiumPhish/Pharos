@@ -32,15 +32,15 @@ struct OpenConnectionIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try PharosIntentBridge.showMainWindow()
+        let session = try PharosIntentBridge.showMainWindow().session
 
         let state = AppStateManager.shared
         guard state.connections.contains(where: { $0.id == connection.id }) else {
             throw PharosIntentError.unknownConnection
         }
 
-        let tab = state.createTab()
-        state.useConnection(connection.id, forTabId: tab.id)
+        let tab = session.createTab()
+        state.useConnection(connection.id, forTabId: tab.id, in: session)
         try await PharosIntentBridge.ensureConnected(connection.id)
 
         Log.ui.info("Intent opened connection \(self.connection.id, privacy: .public)")
@@ -76,10 +76,9 @@ struct NewQueryTabIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        try PharosIntentBridge.showMainWindow()
-        let state = AppStateManager.shared
-        let tab = state.createTab(sql: sql)
-        state.selectTab(id: tab.id)
+        let session = try PharosIntentBridge.showMainWindow().session
+        let tab = session.createTab(sql: sql)
+        session.selectTab(id: tab.id)
         Log.ui.info("Intent opened a new query tab")
         // Deliberately NOT run: an intent fires from an automation, where a
         // DELETE would have nothing in front of it. This mirrors the "Run in
@@ -154,14 +153,17 @@ struct RunSavedQueryIntent: AppIntent {
         // query's own connection wins only when the tab has none.
         let connectionId = try await MainActor.run { () -> String in
             let state = AppStateManager.shared
-            guard let tab = state.tabs.first(where: { $0.savedQueryId == stored.id }) else {
+            // The window that holds the opened tab, which need not be the key
+            // one by the time this runs.
+            guard let found = state.findTab(where: { $0.savedQueryId == stored.id }) else {
                 throw PharosIntentError.unknownSavedQuery
             }
-            guard let connId = tab.connectionId ?? stored.connectionId else {
+            guard let connId = found.tab.connectionId ?? stored.connectionId else {
                 throw PharosIntentError.noConnectionForQuery
             }
-            state.useConnection(connId, forTabId: tab.id)
-            state.selectTab(id: tab.id)
+            (NSApp.delegate as? AppDelegate)?.front(found.session)
+            state.useConnection(connId, forTabId: found.tab.id, in: found.session)
+            found.session.selectTab(id: found.tab.id)
             return connId
         }
         try await PharosIntentBridge.ensureConnected(connectionId)

@@ -14,7 +14,7 @@ private struct ActiveConnectionStatus: Equatable {
 /// Owns the one EditorPaneVC and runs queries.
 class ContentViewController: NSViewController {
 
-    private let resultsVC = ResultsGridVC()
+    private let resultsVC: ResultsGridVC
     /// The "no connection" state. Shown by `updateVisibility`, which today
     /// always hides it — see the note there.
     private let emptyState = EmptyStateView()
@@ -76,26 +76,29 @@ class ContentViewController: NSViewController {
     private var resultsBottomToContainer: NSLayoutConstraint!
     private var resultTabBarHeightConstraint: NSLayoutConstraint!
 
-    // Result tab management — one store for every editor tab. See ResultTabStore.
-    private var resultStore = ResultTabStore()
+    // Result tab management — one store for every editor tab — lives on the
+    // window's session (`WindowSession.resultStore`), reached as
+    // `session.resultStore` below. It is written in place there: a computed
+    // alias here would make every mutation a get-modify-set and copy the
+    // store on each one.
 
     /// The editor tab whose results the grid is showing. Set by
     /// `activeTabChanged` once the outgoing tab's state has been captured, so
     /// during that capture it still names the outgoing tab.
     private var lastActiveTabId: String?
 
-    /// The displayed editor tab's result tabs — a view onto `resultStore`,
+    /// The displayed editor tab's result tabs — a view onto `session.resultStore`,
     /// not a copy. There is no flush on a tab switch and nothing can be
     /// behind. With no displayed tab the view is empty and writes are dropped.
     private var resultTabs: [ResultTab] {
-        get { lastActiveTabId.map { resultStore[$0].tabs } ?? [] }
-        set { if let id = lastActiveTabId { resultStore[id].tabs = newValue } }
+        get { lastActiveTabId.map { session.resultStore[$0].tabs } ?? [] }
+        set { if let id = lastActiveTabId { session.resultStore[id].tabs = newValue } }
     }
 
     /// The displayed editor tab's selected result tab — same view.
     private var activeResultTabId: String? {
-        get { lastActiveTabId.flatMap { resultStore[$0].activeId } }
-        set { if let id = lastActiveTabId { resultStore[id].activeId = newValue } }
+        get { lastActiveTabId.flatMap { session.resultStore[$0].activeId } }
+        set { if let id = lastActiveTabId { session.resultStore[id].activeId = newValue } }
     }
 
     /// The activity donated for the active tab's workspace, held so it stays
@@ -131,12 +134,15 @@ class ContentViewController: NSViewController {
     private var displacedFilters: [String: ColumnFilter] = [:]
 
     /// The editor: tab bar, SQL editor, variables and result-tabs panels.
-    private let editorPane = EditorPaneVC()
+    private let editorPane: EditorPaneVC
 
     /// Owns the one live query-error sheet. Its `showSheet`/`closeSheet` seams
     /// are filled in `viewDidLoad`.
     private let errorPresenter = QueryErrorPresenter()
 
+    /// This window's tabs, results and connection. Handed in at build time
+    /// by `PharosSplitViewController`.
+    let session: WindowSession
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
@@ -195,6 +201,19 @@ class ContentViewController: NSViewController {
             self.clearStagedChartSelection()
             return nil
         }
+    }
+
+    // MARK: - Init
+
+    init(session: WindowSession) {
+        self.session = session
+        self.resultsVC = ResultsGridVC(session: session)
+        self.editorPane = EditorPaneVC(session: session)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
     }
 
     override func loadView() {
@@ -435,7 +454,7 @@ class ContentViewController: NSViewController {
         // Wire up expand editor / results (handled by action bar buttons directly)
 
         // Observe state
-        stateManager.$activeConnectionId
+        session.$activeConnectionId
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] connectionId in
@@ -467,7 +486,7 @@ class ContentViewController: NSViewController {
         // to the active's status avoids the original problem (a removeDuplicates
         // on activeConnectionId alone would suppress the connected→ready
         // transition) while still firing only on real status changes.
-        Publishers.CombineLatest(stateManager.$activeConnectionId, stateManager.$connectionStatuses)
+        Publishers.CombineLatest(session.$activeConnectionId, stateManager.$connectionStatuses)
             .map { activeId, statuses in
                 ActiveConnectionStatus(id: activeId, status: activeId.flatMap { statuses[$0] })
             }
@@ -483,7 +502,7 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        stateManager.$activeSchema
+        session.$activeSchema
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] schema in
@@ -495,10 +514,10 @@ class ContentViewController: NSViewController {
 
         // The tab sinks below subscribe to the SETTLED publishers and take no
         // run-loop hop: they run on the mutating caller's stack, after the
-        // property is set, so `stateManager.selectTab(...)` returns with the
+        // property is set, so `session.selectTab(...)` returns with the
         // grid and the editor already switched. See `AppStateManager.tabsSettled`.
         // Release the per-editor-tab result state of tabs that no longer exist.
-        // This reacts to the tab actually disappearing from `stateManager.tabs`
+        // This reacts to the tab actually disappearing from `session.tabs`
         // rather than hooking each close action, because the close paths are
         // several and not all of them come through this controller:
         // `closeOtherTabs` and `closeTabsToRight` are called straight from
@@ -508,9 +527,9 @@ class ContentViewController: NSViewController {
         //
         // Deduped on the id set so the sweep does not run on every keystroke
         // (tabs republish on each SQL edit). The sweep reads the live
-        // `stateManager.tabs`, which the settled publisher guarantees is
+        // `session.tabs`, which the settled publisher guarantees is
         // already the new value.
-        stateManager.tabsSettled
+        session.tabsSettled
             .map { Set($0.map(\.id)) }
             .removeDuplicates()
             .sink { [weak self] _ in self?.pruneRetiredEditorTabState() }
@@ -521,7 +540,7 @@ class ContentViewController: NSViewController {
         // current tab), and the
         // publisher emits on every assignment — without the dedup each of
         // those tore the grid down and rebuilt it, dropping the cell selection.
-        stateManager.activeTabIdSettled
+        session.activeTabIdSettled
             .removeDuplicates()
             .sink { [weak self] tabId in self?.activeTabChanged(tabId) }
             .store(in: &cancellables)
@@ -530,17 +549,17 @@ class ContentViewController: NSViewController {
         // selected, so the activity donation has to follow that id as well as
         // the tab switch. `donateWorkspaceActivity` dedupes, so the two paths
         // overlapping costs nothing.
-        Publishers.CombineLatest(stateManager.tabsSettled, stateManager.activeTabIdSettled)
+        Publishers.CombineLatest(session.tabsSettled, session.activeTabIdSettled)
             .map { tabs, activeId -> String? in tabs.first { $0.id == activeId }?.workspaceId }
             .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.donateWorkspaceActivity(for: self.stateManager.activeTab)
+                self.donateWorkspaceActivity(for: self.session.activeTab)
             }
             .store(in: &cancellables)
 
         // Observe pin state changes (e.g. auto-unpin on tab close)
-        stateManager.pinnedTabIdSettled
+        session.pinnedTabIdSettled
             .sink { [weak self] pinnedId in
                 if pinnedId == nil {
                     self?.resultsVC.setPinState(pinned: false, tabName: nil)
@@ -566,7 +585,7 @@ class ContentViewController: NSViewController {
         // map down to the single Bool we actually care about and
         // removeDuplicates so unrelated mutations (any keystroke republishes
         // the tabs) don't reassign isPulsing every time.
-        Publishers.CombineLatest(stateManager.tabsSettled, stateManager.activeTabIdSettled)
+        Publishers.CombineLatest(session.tabsSettled, session.activeTabIdSettled)
         .map { tabs, activeTabId -> Bool in
             tabs.first { $0.id == activeTabId }?.isExecuting == true
         }
@@ -665,7 +684,7 @@ class ContentViewController: NSViewController {
     // MARK: - Active Tab Changed (results grid update)
 
     /// Drop the per-editor-tab result state of every tab that is no longer in
-    /// `stateManager.tabs`.
+    /// `session.tabs`.
     ///
     /// Each stored `ResultTab` holds a whole `QueryResult` — every fetched row
     /// plus the `RowIdentity` block — so without this a session that opens and
@@ -680,7 +699,7 @@ class ContentViewController: NSViewController {
     /// likewise re-seeded from `MAX(result_order) + 1` on reopen, and tab ids
     /// are UUIDs, so a dropped key can never be asked for again.
     private func pruneRetiredEditorTabState() {
-        resultStore.prune(keeping: Set(stateManager.tabs.map { $0.id }))
+        session.resultStore.prune(keeping: Set(session.tabs.map { $0.id }))
     }
 
     private func activeTabChanged(_ tabId: String?) {
@@ -707,12 +726,12 @@ class ContentViewController: NSViewController {
             // every result the tab ever produced. A retired tab has nothing
             // left to restore into anyway. The guard also covers any mutator
             // that orders the two writes the other way round.
-            if stateManager.tabs.contains(where: { $0.id == previousTabId }) {
+            if session.tabs.contains(where: { $0.id == previousTabId }) {
                 // While pinned, the grid shows the PINNED result, not the tab
                 // we are leaving. Column ids are positional (`col_N`), so its
                 // widths, sort column and filters would be stored on this
                 // tab's result and restored onto the wrong columns later.
-                if stateManager.pinnedResult == nil,
+                if session.pinnedResult == nil,
                    let activeRTId = activeResultTabId,
                    let rtIdx = resultTabs.firstIndex(where: { $0.id == activeRTId }) {
                     // Save grid state (and any live chart config) to the active
@@ -725,7 +744,7 @@ class ContentViewController: NSViewController {
         }
         lastActiveTabId = tabId
 
-        guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
+        guard let tabId, let tab = session.tabs.first(where: { $0.id == tabId }) else {
             donateWorkspaceActivity(for: nil)
             resultsVC.clear()
             refreshResultTabViews()
@@ -783,9 +802,9 @@ class ContentViewController: NSViewController {
         // matter which editor tab is active. The result-tab surface still
         // reflects the destination tab — clicking a result tab in it explicitly
         // unpins.
-        if let pinnedResult = stateManager.pinnedResult {
+        if let pinnedResult = session.pinnedResult {
             resultsVC.showResult(pinnedResult)
-            resultsVC.setPinState(pinned: true, tabName: stateManager.pinnedTabName)
+            resultsVC.setPinState(pinned: true, tabName: session.pinnedTabName)
         } else {
             restoreGrid(for: tab)
         }
@@ -809,7 +828,7 @@ class ContentViewController: NSViewController {
     /// history replays display the original execution time — so the user can
     /// always see at a glance how recent the visible result is.
     private func applyResultBanner(from resultTab: ResultTab?) {
-        guard stateManager.pinnedResult == nil, let resultTab else {
+        guard session.pinnedResult == nil, let resultTab else {
             resultsVC.hideResultBanner()
             return
         }
@@ -825,7 +844,7 @@ class ContentViewController: NSViewController {
             resultsVC.hideResultBanner()
             return
         }
-        let schema = resultTab.historySchema ?? stateManager.activeTab?.schemaName
+        let schema = resultTab.historySchema ?? session.activeTab?.schemaName
         resultsVC.showResultBanner(schema: schema, date: date)
     }
 
@@ -1247,11 +1266,11 @@ class ContentViewController: NSViewController {
     /// would lead to: the first saved connection when there is one, and the
     /// Connections Manager when there is nothing to choose from yet.
     private func chooseConnectionForActiveTab() {
-        guard let first = stateManager.connections.first, let tabId = stateManager.activeTabId else {
+        guard let first = stateManager.connections.first, let tabId = session.activeTabId else {
             ConnectionsManagerWindowController.show()
             return
         }
-        stateManager.useConnection(first.id, forTabId: tabId)
+        stateManager.useConnection(first.id, forTabId: tabId, in: session)
     }
 
     // MARK: - Visibility
@@ -1266,7 +1285,7 @@ class ContentViewController: NSViewController {
         emptyState.isHidden = true
 
         let hasConnection: Bool
-        if let activeId = stateManager.activeConnectionId {
+        if let activeId = session.activeConnectionId {
             let status = stateManager.status(for: activeId)
             hasConnection = (status == .connected)
         } else {
@@ -1274,11 +1293,11 @@ class ContentViewController: NSViewController {
         }
 
         if hasConnection {
-            stateManager.ensureTab()
+            session.ensureTab()
         }
 
         // Always ensure at least one tab so the editor is usable
-        stateManager.ensureTab()
+        session.ensureTab()
 
         updateSplitViewVisibility()
     }
@@ -1384,7 +1403,7 @@ class ContentViewController: NSViewController {
     // MARK: - Rename Tab
 
     private func renameTab(id: String) {
-        guard let tab = stateManager.tabs.first(where: { $0.id == id }) else { return }
+        guard let tab = session.tabs.first(where: { $0.id == id }) else { return }
 
         let alert = NSAlert()
         alert.messageText = "Rename Tab"
@@ -1403,7 +1422,7 @@ class ContentViewController: NSViewController {
             if response == .alertFirstButtonReturn {
                 let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
                 if !newName.isEmpty {
-                    self?.stateManager.updateTab(id: id) { $0.name = newName }
+                    self?.session.updateTab(id: id) { $0.name = newName }
                 }
             }
         }
@@ -1464,7 +1483,7 @@ class ContentViewController: NSViewController {
     /// "Query <n>" once it has been suggested, so restoring never re-names.
     private func suggestEditorTabNameIfAutomatic(forEditorTab tabId: String, sql: String) {
         guard ModelAvailability.shared.isAvailable else { return }
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+        guard let tab = session.tabs.first(where: { $0.id == tabId }),
               !AppStateManager.isCustomTabName(tab.name),
               !nameSuggestionAsked.contains(tabId) else { return }
         guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -1479,9 +1498,9 @@ class ContentViewController: NSViewController {
                 let suggestion = try await NameSuggester().suggest(
                     sql: sql, existingFolders: [], kind: .editorTab)
                 guard let self, !suggestion.title.isEmpty else { return }
-                guard let current = self.stateManager.tabs.first(where: { $0.id == tabId }),
+                guard let current = self.session.tabs.first(where: { $0.id == tabId }),
                       !AppStateManager.isCustomTabName(current.name) else { return }
-                self.stateManager.updateTab(id: tabId) {
+                self.session.updateTab(id: tabId) {
                     $0.name = suggestion.title
                     // Still an automatic name, so the session records it as
                     // one: the user has not named this tab, the model has.
@@ -1500,36 +1519,36 @@ class ContentViewController: NSViewController {
     /// `executeQuery` needs. Shared with menu validation so Run is greyed out
     /// for the same reason it would do nothing.
     var canRunQuery: Bool {
-        guard let tab = stateManager.activeTab, let connectionId = tab.connectionId else { return false }
+        guard let tab = session.activeTab, let connectionId = tab.connectionId else { return false }
         return stateManager.status(for: connectionId) == .connected
     }
 
     /// True when the active tab has a query in flight.
     var canCancelQuery: Bool {
-        !(stateManager.activeTab?.runningQueries.isEmpty ?? true)
+        !(session.activeTab?.runningQueries.isEmpty ?? true)
     }
 
     // Connection predicates for the File menu and the toolbar pull-down.
     // All read the active tab's connection.
     var canConnect: Bool {
-        guard let id = stateManager.activeTab?.connectionId else { return false }
+        guard let id = session.activeTab?.connectionId else { return false }
         let status = stateManager.status(for: id)
         return status == .disconnected || status == .error
     }
 
     var canDisconnect: Bool {
-        guard let id = stateManager.activeTab?.connectionId else { return false }
+        guard let id = session.activeTab?.connectionId else { return false }
         let status = stateManager.status(for: id)
         return status == .connected || status == .connecting
     }
 
     var canRefreshMetadata: Bool {
-        guard let id = stateManager.activeTab?.connectionId else { return false }
+        guard let id = session.activeTab?.connectionId else { return false }
         return stateManager.status(for: id) == .connected
     }
 
     func executeQuery(_ sql: String? = nil) {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else {
             // Say so. A silent return on ⌘↩ reads as a key the app did not receive.
@@ -1568,7 +1587,7 @@ class ContentViewController: NSViewController {
     /// segments are naturally deduplicated by the in-flight dedup check in
     /// `performQuery`.
     func runAllSegments() {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
 
@@ -1581,8 +1600,8 @@ class ContentViewController: NSViewController {
 
         runAllSubscription?.cancel()
         runAllSubscription = Publishers.Merge(
-            stateManager.tabsSettled.map { _ in () },
-            stateManager.activeTabIdSettled.map { _ in () }
+            session.tabsSettled.map { _ in () },
+            session.activeTabIdSettled.map { _ in () }
         )
         .sink { [weak self] _ in self?.refillRunAllSlots() }
 
@@ -1601,7 +1620,7 @@ class ContentViewController: NSViewController {
         isRefillingRunAll = true
         defer { isRefillingRunAll = false }
         guard let tabId = runAllTabId,
-              let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+              let tab = session.tabs.first(where: { $0.id == tabId }),
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else {
             // Tab gone or disconnected — abort the batch.
@@ -1615,7 +1634,7 @@ class ContentViewController: NSViewController {
         // Pause: only launch new segments while the Run-All tab is the active tab.
         // The subscription stays alive; when the user switches back, the next emission
         // will resume slot-filling.
-        guard stateManager.activeTabId == tabId else {
+        guard session.activeTabId == tabId else {
             // If the queue is empty AND the original tab has drained, tear down even
             // while paused — there's nothing left to do.
             if runAllPending.isEmpty && tab.runningQueries.isEmpty {
@@ -1653,7 +1672,7 @@ class ContentViewController: NSViewController {
         lineRange: ClosedRange<Int>,
         customLabel: String?
     ) {
-        guard let activeTab = stateManager.activeTab,
+        guard let activeTab = session.activeTab,
               let connectionId = activeTab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
         let tabId = activeTab.id
@@ -1717,7 +1736,7 @@ class ContentViewController: NSViewController {
         lineRange: ClosedRange<Int>,
         customLabel: String?
     ) {
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+        guard let tab = session.tabs.first(where: { $0.id == tabId }),
               stateManager.status(for: connectionId) == .connected else { return }
 
         let normalized = Self.normalizeSQL(sql)
@@ -1754,7 +1773,7 @@ class ContentViewController: NSViewController {
             startTime: startTime
         )
 
-        stateManager.updateTab(id: tabId) { tab in
+        session.updateTab(id: tabId) { tab in
             tab.runningQueries.append(runningQuery)
         }
         editorPane.clearErrorMarkers()
@@ -1781,7 +1800,7 @@ class ContentViewController: NSViewController {
                         limit: limit, schema: tabSchema
                     )
                     await MainActor.run {
-                        self.stateManager.updateTab(id: tabId) { tab in
+                        self.session.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
                         }
                         // Every result lives in a ResultTab — a direct-SQL run
@@ -1815,7 +1834,7 @@ class ContentViewController: NSViewController {
                         connectionId: connectionId, sql: sql, schema: tabSchema
                     )
                     await MainActor.run {
-                        self.stateManager.updateTab(id: tabId) { tab in
+                        self.session.updateTab(id: tabId) { tab in
                             tab.runningQueries.removeAll { $0.id == queryId }
                         }
                         var rt = ResultTab(
@@ -1847,7 +1866,7 @@ class ContentViewController: NSViewController {
                     // for this, which decides the sheet title and keeps a
                     // cancellation quiet.
                     let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
-                    self.stateManager.updateTab(id: tabId) { tab in
+                    self.session.updateTab(id: tabId) { tab in
                         tab.runningQueries.removeAll { $0.id == queryId }
                     }
                     let failure = QueryFailure(
@@ -1856,7 +1875,7 @@ class ContentViewController: NSViewController {
                         message: message,
                         kind: wasCancelled ? .cancelled : .error,
                         tabId: tabId,
-                        tabName: self.stateManager.tabs.first { $0.id == tabId }?.name ?? "Query",
+                        tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
                         timestamp: Date()
                     )
@@ -1934,7 +1953,7 @@ class ContentViewController: NSViewController {
     /// would put a statement in the history that they did not run, and a plan
     /// is cheap to ask for again.
     func explainCurrentStatement(analyze: Bool) {
-        guard let activeTab = stateManager.activeTab,
+        guard let activeTab = session.activeTab,
               let connectionId = activeTab.connectionId,
               stateManager.status(for: connectionId) == .connected else {
             if isViewLoaded {
@@ -1996,7 +2015,7 @@ class ContentViewController: NSViewController {
                         message: error.localizedDescription,
                         kind: .error,
                         tabId: tabId,
-                        tabName: self.stateManager.tabs.first { $0.id == tabId }?.name ?? "Query",
+                        tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
                         timestamp: Date()
                     )
@@ -2039,7 +2058,7 @@ class ContentViewController: NSViewController {
         outcome: QueryNotifier.Outcome,
         durationMs: UInt64
     ) {
-        let tabName = stateManager.tabs.first { $0.id == tabId }?.name ?? "Query"
+        let tabName = session.tabs.first { $0.id == tabId }?.name ?? "Query"
         let connectionName = stateManager.connections.first { $0.id == connectionId }?.name
         QueryNotifier.shared.notifyQueryCompleted(
             tabId: tabId,
@@ -2147,7 +2166,7 @@ class ContentViewController: NSViewController {
         // ways out.
         suggestEditorTabNameIfAutomatic(forEditorTab: editorTabId, sql: tab.sql)
 
-        guard editorTabId == stateManager.activeTabId else {
+        guard editorTabId == session.activeTabId else {
             // A query can outlive its editor tab: `closeTab` asks the server to
             // cancel the in-flight queries, but a result already on the wire
             // still lands here. Depositing it would re-create the entry
@@ -2156,14 +2175,14 @@ class ContentViewController: NSViewController {
             // account. The result itself is already in SQLite and is still
             // associated with the workspace by `captureExecutedResult`, so
             // only the in-memory copy is dropped.
-            guard stateManager.tabs.contains(where: { $0.id == editorTabId }) else { return }
+            guard session.tabs.contains(where: { $0.id == editorTabId }) else { return }
 
             // Background tab: append to its store entry without touching the
             // grid or the focused pane's gutter. The gutter color and grid are
             // restored from the store when the user switches back
             // (activeTabChanged → reResolveAllResultTabs).
-            resultStore[editorTabId].tabs.append(tab)
-            resultStore[editorTabId].activeId = tab.id
+            session.resultStore[editorTabId].tabs.append(tab)
+            session.resultStore[editorTabId].activeId = tab.id
             // A background tab still needs its surface refreshed. The old
             // horizontal bar was one surface showing only the globally active
             // tab, so a deposit here genuinely had nothing to draw. The vertical
@@ -2236,8 +2255,8 @@ class ContentViewController: NSViewController {
     /// shows the new one — and `applyResultBanner` stays suppressed, so the new
     /// result loses its "schema · executed-at" line too.
     private func unpinBecauseGridIsChanging() {
-        guard stateManager.pinnedResult != nil else { return }
-        stateManager.unpinResults()
+        guard session.pinnedResult != nil else { return }
+        session.unpinResults()
         resultsVC.setPinState(pinned: false, tabName: nil)
     }
 
@@ -2321,13 +2340,13 @@ class ContentViewController: NSViewController {
     /// name a tab that is not the active editor tab's — a vertical panel in an
     /// unfocused pane lists its own tab's results.
     private func resultTab(withId tabId: String) -> ResultTab? {
-        resultStore.tab(withId: tabId)
+        session.resultStore.tab(withId: tabId)
     }
 
     /// Apply a change to a result tab wherever it lives, and hand back the
     /// changed tab.
     private func mutateResultTab(id: String, _ body: (inout ResultTab) -> Void) -> ResultTab? {
-        resultStore.mutateTab(id: id, body)
+        session.resultStore.mutateTab(id: id, body)
     }
 
     /// Rename one result tab, from either surface's right-click menu.
@@ -2433,8 +2452,8 @@ class ContentViewController: NSViewController {
     /// The rows the vertical panel should show for the active editor tab, and
     /// which of them to highlight.
     private func resultTabFeed() -> (rows: [ResultTabRowModel], activeId: String?) {
-        guard let tabId = stateManager.activeTabId else { return (rows: [], activeId: nil) }
-        let entry = resultStore[tabId]
+        guard let tabId = session.activeTabId else { return (rows: [], activeId: nil) }
+        let entry = session.resultStore[tabId]
         return (rows: entry.tabs.map { $0.rowModel }, activeId: entry.activeId)
     }
 
@@ -2491,12 +2510,12 @@ class ContentViewController: NSViewController {
 
     /// Load more rows for pagination.
     private func loadMoreRows() {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
 
         // Don't paginate a pinned cross-tab snapshot.
-        guard stateManager.pinnedResult == nil else { return }
+        guard session.pinnedResult == nil else { return }
 
         // The displayed result tab, its SQL, where to write the merged result
         // back, and whether it is still on screen at completion time.
@@ -2508,10 +2527,10 @@ class ContentViewController: NSViewController {
         // user has switched editor tabs while it was loading; it used to be
         // dropped then, and `hasMore` went stale.
         let applyMerged: (QueryResult) -> Void = { [weak self] merged in
-            self?.resultStore.mutateTab(id: activeRTId) { $0.queryResult = merged }
+            self?.session.resultStore.mutateTab(id: activeRTId) { $0.queryResult = merged }
         }
         let isStillDisplaying: () -> Bool = { [weak self] in
-            self?.stateManager.pinnedResult == nil && self?.activeResultTabId == activeRTId
+            self?.session.pinnedResult == nil && self?.activeResultTabId == activeRTId
         }
 
         guard existingResult.hasMore else { return }
@@ -2597,7 +2616,7 @@ class ContentViewController: NSViewController {
     }
 
     private func handlePinToggle(_ pinned: Bool) {
-        guard let tab = stateManager.activeTab else {
+        guard let tab = session.activeTab else {
             // No active editor tab, so there is nothing to pin or to restore.
             // The button toggled its own look before calling here, so put it
             // back rather than leaving an engaged pin over no pinned result.
@@ -2614,14 +2633,14 @@ class ContentViewController: NSViewController {
                 resultsVC.setPinState(pinned: false, tabName: nil)
                 return
             }
-            stateManager.pinnedResult = displayed
+            session.pinnedResult = displayed
             // The EDITOR tab's id, deliberately: AppStateManager's auto-unpin in
             // closeTab matches `pinnedTabId` against editor tab ids.
-            stateManager.pinnedTabId = tab.id
-            stateManager.pinnedTabName = tab.name
+            session.pinnedTabId = tab.id
+            session.pinnedTabName = tab.name
             resultsVC.setPinState(pinned: true, tabName: tab.name)
         } else {
-            stateManager.unpinResults()
+            session.unpinResults()
             resultsVC.setPinState(pinned: false, tabName: nil)
             restoreGrid(for: tab)
         }
@@ -2631,7 +2650,7 @@ class ContentViewController: NSViewController {
     /// active tab. For targeted cancellation by id (used by the popover), use
     /// `cancelQuery(id:)`.
     func cancelQuery() {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               let queryId = tab.runningQueries.last?.id else { return }
 
@@ -2646,7 +2665,7 @@ class ContentViewController: NSViewController {
 
     /// Cancel a specific in-flight query in the active tab by `id`.
     func cancelQuery(id: String) {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               tab.runningQueries.contains(where: { $0.id == id }) else { return }
         cancelledQueryIds.insert(id)
@@ -2663,13 +2682,13 @@ class ContentViewController: NSViewController {
     /// connection (nothing to record yet).
     @discardableResult
     private func ensureWorkspace(forEditorTabId tabId: String) -> String? {
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }), tab.connectionId != nil else { return nil }
+        guard let tab = session.tabs.first(where: { $0.id == tabId }), tab.connectionId != nil else { return nil }
         let wsId = tab.workspaceId ?? UUID().uuidString
         guard let payload = stateManager.workspaceUpsertPayload(for: tab, workspaceId: wsId) else { return tab.workspaceId }
         do {
             try PharosCore.upsertWorkspace(payload)
             if tab.workspaceId == nil {
-                stateManager.updateTab(id: tabId) { $0.workspaceId = wsId }
+                session.updateTab(id: tabId) { $0.workspaceId = wsId }
             }
             return wsId
         } catch {
@@ -2685,12 +2704,12 @@ class ContentViewController: NSViewController {
         historyId: String, editorTabId: String, workspaceId: String, color: NSColor,
         rawSQL: String, lineRange: ClosedRange<Int>, customLabel: String?
     ) {
-        let order = resultStore[editorTabId].nextOrder
+        let order = session.resultStore[editorTabId].nextOrder
         // Same late-result case as `addResultTab`: the association below still
         // belongs in the workspace, but the counter must not outlive the tab —
         // the store subscript would create an entry for a retired tab.
-        if stateManager.tabs.contains(where: { $0.id == editorTabId }) {
-            resultStore[editorTabId].nextOrder = order + 1
+        if session.tabs.contains(where: { $0.id == editorTabId }) {
+            session.resultStore[editorTabId].nextOrder = order + 1
         }
         let colorIndex = ResultTab.palette.firstIndex(of: color) ?? (order % ResultTab.palette.count)
         do {
@@ -2718,10 +2737,10 @@ class ContentViewController: NSViewController {
     /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
         // Flush a final editor snapshot for the closing tab's workspace.
-        if let tab = stateManager.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
+        if let tab = session.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
             _ = ensureWorkspace(forEditorTabId: id)
         }
-        stateManager.closeTab(id: id)
+        session.closeTab(id: id)
     }
 
     // MARK: - Query Failures
@@ -2730,7 +2749,7 @@ class ContentViewController: NSViewController {
     /// shows a different tab — the state arrives later, through
     /// `didChangeActiveTab`.
     private func refreshErrorBadge(forTabId tabId: String) {
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }),
+        guard let tab = session.tabs.first(where: { $0.id == tabId }),
               editorPane.showsTab(tabId) else { return }
         editorPane.setErrorState(total: tab.failureLog.count, unread: tab.failureLog.unreadCount)
     }
@@ -2742,12 +2761,12 @@ class ContentViewController: NSViewController {
         // Read BEFORE the append: the presenter's banner rule asks how many
         // unread failures the tab had before this one, and the append would
         // have already counted it.
-        let unreadBefore = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.unreadCount ?? 0
-        stateManager.updateTab(id: failure.tabId) { $0.failureLog.append(failure) }
+        let unreadBefore = session.tabs.first { $0.id == failure.tabId }?.failureLog.unreadCount ?? 0
+        session.updateTab(id: failure.tabId) { $0.failureLog.append(failure) }
 
-        if stateManager.activeTabId == failure.tabId {
+        if session.activeTabId == failure.tabId {
             markEditor(with: failure, in: editorPane)
-            let entries = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.entries ?? []
+            let entries = session.tabs.first { $0.id == failure.tabId }?.failureLog.entries ?? []
             errorPresenter.failureDidArrive(
                 failure, entries: entries, unreadBefore: unreadBefore, delegate: self
             )
@@ -2777,7 +2796,7 @@ class ContentViewController: NSViewController {
             guard let self,
                   let tabId = self.errorBanner.tabId,
                   let failureId = self.errorBanner.failureId,
-                  let log = self.stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+                  let log = self.session.tabs.first(where: { $0.id == tabId })?.failureLog,
                   let index = log.index(of: failureId) else { return }
             self.hideErrorBanner()
             self.errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
@@ -2788,7 +2807,7 @@ class ContentViewController: NSViewController {
             // and the next failure is then a first unread one again — so it
             // gets a banner too, instead of a sheet out of nowhere.
             if let tabId = self.errorBanner.tabId, let failureId = self.errorBanner.failureId {
-                self.stateManager.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
+                self.session.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
                 self.refreshErrorBadge(forTabId: tabId)
             }
             self.hideErrorBanner()
@@ -2881,7 +2900,7 @@ class ContentViewController: NSViewController {
     /// the whole transaction back, so nothing changed, and throwing the user's
     /// edits away on top of that would be a second loss.
     private func applyRowUpdates(_ request: RowUpdateRequest, forResultTab resultTabId: String?) {
-        guard let tab = stateManager.activeTab,
+        guard let tab = session.activeTab,
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else {
             Toast.show(in: view, message: String(localized: "Connect to a database to apply changes."),
@@ -2896,7 +2915,7 @@ class ContentViewController: NSViewController {
                     self.resultsVC.pendingEdits.removeAll()
                     self.resultsVC.notifyPendingEditsChanged()
                     if let resultTabId {
-                        self.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
+                        self.session.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
                     }
                     // The core records the write in query history like any
                     // other statement, so the history list has to hear about it.
@@ -2933,11 +2952,11 @@ class ContentViewController: NSViewController {
     /// default changed on the way in.
     private func reloadResultTabAfterEdit(_ resultTabId: String?) {
         guard let resultTabId,
-              let editorTabId = resultStore.editorTabId(forResultTab: resultTabId),
-              let editorTab = stateManager.tabs.first(where: { $0.id == editorTabId }),
+              let editorTabId = session.resultStore.editorTabId(forResultTab: resultTabId),
+              let editorTab = session.tabs.first(where: { $0.id == editorTabId }),
               let connectionId = editorTab.connectionId,
               stateManager.status(for: connectionId) == .connected,
-              let rt = resultStore.tab(withId: resultTabId),
+              let rt = session.resultStore.tab(withId: resultTabId),
               let current = rt.queryResult else { return }
         let sql = rt.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
@@ -2950,8 +2969,8 @@ class ContentViewController: NSViewController {
                 connectionId: connectionId, sql: sql, limit: limit, schema: schema,
                 source: "row-edit-refresh") else { return }
             await MainActor.run {
-                self.resultStore.mutateTab(id: resultTabId) { $0.queryResult = refreshed }
-                guard self.stateManager.pinnedResult == nil,
+                self.session.resultStore.mutateTab(id: resultTabId) { $0.queryResult = refreshed }
+                guard self.session.pinnedResult == nil,
                       self.activeResultTabId == resultTabId else { return }
                 // Keep the user's widths, sort and filters across the swap, the
                 // way the Load All snapshot does.
@@ -2969,7 +2988,7 @@ class ContentViewController: NSViewController {
     /// edits would be indistinguishable from the app losing them.
     private func confirmDiscardingPendingEdits(forResultTab resultTabId: String,
                                                proceed: @escaping () -> Void) {
-        let count = resultStore.tab(withId: resultTabId)?.pendingEdits.count ?? 0
+        let count = session.resultStore.tab(withId: resultTabId)?.pendingEdits.count ?? 0
         let liveCount = activeResultTabId == resultTabId ? resultsVC.pendingEdits.count : count
         guard liveCount > 0, let window = view.window else { proceed(); return }
         let alert = NSAlert()
@@ -2981,7 +3000,7 @@ class ContentViewController: NSViewController {
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            self?.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
+            self?.session.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
             if self?.activeResultTabId == resultTabId { self?.resultsVC.discardPendingEdits() }
             proceed()
         }
@@ -2991,7 +3010,7 @@ class ContentViewController: NSViewController {
     /// banner was given could have been removed from the log since.
     private func bannerFailure() -> QueryFailure? {
         guard let tabId = errorBanner.tabId, let failureId = errorBanner.failureId else { return nil }
-        return stateManager.tabs.first { $0.id == tabId }?.failureLog.entries.first { $0.id == failureId }
+        return session.tabs.first { $0.id == tabId }?.failureLog.entries.first { $0.id == failureId }
     }
 
     /// Put the gutter dot and the underline on the faulty text.
@@ -3016,7 +3035,7 @@ class ContentViewController: NSViewController {
 
         let channel = QueryFailureChannel.choose(
             appInactive: !NSApp.isActive,
-            isBackgroundTab: stateManager.activeTabId != failure.tabId,
+            isBackgroundTab: session.activeTabId != failure.tabId,
             notifyWhenAppInactive: stateManager.settings.query.notifyWhenAppInactive,
             notifyWhenBackgroundTab: stateManager.settings.query.notifyWhenBackgroundTab
         )
@@ -3047,10 +3066,10 @@ class ContentViewController: NSViewController {
 
     /// Open the sheet on one entry, after a banner click. Goes to the tab first.
     private func openFailure(tabId: String, failureId: String?) {
-        stateManager.selectTab(id: tabId)
+        session.selectTab(id: tabId)
         // `newestUnreadIndex` is nil for an empty log, so this one guard covers
         // both "no such tab" and "nothing to show".
-        guard let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+        guard let log = session.tabs.first(where: { $0.id == tabId })?.failureLog,
               let fallback = log.newestUnreadIndex else { return }
         let index = failureId.flatMap { log.index(of: $0) } ?? fallback
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
@@ -3059,6 +3078,8 @@ class ContentViewController: NSViewController {
     @objc private func handleActivateTabForFailure(_ notification: Notification) {
         guard let tabId = notification.userInfo?["tabId"] as? String,
               let failureId = notification.userInfo?["failureId"] as? String else { return }
+        // The window that OWNS the failing tab answers, not every window.
+        guard session.tabs.contains(where: { $0.id == tabId }) else { return }
         // AppDelegate's observer of the same notification also selects the tab.
         // selectTab is idempotent, so this does not depend on observer order.
         openFailure(tabId: tabId, failureId: failureId)
@@ -3087,8 +3108,8 @@ extension ContentViewController: EditorPaneDelegate {
     }
 
     func editorPaneDidRequestShowErrors(_ pane: EditorPaneVC) {
-        guard let tabId = stateManager.activeTabId,
-              let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+        guard let tabId = session.activeTabId,
+              let log = session.tabs.first(where: { $0.id == tabId })?.failureLog,
               let index = log.newestUnreadIndex else { return }
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
     }
@@ -3144,24 +3165,38 @@ extension ContentViewController: EditorPaneDelegate {
 
 extension ContentViewController {
 
+    /// A broadcast that makes or targets a TAB must land in exactly ONE window,
+    /// or every open window answers it and the user gets N copies of the tab.
+    ///
+    /// `sessionId` in the userInfo names the window — that is how session
+    /// restore aims each stored window's tabs. With none, the key window takes
+    /// it, which is what the sidebar, the schema browser and a Spotlight or
+    /// Handoff activity mean: the window the user is in.
+    private func ownsBroadcast(_ notification: Notification) -> Bool {
+        if let id = notification.userInfo?["sessionId"] as? String { return id == session.id }
+        return AppStateManager.shared.keySession === session
+    }
+
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
-        if let existingTab = stateManager.tabs.first(where: { $0.savedQueryId == query.id }) {
-            stateManager.selectTab(id: existingTab.id)
+        if let existingTab = session.tabs.first(where: { $0.savedQueryId == query.id }) {
+            session.selectTab(id: existingTab.id)
             return
         }
-        let tab = stateManager.createTab(sql: query.sql, name: query.name)
-        stateManager.updateTab(id: tab.id) {
+        let tab = session.createTab(sql: query.sql, name: query.name)
+        session.updateTab(id: tab.id) {
             $0.savedQueryId = query.id
             $0.variables = SavedQueryVariables.decode(query.variables)
         }
     }
 
     @objc private func handleOpenHistoryEntry(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let entry = notification.userInfo?["entry"] as? QueryHistoryEntry else { return }
 
         let tabName = entry.tableNames ?? "History"
-        let tab = stateManager.createTab(sql: entry.sql, name: tabName)
+        let tab = session.createTab(sql: entry.sql, name: tabName)
 
         do {
             guard let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) else { return }
@@ -3196,7 +3231,7 @@ extension ContentViewController {
             // `createTab` has already switched the live surface to the new
             // (empty) tab — delivery is synchronous. Seed the store entry and
             // apply it, so the grid and the history banner show now.
-            resultStore[tab.id] = EditorTabResults(tabs: [rt], activeId: rt.id)
+            session.resultStore[tab.id] = EditorTabResults(tabs: [rt], activeId: rt.id)
             applySeededResultState(forTabId: tab.id)
         } catch {
             Log.query.error("Failed to load history results: \(error.localizedDescription, privacy: .public)")
@@ -3204,6 +3239,7 @@ extension ContentViewController {
     }
 
     @objc private func handleShowSQLInInspector(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let sql = notification.userInfo?["sql"] as? String else { return }
         guard let splitVC = parent as? PharosSplitViewController else { return }
         splitVC.showInspector()
@@ -3211,13 +3247,14 @@ extension ContentViewController {
     }
 
     @objc private func handleOpenWorkspace(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let wsId = notification.userInfo?["workspaceId"] as? String else { return }
         let focusResultId = notification.userInfo?["focusResultId"] as? String
 
         // Already open in a live tab? Just focus it (and the requested result, if any).
-        if let existing = stateManager.tabs.first(where: { $0.workspaceId == wsId }) {
+        if let existing = session.tabs.first(where: { $0.workspaceId == wsId }) {
             // Synchronous: `resultTabs` is this tab's when `selectTab` returns.
-            stateManager.selectTab(id: existing.id)
+            session.selectTab(id: existing.id)
             if let fid = focusResultId {
                 focusResultTab(historyId: fid)
             }
@@ -3285,16 +3322,16 @@ extension ContentViewController {
 
                 // Re-check already-open: another reopen request could have
                 // created a tab for this workspace while we were off-main.
-                if let existing = self.stateManager.tabs.first(where: { $0.workspaceId == wsId }) {
-                    self.stateManager.selectTab(id: existing.id)
+                if let existing = self.session.tabs.first(where: { $0.workspaceId == wsId }) {
+                    self.session.selectTab(id: existing.id)
                     if let fid = focusResultId {
                         self.focusResultTab(historyId: fid)
                     }
                     return
                 }
 
-                let tab = self.stateManager.createTab(sql: detail.editorText, name: detail.name)
-                self.stateManager.updateTab(id: tab.id) {
+                let tab = self.session.createTab(sql: detail.editorText, name: detail.name)
+                self.session.updateTab(id: tab.id) {
                     $0.workspaceId = detail.id
                     $0.connectionId = detail.connectionId
                     $0.variables = vars
@@ -3308,7 +3345,7 @@ extension ContentViewController {
                 // Subsequently-executed queries in this tab append AFTER the restored
                 // results. Seed from MAX(result_order)+1 (not count) so a workspace whose
                 // middle results were deleted can't collide a new result's order.
-                self.resultStore[tab.id] = EditorTabResults(
+                self.session.resultStore[tab.id] = EditorTabResults(
                     tabs: restored,
                     activeId: focus?.id,
                     nextOrder: (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1)
@@ -3333,8 +3370,8 @@ extension ContentViewController {
     /// that is already active. Reads the tab back from the state manager so
     /// any `updateTab` done since `createTab` is included.
     private func applySeededResultState(forTabId tabId: String) {
-        guard stateManager.activeTabId == tabId,
-              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return }
+        guard session.activeTabId == tabId,
+              let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         loadResultState(for: tab)
     }
 
@@ -3561,7 +3598,7 @@ extension ContentViewController {
     /// ChartData, and push it into the host (last-write-wins on completion).
     private func performServerAggregation() {
         chartServerAggWorkItem = nil
-        guard let editorTab = stateManager.activeTab,
+        guard let editorTab = session.activeTab,
               let connectionId = editorTab.connectionId,
               stateManager.status(for: connectionId) == .connected,
               let id = activeResultTabId,
@@ -3894,7 +3931,7 @@ extension ContentViewController {
     /// the displayed result's statement through a server cursor in one
     /// transaction and replaces the result with a consistent snapshot.
     private func loadAllRowsSnapshot() {
-        guard stateManager.pinnedResult == nil,
+        guard session.pinnedResult == nil,
               let id = activeResultTabId,
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               resultTabs[idx].queryResult?.hasMore == true else { return }
@@ -3920,7 +3957,7 @@ extension ContentViewController {
         // they were. A snapshot re-executes the statement and swaps the rows
         // wholesale, so the data-row indices the pending set is keyed on stop
         // meaning anything. Ask first; Cancel aborts the load.
-        if resultStore.tab(withId: rtId)?.pendingEdits.isEmpty == false
+        if session.resultStore.tab(withId: rtId)?.pendingEdits.isEmpty == false
             || (activeResultTabId == rtId && !resultsVC.pendingEdits.isEmpty) {
             confirmDiscardingPendingEdits(forResultTab: rtId) { [weak self] in
                 self?.runSnapshotLoad(forResultTab: rtId, cap: cap, showInGrid: showInGrid,
@@ -3928,11 +3965,11 @@ extension ContentViewController {
             }
             return
         }
-        guard let editorTabId = resultStore.editorTabId(forResultTab: rtId),
-              let editorTab = stateManager.tabs.first(where: { $0.id == editorTabId }),
+        guard let editorTabId = session.resultStore.editorTabId(forResultTab: rtId),
+              let editorTab = session.tabs.first(where: { $0.id == editorTabId }),
               let connectionId = editorTab.connectionId,
               stateManager.status(for: connectionId) == .connected,
-              let rt = resultStore.tab(withId: rtId),
+              let rt = session.resultStore.tab(withId: rtId),
               let current = rt.queryResult else {
             completion(false); return
         }
@@ -3949,7 +3986,7 @@ extension ContentViewController {
             lineRange: rt.lineRange,
             startTime: CACurrentMediaTime()
         )
-        stateManager.updateTab(id: editorTabId) { $0.runningQueries.append(running) }
+        session.updateTab(id: editorTabId) { $0.runningQueries.append(running) }
         if showInGrid {
             snapshotQueryId = queryId
             resultsVC.beginLoadingAll(cap: cap)
@@ -3962,7 +3999,7 @@ extension ContentViewController {
             MainActor.assumeIsolated {
                 guard let self, showInGrid,
                       self.snapshotQueryId == queryId,
-                      self.stateManager.pinnedResult == nil,
+                      self.session.pinnedResult == nil,
                       self.activeResultTabId == rtId else { return }
                 self.resultsVC.updateLoadingAll(rows: rows)
             }
@@ -3978,9 +4015,9 @@ extension ContentViewController {
                 outcome = .failure(error)
             }
             await MainActor.run {
-                self.stateManager.updateTab(id: editorTabId) { $0.runningQueries.removeAll { $0.id == queryId } }
+                self.session.updateTab(id: editorTabId) { $0.runningQueries.removeAll { $0.id == queryId } }
                 let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
-                let stillDisplaying = self.stateManager.pinnedResult == nil && self.activeResultTabId == rtId
+                let stillDisplaying = self.session.pinnedResult == nil && self.activeResultTabId == rtId
                 if self.snapshotQueryId == queryId { self.snapshotQueryId = nil }
                 if showInGrid { self.resultsVC.endLoadingAll() }
 
@@ -4005,7 +4042,7 @@ extension ContentViewController {
                         historyEntryId: current.historyEntryId,
                         rowIdentity: snapshot.rowIdentity ?? current.rowIdentity
                     )
-                    self.resultStore.mutateTab(id: rtId) {
+                    self.session.resultStore.mutateTab(id: rtId) {
                         $0.queryResult = replaced
                         if !snapshot.hasMore { $0.totalRowCountHint = snapshot.rows.count }
                     }
@@ -4034,7 +4071,7 @@ extension ContentViewController {
         chartPersistWorkItems[id] = nil
         // Any editor tab's result: a debounced persist can fire after the
         // user has switched tabs, and used to be dropped silently then.
-        guard let tab = resultStore.tab(withId: id) else { return }
+        guard let tab = session.resultStore.tab(withId: id) else { return }
         // Only persist for results that belong to a workspace (have a history id).
         guard let resultId = tab.queryResult?.historyEntryId else { return }
         let state = PersistedResultViewState(chartConfig: tab.chartConfig, viewMode: tab.resultViewMode)
@@ -4143,14 +4180,16 @@ extension ContentViewController {
 extension ContentViewController {
 
     @objc private func handleRunQueryInCurrentTab(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let sql = notification.userInfo?["sql"] as? String,
               let resultName = notification.userInfo?["resultName"] as? String else { return }
         performQuery(sql, segmentIndex: -1, lineRange: 0...0, customLabel: resultName)
     }
 
     @objc private func handleInsertTextInEditor(_ notification: Notification) {
+        guard ownsBroadcast(notification) else { return }
         guard let text = notification.userInfo?["text"] as? String else { return }
-        guard stateManager.activeTab != nil else { return }
+        guard session.activeTab != nil else { return }
         editorPane.insertText(text)
         editorPane.focus()
     }
@@ -4167,9 +4206,9 @@ extension ContentViewController {
         guard stateManager.status(for: connectionId) != .connected else { return }
         // Connection dropped — clear runningQueries for every tab on this connection
         // so the UI returns to idle without waiting for each in-flight error.
-        let affectedTabIds = stateManager.tabs.compactMap { $0.connectionId == connectionId ? $0.id : nil }
+        let affectedTabIds = session.tabs.compactMap { $0.connectionId == connectionId ? $0.id : nil }
         for tabId in affectedTabIds {
-            stateManager.updateTab(id: tabId) { tab in
+            session.updateTab(id: tabId) { tab in
                 for q in tab.runningQueries {
                     self.cancelledQueryIds.insert(q.id)
                 }
@@ -4184,14 +4223,14 @@ extension ContentViewController {
 extension ContentViewController {
 
     @objc func menuSaveQuery(_: Any?) {
-        guard let tab = stateManager.activeTab else { return }
+        guard let tab = session.activeTab else { return }
 
         // File-backed tab: write back to the source URL.
         if let url = tab.sourceURL {
             let currentSQL = editorPane.getSQL()
             do {
                 try SQLFileWriter.write(currentSQL, to: url)
-                stateManager.updateTab(id: tab.id) {
+                session.updateTab(id: tab.id) {
                     $0.sql = currentSQL
                     $0.isDirty = false
                 }
@@ -4211,7 +4250,7 @@ extension ContentViewController {
             do {
                 let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: tab.variables.toSavedJSON())
                 _ = try PharosCore.updateSavedQuery(update)
-                stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
+                session.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
                 Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
@@ -4224,12 +4263,12 @@ extension ContentViewController {
     }
 
     @objc func menuSaveQueryAs(_: Any?) {
-        guard let tab = stateManager.activeTab else { return }
+        guard let tab = session.activeTab else { return }
         presentSaveQuerySheet(tab: tab)
     }
 
     @objc func menuExportEditorAsSQL(_: Any?) {
-        guard let tab = stateManager.activeTab else { return }
+        guard let tab = session.activeTab else { return }
         let raw = editorPane.getSQL()
         let text = VariableSubstitutor.render(raw, with: tab.variables).sql
 
@@ -4267,7 +4306,7 @@ extension ContentViewController {
             case .created(let q): savedQuery = q
             case .replaced(let q): savedQuery = q
             }
-            self.stateManager.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
+            self.session.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
             NotificationCoalescer.post(.savedQueriesDidChange)
         }
         presentAsSheet(sheet)
@@ -4299,52 +4338,52 @@ extension ContentViewController {
     }
 
     @objc func menuConnect(_: Any?) {
-        guard let id = stateManager.activeTab?.connectionId else { return }
-        stateManager.connect(id: id)
+        guard let id = session.activeTab?.connectionId else { return }
+        stateManager.connect(id: id, in: session)
     }
 
     @objc func menuDisconnect(_: Any?) {
-        guard let id = stateManager.activeTab?.connectionId else { return }
+        guard let id = session.activeTab?.connectionId else { return }
         stateManager.disconnect(id: id)
     }
 
     @objc func menuRefreshMetadata(_: Any?) {
-        guard let id = stateManager.activeTab?.connectionId,
+        guard let id = session.activeTab?.connectionId,
               stateManager.status(for: id) == .connected else { return }
         MetadataCache.shared.load(connectionId: id, force: true)
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
     @objc func menuNewTab(_: Any?) {
-        stateManager.createTab()
+        session.createTab()
     }
 
     @objc func menuCloseTab(_: Any?) {
-        guard let tabId = stateManager.activeTabId else { return }
+        guard let tabId = session.activeTabId else { return }
         closeTab(id: tabId)
     }
 
     @objc func menuReopenTab(_: Any?) {
-        stateManager.reopenLastClosedTab()
+        session.reopenLastClosedTab()
     }
 
     @objc func menuSelectTab(_ sender: NSMenuItem) {
         let index = sender.tag
-        stateManager.selectTabByIndex(index)
+        session.selectTabByIndex(index)
     }
 
     @objc func menuSelectNextTab(_: Any?) {
-        let tabs = stateManager.tabs
-        guard tabs.count > 1, let activeId = stateManager.activeTabId,
+        let tabs = session.tabs
+        guard tabs.count > 1, let activeId = session.activeTabId,
               let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
-        stateManager.selectTab(id: tabs[(idx + 1) % tabs.count].id)
+        session.selectTab(id: tabs[(idx + 1) % tabs.count].id)
     }
 
     @objc func menuSelectPreviousTab(_: Any?) {
-        let tabs = stateManager.tabs
-        guard tabs.count > 1, let activeId = stateManager.activeTabId,
+        let tabs = session.tabs
+        guard tabs.count > 1, let activeId = session.activeTabId,
               let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
-        stateManager.selectTab(id: tabs[(idx - 1 + tabs.count) % tabs.count].id)
+        session.selectTab(id: tabs[(idx - 1 + tabs.count) % tabs.count].id)
     }
 
     @objc func menuSelectNextResultTab(_: Any?) {
@@ -4510,8 +4549,8 @@ extension ContentViewController {
             name = url.lastPathComponent
         }
 
-        let tab = stateManager.createTab(sql: text, name: name)
-        stateManager.updateTab(id: tab.id) { $0.sourceURL = url }
+        let tab = session.createTab(sql: text, name: name)
+        session.updateTab(id: tab.id) { $0.sourceURL = url }
     }
 }
 
@@ -4520,14 +4559,14 @@ extension ContentViewController {
 extension ContentViewController: QueryErrorSheetDelegate {
 
     func errorSheet(_ sheet: QueryErrorSheet, didShow failureId: String, tabId: String) {
-        stateManager.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
+        session.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
         refreshErrorBadge(forTabId: tabId)
     }
 
     func errorSheet(_ sheet: QueryErrorSheet, didRequestDismiss failureId: String, tabId: String) {
         var removedIndex = 0
         var remaining = 0
-        stateManager.updateTab(id: tabId) { tab in
+        session.updateTab(id: tabId) { tab in
             removedIndex = tab.failureLog.index(of: failureId) ?? 0
             tab.failureLog.remove(id: failureId)
             remaining = tab.failureLog.count
@@ -4537,7 +4576,7 @@ extension ContentViewController: QueryErrorSheetDelegate {
         guard let next = QueryFailureLog.indexAfterRemoval(
                   removedIndex: removedIndex, remainingCount: remaining
               ),
-              let log = stateManager.tabs.first(where: { $0.id == tabId })?.failureLog else {
+              let log = session.tabs.first(where: { $0.id == tabId })?.failureLog else {
             errorPresenter.close()
             return
         }
@@ -4545,7 +4584,7 @@ extension ContentViewController: QueryErrorSheetDelegate {
     }
 
     func errorSheetDidRequestDismissAll(_ sheet: QueryErrorSheet, tabId: String) {
-        stateManager.updateTab(id: tabId) { $0.failureLog.removeAll() }
+        session.updateTab(id: tabId) { $0.failureLog.removeAll() }
         refreshErrorBadge(forTabId: tabId)
         errorPresenter.close()
     }
@@ -4558,7 +4597,7 @@ extension ContentViewController: QueryErrorSheetDelegate {
     /// "Go to Error", from the sheet or from the inline banner: go to the tab
     /// the failure belongs to and put the editor on the failing text.
     func revealFailure(_ failure: QueryFailure) {
-        stateManager.selectTab(id: failure.tabId)
+        session.selectTab(id: failure.tabId)
         guard let location = failure.location else { return }
         let pane = editorPane
         // The editor loaded the tab's text inside `selectTab` (settled,
@@ -4613,7 +4652,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
         if menuItem.action == #selector(menuSelectNextTab(_:)) || menuItem.action == #selector(menuSelectPreviousTab(_:)) {
-            return stateManager.tabs.count >= 2
+            return session.tabs.count >= 2
         }
         if menuItem.action == #selector(menuSelectNextResultTab(_:)) || menuItem.action == #selector(menuSelectPreviousResultTab(_:)) {
             return resultTabs.count >= 2

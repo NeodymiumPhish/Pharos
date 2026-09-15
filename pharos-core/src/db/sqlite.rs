@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SessionWindow, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -428,9 +428,18 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
 
         -- The set of editor tabs open at the end of the last run, so the next
         -- launch can put them back. One row per tab; `tab_index` is the tab's
-        -- position in the tab bar and the whole table is rewritten on each save.
+        -- position in its window's tab bar, `window_id` groups one window's
+        -- rows and `window_index` is that window's position in the window
+        -- order. The whole table is rewritten on each save.
+        --
+        -- A store written before Pharos had more than one window has no window
+        -- columns; the migration below adds them and puts every existing row
+        -- into one synthetic window rather than dropping the user's tabs.
         CREATE TABLE IF NOT EXISTS session_tabs (
-            tab_index INTEGER PRIMARY KEY,
+            tab_index INTEGER NOT NULL,
+            window_id TEXT NOT NULL DEFAULT 'window-1',
+            window_index INTEGER NOT NULL DEFAULT 0,
+            frame TEXT,
             workspace_id TEXT,
             name TEXT NOT NULL,
             name_is_custom INTEGER NOT NULL DEFAULT 0,
@@ -439,7 +448,8 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             sql TEXT NOT NULL,
             cursor_position INTEGER NOT NULL DEFAULT 0,
             variables_json TEXT,
-            is_active INTEGER NOT NULL DEFAULT 0
+            is_active INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (window_id, tab_index)
         );
 
         -- Thumbs up / thumbs down on what the on-device model wrote. One row
@@ -680,6 +690,55 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
 
     if !has_row_identity {
         conn.execute_batch("ALTER TABLE query_history ADD COLUMN result_row_identity TEXT;")?;
+    }
+
+    // Migration: one main window became many, so every session row now names
+    // the window it belongs to. The old table's primary key was `tab_index`
+    // alone, and SQLite cannot change a primary key in place, so the table is
+    // rebuilt.
+    //
+    // The existing rows are CARRIED OVER into one synthetic window, never
+    // dropped: losing the user's open tabs on an upgrade is the exact damage
+    // the Phase 6 disclosure named.
+    let has_window_id: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('session_tabs') WHERE name = 'window_id'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_window_id {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session_tabs_new (
+                tab_index INTEGER NOT NULL,
+                window_id TEXT NOT NULL DEFAULT 'window-1',
+                window_index INTEGER NOT NULL DEFAULT 0,
+                frame TEXT,
+                workspace_id TEXT,
+                name TEXT NOT NULL,
+                name_is_custom INTEGER NOT NULL DEFAULT 0,
+                connection_id TEXT,
+                schema_name TEXT,
+                sql TEXT NOT NULL,
+                cursor_position INTEGER NOT NULL DEFAULT 0,
+                variables_json TEXT,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (window_id, tab_index)
+            );
+
+            INSERT INTO session_tabs_new
+                (tab_index, window_id, window_index, frame, workspace_id, name,
+                 name_is_custom, connection_id, schema_name, sql, cursor_position,
+                 variables_json, is_active)
+            SELECT tab_index, 'window-1', 0, NULL, workspace_id, name,
+                   name_is_custom, connection_id, schema_name, sql, cursor_position,
+                   variables_json, is_active
+            FROM session_tabs;
+
+            DROP TABLE session_tabs;
+            ALTER TABLE session_tabs_new RENAME TO session_tabs;
+            "#,
+        )?;
     }
 
     Ok(())
@@ -1329,67 +1388,97 @@ pub fn load_model_feedback(conn: &Connection, limit: i32) -> SqliteResult<Vec<Mo
 
 /// Replace the stored session with `session`. One transaction: the table is
 /// emptied and rewritten, so a save can never leave a half-old, half-new tab
-/// set behind. The row's `tab_index` is the tab's position, not the index in
-/// the incoming vector, so the caller owns the ordering.
+/// set behind. The row's `window_index` and `tab_index` are the window's and
+/// the tab's positions, not indexes in the incoming vectors, so the caller
+/// owns both orderings.
+///
+/// A window's frame is repeated on each of its rows. One table keeps the whole
+/// session in one transaction; a second table would be a second write to keep
+/// in step with this one.
 pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM session_tabs", [])?;
-    for tab in &session.tabs {
-        tx.execute(
-            r#"
-            INSERT INTO session_tabs
-                (tab_index, workspace_id, name, name_is_custom, connection_id,
-                 schema_name, sql, cursor_position, variables_json, is_active)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-            rusqlite::params![
-                tab.tab_index,
-                tab.workspace_id,
-                tab.name,
-                tab.name_is_custom as i64,
-                tab.connection_id,
-                tab.schema_name,
-                tab.sql,
-                tab.cursor_position,
-                tab.variables_json,
-                tab.is_active as i64,
-            ],
-        )?;
+    for window in &session.windows {
+        for tab in &window.tabs {
+            tx.execute(
+                r#"
+                INSERT INTO session_tabs
+                    (tab_index, window_id, window_index, frame, workspace_id, name,
+                     name_is_custom, connection_id, schema_name, sql, cursor_position,
+                     variables_json, is_active)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                "#,
+                rusqlite::params![
+                    tab.tab_index,
+                    window.window_id,
+                    window.window_index,
+                    window.frame,
+                    tab.workspace_id,
+                    tab.name,
+                    tab.name_is_custom as i64,
+                    tab.connection_id,
+                    tab.schema_name,
+                    tab.sql,
+                    tab.cursor_position,
+                    tab.variables_json,
+                    tab.is_active as i64,
+                ],
+            )?;
+        }
     }
     tx.commit()?;
     Ok(())
 }
 
-/// Read the stored session back, ordered by `tab_index`. An empty table is a
-/// valid answer: it means no tabs to restore, not an error.
+/// Read the stored session back: windows ordered by `window_index`, each
+/// window's tabs ordered by `tab_index`. An empty table is a valid answer —
+/// it means nothing to restore, not an error.
+///
+/// Rows are grouped by `window_id`, and the ORDER BY is what makes one pass
+/// enough: every row of a window arrives together and in tab order.
 pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
     let mut stmt = conn.prepare(
-        "SELECT tab_index, workspace_id, name, name_is_custom, connection_id,
-                schema_name, sql, cursor_position, variables_json, is_active
-         FROM session_tabs ORDER BY tab_index",
+        "SELECT tab_index, window_id, window_index, frame, workspace_id, name,
+                name_is_custom, connection_id, schema_name, sql, cursor_position,
+                variables_json, is_active
+         FROM session_tabs ORDER BY window_index, window_id, tab_index",
     )?;
     let rows = stmt.query_map([], |row| {
-        let name_is_custom: i64 = row.get(3)?;
-        let is_active: i64 = row.get(9)?;
-        Ok(SessionTab {
-            tab_index: row.get(0)?,
-            workspace_id: row.get(1)?,
-            name: row.get(2)?,
-            name_is_custom: name_is_custom != 0,
-            connection_id: row.get(4)?,
-            schema_name: row.get(5)?,
-            sql: row.get(6)?,
-            cursor_position: row.get(7)?,
-            variables_json: row.get(8)?,
-            is_active: is_active != 0,
-        })
+        let name_is_custom: i64 = row.get(6)?;
+        let is_active: i64 = row.get(12)?;
+        Ok((
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            SessionTab {
+                tab_index: row.get(0)?,
+                workspace_id: row.get(4)?,
+                name: row.get(5)?,
+                name_is_custom: name_is_custom != 0,
+                connection_id: row.get(7)?,
+                schema_name: row.get(8)?,
+                sql: row.get(9)?,
+                cursor_position: row.get(10)?,
+                variables_json: row.get(11)?,
+                is_active: is_active != 0,
+            },
+        ))
     })?;
 
-    let mut tabs = Vec::new();
+    let mut windows: Vec<SessionWindow> = Vec::new();
     for row in rows {
-        tabs.push(row?);
+        let (window_id, window_index, frame, tab) = row?;
+        match windows.last_mut() {
+            Some(last) if last.window_id == window_id => last.tabs.push(tab),
+            _ => windows.push(SessionWindow {
+                window_id,
+                window_index,
+                frame,
+                tabs: vec![tab],
+            }),
+        }
     }
-    Ok(Session { tabs })
+    Ok(Session { windows })
 }
 
 // ==================== Query History ====================
@@ -3503,43 +3592,139 @@ mod session_roundtrip_tests {
         }
     }
 
+    fn window(id: &str, index: i64, frame: Option<&str>, tabs: Vec<SessionTab>) -> SessionWindow {
+        SessionWindow {
+            window_id: id.to_string(),
+            window_index: index,
+            frame: frame.map(|s| s.to_string()),
+            tabs,
+        }
+    }
+
     #[test]
     fn saves_and_loads_two_tabs_in_order() {
         let dir = temp_db_dir("session_two");
         let mut conn = init_database(&dir).expect("init");
 
         let session = Session {
-            tabs: vec![
-                tab(0, Some("ws-1"), "Analysis", false),
-                tab(1, None, "Query 2", true),
+            windows: vec![window(
+                "win-a",
+                0,
+                Some("100,200,1200,800"),
+                vec![
+                    tab(0, Some("ws-1"), "Analysis", false),
+                    tab(1, None, "Query 2", true),
+                ],
+            )],
+        };
+        save_session(&mut conn, &session).expect("save");
+
+        let loaded = load_session(&conn).expect("load");
+        assert_eq!(loaded, session);
+        assert_eq!(loaded.windows[0].frame.as_deref(), Some("100,200,1200,800"));
+        assert_eq!(loaded.windows[0].tabs[0].tab_index, 0);
+        assert_eq!(loaded.windows[0].tabs[0].workspace_id.as_deref(), Some("ws-1"));
+        assert!(loaded.windows[0].tabs[1].workspace_id.is_none());
+        assert!(loaded.windows[0].tabs[1].is_active);
+        assert!(!loaded.windows[0].tabs[0].is_active);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Two windows, each with its own tabs, its own frame and its own active
+    /// tab. A flat store could pass every other test in this module; only this
+    /// one says the rows are grouped by window.
+    #[test]
+    fn saves_and_loads_two_windows() {
+        let dir = temp_db_dir("session_two_windows");
+        let mut conn = init_database(&dir).expect("init");
+
+        let session = Session {
+            windows: vec![
+                window(
+                    "win-a",
+                    0,
+                    Some("0,0,1200,800"),
+                    vec![tab(0, None, "Left", true), tab(1, None, "Left 2", false)],
+                ),
+                window("win-b", 1, Some("40,40,900,600"), vec![tab(0, None, "Right", true)]),
             ],
         };
         save_session(&mut conn, &session).expect("save");
 
         let loaded = load_session(&conn).expect("load");
         assert_eq!(loaded, session);
-        assert_eq!(loaded.tabs[0].tab_index, 0);
-        assert_eq!(loaded.tabs[0].workspace_id.as_deref(), Some("ws-1"));
-        assert!(loaded.tabs[1].workspace_id.is_none());
-        assert!(loaded.tabs[1].is_active);
-        assert!(!loaded.tabs[0].is_active);
+        assert_eq!(loaded.windows.len(), 2, "both windows come back");
+        assert_eq!(loaded.windows[0].tabs.len(), 2);
+        assert_eq!(loaded.windows[1].tabs.len(), 1);
+        assert_eq!(loaded.windows[1].window_id, "win-b");
+        assert_eq!(loaded.windows[1].frame.as_deref(), Some("40,40,900,600"));
+        // Each window names its OWN active tab; the two do not compete.
+        assert_eq!(loaded.windows[0].tabs[0].name, "Left");
+        assert!(loaded.windows[0].tabs[0].is_active);
+        assert!(loaded.windows[1].tabs[0].is_active);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A window with no frame is a valid window — the first launch after the
+    /// migration has one.
+    #[test]
+    fn a_window_with_no_frame_round_trips() {
+        let dir = temp_db_dir("session_no_frame");
+        let mut conn = init_database(&dir).expect("init");
+
+        let session = Session {
+            windows: vec![window("win-a", 0, None, vec![tab(0, None, "Query 1", true)])],
+        };
+        save_session(&mut conn, &session).expect("save");
+
+        let loaded = load_session(&conn).expect("load");
+        assert_eq!(loaded, session);
+        assert!(loaded.windows[0].frame.is_none());
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn rows_come_back_ordered_by_tab_index_not_insert_order() {
+    fn rows_come_back_ordered_by_window_then_tab_index_not_insert_order() {
         let dir = temp_db_dir("session_order");
         let mut conn = init_database(&dir).expect("init");
 
+        // Both orderings are scrambled on the way in.
         let session = Session {
-            tabs: vec![tab(2, None, "Third", false), tab(0, None, "First", true), tab(1, None, "Second", false)],
+            windows: vec![
+                window(
+                    "win-b",
+                    1,
+                    None,
+                    vec![tab(1, None, "B second", false), tab(0, None, "B first", true)],
+                ),
+                window(
+                    "win-a",
+                    0,
+                    None,
+                    vec![
+                        tab(2, None, "A third", false),
+                        tab(0, None, "A first", true),
+                        tab(1, None, "A second", false),
+                    ],
+                ),
+            ],
         };
         save_session(&mut conn, &session).expect("save");
 
         let loaded = load_session(&conn).expect("load");
-        let names: Vec<&str> = loaded.tabs.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, vec!["First", "Second", "Third"]);
+        let names: Vec<&str> = loaded
+            .windows
+            .iter()
+            .flat_map(|w| w.tabs.iter().map(|t| t.name.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["A first", "A second", "A third", "B first", "B second"]
+        );
+        assert_eq!(loaded.windows[0].window_id, "win-a");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3549,11 +3734,15 @@ mod session_roundtrip_tests {
         let dir = temp_db_dir("session_empty");
         let mut conn = init_database(&dir).expect("init");
 
-        save_session(&mut conn, &Session { tabs: vec![tab(0, None, "Query 1", true)] }).expect("save");
+        save_session(
+            &mut conn,
+            &Session { windows: vec![window("win-a", 0, None, vec![tab(0, None, "Query 1", true)])] },
+        )
+        .expect("save");
         save_session(&mut conn, &Session::default()).expect("save empty");
 
         let loaded = load_session(&conn).expect("load");
-        assert!(loaded.tabs.is_empty());
+        assert!(loaded.windows.is_empty());
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3562,7 +3751,84 @@ mod session_roundtrip_tests {
     fn a_fresh_database_has_no_session() {
         let dir = temp_db_dir("session_fresh");
         let conn = init_database(&dir).expect("init");
-        assert!(load_session(&conn).expect("load").tabs.is_empty());
+        assert!(load_session(&conn).expect("load").windows.is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The upgrade path: a store written before Pharos had more than one
+    /// window has `session_tabs` keyed on `tab_index` alone and no window
+    /// columns. The migration must CARRY those rows into one synthetic window
+    /// — dropping them loses the user's open tabs, which is the damage the
+    /// Phase 6 disclosure named.
+    #[test]
+    fn old_shape_rows_migrate_into_one_window() {
+        let dir = temp_db_dir("session_migration");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("pharos.db");
+
+        // A store exactly as the previous version left it.
+        {
+            let conn = Connection::open(&path).expect("open");
+            conn.execute_batch(
+                r#"
+                CREATE TABLE session_tabs (
+                    tab_index INTEGER PRIMARY KEY,
+                    workspace_id TEXT,
+                    name TEXT NOT NULL,
+                    name_is_custom INTEGER NOT NULL DEFAULT 0,
+                    connection_id TEXT,
+                    schema_name TEXT,
+                    sql TEXT NOT NULL,
+                    cursor_position INTEGER NOT NULL DEFAULT 0,
+                    variables_json TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO session_tabs
+                    (tab_index, workspace_id, name, name_is_custom, connection_id,
+                     schema_name, sql, cursor_position, variables_json, is_active)
+                VALUES
+                    (0, 'ws-1', 'Analysis', 1, 'conn-1', 'public', 'SELECT 1', 4, '[]', 0),
+                    (1, NULL, 'Query 2', 0, 'conn-1', 'public', 'SELECT 2', 0, '[]', 1);
+                "#,
+            )
+            .expect("old schema");
+        }
+
+        let conn = init_database(&dir).expect("init_database runs the migration");
+
+        let loaded = load_session(&conn).expect("load");
+        assert_eq!(loaded.windows.len(), 1, "the old rows land in ONE window");
+        let w = &loaded.windows[0];
+        assert_eq!(w.window_index, 0);
+        assert!(w.frame.is_none(), "an upgraded window has no stored frame yet");
+        assert_eq!(w.tabs.len(), 2, "no tab is lost in the upgrade");
+        assert_eq!(w.tabs[0].name, "Analysis");
+        assert_eq!(w.tabs[0].workspace_id.as_deref(), Some("ws-1"));
+        assert!(w.tabs[0].name_is_custom);
+        assert_eq!(w.tabs[0].sql, "SELECT 1");
+        assert_eq!(w.tabs[0].cursor_position, 4);
+        assert!(!w.tabs[0].is_active);
+        assert_eq!(w.tabs[1].name, "Query 2");
+        assert!(w.tabs[1].is_active, "the active tab is still the active one");
+
+        // Idempotent: a second run must not rebuild or empty the table.
+        drop(conn);
+        let conn = init_database(&dir).expect("init_database again");
+        assert_eq!(load_session(&conn).expect("load").windows[0].tabs.len(), 2);
+
+        // And the migrated store still takes a normal save.
+        drop(conn);
+        let mut conn = init_database(&dir).expect("init_database third");
+        save_session(
+            &mut conn,
+            &Session { windows: vec![window("win-x", 0, Some("1,2,3,4"), vec![tab(0, None, "New", true)])] },
+        )
+        .expect("save after migration");
+        let loaded = load_session(&conn).expect("load");
+        assert_eq!(loaded.windows[0].window_id, "win-x");
+        assert_eq!(loaded.windows[0].frame.as_deref(), Some("1,2,3,4"));
+
+        drop(conn);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

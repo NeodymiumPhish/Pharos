@@ -24,8 +24,8 @@ struct EditorTabResults {
 ///
 /// Writes for a retired editor tab are the callers' concern: the subscript
 /// setter creates an entry, so a late result for a closed tab must be
-/// checked against `stateManager.tabs` before it is deposited, as it always
-/// was. `prune(keeping:)` drops the entries of closed tabs.
+/// checked against the window session's `tabs` before it is deposited, as it
+/// always was. `prune(keeping:)` drops the entries of closed tabs.
 struct ResultTabStore {
     private var entries: [String: EditorTabResults] = [:]
 

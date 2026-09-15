@@ -23,7 +23,7 @@ protocol EditorPaneDelegate: AnyObject {
 /// `AppStateManager.activeTab`.
 class EditorPaneVC: NSViewController {
 
-    let editorVC = QueryEditorVC()
+    let editorVC: QueryEditorVC
     private(set) var paneTabBar: PaneTabBar!
 
     /// The active tab's connection colour, as a band across the top of the
@@ -120,26 +120,29 @@ class EditorPaneVC: NSViewController {
 
     private var isVariablesPanelVisible: Bool {
         guard let tabId = lastActiveTabId,
-              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
+              let tab = session.tabs.first(where: { $0.id == tabId }) else { return false }
         return tab.variablesPanelVisible
     }
 
     private var isResultTabsPanelVisible: Bool {
         guard stateManager.settings.verticalResultTabs,
               let tabId = lastActiveTabId,
-              let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return false }
+              let tab = session.tabs.first(where: { $0.id == tabId }) else { return false }
         return tab.resultTabsPanelVisible
     }
 
     weak var delegate: EditorPaneDelegate?
 
+    let session: WindowSession
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
 
-    init() {
+    init(session: WindowSession) {
+        self.session = session
+        self.editorVC = QueryEditorVC(session: session)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -168,6 +171,7 @@ class EditorPaneVC: NSViewController {
 
         // Tab bar
         paneTabBar = PaneTabBar()
+        paneTabBar.session = session
         paneTabBar.translatesAutoresizingMaskIntoConstraints = false
         // A plain NSView wrapper is accessibility-ignored by default, which
         // would flatten its identifier away and expose only its child
@@ -178,7 +182,7 @@ class EditorPaneVC: NSViewController {
 
         paneTabBar.onSelectTab = { [weak self] tabId in
             guard let self else { return }
-            self.stateManager.selectTab(id: tabId)
+            self.session.selectTab(id: tabId)
         }
         paneTabBar.onCloseTab = { [weak self] tabId in
             guard let self else { return }
@@ -186,7 +190,7 @@ class EditorPaneVC: NSViewController {
         }
         paneTabBar.onNewTab = { [weak self] in
             guard let self else { return }
-            self.stateManager.createTab()
+            self.session.createTab()
         }
         paneTabBar.onDoubleClickTab = { [weak self] tabId in
             guard let self else { return }
@@ -301,7 +305,7 @@ class EditorPaneVC: NSViewController {
         // Observe the active tab. Settled publisher, no run-loop hop: the
         // editor has loaded its tab's text by the time `selectTab` returns
         // (see `AppStateManager.tabsSettled`).
-        stateManager.activeTabIdSettled
+        session.activeTabIdSettled
             .sink { [weak self] tabId in
                 self?.activeTabIdChanged(tabId)
             }
@@ -312,7 +316,7 @@ class EditorPaneVC: NSViewController {
         // isExecuting / segmentIndex set. Without this, every
         // keystroke (which updates `tab.sql` via updateTab) republishes the tabs
         // and re-rebuilt all four UI surfaces.
-        stateManager.tabsSettled
+        session.tabsSettled
             .removeDuplicates { lhs, rhs in
                 guard lhs.count == rhs.count else { return false }
                 for i in 0..<lhs.count {
@@ -561,7 +565,7 @@ class EditorPaneVC: NSViewController {
     /// Read the active tab from the tabs array and push its running-segment
     /// indices to the gutter (or empty set if the tab isn't executing).
     private func updateGutterPulseForActiveTab(tabs: [QueryTab]) {
-        guard let activeTabId = stateManager.activeTabId,
+        guard let activeTabId = session.activeTabId,
               let tab = tabs.first(where: { $0.id == activeTabId }) else {
             editorVC.setRunningSegmentIndices([])
             return
@@ -570,7 +574,7 @@ class EditorPaneVC: NSViewController {
     }
 
     private func refreshTabBar() {
-        paneTabBar.update(tabs: stateManager.tabs, activeTabId: stateManager.activeTabId)
+        paneTabBar.update(tabs: session.tabs, activeTabId: session.activeTabId)
     }
 
     // MARK: - Tab Switching
@@ -579,11 +583,11 @@ class EditorPaneVC: NSViewController {
         // Save cursor position of old tab
         if let oldTabId, editorVC.tabId == oldTabId {
             let cursorPos = editorVC.getCursorPosition()
-            stateManager.updateTab(id: oldTabId) { $0.cursorPosition = cursorPos }
+            session.updateTab(id: oldTabId) { $0.cursorPosition = cursorPos }
         }
 
         guard let newTabId,
-              let tab = stateManager.tabs.first(where: { $0.id == newTabId }) else {
+              let tab = session.tabs.first(where: { $0.id == newTabId }) else {
             editorVC.tabId = nil
             editorVC.setSQL("")
             updateConnectionColorBand()
@@ -598,13 +602,13 @@ class EditorPaneVC: NSViewController {
 
         // Sync global state to this tab's connection/schema so sidebar updates.
         // Only set when the value actually changes to avoid redundant reloads.
-        if let connId = tab.connectionId, connId != stateManager.activeConnectionId {
-            stateManager.activeConnectionId = connId
-        } else if tab.connectionId == nil && stateManager.activeConnectionId != nil {
-            stateManager.activeConnectionId = nil
+        if let connId = tab.connectionId, connId != session.activeConnectionId {
+            session.activeConnectionId = connId
+        } else if tab.connectionId == nil && session.activeConnectionId != nil {
+            session.activeConnectionId = nil
         }
-        if tab.schemaName != stateManager.activeSchema {
-            stateManager.activeSchema = tab.schemaName
+        if tab.schemaName != session.activeSchema {
+            session.activeSchema = tab.schemaName
         }
 
         // Sync gutter pulse to the newly-activated tab.
@@ -677,7 +681,7 @@ class EditorPaneVC: NSViewController {
     /// variable error). Updates state and relayouts directly.
     func revealVariablesPanel() {
         guard let tabId = lastActiveTabId else { return }
-        stateManager.updateTab(id: tabId) { $0.variablesPanelVisible = true }
+        session.updateTab(id: tabId) { $0.variablesPanelVisible = true }
         syncVariablesPanel()
     }
 
@@ -689,7 +693,7 @@ class EditorPaneVC: NSViewController {
     func saveCurrentTabState() {
         guard let tabId = editorVC.tabId else { return }
         let cursorPos = editorVC.getCursorPosition()
-        stateManager.updateTab(id: tabId) { $0.cursorPosition = cursorPos }
+        session.updateTab(id: tabId) { $0.cursorPosition = cursorPos }
     }
 
     // MARK: - Editor Toolbar
@@ -870,7 +874,7 @@ class EditorPaneVC: NSViewController {
     @objc private func toggleVariablesPanel() {
         guard let tabId = lastActiveTabId else { return }
         var nowVisible = false
-        stateManager.updateTab(id: tabId) {
+        session.updateTab(id: tabId) {
             $0.variablesPanelVisible.toggle()
             nowVisible = $0.variablesPanelVisible
         }
@@ -882,7 +886,7 @@ class EditorPaneVC: NSViewController {
     @objc private func toggleResultTabsPanel() {
         guard let tabId = lastActiveTabId else { return }
         var nowVisible = false
-        stateManager.updateTab(id: tabId) {
+        session.updateTab(id: tabId) {
             $0.resultTabsPanelVisible.toggle()
             nowVisible = $0.resultTabsPanelVisible
         }
@@ -961,7 +965,7 @@ class EditorPaneVC: NSViewController {
 
     private func variablesDidChange(_ vars: [QueryVariable]) {
         guard let tabId = lastActiveTabId else { return }
-        stateManager.updateTab(id: tabId) { $0.variables = vars }
+        session.updateTab(id: tabId) { $0.variables = vars }
         editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
     }
 
@@ -986,7 +990,7 @@ class EditorPaneVC: NSViewController {
     /// `removeDuplicates` whitelist above, so mutating them never republishes —
     /// do not try to drive the panel from that sink.
     private func syncVariablesPanel() {
-        let tab = lastActiveTabId.flatMap { id in stateManager.tabs.first(where: { $0.id == id }) }
+        let tab = lastActiveTabId.flatMap { id in session.tabs.first(where: { $0.id == id }) }
         let vars = tab?.variables ?? []
         let referenced = VariableSubstitutor.referencedNames(in: editorVC.textView.string)
         variablesPanelVC.setVariables(vars, referenced: referenced)
@@ -1003,7 +1007,7 @@ class EditorPaneVC: NSViewController {
     /// panel fields. Called on toggle, on tab switch, and by
     /// ContentViewController when the setting flips.
     func syncResultTabsPanel() {
-        let tab = lastActiveTabId.flatMap { id in stateManager.tabs.first(where: { $0.id == id }) }
+        let tab = lastActiveTabId.flatMap { id in session.tabs.first(where: { $0.id == id }) }
         let verticalMode = stateManager.settings.verticalResultTabs
         resultTabsToggle.isHidden = !verticalMode
         resultTabsToggle.contentTintColor = (verticalMode && (tab?.resultTabsPanelVisible ?? false))
@@ -1107,7 +1111,7 @@ class EditorPaneVC: NSViewController {
 
     /// The active tab.
     private var activeTab: QueryTab? {
-        stateManager.activeTab
+        session.activeTab
     }
 
     /// The connection ID for the active tab.
@@ -1167,8 +1171,8 @@ class EditorPaneVC: NSViewController {
     /// Update the active tab's schemaName and also sync global state.
     private func setTabSchema(_ schemaName: String?) {
         guard let tab = activeTab else { return }
-        stateManager.updateTab(id: tab.id) { $0.schemaName = schemaName }
-        stateManager.activeSchema = schemaName
+        session.updateTab(id: tab.id) { $0.schemaName = schemaName }
+        session.activeSchema = schemaName
     }
 
     /// Build and present the searchable schema popover anchored to the schema

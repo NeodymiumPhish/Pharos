@@ -80,6 +80,16 @@ Pharos supports multiple editor tabs. The **+** button at the right of the tab b
 
 Double-click a tab to rename it. Each tab keeps its own SQL text, connection, variables, and results. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
 
+## Windows
+
+**File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, its own connection and its own results, so you can put two databases side by side. A new window starts with one empty tab bound to the connection the front window was using; it does not copy that window's tabs.
+
+**Cmd+W** closes the tab, **Cmd+Shift+W** closes the window. Closing a window cancels the queries that window started.
+
+Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
+
+Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs and the same tab selected. Turn this off in [Settings > Query](settings.md) with **Restore open tabs**.
+
 ## Indentation
 
 - **Tab** inserts spaces (2, 4, or 8, configurable in Settings)

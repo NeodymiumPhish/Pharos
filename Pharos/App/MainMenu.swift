@@ -56,6 +56,11 @@ enum MainMenu {
 
         fileMenu.addItem(.separator())
 
+        // ⌘N. Manage Connections keeps ⇧⌘N, which it has always had.
+        let newWindow = fileMenu.addItem(withTitle: String(localized: "New Window"), action: #selector(AppDelegate.menuNewWindow(_:)), keyEquivalent: "n")
+        newWindow.keyEquivalentModifierMask = [.command]
+        newWindow.image = NSImage(systemSymbolName: "macwindow.badge.plus", accessibilityDescription: nil)
+
         let newTab = fileMenu.addItem(withTitle: String(localized: "New Tab"), action: #selector(ContentViewController.menuNewTab(_:)), keyEquivalent: "t")
         newTab.keyEquivalentModifierMask = [.command]
         newTab.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)

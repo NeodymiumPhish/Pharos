@@ -32,10 +32,28 @@ pub struct SessionTab {
     pub is_active: bool,
 }
 
-/// The whole set of open tabs, ordered by `tab_index`.
+/// One main window: where it was on screen, and the tabs it held.
+///
+/// `window_id` groups a window's rows together and nothing outside the table
+/// refers to it, so the app is free to mint a fresh one each run. `frame` is
+/// `"x,y,w,h"`; one frame-autosave key could not serve N windows, so each
+/// window's frame travels with its own rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWindow {
+    pub window_id: String,
+    /// Position in the window order, 0-based.
+    pub window_index: i64,
+    pub frame: Option<String>,
+    #[serde(default)]
+    pub tabs: Vec<SessionTab>,
+}
+
+/// Every open window, ordered by `window_index`, each window's tabs ordered by
+/// `tab_index`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     #[serde(default)]
-    pub tabs: Vec<SessionTab>,
+    pub windows: Vec<SessionWindow>,
 }

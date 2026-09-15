@@ -39,6 +39,7 @@ final class MainToolbarController: NSObject {
 
     private weak var contentVC: ContentViewController?
     private weak var sidebarVC: SidebarViewController?
+    private let session: WindowSession
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
@@ -54,7 +55,8 @@ final class MainToolbarController: NSObject {
     private var runningQueriesPopover: NSPopover?
     private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
 
-    init(contentVC: ContentViewController, sidebarVC: SidebarViewController) {
+    init(session: WindowSession, contentVC: ContentViewController, sidebarVC: SidebarViewController) {
+        self.session = session
         self.contentVC = contentVC
         self.sidebarVC = sidebarVC
         super.init()
@@ -86,7 +88,7 @@ final class MainToolbarController: NSObject {
         // Tabs: the run badge and the connection title follow the active tab.
         // Dedup on the fields read here so a keystroke (which republishes
         // the tabs) does not rebuild the menu.
-        stateManager.tabsSettled
+        session.tabsSettled
             .removeDuplicates { lhs, rhs in
                 guard lhs.count == rhs.count else { return false }
                 for i in 0..<lhs.count {
@@ -102,7 +104,7 @@ final class MainToolbarController: NSObject {
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &cancellables)
 
-        stateManager.activeTabIdSettled
+        session.activeTabIdSettled
             .sink { [weak self] _ in self?.refresh() }
             .store(in: &cancellables)
 
@@ -118,7 +120,7 @@ final class MainToolbarController: NSObject {
         toolbar?.validateVisibleItems()
     }
 
-    private var activeTab: QueryTab? { stateManager.activeTab }
+    private var activeTab: QueryTab? { session.activeTab }
     private var tabConnectionId: String? { activeTab?.connectionId }
 
     private func updateRunState() {
@@ -155,7 +157,7 @@ final class MainToolbarController: NSObject {
         runningQueriesPopover?.close()
         guard let tabId = activeTab?.id else { return }
 
-        let vc = RunningQueriesPopoverVC(stateManager: stateManager, tabId: tabId)
+        let vc = RunningQueriesPopoverVC(session: session, tabId: tabId)
         vc.delegate = self
 
         let popover = NSPopover()
@@ -307,7 +309,7 @@ final class MainToolbarController: NSObject {
 
     @objc private func connectionItemClicked(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String, let tabId = activeTab?.id else { return }
-        stateManager.useConnection(id, forTabId: tabId)
+        stateManager.useConnection(id, forTabId: tabId, in: session)
     }
 
     @objc private func connectSelected() { contentVC?.menuConnect(nil) }

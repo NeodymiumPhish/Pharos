@@ -32,6 +32,7 @@ nav_order: 17
 | Manage Connections… | Cmd+Shift+N |
 | Refresh Metadata | Cmd+Shift+R |
 | Open… (SQL file) | Cmd+O |
+| New Window | Cmd+N |
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |

@@ -31,27 +31,16 @@ extension AppDelegate {
         return menu
     }
 
-    /// Ensures the main window exists and is on screen — mirrors
-    /// `AppStateManager.openTextFile(at:)`'s window-creation path.
-    @MainActor
-    private func ensureMainWindowShown() {
-        if mainWindowController == nil {
-            mainWindowController = MainWindowController()
-        }
-        mainWindowController?.showWindow(nil)
-    }
-
     @MainActor
     @objc private func dockMenuNewTab(_ sender: Any?) {
-        ensureMainWindowShown()
-        AppStateManager.shared.createTab()
+        showMainWindow().session.createTab()
     }
 
     @MainActor
     @objc private func dockMenuUseConnection(_ sender: NSMenuItem) {
         guard let connectionId = sender.representedObject as? String else { return }
-        ensureMainWindowShown()
-        let newTab = AppStateManager.shared.createTab()
-        AppStateManager.shared.useConnection(connectionId, forTabId: newTab.id)
+        let session = showMainWindow().session
+        let newTab = session.createTab()
+        AppStateManager.shared.useConnection(connectionId, forTabId: newTab.id, in: session)
     }
 }

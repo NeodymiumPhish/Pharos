@@ -107,7 +107,11 @@ final class QueryNotifier: NSObject {
 
         // Gate 2: focus conditions (OR).
         let appInactive = !NSApp.isActive
-        let isBackgroundTab = AppStateManager.shared.activeTabId != tabId
+        // "Background" against the tab's OWN window: a tab that is active in a
+        // window the user is not looking at is still out of sight, and a tab
+        // whose window has closed is as background as a tab can be.
+        let owningSession = AppStateManager.shared.session(owningTabId: tabId)
+        let isBackgroundTab = owningSession?.activeTabId != tabId
 
         let appInactiveAllows = settings.notifyWhenAppInactive && appInactive
         let backgroundTabAllows = settings.notifyWhenBackgroundTab && isBackgroundTab

@@ -6,6 +6,19 @@ import Combine
 /// Displays query results in an NSTableView with sorting, find, copy formats, and pagination.
 class ResultsGridVC: NSViewController {
 
+    /// The window's session. The grid reads it for the window's connection
+    /// when a tag records where a row came from.
+    let session: WindowSession
+
+    init(session: WindowSession) {
+        self.session = session
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
     let tableView = ResultsTableView()
     let scrollView = InsetScrollView()
     /// The "nothing to show" state, in place of an empty table. It answers two
@@ -1166,7 +1179,7 @@ class ResultsGridVC: NSViewController {
             selectedRows: targets.compactMap { row in
                 row < rows.count ? rows[row].map { $0.stringValue } : nil
             },
-            originConnection: AppStateManager.shared.activeConnectionId ?? "",
+            originConnection: session.activeConnectionId ?? "",
             // Provenance only. A result with no source table is still taggable —
             // the "no source table" refusal retired with row identity.
             originTable: rowIdentity?.tableDisplay ?? "")

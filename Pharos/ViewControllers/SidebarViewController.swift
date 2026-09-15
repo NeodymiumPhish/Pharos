@@ -17,7 +17,17 @@ class SidebarViewController: NSViewController {
     let savedQueries = SavedQueriesVC()
     let queryHistory = QueryHistoryVC()
 
+    let session: WindowSession
     private let stateManager = AppStateManager.shared
+
+    init(session: WindowSession) {
+        self.session = session
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
     private var cancellables = Set<AnyCancellable>()
     private var notificationObservers: [NSObjectProtocol] = []
 
@@ -114,7 +124,7 @@ class SidebarViewController: NSViewController {
         ])
 
         // Observe connection changes (deduplicate to avoid redundant reloads on tab switch)
-        stateManager.$activeConnectionId
+        session.$activeConnectionId
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.activeConnectionChanged() }
@@ -128,7 +138,7 @@ class SidebarViewController: NSViewController {
             .sink { [weak self] _ in self?.connectionStatusChanged() }
             .store(in: &cancellables)
 
-        stateManager.$activeSchema
+        session.$activeSchema
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] schema in
@@ -141,11 +151,11 @@ class SidebarViewController: NSViewController {
             .store(in: &cancellables)
 
         // Highlight saved query that's open in the active tab
-        stateManager.$activeTabId
+        session.$activeTabId
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                let savedQueryId = self?.stateManager.activeTab?.savedQueryId
+                let savedQueryId = self?.session.activeTab?.savedQueryId
                 self?.savedQueries.highlightQuery(id: savedQueryId)
             }
             .store(in: &cancellables)
@@ -157,7 +167,7 @@ class SidebarViewController: NSViewController {
             ) { [weak self] _ in
                 self?.savedQueries.reload()
                 // Re-apply highlight (savedQueryId may have changed after save)
-                let savedQueryId = self?.stateManager.activeTab?.savedQueryId
+                let savedQueryId = self?.session.activeTab?.savedQueryId
                 self?.savedQueries.highlightQuery(id: savedQueryId)
             }
         )
@@ -168,7 +178,7 @@ class SidebarViewController: NSViewController {
                 forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
             ) { [weak self] _ in
                 guard let self,
-                      let activeId = self.stateManager.activeConnectionId,
+                      let activeId = self.session.activeConnectionId,
                       self.stateManager.status(for: activeId) == .connected else { return }
                 self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
             }
@@ -232,7 +242,7 @@ class SidebarViewController: NSViewController {
     // MARK: - Connection State
 
     private func activeConnectionChanged() {
-        guard let activeId = stateManager.activeConnectionId else {
+        guard let activeId = session.activeConnectionId else {
             schemaBrowser.clear()
             savedQueries.reload()
             return
@@ -249,7 +259,7 @@ class SidebarViewController: NSViewController {
     }
 
     private func connectionStatusChanged() {
-        guard let activeId = stateManager.activeConnectionId else { return }
+        guard let activeId = session.activeConnectionId else { return }
         let status = stateManager.status(for: activeId)
         if status == .connected {
             schemaBrowser.loadSchemas(connectionId: activeId)

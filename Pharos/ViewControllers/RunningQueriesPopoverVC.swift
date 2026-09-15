@@ -13,7 +13,7 @@ final class RunningQueriesPopoverVC: NSViewController {
 
     weak var delegate: RunningQueriesPopoverDelegate?
 
-    private let stateManager: AppStateManager
+    private let session: WindowSession
     private let tabId: String
     private var subscription: AnyCancellable?
     private var elapsedTimer: Timer?
@@ -23,8 +23,8 @@ final class RunningQueriesPopoverVC: NSViewController {
     private var rowsById: [String: RunningQueryRow] = [:]
     private var orderedIds: [String] = []
 
-    init(stateManager: AppStateManager, tabId: String) {
-        self.stateManager = stateManager
+    init(session: WindowSession, tabId: String) {
+        self.session = session
         self.tabId = tabId
         super.init(nibName: nil, bundle: nil)
     }
@@ -73,7 +73,7 @@ final class RunningQueriesPopoverVC: NSViewController {
         super.viewWillAppear()
         reconcileRows()
         startElapsedTimer()
-        subscription = stateManager.$tabs
+        subscription = session.$tabs
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.reconcileRows() }
     }
@@ -96,7 +96,7 @@ final class RunningQueriesPopoverVC: NSViewController {
     }
 
     private func tickElapsed() {
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }) else { return }
+        guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         let now = CACurrentMediaTime()
         for q in tab.runningQueries {
             rowsById[q.id]?.setElapsed(ContentViewController.formatElapsed(now - q.startTime))
@@ -104,7 +104,7 @@ final class RunningQueriesPopoverVC: NSViewController {
     }
 
     private func reconcileRows() {
-        guard let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
+        guard let tab = session.tabs.first(where: { $0.id == tabId }) else {
             dismissPopover()
             return
         }

@@ -5,7 +5,9 @@ import UniformTypeIdentifiers
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    var mainWindowController: MainWindowController?
+    /// Every open main window, in the order they were opened. That order is
+    /// the order they are stored in and the order they come back in.
+    private(set) var windowControllers: [MainWindowController] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // First, before anything can throw: the uncaught-exception handler
@@ -73,31 +75,84 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // would otherwise sit beside the restored tabs.
         state.prepareSessionRestore()
 
-        // Show the main window
-        mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
+        // Show the first main window, at the frame the stored session left it.
+        openMainWindow(frame: state.pendingFirstWindowFrame)
 
-        // Put the saved tabs back. This needs the content controller alive and
-        // observing, so it runs after the window is on screen.
+        // Put the saved tabs — and any further saved windows — back. This needs
+        // the content controller alive and observing, so it runs after the
+        // first window is on screen.
         state.restoreSession()
     }
 
-    /// The main window exists, showing it if it was closed.
+    // MARK: - Windows
+
+    /// Open a main window and bring it to the front.
+    ///
+    /// `frame` is a stored frame to adopt; with none, the window cascades off
+    /// the last one built (or centres, when it is the first).
     @MainActor
     @discardableResult
-    func showMainWindow() -> MainWindowController {
-        if mainWindowController == nil {
-            mainWindowController = MainWindowController()
-        }
-        let controller = mainWindowController!
+    func openMainWindow(frame: NSRect? = nil, connectionId: String? = nil) -> MainWindowController {
+        let controller = MainWindowController(initialConnectionId: connectionId)
+        windowControllers.append(controller)
+        if let frame { controller.applyStoredFrame(frame) }
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         return controller
     }
 
+    /// Drop a window that has closed. Called by the controller's
+    /// `windowWillClose`, which has already retired its session.
+    @MainActor
+    func forget(_ controller: MainWindowController) {
+        windowControllers.removeAll { $0 === controller }
+    }
+
+    /// The window the user is in, opening one when the app has none on screen.
+    @MainActor
+    @discardableResult
+    func showMainWindow() -> MainWindowController {
+        let controller = keyWindowController ?? windowControllers.first
+        guard let controller else { return openMainWindow() }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        return controller
+    }
+
+    /// The controller of the window that is key, or of the window a key sheet
+    /// belongs to. Nil when the frontmost window is not one of ours.
+    @MainActor
+    var keyWindowController: MainWindowController? {
+        let key = NSApp.keyWindow
+        if let controller = key?.windowController as? MainWindowController { return controller }
+        if let controller = key?.sheetParent?.windowController as? MainWindowController { return controller }
+        if let controller = NSApp.mainWindow?.windowController as? MainWindowController { return controller }
+        return nil
+    }
+
+    /// Bring the window holding `session` to the front. Used by every path
+    /// that names a TAB — a notification tap, an App Intent, a Spotlight or
+    /// Handoff activity — which must front the window that OWNS it.
+    @MainActor
+    func front(_ session: WindowSession) {
+        guard let controller = windowControllers.first(where: { $0.session === session }) else { return }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// File ▸ New Window (⌘N). A new window starts empty, with one "Query 1"
+    /// bound to the key window's connection — not a copy of its tabs.
+    @MainActor
+    @objc func menuNewWindow(_ sender: Any?) {
+        openMainWindow(connectionId: AppStateManager.shared.keySession?.activeConnectionId)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Record the open tabs first: the session rows name the workspaces, and
         // the workspace snapshot below then refreshes what each one holds.
+        // From here on, the windows AppKit closes on the way out must not
+        // rewrite the store (see `AppStateManager.retire`).
+        AppStateManager.shared.beginTerminating()
         AppStateManager.shared.snapshotSession()
 
         // Flush final editor snapshots for open workspaces before shutting down core.
@@ -155,12 +210,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
 
         guard let tabId = notification.userInfo?["tabId"] as? String else { return }
-        let state = AppStateManager.shared
-        guard state.tabs.contains(where: { $0.id == tabId }) else {
+        // The window that OWNS the tab, not the key one: the query the
+        // notification is about ran in one particular window.
+        guard let session = AppStateManager.shared.session(owningTabId: tabId) else {
             // Tab is gone (user closed it). App is already activated; graceful degrade.
             return
         }
-        state.selectTab(id: tabId)
+        front(session)
+        session.selectTab(id: tabId)
     }
 
     @MainActor
@@ -288,9 +345,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             error.pointee = String(localized: "The selection has no SQL in it.") as NSString
             return
         }
-        showMainWindow()
-        let tab = AppStateManager.shared.createTab(sql: sql)
-        AppStateManager.shared.selectTab(id: tab.id)
+        let session = showMainWindow().session
+        let tab = session.createTab(sql: sql)
+        session.selectTab(id: tab.id)
         NSApp.activate(ignoringOtherApps: true)
     }
 

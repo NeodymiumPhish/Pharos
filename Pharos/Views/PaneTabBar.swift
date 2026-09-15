@@ -6,6 +6,11 @@ import Combine
 /// Layout: [  ‹SegmentedControl›  ] [+ add]
 class PaneTabBar: NSView {
 
+    /// The window's session, for the context-menu commands that act on the
+    /// tab set directly. Weak: the bar lives inside the window whose session
+    /// this is.
+    weak var session: WindowSession?
+
     // MARK: - Callbacks
 
     var onSelectTab: ((String) -> Void)?
@@ -450,17 +455,17 @@ class PaneTabBar: NSView {
 
     @objc private func contextCloseOthers(_ sender: NSMenuItem) {
         guard let tabId = sender.representedObject as? String else { return }
-        AppStateManager.shared.closeOtherTabs(exceptId: tabId)
+        session?.closeOtherTabs(exceptId: tabId)
     }
 
     @objc private func contextCloseRight(_ sender: NSMenuItem) {
         guard let tabId = sender.representedObject as? String else { return }
-        AppStateManager.shared.closeTabsToRight(ofId: tabId)
+        session?.closeTabsToRight(ofId: tabId)
     }
 
     @objc private func contextDuplicate(_ sender: NSMenuItem) {
         guard let tabId = sender.representedObject as? String else { return }
-        AppStateManager.shared.duplicateTab(id: tabId)
+        session?.duplicateTab(id: tabId)
     }
 
     @objc private func contextRename(_ sender: NSMenuItem) {
