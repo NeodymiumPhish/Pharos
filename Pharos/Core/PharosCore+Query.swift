@@ -114,15 +114,36 @@ extension PharosCore {
     }
 
     /// Cancel a running query.
+    /// The Rust side answers with the bare JSON token `true` / `false`, so the
+    /// result decodes as `Bool`. Decoding it as `String` (as this did until
+    /// 2026-09-15) threw a type mismatch on every call; the cancel had already
+    /// happened server-side, so only the reported outcome was lost.
     static func cancelQuery(connectionId: String, queryId: String) async throws -> Bool {
-        let result: String = try await withAsyncCallback { callback, context in
+        let result: Bool = try await withAsyncCallback { callback, context in
             connectionId.withCString { cConn in
                 queryId.withCString { cQid in
                     pharos_cancel_query(cConn, cQid, callback, context)
                 }
             }
         }
-        return result == "true"
+        return result
+    }
+
+    /// Explain one statement and return PostgreSQL's `FORMAT JSON` plan text.
+    ///
+    /// `analyze` really runs the statement — the core wraps it in a transaction
+    /// it always rolls back, but the caller is expected to have refused a
+    /// destructive statement before reaching here. The core refuses a script
+    /// (`Explain one statement at a time`) rather than explaining only its
+    /// first statement.
+    static func explainQuery(connectionId: String, sql: String, analyze: Bool) async throws -> String {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                sql.withCString { cSql in
+                    pharos_explain_query(cConn, cSql, analyze, callback, context)
+                }
+            }
+        }
     }
 
     /// Validate SQL syntax.

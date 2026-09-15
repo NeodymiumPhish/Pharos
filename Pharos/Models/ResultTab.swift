@@ -39,6 +39,28 @@ struct ResultTab: Identifiable {
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
+    // MARK: - Plan tabs
+
+    /// The decoded `EXPLAIN` plan, when this tab holds one.
+    ///
+    /// A plan tab is a result tab like any other — same bar, same close, same
+    /// selection — but it carries neither rows nor an affected count, so
+    /// `plan != nil` is what tells every consumer to show the plan view instead
+    /// of the grid. A separate `ResultViewMode` case was the obvious
+    /// alternative and is deliberately not used: that enum is persisted as the
+    /// grid/chart preference of a *restored* result, and a plan is never
+    /// restored (see `planJSON`).
+    var plan: QueryPlan?
+
+    /// The server's own `EXPLAIN (FORMAT JSON)` text, for the copy button.
+    var planJSON: String?
+
+    /// Whether the plan carries measured numbers (⌥⇧⌘E) or estimates only (⇧⌘E).
+    var planIsAnalyze: Bool = false
+
+    /// A plan tab shows a plan, not rows.
+    var isPlan: Bool { plan != nil }
+
     /// Chart configuration for this result (nil until the user opens Chart mode).
     var chartConfig: ChartConfig?
 
@@ -69,7 +91,13 @@ struct ResultTab: Identifiable {
     /// The rule itself lives in `ResultTabName`, beside the rename rule that
     /// must compare against it, and where it is tested without AppKit.
     var automaticLabel: String {
-        ResultTabName.derived(lineRange: lineRange, sql: sql)
+        let derived = ResultTabName.derived(lineRange: lineRange, sql: sql)
+        // A plan tab sits beside the result tabs of the same statement, so the
+        // derived name alone would name two tabs identically. The prefix goes
+        // in front of the whole derivation rather than replacing it, so the
+        // line reference the user navigates by is still there: "Plan L3: users".
+        guard isPlan else { return derived }
+        return String(localized: "Plan \(derived)")
     }
 
     // MARK: - Color Palette
@@ -107,7 +135,11 @@ extension ResultTab {
     /// ExecuteResult, which the standalone cell test cannot link.
     var rowModel: ResultTabRowModel {
         let counts: String
-        if let result = queryResult {
+        if let plan {
+            // A plan has no rows and no columns, so the size caption reports
+            // what it does have: how many nodes the tree holds.
+            counts = CountedNounText.phrase(plan.nodeCount, "node")
+        } else if let result = queryResult {
             counts = ResultTabRowText.countsText(
                 columnCount: result.columns.count,
                 rowCount: totalRowCountHint ?? result.rowCount

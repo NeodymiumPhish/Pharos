@@ -29,6 +29,9 @@ class ContentViewController: NSViewController {
     // overlays the same region as the results grid, shown only in chart mode.
     private let chartToggle = NSSegmentedControl(labels: ["Grid", "Chart"], trackingMode: .selectOne, target: nil, action: nil)
     private let chartHost = ChartHostingController()
+    /// The query-plan outline, hosted over the same region as the grid for a
+    /// result tab that holds a plan (`ResultTab.isPlan`).
+    private let planHost = PlanViewVC()
     /// The chart's current staged selection (Task C commits it on button press).
     private var stagedChartKeys: [DrillKey] = []
     private var committedChartKeys: [DrillKey] = []
@@ -86,6 +89,11 @@ class ContentViewController: NSViewController {
         get { lastActiveTabId.flatMap { resultStore[$0].activeId } }
         set { if let id = lastActiveTabId { resultStore[id].activeId = newValue } }
     }
+
+    /// The activity donated for the active tab's workspace, held so it stays
+    /// current until the next tab switch replaces it. `becomeCurrent()` does not
+    /// retain it: dropping the reference ends the donation.
+    private var workspaceActivity: NSUserActivity?
 
     private static let resultTabBarHeight: CGFloat = 26
 
@@ -252,6 +260,13 @@ class ContentViewController: NSViewController {
         chartHost.view.isHidden = true
         resultsArea.addSubview(chartHost.view)
 
+        // Plan host: the same region again, shown only while the active result
+        // tab holds an EXPLAIN plan.
+        addChild(planHost)
+        planHost.view.translatesAutoresizingMaskIntoConstraints = false
+        planHost.view.isHidden = true
+        resultsArea.addSubview(planHost.view)
+
         // Result tab bar setup
         resultTabBar.translatesAutoresizingMaskIntoConstraints = false
         resultTabBar.isHidden = true  // Hidden until first result
@@ -333,6 +348,12 @@ class ContentViewController: NSViewController {
             chartHost.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
             chartHost.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             chartHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor),
+
+            // Plan host occupies the same region as the results grid.
+            planHost.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor),
+            planHost.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            planHost.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
+            planHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor),
 
             emptyState.topAnchor.constraint(equalTo: safeTop),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -472,6 +493,19 @@ class ContentViewController: NSViewController {
         stateManager.activeTabIdSettled
             .removeDuplicates()
             .sink { [weak self] tabId in self?.activeTabChanged(tabId) }
+            .store(in: &cancellables)
+
+        // A tab is bound to a workspace by its FIRST query, not by being
+        // selected, so the activity donation has to follow that id as well as
+        // the tab switch. `donateWorkspaceActivity` dedupes, so the two paths
+        // overlapping costs nothing.
+        Publishers.CombineLatest(stateManager.tabsSettled, stateManager.activeTabIdSettled)
+            .map { tabs, activeId -> String? in tabs.first { $0.id == activeId }?.workspaceId }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.donateWorkspaceActivity(for: self.stateManager.activeTab)
+            }
             .store(in: &cancellables)
 
         // Observe pin state changes (e.g. auto-unpin on tab close)
@@ -656,6 +690,7 @@ class ContentViewController: NSViewController {
         lastActiveTabId = tabId
 
         guard let tabId, let tab = stateManager.tabs.first(where: { $0.id == tabId }) else {
+            donateWorkspaceActivity(for: nil)
             resultsVC.clear()
             refreshResultTabViews()
             syncChartToggleToActiveTab()
@@ -663,8 +698,38 @@ class ContentViewController: NSViewController {
             return
         }
 
+        donateWorkspaceActivity(for: tab)
         updateSplitViewVisibility()
         loadResultState(for: tab)
+    }
+
+    /// Donate the active tab's workspace as an `NSUserActivity`, so it turns up
+    /// in Spotlight and the app can be sent back to it.
+    ///
+    /// A tab has no workspace until its first query runs, so most switches
+    /// invalidate rather than donate — that is correct, not a miss: there is
+    /// nothing to come back to yet. Handoff is off: a workspace names a
+    /// connection and a local history row, neither of which mean anything on
+    /// another Mac.
+    private func donateWorkspaceActivity(for tab: QueryTab?) {
+        guard let tab, let workspaceId = tab.workspaceId else {
+            workspaceActivity?.invalidate()
+            workspaceActivity = nil
+            return
+        }
+        guard workspaceActivity?.userInfo?[PharosActivity.workspaceIdKey] as? String != workspaceId else {
+            return
+        }
+        workspaceActivity?.invalidate()
+        let activity = NSUserActivity(activityType: PharosActivity.workspace)
+        activity.title = tab.name
+        activity.userInfo = [PharosActivity.workspaceIdKey: workspaceId]
+        activity.requiredUserInfoKeys = [PharosActivity.workspaceIdKey]
+        activity.isEligibleForHandoff = false
+        activity.isEligibleForSearch = true
+        activity.becomeCurrent()
+        workspaceActivity = activity
+        Log.ui.info("Donated workspace activity \(workspaceId, privacy: .public)")
     }
 
     /// Bring the live result surface — `resultTabs`, the grid, the gutter
@@ -1727,6 +1792,119 @@ class ContentViewController: NSViewController {
         }
     }
 
+    // MARK: - Explain
+
+    /// Explain the statement ⌘↩ would run, and open its plan as a result tab.
+    ///
+    /// The statement is resolved exactly the way Run resolves it — the segment
+    /// at the cursor, or the whole editor when nothing parsed — so ⇧⌘E always
+    /// explains the query the user is looking at. Variables are substituted
+    /// first, for the same reason the destructive guard checks rendered SQL: a
+    /// variable value must not be able to change what is explained.
+    ///
+    /// A plan is NOT a query result: it is never written to query history and
+    /// never associated with the workspace, so it does not come back when a
+    /// workspace is reopened. Recording an EXPLAIN as a run of the user's query
+    /// would put a statement in the history that they did not run, and a plan
+    /// is cheap to ask for again.
+    func explainCurrentStatement(analyze: Bool) {
+        guard let activeTab = stateManager.activeTab,
+              let connectionId = activeTab.connectionId,
+              stateManager.status(for: connectionId) == .connected else {
+            if isViewLoaded {
+                Toast.show(in: view, message: String(localized: "Connect to a database to explain a query."), style: .warning)
+            }
+            return
+        }
+        guard let target = sqlForExplain() else { return }
+
+        let rendered = VariableSubstitutor.render(target.sql, with: activeTab.variables)
+        if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
+            presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: activeTab.id)
+            return
+        }
+        let sql = rendered.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sql.isEmpty else { return }
+
+        // EXPLAIN ANALYZE really runs the statement. The core wraps it in a
+        // transaction it always rolls back, but that is a safety net and not a
+        // licence: a rollback cannot undo a DROP's effect on a concurrent
+        // session, nor the work a TRUNCATE did while the lock was held. So a
+        // destructive statement is refused outright rather than confirmed.
+        if analyze {
+            let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
+            if !keywords.isEmpty {
+                presentExplainAnalyzeRefusal(keywords: keywords)
+                return
+            }
+        }
+
+        let tabId = activeTab.id
+        let color = ResultTab.nextColor()
+        let segmentIndex = target.segmentIndex
+        let lineRange = target.lineRange
+        let rawSQL = target.sql
+
+        Task {
+            do {
+                let json = try await PharosCore.explainQuery(connectionId: connectionId, sql: sql, analyze: analyze)
+                let plan = try QueryPlan(json: json)
+                await MainActor.run {
+                    var rt = ResultTab(
+                        id: UUID().uuidString, segmentIndex: segmentIndex,
+                        sql: sql, rawSQL: rawSQL, lineRange: lineRange, color: color, timestamp: Date()
+                    )
+                    rt.plan = plan
+                    rt.planJSON = json
+                    rt.planIsAnalyze = analyze
+                    self.addResultTab(rt, forEditorTab: tabId)
+                }
+            } catch {
+                await MainActor.run {
+                    // A refused or failed EXPLAIN goes through the same failure
+                    // channel as a failed run, so it lands in the error banner
+                    // the user already watches rather than a separate surface.
+                    let failure = QueryFailure(
+                        id: UUID().uuidString,
+                        sql: sql,
+                        message: error.localizedDescription,
+                        kind: .error,
+                        tabId: tabId,
+                        tabName: self.stateManager.tabs.first { $0.id == tabId }?.name ?? "Query",
+                        connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
+                        timestamp: Date()
+                    )
+                    self.recordFailure(failure)
+                }
+            }
+        }
+    }
+
+    /// The text ⌘↩ would run right now, with the editor segment it came from.
+    /// Exactly the resolution `executeQuery()` performs, so Run and Explain can
+    /// never disagree about which statement is "the current one".
+    private func sqlForExplain() -> (sql: String, segmentIndex: Int, lineRange: ClosedRange<Int>)? {
+        if let segment = editorPane.editorVC.getSegmentSQLAtCursor() {
+            return (segment.sql, segment.index, segment.startLine...segment.endLine)
+        }
+        let whole = editorPane.getSQL()
+        guard !whole.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return (whole, -1, 0...0)
+    }
+
+    private func presentExplainAnalyzeRefusal(keywords: [String]) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Explain Analyze runs the statement.")
+        alert.informativeText = String(localized: "Pharos does not run destructive statements under EXPLAIN ANALYZE. This statement contains \(keywords.joined(separator: ", ")). Use Explain Query for an estimated plan instead.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "OK"))
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
+    }
+
     /// Assemble metadata and invoke QueryNotifier. Single entry point from the
     /// three completion paths so the argument-assembly logic lives in one place.
     private func fireCompletionNotification(
@@ -1895,8 +2073,11 @@ class ContentViewController: NSViewController {
         // Set segment color in gutter
         editorPane.setSegmentColor(tab.color, forSegmentIndex: tab.segmentIndex)
 
-        // Show this result in the grid
-        if let result = tab.queryResult {
+        // Show this result in the grid — or, for a plan tab, in the plan view
+        // that is hosted over the same region.
+        if let plan = tab.plan {
+            planHost.show(plan: plan, json: tab.planJSON ?? "", isAnalyze: tab.planIsAnalyze)
+        } else if let result = tab.queryResult {
             resultsVC.showResult(result)
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
@@ -1948,8 +2129,10 @@ class ContentViewController: NSViewController {
 
         guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
 
-        // Show the result in the grid
-        if let result = tab.queryResult {
+        // Show the result in the grid — or the plan in the plan view.
+        if let plan = tab.plan {
+            planHost.show(plan: plan, json: tab.planJSON ?? "", isAnalyze: tab.planIsAnalyze)
+        } else if let result = tab.queryResult {
             resultsVC.showResult(result)
         } else if let execResult = tab.executeResult {
             resultsVC.showExecuteResult(execResult)
@@ -2854,10 +3037,22 @@ extension ContentViewController {
     /// of truth so `applyExpandState`, mode toggles, and tab switches agree.
     func applyResultAreaVisibility() {
         let resultsAreaVisible = (expandState != .editorExpanded)
-        let showChart = resultsAreaVisible && activeResultViewMode == .chart
+        // A plan tab outranks the view mode: it has no rows to put in a grid
+        // and nothing to chart, so its stored `.grid` mode says nothing.
+        let showPlan = resultsAreaVisible && activeResultTabIsPlan
+        let showChart = resultsAreaVisible && !showPlan && activeResultViewMode == .chart
+        planHost.view.isHidden = !showPlan
         chartHost.view.isHidden = !showChart
-        resultsVC.view.isHidden = !(resultsAreaVisible && !showChart)
+        resultsVC.view.isHidden = !(resultsAreaVisible && !showChart && !showPlan)
+        // The Grid/Chart toggle has no meaning for a plan.
+        chartToggle.isHidden = activeResultTabIsPlan
         updateExportButtonTarget()
+    }
+
+    /// Whether the active result tab holds an EXPLAIN plan rather than rows.
+    var activeResultTabIsPlan: Bool {
+        guard let id = activeResultTabId, let tab = resultTabs.first(where: { $0.id == id }) else { return false }
+        return tab.isPlan
     }
 
     /// Retarget the shared export button between the grid's copy/export menu
@@ -3755,6 +3950,14 @@ extension ContentViewController {
         runAllSegments()
     }
 
+    @objc func menuExplainQuery(_: Any?) {
+        explainCurrentStatement(analyze: false)
+    }
+
+    @objc func menuExplainAnalyzeQuery(_: Any?) {
+        explainCurrentStatement(analyze: true)
+    }
+
     @objc func menuConnect(_: Any?) {
         guard let id = stateManager.activeTab?.connectionId else { return }
         stateManager.connect(id: id)
@@ -4052,6 +4255,11 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
         if menuItem.action == #selector(menuRunAllQueries(_:)) { return canRunQuery }
+        // Both explain items need exactly what Run needs: a connected tab.
+        // Whether the statement itself can be explained is the server's answer,
+        // and a destructive one is refused with a reason rather than a dead key.
+        if menuItem.action == #selector(menuExplainQuery(_:)) { return canRunQuery }
+        if menuItem.action == #selector(menuExplainAnalyzeQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }

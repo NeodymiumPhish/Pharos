@@ -10,6 +10,7 @@
 		017F1D6AD3F86E95B43774EF /* PaneTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */; };
 		050C066E656CA927DAE47838 /* ResultsGridVC+Delegates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4F375971834626EE24DCE8 /* ResultsGridVC+Delegates.swift */; };
 		069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0658ADF353C357AC173C83 /* NSTextField+FormLabel.swift */; };
+		06F6858B13D95EB4A79EE1D8 /* PharosIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30A8A1C7B2045D3975E20CCC /* PharosIntents.swift */; };
 		0754C2EB81577A660A258460 /* ResultTabResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F95D4A801FCF51F24FA027D /* ResultTabResolver.swift */; };
 		078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */; };
 		09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93588EE0C42422561A35483 /* RowFingerprint.swift */; };
@@ -22,6 +23,7 @@
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
 		131D6EEE108B0D2C3C469E7F /* TagCopyScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */; };
 		134196074C3749791E9F3A94 /* InsetScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14B40F475E3FEB12C3F9B9F /* InsetScrollView.swift */; };
+		15939E7F7072822A6D182047 /* PharosIntentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAA36AB1C1E1F0734DD5C1F /* PharosIntentSupport.swift */; };
 		168A481957ED3B4BE106A90E /* RustScalarError.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20CF73B17A249738CE23C2A /* RustScalarError.swift */; };
 		171DB2DA90741CA6961CE0D7 /* PartitionOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81B37D867FA93870C9481FC /* PartitionOrdering.swift */; };
 		1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83C254B3E566A636E1216FE4 /* CrashLogger.swift */; };
@@ -85,6 +87,7 @@
 		513C80516AEB2404C48261A1 /* ResultTabRowCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5256AA5FF55087B89C5B04 /* ResultTabRowCell.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C25DF8F9813C90CA3567012 /* ChartConfig.swift */; };
+		541543BE8918A6AF027E43E0 /* PharosShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DD2ABCAE10F6309B29D130 /* PharosShortcuts.swift */; };
 		54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */; };
 		54C67A0F06AA5DDDD791149B /* ResultsGridVC+QuickLook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2069E50C5D00C3A8B10A8347 /* ResultsGridVC+QuickLook.swift */; };
 		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
@@ -117,6 +120,7 @@
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
 		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */; };
+		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
@@ -126,6 +130,7 @@
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8AC4C0DDF61DB3754364C4C2 /* QueryErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6617C742EBFE1DEA3B133567 /* QueryErrorBanner.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
+		8B64F35A6F051EB1A9C83818 /* PharosEntities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */; };
 		8BD5C948806AAF45D1D1821F /* DestructiveConfirmationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0BCCCCFD4E9B5194DCA6176 /* DestructiveConfirmationText.swift */; };
 		8C11A9E360C976741800D448 /* PGTypeCategory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */; };
 		8C84EF40E4447DEAF3262BEE /* TagInspectorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61756089841C329775F79CBB /* TagInspectorModel.swift */; };
@@ -159,6 +164,7 @@
 		A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34B18675CC8E31A7FF367C89 /* TagCapture.swift */; };
 		A372863F0D9A2AB8C721DA8A /* SQLFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */; };
 		A38FB70285E0DB76A4DC045E /* MarkerShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 369938D654B2C568F8707A08 /* MarkerShape.swift */; };
+		A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F97502732CB469B07431E71 /* QueryPlan.swift */; };
 		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
@@ -199,6 +205,7 @@
 		D4D24BD1BE5A3489DC84D9FE /* TaggedRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24970168104D1359837B89EF /* TaggedRowView.swift */; };
 		D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */; };
 		D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */; };
+		D5FD88D1BE3008B61F9ACFF1 /* IntentResultCSV.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57FAB393D30AA7EA6F42ADA /* IntentResultCSV.swift */; };
 		D6C9AF01CF6F1F134B304F24 /* ResultTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */; };
 		D7FCAF1B7F1F490929C5AA58 /* ResultTabContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0342B30CED9DFBE4F336C345 /* ResultTabContextMenu.swift */; };
 		D8B646F76DBFA6FAED2EC3C4 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D9C70AAE70474C6A9171C2 /* SettingsWindowController.swift */; };
@@ -206,6 +213,7 @@
 		E02EA8A440A656E0CFDE8093 /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */; };
 		E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */; };
 		E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */; };
+		E2E9BBE587E2EC05CE695784 /* SavedQuerySpotlightIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */; };
 		E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */; };
 		E3E975360299E9A0D90D96D4 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F3DD4F4CC33C47BF5D7DBB /* Session.swift */; };
 		E491BC10BA527CA04AD618BF /* FilterValueListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */; };
@@ -244,6 +252,7 @@
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		0342B30CED9DFBE4F336C345 /* ResultTabContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabContextMenu.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
+		04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanViewVC.swift; sourceTree = "<group>"; };
 		06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCellSelection.swift; sourceTree = "<group>"; };
 		080E74E651B82BE21F196DDC /* ImportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportDataSheet.swift; sourceTree = "<group>"; };
 		096E125694D9A3387A6C7BC8 /* PushdownQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushdownQuery.swift; sourceTree = "<group>"; };
@@ -255,6 +264,7 @@
 		0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableOps.swift"; sourceTree = "<group>"; };
 		0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLOrderStability.swift; sourceTree = "<group>"; };
 		0E3B50BE19F7837639A56643 /* QueryFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryFailure.swift; sourceTree = "<group>"; };
+		0EAA36AB1C1E1F0734DD5C1F /* PharosIntentSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosIntentSupport.swift; sourceTree = "<group>"; };
 		0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCommitWriting.swift; sourceTree = "<group>"; };
 		0F95498A83DC24D8ACC78262 /* VariablesPanelPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariablesPanelPrefs.swift; sourceTree = "<group>"; };
 		1154372FFE011857B1F28F1B /* ChartSorter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSorter.swift; sourceTree = "<group>"; };
@@ -286,6 +296,7 @@
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLErrorLocation.swift; sourceTree = "<group>"; };
 		2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRootView.swift; sourceTree = "<group>"; };
+		30A8A1C7B2045D3975E20CCC /* PharosIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosIntents.swift; sourceTree = "<group>"; };
 		30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillTranslator.swift; sourceTree = "<group>"; };
 		3100894A7037A0DB0C24E782 /* TagConditionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagConditionKind.swift; sourceTree = "<group>"; };
 		32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosSplitViewController.swift; sourceTree = "<group>"; };
@@ -361,6 +372,7 @@
 		935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayEscape.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		941E5BFDEEC9EBA47AA09527 /* ResultTabRowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabRowText.swift; sourceTree = "<group>"; };
+		976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosEntities.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
 		984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableMetadata.swift"; sourceTree = "<group>"; };
@@ -371,6 +383,8 @@
 		9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleGridView.swift; sourceTree = "<group>"; };
 		9EC681B504DAF0E904245D22 /* Pharos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pharos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValueTextView.swift; sourceTree = "<group>"; };
+		9F97502732CB469B07431E71 /* QueryPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryPlan.swift; sourceTree = "<group>"; };
+		A0DD2ABCAE10F6309B29D130 /* PharosShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosShortcuts.swift; sourceTree = "<group>"; };
 		A1D9C70AAE70474C6A9171C2 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 		A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePreviewRowCell.swift; sourceTree = "<group>"; };
 		A37DAEDE02644288DA49F1E0 /* SettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneVC.swift; sourceTree = "<group>"; };
@@ -401,6 +415,7 @@
 		BE2842DA42F9D759036177BC /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C061E832235866E86FB1BD81 /* MainMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainMenu.swift; sourceTree = "<group>"; };
 		C1B12A90407F4333607C559D /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuerySpotlightIndexer.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
 		C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSelectionValidity.swift; sourceTree = "<group>"; };
 		C76ECA80D0A628845C307266 /* MainToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainToolbarController.swift; sourceTree = "<group>"; };
@@ -457,6 +472,7 @@
 		F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
+		F57FAB393D30AA7EA6F42ADA /* IntentResultCSV.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentResultCSV.swift; sourceTree = "<group>"; };
 		F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridMetrics.swift; sourceTree = "<group>"; };
 		F891B6EAB834D607054C3750 /* ChartHostingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartHostingController.swift; sourceTree = "<group>"; };
 		F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorColumnRowView.swift; sourceTree = "<group>"; };
@@ -514,6 +530,7 @@
 				A7553A40CD3394A1A32C5AA2 /* Core */,
 				D58A7CB7DF31C6A419D7A3D9 /* Editor */,
 				43485337BA969DDC24734DF9 /* Files */,
+				C1EE1F2A131C537CAD5FD3B6 /* Intents */,
 				69CEC6934FC959E692E7AC1C /* Models */,
 				BA2817C98D162063EF4F1711 /* Settings */,
 				8ED98EA5EBB73F5BFD44F68D /* Sheets */,
@@ -580,6 +597,7 @@
 				5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */,
 				5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */,
 				32129C1DF4F9D8600CF498D1 /* PharosSplitViewController.swift */,
+				04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */,
 				D00B26C7C2F768E3295E54E3 /* QueryEditorVC.swift */,
 				DE109495071281357840CE57 /* QueryHistoryVC.swift */,
 				996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */,
@@ -607,6 +625,7 @@
 				E81B37D867FA93870C9481FC /* PartitionOrdering.swift */,
 				0E3B50BE19F7837639A56643 /* QueryFailure.swift */,
 				AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */,
+				9F97502732CB469B07431E71 /* QueryPlan.swift */,
 				EAA6C3A87A8A4B294119B8CD /* QueryResult.swift */,
 				0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */,
 				233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */,
@@ -773,6 +792,19 @@
 				CE8F6493070677B9D780F62A /* ThemeApplier.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		C1EE1F2A131C537CAD5FD3B6 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				F57FAB393D30AA7EA6F42ADA /* IntentResultCSV.swift */,
+				976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */,
+				30A8A1C7B2045D3975E20CCC /* PharosIntents.swift */,
+				0EAA36AB1C1E1F0734DD5C1F /* PharosIntentSupport.swift */,
+				A0DD2ABCAE10F6309B29D130 /* PharosShortcuts.swift */,
+				C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */,
+			);
+			path = Intents;
 			sourceTree = "<group>";
 		};
 		D58A7CB7DF31C6A419D7A3D9 /* Editor */ = {
@@ -1017,6 +1049,7 @@
 				C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */,
 				9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */,
 				587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */,
+				D5FD88D1BE3008B61F9ACFF1 /* IntentResultCSV.swift in Sources */,
 				467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */,
 				BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */,
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
@@ -1044,7 +1077,12 @@
 				44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */,
 				3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */,
 				2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */,
+				8B64F35A6F051EB1A9C83818 /* PharosEntities.swift in Sources */,
+				15939E7F7072822A6D182047 /* PharosIntentSupport.swift in Sources */,
+				06F6858B13D95EB4A79EE1D8 /* PharosIntents.swift in Sources */,
+				541543BE8918A6AF027E43E0 /* PharosShortcuts.swift in Sources */,
 				9F833C4BC05608F9DBB53107 /* PharosSplitViewController.swift in Sources */,
+				8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */,
 				75346272E021E545643AA944 /* PopupValueMenu.swift in Sources */,
 				48B0C0688B386D587464D779 /* PulseClock.swift in Sources */,
 				EA2A3D8625B3C05E62F31CDC /* PushdownQuery.swift in Sources */,
@@ -1058,6 +1096,7 @@
 				F1E6F326019EA1E680D8C024 /* QueryHistory.swift in Sources */,
 				A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */,
 				32658884EC755D14B18936A7 /* QueryNotifier.swift in Sources */,
+				A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */,
 				313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */,
 				941978E52210010EAF9FBEC2 /* QuerySettingsPaneVC.swift in Sources */,
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
@@ -1111,6 +1150,7 @@
 				3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */,
 				613E5793FBC83289A0D307D4 /* SavedQueryCellView.swift in Sources */,
 				E6F80A5B6624AE350D131717 /* SavedQueryFilename.swift in Sources */,
+				E2E9BBE587E2EC05CE695784 /* SavedQuerySpotlightIndexer.swift in Sources */,
 				1E96030BBC27E7FEC7D2FF74 /* Schema.swift in Sources */,
 				BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */,
 				B328811200CD6EBE799D2971 /* SchemaContextMenu.swift in Sources */,

@@ -68,6 +68,10 @@
             </array>
         </dict>
     </array>
+    <key>NSUserActivityTypes</key>
+    <array>
+        <string>com.pharos.client.workspace</string>
+    </array>
     <key>NSServices</key>
     <array>
         <dict>

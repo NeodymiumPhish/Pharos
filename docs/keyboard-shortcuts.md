@@ -61,6 +61,8 @@ nav_order: 17
 | Run Query (statement under cursor) | Cmd+Return |
 | Run All Queries | Cmd+Opt+Return |
 | Cancel Query | Cmd+. |
+| Explain Query | Cmd+Shift+E |
+| Explain Analyze Query | Cmd+Opt+Shift+E |
 | Format SQL | Ctrl+I |
 
 ## View

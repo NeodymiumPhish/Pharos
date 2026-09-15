@@ -170,6 +170,18 @@ void pharos_cancel_query(const char *connection_id,
                          void *context);
 
 /**
+ * Explain a single statement. Returns the server's `FORMAT JSON` plan as a
+ * JSON string value (so the caller decodes a `String`, not a bare fragment)
+ * via callback.
+ */
+
+void pharos_explain_query(const char *connection_id,
+                          const char *sql,
+                          bool analyze,
+                          AsyncCallback callback,
+                          void *context);
+
+/**
  * Validate SQL syntax. Returns JSON ValidationResult via callback.
  */
 

@@ -1099,6 +1099,360 @@ fn parse_identifier(s: &str) -> Option<(String, &str)> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EXPLAIN
+// ---------------------------------------------------------------------------
+
+/// The `EXPLAIN (...)` statement Pharos runs for `sql`, or the reason it will
+/// not run one.
+///
+/// Pure, so both rules it enforces are testable without a server:
+///
+/// - **One statement.** `EXPLAIN` takes a single statement, so a script is
+///   refused rather than silently explaining only its first line. A semicolon
+///   inside a string literal, a quoted identifier, a comment or a dollar-quoted
+///   body is not a separator, so those do not trigger the refusal.
+/// - **No trailing semicolon.** `EXPLAIN … select 1;` is a syntax error, and the
+///   editor hands us the user's text with whatever punctuation they typed.
+///
+/// `BUFFERS false` is spelled out rather than omitted: PostgreSQL before 16
+/// rejects a bare `BUFFERS` without `ANALYZE`, but accepts the explicit false
+/// on every version.
+pub fn explain_statement(sql: &str, analyze: bool) -> Result<String, String> {
+    let body = single_statement(sql)?;
+    let flag = if analyze { "true" } else { "false" };
+    Ok(format!(
+        "EXPLAIN (FORMAT JSON, COSTS, VERBOSE, BUFFERS {}, ANALYZE {}) {}",
+        flag, flag, body
+    ))
+}
+
+/// The one statement in `sql`, trimmed and without its trailing semicolon.
+fn single_statement(sql: &str) -> Result<String, String> {
+    let cuts = top_level_semicolons(sql);
+    let mut parts: Vec<&str> = Vec::with_capacity(cuts.len() + 1);
+    let mut start = 0usize;
+    for cut in &cuts {
+        parts.push(&sql[start..*cut]);
+        start = cut + 1;
+    }
+    parts.push(&sql[start..]);
+
+    // A part holding only whitespace and comments is not a statement: it is the
+    // tail after the last semicolon, or a comment the user left at the end.
+    let mut kept: Vec<&str> = parts.into_iter().filter(|p| !is_blank_or_comment(p)).collect();
+    match kept.len() {
+        0 => Err("Nothing to explain".to_string()),
+        1 => Ok(kept.remove(0).trim().to_string()),
+        _ => Err("Explain one statement at a time".to_string()),
+    }
+}
+
+/// Byte offsets of the `;` characters that separate statements — those in
+/// ordinary SQL text, never those inside a literal, an identifier, a comment or
+/// a dollar-quoted body.
+fn top_level_semicolons(sql: &str) -> Vec<usize> {
+    let b = sql.as_bytes();
+    let n = b.len();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < n {
+        match b[i] {
+            b'\'' => i = skip_single_quoted(b, i),
+            b'"' => i = skip_double_quoted(b, i),
+            b'-' if i + 1 < n && b[i + 1] == b'-' => i = skip_line_comment(b, i),
+            b'/' if i + 1 < n && b[i + 1] == b'*' => i = skip_block_comment(b, i),
+            b'$' => match dollar_tag_end(b, i) {
+                Some(open_end) => i = skip_dollar_quoted(b, i, open_end),
+                None => i += 1,
+            },
+            b';' => {
+                out.push(i);
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// True when the slice holds nothing but whitespace and comments.
+fn is_blank_or_comment(sql: &str) -> bool {
+    let b = sql.as_bytes();
+    let n = b.len();
+    let mut i = 0usize;
+    while i < n {
+        match b[i] {
+            b'-' if i + 1 < n && b[i + 1] == b'-' => i = skip_line_comment(b, i),
+            b'/' if i + 1 < n && b[i + 1] == b'*' => i = skip_block_comment(b, i),
+            c if c.is_ascii_whitespace() => i += 1,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Index just past the closing quote of the single-quoted literal at `start`.
+///
+/// `''` is the doubled-quote escape. A backslash escapes the next character
+/// only in an `E'…'` string, which is why the `E` prefix is detected here
+/// rather than every backslash being treated as an escape — in a standard
+/// string (`standard_conforming_strings` is on by default) a backslash is an
+/// ordinary character and must not swallow a closing quote.
+fn skip_single_quoted(b: &[u8], start: usize) -> usize {
+    let n = b.len();
+    let escapes = start > 0
+        && (b[start - 1] == b'E' || b[start - 1] == b'e')
+        && (start < 2 || !is_ident_byte(b[start - 2]));
+    let mut i = start + 1;
+    while i < n {
+        match b[i] {
+            b'\\' if escapes && i + 1 < n => i += 2,
+            b'\'' if i + 1 < n && b[i + 1] == b'\'' => i += 2,
+            b'\'' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    n
+}
+
+/// Index just past the closing quote of the quoted identifier at `start`.
+/// `""` is the doubled-quote escape.
+fn skip_double_quoted(b: &[u8], start: usize) -> usize {
+    let n = b.len();
+    let mut i = start + 1;
+    while i < n {
+        match b[i] {
+            b'"' if i + 1 < n && b[i + 1] == b'"' => i += 2,
+            b'"' => return i + 1,
+            _ => i += 1,
+        }
+    }
+    n
+}
+
+fn skip_line_comment(b: &[u8], start: usize) -> usize {
+    let n = b.len();
+    let mut i = start + 2;
+    while i < n && b[i] != b'\n' {
+        i += 1;
+    }
+    i
+}
+
+/// PostgreSQL nests block comments, so the depth is counted rather than
+/// stopping at the first `*/`.
+fn skip_block_comment(b: &[u8], start: usize) -> usize {
+    let n = b.len();
+    let mut depth = 1usize;
+    let mut i = start + 2;
+    while i < n {
+        if i + 1 < n && b[i] == b'/' && b[i + 1] == b'*' {
+            depth += 1;
+            i += 2;
+        } else if i + 1 < n && b[i] == b'*' && b[i + 1] == b'/' {
+            depth -= 1;
+            i += 2;
+            if depth == 0 {
+                return i;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    n
+}
+
+fn is_ident_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// Index just past the opening `$tag$` at `start`, or `None` when this `$` does
+/// not open a dollar-quoted body. `$1` (a positional parameter) has no closing
+/// `$`, and `$2x$` is not a tag because a tag may not start with a digit.
+fn dollar_tag_end(b: &[u8], start: usize) -> Option<usize> {
+    let n = b.len();
+    let mut i = start + 1;
+    while i < n && b[i] != b'$' {
+        if !is_ident_byte(b[i]) {
+            return None;
+        }
+        i += 1;
+    }
+    if i >= n {
+        return None;
+    }
+    if i > start + 1 && b[start + 1].is_ascii_digit() {
+        return None;
+    }
+    Some(i + 1)
+}
+
+/// Index just past the closing `$tag$` of the body opened at `start`.
+fn skip_dollar_quoted(b: &[u8], start: usize, open_end: usize) -> usize {
+    let tag = &b[start..open_end];
+    let n = b.len();
+    let mut i = open_end;
+    while i + tag.len() <= n {
+        if &b[i..i + tag.len()] == tag {
+            return i + tag.len();
+        }
+        i += 1;
+    }
+    n
+}
+
+/// Run `EXPLAIN` (optionally `ANALYZE`) for one statement and return
+/// PostgreSQL's `FORMAT JSON` plan as text.
+///
+/// Under `ANALYZE` the statement really runs, so the whole thing is wrapped in
+/// a transaction on ONE connection that is always rolled back — an
+/// INSERT/UPDATE explained this way leaves nothing behind. The rollback is a
+/// safety net, not a licence: the UI refuses to explain-analyze a destructive
+/// statement in the first place.
+pub async fn explain_query(
+    connection_id: String,
+    sql: String,
+    analyze: bool,
+    state: &AppState,
+) -> Result<String, String> {
+    // Build the statement first: a refusal costs no connection.
+    let statement = explain_statement(&sql, analyze)?;
+
+    let pool = state
+        .get_pool(&connection_id)
+        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+
+    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
+        drop(conn);
+        conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    }
+
+    // BEGIN, the EXPLAIN and ROLLBACK all run on this one connection, so the
+    // rollback is guaranteed to undo the work the ANALYZE did.
+    let mut in_transaction = false;
+    if analyze {
+        match (&mut *conn).execute(sqlx::raw_sql("BEGIN")).await {
+            Ok(_) => in_transaction = true,
+            Err(e) => {
+                let message = format_db_error(&e);
+                reset_statement_timeout(&mut conn).await;
+                return Err(message);
+            }
+        }
+    }
+
+    // The single row's single column. `FORMAT JSON` gives it the `json` type,
+    // which `try_get::<String>` refuses; the simple protocol already carries
+    // the value as text, so read the raw value the way `extract_value` does.
+    let mut plan: Option<String> = None;
+    let mut failure: Option<String> = None;
+    {
+        let mut stream = sqlx::raw_sql(&statement).fetch(&mut *conn);
+        match stream.next().await {
+            Some(Ok(row)) => match row.try_get_raw(0) {
+                Ok(raw) => match raw.as_str() {
+                    Ok(text) => plan = Some(text.to_string()),
+                    Err(e) => failure = Some(e.to_string()),
+                },
+                Err(e) => failure = Some(e.to_string()),
+            },
+            Some(Err(e)) => failure = Some(format_db_error(&e)),
+            None => failure = Some("EXPLAIN returned no plan".to_string()),
+        }
+        drop(stream);
+    }
+
+    if in_transaction {
+        // Every path, including the failure path: after a failed EXPLAIN the
+        // transaction is aborted, and ROLLBACK is what makes the connection
+        // usable again for whoever takes it out of the pool next.
+        let _ = (&mut *conn).execute(sqlx::raw_sql("ROLLBACK")).await;
+    }
+    reset_statement_timeout(&mut conn).await;
+
+    if let Some(message) = failure {
+        return Err(message);
+    }
+    plan.ok_or_else(|| "EXPLAIN returned no plan".to_string())
+}
+
+#[cfg(test)]
+mod explain_statement_tests {
+    use super::explain_statement;
+
+    /// The option list, so a case below states only what it is about.
+    const PLAIN: &str = "EXPLAIN (FORMAT JSON, COSTS, VERBOSE, BUFFERS false, ANALYZE false) ";
+    const ANALYZED: &str = "EXPLAIN (FORMAT JSON, COSTS, VERBOSE, BUFFERS true, ANALYZE true) ";
+
+    #[test]
+    fn a_single_statement_is_wrapped_in_the_option_list() {
+        assert_eq!(
+            explain_statement("select 1", false).unwrap(),
+            format!("{}select 1", PLAIN)
+        );
+        // ANALYZE flips BOTH options together — a fixture with only one of them
+        // set could not tell the two apart.
+        assert_eq!(
+            explain_statement("select 1", true).unwrap(),
+            format!("{}select 1", ANALYZED)
+        );
+    }
+
+    #[test]
+    fn a_trailing_semicolon_and_its_whitespace_are_stripped() {
+        assert_eq!(
+            explain_statement("  select 1 ;  \n", false).unwrap(),
+            format!("{}select 1", PLAIN)
+        );
+        // A comment after the semicolon is not a second statement.
+        assert_eq!(
+            explain_statement("select 1; -- note", false).unwrap(),
+            format!("{}select 1", PLAIN)
+        );
+    }
+
+    #[test]
+    fn two_statements_are_refused() {
+        assert_eq!(
+            explain_statement("select 1; select 2", false).unwrap_err(),
+            "Explain one statement at a time"
+        );
+        // Empty text has nothing to explain, which is a different answer from
+        // "too many" — the UI says so differently.
+        assert_eq!(
+            explain_statement("  \n -- just a comment\n", false).unwrap_err(),
+            "Nothing to explain"
+        );
+    }
+
+    #[test]
+    fn a_semicolon_that_is_not_a_separator_does_not_refuse() {
+        // One statement each: the semicolon sits inside a literal, a quoted
+        // identifier, a comment and a dollar-quoted body. The wrong rule
+        // ("split on every ;") refuses all four, so each case discriminates.
+        for sql in [
+            "select 'a;b'",
+            "select * from \"we;ird\"",
+            "select 1 /* a ; b */ + 2",
+            "select $$a;b$$",
+            "select $tag$a;b$tag$",
+            // An E-string where a backslash escapes the quote that would
+            // otherwise close it.
+            "select E'a\\';b'",
+        ] {
+            let built = explain_statement(sql, false)
+                .unwrap_or_else(|e| panic!("`{}` should be one statement, got: {}", sql, e));
+            assert_eq!(built, format!("{}{}", PLAIN, sql), "for `{}`", sql);
+        }
+        // And the guard really bites: the same text with a top-level semicolon
+        // between the two halves IS refused.
+        assert!(explain_statement("select 'a';select 'b'", false).is_err());
+    }
+}
+
 /// Live test of the row identity wiring.
 ///
 ///   cargo test --release query_identity -- --ignored --nocapture
@@ -1619,6 +1973,109 @@ mod live_query_identity_tests {
             for id in ["snap-100000", "snap-5000", "snap-12000", "snap-100"] {
                 assert!(state.get_query_backend_pid(id).is_none(), "{} unregistered", id);
             }
+        });
+    }
+}
+
+/// Live test of the EXPLAIN wiring.
+///
+///   cargo test --release explain -- --ignored --nocapture
+///
+/// `explain_statement` is pure and fully covered offline, but nothing offline
+/// can say whether PostgreSQL accepts the option list this crate builds, or
+/// whether the `json` column it answers with can be read back as text. Only a
+/// real connection settles either.
+#[cfg(test)]
+mod live_explain_tests {
+    use super::explain_query;
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn?sslmode=disable";
+    const CONN: &str = "live-explain-test";
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (any database; explains `select 1`)"]
+    fn explain_returns_a_json_plan_from_a_live_server() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                .max_connections(2)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| panic!("cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.", url, e));
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool(CONN.to_string(), pool.clone());
+
+            // Plain EXPLAIN: a JSON array, with costs and no actuals.
+            let plan = explain_query(CONN.to_string(), "select 1".to_string(), false, &state)
+                .await
+                .expect("plain explain");
+            println!("plain plan: {}", plan);
+            assert!(plan.trim_start().starts_with('['), "FORMAT JSON answers an array; got {}", plan);
+            assert!(plan.contains("\"Node Type\""), "the plan names its node type");
+            assert!(!plan.contains("\"Actual Total Time\""), "no ANALYZE means no actuals");
+
+            // EXPLAIN ANALYZE: the same shape, with actuals and an execution time.
+            let analyzed = explain_query(CONN.to_string(), "select 1;".to_string(), true, &state)
+                .await
+                .expect("explain analyze");
+            assert!(analyzed.trim_start().starts_with('['));
+            assert!(analyzed.contains("\"Actual Total Time\""), "ANALYZE reports actuals");
+            assert!(analyzed.contains("\"Execution Time\""), "ANALYZE reports an execution time");
+
+            // The ANALYZE ran inside a transaction that was rolled back, so a
+            // write it performed left nothing behind. This is the claim the
+            // rollback exists to make, so measure it rather than assume it.
+            let table = "pharos_explain_rollback_probe";
+            sqlx::raw_sql(&format!("DROP TABLE IF EXISTS {}", table))
+                .execute(&pool).await.expect("drop probe table");
+            sqlx::raw_sql(&format!("CREATE TABLE {} (n int)", table))
+                .execute(&pool).await.expect("create probe table");
+            let _ = explain_query(
+                CONN.to_string(),
+                format!("insert into {} values (1)", table),
+                true,
+                &state,
+            )
+            .await
+            .expect("explain analyze of an insert");
+            let after = sqlx::raw_sql(&format!("SELECT count(*)::text AS c FROM {}", table))
+                .fetch_all(&pool).await.expect("count after rollback");
+            let count: String = {
+                use sqlx::Row;
+                after[0].try_get("c").expect("count decode")
+            };
+            assert_eq!(count, "0", "EXPLAIN ANALYZE of an INSERT must be rolled back");
+            sqlx::raw_sql(&format!("DROP TABLE {}", table))
+                .execute(&pool).await.expect("drop probe table");
+
+            // A connection that carried a failed ANALYZE is still usable: the
+            // ROLLBACK runs on the failure path too.
+            let err = explain_query(
+                CONN.to_string(),
+                "select * from no_such_table_pharos_explain".to_string(),
+                true,
+                &state,
+            )
+            .await;
+            assert!(err.is_err(), "a bad statement errors");
+            let again = explain_query(CONN.to_string(), "select 1".to_string(), true, &state)
+                .await
+                .expect("the pool is usable after a failed explain");
+            assert!(again.trim_start().starts_with('['));
+
+            // The refusal never reaches the server.
+            assert_eq!(
+                explain_query(CONN.to_string(), "select 1; select 2".to_string(), false, &state)
+                    .await
+                    .unwrap_err(),
+                "Explain one statement at a time"
+            );
         });
     }
 }

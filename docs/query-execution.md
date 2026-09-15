@@ -42,6 +42,21 @@ Queries run concurrently — starting a second statement doesn't wait for the fi
 
 Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side.
 
+## Explain
+
+**Cmd+Shift+E** (**Query > Explain Query**) asks PostgreSQL how it intends to run the statement under the cursor — the same statement **Cmd+Return** would run, with query variables substituted — and opens the answer as a result tab named "Plan …".
+
+The plan is a tree. Each row shows the node (its type, and the relation or index it reads), the estimated rows, the cost range, and a bar giving that node's share of the whole plan. The tree opens fully expanded with the heaviest node already selected, so the first thing you see is where the work goes. A row's tooltip shows its filter, index condition, or hash condition. **Copy Plan JSON** puts the server's own `EXPLAIN (FORMAT JSON)` output on the clipboard for another tool.
+
+**Cmd+Opt+Shift+E** (**Query > Explain Analyze Query**) runs the statement and reports what actually happened: measured times, measured row counts, and loop counts. The Time column multiplies a node's per-loop time by its loop count, so a cheap-looking inner scan that ran ten thousand times is ranked by the work it really did. The header line adds the planning and execution times.
+
+{: .warning }
+Explain Analyze *executes* the statement. Pharos runs it inside a transaction it always rolls back, so an `INSERT` or `UPDATE` explained this way leaves nothing behind — but a statement containing `DROP`, `DELETE`, or `TRUNCATE` is refused outright rather than confirmed, because a rollback cannot undo the locks and the effect on concurrent sessions. Use Explain Query for those.
+
+Plan tabs behave like any other result tab — select, rename, close — with two differences: the Grid/Chart toggle is hidden (a plan is neither), and a plan is not recorded in [query history](query-history.md) or restored with a workspace. Ask for it again; it costs nothing on the plain form.
+
+Explain works on one statement at a time. Selecting a script reports "Explain one statement at a time" rather than silently explaining only its first statement.
+
 ## Query Types
 
 - **Data queries** (`SELECT`, `WITH`, `EXPLAIN`, `SHOW`, `TABLE`, `VALUES`) return a result set displayed in the results grid.

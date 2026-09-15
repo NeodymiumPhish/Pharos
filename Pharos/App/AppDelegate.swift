@@ -1,4 +1,5 @@
 import AppKit
+import CoreSpotlight
 import CPharosCore
 import UniformTypeIdentifiers
 
@@ -57,6 +58,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the background update checker. It gates internally on the
         // `checkForUpdates` setting, so no conditional is needed here.
         UpdateChecker.shared.start()
+
+        // Put the saved queries in Spotlight, and follow every later change.
+        // This has to come after `pharos_init`: it reads them from the core.
+        SavedQuerySpotlightIndexer.shared.start()
 
         // Read the stored tab set BEFORE the window exists: its content
         // controller asks for a tab as soon as its view loads, and that "Query 1"
@@ -175,6 +180,64 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard conforms else { continue }
             AppStateManager.shared.openTextFile(at: url)
         }
+    }
+
+    // MARK: - User Activities (Spotlight, Handoff, App Intents)
+
+    /// A Spotlight result, or a workspace activity the app itself donated.
+    ///
+    /// A saved query indexed through `CSSearchableIndex.indexAppEntities` is
+    /// normally opened by the system running `OpenSavedQueryIntent`; this handler
+    /// is the path for the plain-activity case, and for the workspace activity
+    /// donated by `ContentViewController`.
+    @MainActor
+    func application(_ application: NSApplication,
+                     continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        showMainWindow()
+        NSApp.activate()
+
+        switch userActivity.activityType {
+        case CSSearchableItemActionType:
+            guard let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String else {
+                return false
+            }
+            return openSavedQuery(spotlightIdentifier: identifier)
+
+        case PharosActivity.workspace:
+            guard let workspaceId = userActivity.userInfo?[PharosActivity.workspaceIdKey] as? String else {
+                return false
+            }
+            NotificationCenter.default.post(
+                name: .openWorkspace, object: nil,
+                userInfo: ["workspaceId": workspaceId]
+            )
+            return true
+
+        default:
+            return false
+        }
+    }
+
+    /// Open the saved query a Spotlight item stands for.
+    ///
+    /// The item identifier is the entity id for an item this app indexed, but an
+    /// item written by an older build (or by the App Intents machinery, which
+    /// namespaces its own identifiers) can carry the id inside a longer string —
+    /// so a direct match is tried first and a suffix match second.
+    @MainActor
+    private func openSavedQuery(spotlightIdentifier: String) -> Bool {
+        let queries = (try? PharosCore.loadSavedQueries()) ?? []
+        let match = queries.first { $0.id == spotlightIdentifier }
+            ?? queries.first { spotlightIdentifier.hasSuffix($0.id) }
+        guard let match else {
+            Log.ui.error("Spotlight opened an unknown saved query")
+            return false
+        }
+        NotificationCenter.default.post(
+            name: .openSavedQuery, object: nil, userInfo: ["query": match]
+        )
+        return true
     }
 
     /// A `postgres://` / `postgresql://` link, pre-filled into the Connections

@@ -33,6 +33,10 @@ func runTests() {
     expectEqual(CountedNounText.phrase(1, "tag"), "1 tag", "one tag stays singular")
     expectEqual(CountedNounText.phrase(2, "tag"), "2 tags", "two tags pluralise")
 
+    // The query plan header counts its nodes.
+    expectEqual(CountedNounText.phrase(1, "node"), "1 node", "one node stays singular")
+    expectEqual(CountedNounText.phrase(4, "node"), "4 nodes", "four nodes pluralise")
+
     expectEqual(CountedNounText.phrase(1, "invisible character"), "1 invisible character", "one invisible character stays singular")
     expectEqual(CountedNounText.phrase(2, "invisible character"), "2 invisible characters", "two invisible characters pluralise — the noun phrase's head word inflects")
 

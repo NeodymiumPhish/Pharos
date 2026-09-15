@@ -24,6 +24,7 @@ swiftc -o /tmp/result-tab-bar-accessibility-tests \
   Pharos/Core/VariablesPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Models/ResultTab.swift \
+  Pharos/Models/QueryPlan.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/QueryTab.swift \
   Pharos/Models/QueryFailure.swift \

@@ -153,6 +153,18 @@ enum MainMenu {
 
         queryMenu.addItem(.separator())
 
+        // ⌘E is Edit > Find > Use Selection for Find, the only other "e" in the
+        // menu bar; ⇧⌘E and ⌥⇧⌘E are free.
+        let explainItem = queryMenu.addItem(withTitle: String(localized: "Explain Query"), action: #selector(ContentViewController.menuExplainQuery(_:)), keyEquivalent: "e")
+        explainItem.keyEquivalentModifierMask = [.command, .shift]
+        explainItem.image = NSImage(systemSymbolName: "list.bullet.indent", accessibilityDescription: nil)
+
+        let explainAnalyzeItem = queryMenu.addItem(withTitle: String(localized: "Explain Analyze Query"), action: #selector(ContentViewController.menuExplainAnalyzeQuery(_:)), keyEquivalent: "e")
+        explainAnalyzeItem.keyEquivalentModifierMask = [.command, .shift, .option]
+        explainAnalyzeItem.image = NSImage(systemSymbolName: "stopwatch", accessibilityDescription: nil)
+
+        queryMenu.addItem(.separator())
+
         let formatItem = queryMenu.addItem(withTitle: String(localized: "Format SQL"), action: #selector(ContentViewController.menuFormatSQL(_:)), keyEquivalent: "i")
         formatItem.keyEquivalentModifierMask = [.control]
         formatItem.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: nil)

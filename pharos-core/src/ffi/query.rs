@@ -283,6 +283,38 @@ pub extern "C" fn pharos_cancel_query(
     });
 }
 
+/// Explain a single statement. Returns the server's `FORMAT JSON` plan as a
+/// JSON string value (so the caller decodes a `String`, not a bare fragment)
+/// via callback.
+#[no_mangle]
+pub extern "C" fn pharos_explain_query(
+    connection_id: *const c_char,
+    sql: *const c_char,
+    analyze: bool,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let sql_str = unsafe { c_str_to_string(sql) };
+
+    let ctx = context as usize;
+    ffi_spawn!(callback, context, async move {
+
+        match crate::commands::explain_query(conn_id, sql_str, analyze, state).await {
+            Ok(plan) => {
+                // The plan is itself JSON text. It crosses as a JSON *string*
+                // so the Swift side's `JSONDecoder` sees a value it can decode
+                // into `String`; handing over the bare array would make the
+                // callback's payload a different type per call.
+                let json = serde_json::to_string(&plan).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Validate SQL syntax. Returns JSON ValidationResult via callback.
 #[no_mangle]
 pub extern "C" fn pharos_validate_sql(
