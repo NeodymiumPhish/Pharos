@@ -210,8 +210,15 @@ final class MainToolbarController: NSObject {
            let titleItem = connectionButton.item(at: 0) {
             let status = stateManager.status(for: config.id)
             titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
-            connectionButton.toolTip = "\(DisplayEscape.escaped(config.name)) — \(statusName(for: status))"
-            connectionButton.setAccessibilityValue(statusName(for: status))
+            // The colour is a SECOND channel beside the status glyph, never a
+            // replacement for it: the glyph still says connected or not.
+            titleItem.image = ConnectionColor.swatchImage(forHex: config.color)
+            let colorLabel = ConnectionColor.label(forHex: config.color)
+            connectionButton.toolTip = [
+                DisplayEscape.escaped(config.name), statusName(for: status), colorLabel,
+            ].compactMap { $0 }.joined(separator: " — ")
+            connectionButton.setAccessibilityValue(
+                [statusName(for: status), colorLabel].compactMap { $0 }.joined(separator: ", "))
         } else {
             connectionButton.toolTip = "Connection for the active tab"
             connectionButton.setAccessibilityValue(nil)
@@ -226,6 +233,10 @@ final class MainToolbarController: NSObject {
                 item.target = self
                 item.representedObject = config.id
                 item.attributedTitle = styledTitle(title, status: status)
+                item.image = ConnectionColor.swatchImage(forHex: config.color)
+                if let colorLabel = ConnectionColor.label(forHex: config.color) {
+                    item.toolTip = "\(DisplayEscape.escaped(config.name)) — \(colorLabel)"
+                }
                 if config.id == activeId { item.state = .on }
                 connectionButton.menu?.addItem(item)
             }

@@ -26,6 +26,13 @@ class EditorPaneVC: NSViewController {
     let editorVC = QueryEditorVC()
     private(set) var paneTabBar: PaneTabBar!
 
+    /// The active tab's connection colour, as a band across the top of the
+    /// pane. Hidden, and zero-height, whenever that connection has no colour —
+    /// so a pane with no colour label is exactly the pane it always was.
+    private let connectionColorBand = NSBox()
+    private let connectionColorLabel = NSTextField(labelWithString: "")
+    private var connectionColorBandHeight: NSLayoutConstraint!
+
     // Editor toolbar (below tab bar)
     private let editorToolbar = NSView()
     private let formatButton = NSButton()
@@ -139,7 +146,15 @@ class EditorPaneVC: NSViewController {
 
     private let tabBarHeight: CGFloat = 32
     private let editorToolbarHeight: CGFloat = 32
-    private var totalHeaderHeight: CGFloat { tabBarHeight + editorToolbarHeight }
+    /// A hairline of colour — enough to tell two windows apart at a glance,
+    /// too little to read as a control.
+    private let colorBandHeight: CGFloat = 3
+    /// Taller, because under Differentiate Without Color the band has to carry
+    /// the connection's NAME as well: colour alone is not a signal.
+    private let colorBandWithNameHeight: CGFloat = 16
+    private var totalHeaderHeight: CGFloat {
+        tabBarHeight + editorToolbarHeight + (connectionColorBandHeight?.constant ?? 0)
+    }
 
     override func loadView() {
         let container = NSView()
@@ -233,6 +248,9 @@ class EditorPaneVC: NSViewController {
             self?.resizeResultTabsPanel(byOffset: offset)
         }
 
+        setupConnectionColorBand()
+
+        container.addSubview(connectionColorBand)
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(editorVC.view)
@@ -245,8 +263,18 @@ class EditorPaneVC: NSViewController {
         resultTabsPanelVC.view.isHidden = true
         resultTabsDivider.isHidden = true
 
+        connectionColorBandHeight = connectionColorBand.heightAnchor.constraint(equalToConstant: 0)
+
         NSLayoutConstraint.activate([
-            paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
+            connectionColorBand.topAnchor.constraint(equalTo: container.topAnchor),
+            connectionColorBand.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            connectionColorBand.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            connectionColorBandHeight,
+
+            // The band sits ABOVE the tab bar, and takes no room at all when
+            // there is no colour — hence the band's own height constraint
+            // rather than a second top pin.
+            paneTabBar.topAnchor.constraint(equalTo: connectionColorBand.bottomAnchor),
             paneTabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             paneTabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             paneTabBar.heightAnchor.constraint(equalToConstant: tabBarHeight),
@@ -307,6 +335,7 @@ class EditorPaneVC: NSViewController {
                 self.updateEditorToolbarState()
                 self.updateSchemaPopupTitle()
                 self.updateGutterPulseForActiveTab(tabs: tabs)
+                self.updateConnectionColorBand()
             }
             .store(in: &cancellables)
 
@@ -333,6 +362,95 @@ class EditorPaneVC: NSViewController {
             .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
             .store(in: &cancellables)
 
+        // The band follows the connection RECORD as well as the active tab:
+        // a colour set in the Connections manager shows here without a tab
+        // switch. (The `tabsSettled` sink above already covers a tab changing
+        // its connection — `connectionId` is in its dedup whitelist.)
+        stateManager.$connections
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateConnectionColorBand() }
+            .store(in: &cancellables)
+
+        // Turning Differentiate Without Color on makes the band carry the
+        // connection's name, which changes its height.
+        AccessibilityDisplay.shared.$differentiateWithoutColor
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateConnectionColorBand() }
+            .store(in: &cancellables)
+
+        updateConnectionColorBand()
+    }
+
+    // MARK: - Connection Colour Band
+
+    private func setupConnectionColorBand() {
+        connectionColorBand.boxType = .custom
+        connectionColorBand.borderWidth = 0
+        connectionColorBand.cornerRadius = 0
+        connectionColorBand.contentViewMargins = .zero
+        connectionColorBand.titlePosition = .noTitle
+        connectionColorBand.translatesAutoresizingMaskIntoConstraints = false
+        connectionColorBand.isHidden = true
+        // An NSBox is ignored by accessibility, which would take the band and
+        // its label out of the tree entirely.
+        connectionColorBand.setAccessibilityElement(true)
+        connectionColorBand.setAccessibilityRole(.group)
+        connectionColorBand.setAccessibilityIdentifier("editor.connectionColorBand")
+
+        // Small caps by convention in this app: uppercased, 9pt semibold —
+        // the same treatment the section headers use.
+        connectionColorLabel.font = .systemFont(ofSize: 9, weight: .semibold)
+        connectionColorLabel.alignment = .center
+        connectionColorLabel.lineBreakMode = .byTruncatingTail
+        connectionColorLabel.isHidden = true
+        connectionColorLabel.translatesAutoresizingMaskIntoConstraints = false
+        connectionColorBand.addSubview(connectionColorLabel)
+        NSLayoutConstraint.activate([
+            connectionColorLabel.centerXAnchor.constraint(equalTo: connectionColorBand.centerXAnchor),
+            connectionColorLabel.centerYAnchor.constraint(equalTo: connectionColorBand.centerYAnchor),
+            connectionColorLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: connectionColorBand.leadingAnchor, constant: 8),
+        ])
+    }
+
+    /// Show the active tab's connection colour, or take the band away.
+    private func updateConnectionColorBand() {
+        guard connectionColorBandHeight != nil else { return }
+
+        let config = tabConnectionId.flatMap { id in
+            stateManager.connections.first(where: { $0.id == id })
+        }
+        guard let config, let color = ConnectionColor.color(forHex: config.color) else {
+            connectionColorBand.isHidden = true
+            connectionColorLabel.isHidden = true
+            setColorBandHeight(0)
+            return
+        }
+
+        let name = DisplayEscape.escaped(config.name)
+        connectionColorBand.isHidden = false
+        connectionColorBand.fillColor = color
+        connectionColorBand.setAccessibilityLabel("Connection colour: \(name)")
+
+        if AccessibilityDisplay.shared.differentiateWithoutColor {
+            connectionColorLabel.isHidden = false
+            connectionColorLabel.stringValue = name.uppercased()
+            connectionColorLabel.textColor = ConnectionColor.foreground(onHex: config.color)
+            setColorBandHeight(colorBandWithNameHeight)
+        } else {
+            connectionColorLabel.isHidden = true
+            setColorBandHeight(colorBandHeight)
+        }
+    }
+
+    /// The band's height is part of `totalHeaderHeight`, which the frame-based
+    /// `viewDidLayout` divides — so a change to it has to relayout, not just
+    /// re-constrain.
+    private func setColorBandHeight(_ height: CGFloat) {
+        guard connectionColorBandHeight.constant != height else { return }
+        connectionColorBandHeight.constant = height
+        view.needsLayout = true
     }
 
     override func viewDidLayout() {
@@ -444,6 +562,7 @@ class EditorPaneVC: NSViewController {
               let tab = stateManager.tabs.first(where: { $0.id == newTabId }) else {
             editorVC.tabId = nil
             editorVC.setSQL("")
+            updateConnectionColorBand()
             syncResultTabsPanel()
             return
         }
@@ -473,6 +592,7 @@ class EditorPaneVC: NSViewController {
         // and the popups would stay stuck on the previous tab's values. Rebuild
         // them explicitly here.
         updateSchemaPopupTitle()
+        updateConnectionColorBand()
         syncVariablesPanel()
         syncResultTabsPanel()
     }
