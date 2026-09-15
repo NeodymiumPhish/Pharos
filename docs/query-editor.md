@@ -115,3 +115,5 @@ The editor parses the buffer into individual SQL statements ("segments"). The li
 ## Error Markers
 
 When a query fails with a PostgreSQL error that includes a character position, the editor underlines the error location in red and marks the line in the gutter.
+
+**The message is on the marker.** Hover the gutter marker for a moment — or click it — and a popover opens beside it with the failure text in full, wrapped and selectable, plus a **Go to Error** button that puts the caret on the offending SQL and scrolls it into view. Move the pointer away and the popover closes itself; you have a moment to travel into it and press the button. With VoiceOver, the marker is a control on the line ("Error on line 4") and pressing it opens the same popover.

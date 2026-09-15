@@ -73,6 +73,13 @@ class QueryEditorVC: NSViewController {
         gutterView.onToggleFold = { [weak self] regionIndex in
             self?.toggleFold(at: regionIndex)
         }
+        // The gutter knows which LINE it drew a marker on; only this VC knows
+        // the document RANGE that produced it, so the popover's "Go to Error"
+        // comes back here to be turned into a selection.
+        gutterView.onRevealError = { [weak self] line in
+            guard let self, let range = self.errorRangesByLine[line] else { return }
+            self.revealError(range: range)
+        }
         gutter = gutterView
 
         container.addSubview(gutterView)
@@ -247,8 +254,17 @@ class QueryEditorVC: NSViewController {
         // PostgreSQL reports and the form this code has always been given.
         let line = lineNumber(forCharacterIndex: range.location + 1, in: text)
         gutter?.setErrors([line: message])
+        // `setErrors` REPLACES the gutter's whole error set, so the remembered
+        // ranges are replaced with it — otherwise a stale range from an earlier
+        // failure would outlive the marker it belonged to and "Go to Error"
+        // would jump into text that is no longer in question.
+        errorRangesByLine = [line: range]
         textView.addErrorUnderline(range: range)
     }
+
+    /// The document range each marked error line stands for, so the gutter's
+    /// "Go to Error" — which knows only the line — can reveal the exact text.
+    private var errorRangesByLine: [Int: NSRange] = [:]
 
     /// Mark an error whose position counts into the whole document. Live
     /// validation runs on the document text, so it takes this path.
@@ -269,6 +285,7 @@ class QueryEditorVC: NSViewController {
     /// Clear all error markers (gutter dots + underlines).
     func clearErrorMarkers() {
         gutter?.clearErrors()
+        errorRangesByLine.removeAll()
         textView.clearErrorUnderlines()
     }
 

@@ -57,6 +57,31 @@ class LineNumberGutter: NSView {
     /// Whether the mouse is currently inside the gutter (for showing expanded chevrons).
     private var mouseInGutter: Bool = false
 
+    // MARK: - Error Popover State
+
+    /// Called when the user asks to go to the error on a line — the popover's
+    /// "Go to Error" button. The host puts the caret on the range it marked.
+    var onRevealError: ((Int) -> Void)?
+
+    /// The error line the pointer is currently over, nil when it is over none.
+    private var hoveredErrorLine: Int?
+
+    /// The popover currently on screen, and the line it speaks for.
+    private var errorPopover: NSPopover?
+    private var errorPopoverLine: Int?
+
+    /// Pending open (0.4 s dwell) and pending close (short grace) work.
+    private var popoverOpenWork: DispatchWorkItem?
+    private var popoverCloseWork: DispatchWorkItem?
+
+    /// Dwell before a hover opens the popover. A pointer crossing the gutter
+    /// on its way somewhere else should not fire it.
+    private static let errorHoverDelay: TimeInterval = 0.4
+
+    /// Grace after the pointer leaves the marker. Long enough to travel into
+    /// the popover itself and press its button.
+    private static let errorPopoverCloseDelay: TimeInterval = 0.35
+
     /// Horizontal metrics — everything that decides how wide the gutter is and
     /// where inside it the line numbers sit.
     ///
@@ -179,6 +204,8 @@ class LineNumberGutter: NSView {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        popoverOpenWork?.cancel()
+        popoverCloseWork?.cancel()
     }
 
     // MARK: - Public API
@@ -234,6 +261,12 @@ class LineNumberGutter: NSView {
     }
 
     private func errorsDidChange() {
+        // A popover still naming a line that no longer carries an error would
+        // sit there quoting a message the editor has already retracted.
+        if let shown = errorPopoverLine, !errors.keys.contains(shown) {
+            dismissErrorPopover()
+        }
+        hoveredErrorLine = nil
         needsDisplay = true
         accessibilityStructureDidChange()
     }
@@ -560,6 +593,8 @@ class LineNumberGutter: NSView {
             needsDisplay = true
         }
 
+        updateErrorHover(at: point)
+
         // Only respond to segment bar hovers in the segment bar column area (with some padding)
         guard point.x >= barColumnX - 4 else {
             if hoveredSegmentIndex != nil {
@@ -585,6 +620,9 @@ class LineNumberGutter: NSView {
         if hoveredSegmentIndex != nil {
             hoveredSegmentIndex = nil
         }
+        hoveredErrorLine = nil
+        cancelPopoverOpen()
+        scheduleErrorPopoverClose()
         needsDisplay = true
     }
 
@@ -598,6 +636,14 @@ class LineNumberGutter: NSView {
                 onToggleFold?(regionIdx)
                 return
             }
+        }
+
+        // A click on the error marker opens its popover at once — no dwell.
+        if let line = errorLine(at: point) {
+            cancelPopoverOpen()
+            cancelPopoverClose()
+            presentErrorPopover(line: line)
+            return
         }
 
         let barColumnX = desiredWidth - metrics.segmentBarGap - metrics.segmentBarWidth
@@ -636,6 +682,218 @@ class LineNumberGutter: NSView {
 
         // Binary search on cached line starts for O(1) lookup
         return lineNumber(forCharacterIndex: min(charIndex, text.length))
+    }
+
+    // MARK: - Error Popover
+
+    /// The 1-based error line whose marker `point` (gutter coordinates) is
+    /// over, or nil when the point is over no marker. The hit box is the
+    /// painted marker grown a few points, so the pointer does not have to land
+    /// inside a 10 pt disc.
+    private func errorLine(at point: NSPoint) -> Int? {
+        guard !errors.isEmpty, point.x < Self.errorMarkerSize + 6 else { return nil }
+        let line = lineNumber(at: point)
+        guard errors.keys.contains(line),
+              let frame = lineFrame(forLine: line) else { return nil }
+        let hit = errorMarkerRect(lineTop: frame.origin.y, lineHeight: frame.height)
+            .insetBy(dx: -3, dy: -2)
+        return hit.contains(point) ? line : nil
+    }
+
+    /// Track the pointer over the error markers: entering one arms the dwell
+    /// timer, leaving one hands the open popover its grace period.
+    private func updateErrorHover(at point: NSPoint) {
+        let line = errorLine(at: point)
+        guard line != hoveredErrorLine else { return }
+        hoveredErrorLine = line
+
+        cancelPopoverOpen()
+        guard let line else {
+            scheduleErrorPopoverClose()
+            return
+        }
+        cancelPopoverClose()
+        // Already showing this line's message — nothing to re-open.
+        guard errorPopoverLine != line else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.hoveredErrorLine == line else { return }
+            self.presentErrorPopover(line: line)
+        }
+        popoverOpenWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.errorHoverDelay, execute: work)
+    }
+
+    private func cancelPopoverOpen() {
+        popoverOpenWork?.cancel()
+        popoverOpenWork = nil
+    }
+
+    private func cancelPopoverClose() {
+        popoverCloseWork?.cancel()
+        popoverCloseWork = nil
+    }
+
+    /// Close the popover after a short grace. The pointer leaving the marker is
+    /// usually the pointer travelling INTO the popover to press its button, so
+    /// a closing pass that finds the pointer inside the popover's own window
+    /// re-arms itself instead of shutting the button away.
+    private func scheduleErrorPopoverClose() {
+        guard errorPopover != nil else { return }
+        cancelPopoverClose()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let popover = self.errorPopover else { return }
+            self.popoverCloseWork = nil
+            if self.hoveredErrorLine != nil { return }
+            if let popoverWindow = popover.contentViewController?.view.window,
+               popoverWindow.frame.contains(NSEvent.mouseLocation) {
+                self.scheduleErrorPopoverClose()
+                return
+            }
+            self.dismissErrorPopover()
+        }
+        popoverCloseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.errorPopoverCloseDelay, execute: work)
+    }
+
+    func dismissErrorPopover() {
+        cancelPopoverOpen()
+        cancelPopoverClose()
+        errorPopover?.performClose(nil)
+        errorPopover = nil
+        errorPopoverLine = nil
+    }
+
+    /// Build the popover's content for `line`, or nil when that line carries no
+    /// error. Internal as a test seam: the popover itself needs a window, the
+    /// content it carries does not.
+    func makeErrorPopoverContent(forLine line: Int) -> ErrorPopoverVC? {
+        guard errors.keys.contains(line) else { return nil }
+        let content = ErrorPopoverVC(
+            line: line,
+            message: errorMessage(forLine: line) ?? "Error"
+        )
+        content.onGoToError = { [weak self] in
+            guard let self else { return }
+            self.dismissErrorPopover()
+            self.onRevealError?(line)
+        }
+        return content
+    }
+
+    /// Show the message for `line` beside its marker. A no-op when the line has
+    /// no error, or when the gutter is not in a window (nothing to anchor to).
+    /// Internal as a test seam — the accessibility element's press calls it too.
+    @discardableResult
+    func presentErrorPopover(line: Int) -> Bool {
+        guard let content = makeErrorPopoverContent(forLine: line) else { return false }
+        guard window != nil, let frame = lineFrame(forLine: line) else { return false }
+
+        dismissErrorPopover()
+
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.contentViewController = content
+        let anchor = errorMarkerRect(lineTop: frame.origin.y, lineHeight: frame.height)
+            .insetBy(dx: -2, dy: -2)
+        popover.show(relativeTo: anchor, of: self, preferredEdge: .maxX)
+        errorPopover = popover
+        errorPopoverLine = line
+        return true
+    }
+
+    /// The popover's content: the failure text, wrapped and selectable, over a
+    /// button that puts the caret on the offending SQL.
+    final class ErrorPopoverVC: NSViewController {
+
+        let line: Int
+        let message: String
+        var onGoToError: (() -> Void)?
+
+        /// Test seams — the assertions read the text the popover will show and
+        /// press the button it will offer.
+        private(set) var messageLabel = NSTextField(wrappingLabelWithString: "")
+        private(set) var goToErrorButton = NSButton(title: "Go to Error", target: nil, action: nil)
+
+        /// Text wider than this wraps rather than stretching the popover into
+        /// the next display — a PostgreSQL message can be a paragraph.
+        static let maxContentWidth: CGFloat = 420
+
+        /// …and narrower than this it does NOT wrap. A wrapping label left to
+        /// pick its own width settles on a very narrow column (measured: 128 pt
+        /// beside the live gutter), which turns a one-sentence message into
+        /// eight stacked fragments. The floor only applies once there is enough
+        /// text to need it, so a three-word message still gets a small popover.
+        static let minContentWidth: CGFloat = 260
+
+        init(line: Int, message: String) {
+            self.line = line
+            self.message = message
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) not implemented")
+        }
+
+        override func loadView() {
+            let container = NSView()
+
+            messageLabel.stringValue = message
+            messageLabel.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            messageLabel.textColor = .labelColor
+            messageLabel.isSelectable = true
+            messageLabel.maximumNumberOfLines = 0
+            messageLabel.lineBreakMode = .byWordWrapping
+            messageLabel.preferredMaxLayoutWidth = Self.maxContentWidth
+            messageLabel.translatesAutoresizingMaskIntoConstraints = false
+            messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            messageLabel.setAccessibilityLabel("Error on line \(line)")
+
+            goToErrorButton.target = self
+            goToErrorButton.action = #selector(goToErrorClicked)
+            goToErrorButton.bezelStyle = .rounded
+            goToErrorButton.controlSize = .small
+            goToErrorButton.font = .systemFont(ofSize: 11)
+            goToErrorButton.translatesAutoresizingMaskIntoConstraints = false
+
+            container.addSubview(messageLabel)
+            container.addSubview(goToErrorButton)
+
+            // Only claim the floor when the text actually needs more than it —
+            // measured at the unwrapped width, since a wrapping label's
+            // intrinsic size is the single-line size until a width is imposed.
+            let unwrappedWidth = (message as NSString).size(
+                withAttributes: [.font: messageLabel.font ?? NSFont.systemFont(ofSize: 12)]).width
+            if unwrappedWidth > Self.minContentWidth {
+                let floor = messageLabel.widthAnchor.constraint(
+                    greaterThanOrEqualToConstant: Self.minContentWidth)
+                floor.priority = .defaultHigh
+                floor.isActive = true
+            }
+
+            NSLayoutConstraint.activate([
+                messageLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+                messageLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+                messageLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+                messageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: Self.maxContentWidth),
+
+                goToErrorButton.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 10),
+                goToErrorButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+                goToErrorButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+                container.trailingAnchor.constraint(greaterThanOrEqualTo: goToErrorButton.trailingAnchor, constant: 12),
+            ])
+
+            view = container
+        }
+
+        @objc private func goToErrorClicked() {
+            onGoToError?()
+        }
+
+        /// Test seam: fire the button's action without a mouse.
+        func performGoToError() {
+            goToErrorClicked()
+        }
     }
 
     // MARK: - Drawing
@@ -1071,7 +1329,12 @@ class LineNumberGutter: NSView {
             let element = cachedElement(forKey: key, role: .image)
             element.setAccessibilityLabel("Error on line \(line)")
             element.setAccessibilityValue(errorMessage(forLine: line) ?? "Error")
-            element.onPress = nil
+            // Pressing the marker is the keyboard path to the popover: a
+            // VoiceOver user cannot hover, and the "Go to Error" button inside
+            // it is the only way from the marker to the faulty SQL.
+            element.onPress = { [weak self] in
+                self?.presentErrorPopover(line: line) ?? false
+            }
             let frame = lineFrame(forLine: line).map {
                 errorMarkerRect(lineTop: $0.origin.y, lineHeight: $0.height)
             }
