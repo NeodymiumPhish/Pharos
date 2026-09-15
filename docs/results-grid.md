@@ -50,6 +50,8 @@ The resize cursor appears a few points either side of a divider, and that whole 
 
 When a column runs off the **right edge of the grid**, its divider is out of reach — so the grid's right edge becomes that column's handle: drag it and the column's edge follows your pointer, which pulls the column back into view. Double-click there to auto-fit the same column.
 
+**Right-click a header** for the column menu: **Hide Column**, one checkmark item per column to show or hide it, and **Show All Columns**. Hidden columns keep their width and position and come back where they were. The row-number column and the last visible column cannot be hidden, and hidden columns stay out of copy, export, share and drag — what leaves the grid is the table you see.
+
 The type row also hosts two overlay affordances on its right edge:
 
 - a **▲/▼ sort triangle** while a sort is active
@@ -67,6 +69,14 @@ The grid supports both row and cell selection:
 - **Cells** — click any data cell, or click-drag to select a rectangular cell range. Arrow keys move the active cell, **Shift+arrows** extend the range, and **Tab**/**Return** step between cells.
 
 Press **Esc** or click the **Clear Selection** button to clear. The selection drives the [Inspector](inspector.md) (row detail or aggregate statistics) and copy/export operations — copy uses the selected cells if any, otherwise the selected rows, otherwise all displayed rows.
+
+### Quick Look
+
+Press **Space** with a selection (or choose **Quick Look** from the right-click menu) to preview the selected cells in the system Quick Look panel. JSON values are shown pretty-printed with sorted keys, `bytea` values that hold a PNG, JPEG, GIF, WebP or PDF are shown as that image or document, and everything else is shown as text. With several cells selected, the panel's arrow keys step between them, and moving the grid selection while the panel is open updates it. Press Space again to close.
+
+### Drag Out
+
+Drag a selected cell block or selected rows out of the grid. Dropped on a text field or editor, the selection lands as tab-separated text (with an HTML table for rich-text targets); dropped on the Finder, it lands as a **CSV file** named after the result's table. Start the drag on a cell that is already selected — a drag from an unselected cell selects instead.
 
 ## Find in Results
 

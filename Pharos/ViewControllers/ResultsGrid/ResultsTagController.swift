@@ -12,10 +12,12 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     private weak var grid: ResultsGridVC?
     private let copyExport: ResultsCopyExport
 
-    /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag", 22 = "Manage Tags…".
+    /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag", 22 = "Manage Tags…",
+    /// 23 = "Quick Look".
     private static let addTag = 20
     private static let removeTag = 21
     private static let manageTags = 22
+    private static let quickLook = 23
 
     init(grid: ResultsGridVC, copyExport: ResultsCopyExport) {
         self.grid = grid
@@ -27,6 +29,19 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
+
+        // Quick Look first, as in Finder, and with the same Space shortcut the
+        // table's `keyDown` honours. The item targets the grid directly rather
+        // than the responder chain: a context menu has no first responder of
+        // its own to route through.
+        let quickLook = menu.addItem(withTitle: String(localized: "Quick Look"),
+                                     action: #selector(ResultsGridVC.toggleQuickLook(_:)),
+                                     keyEquivalent: " ")
+        quickLook.keyEquivalentModifierMask = []
+        quickLook.tag = Self.quickLook
+        quickLook.target = grid
+
+        menu.addItem(.separator())
 
         let add = menu.addItem(withTitle: "Add Tag…", action: #selector(addTagAction),
                                keyEquivalent: "")
@@ -54,6 +69,11 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         // Copy section first: it must refresh even if the grid is gone.
         copyExport.updateCopyItems(in: menu)
         guard let grid else { return }
+
+        if let quickLook = menu.item(withTag: Self.quickLook) {
+            // Needs a selection, not a tag: there is nothing to preview without one.
+            quickLook.isEnabled = grid.hasQuickLookSelection
+        }
 
         let targets = grid.tagTargetDataRows()
         if let add = menu.item(withTag: Self.addTag) {

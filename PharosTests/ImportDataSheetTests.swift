@@ -23,6 +23,17 @@ private func findButton(titled title: String, in view: NSView) -> NSButton? {
     return nil
 }
 
+/// A non-editable text field whose string contains `text` — how the chosen
+/// file name is shown.
+private func findLabel(reading text: String, in view: NSView) -> NSTextField? {
+    for sub in view.subviews {
+        if let field = sub as? NSTextField, !(field is NSSearchField),
+           field.stringValue.contains(text) { return field }
+        if let found = findLabel(reading: text, in: sub) { return found }
+    }
+    return nil
+}
+
 func runTests() {
     let sheet = ImportDataSheet(schema: "public", table: "users", onImport: { _, _ in })
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
@@ -51,6 +62,33 @@ func runTests() {
     } else {
         failures += 1
         print("FAIL Cancel and Import buttons are reachable from the sheet's view")
+    }
+
+    // MARK: A dropped file arrives already chosen (D2)
+    //
+    // The drop on a table node opens this same sheet, so the file it carried
+    // has to show as the chosen one and Import has to be live: an open panel
+    // the user must drive again would make the drop pointless.
+    let dropped = URL(fileURLWithPath: "/tmp/pharos-drop-test/indicators.csv")
+    let droppedSheet = ImportDataSheet(schema: "public", table: "users",
+                                       preselectedFileURL: dropped, onImport: { _, _ in })
+    let droppedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
+                                 styleMask: [.borderless], backing: .buffered, defer: false)
+    droppedWindow.contentView = droppedSheet.view
+    droppedSheet.view.layoutSubtreeIfNeeded()
+
+    if let importButton = findButton(titled: "Import", in: droppedSheet.view) {
+        expectTrue(importButton.isEnabled, "a preselected file leaves Import enabled")
+    } else {
+        failures += 1
+        print("FAIL the Import button is reachable from the dropped-file sheet")
+    }
+    expectTrue(findLabel(reading: "indicators.csv", in: droppedSheet.view) != nil,
+               "the preselected file's name is shown in the sheet")
+
+    // And without one, Import stays disabled until a file is chosen.
+    if let importButton = findButton(titled: "Import", in: sheet.view) {
+        expectTrue(!importButton.isEnabled, "with no file chosen Import is disabled")
     }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")

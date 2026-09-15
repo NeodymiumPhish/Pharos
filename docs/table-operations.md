@@ -41,7 +41,9 @@ After cloning, an alert reports the result ("Table structure cloned." or "Table 
 
 ## Import CSV
 
-Right-click a table and choose **Import Data…** to open the import sheet:
+Right-click a table and choose **Import Data…** to open the import sheet, or **drop a `.csv` or `.tsv` file from the Finder onto the table's row** in the schema browser — the same sheet opens with the file already chosen. A drop is accepted on tables only (not views, partitions or columns), one file at a time, and only while the browser has a connection.
+
+The import sheet:
 
 - **CSV File** — choose the file to import
 - **CSV file has headers** — whether the first row contains column headers (on by default)

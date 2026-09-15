@@ -62,12 +62,65 @@ class ResultsCopyExport: NSObject {
 
     weak var delegate: ResultsCopyExportDelegate?
 
+    /// Base name for the CSV file a drag out of the grid promises, without the
+    /// extension. Pushed by the VC from the result's own table name when the
+    /// core attributed one; the default is what an unattributed result drags
+    /// out as.
+    var dragFileBaseName: String = String(localized: "Results")
+
+    /// The writer behind the drag currently in flight. `NSFilePromiseProvider`
+    /// does NOT retain its delegate, and the provider is its own delegate here,
+    /// so nothing else would keep it alive between the drag starting and the
+    /// destination asking for the file.
+    private var dragProvider: ResultsDragProvider?
+
     init(tableView: NSTableView, copyButton: NSButton, exportButton: NSButton) {
         self.tableView = tableView
         self.copyButton = copyButton
         self.exportButton = exportButton
         self.includeHeaders = UserDefaults.standard.object(forKey: Self.includeHeadersKey) as? Bool ?? true
         super.init()
+        // The grid's table view starts the drag (it owns the mouse), but the
+        // payload is this class's job — it is the one place that knows how the
+        // selection turns into TSV, HTML and CSV. Wiring it here keeps the
+        // whole drag-out feature in the two files that already own copy.
+        (tableView as? ResultsTableView)?.dragWriterProvider = { [weak self] in
+            self?.makeDragWriter()
+        }
+    }
+
+    // MARK: - Drag Out
+
+    /// Builds the pasteboard writer for a drag of the current selection, or
+    /// nil when there is nothing to drag.
+    ///
+    /// One writer, not two: a single dragging item carries the three text
+    /// representations a copy writes AND the promise of a CSV file, so a drop
+    /// on a text editor pastes the rows while a drop on the Finder writes one
+    /// file. Two items would have handed the Finder both — a file and a text
+    /// clipping — for one gesture.
+    ///
+    /// The `CopyData` snapshot is taken here, on the main thread, off the live
+    /// model. The CSV — the big one — is a real promise and is written later
+    /// on the provider's own queue; the text forms are built when the drag
+    /// starts (see `ResultsDragProvider`, which explains why they cannot be
+    /// promised too).
+    func makeDragWriter() -> NSPasteboardWriting? {
+        guard let data = gatherData() else { return nil }
+        let provider = ResultsDragProvider(data: data, fileName: Self.dragFileName(base: dragFileBaseName))
+        dragProvider = provider
+        return provider
+    }
+
+    /// `base.csv`, with anything that cannot travel in a file name removed.
+    /// A name that sanitises away to nothing falls back to "Results", so the
+    /// promise always has a name to write under.
+    static func dragFileName(base: String) -> String {
+        let illegal = CharacterSet(charactersIn: "/:\\?%*|\"<>").union(.controlCharacters)
+        let cleaned = base.components(separatedBy: illegal).joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = cleaned.isEmpty ? "Results" : String(cleaned.prefix(80))
+        return "\(name).csv"
     }
 
     // MARK: - Selection Helper
@@ -89,15 +142,22 @@ class ResultsCopyExport: NSObject {
         case data(CopyData)
     }
 
+    /// Which table columns copy, export, share and drag carry: the data
+    /// columns the user can SEE. The row-number column is chrome, and a column
+    /// hidden from the header's menu is hidden on purpose — what leaves the grid
+    /// is the table on screen, so a hidden column never rides along in a paste.
+    static func isCopyable(_ column: NSTableColumn) -> Bool {
+        column.identifier.rawValue != "__rownum__" && !column.isHidden
+    }
+
     /// Gathers data from the selected cell range.
     private func gatherCellRangeData() -> CellRangeGather {
         guard let selection = cellSelection, let range = selection.selectedRange else { return .none }
 
         let tableCols = tableView.tableColumns
         let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
-            guard idx >= 0, idx < tableCols.count else { return nil }
-            let id = tableCols[idx].identifier.rawValue
-            return id == "__rownum__" ? nil : id
+            guard idx >= 0, idx < tableCols.count, Self.isCopyable(tableCols[idx]) else { return nil }
+            return tableCols[idx].identifier.rawValue
         }
         guard !selectedColIds.isEmpty else { return .none }
 
@@ -152,8 +212,7 @@ class ResultsCopyExport: NSObject {
         let selectedRows = tableView.selectedRowIndexes
 
         let colIds = tableView.tableColumns.compactMap { col -> String? in
-            let id = col.identifier.rawValue
-            return id == "__rownum__" ? nil : id
+            Self.isCopyable(col) ? col.identifier.rawValue : nil
         }
         guard !colIds.isEmpty else { return nil }
 
@@ -204,9 +263,8 @@ class ResultsCopyExport: NSObject {
         if let selection = cellSelection, let range = selection.selectedRange {
             let tableCols = tableView.tableColumns
             let selectedColIds = (range.topLeft.column...range.bottomRight.column).compactMap { idx -> String? in
-                guard idx >= 0, idx < tableCols.count else { return nil }
-                let id = tableCols[idx].identifier.rawValue
-                return id == "__rownum__" ? nil : id
+                guard idx >= 0, idx < tableCols.count, Self.isCopyable(tableCols[idx]) else { return nil }
+                return tableCols[idx].identifier.rawValue
             }
             let colCount = selectedColIds.filter { id in
                 guard let idx = colIndex(from: id) else { return false }
@@ -231,8 +289,7 @@ class ResultsCopyExport: NSObject {
 
         // All data columns, resolved exactly like gatherData().
         let allColCount = tableView.tableColumns.filter { col in
-            let id = col.identifier.rawValue
-            guard id != "__rownum__", let idx = colIndex(from: id) else { return false }
+            guard Self.isCopyable(col), let idx = colIndex(from: col.identifier.rawValue) else { return false }
             return idx < columns.count
         }.count
 
@@ -330,14 +387,20 @@ class ResultsCopyExport: NSObject {
     }
 
     @objc func copyAsCSV(_: Any?) {
-        copyOnBackground { data in
-            var lines = data.rows.map { $0.map { Self.csvEscape($0 ?? "") }.joined(separator: ",") }
-            if data.includeHeaders {
-                let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-                lines.insert(header, at: 0)
-            }
-            return lines.joined(separator: "\n")
+        copyOnBackground { data in Self.csvText(data: data) }
+    }
+
+    /// The CSV text for a whole `CopyData` payload: RFC 4180 escaping through
+    /// `csvEscape`, one row per line, the header row first when headers are
+    /// on. Shared by "Copy as CSV", "Export as CSV", "Share…" and the drag-out
+    /// file promise — one escaping rule for every CSV that leaves the grid.
+    static func csvText(data: CopyData) -> String {
+        var lines = data.rows.map { $0.map { Self.csvEscape($0 ?? "") }.joined(separator: ",") }
+        if data.includeHeaders {
+            let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
+            lines.insert(header, at: 0)
         }
+        return lines.joined(separator: "\n")
     }
 
     @objc func copyAsMarkdown(_: Any?) {
@@ -562,8 +625,53 @@ class ResultsCopyExport: NSObject {
             ("\(prefix) as JSON\u{2026}", #selector(exportAsJSON)),
             ("\(prefix) as SQL INSERT\u{2026}", #selector(exportAsSQLInsert)),
             ("\(prefix) as Markdown\u{2026}", #selector(exportAsMarkdown)),
+            (String(localized: "Share\u{2026}"), #selector(shareResults)),
         ]
         showPopover(from: exportButton, items: items)
+    }
+
+    // MARK: - Share
+
+    /// The picker must outlive `show(relativeTo:)`: it is the delegate-less
+    /// owner of the menu it presents, and AppKit does not retain it.
+    private var activeSharePicker: NSSharingServicePicker?
+
+    /// Where "Share…" writes its CSV files. A share extension may still be
+    /// reading a file after the picker closes, so nothing is deleted per share;
+    /// the whole folder goes at quit (`AppDelegate.applicationWillTerminate`).
+    static var shareFolder: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("Pharos/Share", isDirectory: true)
+    }
+
+    static func cleanUpShareFiles() {
+        try? FileManager.default.removeItem(at: shareFolder)
+    }
+
+    /// "Share…" in the export popover: the selection (or the whole result) as a
+    /// CSV file handed to the system share sheet, anchored on the Export button.
+    /// A file, not a string, so Mail attaches it and AirDrop sends it as a
+    /// document; the CSV goes through the same `csvText` as Copy and Export.
+    @objc private func shareResults(_: Any?) {
+        guard let data = gatherData() else { return }
+        activePopover?.close()
+        activePopover = nil
+        let folder = Self.shareFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let url = folder.appendingPathComponent("Results.csv")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try Self.csvText(data: data).write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                DispatchQueue.main.async { NSAlert(error: error).runModal() }
+                return
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let picker = NSSharingServicePicker(items: [url])
+                self.activeSharePicker = picker
+                picker.show(relativeTo: self.exportButton.bounds, of: self.exportButton, preferredEdge: .minY)
+            }
+        }
     }
 
     /// Builds the popover's view controller.
@@ -630,12 +738,7 @@ class ResultsCopyExport: NSObject {
 
     @objc private func exportAsCSV(_: Any?) {
         exportToFile(filename: "export.csv", contentType: .commaSeparatedText) { data in
-            var lines = data.rows.map { $0.map { Self.csvEscape($0 ?? "") }.joined(separator: ",") }
-            if data.includeHeaders {
-                let header = data.columnNames.map { Self.csvEscape($0) }.joined(separator: ",")
-                lines.insert(header, at: 0)
-            }
-            return lines.joined(separator: "\n")
+            Self.csvText(data: data)
         }
     }
 
@@ -763,6 +866,96 @@ class ResultsCopyExport: NSObject {
             if item.tag >= 1 && item.tag <= 10 { item.isEnabled = true }
         }
     }
+}
+
+// MARK: - Drag Provider
+
+/// The pasteboard writer for a drag out of the results grid: a CSV file
+/// promise that ALSO answers the three text types a copy writes.
+///
+/// It is its own `NSFilePromiseProviderDelegate` because the payload — one
+/// `CopyData` snapshot — is the only state either role needs; splitting them
+/// would mean two objects holding the same rows.
+///
+/// Every representation is built on demand: the text types are declared
+/// `.promised`, so `pasteboardPropertyList(forType:)` runs only if the
+/// destination asks for them, and the CSV is written on `queue`, off the main
+/// thread — the same "snapshot on main, format off main" split the copy path
+/// uses for large selections.
+final class ResultsDragProvider: NSFilePromiseProvider, NSFilePromiseProviderDelegate {
+
+    /// The selection as it stood when the drag began.
+    let data: CopyData
+
+    /// File name the promise writes under, e.g. `public.users.csv`.
+    let fileName: String
+
+    private let queue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+
+    init(data: CopyData, fileName: String) {
+        self.data = data
+        self.fileName = fileName
+        super.init()
+        self.fileType = UTType.commaSeparatedText.identifier
+        self.delegate = self
+    }
+
+    // MARK: NSPasteboardWriting
+
+    override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        super.writableTypes(for: pasteboard) + [.string, .tabularText, .html]
+    }
+
+    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        switch type {
+        // `.string` and `.tabularText` are both the TSV form, exactly as a
+        // copy writes them — a drop into a spreadsheet lands as a table.
+        case .string, .tabularText:
+            return tsv
+        case .html:
+            return html
+        default:
+            return super.pasteboardPropertyList(forType: type)
+        }
+    }
+
+    /// Built once each, on first request.
+    ///
+    /// These are NOT declared `.promised`: a promised type on an
+    /// `NSFilePromiseProvider` is advertised on the drag pasteboard but reads
+    /// back as nil, so a drop into a text view or a spreadsheet silently
+    /// delivered nothing. The text is therefore formatted when the drag
+    /// starts, like `NSPasteboardWriting` normally does. The CSV — the big one
+    /// for a large selection — stays a real promise and is still written off
+    /// the main thread, on `queue`.
+    private lazy var tsv: String = ResultsCopyExport.tsvText(data: data)
+    private lazy var html: String = ResultsCopyExport.htmlTable(data: data,
+                                                                includeHeaders: data.includeHeaders)
+
+    // MARK: NSFilePromiseProviderDelegate
+
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider,
+                             fileNameForType fileType: String) -> String {
+        fileName
+    }
+
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider,
+                             writePromiseTo url: URL,
+                             completionHandler: @escaping (Error?) -> Void) {
+        do {
+            try ResultsCopyExport.csvText(data: data)
+                .write(to: url, atomically: true, encoding: .utf8)
+            completionHandler(nil)
+        } catch {
+            completionHandler(error)
+        }
+    }
+
+    func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue { queue }
 }
 
 // MARK: - Copy/Export Popover VC

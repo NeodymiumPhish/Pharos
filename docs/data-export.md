@@ -36,9 +36,15 @@ Menu labels adapt to the selection — "Copy selection as…" when cells or rows
 
 Every copy also places a plain TSV table and an HTML table on the clipboard alongside the chosen format, so pasting into a spreadsheet or a rich-text field lands as a table regardless of which format you picked.
 
+## Drag Out
+
+Dragging a selection out of the grid carries the same three clipboard forms as a copy (TSV, a plain table, an HTML table) plus a **CSV file promise**, so a drop on the Finder writes a `.csv` while a drop into a text field pastes text. See [Results Grid](results-grid.md#drag-out).
+
 ## Export Results to File
 
 The **Export** button in the action bar offers **CSV**, **TSV**, **JSON** (pretty-printed array of objects), **SQL INSERT**, and **Markdown** — each opens a save dialog.
+
+**Share…** in the same menu writes the selection (or the whole result) to a CSV file and opens the system share sheet, so the file can go straight to Mail, Messages, AirDrop or any share extension you have installed.
 
 When the result is showing as a [chart](charts.md), the same button switches to chart exports: **Export Chart as PNG…**, **Export Chart as PDF…**, and **Copy Chart as Image**.
 

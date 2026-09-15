@@ -168,11 +168,22 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func contextImportData(_: Any?) {
-        guard let node = clickedNode(),
-              let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
+        guard let node = clickedNode() else { return }
+        presentImportSheet(for: node, preselectedFileURL: nil)
+    }
+
+    /// Opens the import sheet for `node`, optionally with the file a drop on
+    /// the table already supplied.
+    ///
+    /// Internal so the drop path (`SchemaDataSource` → `SchemaBrowserVC`) runs
+    /// the SAME import as the context menu: one sheet, one progress-tracking
+    /// pair, one error alert.
+    func presentImportSheet(for node: SchemaTreeNode, preselectedFileURL: URL?) {
+        guard let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
 
-        let sheet = ImportDataSheet(schema: schemaName, table: tableName) { [weak self] filePath, hasHeaders in
+        let sheet = ImportDataSheet(schema: schemaName, table: tableName,
+                                    preselectedFileURL: preselectedFileURL) { [weak self] filePath, hasHeaders in
             Task { @MainActor in
                 self?.delegate?.contextMenuDidStartImport(
                     connectionId: connectionId, schema: schemaName, table: tableName

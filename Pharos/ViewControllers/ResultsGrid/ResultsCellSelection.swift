@@ -192,6 +192,25 @@ class CellSelectionController {
         state.isSelecting = false
     }
 
+    /// True when `event` lands on something that is ALREADY selected — a row
+    /// in row mode, or a cell inside the selected block.
+    ///
+    /// That hit is the one the table view holds back: it starts a drag of the
+    /// whole selection if the mouse moves, and only collapses the selection to
+    /// the clicked cell if it does not. A hit anywhere else selects at once,
+    /// as it always did.
+    func hitsExistingSelection(_ event: NSEvent) -> Bool {
+        guard let tv = tableView else { return false }
+        let point = tv.convert(event.locationInWindow, from: nil)
+        let row = tv.row(at: point)
+        guard row >= 0 else { return false }
+        // Row mode covers the whole row, the `#` column included, so a drag
+        // can start from the row number the user clicked to select it.
+        if state.isRowMode { return state.selectedRows.contains(row) }
+        guard let pos = cellPosition(from: event) else { return false }
+        return state.contains(pos)
+    }
+
     // MARK: - Keyboard Handling
 
     /// Returns true if the event was handled.
@@ -319,6 +338,17 @@ class CellSelectionController {
     }
 }
 
+// MARK: - Quick Look Routing
+
+/// The one method `ResultsTableView` sends up the responder chain for Space.
+/// Declared here, rather than naming `ResultsGridVC`, for the same reason as
+/// `ResultsTableFindRouting` below: the standalone suites compile this file
+/// without the grid's view controller, and `#selector` needs a type it can see.
+/// `ResultsGridVC` conforms in `ResultsGridVC+QuickLook.swift`.
+@objc protocol ResultsQuickLookToggling: AnyObject {
+    func toggleQuickLook(_ sender: Any?)
+}
+
 // MARK: - Find Routing
 
 /// The slice of `ResultsFindController` that `ResultsTableView` needs to
@@ -392,19 +422,101 @@ class ResultsTableView: NSTableView {
         super.setFrameSize(size)
     }
 
+    // MARK: - Drag Out
+
+    /// Supplies the pasteboard writer for a drag of the current selection, or
+    /// nil when there is nothing to drag. Wired by `ResultsCopyExport`, which
+    /// owns every format the grid emits.
+    var dragWriterProvider: (() -> NSPasteboardWriting?)?
+
+    /// How far the mouse must travel, with the button down on an already
+    /// selected cell, before the gesture counts as a drag rather than a click.
+    static let dragStartThreshold: CGFloat = 4
+
+    /// The mouse-down that landed inside the selection, held back until the
+    /// gesture reveals itself: a drag carries the selection out, a release in
+    /// place applies the click's own selection change.
+    private var pendingSelectionEvent: NSEvent?
+
     override func mouseDown(with event: NSEvent) {
-        cellSelectionController?.handleMouseDown(with: event)
         // Do NOT call super.mouseDown -- we replace row selection with cell selection.
         // Ensure the table becomes first responder.
         window?.makeFirstResponder(self)
+
+        // Shift/Command are always selection gestures, never drags.
+        let modifiers = event.modifierFlags.intersection([.shift, .command])
+        if modifiers.isEmpty, dragWriterProvider != nil,
+           cellSelectionController?.hitsExistingSelection(event) == true {
+            pendingSelectionEvent = event
+            return
+        }
+        cellSelectionController?.handleMouseDown(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if let pending = pendingSelectionEvent {
+            let origin = pending.locationInWindow
+            let moved = hypot(event.locationInWindow.x - origin.x,
+                              event.locationInWindow.y - origin.y)
+            guard moved >= Self.dragStartThreshold else { return }
+            pendingSelectionEvent = nil
+            if beginSelectionDrag(with: event) { return }
+            // No payload (an empty gather, e.g. the tagged-rows scope emptied
+            // the block): fall back to the selection this click would have
+            // made, so the gesture is never swallowed.
+            cellSelectionController?.handleMouseDown(with: pending)
+        }
         cellSelectionController?.handleMouseDragged(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
+        if let pending = pendingSelectionEvent {
+            pendingSelectionEvent = nil
+            // A click, not a drag: collapse the selection to what was clicked,
+            // which is what the mouse-down would have done straight away.
+            cellSelectionController?.handleMouseDown(with: pending)
+        }
         cellSelectionController?.handleMouseUp(with: event)
+    }
+
+    /// Starts the drag session. Returns false when there is no payload, so the
+    /// caller can fall back to plain selection.
+    func beginSelectionDrag(with event: NSEvent) -> Bool {
+        guard let writer = dragWriterProvider?() else { return false }
+        let item = NSDraggingItem(pasteboardWriter: writer)
+        let frame = selectionSnapshotRect()
+        item.setDraggingFrame(frame, contents: snapshotImage(of: frame))
+        beginDraggingSession(with: [item], event: event, source: self)
+        return true
+    }
+
+    /// The visible part of the selected rows, full table width — the region
+    /// the drag image shows.
+    private func selectionSnapshotRect() -> NSRect {
+        let rows = cellSelectionController?.state.selectedRowIndices() ?? IndexSet()
+        var union = NSRect.zero
+        for row in rows where row >= 0 && row < numberOfRows {
+            let rowRect = rect(ofRow: row).intersection(visibleRect)
+            guard !rowRect.isEmpty else { continue }
+            union = union.isEmpty ? rowRect : union.union(rowRect)
+        }
+        return union.isEmpty ? visibleRect : union
+    }
+
+    /// Everything that leaves the grid is a copy: a drag out never removes
+    /// rows from the result.
+    override func draggingSession(_ session: NSDraggingSession,
+                                  sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+
+    private func snapshotImage(of rect: NSRect) -> NSImage? {
+        guard rect.width >= 1, rect.height >= 1,
+              let rep = bitmapImageRepForCachingDisplay(in: rect) else { return nil }
+        cacheDisplay(in: rect, to: rep)
+        let image = NSImage(size: rect.size)
+        image.addRepresentation(rep)
+        return image
     }
 
     /// ⌘A selects every row through the controller. NSTableView's own
@@ -417,11 +529,28 @@ class ResultsTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Space opens Quick Look on the selection, as it does in Finder. Sent up
+        // the responder chain so the table needs no reference to the grid's view
+        // controller; with no selection it falls through to `super`, which is
+        // where a plain Space belongs (nowhere, with type-select off).
+        if event.keyCode == 49,
+           event.modifierFlags.intersection([.command, .option, .control, .shift, .function]).isEmpty,
+           hasQuickLookSelection {
+            NSApp.sendAction(#selector(ResultsQuickLookToggling.toggleQuickLook(_:)),
+                             to: nil, from: self)
+            return
+        }
         if cellSelectionController?.handleKeyDown(with: event) == true {
             cellSelectionController?.scrollToActive()
             return
         }
         super.keyDown(with: event)
+    }
+
+    /// Whether Space has anything to preview: a cell block, or whole rows.
+    private var hasQuickLookSelection: Bool {
+        guard let state = cellSelectionController?.state else { return false }
+        return state.isRowMode || state.selectedRange != nil
     }
 
     // Below the last data row, draw a plain background instead of NSTableView's

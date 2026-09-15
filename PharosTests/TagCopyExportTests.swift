@@ -112,6 +112,35 @@ private func cellRange(_ subject: ResultsCopyExport, fromDisplayRow lo: Int, to 
 
 // MARK: - Tests
 
+/// A column hidden from the header's menu is hidden from copy, export, share
+/// and drag too — the paste is the table on screen. Both gather paths and both
+/// summary paths must agree, or the popover caption promises columns the copy
+/// does not carry.
+private func testHiddenColumnsStayOutOfTheCopy() {
+    let (s, table) = makeSubject(displayRows: [7, 2], taggedRows: [])
+    table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("col_1")))
+    s.columns = [ColumnDef(name: "c", dataType: "text"), ColumnDef(name: "d", dataType: "text")]
+    s.rows = (0..<8).map { [AnyCodable("r\($0)"), AnyCodable("x\($0)")] }
+    expect(copied(s), "r7x7,r2x2", "both columns copy while both show")
+    expect("\(s.selectionSummary().columns)", "2", "summary counts both visible columns")
+
+    table.tableColumns[1].isHidden = true
+    expect(copied(s), "r7,r2", "a hidden column leaves the whole-set copy")
+    expect("\(s.selectionSummary().columns)", "1", "the whole-set summary drops it too")
+    expect(s.gatherData()?.columnNames.joined(separator: ",") ?? "<nil>", "c",
+           "the header row names only the visible column")
+
+    var sel = CellSelectionState()
+    sel.anchor = CellPosition(row: 0, column: 0)
+    sel.active = CellPosition(row: 1, column: 1)
+    s.cellSelection = sel
+    expect(copied(s), "r7,r2", "a cell range across the hidden column copies the visible part")
+    expect("\(s.selectionSummary().columns)", "1", "the range summary agrees")
+
+    table.tableColumns[1].isHidden = false
+    expect(copied(s), "r7x7,r2x2", "showing the column brings it back")
+}
+
 private func testDisplayVersusDataIndex() {
     // Display 0→data 7, display 1→data 2, display 2→data 5. Tagging DATA row 2
     // must keep "r2"; reading the map with the display index would keep "r5".
@@ -361,6 +390,7 @@ private func testPopoverCaptionFollowsTheBox() {
 }
 
 func runTests() {
+    testHiddenColumnsStayOutOfTheCopy()
     testDisplayVersusDataIndex()
     testEveryRowInTheSetIsInScope()
     testCellRangeSummaryCountsTheDataIndexedRow()

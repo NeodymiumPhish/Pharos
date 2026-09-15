@@ -9,6 +9,10 @@ struct ResultsGridState {
     var columnFilters: [String: ColumnFilter]
     var scrollPosition: NSPoint
     var selectedRows: IndexSet
+    /// Identifiers of the data columns the user hid from the header's context
+    /// menu. A hidden column keeps its entry in `columnWidths`, so showing it
+    /// again brings back the width it had.
+    var hiddenColumns: Set<String> = []
 }
 
 /// A single query currently executing for a tab. Multiple may be in flight

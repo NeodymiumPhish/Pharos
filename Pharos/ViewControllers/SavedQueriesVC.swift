@@ -419,6 +419,22 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         NSPasteboard.general.setString(rendered, forType: .string)
     }
 
+    /// "Share…" on a query: the rendered SQL as text to the system share sheet,
+    /// anchored on the clicked row. Text, not a file — a saved query is a
+    /// snippet someone pastes into a message, not a document.
+    @objc private func contextShareSQL(_: Any?) {
+        guard let node = clickedNode(), case .query(let q) = node.kind else { return }
+        let rendered = VariableSubstitutor.render(q.sql, with: SavedQueryVariables.decode(q.variables)).sql
+        let row = outlineView.clickedRow
+        let anchor = row >= 0 ? outlineView.rect(ofRow: row) : outlineView.visibleRect
+        let picker = NSSharingServicePicker(items: [rendered])
+        activeSharePicker = picker
+        picker.show(relativeTo: anchor, of: outlineView, preferredEdge: .minY)
+    }
+
+    /// Retained while its menu is up; AppKit does not hold the picker.
+    private var activeSharePicker: NSSharingServicePicker?
+
     @objc private func contextExportQueryAsSQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
 
@@ -917,6 +933,7 @@ extension SavedQueriesVC: NSMenuDelegate {
             menu.addItem(withTitle: "Open in Tab", action: #selector(contextOpenInTab), keyEquivalent: "")
             menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
             menu.addItem(withTitle: "Export as SQL File…", action: #selector(contextExportQueryAsSQL), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Share…"), action: #selector(contextShareSQL), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")
             menu.addItem(.separator())

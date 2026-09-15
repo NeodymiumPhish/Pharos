@@ -143,6 +143,76 @@ class SQLTextView: NSTextView {
 
         // Use temporary attributes for highlighting (doesn't interfere with undo)
         layoutManager?.allowsNonContiguousLayout = true
+
+        // Added to what NSTextView already accepts, never replacing it: the
+        // plain-text drop that inserts the dragged string must keep working.
+        registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+    }
+
+    // MARK: - File Drop
+
+    /// A `.sql` (or any text) file dropped on the editor opens as a TAB of its
+    /// own rather than being inserted into the query under the cursor —
+    /// the same result as File > Open… or a drop on the Dock icon, which is
+    /// what an editor drop means everywhere else on the system.
+    ///
+    /// The files are handed to the app delegate's `application(_:open:)`, the
+    /// one entry point that already turns a URL into a tab, so this view needs
+    /// no reference to `AppStateManager` (and keeps compiling on its own in
+    /// scripts/test-completion-accessibility.sh).
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(sender) ?? super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        fileDropOperation(sender) ?? super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = Self.textFileURLs(from: sender.draggingPasteboard)
+        guard !urls.isEmpty else {
+            // Not a file drag at all — a dragged string, say — keeps the
+            // editor's own insert-the-text behaviour.
+            guard Self.fileURLs(from: sender.draggingPasteboard).isEmpty else { return false }
+            return super.performDragOperation(sender)
+        }
+        NSApp.delegate?.application?(NSApp, open: urls)
+        return true
+    }
+
+    /// How this view answers a FILE drag: `.copy` for text files, refused for
+    /// any other file, and nil for a drag that carries no file at all (the
+    /// caller then defers to NSTextView).
+    ///
+    /// A file the editor cannot open must be refused HERE, not just at the
+    /// drop: NSTextView's own answer is `.copy` — it would insert the file's
+    /// name as text — so the cursor would promise a drop that
+    /// `performDragOperation` then silently refuses.
+    private func fileDropOperation(_ sender: NSDraggingInfo) -> NSDragOperation? {
+        if !Self.textFileURLs(from: sender.draggingPasteboard).isEmpty { return .copy }
+        if !Self.fileURLs(from: sender.draggingPasteboard).isEmpty { return [] }
+        return nil
+    }
+
+    /// Every file URL on `pasteboard`, in drag order.
+    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        return pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+    }
+
+    /// The dropped files this editor can open: anything whose content type
+    /// conforms to `public.text`.
+    ///
+    /// Mirrors the rule in `AppDelegate.application(_:open:)`, extension
+    /// fallback included, because the drop has to decide whether to show the
+    /// copy cursor BEFORE the delegate ever sees the URLs.
+    static func textFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        fileURLs(from: pasteboard).filter { url in
+            if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+                return type.conforms(to: .text)
+            }
+            return ["sql", "txt", "md"].contains(url.pathExtension.lowercased())
+        }
     }
 
     // MARK: - First Responder

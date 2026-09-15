@@ -22,6 +22,10 @@ class ResultsGridVC: NSViewController {
     var columnFilterController: ResultsColumnFilterController!
     var filterableHeaderView: FilterableHeaderView!
     var cellSelectionController: CellSelectionController!
+    /// The temporary files behind the open Quick Look panel, while this grid is
+    /// the one driving it; nil the rest of the time. See
+    /// `ResultsGridVC+QuickLook.swift`, which is the only file that touches it.
+    var quickLookSession: QuickLookPreviewSession?
 
     // Toolbar elements — owned by ContentViewController, accessed via contentVC
     var statusLabel: NSTextField { contentVC?.statusLabel ?? NSTextField(labelWithString: "") }
@@ -426,50 +430,30 @@ class ResultsGridVC: NSViewController {
     func captureGridState() -> ResultsGridState? {
         guard !columns.isEmpty else { return nil }
 
-        var widths: [String: CGFloat] = [:]
-        for col in tableView.tableColumns where col.identifier.rawValue != "__rownum__" {
-            widths[col.identifier.rawValue] = col.width
-        }
-
-        let order = tableView.tableColumns.map { $0.identifier.rawValue }
+        // Width, order and hidden set together — see `ResultsGridColumnState`,
+        // which also owns the order the three are put BACK in.
+        let columnState = ResultsGridState.captureColumns(from: tableView)
 
         let sortCol = sortController.currentSortColumn
         let sortAsc = tableView.sortDescriptors.first?.ascending ?? true
 
         return ResultsGridState(
-            columnWidths: widths,
-            columnOrder: order,
+            columnWidths: columnState.widths,
+            columnOrder: columnState.order,
             sortColumn: sortCol,
             sortAscending: sortAsc,
             columnFilters: columnFilterController.activeFilters,
             scrollPosition: scrollView.contentView.bounds.origin,
-            selectedRows: tableView.selectedRowIndexes
+            selectedRows: tableView.selectedRowIndexes,
+            hiddenColumns: columnState.hidden
         )
     }
 
     /// Restores previously captured grid view state after `showResult()`.
     func restoreGridState(_ state: ResultsGridState) {
-        // 0. Column order. `__rownum__` is never moved: the selection controller
-        // and the row-number click path rely on it staying at index 0, and
-        // `shouldReorderColumn` refuses a drag into or out of that slot — a
-        // saved order from before that guard must not put it back.
-        if let order = state.columnOrder {
-            for (targetIndex, colId) in order.enumerated() {
-                guard targetIndex < tableView.tableColumns.count,
-                      targetIndex != 0, colId != "__rownum__" else { continue }
-                if let currentIndex = tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == colId }),
-                   currentIndex != targetIndex {
-                    tableView.moveColumn(currentIndex, toColumn: targetIndex)
-                }
-            }
-        }
-
-        // 1. Column widths
-        for col in tableView.tableColumns {
-            if let saved = state.columnWidths[col.identifier.rawValue] {
-                col.width = saved
-            }
-        }
+        // 0. Columns: order, then visibility, then widths, in that order and for
+        // the reasons `ResultsGridColumnState` sets out.
+        state.applyColumns(to: tableView)
 
         // 2. Sort — setting sortDescriptors triggers handleSortDescriptorsChanged via delegate
         if let sortCol = state.sortColumn {
@@ -1208,6 +1192,12 @@ class ResultsGridVC: NSViewController {
         copyExport.columnCategories = columnCategories
         copyExport.cellSelection = cellSelectionController?.state
         copyExport.taggedRows = Set(matchesByRow.keys)
+        // Names the CSV a drag out of the grid promises. The result's own
+        // table when the core attributed one — a dragged file then arrives as
+        // `public.users.csv` rather than an anonymous `Results.csv`.
+        if let tableDisplay = rowIdentity?.tableDisplay, !tableDisplay.isEmpty {
+            copyExport.dragFileBaseName = tableDisplay
+        }
     }
 
     func pushFindStateToDataSource(matchSet: Set<CellAddress>, currentMatchRow: Int, currentMatchColId: String?) {
@@ -1251,6 +1241,10 @@ class ResultsGridVC: NSViewController {
             filterableHeaderView.needsDisplay = true
             clearSelectionButton.isHidden = true
         }
+
+        // An open Quick Look panel follows the selection, the way Finder's does.
+        // No-ops unless the panel is up and showing this grid.
+        refreshQuickLookIfNeeded()
     }
 
     /// Clears any active cell/row selection. Wired to the accent-tinted
@@ -1335,7 +1329,10 @@ class ResultsGridVC: NSViewController {
         guard columnIndex >= 0, columnIndex < tableView.tableColumns.count else { return }
         let column = tableView.tableColumns[columnIndex]
         let colId = column.identifier.rawValue
-        guard colId != "__rownum__" else { return }
+        // A hidden column has no divider to double-click and no text to fit to,
+        // so auto-fit skips it rather than quietly rewriting the width it will
+        // come back at.
+        guard colId != "__rownum__", !column.isHidden else { return }
         column.width = measuredColumnWidth(column: column, colId: colId, includeVisibleSample: true)
     }
 

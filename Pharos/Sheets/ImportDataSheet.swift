@@ -15,12 +15,21 @@ class ImportDataSheet: NSViewController {
     private var onImport: ((String, Bool) -> Void)?
     private var selectedFilePath: String?
 
-    init(schema: String, table: String, onImport: @escaping (String, Bool) -> Void) {
+    /// `preselectedFileURL` is the file a drop on the table node carried: the
+    /// sheet then opens with that file already chosen, so the drop does not
+    /// ask the user to find the same file again in an open panel.
+    init(schema: String, table: String, preselectedFileURL: URL? = nil,
+         onImport: @escaping (String, Bool) -> Void) {
         self.schema = schema
         self.table = table
         self.onImport = onImport
+        self.selectedFilePath = preselectedFileURL?.path
+        self.preselectedFileName = preselectedFileURL?.lastPathComponent
         super.init(nibName: nil, bundle: nil)
     }
+
+    /// Held until `loadView` builds the label it belongs in.
+    private let preselectedFileName: String?
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
@@ -70,6 +79,12 @@ class ImportDataSheet: NSViewController {
         importButton.keyEquivalent = "\r"
         importButton.bezelStyle = .rounded
         importButton.setAccessibilityIdentifier("sheet.importdata.default")
+        // Nothing to import until a file is chosen — by the panel, or by the
+        // drop that opened this sheet.
+        importButton.isEnabled = selectedFilePath != nil
+        if let preselectedFileName {
+            showChosenFile(named: preselectedFileName)
+        }
 
         let buttonStack = NSStackView(views: [Self.spacer(), cancelButton, importButton])
         buttonStack.spacing = 8
@@ -157,10 +172,19 @@ class ImportDataSheet: NSViewController {
         panel.beginSheetModal(for: window) { [weak self] response in
             if response == .OK, let url = panel.url {
                 self?.selectedFilePath = url.path
-                self?.filePathLabel.stringValue = DisplayEscape.escaped(url.lastPathComponent)
-                self?.filePathLabel.textColor = .labelColor
+                self?.showChosenFile(named: url.lastPathComponent)
             }
         }
+    }
+
+    /// Shows the chosen file and enables Import. The name goes through
+    /// `DisplayEscape` for the same reason the browse path does: a file name
+    /// can carry a bidi override, and the label must read as the file that
+    /// will actually be imported.
+    private func showChosenFile(named name: String) {
+        filePathLabel.stringValue = DisplayEscape.escaped(name)
+        filePathLabel.textColor = .labelColor
+        importButton.isEnabled = true
     }
 
     @objc private func cancel() {

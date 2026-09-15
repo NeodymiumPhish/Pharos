@@ -243,6 +243,130 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         }
     }
 
+    // MARK: - Column Visibility Menu
+
+    /// Identifier of the row-number column. It is not a data column: it carries
+    /// no name and the grid's selection code relies on it staying at index 0, so
+    /// it never appears in the visibility menu.
+    private static let rowNumberColumnId = "__rownum__"
+
+    /// The data columns, paired with their index in `tableColumns`. Hidden ones
+    /// are included — the menu's whole job is to list them.
+    private var dataColumns: [(index: Int, column: NSTableColumn)] {
+        guard let tableView = tableView else { return [] }
+        return tableView.tableColumns.enumerated()
+            .filter { $0.element.identifier.rawValue != Self.rowNumberColumnId }
+            .map { (index: $0.offset, column: $0.element) }
+    }
+
+    private var visibleDataColumnCount: Int {
+        dataColumns.filter { !$0.column.isHidden }.count
+    }
+
+    /// Right-click menu: one check-marked item per data column, plus "Show All
+    /// Columns", plus "Hide Column" for the column actually clicked on.
+    ///
+    /// The grid's state snapshot is taken on the way OUT of a result tab
+    /// (`ResultsGridVC.captureGridState`), so a toggle here needs no callback to
+    /// be persisted — it only has to leave the columns in the state the capture
+    /// will read.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard tableView != nil else { return super.menu(for: event) }
+        let columns = dataColumns
+        guard !columns.isEmpty else { return super.menu(for: event) }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let clickedIndex = column(at: point)
+        let visible = visibleDataColumnCount
+
+        let menu = NSMenu()
+        // Explicit enablement: the items' target is this view, and the "last
+        // visible column" rule is not something a validator could infer.
+        menu.autoenablesItems = false
+
+        // The clicked column's own Hide, first, because a right-click on a
+        // column header is most often aimed at that column.
+        if clickedIndex >= 0, let tableView = tableView,
+           clickedIndex < tableView.tableColumns.count {
+            let clicked = tableView.tableColumns[clickedIndex]
+            if clicked.identifier.rawValue != Self.rowNumberColumnId, !clicked.isHidden {
+                let item = NSMenuItem(title: String(localized: "Hide Column"),
+                                      action: #selector(hideColumnFromMenu(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = clicked.identifier.rawValue
+                item.isEnabled = visible > 1
+                menu.addItem(item)
+                menu.addItem(.separator())
+            }
+        }
+
+        for (_, column) in columns {
+            let item = NSMenuItem(title: column.title,
+                                  action: #selector(toggleColumnFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = column.identifier.rawValue
+            item.state = column.isHidden ? .off : .on
+            // A grid with no columns at all is not a state the user can get back
+            // out of by pointing at a header, so the last visible one is locked.
+            item.isEnabled = column.isHidden || visible > 1
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        let showAll = NSMenuItem(title: String(localized: "Show All Columns"),
+                                 action: #selector(showAllColumnsFromMenu(_:)), keyEquivalent: "")
+        showAll.target = self
+        showAll.isEnabled = visible < columns.count
+        menu.addItem(showAll)
+        return menu
+    }
+
+    @objc private func toggleColumnFromMenu(_ sender: NSMenuItem) {
+        guard let colId = sender.representedObject as? String,
+              let index = columnIndex(forId: colId), let tableView = tableView else { return }
+        let column = tableView.tableColumns[index]
+        setColumn(column, hidden: !column.isHidden)
+    }
+
+    @objc private func hideColumnFromMenu(_ sender: NSMenuItem) {
+        guard let colId = sender.representedObject as? String,
+              let index = columnIndex(forId: colId), let tableView = tableView else { return }
+        setColumn(tableView.tableColumns[index], hidden: true)
+    }
+
+    @objc private func showAllColumnsFromMenu(_ sender: NSMenuItem) {
+        var changed = false
+        for (_, column) in dataColumns where column.isHidden {
+            column.isHidden = false
+            changed = true
+        }
+        if changed { columnVisibilityDidChange() }
+    }
+
+    /// Hide or show one data column. Refuses to take the last visible one away:
+    /// the menu disables that item, and this is the same rule stated where the
+    /// change actually happens, so no other caller can break the invariant.
+    ///
+    /// `NSTableColumn.isHidden` re-tiles the table by itself — measured — so
+    /// there is no `tile()` here to fall out of step with AppKit's own.
+    func setColumn(_ column: NSTableColumn, hidden: Bool) {
+        guard column.identifier.rawValue != Self.rowNumberColumnId else { return }
+        guard column.isHidden != hidden else { return }
+        if hidden && visibleDataColumnCount <= 1 { return }
+        column.isHidden = hidden
+        columnVisibilityDidChange()
+    }
+
+    private func columnVisibilityDidChange() {
+        needsDisplay = true
+        // The resize handles move with the columns, and their cursor rects are
+        // installed per column.
+        window?.invalidateCursorRects(for: self)
+        // Same notification `columnTypes` posts: the set of columns a screen
+        // reader can see has changed.
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
@@ -251,7 +375,7 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
             for colIndex in highlightedColumnIndices {
                 guard colIndex < tableView.tableColumns.count else { continue }
                 let colId = tableView.tableColumns[colIndex].identifier.rawValue
-                guard colId != "__rownum__" else { continue }
+                guard colId != "__rownum__", !tableView.tableColumns[colIndex].isHidden else { continue }
                 let headerRect = self.headerRect(ofColumn: colIndex)
                 NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
                 headerRect.fill()
@@ -268,7 +392,11 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         let funnelSlot = iconSize + iconPadding * 2 + 8   // width the funnel occupies at the right
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
-            guard colId != "__rownum__" else { continue }
+            // A hidden column keeps its slot in `tableColumns`, and its
+            // `headerRect` collapses to a zero-width rect AT x = 0 — not to
+            // nothing. Every per-column geometry loop in this view has to skip
+            // it or it draws (and grabs) at the header's left edge.
+            guard colId != "__rownum__", !column.isHidden else { continue }
             // Reserve the overlay's room so the text truncates BEFORE the
             // funnel and the sort chevron instead of running under them.
             var reserved: CGFloat = 0
@@ -289,6 +417,7 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
             // funnel) but still no name, no type row and no sort arrow — the
             // header-text guard (name/type loop above) and the sort-arrow
             // guard (sort arrow loop below) both stay in place.
+            guard !column.isHidden else { continue }
 
             let headerRect = self.headerRect(ofColumn: colIndex)
 
@@ -313,7 +442,8 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         // reserves no column width.
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
-            guard colId != "__rownum__", let dir = sortDirections[colId] else { continue }
+            guard colId != "__rownum__", !column.isHidden,
+                  let dir = sortDirections[colId] else { continue }
             let headerRect = self.headerRect(ofColumn: colIndex)
             guard let chevron = sortIcon(ascending: dir == .ascending) else { continue }
             let sz = chevron.size
@@ -393,7 +523,11 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         var ordered: [AccessibilityProxyElement] = []
         var liveIds = Set<String>()
 
-        for (index, column) in tableView.tableColumns.enumerated() {
+        // A hidden column publishes nothing: it is not drawn, its `headerRect`
+        // is a zero-width rect at the header's left edge, and a screen reader
+        // offered a name there would be pointed at the wrong column. Its cached
+        // elements fall out below with the ones whose columns have gone.
+        for (index, column) in tableView.tableColumns.enumerated() where !column.isHidden {
             let colId = column.identifier.rawValue
             liveIds.insert(colId)
             let headerRect = self.headerRect(ofColumn: index)
@@ -551,7 +685,11 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     /// brings the edge TO the pointer rather than moving it further out of sight.
     private func columnEdgeGrab(at point: NSPoint) -> ColumnEdgeGrab? {
         guard let tableView = tableView else { return nil }
-        for (index, _) in tableView.tableColumns.enumerated() {
+        // Hidden columns are skipped, and not only because they have no divider
+        // to grab: their `headerRect` is a zero-width rect AT x = 0, so a plain
+        // `abs(point.x - rect.maxX)` test hands every click within 6pt of the
+        // header's left edge to a column the user cannot see.
+        for (index, column) in tableView.tableColumns.enumerated() where !column.isHidden {
             let rect = headerRect(ofColumn: index)
             if abs(point.x - rect.maxX) <= Self.resizeEdgeThreshold {
                 return ColumnEdgeGrab(columnIndex: index, anchorX: windowX(point.x))
@@ -584,6 +722,7 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     private func columnCutOff(at x: CGFloat) -> Int? {
         guard let tableView = tableView else { return nil }
         return tableView.tableColumns.indices.first { index in
+            guard !tableView.tableColumns[index].isHidden else { return false }
             let rect = headerRect(ofColumn: index)
             return rect.minX < x && rect.maxX > x
         }
@@ -670,7 +809,7 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         super.resetCursorRects()
         guard let tableView = tableView, tableView.allowsColumnResizing else { return }
         for (index, column) in tableView.tableColumns.enumerated() {
-            guard column.resizingMask.contains(.userResizingMask) else { continue }
+            guard !column.isHidden, column.resizingMask.contains(.userResizingMask) else { continue }
             addResizeCursor(centredOn: headerRect(ofColumn: index).maxX)
         }
         // The grid's visible right edge, when a column is cut off there — the

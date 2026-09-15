@@ -821,6 +821,15 @@ extension SchemaBrowserVC: SchemaDataSourceDelegate {
             break
         }
     }
+
+    var schemaDataSourceConnectionId: String? { connectionId }
+
+    /// A CSV/TSV dropped on a table opens the ordinary import sheet with that
+    /// file already chosen — the drop replaces the "Choose…" panel, nothing
+    /// else about the import.
+    func schemaDataSourceDidDropFile(_ url: URL, onTable node: SchemaTreeNode) {
+        contextMenuHandler.presentImportSheet(for: node, preselectedFileURL: url)
+    }
 }
 
 // MARK: - SchemaContextMenuDelegate

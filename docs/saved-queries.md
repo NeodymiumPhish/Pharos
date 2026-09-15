@@ -49,6 +49,7 @@ Double-click a saved query to open it in a new editor tab. If it's already open 
 | Open in Tab | Opens the query in a new editor tab |
 | Copy SQL | Copies the SQL to the clipboard (variables rendered) |
 | Export as SQL File… | Saves the query to a `.sql` file |
+| Share… | Sends the SQL text (variables rendered) to the system share sheet |
 | Rename… | Renames the query |
 | Delete | Deletes the query |
 

@@ -105,6 +105,7 @@ nav_order: 17
 | Action | Key |
 |--------|-----|
 | Copy selection as TSV | Cmd+C |
+| Quick Look the selected cells | Space |
 | Extend row selection | Shift+click (range), Cmd+click (toggle) |
 | Move active cell | Arrow keys |
 | Extend cell selection | Shift+arrows |
