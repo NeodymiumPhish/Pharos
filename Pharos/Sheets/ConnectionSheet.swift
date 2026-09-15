@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Sheet for adding/editing a database connection.
 /// Presented as a sheet on the main window.
@@ -264,7 +265,7 @@ class ConnectionSheet: NSViewController {
                                                                in: self.defaultSchemaPopup)
                                 }
                             } catch {
-                                NSLog("Failed to fetch schemas for default schema picker: \(error)")
+                                Log.ui.error("Failed to fetch schemas for default schema picker: \(error.localizedDescription, privacy: .public)")
                             }
                         }
                     } else {

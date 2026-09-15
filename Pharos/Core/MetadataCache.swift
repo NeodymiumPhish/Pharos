@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os
 
 /// Caches schema metadata for ALL active connections.
 /// Used to feed SQL autocomplete with schema/table/column info.
@@ -74,7 +75,7 @@ final class MetadataCache: ObservableObject {
                 self.connectionCaches[connectionId]?.isLoaded = true
             } catch {
                 self.isLoading = false
-                NSLog("MetadataCache: Failed to load metadata: \(error)")
+                Log.schema.error("MetadataCache: Failed to load metadata: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -212,7 +213,7 @@ final class MetadataCache: ObservableObject {
                     priorityPublished = true
                 }
             } catch {
-                NSLog("MetadataCache: Failed to load tables/columns for \(schema.name): \(error)")
+                Log.schema.error("MetadataCache: Failed to load tables/columns for \(schema.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 

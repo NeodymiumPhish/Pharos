@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 // MARK: - SchemaContextMenu Delegate
 
@@ -224,7 +225,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     self.delegate?.contextMenuPresentSheet(sheet)
                 }
             } catch {
-                NSLog("Failed to load columns for export: \(error)")
+                Log.schema.error("Failed to load columns for export: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -325,7 +326,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     self.delegate?.contextMenuPresentSheet(sheet)
                 }
             } catch {
-                NSLog("Failed to load indexes: \(error)")
+                Log.schema.error("Failed to load indexes: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -346,7 +347,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     self.delegate?.contextMenuPresentSheet(sheet)
                 }
             } catch {
-                NSLog("Failed to load constraints: \(error)")
+                Log.schema.error("Failed to load constraints: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -362,7 +363,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     self.delegate?.contextMenuPresentSheet(sheet)
                 }
             } catch {
-                NSLog("Failed to load functions: \(error)")
+                Log.schema.error("Failed to load functions: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

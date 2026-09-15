@@ -7,6 +7,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Cap pharos-core's env_logger to "warn" by default (0 = don't overwrite a value the user already set in their shell).
+        setenv("RUST_LOG", "warn", 0)
+
         // Initialize the Rust backend
         let appSupportDir = Self.appSupportDirectory()
         let success = appSupportDir.withCString { cStr in

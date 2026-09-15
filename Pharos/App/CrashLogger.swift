@@ -45,6 +45,13 @@ enum CrashLogger {
         let reason = exception.reason ?? "<no reason>"
         let stack = exception.callStackSymbols.joined(separator: "\n")
 
+        // Deliberately NSLog, not Log.*: this runs inside the uncaught-exception
+        // handler, with the runtime already in a broken state. NSLog is a thin
+        // wrapper over a C varargs call; `Logger` goes through `OSLogMessage`
+        // string-interpolation machinery (formatting, allocations) that is not
+        // something to lean on when the process may be moments from crashing.
+        // Keep this handler doing the simplest thing that can still get the
+        // three lines out before `writeToFile` below.
         NSLog("[Pharos] UNCAUGHT EXCEPTION: %@", name)
         NSLog("[Pharos] REASON: %@", reason)
         NSLog("[Pharos] STACK:\n%@", stack)

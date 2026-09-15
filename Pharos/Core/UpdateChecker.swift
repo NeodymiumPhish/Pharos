@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// Polls GitHub for newer stable releases of Pharos and posts a macOS
 /// notification (via `QueryNotifier.postUpdateAvailableNotification`) when a
@@ -54,7 +55,7 @@ final class UpdateChecker {
         if !force,
            let lastCheckedAt = UserDefaults.standard.object(forKey: Self.lastCheckedAtKey) as? Date,
            Date().timeIntervalSince(lastCheckedAt) < Self.httpCacheSeconds {
-            NSLog("[UpdateChecker] Rate-limited (last check < 24h ago); skipping HTTP.")
+            Log.updates.info("Rate-limited (last check < 24h ago); skipping HTTP.")
             return
         }
 
@@ -62,7 +63,7 @@ final class UpdateChecker {
         do {
             latest = try await fetchLatestRelease()
         } catch {
-            NSLog("[UpdateChecker] fetch failed: \(error)")
+            Log.updates.error("fetch failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -73,21 +74,21 @@ final class UpdateChecker {
         // request identifier.
         let normalizedTag = latest.tag_name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTag.isEmpty else {
-            NSLog("[UpdateChecker] empty tag_name after normalization; skipping.")
+            Log.updates.warning("empty tag_name after normalization; skipping.")
             return
         }
 
         let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
         guard let currentComponents = Self.parseVersion(currentVersion),
               let latestComponents = Self.parseVersion(normalizedTag) else {
-            NSLog("[UpdateChecker] could not parse current=\(currentVersion) or latest=\(normalizedTag); skipping.")
+            Log.updates.warning("could not parse current=\(currentVersion, privacy: .public) or latest=\(normalizedTag, privacy: .public); skipping.")
             return
         }
         guard currentComponents.lexicographicallyPrecedes(latestComponents) else { return }
 
         let lastNotified = UserDefaults.standard.string(forKey: Self.lastNotifiedVersionKey)
         guard lastNotified != normalizedTag else {
-            NSLog("[UpdateChecker] Already notified for \(normalizedTag); skipping.")
+            Log.updates.info("Already notified for \(normalizedTag, privacy: .public); skipping.")
             return
         }
 

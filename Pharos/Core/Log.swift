@@ -32,6 +32,14 @@ enum Log {
     /// The Swift side of the C FFI: decoding, callbacks, lifecycle.
     static let ffi = Logger(subsystem: subsystem, category: "ffi")
 
+    /// Global app state: connections, settings, session persistence — the
+    /// coordination `AppStateManager` does across the whole app, not any one
+    /// screen.
+    static let state = Logger(subsystem: subsystem, category: "state")
+
+    /// The background release-check poller (`UpdateChecker`).
+    static let updates = Logger(subsystem: subsystem, category: "updates")
+
     /// Signpost intervals for the paths whose cost is worth measuring: the
     /// execute, the two fetch paths, the JSON decode, and the grid reload.
     ///

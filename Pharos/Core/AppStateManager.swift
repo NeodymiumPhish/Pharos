@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import os
 
 /// Central state manager for the Pharos app. Observable via Combine.
 /// Manages connections, active connection, settings, and connection status.
@@ -38,7 +39,7 @@ final class AppStateManager: ObservableObject {
                     // A failure must not block the connection. The user then has
                     // a working database and no tags, which is a degraded view,
                     // not a broken state.
-                    NSLog("Failed to load tags: \(error)")
+                    Log.state.warning("Failed to load tags: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -126,7 +127,7 @@ final class AppStateManager: ObservableObject {
             }
             NotificationCenter.default.post(name: Self.connectionsDidChange, object: self)
         } catch {
-            NSLog("Failed to load connections: \(error)")
+            Log.state.error("Failed to load connections: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -135,7 +136,7 @@ final class AppStateManager: ObservableObject {
             try PharosCore.saveConnection(config)
             loadConnections()
         } catch {
-            NSLog("Failed to save connection: \(error)")
+            Log.state.error("Failed to save connection: \(error.localizedDescription, privacy: .public)")
             lastError = "Failed to save connection: \(error.localizedDescription)"
         }
     }
@@ -149,7 +150,7 @@ final class AppStateManager: ObservableObject {
             }
             loadConnections()
         } catch {
-            NSLog("Failed to delete connection: \(error)")
+            Log.state.error("Failed to delete connection: \(error.localizedDescription, privacy: .public)")
             lastError = "Failed to delete connection: \(error.localizedDescription)"
         }
     }
@@ -160,7 +161,7 @@ final class AppStateManager: ObservableObject {
             try PharosCore.reorderConnections(ids: ids)
             loadConnections()
         } catch {
-            NSLog("Failed to reorder connections: \(error)")
+            Log.state.error("Failed to reorder connections: \(error.localizedDescription, privacy: .public)")
             lastError = "Failed to reorder connections: \(error.localizedDescription)"
         }
     }
@@ -198,7 +199,7 @@ final class AppStateManager: ObservableObject {
                 // without this the reason was lost and the toolbar only turned
                 // red.
                 if info.status == .error {
-                    NSLog("Connection failed: \(info.error ?? "no reason given")")
+                    Log.state.error("Connection failed: \(info.error ?? "no reason given", privacy: .public)")
                 }
                 self.activeConnectionId = id
                 // Apply default schema from connection config, falling back to "public"
@@ -224,7 +225,7 @@ final class AppStateManager: ObservableObject {
             } catch {
                 self.connectionStatuses[id] = .error
                 self.postStatusChange(id)
-                NSLog("Connection failed: \(error)")
+                Log.state.error("Connection failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -239,7 +240,7 @@ final class AppStateManager: ObservableObject {
                 }
                 self.postStatusChange(id)
             } catch {
-                NSLog("Disconnect failed: \(error)")
+                Log.state.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -250,7 +251,7 @@ final class AppStateManager: ObservableObject {
         do {
             settings = try PharosCore.loadSettings()
         } catch {
-            NSLog("Failed to load settings: \(error)")
+            Log.state.error("Failed to load settings: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -259,7 +260,7 @@ final class AppStateManager: ObservableObject {
             try PharosCore.saveSettings(newSettings)
             settings = newSettings
         } catch {
-            NSLog("Failed to save settings: \(error)")
+            Log.state.error("Failed to save settings: \(error.localizedDescription, privacy: .public)")
             lastError = "Failed to save settings: \(error.localizedDescription)"
         }
     }
@@ -355,7 +356,7 @@ final class AppStateManager: ObservableObject {
             try PharosCore.saveSession(Session(tabs: saved))
             sessionDirty = false
         } catch {
-            NSLog("Failed to save session: \(error)")
+            Log.state.error("Failed to save session: \(error.localizedDescription, privacy: .public)")
         }
     }
 
