@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 extension Notification.Name {
     static let openHistoryEntry = Notification.Name("PharosOpenHistoryEntry")
@@ -313,7 +314,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 _ = try PharosCore.batchDeleteQueryHistory(ids: ids)
                 self?.reload(connectionId: self?.connectionFilter)
             } catch {
-                NSLog("Failed to batch delete history entries: \(error)")
+                Log.ui.error("Failed to batch delete history entries: \(error.localizedDescription, privacy: .public)")
                 self?.showDeleteFailure(error)
             }
         }
@@ -344,7 +345,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                     filter: QueryHistoryFilter(connectionId: connectionId, search: search, limit: 200, onlyLegacy: true)
                 )
             } catch {
-                NSLog("Failed to load workspace history: \(error)")
+                Log.ui.error("Failed to load workspace history: \(error.localizedDescription, privacy: .public)")
                 return
             }
             await MainActor.run {
@@ -409,8 +410,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         if workspaces.isEmpty, legacyEntries.isEmpty, !isFiltering {
             emptyState.show(
                 symbol: "clock.arrow.circlepath",
-                title: "No History",
-                message: "Queries you run appear here."
+                title: String(localized: "No History"),
+                message: String(localized: "Queries you run appear here.")
             )
         } else {
             emptyState.isHidden = true
@@ -477,7 +478,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             _ = try PharosCore.deleteQueryHistoryEntry(id: entry.id)
             reload(connectionId: connectionFilter)
         } catch {
-            NSLog("Failed to delete history entry: \(error)")
+            Log.ui.error("Failed to delete history entry: \(error.localizedDescription, privacy: .public)")
             showDeleteFailure(error)
         }
     }

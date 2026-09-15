@@ -8,7 +8,7 @@ extension AppDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let newTabItem = NSMenuItem(title: "New Tab", action: #selector(dockMenuNewTab(_:)), keyEquivalent: "")
+        let newTabItem = NSMenuItem(title: String(localized: "New Tab"), action: #selector(dockMenuNewTab(_:)), keyEquivalent: "")
         newTabItem.target = self
         menu.addItem(newTabItem)
 
@@ -16,7 +16,7 @@ extension AppDelegate {
 
         let connections = AppStateManager.shared.connections
         if connections.isEmpty {
-            let noneItem = NSMenuItem(title: "No Connections", action: nil, keyEquivalent: "")
+            let noneItem = NSMenuItem(title: String(localized: "No Connections"), action: nil, keyEquivalent: "")
             noneItem.isEnabled = false
             menu.addItem(noneItem)
         } else {

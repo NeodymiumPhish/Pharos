@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 class ExportDataSheet: NSViewController {
 
     private let formatPopup = NSPopUpButton()
-    private let includeHeadersCheckbox = NSButton(checkboxWithTitle: "Include headers", target: nil, action: nil)
+    private let includeHeadersCheckbox = NSButton(checkboxWithTitle: String(localized: "Include headers"), target: nil, action: nil)
     private let nullDisplayPopup = NSPopUpButton()
     private var columnCheckboxes: [(checkbox: NSButton, name: String)] = []
     private let columnScrollView = NSScrollView()
@@ -37,7 +37,7 @@ class ExportDataSheet: NSViewController {
         self.view = container
 
         // Title
-        let titleLabel = NSTextField(labelWithString: "Export Data")
+        let titleLabel = NSTextField(labelWithString: String(localized: "Export Data"))
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Escaped per PART, not on the joined pair: the dot is ours, so
@@ -63,9 +63,9 @@ class ExportDataSheet: NSViewController {
         includeHeadersCheckbox.state = .on
 
         // NULL display
-        nullDisplayPopup.addItem(withTitle: "Empty string")
+        nullDisplayPopup.addItem(withTitle: String(localized: "Empty string"))
         nullDisplayPopup.lastItem?.tag = 0
-        nullDisplayPopup.addItem(withTitle: "NULL")
+        nullDisplayPopup.addItem(withTitle: String(localized: "NULL"))
         nullDisplayPopup.lastItem?.tag = 1
 
         // Column checkboxes in a scrollable area
@@ -95,16 +95,16 @@ class ExportDataSheet: NSViewController {
         columnScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         // Column header with All/None buttons
-        let columnsHeaderLabel = NSTextField(labelWithString: "Columns")
+        let columnsHeaderLabel = NSTextField(labelWithString: String(localized: "Columns"))
         columnsHeaderLabel.font = .systemFont(ofSize: 12, weight: .medium)
         columnsHeaderLabel.textColor = .secondaryLabelColor
-        selectAllButton.title = "All"
+        selectAllButton.title = String(localized: "All")
         selectAllButton.target = self
         selectAllButton.action = #selector(selectAllColumns)
         selectAllButton.bezelStyle = .inline
         selectAllButton.controlSize = .small
         selectAllButton.font = .systemFont(ofSize: 11)
-        deselectAllButton.title = "None"
+        deselectAllButton.title = String(localized: "None")
         deselectAllButton.target = self
         deselectAllButton.action = #selector(deselectAllColumns)
         deselectAllButton.bezelStyle = .inline
@@ -133,9 +133,9 @@ class ExportDataSheet: NSViewController {
 
         // Form grid
         let grid = NSGridView(views: [
-            [NSTextField.formLabel("Format"), formatPopup],
-            [NSTextField.formLabel("Headers"), includeHeadersCheckbox],
-            [NSTextField.formLabel("NULL values"), nullDisplayPopup],
+            [NSTextField.formLabel(String(localized: "Format")), formatPopup],
+            [NSTextField.formLabel(String(localized: "Headers")), includeHeadersCheckbox],
+            [NSTextField.formLabel(String(localized: "NULL values")), nullDisplayPopup],
         ])
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 0).width = 90
@@ -144,12 +144,12 @@ class ExportDataSheet: NSViewController {
         grid.columnSpacing = 8
 
         // Action buttons
-        cancelButton.title = "Cancel"
+        cancelButton.title = String(localized: "Cancel")
         cancelButton.target = self
         cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.setAccessibilityIdentifier("sheet.exportdata.cancel")
-        exportButton.title = "Export\u{2026}"
+        exportButton.title = String(localized: "Export\u{2026}")
         exportButton.target = self
         exportButton.action = #selector(doExport)
         exportButton.keyEquivalent = "\r"
@@ -271,7 +271,7 @@ class ExportDataSheet: NSViewController {
         // extension stays outside it — it is an app constant, and sanitising
         // it would be noise.
         panel.nameFieldStringValue = "\(SavedQueryFilename.sanitize(table)).\(format.fileExtension)"
-        panel.message = "Choose where to save the exported data"
+        panel.message = String(localized: "Choose where to save the exported data")
         if let contentType = UTType(filenameExtension: format.fileExtension) {
             panel.allowedContentTypes = [contentType]
         }

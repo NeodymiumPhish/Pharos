@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import os
 
 extension Notification.Name {
     static let runQueryInCurrentTab = Notification.Name("PharosRunQueryInCurrentTab")
@@ -107,8 +108,8 @@ class SchemaBrowserVC: NSViewController {
         if connectionId == nil {
             emptyState.show(
                 symbol: "cylinder.split.1x2",
-                title: "No Connection",
-                message: "Connect a tab to browse its schema."
+                title: String(localized: "No Connection"),
+                message: String(localized: "Connect a tab to browse its schema.")
             )
         } else {
             emptyState.isHidden = true
@@ -219,7 +220,7 @@ class SchemaBrowserVC: NSViewController {
                     }
                 }
             } catch {
-                NSLog("Failed to load schemas: \(error)")
+                Log.schema.error("Failed to load schemas: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -236,7 +237,7 @@ class SchemaBrowserVC: NSViewController {
                 do {
                     partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
                 } catch {
-                    NSLog("Failed to load partition map for schema \(schemaName): \(error)")
+                    Log.schema.error("Failed to load partition map for schema \(schemaName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
             var namesByParent: [String: [String]] = [:]
@@ -291,7 +292,7 @@ class SchemaBrowserVC: NSViewController {
                 }
             }
         } catch {
-            NSLog("Failed to load tables for schema \(schemaName): \(error)")
+            Log.schema.error("Failed to load tables for schema \(schemaName, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -309,7 +310,7 @@ class SchemaBrowserVC: NSViewController {
             // a follow-up getTables round-trip (was ~200–500ms per refresh on
             // large databases).
             guard let analyzeResult = try? await PharosCore.analyzeSchema(connectionId: capturedConnectionId, schema: schemaName) else {
-                NSLog("Failed to refresh row counts for \(schemaName)")
+                Log.schema.warning("Failed to refresh row counts for \(schemaName, privacy: .public)")
                 return
             }
 
@@ -735,7 +736,7 @@ class SchemaBrowserVC: NSViewController {
                     node.isLoaded = false
                     self.outlineView.reloadItem(node, reloadChildren: true)
                 }
-                NSLog("Failed to load columns for \(schemaName).\(tableName): \(error)")
+                Log.schema.error("Failed to load columns for \(schemaName, privacy: .public).\(tableName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -778,7 +779,7 @@ class SchemaBrowserVC: NSViewController {
                     group.isLoaded = false
                     self.outlineView.reloadItem(group, reloadChildren: true)
                 }
-                NSLog("Failed to load partitions for \(parent.schemaName).\(parent.name): \(error)")
+                Log.schema.error("Failed to load partitions for \(parent.schemaName, privacy: .public).\(parent.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
     }

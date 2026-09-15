@@ -9,6 +9,7 @@ swiftc -o /tmp/result-tabs-panel-vc-tests \
   Pharos/Views/ResultTabRowCell.swift \
   Pharos/Views/MarkerShape.swift \
   Pharos/Core/AccessibilityDisplay.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Views/ResultTabContextMenu.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \

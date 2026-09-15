@@ -8,21 +8,21 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
     private let nullDisplayPopup = NSPopUpButton()
     private let boolDisplayPopup = NSPopUpButton()
     private let checkForUpdatesCheck = NSButton(
-        checkboxWithTitle: "Check for updates in the background", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Check for updates in the background"), target: nil, action: nil)
     private let showLeafPartitionsCheck = NSButton(
-        checkboxWithTitle: "Show leaf partitions in the Database Navigator", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Show leaf partitions in the Database Navigator"), target: nil, action: nil)
     /// Names both states on purpose. Its neighbours only add or remove
     /// something when switched off, but this one swaps between two layouts, and
     /// "Show result tabs…" alone reads as though clearing it takes the result
     /// tabs away.
     private let verticalResultTabsCheck = NSButton(
-        checkboxWithTitle: "Show result tabs in a vertical panel, not a horizontal bar", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Show result tabs in a vertical panel, not a horizontal bar"), target: nil, action: nil)
 
     override func loadView() {
         themeControl.segmentCount = 3
-        themeControl.setLabel("Auto", forSegment: 0)
-        themeControl.setLabel("Light", forSegment: 1)
-        themeControl.setLabel("Dark", forSegment: 2)
+        themeControl.setLabel(String(localized: "Auto"), forSegment: 0)
+        themeControl.setLabel(String(localized: "Light"), forSegment: 1)
+        themeControl.setLabel(String(localized: "Dark"), forSegment: 2)
         themeControl.segmentStyle = .texturedSquare
         themeControl.target = self
         themeControl.action = #selector(themeChanged)
@@ -55,9 +55,9 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         verticalResultTabsCheck.setAccessibilityIdentifier("settings.general.verticalResultTabs")
 
         let grid = NSGridView(views: [
-            [NSTextField.formLabel("Appearance"), themeControl],
-            [NSTextField.formLabel("NULL Display"), nullDisplayPopup],
-            [NSTextField.formLabel("Bool Display"), boolDisplayPopup],
+            [NSTextField.formLabel(String(localized: "Appearance")), themeControl],
+            [NSTextField.formLabel(String(localized: "NULL Display")), nullDisplayPopup],
+            [NSTextField.formLabel(String(localized: "Bool Display")), boolDisplayPopup],
             [NSGridCell.emptyContentView, checkForUpdatesCheck],
             [NSGridCell.emptyContentView, showLeafPartitionsCheck],
             [NSGridCell.emptyContentView, verticalResultTabsCheck],

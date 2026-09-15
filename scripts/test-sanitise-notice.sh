@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/sanitise-notice-tests \
   Pharos/Core/DisplayEscape.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/SanitiseNotice.swift \
   PharosTests/SanitiseNoticeTests.swift \

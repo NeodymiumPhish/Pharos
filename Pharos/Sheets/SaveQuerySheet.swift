@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Result of a save query operation.
 enum SaveQueryAction {
@@ -50,19 +51,19 @@ class SaveQuerySheet: NSViewController {
         existingQueries = (try? PharosCore.loadSavedQueries()) ?? []
 
         // Title
-        let titleLabel = NSTextField(labelWithString: "Save Query")
+        let titleLabel = NSTextField(labelWithString: String(localized: "Save Query"))
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Name
-        let nameLabel = NSTextField.formLabel("Name")
-        nameField.placeholderString = "Query name"
+        let nameLabel = NSTextField.formLabel(String(localized: "Name"))
+        nameField.placeholderString = String(localized: "Query name")
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(initialName)
 
         // Folder
-        let folderLabel = NSTextField.formLabel("Folder")
+        let folderLabel = NSTextField.formLabel(String(localized: "Folder"))
         // Load existing folders from cached queries
         let existingFolders = Set(existingQueries.compactMap { $0.folder }).filter { !$0.isEmpty }.sorted()
-        PopupValueMenu.populate(folderPopup, sentinel: "No Folder", values: existingFolders)
+        PopupValueMenu.populate(folderPopup, sentinel: String(localized: "No Folder"), values: existingFolders)
         // The separator goes in after the fact so the sentinel and the folder
         // rows are still built by one call: a folder literally named
         // "No Folder" must not delete the sentinel row, which is what
@@ -72,7 +73,7 @@ class SaveQuerySheet: NSViewController {
             folderPopup.menu?.insertItem(.separator(), at: 1)
         }
         folderPopup.menu?.addItem(.separator())
-        let newFolderItem = NSMenuItem(title: "New Folder...", action: nil, keyEquivalent: "")
+        let newFolderItem = NSMenuItem(title: String(localized: "New Folder..."), action: nil, keyEquivalent: "")
         newFolderItem.tag = Self.newFolderTag
         folderPopup.menu?.addItem(newFolderItem)
 
@@ -88,13 +89,13 @@ class SaveQuerySheet: NSViewController {
         grid.columnSpacing = 8
 
         // Buttons
-        cancelButton.title = "Cancel"
+        cancelButton.title = String(localized: "Cancel")
         cancelButton.target = self
         cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.setAccessibilityIdentifier("sheet.savequery.cancel")
 
-        saveButton.title = "Save"
+        saveButton.title = String(localized: "Save")
         saveButton.target = self
         saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r"
@@ -190,11 +191,11 @@ class SaveQuerySheet: NSViewController {
         if selectedIsNewFolder {
             // Prompt for folder name synchronously
             let alert = NSAlert()
-            alert.messageText = "New Folder"
-            alert.addButton(withTitle: "Create")
-            alert.addButton(withTitle: "Cancel")
+            alert.messageText = String(localized: "New Folder")
+            alert.addButton(withTitle: String(localized: "Create"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             let textField = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-            textField.placeholderString = "Folder name"
+            textField.placeholderString = String(localized: "Folder name")
             alert.accessoryView = textField
 
             let response = alert.runModal()
@@ -225,12 +226,12 @@ class SaveQuerySheet: NSViewController {
 
     private func showDuplicateAlert(name: String, folder: String?, duplicate: SavedQuery) {
         let alert = NSAlert()
-        alert.messageText = "A query named '\(name)' already exists in this folder."
-        alert.informativeText = "Do you want to replace it or save as a new query?"
+        alert.messageText = String(localized: "A query named '\(name)' already exists in this folder.")
+        alert.informativeText = String(localized: "Do you want to replace it or save as a new query?")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Replace")
-        alert.addButton(withTitle: "Save as New")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Replace"))
+        alert.addButton(withTitle: String(localized: "Save as New"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -256,9 +257,9 @@ class SaveQuerySheet: NSViewController {
             onSave?(.replaced(updated))
             dismiss(nil)
         } catch {
-            NSLog("Failed to replace saved query: \(error)")
+            Log.ui.error("Failed to replace saved query: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
-            alert.messageText = "Failed to Save Query"
+            alert.messageText = String(localized: "Failed to Save Query")
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
             alert.runModal()
@@ -272,9 +273,9 @@ class SaveQuerySheet: NSViewController {
             onSave?(.created(saved))
             dismiss(nil)
         } catch {
-            NSLog("Failed to save query: \(error)")
+            Log.ui.error("Failed to save query: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
-            alert.messageText = "Failed to Save Query"
+            alert.messageText = String(localized: "Failed to Save Query")
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
             alert.runModal()

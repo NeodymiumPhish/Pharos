@@ -46,12 +46,12 @@ enum SanitiseNotice {
             // here is a silent no-op rather than a wrong sentence.
             return nil
         case (let r, 0):
-            summary = "Removed \(r) invisible character\(r == 1 ? "" : "s")."
+            summary = "Removed \(CountedNounText.phrase(r, "invisible character"))."
         case (0, let f):
-            summary = "Replaced \(f) unusual space\(f == 1 ? "" : "s")."
+            summary = "Replaced \(CountedNounText.phrase(f, "unusual space"))."
         case (let r, let f):
-            summary = "Removed \(r) invisible character\(r == 1 ? "" : "s")"
-                + " and replaced \(f) unusual space\(f == 1 ? "" : "s")."
+            summary = "Removed \(CountedNounText.phrase(r, "invisible character"))"
+                + " and replaced \(CountedNounText.phrase(f, "unusual space"))."
         }
 
         // Truncate the RAW string, then escape — the house order. Escaping

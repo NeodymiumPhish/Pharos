@@ -65,7 +65,7 @@ final class SettingsWindowController: NSWindowController {
             UserDefaults.standard.set(index, forKey: Self.paneDefaultsKey)
         }
 
-        window.title = "Settings"
+        window.title = String(localized: "Settings")
         window.toolbarStyle = .preference
         // The singleton holds the window. Without this an AppKit-created
         // window frees itself on close and the second ⌘, opens a zombie.
@@ -90,10 +90,10 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private static let paneSpecs: [PaneSpec] = [
-        PaneSpec(label: "General", symbol: "gearshape", identifier: "settings.pane.general"),
-        PaneSpec(label: "Editor", symbol: "text.cursor", identifier: "settings.pane.editor"),
-        PaneSpec(label: "Query", symbol: "play.rectangle", identifier: "settings.pane.query"),
-        PaneSpec(label: "Charts", symbol: "chart.bar", identifier: "settings.pane.charts"),
+        PaneSpec(label: String(localized: "General"), symbol: "gearshape", identifier: "settings.pane.general"),
+        PaneSpec(label: String(localized: "Editor"), symbol: "text.cursor", identifier: "settings.pane.editor"),
+        PaneSpec(label: String(localized: "Query"), symbol: "play.rectangle", identifier: "settings.pane.query"),
+        PaneSpec(label: String(localized: "Charts"), symbol: "chart.bar", identifier: "settings.pane.charts"),
     ]
 
     /// The size a pane asks the window to take: what its content needs, never

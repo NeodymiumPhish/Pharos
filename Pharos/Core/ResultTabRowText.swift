@@ -10,7 +10,6 @@ enum ResultTabRowText {
 
     /// "2,500 rows" for statement results (INSERT/UPDATE/…).
     static func affectedText(rowsAffected: UInt64) -> String {
-        let grouped = HistoryRowText.rowCountText(Int64(clamping: rowsAffected))
-        return "\(grouped) row\(rowsAffected == 1 ? "" : "s")"
+        CountedNounText.phrase(Int(clamping: rowsAffected), "row")
     }
 }

@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 # sanitised and then trimmed at the commit — see `committedName`.
 swiftc -o /tmp/tag-manager-model-tests \
   Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagCapture.swift \
   Pharos/Core/TagDraft.swift \

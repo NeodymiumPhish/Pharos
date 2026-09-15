@@ -14,6 +14,7 @@ swiftc -o /tmp/result-tab-bar-accessibility-tests \
   Pharos/Views/MarkerShape.swift \
   Pharos/Views/AccessibilityProxyElement.swift \
   Pharos/Core/AccessibilityDisplay.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/ResultTabName.swift \
   Pharos/Core/ResultTabRowText.swift \

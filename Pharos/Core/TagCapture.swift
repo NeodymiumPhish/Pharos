@@ -86,7 +86,7 @@ struct TagCapture {
             return DisplayEscape.escaped(only)
         }
         guard !distinct.isEmpty else { return "NULL" }
-        return "\(distinct.count) value\(distinct.count == 1 ? "" : "s")"
+        return CountedNounText.phrase(distinct.count, "value")
     }
 
     /// The rules the ticked columns would write.

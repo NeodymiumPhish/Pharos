@@ -44,6 +44,7 @@ targets:
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_ENTITLEMENTS: ""
         CODE_SIGN_IDENTITY: "-"
+        SWIFT_EMIT_LOC_STRINGS: YES
     preBuildScripts:
       - name: "Build Rust Library"
         script: |

@@ -10,6 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/authored-label-sanitizer-tests \
   Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/SanitiseNotice.swift \

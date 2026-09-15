@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import os
 
 // MARK: - Notification Names
 
@@ -172,8 +173,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         if allQueries.isEmpty {
             emptyState.show(
                 symbol: "folder",
-                title: "No Saved Queries",
-                message: "Save a query with \u{2318}S to keep it here."
+                title: String(localized: "No Saved Queries"),
+                message: String(localized: "Save a query with \u{2318}S to keep it here.")
             )
         } else {
             emptyState.isHidden = true
@@ -193,7 +194,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             allQueries = try PharosCore.loadSavedQueries()
             applyTreeChange()
         } catch {
-            NSLog("Failed to load saved queries: \(error)")
+            Log.ui.error("Failed to load saved queries: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -300,7 +301,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 self?.reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
-                NSLog("Failed to batch delete saved queries: \(error)")
+                Log.ui.error("Failed to batch delete saved queries: \(error.localizedDescription, privacy: .public)")
                 self?.showDeleteFailure(error)
             }
         }
@@ -587,7 +588,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
-                NSLog("Failed to rename query: \(error)")
+                Log.ui.error("Failed to rename query: \(error.localizedDescription, privacy: .public)")
             }
         case .folder(let oldName):
             // Rename all queries in this folder
@@ -597,7 +598,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                     let update = UpdateSavedQuery(id: q.id, name: q.name, folder: newName, sql: q.sql, variables: q.variables)
                     _ = try PharosCore.updateSavedQuery(update)
                 } catch {
-                    NSLog("Failed to rename folder query: \(error)")
+                    Log.ui.error("Failed to rename folder query: \(error.localizedDescription, privacy: .public)")
                 }
             }
             reload()
@@ -615,7 +616,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
-                NSLog("Failed to delete saved query: \(error)")
+                Log.ui.error("Failed to delete saved query: \(error.localizedDescription, privacy: .public)")
                 showDeleteFailure(error)
             }
 
@@ -645,7 +646,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                     do {
                         _ = try PharosCore.batchDeleteSavedQueries(ids: ids)
                     } catch {
-                        NSLog("Failed to delete folder queries: \(error)")
+                        Log.ui.error("Failed to delete folder queries: \(error.localizedDescription, privacy: .public)")
                         self?.showDeleteFailure(error)
                     }
                 }
@@ -717,7 +718,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             reload()
             NotificationCoalescer.post(.savedQueriesDidChange)
         } catch {
-            NSLog("Failed to create folder: \(error)")
+            Log.ui.error("Failed to create folder: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -729,7 +730,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             NotificationCoalescer.post(.savedQueriesDidChange)
             openQueryInTab(saved)
         } catch {
-            NSLog("Failed to create query: \(error)")
+            Log.ui.error("Failed to create query: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -952,7 +953,7 @@ extension SavedQueriesVC: SavedQueryCellEditingDelegate {
                 let update = UpdateSavedQuery(id: q.id, name: q.name, folder: text, sql: q.sql, variables: q.variables)
                 _ = try PharosCore.updateSavedQuery(update)
             } catch {
-                NSLog("Failed to rename folder query: \(error)")
+                Log.ui.error("Failed to rename folder query: \(error.localizedDescription, privacy: .public)")
             }
         }
         reload()

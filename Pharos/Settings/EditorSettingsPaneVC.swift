@@ -8,8 +8,8 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
     private let fontSizeField = NSTextField()
     private let fontSizeStepper = NSStepper()
     private let tabSizePopup = NSPopUpButton()
-    private let lineNumbersCheck = NSButton(checkboxWithTitle: "Show line numbers", target: nil, action: nil)
-    private let wordWrapCheck = NSButton(checkboxWithTitle: "Wrap long lines", target: nil, action: nil)
+    private let lineNumbersCheck = NSButton(checkboxWithTitle: String(localized: "Show line numbers"), target: nil, action: nil)
+    private let wordWrapCheck = NSButton(checkboxWithTitle: String(localized: "Wrap long lines"), target: nil, action: nil)
 
     private static let fontSizeRange = (min: 9, max: 24)
 
@@ -36,7 +36,9 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         sizeRow.orientation = .horizontal
         sizeRow.spacing = 4
 
-        tabSizePopup.addItems(withTitles: ["2 spaces", "4 spaces", "8 spaces"])
+        tabSizePopup.addItems(withTitles: [
+            String(localized: "2 spaces"), String(localized: "4 spaces"), String(localized: "8 spaces"),
+        ])
         tabSizePopup.target = self
         tabSizePopup.action = #selector(tabSizeChanged)
         tabSizePopup.setAccessibilityIdentifier("settings.editor.tabSize")
@@ -50,9 +52,9 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         wordWrapCheck.setAccessibilityIdentifier("settings.editor.wordWrap")
 
         let grid = NSGridView(views: [
-            [NSTextField.formLabel("Font"), fontPopup],
-            [NSTextField.formLabel("Font Size"), sizeRow],
-            [NSTextField.formLabel("Tab Size"), tabSizePopup],
+            [NSTextField.formLabel(String(localized: "Font")), fontPopup],
+            [NSTextField.formLabel(String(localized: "Font Size")), sizeRow],
+            [NSTextField.formLabel(String(localized: "Tab Size")), tabSizePopup],
             [NSGridCell.emptyContentView, lineNumbersCheck],
             [NSGridCell.emptyContentView, wordWrapCheck],
         ])

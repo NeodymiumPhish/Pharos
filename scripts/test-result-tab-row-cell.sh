@@ -8,6 +8,7 @@ swiftc -o /tmp/result-tab-row-cell-tests \
   Pharos/Views/ResultTabRowCell.swift \
   Pharos/Views/MarkerShape.swift \
   Pharos/Core/AccessibilityDisplay.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/HistoryRowText.swift \

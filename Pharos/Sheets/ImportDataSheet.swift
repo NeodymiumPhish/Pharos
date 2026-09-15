@@ -3,8 +3,8 @@ import AppKit
 /// Sheet for importing CSV data into a table.
 class ImportDataSheet: NSViewController {
 
-    private let filePathLabel = NSTextField(labelWithString: "No file selected")
-    private let hasHeadersCheckbox = NSButton(checkboxWithTitle: "CSV file has headers", target: nil, action: nil)
+    private let filePathLabel = NSTextField(labelWithString: String(localized: "No file selected"))
+    private let hasHeadersCheckbox = NSButton(checkboxWithTitle: String(localized: "CSV file has headers"), target: nil, action: nil)
     // Stored, not local to `loadView`, so `wireKeyViewLoop()` can reach them.
     private let browseButton = NSButton()
     private let cancelButton = NSButton()
@@ -31,7 +31,7 @@ class ImportDataSheet: NSViewController {
         self.view = container
 
         // Title
-        let titleLabel = NSTextField(labelWithString: "Import Data")
+        let titleLabel = NSTextField(labelWithString: String(localized: "Import Data"))
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         let subtitleLabel = NSTextField(labelWithString: DisplayEscape.escapedQualified(schema: schema, table: table))
@@ -39,7 +39,7 @@ class ImportDataSheet: NSViewController {
         subtitleLabel.textColor = .secondaryLabelColor
 
         // File picker
-        let fileLabel = NSTextField(labelWithString: "CSV File:")
+        let fileLabel = NSTextField(labelWithString: String(localized: "CSV File:"))
         fileLabel.font = .systemFont(ofSize: 13)
         fileLabel.alignment = .right
 
@@ -48,7 +48,7 @@ class ImportDataSheet: NSViewController {
         filePathLabel.font = .systemFont(ofSize: 12)
         filePathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        browseButton.title = "Choose\u{2026}"
+        browseButton.title = String(localized: "Choose\u{2026}")
         browseButton.target = self
         browseButton.action = #selector(chooseFile)
 
@@ -59,12 +59,12 @@ class ImportDataSheet: NSViewController {
         hasHeadersCheckbox.state = .on
 
         // Buttons
-        cancelButton.title = "Cancel"
+        cancelButton.title = String(localized: "Cancel")
         cancelButton.target = self
         cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
         cancelButton.setAccessibilityIdentifier("sheet.importdata.cancel")
-        importButton.title = "Import"
+        importButton.title = String(localized: "Import")
         importButton.target = self
         importButton.action = #selector(doImport)
         importButton.keyEquivalent = "\r"
@@ -151,7 +151,7 @@ class ImportDataSheet: NSViewController {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Select a CSV file to import into \(DisplayEscape.escapedQualified(schema: schema, table: table))"
+        panel.message = String(localized: "Select a CSV file to import into \(DisplayEscape.escapedQualified(schema: schema, table: table))")
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

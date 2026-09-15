@@ -12,6 +12,11 @@ class QueryDetailSheet: NSViewController {
     private let sqlTextView = NSTextView.disclosingHostileScalars()
     private let doneButton = NSButton()
 
+    /// Held once so the initial title, the "did this button just flash a
+    /// confirmation" lookup, and the reset after the flash all agree — even
+    /// once this string is something other than the English literal here.
+    private static let copyQueryTitle = String(localized: "Copy Query")
+
     init(resultTab: ResultTab, onSaveQuery: @escaping (String) -> Void) {
         self.resultTab = resultTab
         self.onSaveQuery = onSaveQuery
@@ -27,25 +32,25 @@ class QueryDetailSheet: NSViewController {
         self.view = container
 
         // Title
-        let titleLabel = NSTextField(labelWithString: "Query Detail")
+        let titleLabel = NSTextField(labelWithString: String(localized: "Query Detail"))
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Action buttons row (Copy + Save)
-        copyButton.title = "Copy Query"
+        copyButton.title = Self.copyQueryTitle
         copyButton.target = self
         copyButton.action = #selector(copyQuery)
         copyButton.bezelStyle = .rounded
         let copyConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")?
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: String(localized: "Copy"))?
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
-        saveButton.title = "Save Query"
+        saveButton.title = String(localized: "Save Query")
         saveButton.target = self
         saveButton.action = #selector(saveQuery)
         saveButton.bezelStyle = .rounded
         let saveConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-        saveButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: "Save")?
+        saveButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: String(localized: "Save"))?
             .withSymbolConfiguration(saveConfig)
         saveButton.imagePosition = .imageLeading
 
@@ -88,7 +93,7 @@ class QueryDetailSheet: NSViewController {
         let summaryView = buildSummaryView()
 
         // Done button
-        doneButton.title = "Done"
+        doneButton.title = String(localized: "Done")
         doneButton.target = self
         doneButton.action = #selector(dismissSheet)
         doneButton.keyEquivalent = "\u{1b}"
@@ -163,34 +168,34 @@ class QueryDetailSheet: NSViewController {
             let formatted = timeMs >= 1000
                 ? String(format: "%.2f s", Double(timeMs) / 1000.0)
                 : "\(timeMs) ms"
-            rows.append(("Execution Time", formatted))
+            rows.append((String(localized: "Execution Time"), formatted))
         }
 
         // Row count / rows affected
         if let result = resultTab.queryResult {
-            var detail = "\(result.rowCount) row\(result.rowCount == 1 ? "" : "s")"
+            var detail = CountedNounText.phrase(result.rowCount, "row")
             if result.hasMore { detail += " (truncated)" }
-            rows.append(("Rows Returned", detail))
-            rows.append(("Columns", "\(result.columns.count)"))
+            rows.append((String(localized: "Rows Returned"), detail))
+            rows.append((String(localized: "Columns"), "\(result.columns.count)"))
         } else if let execResult = resultTab.executeResult {
-            rows.append(("Rows Affected", "\(execResult.rowsAffected)"))
+            rows.append((String(localized: "Rows Affected"), "\(execResult.rowsAffected)"))
         }
 
         // Timestamp
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
-        rows.append(("Executed At", formatter.string(from: resultTab.timestamp)))
+        rows.append((String(localized: "Executed At"), formatter.string(from: resultTab.timestamp)))
 
         // Source lines
         if resultTab.lineRange.count == 1 {
-            rows.append(("Source Line", "L\(resultTab.lineRange.lowerBound)"))
+            rows.append((String(localized: "Source Line"), "L\(resultTab.lineRange.lowerBound)"))
         } else {
-            rows.append(("Source Lines", "L\(resultTab.lineRange.lowerBound)–\(resultTab.lineRange.upperBound)"))
+            rows.append((String(localized: "Source Lines"), "L\(resultTab.lineRange.lowerBound)–\(resultTab.lineRange.upperBound)"))
         }
 
         if resultTab.isStale {
-            rows.append(("Status", "Stale (editor modified since execution)"))
+            rows.append((String(localized: "Status"), String(localized: "Stale (editor modified since execution)")))
         }
 
         // Build grid
@@ -223,10 +228,10 @@ class QueryDetailSheet: NSViewController {
         NSPasteboard.general.setString(resultTab.sql, forType: .string)
 
         // Brief visual feedback — flash the button title
-        if let button = view.findSubview(ofType: NSButton.self, where: { $0.title == "Copy Query" }) {
-            button.title = "Copied!"
+        if let button = view.findSubview(ofType: NSButton.self, where: { $0.title == Self.copyQueryTitle }) {
+            button.title = String(localized: "Copied!")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                button.title = "Copy Query"
+                button.title = Self.copyQueryTitle
             }
         }
     }

@@ -125,8 +125,8 @@ final class MainToolbarController: NSObject {
         let count = activeTab?.runningQueries.count ?? 0
         runItem?.badge = count > 0 ? .count(count) : nil
         cancelButton.toolTip = count > 1
-            ? "\(count) queries running — click to manage"
-            : "Cancel Query (⌘.)"
+            ? String(localized: "\(count) queries running — click to manage")
+            : String(localized: "Cancel Query (⌘.)")
     }
 
     // MARK: - Actions
@@ -185,7 +185,7 @@ final class MainToolbarController: NSObject {
             connectionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
             connectionButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
         ])
-        connectionButton.setAccessibilityLabel("Connection")
+        connectionButton.setAccessibilityLabel(String(localized: "Connection"))
         connectionButton.setAccessibilityIdentifier("toolbar.connection")
     }
 
@@ -201,9 +201,9 @@ final class MainToolbarController: NSObject {
             let status = stateManager.status(for: config.id)
             buttonTitle = "\(statusString(for: status))\(DisplayEscape.escaped(config.name))"
         } else if connections.isEmpty {
-            buttonTitle = "No Connections"
+            buttonTitle = String(localized: "No Connections")
         } else {
-            buttonTitle = "Select Connection"
+            buttonTitle = String(localized: "Select Connection")
         }
         connectionButton.addItem(withTitle: buttonTitle)
         if let activeId, let config = connections.first(where: { $0.id == activeId }),
@@ -220,7 +220,7 @@ final class MainToolbarController: NSObject {
             connectionButton.setAccessibilityValue(
                 [statusName(for: status), colorLabel].compactMap { $0 }.joined(separator: ", "))
         } else {
-            connectionButton.toolTip = "Connection for the active tab"
+            connectionButton.toolTip = String(localized: "Connection for the active tab")
             connectionButton.setAccessibilityValue(nil)
         }
 
@@ -243,24 +243,24 @@ final class MainToolbarController: NSObject {
 
             connectionButton.menu?.addItem(.separator())
 
-            let connect = NSMenuItem(title: "Connect", action: #selector(connectSelected), keyEquivalent: "")
+            let connect = NSMenuItem(title: String(localized: "Connect"), action: #selector(connectSelected), keyEquivalent: "")
             connect.target = self
             connect.isEnabled = contentVC?.canConnect ?? false
             connectionButton.menu?.addItem(connect)
 
-            let disconnect = NSMenuItem(title: "Disconnect", action: #selector(disconnectSelected), keyEquivalent: "")
+            let disconnect = NSMenuItem(title: String(localized: "Disconnect"), action: #selector(disconnectSelected), keyEquivalent: "")
             disconnect.target = self
             disconnect.isEnabled = contentVC?.canDisconnect ?? false
             connectionButton.menu?.addItem(disconnect)
 
-            let refresh = NSMenuItem(title: "Refresh Metadata", action: #selector(refreshMetadata), keyEquivalent: "")
+            let refresh = NSMenuItem(title: String(localized: "Refresh Metadata"), action: #selector(refreshMetadata), keyEquivalent: "")
             refresh.target = self
             refresh.isEnabled = contentVC?.canRefreshMetadata ?? false
             connectionButton.menu?.addItem(refresh)
         }
 
         connectionButton.menu?.addItem(.separator())
-        let manage = NSMenuItem(title: "Manage Connections…", action: #selector(showConnectionsManager), keyEquivalent: "")
+        let manage = NSMenuItem(title: String(localized: "Manage Connections…"), action: #selector(showConnectionsManager), keyEquivalent: "")
         manage.target = self
         connectionButton.menu?.addItem(manage)
         connectionButton.menu?.autoenablesItems = false
@@ -279,10 +279,10 @@ final class MainToolbarController: NSObject {
 
     private func statusName(for status: ConnectionStatus) -> String {
         switch status {
-        case .connected: return "Connected"
-        case .connecting: return "Connecting"
-        case .error: return "Connection error"
-        case .disconnected: return "Disconnected"
+        case .connected: return String(localized: "Connected")
+        case .connecting: return String(localized: "Connecting")
+        case .error: return String(localized: "Connection error")
+        case .disconnected: return String(localized: "Disconnected")
         }
     }
 
@@ -314,12 +314,12 @@ final class MainToolbarController: NSObject {
 
     private func configureCancelButton() {
         cancelButton.bezelStyle = .toolbar
-        cancelButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Cancel Query")
+        cancelButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: String(localized: "Cancel Query"))
         cancelButton.imagePosition = .imageOnly
         cancelButton.target = self
         cancelButton.action = #selector(cancelTapped(_:))
-        cancelButton.toolTip = "Cancel Query (⌘.)"
-        cancelButton.setAccessibilityLabel("Cancel Query")
+        cancelButton.toolTip = String(localized: "Cancel Query (⌘.)")
+        cancelButton.setAccessibilityLabel(String(localized: "Cancel Query"))
         cancelButton.setAccessibilityIdentifier("toolbar.cancel")
     }
 }
@@ -336,9 +336,9 @@ extension MainToolbarController: NSToolbarDelegate {
 
         case .pharosConnection:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Connection"
-            item.paletteLabel = "Connection"
-            item.toolTip = "Connection for the active tab"
+            item.label = String(localized: "Connection")
+            item.paletteLabel = String(localized: "Connection")
+            item.toolTip = String(localized: "Connection for the active tab")
             item.view = connectionButton
             item.visibilityPriority = .high
             if flag { rebuildConnectionMenu() }
@@ -346,10 +346,10 @@ extension MainToolbarController: NSToolbarDelegate {
 
         case .pharosRunQuery:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Run"
-            item.paletteLabel = "Run Query"
-            item.toolTip = "Run Query (⌘↩)"
-            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Query")
+            item.label = String(localized: "Run")
+            item.paletteLabel = String(localized: "Run Query")
+            item.toolTip = String(localized: "Run Query (⌘↩)")
+            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: String(localized: "Run Query"))
             item.isBordered = true
             item.style = .prominent
             item.target = self
@@ -363,8 +363,8 @@ extension MainToolbarController: NSToolbarDelegate {
 
         case .pharosCancelQuery:
             let item = ValidatingViewToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Cancel"
-            item.paletteLabel = "Cancel Query"
+            item.label = String(localized: "Cancel")
+            item.paletteLabel = String(localized: "Cancel Query")
             item.view = cancelButton
             item.isEnabledProvider = { [weak self] in self?.contentVC?.canCancelQuery ?? false }
             item.visibilityPriority = .high
@@ -373,10 +373,10 @@ extension MainToolbarController: NSToolbarDelegate {
 
         case .pharosFilterSidebar:
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Filter"
-            item.paletteLabel = "Filter Sidebar"
-            item.toolTip = "Filter the sidebar list"
-            item.searchField.placeholderString = "Filter"
+            item.label = String(localized: "Filter")
+            item.paletteLabel = String(localized: "Filter Sidebar")
+            item.toolTip = String(localized: "Filter the sidebar list")
+            item.searchField.placeholderString = String(localized: "Filter")
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.sendsWholeSearchString = false
             item.searchField.target = self
@@ -385,18 +385,18 @@ extension MainToolbarController: NSToolbarDelegate {
             return item
 
         case .pharosFormatSQL:
-            return imageItem(itemIdentifier, label: "Format", palette: "Format SQL",
-                             symbol: "text.alignleft", tip: "Format SQL (⌃I)",
+            return imageItem(itemIdentifier, label: String(localized: "Format"), palette: String(localized: "Format SQL"),
+                             symbol: "text.alignleft", tip: String(localized: "Format SQL (⌃I)"),
                              action: #selector(ContentViewController.menuFormatSQL(_:)))
 
         case .pharosNewTab:
-            return imageItem(itemIdentifier, label: "New Tab", palette: "New Tab",
-                             symbol: "plus", tip: "New Tab (⌘T)",
+            return imageItem(itemIdentifier, label: String(localized: "New Tab"), palette: String(localized: "New Tab"),
+                             symbol: "plus", tip: String(localized: "New Tab (⌘T)"),
                              action: #selector(ContentViewController.menuNewTab(_:)))
 
         case .pharosSaveQuery:
-            return imageItem(itemIdentifier, label: "Save", palette: "Save Query",
-                             symbol: "square.and.arrow.down", tip: "Save Query… (⌘S)",
+            return imageItem(itemIdentifier, label: String(localized: "Save"), palette: String(localized: "Save Query"),
+                             symbol: "square.and.arrow.down", tip: String(localized: "Save Query… (⌘S)"),
                              action: #selector(ContentViewController.menuSaveQuery(_:)))
 
         default:

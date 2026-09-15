@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import os
 
 // MARK: - List view model
 
@@ -982,7 +983,7 @@ final class ConnectionsManagerVC: NSViewController {
                                                in: self.defaultSchemaPopup)
                 }
             } catch {
-                NSLog("Failed to fetch schemas for default schema picker: \(error)")
+                Log.ui.error("Failed to fetch schemas for default schema picker: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -1028,8 +1029,9 @@ final class ConnectionsManagerVC: NSViewController {
         } else {
             alert.messageText = "Delete \(selected.count) connections?"
         }
-        let suffix = selected.count == 1 ? "" : "s"
-        alert.informativeText = "This will remove the saved configuration\(suffix) and stored password\(suffix)."
+        alert.informativeText = selected.count == 1
+            ? "This will remove the saved configuration and stored password."
+            : "This will remove the saved configurations and stored passwords."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")

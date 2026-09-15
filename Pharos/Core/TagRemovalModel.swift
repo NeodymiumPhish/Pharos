@@ -105,8 +105,8 @@ enum TagRemovalModel {
     /// prefer `footer(for:)`, which cannot be given counts that disagree
     /// with the list the sheet renders above it.
     static func footer(tupleCount: Int, tagCount: Int) -> String {
-        let tuples = "\(tupleCount) tuple\(tupleCount == 1 ? "" : "s")"
-        let tags = "\(tagCount) tag\(tagCount == 1 ? "" : "s")"
+        let tuples = CountedNounText.phrase(tupleCount, "tuple")
+        let tags = CountedNounText.phrase(tagCount, "tag")
         return "Removes \(tuples) from \(tags). The values stop matching in every result, on every connection — not only here."
     }
 

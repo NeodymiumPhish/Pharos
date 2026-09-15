@@ -1133,9 +1133,9 @@ class ContentViewController: NSViewController {
         emptyState.translatesAutoresizingMaskIntoConstraints = false
         emptyState.show(
             symbol: "cylinder.split.1x2",
-            title: "No Connection",
-            message: "Choose a connection for this tab to start.",
-            actionTitle: "Choose Connection…"
+            title: String(localized: "No Connection"),
+            message: String(localized: "Choose a connection for this tab to start."),
+            actionTitle: String(localized: "Choose Connection…")
         ) { [weak self] in
             self?.chooseConnectionForActiveTab()
         }

@@ -7,16 +7,16 @@ final class QuerySettingsPaneVC: SettingsPaneVC {
     private let defaultLimitField = NSTextField()
     private let timeoutField = NSTextField()
     private let confirmDestructiveCheck = NSButton(
-        checkboxWithTitle: "Confirm before DROP / DELETE / TRUNCATE", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Confirm before DROP / DELETE / TRUNCATE"), target: nil, action: nil)
     private let showCancelledDialogCheck = NSButton(
-        checkboxWithTitle: "Show details when you cancel a query", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Show details when you cancel a query"), target: nil, action: nil)
     private let notifyAppInactiveCheck = NSButton(
-        checkboxWithTitle: "Notify when query completes and app is in background", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Notify when query completes and app is in background"), target: nil, action: nil)
     private let notifyBackgroundTabCheck = NSButton(
-        checkboxWithTitle: "Notify when query completes in a background tab", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Notify when query completes in a background tab"), target: nil, action: nil)
     private let notifyMinDurationField = NSTextField()
     private let restoreOpenTabsCheck = NSButton(
-        checkboxWithTitle: "Restore open tabs at launch", target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Restore open tabs at launch"), target: nil, action: nil)
 
     private static let limitRange = (min: 1, max: 100_000)
     private static let timeoutRange = (min: 1, max: 3600)
@@ -51,13 +51,13 @@ final class QuerySettingsPaneVC: SettingsPaneVC {
         restoreOpenTabsCheck.setAccessibilityIdentifier("settings.query.restoreOpenTabs")
 
         let grid = NSGridView(views: [
-            [NSTextField.formLabel("Row Limit"), defaultLimitField],
-            [NSTextField.formLabel("Timeout"), secondsRow(timeoutField)],
+            [NSTextField.formLabel(String(localized: "Row Limit")), defaultLimitField],
+            [NSTextField.formLabel(String(localized: "Timeout")), secondsRow(timeoutField)],
             [NSGridCell.emptyContentView, confirmDestructiveCheck],
             [NSGridCell.emptyContentView, showCancelledDialogCheck],
             [NSGridCell.emptyContentView, notifyAppInactiveCheck],
             [NSGridCell.emptyContentView, notifyBackgroundTabCheck],
-            [NSTextField.formLabel("Notification minimum"), secondsRow(notifyMinDurationField)],
+            [NSTextField.formLabel(String(localized: "Notification minimum")), secondsRow(notifyMinDurationField)],
             [NSGridCell.emptyContentView, restoreOpenTabsCheck],
         ])
         SettingsForm.configureGrid(grid)
@@ -77,7 +77,7 @@ final class QuerySettingsPaneVC: SettingsPaneVC {
     }
 
     private func secondsRow(_ field: NSTextField) -> NSStackView {
-        let row = NSStackView(views: [field, NSTextField(labelWithString: "seconds")])
+        let row = NSStackView(views: [field, NSTextField(labelWithString: String(localized: "seconds"))])
         row.orientation = .horizontal
         row.spacing = 6
         return row

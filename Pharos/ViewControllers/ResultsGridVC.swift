@@ -586,9 +586,9 @@ class ResultsGridVC: NSViewController {
     private func showNoResultState() {
         emptyState.show(
             symbol: "tablecells",
-            title: "No Results",
-            message: "Run a query to see its rows here.",
-            actionTitle: "Run Query"
+            title: String(localized: "No Results"),
+            message: String(localized: "Run a query to see its rows here."),
+            actionTitle: String(localized: "Run Query")
         ) { [weak self] in
             self?.contentVC?.menuRunQuery(nil)
         }
@@ -599,8 +599,8 @@ class ResultsGridVC: NSViewController {
     private func showNoRowsState() {
         emptyState.show(
             symbol: "tablecells",
-            title: "No Rows",
-            message: "The query returned no rows."
+            title: String(localized: "No Rows"),
+            message: String(localized: "The query returned no rows.")
         )
     }
 
@@ -863,11 +863,11 @@ class ResultsGridVC: NSViewController {
             let total = formatRowCount(rows.count)
             statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
         } else if findVisible && findMatchCount > 0 {
-            let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(filterSuffix)\(tagSuffix)\(moreStr)"
+            let rowPhrase = CountedNounText.phrase(displayRows.count, "row")
+            statusLabel.stringValue = "\(rowPhrase) in \(timeStr) \u{2022} \(findMatchCount) match\(findMatchCount == 1 ? "" : "es")\(filterSuffix)\(tagSuffix)\(moreStr)"
         } else {
-            let rowStr = formatRowCount(displayRows.count)
-            statusLabel.stringValue = "\(rowStr) row\(displayRows.count == 1 ? "" : "s") in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
+            let rowPhrase = CountedNounText.phrase(displayRows.count, "row")
+            statusLabel.stringValue = "\(rowPhrase) in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
         }
     }
 

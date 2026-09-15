@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 // MARK: - TagManagerSheet
 
@@ -819,7 +820,7 @@ final class TagManagerSheet: NSViewController,
             // and the row count can legitimately differ, and the clause must not
             // claim otherwise.
             let perRow = rules > 1 && rules == model.capture?.selectedRows.count
-            notices.append("Saving adds \(rules) rule\(rules == 1 ? "" : "s") to "
+            notices.append("Saving adds \(CountedNounText.phrase(rules, "rule")) to "
                 + "\(tagName(index))\(perRow ? ", one per selected row" : "").")
         }
         statusLabel.stringValue = notices.joined(separator: " ")
@@ -1211,7 +1212,7 @@ final class TagManagerSheet: NSViewController,
         do {
             try committer.apply(commits)
         } catch {
-            NSLog("Tag manager save failed: \(error)")
+            Log.ui.error("Tag manager save failed: \(error.localizedDescription, privacy: .public)")
             // The sheet STAYS UP, with every edit where it was: a save that
             // failed halfway is the one moment the analyst most needs their
             // work still in front of them.
@@ -1280,7 +1281,7 @@ final class TagManagerSheet: NSViewController,
         // disagree about the same tag while the analyst looks at both.
         let count = tag.rules.count
         let name = displayName(tag.name)
-        cell.textField?.stringValue = "\(name) — \(count) rule\(count == 1 ? "" : "s")"
+        cell.textField?.stringValue = "\(name) — \(CountedNounText.phrase(count, "rule"))"
         // The full name, because the label truncates. The removal sheet this
         // manager replaced carried it in a group header; without this, two tags
         // whose names differ only past the cut read identically in the list.

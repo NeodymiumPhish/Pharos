@@ -42,12 +42,12 @@ final class QueryErrorSheet: NSViewController {
     // hostile scalar without corrupting what Copy puts on the pasteboard.
     let sqlTextView = NSTextView.disclosingHostileScalars()
     let errorTextView = NSTextView.disclosingHostileScalars()
-    let goToErrorButton = NSButton(title: "Go to Error", target: nil, action: nil)
-    let dismissButton = NSButton(title: "Dismiss", target: nil, action: nil)
-    let dismissAllButton = NSButton(title: "Dismiss All", target: nil, action: nil)
-    let doneButton = NSButton(title: "Done", target: nil, action: nil)
-    let copyErrorButton = NSButton(title: "Copy Error", target: nil, action: nil)
-    let copyQueryButton = NSButton(title: "Copy Query", target: nil, action: nil)
+    let goToErrorButton = NSButton(title: String(localized: "Go to Error"), target: nil, action: nil)
+    let dismissButton = NSButton(title: String(localized: "Dismiss"), target: nil, action: nil)
+    let dismissAllButton = NSButton(title: String(localized: "Dismiss All"), target: nil, action: nil)
+    let doneButton = NSButton(title: String(localized: "Done"), target: nil, action: nil)
+    let copyErrorButton = NSButton(title: String(localized: "Copy Error"), target: nil, action: nil)
+    let copyQueryButton = NSButton(title: String(localized: "Copy Query"), target: nil, action: nil)
 
     private var current: QueryFailure? {
         guard index >= 0, index < entries.count else { return nil }

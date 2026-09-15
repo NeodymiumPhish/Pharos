@@ -28,6 +28,7 @@ swiftc -o /tmp/query-variables-panel-tests \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \
   Pharos/Core/AccessibilityDisplay.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \

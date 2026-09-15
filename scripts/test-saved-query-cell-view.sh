@@ -8,6 +8,7 @@ swiftc -o /tmp/saved-query-cell-view-tests \
   Pharos/Views/SavedQueryCellView.swift \
   Pharos/Views/NSTextField+AuthoredLabel.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/SanitiseNotice.swift \
   Pharos/Views/Toast.swift \

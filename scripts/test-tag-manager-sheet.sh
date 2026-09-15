@@ -24,6 +24,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/DisplayEscape.swift \
+  Pharos/Core/Log.swift \
   Pharos/Core/PopupValueMenu.swift \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/RuleKey.swift \
@@ -31,6 +32,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/TagConditionEditor.swift \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/TagCapture.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \

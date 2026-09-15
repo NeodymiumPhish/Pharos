@@ -29,6 +29,7 @@ swiftc -o "$BIN" \
   Pharos/Core/TagCommitWriting.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagCapture.swift \
+  Pharos/Core/CountedNounText.swift \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/DisplayEscape.swift \
