@@ -34,6 +34,8 @@ Pharos offers three ways to get data out: copying results to the clipboard, expo
 
 Menu labels adapt to the selection — "Copy selection as…" when cells or rows are selected, "Copy as…" otherwise. SQL INSERT output uses `table_name` as a placeholder and handles NULLs, numerics, and booleans unquoted, with strings single-quoted and escaped.
 
+Every copy also places a plain TSV table and an HTML table on the clipboard alongside the chosen format, so pasting into a spreadsheet or a rich-text field lands as a table regardless of which format you picked.
+
 ## Export Results to File
 
 The **Export** button in the action bar offers **CSV**, **TSV**, **JSON** (pretty-printed array of objects), **SQL INSERT**, and **Markdown** — each opens a save dialog.

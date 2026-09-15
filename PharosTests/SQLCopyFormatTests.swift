@@ -166,6 +166,66 @@ private func testTextFieldRendering() {
     expect(ResultsCopyExport.markdownField("a\r\nb"), "a<br>b", "Markdown folds CRLF to one <br>")
 }
 
+/// The four characters HTML markup is sensitive to, each escaped to its
+/// entity — in both a header cell and a data cell, so neither path was missed.
+private func testHtmlEscapesTheFourCharacters() {
+    let out = ResultsCopyExport.htmlTable(
+        data: data(["a&b<c>"], [[#"<script>x</script> & "quoted""#]]),
+        includeHeaders: true)
+    expectContains(out, "<th>a&amp;b&lt;c&gt;</th>", "HTML escapes & < > in a header")
+    expectContains(out, "<td>&lt;script&gt;x&lt;/script&gt; &amp; &quot;quoted&quot;</td>",
+                   "HTML escapes & < > \" in a cell")
+}
+
+/// A SQL NULL is an empty `<td></td>`, not the text "NULL" and not a missing
+/// cell — the same nil-is-a-distinct-value rule the SQL and text builders
+/// already follow (see `testNullEmptyAndNullTextAreDistinct` above).
+private func testHtmlNullIsEmptyCell() {
+    let out = ResultsCopyExport.htmlTable(data: data(["a", "b"], [[nil, ""]]), includeHeaders: false)
+    expect(out, "<table><tbody><tr><td></td><td></td></tr></tbody></table>",
+           "HTML NULL and empty-string both render, NULL as an empty cell")
+}
+
+/// The "Include Headers" toggle governs the HTML table exactly like the other
+/// formats: a `<thead>` when on, none when off.
+private func testHtmlHeadersToggle() {
+    let withHeaders = ResultsCopyExport.htmlTable(data: data(["a"], [["1"]]), includeHeaders: true)
+    expectContains(withHeaders, "<thead><tr><th>a</th></tr></thead>", "headers on emits a <thead>")
+
+    let withoutHeaders = ResultsCopyExport.htmlTable(data: data(["a"], [["1"]]), includeHeaders: false)
+    if withoutHeaders.contains("<thead>") {
+        failures += 1
+        print("FAIL headers off omits <thead>\n  actual: \(withoutHeaders)")
+    } else {
+        print("PASS headers off omits <thead>")
+    }
+}
+
+/// The `.tabularText` pasteboard representation is always TSV, no matter which
+/// format button the analyst pressed — "Copy as SQL WITH" still carries a TSV
+/// table alongside the SQL text.
+private func testTabularRepresentationIsAlwaysTSV() {
+    let d = data(["a", "b"], [["1", "2"], [nil, "x\ty"]])
+    let tsv = ResultsCopyExport.tsvText(data: d)
+    expect(tsv, "a\tb\n1\t2\n\t\"x\ty\"", "the tabular payload is TSV regardless of the chosen format")
+}
+
+/// The pasteboard write itself needs a window-backed NSPasteboard.general to
+/// observe headlessly, so this composes one `NSPasteboardItem` the same way
+/// `copyOnBackground` now does and reads all three types back — proving the
+/// three payloads coexist on one item rather than clobbering each other.
+private func testPasteboardItemCarriesThreeTypes() {
+    let d = data(["a"], [["chosen"]])
+    let item = NSPasteboardItem()
+    item.setString("SELECT 1", forType: .string)
+    item.setString(ResultsCopyExport.tsvText(data: d), forType: .tabularText)
+    item.setString(ResultsCopyExport.htmlTable(data: d, includeHeaders: d.includeHeaders), forType: .html)
+
+    expect(item.string(forType: .string) ?? "", "SELECT 1", "the .string type carries the chosen format")
+    expect(item.string(forType: .tabularText) ?? "", "a\nchosen", "the .tabularText type carries TSV")
+    expectContains(item.string(forType: .html) ?? "", "<table>", "the .html type carries a <table>")
+}
+
 func runTests() {
     testAliasWithSpaceIsQuoted()
     testUnnamedExpressionColumnIsQuoted()
@@ -176,6 +236,11 @@ func runTests() {
     testInsertQuotesTheSameWay()
     testNullEmptyAndNullTextAreDistinct()
     testTextFieldRendering()
+    testHtmlEscapesTheFourCharacters()
+    testHtmlNullIsEmptyCell()
+    testHtmlHeadersToggle()
+    testTabularRepresentationIsAlwaysTSV()
+    testPasteboardItemCarriesThreeTypes()
 
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     exit(failures == 0 ? 0 : 1)

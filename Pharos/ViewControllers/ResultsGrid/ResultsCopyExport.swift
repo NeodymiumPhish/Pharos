@@ -288,25 +288,45 @@ class ResultsCopyExport: NSObject {
     /// Format a CopyData payload off the main thread, then set the pasteboard on main.
     /// For large selections (10k+ rows) the join/escape/SQL build was the longest
     /// main-thread block in the app; this keeps the UI responsive during copies.
+    ///
+    /// Every copy writes three representations of the same selection onto one
+    /// `NSPasteboardItem`: `.string` is the chosen format (TSV, CSV, Markdown,
+    /// SQL INSERT or SQL WITH — whichever button/selector fired), `.tabularText`
+    /// is always the TSV form regardless of that choice (so a paste into a
+    /// spreadsheet or a table-aware editor lands as a table even when the
+    /// analyst picked "Copy as SQL INSERT"), and `.html` is a plain `<table>` for
+    /// apps that prefer rich text (Mail, Notes, a browser's editable field).
     private func copyOnBackground(_ format: @escaping (CopyData) -> String) {
         guard let data = gatherData() else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let text = format(data)
+            let tabularText = Self.tsvText(data: data)
+            let html = Self.htmlTable(data: data, includeHeaders: data.includeHeaders)
             DispatchQueue.main.async {
+                let item = NSPasteboardItem()
+                item.setString(text, forType: .string)
+                item.setString(tabularText, forType: .tabularText)
+                item.setString(html, forType: .html)
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
+                NSPasteboard.general.writeObjects([item])
             }
         }
     }
 
     @objc func copyAsTSV(_: Any?) {
-        copyOnBackground { data in
-            var lines = data.rows.map { $0.map { Self.tsvField($0) }.joined(separator: "\t") }
-            if data.includeHeaders {
-                lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
-            }
-            return lines.joined(separator: "\n")
+        copyOnBackground { data in Self.tsvText(data: data) }
+    }
+
+    /// The TSV text for a whole `CopyData` payload: rows joined by tabs, one
+    /// per line, with the header row prepended when headers are on. Shared by
+    /// "Copy as TSV", "Export as TSV" and the `.tabularText` pasteboard
+    /// representation every copy now also writes — one join, one escaping rule.
+    static func tsvText(data: CopyData) -> String {
+        var lines = data.rows.map { $0.map { Self.tsvField($0) }.joined(separator: "\t") }
+        if data.includeHeaders {
+            lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
         }
+        return lines.joined(separator: "\n")
     }
 
     @objc func copyAsCSV(_: Any?) {
@@ -474,6 +494,38 @@ class ResultsCopyExport: NSObject {
             .replacingOccurrences(of: "\r", with: "<br>")
     }
 
+    /// Escape the four characters that would otherwise be read as markup:
+    /// `&` first (so it doesn't double-escape the entities this just wrote),
+    /// then `<`, `>` and `"`.
+    static func htmlEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// A plain `<table>` for the `.html` pasteboard representation every copy
+    /// now writes: no styling, no attributes — just headers (when on) and
+    /// rows, escaped, with a SQL NULL as an empty `<td></td>` (the same
+    /// "nil is a distinct value, not an empty string" rule the other formats
+    /// follow — see `CopyData.rows`).
+    static func htmlTable(data: CopyData, includeHeaders: Bool) -> String {
+        var html = "<table>"
+        if includeHeaders {
+            let headerCells = data.columnNames.map { "<th>\(htmlEscape($0))</th>" }.joined()
+            html += "<thead><tr>\(headerCells)</tr></thead>"
+        }
+        let bodyRows = data.rows.map { row -> String in
+            let cells = row.map { cell -> String in
+                guard let cell else { return "<td></td>" }
+                return "<td>\(htmlEscape(cell))</td>"
+            }.joined()
+            return "<tr>\(cells)</tr>"
+        }.joined()
+        html += "<tbody>\(bodyRows)</tbody></table>"
+        return html
+    }
+
     // MARK: - Copy Popover
 
     private var activePopover: NSPopover?
@@ -589,11 +641,7 @@ class ResultsCopyExport: NSObject {
 
     @objc private func exportAsTSV(_: Any?) {
         exportToFile(filename: "export.tsv", contentType: .tabSeparatedText) { data in
-            var lines = data.rows.map { $0.map { Self.tsvField($0) }.joined(separator: "\t") }
-            if data.includeHeaders {
-                lines.insert(data.columnNames.joined(separator: "\t"), at: 0)
-            }
-            return lines.joined(separator: "\n")
+            Self.tsvText(data: data)
         }
     }
 
