@@ -136,7 +136,7 @@ class ResultsGridVC: NSViewController {
     static let rowCountFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.groupingSeparator = ","
+        f.locale = .autoupdatingCurrent
         return f
     }()
 
@@ -537,7 +537,7 @@ class ResultsGridVC: NSViewController {
     /// looking at recent results or something opened from history.
     func showResultBanner(schema: String?, date: Date) {
         let schemaText = schema ?? "default"
-        let timeText = Self.resultBannerDateFormatter.string(from: date)
+        let timeText = date.formatted(Self.resultBannerDateStyle)
         resultBannerLabel.stringValue = "\(DisplayEscape.escaped(schemaText)) \u{00B7} \(timeText)"
         resultBannerLabel.isHidden = false
     }
@@ -554,12 +554,8 @@ class ResultsGridVC: NSViewController {
         return formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
     }
 
-    private static let resultBannerDateFormatter: DateFormatter = {
-        let df = DateFormatter()
-        df.dateStyle = .medium
-        df.timeStyle = .short
-        return df
-    }()
+    private static let resultBannerDateStyle = Date.FormatStyle(
+        date: .abbreviated, time: .shortened, locale: .autoupdatingCurrent)
 
     func setLoadingMore(_ loading: Bool) {
         isLoadingMore = loading
@@ -1208,26 +1204,7 @@ class ResultsGridVC: NSViewController {
     // MARK: - Formatting
 
     func formatDuration(_ ms: UInt64) -> String {
-        if ms < 1000 {
-            return "\(ms)ms"
-        }
-        if ms < 10_000 {
-            return String(format: "%.2fs", Double(ms) / 1000)
-        }
-        if ms < 60_000 {
-            return String(format: "%.1fs", Double(ms) / 1000)
-        }
-        let totalSeconds = Double(ms) / 1000
-        let minutes = Int(totalSeconds) / 60
-        let seconds = totalSeconds.truncatingRemainder(dividingBy: 60)
-        if ms < 3_600_000 {
-            return seconds >= 0.5
-                ? "\(minutes)m \(String(format: "%.0f", seconds))s"
-                : "\(minutes)m"
-        }
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-        return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
+        DurationText.short(milliseconds: ms)
     }
 
     func formatRowCount(_ count: Int) -> String {

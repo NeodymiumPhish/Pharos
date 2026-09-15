@@ -197,15 +197,16 @@ struct ChartRootView: View {
         return "Run server aggregation"
     }
 
-    /// Render an ISO-8601 timestamp as a compact local "yyyy-MM-dd HH:mm", or the
-    /// raw string if it doesn't parse.
+    /// Render an ISO-8601 timestamp as a compact local date + time, or the raw
+    /// string if it doesn't parse. Display only — the axis still sorts and
+    /// parses from the ISO8601 source; this only changes the label text, which
+    /// used to be a fixed "yyyy-MM-dd HH:mm" regardless of the viewer's locale.
     private func shortTime(_ iso: String) -> String {
         let parser = ISO8601DateFormatter()
         guard let d = parser.date(from: iso) else { return iso }
-        let out = DateFormatter()
-        out.locale = Locale(identifier: "en_US_POSIX")
-        out.dateFormat = "yyyy-MM-dd HH:mm"
-        return out.string(from: d)
+        let style = Date.FormatStyle(locale: .autoupdatingCurrent)
+            .year().month(.twoDigits).day(.twoDigits).hour().minute()
+        return d.formatted(style)
     }
 
     private var configRail: some View {

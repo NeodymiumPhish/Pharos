@@ -32,7 +32,7 @@ enum HistoryRowText {
     private static let rowCountFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
+        formatter.locale = .autoupdatingCurrent
         return formatter
     }()
 

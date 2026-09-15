@@ -48,16 +48,14 @@ struct QueryFailure: Identifiable, Equatable {
     var subheader: String {
         var parts = [tabName]
         if let connectionName, !connectionName.isEmpty { parts.append(connectionName) }
-        parts.append(Self.timeFormatter.string(from: timestamp))
+        parts.append(timestamp.formatted(Self.timeStyle))
         return parts.joined(separator: " · ")
     }
 
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .medium
-        return formatter
-    }()
+    /// `.standard` (h:mm:ss) is the closest `Date.FormatStyle` match to the
+    /// legacy `DateFormatter` `.medium` time style this replaces — both include
+    /// seconds, neither shows a date or time zone.
+    private static let timeStyle = Date.FormatStyle(time: .standard, locale: .autoupdatingCurrent)
 }
 
 /// Newest-first failure record for one editor tab.

@@ -937,7 +937,7 @@ class InspectorViewController: NSViewController {
         f.numberStyle = .decimal
         f.maximumFractionDigits = 4
         f.minimumFractionDigits = 0
-        f.groupingSeparator = ","
+        f.locale = .autoupdatingCurrent
         f.usesGroupingSeparator = true
         return f
     }()
