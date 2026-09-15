@@ -55,6 +55,10 @@ class QueryEditorVC: NSViewController {
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
+        // Stable handles for accessibility tooling and the UI test harness.
+        // The gutter names itself in its own initialiser.
+        textView.setAccessibilityIdentifier("editor.text")
+
         scrollView.documentView = textView
 
         // Line number gutter — standalone NSView beside the scroll view,
@@ -233,20 +237,24 @@ class QueryEditorVC: NSViewController {
     /// segment out of a longer document, or whenever `{{variable}}` substitution
     /// changed the text — so the caller does the move, with
     /// `SQLErrorLocation.range(of:in:)`.
-    func markError(range: NSRange) {
+    /// `message` is the failure text, when the caller has it. The gutter keeps
+    /// it beside the marker so VoiceOver reads the error out instead of only
+    /// announcing that there is one.
+    func markError(range: NSRange, message: String? = nil) {
         let text = textView.string
         guard NSMaxRange(range) <= (text as NSString).length else { return }
         // +1 because lineNumber counts to a 1-based position, which is the form
         // PostgreSQL reports and the form this code has always been given.
-        gutter?.setErrorLines([lineNumber(forCharacterIndex: range.location + 1, in: text)])
+        let line = lineNumber(forCharacterIndex: range.location + 1, in: text)
+        gutter?.setErrors([line: message])
         textView.addErrorUnderline(range: range)
     }
 
     /// Mark an error whose position counts into the whole document. Live
     /// validation runs on the document text, so it takes this path.
-    func markError(_ location: SQLErrorLocation) {
+    func markError(_ location: SQLErrorLocation, message: String? = nil) {
         guard let range = location.range(in: textView.string) else { return }
-        markError(range: range)
+        markError(range: range, message: message)
     }
 
     /// Put the caret on `range`, scroll it into sight and take focus. Used by the
@@ -596,7 +604,7 @@ class QueryEditorVC: NSViewController {
                     self.markError(SQLErrorLocation(
                         charPosition: position,
                         tokenLength: SQLErrorLocation.tokenLength(from: error.message)
-                    ))
+                    ), message: error.message)
                 } else {
                     self.clearErrorMarkers()
                 }

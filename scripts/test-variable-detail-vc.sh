@@ -22,6 +22,7 @@ swiftc -o /tmp/variable-detail-vc-tests \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \
+  Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \

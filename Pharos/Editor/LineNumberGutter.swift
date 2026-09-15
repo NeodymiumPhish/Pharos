@@ -13,7 +13,12 @@ class LineNumberGutter: NSView {
     private weak var textView: NSTextView?
     private weak var scrollView: NSScrollView?
     private var lineAttributes: [NSAttributedString.Key: Any] = [:]
-    private var errorLines: Set<Int> = []
+
+    /// Lines carrying an error marker, each with the message that produced it
+    /// (nil when the caller had no message to give). The message is what the
+    /// marker's accessibility value reads out, and what a later phase's hover
+    /// popover will show.
+    private var errors: [Int: String?] = [:]
 
     /// Current width the gutter needs. The host VC reads this to lay out frames.
     private(set) var desiredWidth: CGFloat = 40
@@ -149,6 +154,14 @@ class LineNumberGutter: NSView {
             self, selector: #selector(selectionDidChange(_:)),
             name: NSTextView.didChangeSelectionNotification, object: textView
         )
+        // The error marker changes shape under "Differentiate without colour",
+        // so it has to be repainted when the user flips that switch.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(accessibilityDisplayDidChange(_:)),
+            name: AccessibilityDisplay.didChange, object: nil
+        )
+
+        setAccessibilityIdentifier("editor.gutter")
 
         rebuildLineStarts()
         // Resolve the width from `metrics` now rather than leaving the stored
@@ -196,14 +209,33 @@ class LineNumberGutter: NSView {
         (lineAttributes[.font] as? NSFont) ?? NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
     }
 
+    /// Mark error lines, each with the message that caused it. A nil message
+    /// means "an error here, text unknown" — the marker still draws and still
+    /// reads out, just as "Error".
+    func setErrors(_ newErrors: [Int: String?]) {
+        errors = newErrors
+        errorsDidChange()
+    }
+
+    /// Message-free form, kept for callers that only know the line.
     func setErrorLines(_ lines: Set<Int>) {
-        errorLines = lines
-        needsDisplay = true
+        setErrors(Dictionary(uniqueKeysWithValues: lines.map { ($0, nil) }))
     }
 
     func clearErrors() {
-        errorLines.removeAll()
+        errors.removeAll()
+        errorsDidChange()
+    }
+
+    /// The message recorded for `line`, or nil when the line has no error or
+    /// the error arrived without one.
+    func errorMessage(forLine line: Int) -> String? {
+        errors[line] ?? nil
+    }
+
+    private func errorsDidChange() {
         needsDisplay = true
+        accessibilityStructureDidChange()
     }
 
     /// Force a redraw — call after programmatic text changes (e.g. setSQL).
@@ -222,6 +254,7 @@ class LineNumberGutter: NSView {
         fadeOutStates = fadeOutStates.filter { validIndices.contains($0.key) }
         window?.invalidateCursorRects(for: self)
         needsDisplay = true
+        accessibilityStructureDidChange()
     }
 
     /// Set the currently-executing segment indices.
@@ -284,6 +317,7 @@ class LineNumberGutter: NSView {
         foldRegions = regions
         window?.invalidateCursorRects(for: self)
         needsDisplay = true
+        accessibilityStructureDidChange()
     }
 
     // MARK: - Line Start Cache
@@ -412,6 +446,10 @@ class LineNumberGutter: NSView {
 
     @objc private func boundsDidChange(_: Notification) {
         window?.invalidateCursorRects(for: self)
+        needsDisplay = true
+    }
+
+    @objc private func accessibilityDisplayDidChange(_: Notification) {
         needsDisplay = true
     }
 
@@ -684,17 +722,11 @@ class LineNumberGutter: NSView {
 
             lineYPositions.append((line: lineNumber, y: y, height: lineRect.height))
 
-            // Error indicator dot
-            if errorLines.contains(lineNumber) {
-                let dotSize: CGFloat = 6
-                let dotRect = NSRect(
-                    x: 3,
-                    y: y + (lineRect.height - dotSize) / 2,
-                    width: dotSize,
-                    height: dotSize
-                )
-                NSColor.systemRed.setFill()
-                NSBezierPath(ovalIn: dotRect).fill()
+            // Error indicator — a red dot normally, a red exclamation-mark
+            // symbol when the user asked not to be told things by colour
+            // alone, so the marker still reads at a glance in monochrome.
+            if errors.keys.contains(lineNumber) {
+                drawErrorMarker(lineTop: y, lineHeight: lineRect.height)
             }
 
             // Fold chevron — draw on fold region start lines
@@ -851,6 +883,43 @@ class LineNumberGutter: NSView {
         }
     }
 
+    /// Gutter-space rect of the error marker on a line whose fragment starts
+    /// at `lineTop` and is `lineHeight` tall. Both marker shapes share the
+    /// box, so the accessibility frame does not move when the shape changes.
+    private func errorMarkerRect(lineTop y: CGFloat, lineHeight: CGFloat) -> NSRect {
+        let size = Self.errorMarkerSize
+        return NSRect(x: 1, y: y + (lineHeight - size) / 2, width: size, height: size)
+    }
+
+    private static let errorMarkerSize: CGFloat = 10
+
+    /// Paint the error marker. Under "Differentiate without colour" the marker
+    /// is an exclamation mark in a circle — a shape, not only a red patch.
+    private func drawErrorMarker(lineTop y: CGFloat, lineHeight: CGFloat) {
+        let box = errorMarkerRect(lineTop: y, lineHeight: lineHeight)
+        let byShape = MainActor.assumeIsolated {
+            AccessibilityDisplay.shared.differentiateWithoutColor
+        }
+        if byShape,
+           let symbol = NSImage(systemSymbolName: "exclamationmark.circle.fill",
+                                accessibilityDescription: "Error") {
+            symbol.isTemplate = true
+            let tinted = symbol.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(paletteColors: [.systemRed])) ?? symbol
+            tinted.draw(in: box)
+            return
+        }
+        let dotSize: CGFloat = 6
+        let dotRect = NSRect(
+            x: 3,
+            y: y + (lineHeight - dotSize) / 2,
+            width: dotSize,
+            height: dotSize
+        )
+        NSColor.systemRed.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+    }
+
     /// Draw a fold disclosure chevron (right-pointing when collapsed, down-pointing when expanded).
     private func drawFoldChevron(collapsed: Bool, at origin: NSPoint, lineHeight: CGFloat) {
         let size: CGFloat = 12
@@ -915,5 +984,186 @@ class LineNumberGutter: NSView {
 
         NSColor.white.setFill()
         triangle.fill()
+    }
+
+    // MARK: - Accessibility
+
+    /// A gutter control as VoiceOver sees it. The gutter paints its run
+    /// buttons, fold chevrons and error markers itself, so there is no
+    /// subview for the accessibility system to find — one of these stands in
+    /// for each of them, carrying the action to run when the user presses it.
+    final class GutterElement: NSAccessibilityElement {
+
+        /// What the element does on press. Returns false when the thing it
+        /// pointed at is gone (the text changed under a held focus).
+        var onPress: (() -> Bool)?
+
+        override func accessibilityPerformPress() -> Bool {
+            onPress?() ?? false
+        }
+    }
+
+    /// Cached child elements, keyed by what they stand for ("run-2",
+    /// "fold-0", "error-7"). VoiceOver holds on to the element it is focused
+    /// on, so the SAME object has to come back for the same control across
+    /// redraws — a fresh element per call would drop focus on every keystroke.
+    private var cachedAccessibilityElements: [String: GutterElement] = [:]
+
+    /// Tell the accessibility system the set of controls changed. Called when
+    /// segments, fold regions or errors move.
+    private func accessibilityStructureDidChange() {
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    override func accessibilityLabel() -> String? { "Line gutter" }
+
+    override func accessibilityChildren() -> [Any]? {
+        rebuildAccessibilityElements()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        for element in rebuildAccessibilityElements()
+        where element.accessibilityFrame().contains(point) {
+            return element
+        }
+        return self
+    }
+
+    /// Rebuild the child list from current state, reusing cached elements by
+    /// key and dropping keys that no longer stand for anything. Frames are
+    /// refreshed every call, since scrolling and editing move every control.
+    ///
+    /// Internal (not private) as a test seam:
+    /// PharosTests/GutterAccessibilityTests.swift drives it directly rather
+    /// than through `accessibilityChildren()`'s `[Any]?`.
+    @discardableResult
+    func rebuildAccessibilityElements() -> [GutterElement] {
+        // (line, column order, element) so the list reads top-to-bottom and,
+        // within a line, left-to-right: chevron, error marker, run button.
+        var ordered: [(line: Int, column: Int, element: GutterElement)] = []
+        var live = Set<String>()
+
+        for (idx, region) in foldRegions.enumerated() {
+            let key = "fold-\(idx)"
+            live.insert(key)
+            let element = cachedElement(forKey: key, role: .disclosureTriangle)
+            element.setAccessibilityLabel(Self.rangeLabel("Fold", region.startLine, region.endLine))
+            element.setAccessibilityValue(NSNumber(value: region.isCollapsed ? 0 : 1))
+            element.onPress = { [weak self] in
+                guard let self, idx < self.foldRegions.count else { return false }
+                self.onToggleFold?(idx)
+                return true
+            }
+            let frame = lineFrame(forLine: region.startLine).map {
+                NSRect(x: 0, y: $0.origin.y, width: 14, height: $0.height)
+            }
+            apply(frame: frame, to: element)
+            ordered.append((region.startLine, 0, element))
+        }
+
+        for line in errors.keys.sorted() {
+            let key = "error-\(line)"
+            live.insert(key)
+            let element = cachedElement(forKey: key, role: .image)
+            element.setAccessibilityLabel("Error on line \(line)")
+            element.setAccessibilityValue(errorMessage(forLine: line) ?? "Error")
+            element.onPress = nil
+            let frame = lineFrame(forLine: line).map {
+                errorMarkerRect(lineTop: $0.origin.y, lineHeight: $0.height)
+            }
+            apply(frame: frame, to: element)
+            ordered.append((line, 1, element))
+        }
+
+        for (idx, segment) in segments.enumerated() {
+            let key = "run-\(idx)"
+            live.insert(key)
+            let element = cachedElement(forKey: key, role: .button)
+            element.setAccessibilityLabel(Self.rangeLabel("Run", segment.startLine, segment.endLine))
+            element.onPress = { [weak self] in
+                guard let self, idx < self.segments.count else { return false }
+                self.onRunSegment?(self.segments[idx])
+                return true
+            }
+            apply(frame: runButtonFrame(forLine: segment.startLine), to: element)
+            ordered.append((segment.startLine, 2, element))
+        }
+
+        cachedAccessibilityElements = cachedAccessibilityElements.filter { live.contains($0.key) }
+
+        ordered.sort { ($0.line, $0.column) < ($1.line, $1.column) }
+        return ordered.map(\.element)
+    }
+
+    /// "Run lines 3–7" / "Run line 3" — a one-line statement should not be
+    /// read out as a range of itself.
+    private static func rangeLabel(_ verb: String, _ startLine: Int, _ endLine: Int) -> String {
+        startLine == endLine
+            ? "\(verb) line \(startLine)"
+            : "\(verb) lines \(startLine)\u{2013}\(endLine)"
+    }
+
+    /// The cached element for `key`, created (with its role and parent fixed
+    /// for life) on first use.
+    private func cachedElement(forKey key: String, role: NSAccessibility.Role) -> GutterElement {
+        if let existing = cachedAccessibilityElements[key] { return existing }
+        let element = GutterElement()
+        element.setAccessibilityRole(role)
+        element.setAccessibilityParent(self)
+        // NSAccessibilityElement starts out disabled, and VoiceOver will not
+        // press a disabled control — measured on the live app, where the run
+        // buttons first came back as AXEnabled = false.
+        element.setAccessibilityEnabled(true)
+        cachedAccessibilityElements[key] = element
+        return element
+    }
+
+    /// Give an element its frame. The accessibility system works in SCREEN
+    /// coordinates, so a hosted gutter converts through the window; an
+    /// unhosted one (a test harness, or a view not yet in a window) has no
+    /// screen position to convert to and reports the parent-space rect
+    /// instead.
+    private func apply(frame: NSRect?, to element: GutterElement) {
+        guard let frame else {
+            element.setAccessibilityFrameInParentSpace(.zero)
+            return
+        }
+        if let window {
+            element.setAccessibilityFrame(window.convertToScreen(convert(frame, to: nil)))
+        } else {
+            element.setAccessibilityFrameInParentSpace(frame)
+        }
+    }
+
+    /// The gutter-space rect of a 1-based line — full gutter width, the line
+    /// fragment's own height. nil when the line has no layout yet.
+    private func lineFrame(forLine line: Int) -> NSRect? {
+        guard let textView, let layoutManager = textView.layoutManager,
+              line >= 1, line <= lineStarts.count else { return nil }
+        let text = textView.string as NSString
+        let charIndex = min(lineStarts[line - 1], text.length)
+        let lineRange = text.lineRange(for: NSRange(location: charIndex, length: 0))
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+        let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        guard let y = gutterY(forTextContainerRect: fragment) else { return nil }
+        return NSRect(x: 0, y: y, width: max(bounds.width, desiredWidth), height: fragment.height)
+    }
+
+    /// The gutter-space rect of a segment's run button — the same 16 pt disc
+    /// `drawRunButton` paints over the top of the segment's bar.
+    private func runButtonFrame(forLine line: Int) -> NSRect? {
+        guard let lineFrame = lineFrame(forLine: line) else { return nil }
+        let barX = desiredWidth - metrics.segmentBarGap / 2 - metrics.segmentBarWidth
+        let size: CGFloat = 16
+        // The painted disc overhangs the gutter's trailing edge by a couple of
+        // points and is clipped there. The accessibility frame is the box
+        // VoiceOver draws its cursor around, so keep it to what is on screen.
+        let gutterWidth = max(bounds.width, desiredWidth)
+        let x = min(barX + metrics.segmentBarWidth / 2 - size / 2, gutterWidth - size)
+        return NSRect(x: max(0, x), y: lineFrame.origin.y + 1, width: size, height: size)
     }
 }

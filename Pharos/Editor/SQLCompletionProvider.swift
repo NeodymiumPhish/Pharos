@@ -6,6 +6,22 @@ class SQLCompletionProvider: NSObject {
     struct Completion {
         enum Kind {
             case keyword, function, snippet, schema, table, column, view
+
+            /// How the kind reads out. The row's icon is the only *visible*
+            /// encoding of the kind, and an icon says nothing to VoiceOver —
+            /// so this word goes into the symbol's accessibility description
+            /// and into the row's label.
+            var displayName: String {
+                switch self {
+                case .keyword: return "Keyword"
+                case .function: return "Function"
+                case .snippet: return "Snippet"
+                case .schema: return "Schema"
+                case .table: return "Table"
+                case .column: return "Column"
+                case .view: return "View"
+                }
+            }
         }
         let label: String
         let detail: String
@@ -85,6 +101,64 @@ class SQLCompletionProvider: NSObject {
         popover.animates = false
     }
 
+    // MARK: - Accessibility Text
+    //
+    // The popover never takes focus — key events stay with the text view so
+    // typing keeps filtering the list — so VoiceOver never moves into the
+    // table and never reads a row on its own. These strings are spoken to the
+    // user instead, as announcements. They are pure functions so the test
+    // harness can check the wording without a screen reader.
+
+    /// A row, read as one phrase: "count, Function, aggregate". The detail is
+    /// dropped when it only repeats the kind (a keyword's detail is
+    /// "keyword"), which would otherwise be read out twice.
+    static func rowLabel(for item: Completion) -> String {
+        var parts = [DisplayEscape.escaped(item.label), item.kind.displayName]
+        let detail = DisplayEscape.escaped(item.detail)
+        if !detail.isEmpty, detail.caseInsensitiveCompare(item.kind.displayName) != .orderedSame {
+            parts.append(detail)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// What is said when the list appears: how many there are, then the row
+    /// that is already selected.
+    static func announcementText(for item: Completion?, count: Int) -> String {
+        let noun = count == 1 ? "completion" : "completions"
+        guard let item else { return "\(count) \(noun)" }
+        return "\(count) \(noun). \(DisplayEscape.escaped(item.label)), \(item.kind.displayName)"
+    }
+
+    /// What is said when the arrow keys move the selection.
+    static func selectionAnnouncementText(for item: Completion) -> String {
+        "\(DisplayEscape.escaped(item.label)), \(item.kind.displayName)"
+    }
+
+    private func announce(_ text: String) {
+        guard !text.isEmpty else { return }
+        let element: Any = NSApp?.mainWindow ?? textView ?? self
+        NSAccessibility.post(
+            element: element, notification: .announcementRequested,
+            userInfo: [
+                .announcement: text,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
+    }
+
+    private func announceSelectedRow() {
+        let row = tableView.selectedRow
+        guard row >= 0, row < filteredCompletions.count else { return }
+        announce(Self.selectionAnnouncementText(for: filteredCompletions[row]))
+    }
+
+    /// Test seam: PharosTests/CompletionAccessibilityTests.swift drives
+    /// `tableView(_:viewFor:row:)` directly against a stub table. Production
+    /// code never calls this.
+    func setFilteredCompletionsForTesting(_ items: [Completion]) {
+        filteredCompletions = items
+    }
+
     // MARK: - Show/Hide
 
     func attachTo(_ textView: SQLTextView) {
@@ -118,6 +192,10 @@ class SQLCompletionProvider: NSObject {
             popover.show(relativeTo: cursorRect, of: textView, preferredEdge: .maxY)
             // Keep text view as first responder so key events route through it
             textView.window?.makeFirstResponder(textView)
+            // Nothing else tells a screen-reader user the list arrived: the
+            // popover never takes focus, so no focus change is reported.
+            announce(Self.announcementText(
+                for: filteredCompletions.first, count: filteredCompletions.count))
         }
     }
 
@@ -136,6 +214,7 @@ class SQLCompletionProvider: NSObject {
         if row > 0 {
             tableView.selectRowIndexes(IndexSet(integer: row - 1), byExtendingSelection: false)
             tableView.scrollRowToVisible(row - 1)
+            announceSelectedRow()
         }
     }
 
@@ -144,6 +223,7 @@ class SQLCompletionProvider: NSObject {
         if row < filteredCompletions.count - 1 {
             tableView.selectRowIndexes(IndexSet(integer: row + 1), byExtendingSelection: false)
             tableView.scrollRowToVisible(row + 1)
+            announceSelectedRow()
         }
     }
 
@@ -443,6 +523,11 @@ extension SQLCompletionProvider: NSTableViewDelegate {
         let detailField = cell.viewWithTag(100) as? NSTextField
         detailField?.stringValue = DisplayEscape.escaped(item.detail)
 
+        // Read the row as one unit — "count, Function, aggregate" — instead of
+        // letting VoiceOver walk the label and the detail as separate pieces
+        // of text with a nameless icon between them.
+        cell.setAccessibilityLabel(Self.rowLabel(for: item))
+
         let iconName: String
         switch item.kind {
         case .keyword: iconName = "textformat"
@@ -453,7 +538,8 @@ extension SQLCompletionProvider: NSTableViewDelegate {
         case .column: iconName = "line.3.horizontal"
         case .view: iconName = "eye"
         }
-        cell.imageView?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+        cell.imageView?.image = NSImage(
+            systemSymbolName: iconName, accessibilityDescription: item.kind.displayName)
         cell.imageView?.contentTintColor = .secondaryLabelColor
 
         return cell
