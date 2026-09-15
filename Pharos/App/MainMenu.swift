@@ -199,6 +199,27 @@ enum MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // One step each, same clamp and save path as a trackpad pinch on the
+        // editor (QueryEditorVC.handleMagnification) — the keyboard
+        // equivalent a gesture with no key equivalent would otherwise lack.
+        let increaseFontItem = viewMenu.addItem(
+            withTitle: String(localized: "Increase Editor Font"),
+            action: #selector(ContentViewController.menuIncreaseEditorFont(_:)),
+            keyEquivalent: "+"
+        )
+        increaseFontItem.keyEquivalentModifierMask = [.command]
+        increaseFontItem.image = NSImage(systemSymbolName: "textformat.size.larger", accessibilityDescription: nil)
+
+        let decreaseFontItem = viewMenu.addItem(
+            withTitle: String(localized: "Decrease Editor Font"),
+            action: #selector(ContentViewController.menuDecreaseEditorFont(_:)),
+            keyEquivalent: "-"
+        )
+        decreaseFontItem.keyEquivalentModifierMask = [.command]
+        decreaseFontItem.image = NSImage(systemSymbolName: "textformat.size.smaller", accessibilityDescription: nil)
+
+        viewMenu.addItem(.separator())
+
         // Tab switching shortcuts Cmd+1-9
         for i in 1...9 {
             let item = viewMenu.addItem(

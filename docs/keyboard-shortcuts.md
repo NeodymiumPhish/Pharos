@@ -76,6 +76,8 @@ nav_order: 17
 | Show Previous Tab | Cmd+Shift+[ |
 | Show Next Result Tab | Ctrl+Tab |
 | Show Previous Result Tab | Ctrl+Shift+Tab |
+| Increase Editor Font | Cmd++ |
+| Decrease Editor Font | Cmd+- |
 
 ## Window
 

@@ -1335,8 +1335,12 @@ class ContentViewController: NSViewController {
     /// click restores, the next drag resizes.
     private func leaveExpandedStateForDividerDrag() {
         guard expandState != .normal else { return }
+        let previousState = expandState
         expandState = .normal
         applyExpandState()
+        if Haptics.shouldTap(from: previousState, to: expandState, normal: .normal) {
+            Haptics.alignment()
+        }
     }
 
     private func updateExpandButtonUI() {
@@ -4170,6 +4174,14 @@ extension ContentViewController {
     @objc func menuFormatSQL(_: Any?) {
         editorPane.formatSQL()
     }
+
+    @objc func menuIncreaseEditorFont(_: Any?) {
+        editorPane.stepEditorFontSize(by: 1)
+    }
+
+    @objc func menuDecreaseEditorFont(_: Any?) {
+        editorPane.stepEditorFontSize(by: -1)
+    }
 }
 
 // MARK: - NSSplitViewDelegate
@@ -4341,8 +4353,9 @@ extension ContentViewController: QueryErrorSheetDelegate {
 
 extension ContentViewController: NSMenuItemValidation {
     /// Only the items named here are gated — the two tag items, Run, Cancel,
-    /// and the tab-cycling items; every other menu item keeps its
-    /// always-enabled behaviour, so the default MUST stay `true`.
+    /// the tab-cycling items, and the two editor font-size items; every other
+    /// menu item keeps its always-enabled behaviour, so the default MUST
+    /// stay `true`.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(performTextFinderAction(_:)) {
             guard let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return true }
@@ -4393,6 +4406,12 @@ extension ContentViewController: NSMenuItemValidation {
             // tag list alone would enable the item into a beep.
             return resultsVC.isViewLoaded && resultsVC.view.window != nil
                 && !TagStore.shared.tags.isEmpty
+        }
+        if menuItem.action == #selector(menuIncreaseEditorFont(_:)) {
+            return editorPane.editorFontSize < FontSizeStepper.range.upperBound
+        }
+        if menuItem.action == #selector(menuDecreaseEditorFont(_:)) {
+            return editorPane.editorFontSize > FontSizeStepper.range.lowerBound
         }
         return true
     }

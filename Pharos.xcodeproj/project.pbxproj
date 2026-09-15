@@ -66,6 +66,7 @@
 		386F692498C6E13CFF43B64A /* ResultTabRowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 941E5BFDEEC9EBA47AA09527 /* ResultTabRowText.swift */; };
 		3A88540B65869E99DBFC3587 /* ErrorExplanationPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2665CDD7505A38EA251383 /* ErrorExplanationPrompt.swift */; };
 		3AB4F904FD493190DD2F1BB3 /* ResultsGridColumnState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C87F939622E046E11116B21C /* ResultsGridColumnState.swift */; };
+		3B4B727F11B8CB2F5E45C13C /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FEC53708DD1E23C6189685 /* Haptics.swift */; };
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
@@ -99,7 +100,6 @@
 		541543BE8918A6AF027E43E0 /* PharosShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DD2ABCAE10F6309B29D130 /* PharosShortcuts.swift */; };
 		54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */ = {isa = PBXBuildFile; fileRef = 935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */; };
 		54C67A0F06AA5DDDD791149B /* ResultsGridVC+QuickLook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2069E50C5D00C3A8B10A8347 /* ResultsGridVC+QuickLook.swift */; };
-		5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */; };
 		586DA9FCB49C8ACCD9C59F0D /* ChartExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAF00CD951A3FB48B93FB1F /* ChartExporter.swift */; };
 		587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */; };
 		59CF22B7B5ADD2A8B3D00870 /* QueryErrorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FF46A86728427E2E94E47B8 /* QueryErrorSheet.swift */; };
@@ -245,6 +245,7 @@
 		EBF3A8542C5D58F707E68799 /* PharosCore+Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD416A1F571FCC783678756A /* PharosCore+Session.swift */; };
 		ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */; };
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
+		EF88431D010EF0A90A3C9E89 /* FontSizeStepper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7A78B9EFF3187B7B4B7E31 /* FontSizeStepper.swift */; };
 		EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */; };
 		F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDED3E898043241B00FE18D7 /* ResizeGripView.swift */; };
 		F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */; };
@@ -313,10 +314,12 @@
 		267FBF59C6FA236284E961CC /* HistoryRowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRowText.swift; sourceTree = "<group>"; };
 		26C68529321323B25A8D18F4 /* SQLDraftPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftPolicy.swift; sourceTree = "<group>"; };
 		282A36163CC5BDB9DCB7C6BC /* ConnectionURLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionURLParser.swift; sourceTree = "<group>"; };
+		28FEC53708DD1E23C6189685 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagConditionEditor.swift; sourceTree = "<group>"; };
 		2A11259CEF977B988D8D542B /* TagPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPalette.swift; sourceTree = "<group>"; };
 		2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryNotifier.swift; sourceTree = "<group>"; };
 		2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLErrorLocation.swift; sourceTree = "<group>"; };
+		2F7A78B9EFF3187B7B4B7E31 /* FontSizeStepper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontSizeStepper.swift; sourceTree = "<group>"; };
 		2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRootView.swift; sourceTree = "<group>"; };
 		30A8A1C7B2045D3975E20CCC /* PharosIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosIntents.swift; sourceTree = "<group>"; };
 		30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillTranslator.swift; sourceTree = "<group>"; };
@@ -512,7 +515,6 @@
 		F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridMetrics.swift; sourceTree = "<group>"; };
 		F891B6EAB834D607054C3750 /* ChartHostingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartHostingController.swift; sourceTree = "<group>"; };
 		F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorColumnRowView.swift; sourceTree = "<group>"; };
-		FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSheet.swift; sourceTree = "<group>"; };
 		FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityProxyElement.swift; sourceTree = "<group>"; };
 		FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Settings.swift"; sourceTree = "<group>"; };
 		FC0387D201E65BB04093EBEA /* QuickLookItemBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookItemBuilder.swift; sourceTree = "<group>"; };
@@ -748,7 +750,6 @@
 			isa = PBXGroup;
 			children = (
 				FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */,
-				FA7E70F7C9B82A2127AF3F51 /* ConnectionSheet.swift */,
 				20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */,
 				080E74E651B82BE21F196DDC /* ImportDataSheet.swift */,
 				724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */,
@@ -784,6 +785,7 @@
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
 				C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */,
+				28FEC53708DD1E23C6189685 /* Haptics.swift */,
 				267FBF59C6FA236284E961CC /* HistoryRowText.swift */,
 				87AC310E071D54672B86BAFE /* InspectorOwnership.swift */,
 				15F15F6D530ED4B08BF8F19F /* Log.swift */,
@@ -874,6 +876,7 @@
 			children = (
 				9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */,
 				4B5ECAA757C7692770A532EA /* FoldState.swift */,
+				2F7A78B9EFF3187B7B4B7E31 /* FontSizeStepper.swift */,
 				79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */,
 				D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */,
 				A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */,
@@ -1068,7 +1071,6 @@
 				3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */,
 				D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */,
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
-				5852B83A6231D9F2F669FE0C /* ConnectionSheet.swift in Sources */,
 				37032AE66A9B2B0D4E5F3E9F /* ConnectionURLParser.swift in Sources */,
 				A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */,
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
@@ -1107,9 +1109,11 @@
 				7164A803D0AD86BA86C620D0 /* FindMatchDecoration.swift in Sources */,
 				EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */,
 				AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */,
+				EF88431D010EF0A90A3C9E89 /* FontSizeStepper.swift in Sources */,
 				8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */,
 				53756D84E332E30247401A98 /* GeneratedContentLabel.swift in Sources */,
 				0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */,
+				3B4B727F11B8CB2F5E45C13C /* Haptics.swift in Sources */,
 				4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */,
 				93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */,
 				34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */,

@@ -98,6 +98,8 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuSaveQuery(_ sender: Any?) { contentVC.menuSaveQuery(sender) }
     @objc func menuSaveQueryAs(_ sender: Any?) { contentVC.menuSaveQueryAs(sender) }
     @objc func menuExportEditorAsSQL(_ sender: Any?) { contentVC.menuExportEditorAsSQL(sender) }
+    @objc func menuIncreaseEditorFont(_ sender: Any?) { contentVC.menuIncreaseEditorFont(sender) }
+    @objc func menuDecreaseEditorFont(_ sender: Any?) { contentVC.menuDecreaseEditorFont(sender) }
 
     /// Edit > Find with the focus in the sidebar or the inspector: the editor
     /// and the grid handle it themselves when they are first responder; here

@@ -46,6 +46,14 @@ class QueryEditorVC: NSViewController {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
 
+        // Pinch-to-zoom the editor font. Attached to the scroll view (the
+        // stable editor rectangle) rather than the text view, whose frame
+        // moves with content and word wrap. A pinch starting over the gutter
+        // is not handled — it is a small fraction of the editor's width.
+        let magnificationGesture = NSMagnificationGestureRecognizer(
+            target: self, action: #selector(handleMagnification(_:)))
+        scrollView.addGestureRecognizer(magnificationGesture)
+
         // Configure text view sizing — NSScrollView manages its documentView
         // via frames, so do NOT set translatesAutoresizingMaskIntoConstraints = false
         textView.isVerticallyResizable = true
@@ -312,13 +320,27 @@ class QueryEditorVC: NSViewController {
     /// repaint × tab count.
     private struct EditorSignature: Equatable {
         let fontFamily: String
-        let fontSize: UInt32
+        // `var`, not `let`: the pinch/⌘+/⌘− paths apply a font size straight
+        // to the view and update just this field, so when the save they
+        // trigger republishes settings, applySettings() finds the signature
+        // already matches and skips a redundant rehighlight (no flicker).
+        var fontSize: UInt32
         let tabSize: UInt32
         let wordWrap: Bool
         let lineNumbers: Bool
     }
 
     private var lastAppliedSignature: EditorSignature?
+
+    /// The font size currently showing in the editor. Normally equal to
+    /// `stateManager.settings.editor.fontSize`, but can briefly lead it while
+    /// a pinch gesture is in progress (the view updates every frame; the
+    /// setting is written once, on `.ended`). Exposed (not private) so the
+    /// View menu's Increase/Decrease Editor Font items can validate against
+    /// the 9...24 clamp.
+    var currentFontSize: Int {
+        Int(lastAppliedSignature?.fontSize ?? stateManager.settings.editor.fontSize)
+    }
 
     private func applySettings() {
         let editor = stateManager.settings.editor
@@ -336,21 +358,7 @@ class QueryEditorVC: NSViewController {
             || signature.wordWrap != lastAppliedSignature?.wordWrap
         lastAppliedSignature = signature
 
-        // Font
-        let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
-        let fontSize = CGFloat(editor.fontSize)
-
-        let editorFont: NSFont
-        if fontName == "System Monospace" {
-            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        } else if let font = NSFont(name: fontName, size: fontSize) {
-            editorFont = font
-        } else {
-            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        }
-        textView.font = editorFont
-        // The gutter's numbers follow the editor size (see LineNumberGutter.setFont).
-        gutter?.setFont(editorFont)
+        applyFontSize(Int(editor.fontSize))
 
         // Tab size
         textView.tabSize = Int(editor.tabSize)
@@ -381,6 +389,77 @@ class QueryEditorVC: NSViewController {
         if needsRehighlight {
             textView.highlightSyntax()
         }
+    }
+
+    /// Builds the editor font at `size` (from the current font family setting)
+    /// and applies it to the text view and the gutter — nothing else. Factored
+    /// out of `applySettings()` so the live pinch/⌘+/⌘− path and the full
+    /// settings apply build the exact same font from the exact same rules.
+    private func applyFontSize(_ size: Int) {
+        let editor = stateManager.settings.editor
+        let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
+        let fontSize = CGFloat(size)
+
+        let editorFont: NSFont
+        if fontName == "System Monospace" {
+            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        } else if let font = NSFont(name: fontName, size: fontSize) {
+            editorFont = font
+        } else {
+            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
+        textView.font = editorFont
+        // The gutter's numbers follow the editor size (see LineNumberGutter.setFont).
+        gutter?.setFont(editorFont)
+    }
+
+    // MARK: - Pinch / keyboard font size
+
+    /// Font size in effect when the current pinch gesture began.
+    private var pinchStartFontSize = 13
+
+    @objc private func handleMagnification(_ recognizer: NSMagnificationGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            pinchStartFontSize = currentFontSize
+        case .changed:
+            let newSize = FontSizeStepper.size(start: pinchStartFontSize, magnification: recognizer.magnification)
+            guard newSize != currentFontSize else { return }
+            applyFontSize(newSize)
+            lastAppliedSignature?.fontSize = UInt32(newSize)
+            // The gutter's width derives from the font, so it must re-layout
+            // alongside the view-only font change, not just on the next
+            // settings-driven applySettings() pass.
+            layoutGutterAndScrollView()
+        case .ended, .cancelled, .failed:
+            persistCurrentFontSize()
+        default:
+            break
+        }
+    }
+
+    /// Steps the font size by one, same clamp and save path as the pinch.
+    /// Used by the View menu's Increase/Decrease Editor Font commands.
+    func stepFontSize(by delta: Int) {
+        let newSize = FontSizeStepper.stepped(currentFontSize, by: delta)
+        guard newSize != currentFontSize else { return }
+        applyFontSize(newSize)
+        lastAppliedSignature?.fontSize = UInt32(newSize)
+        layoutGutterAndScrollView()
+        persistCurrentFontSize()
+    }
+
+    /// Writes the font size currently showing in the view through the one
+    /// settings save path (`AppStateManager.saveSettings`), if it differs
+    /// from what's stored. Never called per pinch frame — only once, when a
+    /// gesture ends or a keyboard step completes — so a fast pinch does not
+    /// hammer SQLite or republish app-wide on every frame.
+    private func persistCurrentFontSize() {
+        let size = UInt32(currentFontSize)
+        var updated = stateManager.settings
+        guard updated.editor.fontSize != size else { return }
+        updated.editor.fontSize = size
+        stateManager.saveSettings(updated)
     }
 
     // MARK: - Segment API

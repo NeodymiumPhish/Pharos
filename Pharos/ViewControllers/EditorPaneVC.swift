@@ -635,6 +635,18 @@ class EditorPaneVC: NSViewController {
         editorVC.formatSQL()
     }
 
+    /// The editor's current font size (9...24) — for the View menu's
+    /// Increase/Decrease Editor Font items to validate against the clamp.
+    var editorFontSize: Int {
+        editorVC.currentFontSize
+    }
+
+    /// Steps the editor font size by one, same clamp and save path as a
+    /// trackpad pinch. Used by the View menu's ⌘+ / ⌘− commands.
+    func stepEditorFontSize(by delta: Int) {
+        editorVC.stepFontSize(by: delta)
+    }
+
     /// `range` is in document coordinates — see `QueryEditorVC.markError(range:)`.
     func markError(range: NSRange, message: String? = nil) {
         editorVC.markError(range: range, message: message)

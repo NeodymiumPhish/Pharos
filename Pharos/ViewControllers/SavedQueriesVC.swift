@@ -834,10 +834,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
 
         // Move each query to the target folder
+        var moves: [(from: String?, to: String?)] = []
         for qId in draggedIds {
             guard let query = allQueries.first(where: { $0.id == qId }) else { continue }
+            moves.append((from: query.folder, to: targetFolder))
             let update = UpdateSavedQuery(id: qId, name: query.name, folder: targetFolder, sql: query.sql, variables: query.variables)
             _ = try? PharosCore.updateSavedQuery(update)
+        }
+
+        if Haptics.shouldTapForFolderDrop(moves: moves) {
+            Haptics.alignment()
         }
 
         reload()

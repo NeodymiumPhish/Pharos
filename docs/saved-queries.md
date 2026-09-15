@@ -34,7 +34,7 @@ Query variables are saved along with the SQL, so a parameterized query reopens w
 
 ## Organization
 
-Queries can be organized into folders; folders are listed alphabetically, followed by unfiled queries. To move queries, **drag and drop** them onto a folder (multi-select works), or drag them to the root to unfile them. Empty folders are kept until deleted.
+Queries can be organized into folders; folders are listed alphabetically, followed by unfiled queries. To move queries, **drag and drop** them onto a folder (multi-select works), or drag them to the root to unfile them. Empty folders are kept until deleted. A drop that actually moves a query to a different folder confirms with a short haptic tap; dropping it back where it started stays silent.
 
 ## Opening a Saved Query
 

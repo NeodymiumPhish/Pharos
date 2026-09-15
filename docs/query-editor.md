@@ -89,6 +89,10 @@ Double-click a tab to rename it. Each tab keeps its own SQL text, connection, va
 - **Backspace** at an indent boundary removes a full indent level
 - **Pasting** multi-line text re-indents the block to match the cursor position while preserving its internal structure
 
+## Font Size
+
+Pinch on the editor with the trackpad to zoom the font in or out, or use **View > Increase Editor Font** (**Cmd++**) and **View > Decrease Editor Font** (**Cmd+-**) to step it by one point at a time. The size ranges from 9 to 24 points and applies to the whole app (the same setting as [Settings > Editor](settings.md)); a pinch tracks your fingers live and only saves once you lift them.
+
 ## Format as SQL List (Smart Paste)
 
 Paste a bare list of values (e.g., a column of IDs copied from a spreadsheet) and Pharos offers to convert it: a **Format as SQL list** button appears in the toolbar. Press **Tab** or click it to turn the lines into a quoted, comma-separated list ready for an `IN (...)` clause — numeric, boolean, and NULL values stay unquoted; strings are quoted with apostrophes escaped. Press **Esc** or keep typing to dismiss; the conversion is a single undo step. You can also select any lines and choose **Format as SQL list** from the right-click menu.

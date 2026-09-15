@@ -110,6 +110,10 @@ Click the **pin** button in the action bar to keep the current result visible wh
 
 The pin releases as soon as you ask the grid to show something else: selecting any result tab, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result is deposited into its own tab without touching the grid, so the pinned rows stay on screen.
 
+## Expand Editor / Expand Results
+
+The two buttons at the right of the action bar expand the editor or the results grid to fill the whole pane, hiding the other; clicking the same button again — or clicking anywhere in the action bar while expanded — restores the split at its previous ratio. Restoring the split with a click on the action bar confirms with a short haptic tap; opening an expanded state does not.
+
 ## Status Text
 
 The action bar's status text summarizes the current result: row count and execution time (e.g., "1,000 rows in 0.42s"), plus visible-of-total counts and active filter counts when filters hide rows, match counts during a find, and "(more available)" when more rows can be loaded. Statements show "N rows affected".
