@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// Inspector view controller for the right pane.
 /// Shows single-row detail when one row is selected, placeholder otherwise.
@@ -10,6 +11,15 @@ class InspectorViewController: NSViewController {
     private var currentRowNumber: Int?
     private var currentDataRow: Int?
     private var currentTagEntries: [TagInspectorEntry] = []
+    private var cancellables = Set<AnyCancellable>()
+
+    /// The `schema.table` whose Columns section is on screen, and the call that
+    /// re-renders the detail it belongs to. Set only while that section is
+    /// still waiting for `MetadataCache` to produce the columns — a table whose
+    /// columns are already cached needs no reload, and a pane owned by anything
+    /// else must not be repainted out from under its owner.
+    private var columnsSectionKey: String?
+    private var columnsSectionReload: (() -> Void)?
 
     /// True only while row detail is on screen. This pane is SHARED — the
     /// schema browser and the SQL view write to it too — so anything that
@@ -84,6 +94,21 @@ class InspectorViewController: NSViewController {
         view = container
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // A table selected before its columns have been fetched shows
+        // "Loading…"; this is what replaces it when they land.
+        MetadataCache.shared.$columnsByTable
+            .receive(on: RunLoop.main)
+            .sink { [weak self] map in
+                guard let self, let key = self.columnsSectionKey,
+                      map[key]?.isEmpty == false else { return }
+                self.columnsSectionReload?()
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Public API
 
     /// Forgets the row-detail identity. Every entry point that puts something
@@ -94,6 +119,10 @@ class InspectorViewController: NSViewController {
         currentRowNumber = nil
         currentDataRow = nil
         currentTagEntries = []
+        // Whatever goes on the pane next owns it; a Columns section still
+        // waiting for its cache entry must not repaint over it later.
+        columnsSectionKey = nil
+        columnsSectionReload = nil
     }
 
     /// Blanks the pane unconditionally and leaves it unowned. For a writer
@@ -141,6 +170,8 @@ class InspectorViewController: NSViewController {
         // already showing this exact row detail (so it is already ours) or it
         // is about to be rebuilt below.
         owner = .results
+        columnsSectionKey = nil
+        columnsSectionReload = nil
         if currentRowNumber == rowNumber && currentDataRow == dataRow
             && currentTagEntries == tagEntries { return }
         currentRowNumber = rowNumber
@@ -231,6 +262,12 @@ class InspectorViewController: NSViewController {
         if info.isPartitioned {
             addDetailNote("Sub-partitioned by \(info.partitionStrategy?.badgeLabel ?? "?")")
         }
+        // A partition's columns are the parent's, but a partition is a real
+        // relation with its own entry in the cache, so it is looked up by its
+        // own name like any other table.
+        addColumnsSection(schema: info.schemaName, table: info.name) { [weak self] in
+            self?.showPartitionDetail(info, parentName: parentName)
+        }
     }
 
     /// Shows detail for a regular (non-partitioned) table, view, or foreign table.
@@ -248,6 +285,57 @@ class InspectorViewController: NSViewController {
         addDetailField("Rows", formatRowCount(info.rowCountEstimate))
         if info.totalSizeBytes != nil {
             addDetailField("Size", formatByteSize(info.totalSizeBytes))
+        }
+        addColumnsSection(schema: info.schemaName, table: info.name) { [weak self] in
+            self?.showTableDetail(info)
+        }
+    }
+
+    // MARK: - Columns Section
+
+    /// The "Columns" section of a table's or partition's detail: one row per
+    /// column — name, its markers, and the type — read from `MetadataCache`.
+    ///
+    /// The schema browser's one-line rows no longer carry a column's type
+    /// beside it, so this is where the type, the key and the nullability are
+    /// read now. The cache fills in the background after a connection opens, so
+    /// a table selected early has nothing to show yet: the section says
+    /// "Loading…" and `reload` is remembered for the publisher in `viewDidLoad`
+    /// to re-run once the columns arrive.
+    private func addColumnsSection(schema: String, table: String, reload: @escaping () -> Void) {
+        let key = "\(schema).\(table)"
+        let columns = MetadataCache.shared.columnsByTable[key] ?? []
+
+        let header = NSTextField(labelWithString: columns.isEmpty ? "Columns" : "Columns (\(columns.count))")
+        header.font = .systemFont(ofSize: 11, weight: .semibold)
+        header.textColor = .secondaryLabelColor
+        stackView.addArrangedSubview(header)
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        stackView.addArrangedSubview(separator)
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        guard !columns.isEmpty else {
+            columnsSectionKey = key
+            columnsSectionReload = reload
+            let loading = NSTextField(labelWithString: "Loading\u{2026}")
+            loading.font = .systemFont(ofSize: 11)
+            loading.textColor = .tertiaryLabelColor
+            stackView.addArrangedSubview(loading)
+            return
+        }
+
+        // The columns are here — nothing to wait for.
+        columnsSectionKey = nil
+        columnsSectionReload = nil
+
+        for column in columns.sorted(by: { $0.ordinalPosition < $1.ordinalPosition }) {
+            let row = ColumnRowView(schema: schema, table: table, column: column)
+            stackView.addArrangedSubview(row)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
     }
 

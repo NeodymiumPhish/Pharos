@@ -133,7 +133,7 @@ private func makeMeta(
         id: id, sql: sql, resultOrder: 0, colorIndex: 0, customLabel: customLabel,
         rowCount: rowCount, columnCount: columnCount, schema: nil, tableNames: tableNames,
         hasResults: hasResults, executionTimeMs: 5, executedAt: "2026-07-31T00:00:00Z",
-        chartViewStateJson: nil, rawSql: nil
+        chartViewStateJson: nil, rawSql: nil, lineStart: nil, lineEnd: nil
     )
 }
 

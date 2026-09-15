@@ -11,41 +11,58 @@ extension Notification.Name {
     static let showSQLInInspector = Notification.Name("PharosShowSQLInInspector")
 }
 
-// MARK: - Two-Line Cell View
+// MARK: - History Row Cell
 
-private class HistoryTwoLineCell: NSTableCellView {
+/// One history row: what it is on the left, when it happened on the right.
+///
+/// One line, not two. This list is a source list now and takes the system row
+/// height, which has no room for a stacked second line. What that line carried
+/// — the row/column counts, the connection, and the SQL itself — moves to the
+/// row's tooltip and to the preview pane below, which already shows it.
+private class HistoryRowCell: NSTableCellView {
     let primaryLabel = NSTextField(labelWithString: "")
-    let secondaryLabel = NSTextField(labelWithString: "")
+    let trailingLabel = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
         primaryLabel.lineBreakMode = .byTruncatingTail
-        primaryLabel.font = .systemFont(ofSize: 12)
         primaryLabel.textColor = .labelColor
         primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        primaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // The table sets this label's font from the row size style.
+        textField = primaryLabel
 
-        secondaryLabel.lineBreakMode = .byTruncatingTail
-        secondaryLabel.font = .systemFont(ofSize: 10)
-        secondaryLabel.textColor = .secondaryLabelColor
-        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        trailingLabel.lineBreakMode = .byTruncatingTail
+        trailingLabel.font = .systemFont(ofSize: 10)
+        trailingLabel.textColor = .secondaryLabelColor
+        trailingLabel.alignment = .right
+        trailingLabel.translatesAutoresizingMaskIntoConstraints = false
+        trailingLabel.setContentHuggingPriority(.required, for: .horizontal)
+        trailingLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         addSubview(primaryLabel)
-        addSubview(secondaryLabel)
+        addSubview(trailingLabel)
 
         NSLayoutConstraint.activate([
             primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            primaryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            primaryLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            secondaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            secondaryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor, constant: 1),
+            trailingLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: primaryLabel.trailingAnchor, constant: 8),
+            trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            trailingLabel.firstBaselineAnchor.constraint(equalTo: primaryLabel.firstBaselineAnchor),
         ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        toolTip = nil
     }
 }
 
@@ -93,6 +110,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private let previewTable = NSTableView()
     private let previewScroll = NSScrollView()
     private let splitView = NSSplitView()
+    private let emptyState = EmptyStateView()
 
     private var rows: [HistoryRow] = []
     private var workspaces: [WorkspaceSummary] = []
@@ -134,7 +152,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let container = NSView()
         self.view = container
 
-        // Single column for two-line cells
+        // Single column; the cell lays its own row out
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("entry"))
         col.title = ""
         tableView.addTableColumn(col)
@@ -142,8 +160,10 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         tableView.headerView = nil
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.rowSizeStyle = .custom
-        tableView.rowHeight = 40
+        // Source list: the sidebar treatment the schema browser and the saved
+        // queries list use, at the system row height rather than a fixed 40.
+        tableView.style = .sourceList
+        tableView.rowSizeStyle = .default
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
         tableView.action = #selector(singleClickedRow(_:))
@@ -164,8 +184,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         previewTable.headerView = nil
         previewTable.dataSource = self
         previewTable.delegate = self
-        previewTable.rowSizeStyle = .custom
-        previewTable.rowHeight = 34
+        previewTable.style = .sourceList
+        previewTable.rowSizeStyle = .default
         previewTable.usesAlternatingRowBackgroundColors = true
         previewTable.allowsMultipleSelection = false
         previewTable.doubleAction = #selector(previewDoubleClicked(_:))
@@ -193,14 +213,24 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         splitView.autosaveName = Self.previewSplitAutosave
         splitView.delegate = self
 
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+
         container.addSubview(splitView)
+        container.addSubview(emptyState)
 
         NSLayoutConstraint.activate([
             splitView.topAnchor.constraint(equalTo: container.topAnchor),
             splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            emptyState.topAnchor.constraint(equalTo: container.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
+        updateEmptyState()
 
         // Auto-reload when a query finishes executing or a result is
         // associated with a workspace.
@@ -368,6 +398,23 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             }
         }
         rows = out
+        updateEmptyState()
+    }
+
+    /// Show the "no history" state only when there is genuinely nothing on
+    /// record. A filter that matches nothing is not this state — the field is
+    /// still live and the user can see their own typing caused it, so the
+    /// empty state must not cover the list they are filtering.
+    private func updateEmptyState() {
+        if workspaces.isEmpty, legacyEntries.isEmpty, !isFiltering {
+            emptyState.show(
+                symbol: "clock.arrow.circlepath",
+                title: "No History",
+                message: "Queries you run appear here."
+            )
+        } else {
+            emptyState.isHidden = true
+        }
     }
 
     // MARK: - Actions
@@ -605,34 +652,24 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         return true
     }
 
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        if tableView === previewTable {
-            return 34
-        }
-        guard row < rows.count else { return 40 }
-        if case .earlierHeader = rows[row] {
-            return 22
-        }
-        return 40
-    }
-
     private func workspaceCell(for w: WorkspaceSummary) -> NSView {
-        let cellId = NSUserInterfaceItemIdentifier("HistoryTwoLine")
-        let cell: HistoryTwoLineCell
-        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? HistoryTwoLineCell {
+        let cellId = NSUserInterfaceItemIdentifier("HistoryRow")
+        let cell: HistoryRowCell
+        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? HistoryRowCell {
             cell = existing
         } else {
-            cell = HistoryTwoLineCell()
+            cell = HistoryRowCell()
             cell.identifier = cellId
         }
 
         cell.primaryLabel.stringValue = "📊 \(DisplayEscape.escaped(w.name))"
+        cell.trailingLabel.stringValue = formatDate(w.lastActivityAt)
         let clause = HistoryRowText.queryClause(
             total: w.queryCount,
             matches: matchesByWorkspace[w.id]?.count ?? 0,
             isFiltering: isFiltering
         )
-        cell.secondaryLabel.stringValue = "\(clause) · \(formatDate(w.lastActivityAt)) · \(DisplayEscape.escaped(w.connectionName))"
+        cell.toolTip = "\(clause) · \(DisplayEscape.escaped(w.connectionName))"
         return cell
     }
 
@@ -651,12 +688,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     }
 
     private func legacyCell(for entry: QueryHistoryEntry) -> NSView {
-        let cellId = NSUserInterfaceItemIdentifier("HistoryTwoLine")
-        let cell: HistoryTwoLineCell
-        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? HistoryTwoLineCell {
+        let cellId = NSUserInterfaceItemIdentifier("HistoryRow")
+        let cell: HistoryRowCell
+        if let existing = tableView.makeView(withIdentifier: cellId, owner: self) as? HistoryRowCell {
             cell = existing
         } else {
-            cell = HistoryTwoLineCell()
+            cell = HistoryRowCell()
             cell.identifier = cellId
         }
 
@@ -681,21 +718,31 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             cell.primaryLabel.stringValue = DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces))
         }
 
-        // Line 2: "1,000 Rows - 1h ago"
+        // Trailing: when it ran. The rest of what the old second line carried —
+        // the row count, the connection, and the SQL itself — is the tooltip's
+        // now; the row has one line to give.
+        cell.trailingLabel.stringValue = formatDate(entry.executedAt)
+
         let rowText: String
         if let count = entry.rowCount {
             rowText = "\(HistoryRowText.rowCountText(count)) Row\(count == 1 ? "" : "s")"
         } else {
             rowText = ""
         }
-        let dateText = formatDate(entry.executedAt)
-
         let connName = DisplayEscape.escaped(entry.connectionName)
-        if !rowText.isEmpty {
-            cell.secondaryLabel.stringValue = "\(rowText) – \(dateText) – \(connName)"
-        } else {
-            cell.secondaryLabel.stringValue = "\(dateText) – \(connName)"
-        }
+        // The SQL is flattened to one line and clipped: a tooltip holding a
+        // 200-line query is a wall, not a hint.
+        let flatSql = entry.sql
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let clippedSql = flatSql.count > 200 ? String(flatSql.prefix(200)) + "\u{2026}" : flatSql
+        var tipParts: [String] = []
+        if !rowText.isEmpty { tipParts.append(rowText) }
+        tipParts.append(connName)
+        if !clippedSql.isEmpty { tipParts.append(DisplayEscape.escaped(clippedSql)) }
+        cell.toolTip = tipParts.joined(separator: " – ")
 
         return cell
     }

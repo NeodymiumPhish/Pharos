@@ -108,6 +108,43 @@ class SchemaTreeNode: NSObject {
         }
     }
 
+    /// What the one-line row cannot spell out: the exact row count and the size
+    /// on disk, both locale-aware. The row's caption is the abbreviated form
+    /// ("1.2M rows") because that is all that fits beside the name; this is the
+    /// figure an analyst sizing up a table actually needs, and the Inspector
+    /// carries it too. Nil when neither number is known.
+    var tooltip: String? {
+        let info: TableInfo
+        switch kind {
+        case .table(let i), .view(let i), .partition(let i): info = i
+        default: return nil
+        }
+        var parts: [String] = []
+        if let rows = info.rowCountEstimate {
+            let formatted = Self.decimalFormatter.string(from: NSNumber(value: rows)) ?? "\(rows)"
+            parts.append("\(formatted) rows")
+        }
+        if let bytes = info.totalSizeBytes {
+            parts.append(Self.byteCountFormatter.string(fromByteCount: bytes))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// Shared formatters — a tooltip is built per visible row on every reload,
+    /// and both of these are expensive to construct.
+    private static let decimalFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = .autoupdatingCurrent
+        return f
+    }()
+
+    private static let byteCountFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f
+    }()
+
     /// Uppercase strategy badge (RANGE/LIST/HASH) for a partitioned parent, else nil.
     var partitionBadge: String? {
         if case .table(let info) = kind, info.isPartitioned {

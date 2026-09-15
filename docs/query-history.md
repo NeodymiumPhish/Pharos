@@ -22,7 +22,7 @@ The **Results History** panel is the second panel of the sidebar (clock icon). P
 
 ## Workspaces
 
-Each workspace row shows its name with a subtitle like "4 queries · 2h ago · Local Dev". Workspaces are named after their connection automatically (e.g., "analytics", or "analytics +1" if a second database was also queried); rename them to anything you like.
+Each workspace row is one line: its name on the left and when it was last active on the right. Hover the row for the rest — how many queries it holds and which connection they ran against. Workspaces are named after their connection automatically (e.g., "analytics", or "analytics +1" if a second database was also queried); rename them to anything you like.
 
 - **Reopen** — double-click a workspace to restore it as a live editor tab with all of its result tabs rebuilt. If the workspace is already open, Pharos focuses that tab instead. Double-clicking a specific result in the preview reopens the workspace focused on that result.
 - **Preview** — selecting a workspace lists its results in the lower half of the panel: each with its color dot, label, and column/row counts. A result [renamed from its result tab](results-grid.md#result-tabs) shows that name here too. Selecting a result previews its SQL in the [Inspector](inspector.md).
@@ -34,7 +34,7 @@ Result data is cached with each workspace, so reopening usually shows the origin
 
 ## Earlier History
 
-Below the workspaces, an **"Earlier history"** disclosure holds individual query entries that predate workspaces (and auxiliary queries such as chart server-aggregation runs). Each entry shows the column count and table names, plus row count, relative time, and connection. Double-click one to open it in a tab — cached results display immediately when available. Right-click for **Copy SQL** or **Delete**; multi-select to batch delete.
+Below the workspaces, an **"Earlier history"** disclosure holds individual query entries that predate workspaces (and auxiliary queries such as chart server-aggregation runs). Each entry shows the column count and table names with the time on the right; hover it for the row count, the connection, and the start of the SQL. Double-click one to open it in a tab — cached results display immediately when available. Right-click for **Copy SQL** or **Delete**; multi-select to batch delete.
 
 ## What Gets Recorded
 
@@ -43,3 +43,7 @@ Successful queries are recorded automatically; failed queries are not. History i
 ## Filtering
 
 The sidebar's **Filter** field searches history by SQL text and workspace names.
+
+## Nothing Recorded Yet
+
+Before you have run anything, the panel shows **No History** — "Queries you run appear here." A filter that happens to match nothing does not replace the list: the field is still live, so the empty list is the filter's own answer.

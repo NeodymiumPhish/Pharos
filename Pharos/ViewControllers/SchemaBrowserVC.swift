@@ -13,6 +13,7 @@ class SchemaBrowserVC: NSViewController {
 
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
+    private let emptyState = EmptyStateView()
     private var schemaDataSource: SchemaDataSource!
     private var contextMenuHandler: SchemaContextMenu!
 
@@ -53,21 +54,19 @@ class SchemaBrowserVC: NSViewController {
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
         outlineView.headerView = nil
-        // .custom is REQUIRED for the explicit `rowHeight` below to take effect —
-        // any other rowSizeStyle makes AppKit compute a standard height and ignore
-        // rowHeight (which is why rows stayed cramped/overlapping regardless of it).
-        outlineView.rowSizeStyle = .custom
+        // A system source list: the rounded selection, the sidebar insets and
+        // the row height the user picked in System Settings > Appearance >
+        // Sidebar icon size, instead of a height this app invented.
+        outlineView.style = .sourceList
+        // `.default` asks AppKit for that standard height. It is still a FIXED
+        // height — the variable-height delegate (`heightOfRowByItem`) is what
+        // costs: it is queried for every row on reload, and on a connection
+        // with 18k+ tables that single query was a ~2-second main-thread block.
+        // The rows are one line each now (see SchemaTreeCellView), so nothing
+        // needs a custom height any more.
+        outlineView.rowSizeStyle = .default
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 16
-        // Fixed row height: switching from the variable-height delegate
-        // (heightOfRowByItem) to a fixed value moves NSOutlineView onto its
-        // fast path. With variable heights it queries the delegate (and runs
-        // layout bookkeeping) for every row on reload — on a connection with
-        // 18k+ tables that single query is a ~2-second main-thread block.
-        // 38px gives the stacked title + row-count/type subtitle enough vertical
-        // breathing room (3pt title/subtitle gap + 11pt subtitle) without the rows
-        // feeling oversized. Requires rowSizeStyle = .custom above to take effect.
-        outlineView.rowHeight = 38
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
         schemaDataSource.delegate = self
@@ -81,14 +80,39 @@ class SchemaBrowserVC: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+
         container.addSubview(scrollView)
+        container.addSubview(emptyState)
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            emptyState.topAnchor.constraint(equalTo: container.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+
+        updateEmptyState()
+    }
+
+    /// Show the "no connection" state whenever there is no connection to browse.
+    /// A connection that simply has no matching rows is NOT this state — the
+    /// filter field is still working and the user can see that it is.
+    private func updateEmptyState() {
+        if connectionId == nil {
+            emptyState.show(
+                symbol: "cylinder.split.1x2",
+                title: "No Connection",
+                message: "Connect a tab to browse its schema."
+            )
+        } else {
+            emptyState.isHidden = true
+        }
     }
 
     override func viewDidLoad() {
@@ -126,6 +150,7 @@ class SchemaBrowserVC: NSViewController {
             self.unfilteredRootNodes = cached.unfilteredRootNodes
             self.refreshedSchemas = cached.refreshedSchemas
             rebuildDisplayTree()
+            updateEmptyState()
             return
         }
 
@@ -138,6 +163,7 @@ class SchemaBrowserVC: NSViewController {
         }
 
         self.connectionId = connectionId
+        updateEmptyState()
         if force {
             refreshedSchemas.removeAll()
             treeCaches.removeValue(forKey: connectionId)
@@ -342,6 +368,7 @@ class SchemaBrowserVC: NSViewController {
         unfilteredRootNodes.removeAll()
         rootNodes.removeAll()
         outlineView.reloadData()
+        updateEmptyState()
     }
 
     /// Clear a specific connection's cached tree (e.g. on disconnect).
@@ -355,6 +382,7 @@ class SchemaBrowserVC: NSViewController {
             unfilteredRootNodes.removeAll()
             rootNodes.removeAll()
             outlineView.reloadData()
+            updateEmptyState()
         }
     }
 

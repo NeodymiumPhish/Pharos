@@ -20,6 +20,10 @@ nav_order: 13
 
 The **Query Library** is the first panel of the sidebar (folder icon). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
 
+## An Empty Library
+
+Before you have saved anything, the panel shows **No Saved Queries** — "Save a query with ⌘S to keep it here." The New Folder button stays available below it. A filter that matches nothing does not replace the list: the field is still live, so the empty list is the filter's own answer.
+
 ## Saving a Query
 
 - Press **Cmd+S** (**File > Save Query…**). If the tab is already linked to a saved query, it updates in place silently; if the tab is backed by a `.sql` file, the file is written instead; otherwise a save sheet appears asking for a **Name** and a **Folder** ("No Folder", an existing folder, or "New Folder…").

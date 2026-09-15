@@ -37,14 +37,22 @@ Columns, partitions, and other deep levels load lazily on first expand. The `pub
 
 Every node has a type-specific icon: schemas, tables, partitioned tables, views, and partitions each get their own symbol, and **columns get icons based on their data type** — a key for primary keys, a calendar for dates and timestamps, a clock for times and intervals, braces for JSON and arrays, a network symbol for inet/cidr, and so on.
 
-Rows also show a second line of detail:
+The tree is a **source list**: one line per row, at the row height you set in System Settings > Appearance > Sidebar icon size. Each row carries a short caption on the right of the same line:
 
 - **Tables and views** — an estimated row count (e.g., "1.2K rows"), populated in the background after connecting
 - **Partitioned tables** — the partition key and partition count (e.g., "by (created_at) · 12 partitions"), plus a colored RANGE/LIST/HASH badge
 - **Columns** — the data type, plus "PK" and "NOT NULL" markers where applicable
 - **Partitions** — the partition bound (e.g., "FOR VALUES FROM … TO …", or "DEFAULT")
 
+When a name is too long for the row, the **name** truncates and the caption keeps its place — the caption is the only place a column's type is written on the tree.
+
+**Hover a table** for its exact row count and its size on disk ("1,234,567 rows · 88 MB"); the [Inspector](inspector.md) shows the same figures, and lists the table's columns.
+
 During a CSV import, the target table's row shows a live "Importing: N" progress counter.
+
+## Nothing Connected
+
+With no connection on the current tab, the panel shows **No Connection** — "Connect a tab to browse its schema." Connect the tab (see [Connections](connections.md)) and the tree loads in its place.
 
 ## Partitioned Tables
 

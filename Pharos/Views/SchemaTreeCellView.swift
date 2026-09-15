@@ -2,18 +2,36 @@ import AppKit
 
 // MARK: - Custom Cell View
 
+/// One row of the schema browser: icon, name, and — trailing on the SAME line
+/// — the short caption (row count, column type, partition bound) plus the
+/// RANGE/LIST/HASH pill for a partitioned parent.
+///
+/// One line, not two. The outline view is a system source list now, so its rows
+/// are the height the user chose in System Settings > Appearance > Sidebar icon
+/// size; a stacked title-over-subtitle cell does not fit inside that height and
+/// cannot ask for more. What the caption can no longer spell out — a table's
+/// exact row count and its size on disk — is in the row's tooltip and in the
+/// Inspector, both of which have the room for it.
 class SchemaTreeCellView: NSTableCellView {
 
     private let iconView = NSImageView()
     private let primaryLabel = NSTextField(labelWithString: "")
     private let badgeLabel = NSTextField(labelWithString: "")
     private let secondaryLabel = NSTextField(labelWithString: "")
-    private let labelStack = NSStackView()
 
-    /// Active when a partition badge is shown: label stack stops before the badge.
-    private var labelStackTrailingToBadge: NSLayoutConstraint!
-    /// Active when no badge: label stack extends to the cell's trailing edge.
-    private var labelStackTrailingToCell: NSLayoutConstraint!
+    /// Active when a partition badge is shown: the caption stops before the badge.
+    private var secondaryTrailingToBadge: NSLayoutConstraint!
+    /// Active when no badge: the caption extends to the cell's trailing edge.
+    private var secondaryTrailingToCell: NSLayoutConstraint!
+    /// Active only while the caption has something to say — a zero-text caption
+    /// must not reserve its floor width and truncate the name for nothing.
+    private var secondaryMinimumWidth: NSLayoutConstraint!
+
+    /// The caption never gives up more than this. A column's row is the only
+    /// place its type appears in the tree, and "timestamp w…" still says more
+    /// than an empty trailing gap; the NAME truncates first instead, because a
+    /// name is recognisable from its head.
+    static let minimumCaptionWidth: CGFloat = 60
 
     private static let importGlowAnimationKey = "pharosImportGlowPulse"
 
@@ -30,92 +48,114 @@ class SchemaTreeCellView: NSTableCellView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
 
         primaryLabel.lineBreakMode = .byTruncatingTail
-        primaryLabel.font = .systemFont(ofSize: 13)
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
         primaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // 250. The caption (249, below) is squeezed to its floor before this
+        // one gives up a character.
         primaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Handing the label to NSTableCellView lets the table set its font from
+        // the row size style, which is the whole point of a source list: no
+        // hard-coded point size here fights the user's sidebar setting.
+        textField = primaryLabel
 
         badgeLabel.font = .systemFont(ofSize: 9, weight: .semibold)
         badgeLabel.wantsLayer = true
         badgeLabel.layer?.cornerRadius = 3
         badgeLabel.isHidden = true
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        badgeLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         secondaryLabel.lineBreakMode = .byTruncatingTail
         secondaryLabel.font = .systemFont(ofSize: 11)
         secondaryLabel.textColor = .secondaryLabelColor
-        secondaryLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        secondaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        secondaryLabel.alignment = .right
+        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        secondaryLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        secondaryLabel.setContentCompressionResistancePriority(
+            .init(rawValue: NSLayoutConstraint.Priority.defaultLow.rawValue - 1), for: .horizontal)
         secondaryLabel.wantsLayer = true
 
-        labelStack.orientation = .vertical
-        labelStack.spacing = 3
-        labelStack.alignment = .leading
-        labelStack.addArrangedSubview(primaryLabel)
-        labelStack.addArrangedSubview(secondaryLabel)
-        labelStack.translatesAutoresizingMaskIntoConstraints = false
-
-        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
-
         addSubview(iconView)
-        addSubview(labelStack)
+        addSubview(primaryLabel)
+        addSubview(secondaryLabel)
         addSubview(badgeLabel)
 
-        labelStackTrailingToBadge = labelStack.trailingAnchor.constraint(lessThanOrEqualTo: badgeLabel.leadingAnchor, constant: -6)
-        labelStackTrailingToCell = labelStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4)
+        secondaryTrailingToBadge = secondaryLabel.trailingAnchor.constraint(
+            equalTo: badgeLabel.leadingAnchor, constant: -6)
+        secondaryTrailingToCell = secondaryLabel.trailingAnchor.constraint(
+            equalTo: trailingAnchor, constant: -4)
+        secondaryMinimumWidth = secondaryLabel.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: Self.minimumCaptionWidth)
+        // Below required, so an absurdly narrow sidebar collapses the caption
+        // rather than breaking the row apart.
+        secondaryMinimumWidth.priority = .init(rawValue: 900)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 18),
-            iconView.heightAnchor.constraint(equalToConstant: 18),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
 
-            labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            labelStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            primaryLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+            primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            // Badge pinned to the trailing edge, aligned to the TITLE line (not row center).
+            secondaryLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: primaryLabel.trailingAnchor, constant: 8),
+            secondaryLabel.firstBaselineAnchor.constraint(equalTo: primaryLabel.firstBaselineAnchor),
+
             badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            badgeLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
+            badgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         // Default (no badge) trailing constraint; configure() swaps as needed.
-        labelStackTrailingToCell.isActive = true
+        secondaryTrailingToCell.isActive = true
     }
 
     func configure(node: SchemaTreeNode) {
         iconView.image = node.icon
         iconView.contentTintColor = node.tintColor
         primaryLabel.stringValue = node.title
+        // The exact row count and the size on disk no longer fit on the row;
+        // this is where they went.
+        toolTip = node.tooltip
 
         if let badge = node.partitionBadge {
             badgeLabel.stringValue = " \(badge) "
             badgeLabel.isHidden = false
-            labelStackTrailingToCell.isActive = false
-            labelStackTrailingToBadge.isActive = true
+            secondaryTrailingToCell.isActive = false
+            secondaryTrailingToBadge.isActive = true
             renderBadge()
         } else {
             badgeLabel.isHidden = true
-            labelStackTrailingToBadge.isActive = false
-            labelStackTrailingToCell.isActive = true
+            secondaryTrailingToBadge.isActive = false
+            secondaryTrailingToCell.isActive = true
         }
 
-        if let sub = node.subtitle {
+        // The " " sentinel that reserved the second line in the old two-line
+        // cell means nothing here — a caption with no characters is no caption.
+        let sub = node.subtitle
+        let hasCaption = !(sub ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            || node.importingSubtitle != nil
+        if hasCaption, let sub {
             applySecondaryText(base: sub, importing: node.importingSubtitle)
             secondaryLabel.isHidden = false
+            secondaryMinimumWidth.isActive = true
         } else {
             currentBaseSubtitle = nil
             currentImportingSuffix = nil
+            secondaryLabel.stringValue = ""
             secondaryLabel.isHidden = true
+            secondaryMinimumWidth.isActive = false
             removeImportGlow()
         }
 
         if case .loading = node.kind {
             primaryLabel.textColor = .tertiaryLabelColor
-            primaryLabel.font = .systemFont(ofSize: 12)
         } else if case .partition(let info) = node.kind,
                   PartitionDisplay.boundSummary(info.partitionBound) == "DEFAULT" {
             primaryLabel.textColor = .secondaryLabelColor
-            primaryLabel.font = .systemFont(ofSize: 13)
         } else {
             primaryLabel.textColor = .labelColor
-            primaryLabel.font = .systemFont(ofSize: 13)
         }
     }
 
@@ -228,9 +268,19 @@ class SchemaTreeCellView: NSTableCellView {
         currentBaseSubtitle = nil
         currentImportingSuffix = nil
         removeImportGlow()
+        toolTip = nil
         badgeLabel.isHidden = true
         badgeLabel.stringValue = ""
-        labelStackTrailingToBadge.isActive = false
-        labelStackTrailingToCell.isActive = true
+        secondaryTrailingToBadge.isActive = false
+        secondaryTrailingToCell.isActive = true
     }
+
+    // MARK: - Test seams
+
+    /// `scripts/test-schema-cell-one-line.sh` measures these directly: a
+    /// rendered screenshot cannot tell a truncated label from a short one.
+    var nameLabelForTesting: NSTextField { primaryLabel }
+    var captionLabelForTesting: NSTextField { secondaryLabel }
+    var badgeLabelForTesting: NSTextField { badgeLabel }
+    var iconViewForTesting: NSImageView { iconView }
 }

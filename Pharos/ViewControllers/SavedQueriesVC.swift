@@ -72,6 +72,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
+    private let emptyState = EmptyStateView()
 
     private var rootNodes: [SavedQueryNode] = []
     private var allQueries: [SavedQuery] = []
@@ -92,7 +93,10 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         outlineView.headerView = nil
         outlineView.dataSource = self
         outlineView.delegate = self
-        outlineView.rowSizeStyle = .custom
+        // Source list: the same sidebar treatment (rounded selection, system
+        // row height) the schema browser and the history list now use.
+        outlineView.style = .sourceList
+        outlineView.rowSizeStyle = .default
         outlineView.autoresizesOutlineColumn = true
         outlineView.indentationPerLevel = 14
         outlineView.doubleAction = #selector(doubleClickedRow(_:))
@@ -134,7 +138,10 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             newFolderButton.heightAnchor.constraint(equalToConstant: 28),
         ])
 
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+
         container.addSubview(scrollView)
+        container.addSubview(emptyState)
         container.addSubview(bottomBar)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
@@ -142,11 +149,35 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
 
+            // Over the list, not over the New Folder bar — that button is the
+            // other way out of an empty library and must stay reachable.
+            emptyState.topAnchor.constraint(equalTo: container.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
+
             bottomBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             bottomBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             bottomBar.heightAnchor.constraint(equalToConstant: 32),
         ])
+
+        updateEmptyState()
+    }
+
+    /// Show the "no saved queries" state only when the LIBRARY is empty. A
+    /// filter that matches nothing is not this state: the field is still live
+    /// and the user can see their own typing caused it.
+    private func updateEmptyState() {
+        if allQueries.isEmpty {
+            emptyState.show(
+                symbol: "folder",
+                title: "No Saved Queries",
+                message: "Save a query with \u{2318}S to keep it here."
+            )
+        } else {
+            emptyState.isHidden = true
+        }
     }
 
     // MARK: - Public API
@@ -185,12 +216,14 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     private func applyTreeChange() {
         rebuildTree()
         let fingerprint = treeFingerprint()
+        updateEmptyState()
         if fingerprint == lastTreeFingerprint {
             return
         }
         lastTreeFingerprint = fingerprint
         outlineView.reloadData()
         expandAll()
+        updateEmptyState()
     }
 
     /// Build a flat list of "folder/query name" identifiers reflecting the
@@ -820,10 +853,6 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         }
 
         return cell
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-        24
     }
 
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
