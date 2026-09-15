@@ -201,6 +201,11 @@ final class QueryErrorSheet: NSViewController {
     private func configure(textView: NSTextView, monospaced: Bool) {
         textView.isEditable = false
         textView.isSelectable = true
+        textView.isRichText = false
+        textView.writingToolsBehavior = .none
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
         textView.font = monospaced
             ? .monospacedSystemFont(ofSize: 12, weight: .regular)
             : .systemFont(ofSize: 12)
@@ -262,6 +267,34 @@ final class QueryErrorSheet: NSViewController {
         if let highlight {
             sqlTextView.scrollRangeToVisible(highlight)
         }
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // No editable field on this sheet — every control is a button or a
+        // read-only view. The arrows are the first thing in reading order,
+        // but they are hidden for a log of one, so Done (always visible, and
+        // the safe default action) is the initial responder in that case
+        // instead of a hidden view.
+        view.window?.initialFirstResponder = entries.count > 1 ? previousButton : doneButton
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once, as testing against a
+        // live build showed — which silently discards the explicit chain
+        // below the first time anything triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        previousButton.nextKeyView = nextButton
+        nextButton.nextKeyView = sqlTextView
+        sqlTextView.nextKeyView = errorTextView
+        errorTextView.nextKeyView = copyErrorButton
+        copyErrorButton.nextKeyView = copyQueryButton
+        copyQueryButton.nextKeyView = goToErrorButton
+        goToErrorButton.nextKeyView = dismissButton
+        dismissButton.nextKeyView = dismissAllButton
+        dismissAllButton.nextKeyView = doneButton
+        // Closes the loop; a hidden arrow is skipped by nextValidKeyView.
+        doneButton.nextKeyView = previousButton
     }
 
     // MARK: - Actions

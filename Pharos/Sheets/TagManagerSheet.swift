@@ -243,6 +243,32 @@ final class TagManagerSheet: NSViewController,
         select(modelIndex: model.visibleTagIndices.first)
     }
 
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        view.window?.initialFirstResponder = nameField
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once, as testing against a
+        // live build showed — which silently discards an explicit chain the
+        // first time anything triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        // Not a grid or a tab view, so this only wires the sidebar and the
+        // identity form — the static part of the sheet. `grid` (the rules)
+        // and `captureList` (the capture checklist) are rebuilt by `render()`
+        // on every structural edit, so a hand-written chain through their rows
+        // would go stale the moment a rule or condition is added or removed;
+        // their own tab order is left to automatic recalculation instead.
+        tableView.nextKeyView = newTagButton
+        newTagButton.nextKeyView = deleteTagButton
+        deleteTagButton.nextKeyView = nameField
+        nameField.nextKeyView = colorControl
+        colorControl.nextKeyView = noteField
+        noteField.nextKeyView = cancelButton
+        cancelButton.nextKeyView = saveButton
+        saveButton.nextKeyView = tableView
+    }
+
     private func buildSidebar() {
         let column = NSTableColumn(identifier: .init("tag"))
         tableView.addTableColumn(column)

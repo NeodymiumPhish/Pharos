@@ -9,6 +9,11 @@ class ExportDataSheet: NSViewController {
     private let nullDisplayPopup = NSPopUpButton()
     private var columnCheckboxes: [(checkbox: NSButton, name: String)] = []
     private let columnScrollView = NSScrollView()
+    // Stored, not local to `loadView`, so `wireKeyViewLoop()` can reach them.
+    private let selectAllButton = NSButton()
+    private let deselectAllButton = NSButton()
+    private let cancelButton = NSButton()
+    private let exportButton = NSButton()
 
     private let schema: String
     private let table: String
@@ -93,11 +98,15 @@ class ExportDataSheet: NSViewController {
         let columnsHeaderLabel = NSTextField(labelWithString: "Columns")
         columnsHeaderLabel.font = .systemFont(ofSize: 12, weight: .medium)
         columnsHeaderLabel.textColor = .secondaryLabelColor
-        let selectAllButton = NSButton(title: "All", target: self, action: #selector(selectAllColumns))
+        selectAllButton.title = "All"
+        selectAllButton.target = self
+        selectAllButton.action = #selector(selectAllColumns)
         selectAllButton.bezelStyle = .inline
         selectAllButton.controlSize = .small
         selectAllButton.font = .systemFont(ofSize: 11)
-        let deselectAllButton = NSButton(title: "None", target: self, action: #selector(deselectAllColumns))
+        deselectAllButton.title = "None"
+        deselectAllButton.target = self
+        deselectAllButton.action = #selector(deselectAllColumns)
         deselectAllButton.bezelStyle = .inline
         deselectAllButton.controlSize = .small
         deselectAllButton.font = .systemFont(ofSize: 11)
@@ -135,21 +144,35 @@ class ExportDataSheet: NSViewController {
         grid.columnSpacing = 8
 
         // Action buttons
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        cancelButton.title = "Cancel"
+        cancelButton.target = self
+        cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
-        let exportButton = NSButton(title: "Export\u{2026}", target: self, action: #selector(doExport))
+        exportButton.title = "Export\u{2026}"
+        exportButton.target = self
+        exportButton.action = #selector(doExport)
         exportButton.keyEquivalent = "\r"
         exportButton.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [cancelButton, exportButton])
+        let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, exportButton])
         buttonRow.spacing = 8
 
         // Main layout
         let mainStack = NSStackView(views: [titleStack, grid, columnSection, buttonRow])
         mainStack.orientation = .vertical
-        mainStack.alignment = .centerX
+        // `.leading` plus the width pin, not `.centerX`: an NSStackView rejects
+        // `.width` outright, so every row is pinned to the stack's own width
+        // instead — see NSStackView+SpanFullWidth.swift. That is what lets the
+        // button row's leading spacer push Cancel/Export to the trailing edge,
+        // and it now supplies columnSection's width too, so the leading/
+        // trailing pair that used to do that job by hand is gone rather than
+        // duplicated. titleStack keeps its own `.centerX` alignment, so the
+        // title and subtitle stay centered as a block even though the row
+        // around them now spans full width.
+        mainStack.alignment = .leading
         mainStack.spacing = 16
         mainStack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
+        mainStack.spanArrangedSubviewsFullWidth()
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(mainStack)
@@ -160,14 +183,54 @@ class ExportDataSheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            // Column section fills available width
-            columnSection.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor, constant: 24),
-            columnSection.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor, constant: -24),
             columnScrollView.heightAnchor.constraint(equalToConstant: 160),
         ])
     }
 
+    // MARK: - Layout Helpers
 
+    /// An empty view that takes the slack in the button row, so the buttons
+    /// after it sit at the trailing edge. A plain NSView would not give way,
+    /// because its hugging priority matches the buttons'.
+    private static func spacer() -> NSView {
+        let view = NSView()
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        return view
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        view.window?.initialFirstResponder = formatPopup
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once — which silently
+        // discards the explicit chain below the first time anything
+        // (opening the window, a control becoming key) triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        wireKeyViewLoop()
+    }
+
+    /// Explicit, because the format/headers/NULL controls sit in NSGridView
+    /// rows — AppKit's automatic key view loop follows the grid's own subview
+    /// order, not the row-by-row reading order the form is laid out in — and
+    /// because the column checkboxes are built one per column, so their chain
+    /// has to be assembled at runtime rather than named field by field.
+    private func wireKeyViewLoop() {
+        formatPopup.nextKeyView = includeHeadersCheckbox
+        includeHeadersCheckbox.nextKeyView = nullDisplayPopup
+        nullDisplayPopup.nextKeyView = selectAllButton
+        selectAllButton.nextKeyView = deselectAllButton
+
+        var previous: NSView = deselectAllButton
+        for (checkbox, _) in columnCheckboxes {
+            previous.nextKeyView = checkbox
+            previous = checkbox
+        }
+        previous.nextKeyView = cancelButton
+        cancelButton.nextKeyView = exportButton
+        exportButton.nextKeyView = formatPopup
+    }
 
     @objc private func selectAllColumns() {
         for (checkbox, _) in columnCheckboxes {

@@ -5,6 +5,10 @@ class ImportDataSheet: NSViewController {
 
     private let filePathLabel = NSTextField(labelWithString: "No file selected")
     private let hasHeadersCheckbox = NSButton(checkboxWithTitle: "CSV file has headers", target: nil, action: nil)
+    // Stored, not local to `loadView`, so `wireKeyViewLoop()` can reach them.
+    private let browseButton = NSButton()
+    private let cancelButton = NSButton()
+    private let importButton = NSButton()
 
     private let schema: String
     private let table: String
@@ -44,7 +48,9 @@ class ImportDataSheet: NSViewController {
         filePathLabel.font = .systemFont(ofSize: 12)
         filePathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let browseButton = NSButton(title: "Choose\u{2026}", target: self, action: #selector(chooseFile))
+        browseButton.title = "Choose\u{2026}"
+        browseButton.target = self
+        browseButton.action = #selector(chooseFile)
 
         let fileRow = NSStackView(views: [filePathLabel, browseButton])
         fileRow.spacing = 8
@@ -53,13 +59,17 @@ class ImportDataSheet: NSViewController {
         hasHeadersCheckbox.state = .on
 
         // Buttons
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        cancelButton.title = "Cancel"
+        cancelButton.target = self
+        cancelButton.action = #selector(cancel)
         cancelButton.keyEquivalent = "\u{1b}"
-        let importButton = NSButton(title: "Import", target: self, action: #selector(doImport))
+        importButton.title = "Import"
+        importButton.target = self
+        importButton.action = #selector(doImport)
         importButton.keyEquivalent = "\r"
         importButton.bezelStyle = .rounded
 
-        let buttonStack = NSStackView(views: [cancelButton, importButton])
+        let buttonStack = NSStackView(views: [Self.spacer(), cancelButton, importButton])
         buttonStack.spacing = 8
 
         // Layout
@@ -73,10 +83,19 @@ class ImportDataSheet: NSViewController {
 
         let stack = NSStackView(views: [titleLabel, subtitleLabel, grid, buttonStack])
         stack.orientation = .vertical
-        stack.alignment = .centerX
+        // `.leading` plus the width pin, not `.centerX`: an NSStackView rejects
+        // `.width` outright, so every row is pinned to the stack's own width
+        // instead — see NSStackView+SpanFullWidth.swift. That is what lets the
+        // button row's leading spacer push Cancel/Import to the trailing edge.
+        stack.alignment = .leading
         stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(4, after: titleLabel)
+        // Called after every arranged subview is in place, since it only
+        // constrains what is there when it runs. `stack` has no edgeInsets of
+        // its own — its parent (the two leading/trailing constraints below)
+        // supplies the 20pt side margin instead.
+        stack.spanArrangedSubviewsFullWidth()
 
         container.addSubview(stack)
 
@@ -87,6 +106,42 @@ class ImportDataSheet: NSViewController {
             stack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -20),
             filePathLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
         ])
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // No editable text field — the CSV path is chosen through the panel,
+        // not typed — so the first button is the initial responder.
+        view.window?.initialFirstResponder = browseButton
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once — which silently
+        // discards the explicit chain below the first time anything
+        // (opening the window, a control becoming key) triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        wireKeyViewLoop()
+    }
+
+    /// Explicit, because these controls sit in NSGridView rows: AppKit's
+    /// automatic key view loop follows the grid's own subview order, which
+    /// does not match the row-by-row reading order the form is laid out in.
+    private func wireKeyViewLoop() {
+        browseButton.nextKeyView = hasHeadersCheckbox
+        hasHeadersCheckbox.nextKeyView = cancelButton
+        cancelButton.nextKeyView = importButton
+        importButton.nextKeyView = browseButton
+    }
+
+    // MARK: - Layout Helpers
+
+    /// An empty view that takes the slack in the button row, so the buttons
+    /// after it sit at the trailing edge. A plain NSView would not give way,
+    /// because its hugging priority matches the buttons'.
+    private static func spacer() -> NSView {
+        let view = NSView()
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        return view
     }
 
     @objc private func chooseFile() {

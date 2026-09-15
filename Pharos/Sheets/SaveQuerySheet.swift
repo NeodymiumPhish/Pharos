@@ -12,6 +12,9 @@ class SaveQuerySheet: NSViewController {
 
     private let nameField = AuthoredLabelTextField()
     private let folderPopup = NSPopUpButton()
+    // Stored, not local to `loadView`, so `wireKeyViewLoop()` can reach them.
+    private let cancelButton = NSButton()
+    private let saveButton = NSButton()
 
     /// Marks the one row that means "prompt me for a new folder name".
     ///
@@ -85,23 +88,32 @@ class SaveQuerySheet: NSViewController {
         grid.columnSpacing = 8
 
         // Buttons
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelSheet))
+        cancelButton.title = "Cancel"
+        cancelButton.target = self
+        cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}"
 
-        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveSheet))
+        saveButton.title = "Save"
+        saveButton.target = self
+        saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r"
         saveButton.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [cancelButton, saveButton])
+        let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, saveButton])
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
 
         // Layout
         let mainStack = NSStackView(views: [titleLabel, grid, buttonRow])
         mainStack.orientation = .vertical
-        mainStack.alignment = .centerX
+        // `.leading` plus the width pin, not `.centerX`: an NSStackView rejects
+        // `.width` outright, so every row is pinned to the stack's own width
+        // instead — see NSStackView+SpanFullWidth.swift. That is what lets the
+        // button row's leading spacer push Cancel/Save to the trailing edge.
+        mainStack.alignment = .leading
         mainStack.spacing = 16
         mainStack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        mainStack.spanArrangedSubviewsFullWidth()
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(mainStack)
@@ -111,6 +123,40 @@ class SaveQuerySheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+    }
+
+    // MARK: - Layout Helpers
+
+    /// An empty view that takes the slack in the button row, so the buttons
+    /// after it sit at the trailing edge. A plain NSView would not give way,
+    /// because its hugging priority matches the buttons'.
+    private static func spacer() -> NSView {
+        let view = NSView()
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        return view
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        view.window?.initialFirstResponder = nameField
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once — which silently
+        // discards the explicit chain below the first time anything
+        // (opening the window, a control becoming key) triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        wireKeyViewLoop()
+    }
+
+    /// Explicit, because these fields sit in NSGridView rows: AppKit's
+    /// automatic key view loop follows the grid's own subview order, which
+    /// does not match the row-by-row reading order the form is laid out in.
+    private func wireKeyViewLoop() {
+        nameField.nextKeyView = folderPopup
+        folderPopup.nextKeyView = cancelButton
+        cancelButton.nextKeyView = saveButton
+        saveButton.nextKeyView = nameField
     }
 
     // MARK: - Actions

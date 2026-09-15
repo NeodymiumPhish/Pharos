@@ -18,6 +18,12 @@ class TableDDLSheet: NSViewController {
     private let cloneNameField = NSTextField()
     private let includeRowsCheckbox = NSButton(checkboxWithTitle: "Include table rows", target: nil, action: nil)
     private var cloneSection: NSView!
+    // Stored, not local to `loadView`, so `viewWillAppear` can reach them.
+    private let copyButton = NSButton()
+    private let cloneToggle = NSButton()
+    private let doneButton = NSButton()
+    private let cloneCancelButton = NSButton()
+    private let cloneButton = NSButton()
 
     init(schema: String, table: String, ddl: TableDDL, onClone: @escaping (String, Bool) -> Void) {
         self.schema = schema
@@ -107,14 +113,18 @@ class TableDDLSheet: NSViewController {
         paneRow.distribution = .fill
 
         // Action row: Copy DDL (left) — spacer — Clone Table (right)
-        let copyButton = NSButton(title: "Copy DDL", target: self, action: #selector(copyDDL))
+        copyButton.title = "Copy DDL"
+        copyButton.target = self
+        copyButton.action = #selector(copyDDL)
         copyButton.bezelStyle = .rounded
         let copyConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)?
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
-        let cloneToggle = NSButton(title: "Clone Table\u{2026}", target: self, action: #selector(toggleCloneSection))
+        cloneToggle.title = "Clone Table\u{2026}"
+        cloneToggle.target = self
+        cloneToggle.action = #selector(toggleCloneSection)
         cloneToggle.bezelStyle = .rounded
 
         let spacer = NSView()
@@ -128,7 +138,9 @@ class TableDDLSheet: NSViewController {
         cloneSection.isHidden = true
 
         // Done
-        let doneButton = NSButton(title: "Done", target: self, action: #selector(dismissSheet))
+        doneButton.title = "Done"
+        doneButton.target = self
+        doneButton.action = #selector(dismissSheet)
         doneButton.keyEquivalent = "\u{1b}"
         doneButton.bezelStyle = .rounded
         let doneRow = NSStackView(views: [doneButton])
@@ -175,11 +187,15 @@ class TableDDLSheet: NSViewController {
         cloneNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         includeRowsCheckbox.state = .off
 
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(toggleCloneSection))
-        let cloneButton = NSButton(title: "Clone", target: self, action: #selector(doClone))
+        cloneCancelButton.title = "Cancel"
+        cloneCancelButton.target = self
+        cloneCancelButton.action = #selector(toggleCloneSection)
+        cloneButton.title = "Clone"
+        cloneButton.target = self
+        cloneButton.action = #selector(doClone)
         cloneButton.keyEquivalent = "\r"
         cloneButton.bezelStyle = .rounded
-        let buttonStack = NSStackView(views: [cancelButton, cloneButton])
+        let buttonStack = NSStackView(views: [cloneCancelButton, cloneButton])
         buttonStack.spacing = 8
 
         let grid = NSGridView(views: [
@@ -210,6 +226,33 @@ class TableDDLSheet: NSViewController {
             grid.bottomAnchor.constraint(equalTo: section.bottomAnchor),
         ])
         return section
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // No editable field is visible at open — the clone section starts
+        // hidden — so the first button is the initial responder.
+        view.window?.initialFirstResponder = copyButton
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once, as testing against a
+        // live build showed — which silently discards the explicit chain
+        // below (including the clone section's grid) the first time
+        // anything triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        sidebar.nextKeyView = copyButton
+        copyButton.nextKeyView = cloneToggle
+        cloneToggle.nextKeyView = doneButton
+        doneButton.nextKeyView = sidebar
+        // Explicit, because these controls sit in NSGridView rows: AppKit's
+        // automatic key view loop follows the grid's own subview order,
+        // which does not match the row-by-row reading order the clone
+        // section is laid out in.
+        cloneNameField.nextKeyView = includeRowsCheckbox
+        includeRowsCheckbox.nextKeyView = cloneCancelButton
+        cloneCancelButton.nextKeyView = cloneButton
+        cloneButton.nextKeyView = doneButton
     }
 
     // MARK: - Actions

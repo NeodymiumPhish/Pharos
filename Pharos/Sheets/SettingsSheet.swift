@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Settings sheet with tabbed sections: General, Editor, Query, Charts.
-class SettingsSheet: NSViewController {
+class SettingsSheet: NSViewController, NSTabViewDelegate {
 
     private var settings: AppSettings
     private let stateManager = AppStateManager.shared
@@ -44,6 +44,11 @@ class SettingsSheet: NSViewController {
     // Charts
     private let paletteModel = ChartPaletteModel(palette: [])
 
+    // Footer buttons — stored, not local to `loadView`, so the per-tab key
+    // view loop wiring can reach them.
+    private let cancelButton = NSButton()
+    private let saveButton = NSButton()
+
     init() {
         self.settings = stateManager.settings
         super.init(nibName: nil, bundle: nil)
@@ -64,29 +69,48 @@ class SettingsSheet: NSViewController {
         // Tab view
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
+        // NSTabView re-manages its own content's key view loop when the
+        // selected tab changes — independently of the window's
+        // `autorecalculatesKeyViewLoop`, which testing against a live build
+        // showed does not stop it. The delegate callback below re-asserts
+        // this sheet's explicit chains every time a tab is chosen, so the
+        // reassertion always wins as the last thing to touch the loop.
+        tabView.delegate = self
         tabView.addTabViewItem(makeGeneralTab())
         tabView.addTabViewItem(makeEditorTab())
         tabView.addTabViewItem(makeQueryTab())
         tabView.addTabViewItem(makeChartsTab())
 
         // Buttons
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelSheet))
+        cancelButton.title = "Cancel"
+        cancelButton.target = self
+        cancelButton.action = #selector(cancelSheet)
         cancelButton.keyEquivalent = "\u{1b}"
 
-        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveSheet))
+        saveButton.title = "Save"
+        saveButton.target = self
+        saveButton.action = #selector(saveSheet)
         saveButton.keyEquivalent = "\r"
         saveButton.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [cancelButton, saveButton])
+        let buttonRow = NSStackView(views: [Self.spacer(), cancelButton, saveButton])
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
 
         // Layout
         let mainStack = NSStackView(views: [titleLabel, tabView, buttonRow])
         mainStack.orientation = .vertical
-        mainStack.alignment = .centerX
+        // `.leading` plus the width pin, not `.centerX`: an NSStackView rejects
+        // `.width` outright, so every row is pinned to the stack's own width
+        // instead — see NSStackView+SpanFullWidth.swift. That is what lets the
+        // button row's leading spacer push Cancel/Save to the trailing edge.
+        // It also now supplies the tab view's width, so the old hard-coded
+        // 560pt constraint (container width 600 minus the 20pt side insets)
+        // is gone rather than duplicated.
+        mainStack.alignment = .leading
         mainStack.spacing = 12
         mainStack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        mainStack.spanArrangedSubviewsFullWidth()
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(mainStack)
@@ -96,7 +120,6 @@ class SettingsSheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            tabView.widthAnchor.constraint(equalToConstant: 560),
             tabView.heightAnchor.constraint(equalToConstant: 320),
         ])
 
@@ -373,6 +396,78 @@ class SettingsSheet: NSViewController {
         return s
     }
 
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // General is the tab shown at open, so its first control is the
+        // sheet's initial responder.
+        view.window?.initialFirstResponder = themeControl
+        // NOT true. Two reasons, both found by testing against a live build:
+        // (1) it recalculates the window's key view loop from the view
+        // hierarchy repeatedly, not just once, which silently discards the
+        // explicit chains below the first time anything triggers it; (2) even
+        // set once, its automatic loop never escaped the NSTabView's own
+        // content — Tab cycled the General tab's fields and its own tab
+        // selector control forever and never reached Cancel/Save at all.
+        view.window?.autorecalculatesKeyViewLoop = false
+        wireGeneralTabKeyLoop()
+        wireEditorTabKeyLoop()
+        wireQueryTabKeyLoop()
+    }
+
+    /// Re-asserts every tab's chain whenever the selected tab changes. See the
+    /// comment on `tabView.delegate = self` in `loadView` for why this has to
+    /// happen again here rather than just once in `viewWillAppear`.
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        wireGeneralTabKeyLoop()
+        wireEditorTabKeyLoop()
+        wireQueryTabKeyLoop()
+    }
+
+    /// Explicit, because each tab's fields sit in an NSGridView row: AppKit's
+    /// automatic key view loop follows the grid's own subview order, not the
+    /// row-by-row reading order the tab is laid out in. Only one tab's view is
+    /// ever in the window's view hierarchy at a time (NSTabView swaps it in on
+    /// selection), so every tab's chain can end at the same Cancel/Save pair
+    /// without the chains interfering with each other. The Charts tab hosts a
+    /// SwiftUI view (`ChartPaletteEditor`); its own internal tab order is
+    /// managed by SwiftUI and is not wired here.
+    private func wireGeneralTabKeyLoop() {
+        themeControl.nextKeyView = nullDisplayPopup
+        nullDisplayPopup.nextKeyView = boolDisplayPopup
+        boolDisplayPopup.nextKeyView = checkForUpdatesCheck
+        checkForUpdatesCheck.nextKeyView = showLeafPartitionsCheck
+        showLeafPartitionsCheck.nextKeyView = verticalResultTabsCheck
+        verticalResultTabsCheck.nextKeyView = cancelButton
+        cancelButton.nextKeyView = saveButton
+        saveButton.nextKeyView = themeControl
+    }
+
+    private func wireEditorTabKeyLoop() {
+        fontPopup.nextKeyView = fontSizeField
+        fontSizeField.nextKeyView = fontSizeStepper
+        fontSizeStepper.nextKeyView = tabSizePopup
+        tabSizePopup.nextKeyView = lineNumbersCheck
+        lineNumbersCheck.nextKeyView = wordWrapCheck
+        wordWrapCheck.nextKeyView = cancelButton
+        cancelButton.nextKeyView = saveButton
+        saveButton.nextKeyView = fontPopup
+    }
+
+    private func wireQueryTabKeyLoop() {
+        defaultLimitField.nextKeyView = timeoutField
+        timeoutField.nextKeyView = confirmDestructiveCheck
+        confirmDestructiveCheck.nextKeyView = showCancelledDialogCheck
+        showCancelledDialogCheck.nextKeyView = notifyAppInactiveCheck
+        notifyAppInactiveCheck.nextKeyView = notifyBackgroundTabCheck
+        notifyBackgroundTabCheck.nextKeyView = notifyMinDurationField
+        notifyMinDurationField.nextKeyView = restoreOpenTabsCheck
+        restoreOpenTabsCheck.nextKeyView = cancelButton
+        cancelButton.nextKeyView = saveButton
+        saveButton.nextKeyView = defaultLimitField
+    }
+
     // MARK: - Actions
 
     @objc private func cancelSheet() {
@@ -450,6 +545,15 @@ class SettingsSheet: NSViewController {
     // MARK: - Helpers
 
 
+
+    /// An empty view that takes the slack in the button row, so the buttons
+    /// after it sit at the trailing edge. A plain NSView would not give way,
+    /// because its hugging priority matches the buttons'.
+    private static func spacer() -> NSView {
+        let view = NSView()
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        return view
+    }
 
     private func configureGrid(_ grid: NSGridView) {
         grid.column(at: 0).xPlacement = .trailing

@@ -53,6 +53,14 @@ private func checkboxTitles(in view: NSView) -> [String] {
     return found
 }
 
+private func findButton(titled title: String, in view: NSView) -> NSButton? {
+    for sub in view.subviews {
+        if let button = sub as? NSButton, button.title == title { return button }
+        if let found = findButton(titled: title, in: sub) { return found }
+    }
+    return nil
+}
+
 private func allLabelStrings(in view: NSView) -> [String] {
     var found: [String] = []
     func walk(_ v: NSView) {
@@ -97,6 +105,27 @@ func runTests() {
     let header = section.arrangedSubviews[0]
     expectTrue(header.frame.maxX == section.frame.width,
                "the Columns header reaches the section's trailing edge")
+
+    // MARK: Cancel/Export sit at the trailing edge (F1)
+    //
+    // The main stack now spans full width with `.leading` alignment (see
+    // NSStackView+SpanFullWidth.swift) instead of `.centerX`, and the button
+    // row's leading spacer pushes Cancel/Export to the trailing edge rather
+    // than centering the pair.
+    if let cancelButton = findButton(titled: "Cancel", in: sheet.view),
+       let exportButton = findButton(titled: "Export\u{2026}", in: sheet.view) {
+        let cancelFrame = cancelButton.convert(cancelButton.bounds, to: sheet.view)
+        let exportFrame = exportButton.convert(exportButton.bounds, to: sheet.view)
+        // mainStack.edgeInsets is (top: 20, left: 24, bottom: 20, right: 24).
+        let expectedTrailingX = sheet.view.frame.width - 24
+        expectTrue(exportFrame.maxX == expectedTrailingX,
+                   "the default Export button reaches the trailing edge")
+        expectTrue(cancelFrame.maxX < exportFrame.minX,
+                   "Cancel sits to the left of the default Export button")
+    } else {
+        failures += 1
+        print("FAIL Cancel and Export buttons are reachable from the sheet's view")
+    }
 
     // The checkbox title is display-only: the export reads the raw column name
     // from the parallel (checkbox, name) tuple, so escaping the title must not

@@ -6,6 +6,11 @@ class QueryDetailSheet: NSViewController {
 
     private let resultTab: ResultTab
     private var onSaveQuery: ((String) -> Void)?
+    // Stored, not local to `loadView`, so `wireKeyViewLoop()` can reach them.
+    private let copyButton = NSButton()
+    private let saveButton = NSButton()
+    private let sqlTextView = NSTextView.disclosingHostileScalars()
+    private let doneButton = NSButton()
 
     init(resultTab: ResultTab, onSaveQuery: @escaping (String) -> Void) {
         self.resultTab = resultTab
@@ -26,14 +31,18 @@ class QueryDetailSheet: NSViewController {
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Action buttons row (Copy + Save)
-        let copyButton = NSButton(title: "Copy Query", target: self, action: #selector(copyQuery))
+        copyButton.title = "Copy Query"
+        copyButton.target = self
+        copyButton.action = #selector(copyQuery)
         copyButton.bezelStyle = .rounded
         let copyConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)?
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
-        let saveButton = NSButton(title: "Save Query", target: self, action: #selector(saveQuery))
+        saveButton.title = "Save Query"
+        saveButton.target = self
+        saveButton.action = #selector(saveQuery)
         saveButton.bezelStyle = .rounded
         let saveConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
         saveButton.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)?
@@ -55,9 +64,13 @@ class QueryDetailSheet: NSViewController {
         // and has a Copy action, so escaping the display would either corrupt
         // what Copy yields or diverge from it. See
         // `NSTextView.disclosingHostileScalars()`'s doc comment.
-        let sqlTextView = NSTextView.disclosingHostileScalars()
         sqlTextView.isEditable = false
         sqlTextView.isSelectable = true
+        sqlTextView.isRichText = false
+        sqlTextView.writingToolsBehavior = .none
+        sqlTextView.isContinuousSpellCheckingEnabled = false
+        sqlTextView.isGrammarCheckingEnabled = false
+        sqlTextView.isAutomaticSpellingCorrectionEnabled = false
         sqlTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         sqlTextView.string = resultTab.sql
         sqlTextView.textContainerInset = NSSize(width: 8, height: 8)
@@ -75,28 +88,31 @@ class QueryDetailSheet: NSViewController {
         let summaryView = buildSummaryView()
 
         // Done button
-        let doneButton = NSButton(title: "Done", target: self, action: #selector(dismissSheet))
+        doneButton.title = "Done"
+        doneButton.target = self
+        doneButton.action = #selector(dismissSheet)
         doneButton.keyEquivalent = "\u{1b}"
         doneButton.bezelStyle = .rounded
 
-        let buttonRow = NSStackView(views: [doneButton])
+        let buttonRow = NSStackView(views: [Self.spacer(), doneButton])
         buttonRow.orientation = .horizontal
 
         // Main layout
         let mainStack = NSStackView(views: [titleLabel, actionRow, sqlScrollView, summaryView, buttonRow])
         mainStack.orientation = .vertical
-        mainStack.alignment = .centerX
+        // `.leading` plus the width pin, not `.centerX`: an NSStackView rejects
+        // `.width` outright, so every row is pinned to the stack's own width
+        // instead — see NSStackView+SpanFullWidth.swift. That is what lets the
+        // button row's leading spacer push Done to the trailing edge, and it
+        // now supplies sqlScrollView's and summaryView's width too, so the
+        // leading/trailing pairs that used to do that job by hand are gone
+        // rather than duplicated. actionRow is left as it was — its two
+        // buttons stay packed at the leading edge.
+        mainStack.alignment = .leading
         mainStack.spacing = 12
         mainStack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        mainStack.spanArrangedSubviewsFullWidth()
         mainStack.translatesAutoresizingMaskIntoConstraints = false
-
-        // SQL scroll view should stretch to fill
-        NSLayoutConstraint.activate([
-            sqlScrollView.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor, constant: 20),
-            sqlScrollView.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor, constant: -20),
-            summaryView.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor, constant: 20),
-            summaryView.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor, constant: -20),
-        ])
 
         container.addSubview(mainStack)
         NSLayoutConstraint.activate([
@@ -105,6 +121,35 @@ class QueryDetailSheet: NSViewController {
             mainStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mainStack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+    }
+
+    // MARK: - Layout Helpers
+
+    /// An empty view that takes the slack in the button row, so the button
+    /// after it sits at the trailing edge. A plain NSView would not give way,
+    /// because its hugging priority matches the button's.
+    private static func spacer() -> NSView {
+        let view = NSView()
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        return view
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // No editable field on this sheet — every control is a button or a
+        // read-only view — so the first button is the initial responder.
+        view.window?.initialFirstResponder = copyButton
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once, as testing against a
+        // live build showed — which silently discards the explicit chain
+        // below the first time anything triggers it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        copyButton.nextKeyView = saveButton
+        saveButton.nextKeyView = sqlTextView
+        sqlTextView.nextKeyView = doneButton
+        doneButton.nextKeyView = copyButton
     }
 
     // MARK: - Summary

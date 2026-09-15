@@ -12,6 +12,8 @@ class SchemaDetailSheet: NSViewController {
 
     private let kind: DetailKind
     private let tableView = NSTableView()
+    // Stored, not local to `loadView`, so `viewWillAppear` can reach it.
+    private let closeButton = NSButton()
 
     private init(kind: DetailKind) {
         self.kind = kind
@@ -62,7 +64,9 @@ class SchemaDetailSheet: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         // Close button
-        let closeButton = NSButton(title: "Close", target: self, action: #selector(closeSheet))
+        closeButton.title = "Close"
+        closeButton.target = self
+        closeButton.action = #selector(closeSheet)
         closeButton.keyEquivalent = "\u{1b}" // Escape
         closeButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -107,6 +111,24 @@ class SchemaDetailSheet: NSViewController {
             closeButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             closeButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
         ])
+    }
+
+    // MARK: - Key View Loop
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        // No editable field — this sheet only ever shows a read-only table
+        // and one button — so Close is both the only button and the initial
+        // responder.
+        view.window?.initialFirstResponder = closeButton
+        // NOT true: that recalculates the window's key view loop from the
+        // view hierarchy — repeatedly, not just once, as testing against a
+        // live build showed elsewhere in this ticket — which would silently
+        // discard the explicit link below the first time anything triggers
+        // it.
+        view.window?.autorecalculatesKeyViewLoop = false
+        tableView.nextKeyView = closeButton
+        closeButton.nextKeyView = tableView
     }
 
     // MARK: - Actions
