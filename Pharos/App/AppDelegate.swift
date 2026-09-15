@@ -8,6 +8,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First, before anything can throw: the uncaught-exception handler
+        // that writes `~/Library/Logs/Pharos/pharos-crash-*.log`. It existed
+        // since the crash logger was written but nothing installed it.
+        CrashLogger.install()
+
         // Cap pharos-core's env_logger to "warn" by default (0 = don't overwrite a value the user already set in their shell).
         setenv("RUST_LOG", "warn", 0)
 

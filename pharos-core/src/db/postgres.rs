@@ -4,7 +4,7 @@ use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, TableInfo, TableKeyInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
@@ -29,8 +29,25 @@ fn raw_str(row: &sqlx::postgres::PgRow, col: &str) -> Option<String> {
     }
 }
 
-/// Build a connection string with proper URL encoding and SSL mode
-fn build_connection_string(config: &ConnectionConfig) -> String {
+/// How long a whole connect attempt may take before it is reported as a
+/// failure. This is the budget the app has always used, and a Require or a
+/// Disable connection still gets all of it in one attempt.
+const CONNECT_BUDGET: Duration = Duration::from_secs(10);
+
+/// How long the FIRST attempt of an `sslmode=prefer` connection may take.
+///
+/// libpq's `prefer` means "try TLS, then fall back to plaintext", and the
+/// fallback has to happen while the user is still waiting. So the TLS probe
+/// gets the larger part of `CONNECT_BUDGET` and the plaintext retry gets the
+/// rest; the two together never exceed the budget a single attempt had before.
+const PREFER_PROBE_BUDGET: Duration = Duration::from_secs(6);
+
+/// Build a connection string with proper URL encoding, using `ssl_mode` in
+/// place of the mode stored on the config.
+///
+/// The mode is a parameter and not read from `config`, so the `prefer`
+/// fallback can re-issue the identical connection with TLS switched off.
+fn build_connection_string(config: &ConnectionConfig, ssl_mode: SslMode) -> String {
     // URL encode all user-provided fields to prevent parameter injection
     let username = urlencoding::encode(&config.username);
     let password = urlencoding::encode(&config.password);
@@ -44,21 +61,105 @@ fn build_connection_string(config: &ConnectionConfig) -> String {
         host,
         config.port,
         database,
-        config.ssl_mode
+        ssl_mode
     )
+}
+
+/// True when a first attempt made with `mode` failed in a way that libpq's
+/// `prefer` answers by retrying without TLS.
+///
+/// `sqlx` already falls back on its own when the server *refuses* the
+/// SSLRequest, so the case left to catch is the one it cannot see: a TLS
+/// handshake that never finishes. The pool reports that as `PoolTimedOut`,
+/// because it keeps retrying the connect until the acquire deadline and never
+/// gets a verdict.
+///
+/// A `Database` error (wrong password, unknown database) and an `Io` error are
+/// deliberately excluded: neither is a TLS problem, so a plaintext retry would
+/// repeat the same failure and only lengthen the wait. The pool returns both
+/// of those immediately rather than retrying them
+/// (`sqlx_core::pool::inner::connect`), so the exclusion is reachable.
+///
+/// One case does NOT reach that exclusion, and it is worth stating: a REFUSED
+/// connection. The pool treats `ConnectionRefused` as "the server is still
+/// starting up", retries it with backoff to the deadline, and reports it as
+/// `PoolTimedOut` — indistinguishable here from the stall. So a closed port
+/// does take the plaintext retry. It costs nothing: the probe and the retry
+/// share one budget, so the user waits exactly as long as before.
+fn should_retry_without_tls(mode: SslMode, err: &sqlx::Error) -> bool {
+    if mode != SslMode::Prefer {
+        return false;
+    }
+    match err {
+        sqlx::Error::PoolTimedOut => true,
+        sqlx::Error::Tls(_) => true,
+        sqlx::Error::Protocol(message) => {
+            let lowered = message.to_ascii_lowercase();
+            lowered.contains("tls") || lowered.contains("ssl")
+        }
+        _ => false,
+    }
+}
+
+/// The pool settings shared by every connect attempt. Only the connection
+/// ceiling and the acquire budget differ between the app pool and the
+/// short-lived pool the Test button uses.
+fn pool_options(max_connections: u32, budget: Duration) -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(max_connections)
+        .acquire_timeout(budget)
+        .idle_timeout(Duration::from_secs(600))
+        .max_lifetime(Duration::from_secs(1800))
+}
+
+/// Connect, giving `prefer` the meaning libpq gives it: one TLS probe, then
+/// one plaintext retry. Returns the pool and the SSL mode that actually
+/// carried it, which is the configured mode unless the fallback fired.
+///
+/// Require and Disable take exactly one attempt with the full budget, so their
+/// behaviour is unchanged.
+async fn connect_with_prefer_fallback(
+    config: &ConnectionConfig,
+    max_connections: u32,
+) -> Result<(PgPool, SslMode), sqlx::Error> {
+    let mode = config.ssl_mode;
+    let first_budget = if mode == SslMode::Prefer {
+        PREFER_PROBE_BUDGET
+    } else {
+        CONNECT_BUDGET
+    };
+
+    let first = pool_options(max_connections, first_budget)
+        .connect(&build_connection_string(config, mode))
+        .await;
+
+    match first {
+        Ok(pool) => Ok((pool, mode)),
+        Err(e) if should_retry_without_tls(mode, &e) => {
+            log::warn!(
+                "TLS negotiation with {}:{} did not complete ({}). \
+                 sslmode=prefer allows plaintext, so retrying without TLS.",
+                config.host,
+                config.port,
+                e
+            );
+            let pool = pool_options(max_connections, CONNECT_BUDGET - PREFER_PROBE_BUDGET)
+                .connect(&build_connection_string(config, SslMode::Disable))
+                .await?;
+            log::warn!(
+                "Connected to {}:{} WITHOUT TLS (sslmode=prefer fell back).",
+                config.host,
+                config.port
+            );
+            Ok((pool, SslMode::Disable))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Create a PostgreSQL connection pool for the given configuration
 pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Error> {
-    let connection_string = build_connection_string(config);
-
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(600))
-        .max_lifetime(Duration::from_secs(1800))
-        .connect(&connection_string)
-        .await?;
+    let (pool, _mode_used) = connect_with_prefer_fallback(config, 5).await?;
 
     // Try to set a session-level idle-in-transaction guard. This is
     // PostgreSQL-specific and will fail (and may kill the connection) on
@@ -79,17 +180,11 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
 
 /// Test a PostgreSQL connection and return latency
 pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Error> {
-    let connection_string = build_connection_string(config);
-
     let start = Instant::now();
 
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(600))
-        .max_lifetime(Duration::from_secs(1800))
-        .connect(&connection_string)
-        .await?;
+    // The same prefer fallback as create_pool, so the Test button cannot
+    // report a failure for a configuration that Connect would accept.
+    let (pool, _mode_used) = connect_with_prefer_fallback(config, 1).await?;
 
     // Use raw_sql (simple query protocol) for compatibility with
     // non-PostgreSQL servers (e.g. ClickHouse) that don't support
@@ -1010,6 +1105,189 @@ pub async fn get_table_key_info(
     }
 
     Ok(out)
+}
+
+/// The `sslmode=prefer` fallback decision, offline.
+#[cfg(test)]
+mod ssl_fallback_tests {
+    use super::{
+        build_connection_string, should_retry_without_tls, CONNECT_BUDGET, PREFER_PROBE_BUDGET,
+    };
+    use crate::models::{ConnectionConfig, SslMode};
+
+    fn config(ssl_mode: SslMode) -> ConnectionConfig {
+        ConnectionConfig {
+            id: "c1".to_string(),
+            name: "local".to_string(),
+            host: "localhost".to_string(),
+            port: 5432,
+            database: "nfinn".to_string(),
+            username: "nfinn".to_string(),
+            password: String::new(),
+            ssl_mode,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+        }
+    }
+
+    fn timed_out() -> sqlx::Error {
+        sqlx::Error::PoolTimedOut
+    }
+
+    /// An `Io` error the POOL passes straight through. `ConnectionRefused`
+    /// would be the obvious fixture and is the wrong one: the pool swallows
+    /// that kind, retries it to the deadline and reports `PoolTimedOut`, so a
+    /// test built on it could never tell the two rules apart.
+    fn unreachable() -> sqlx::Error {
+        sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::HostUnreachable,
+            "No route to host (os error 65)",
+        ))
+    }
+
+    // The stall this fallback exists for: an established socket, no backend,
+    // and the pool giving up at its acquire deadline.
+    #[test]
+    fn prefer_retries_when_the_pool_times_out() {
+        assert!(should_retry_without_tls(SslMode::Prefer, &timed_out()));
+    }
+
+    #[test]
+    fn prefer_retries_on_a_tls_error() {
+        assert!(should_retry_without_tls(
+            SslMode::Prefer,
+            &sqlx::Error::Tls("handshake failed".into())
+        ));
+    }
+
+    #[test]
+    fn prefer_retries_on_a_protocol_error_that_names_ssl() {
+        assert!(should_retry_without_tls(
+            SslMode::Prefer,
+            &sqlx::Error::Protocol("unexpected response to SSLRequest".to_string())
+        ));
+    }
+
+    // The rule is "a TLS problem", not "any protocol problem" — a mismatched
+    // wire protocol must fail as itself rather than being retried in plaintext.
+    #[test]
+    fn prefer_does_not_retry_on_an_unrelated_protocol_error() {
+        assert!(!should_retry_without_tls(
+            SslMode::Prefer,
+            &sqlx::Error::Protocol("unexpected message: b'Z'".to_string())
+        ));
+    }
+
+    // An unreachable host is not a TLS problem, and the pool hands this one
+    // back at once. The rule must key on the KIND of failure, not on "the
+    // first attempt did not work", or every dead host would be retried.
+    #[test]
+    fn prefer_does_not_retry_an_unreachable_host() {
+        assert!(!should_retry_without_tls(SslMode::Prefer, &unreachable()));
+    }
+
+    // Require means require. The SAME error that makes Prefer retry must not
+    // move Require or Disable, or the app would silently downgrade a
+    // connection the user asked to be encrypted.
+    #[test]
+    fn require_never_falls_back() {
+        assert!(!should_retry_without_tls(SslMode::Require, &timed_out()));
+        assert!(!should_retry_without_tls(
+            SslMode::Require,
+            &sqlx::Error::Tls("handshake failed".into())
+        ));
+    }
+
+    #[test]
+    fn disable_never_falls_back() {
+        assert!(!should_retry_without_tls(SslMode::Disable, &timed_out()));
+    }
+
+    // The fallback is issued with Disable even though the config still says
+    // Prefer; if the mode were read from the config the retry would repeat the
+    // attempt that just hung.
+    #[test]
+    fn the_fallback_url_asks_for_no_tls() {
+        let cfg = config(SslMode::Prefer);
+        assert!(build_connection_string(&cfg, cfg.ssl_mode).ends_with("sslmode=prefer"));
+        assert!(build_connection_string(&cfg, SslMode::Disable).ends_with("sslmode=disable"));
+    }
+
+    // `CONNECT_BUDGET - PREFER_PROBE_BUDGET` is a Duration subtraction, which
+    // PANICS on underflow. Shrinking the total below the probe would take the
+    // app down on every fallback.
+    #[test]
+    fn the_retry_keeps_a_share_of_the_budget() {
+        assert!(
+            PREFER_PROBE_BUDGET < CONNECT_BUDGET,
+            "the probe must leave time for the plaintext retry"
+        );
+        assert!((CONNECT_BUDGET - PREFER_PROBE_BUDGET).as_secs() >= 2);
+    }
+}
+
+/// Opt-in live test of the `sslmode=prefer` path. `cargo test` skips it; run it
+/// with
+///
+///   cargo test --release prefer_connects -- --ignored --nocapture
+///
+/// Point it elsewhere with `PHAROS_TEST_PG_HOST`, `PHAROS_TEST_PG_PORT`,
+/// `PHAROS_TEST_PG_USER` and `PHAROS_TEST_PG_DB`.
+#[cfg(test)]
+mod live_prefer_tests {
+    use super::create_pool;
+    use crate::models::{ConnectionConfig, SslMode};
+    use std::time::{Duration, Instant};
+
+    fn env_or(key: &str, fallback: &str) -> String {
+        std::env::var(key).unwrap_or_else(|_| fallback.to_string())
+    }
+
+    fn live_config(ssl_mode: SslMode) -> ConnectionConfig {
+        ConnectionConfig {
+            id: "live".to_string(),
+            name: "live".to_string(),
+            host: env_or("PHAROS_TEST_PG_HOST", "localhost"),
+            port: env_or("PHAROS_TEST_PG_PORT", "5432").parse().unwrap_or(5432),
+            database: env_or("PHAROS_TEST_PG_DB", "nfinn"),
+            username: env_or("PHAROS_TEST_PG_USER", "nfinn"),
+            password: std::env::var("PHAROS_TEST_PG_PASSWORD").unwrap_or_default(),
+            ssl_mode,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn prefer_connects_and_runs_a_query() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let started = Instant::now();
+            let pool = create_pool(&live_config(SslMode::Prefer))
+                .await
+                .unwrap_or_else(|e| panic!("sslmode=prefer connect failed: {e}"));
+            let elapsed = started.elapsed();
+
+            let row: (i32,) = sqlx::query_as("SELECT 1")
+                .fetch_one(&pool)
+                .await
+                .expect("query on the prefer pool failed");
+            assert_eq!(row.0, 1);
+
+            // A stalled handshake used to sit here for the whole 10 s acquire
+            // budget and then fail. The fallback has to be inside the budget,
+            // not merely eventually successful.
+            assert!(
+                elapsed < Duration::from_secs(10),
+                "prefer connect took {elapsed:?}; the fallback did not fire in time"
+            );
+            eprintln!("prefer connect took {elapsed:?}");
+            pool.close().await;
+        });
+    }
 }
 
 /// Opt-in live test of the catalogue query. `cargo test` skips it; run it with

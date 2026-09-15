@@ -20,8 +20,13 @@ const SHUTDOWN_TOTAL_BUDGET: Duration = Duration::from_secs(4);
 /// Returns true on success.
 #[no_mangle]
 pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
-    // Initialize logger
-    let _ = env_logger::try_init();
+    // Initialize logger. The default filter is `error`, which hid every
+    // `log::warn!` in the crate — including the one that reports a connection
+    // falling back to plaintext. `RUST_LOG` still overrides it.
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn"),
+    )
+    .try_init();
 
     let dir = unsafe { c_str_to_string(app_data_dir) };
     let path = std::path::PathBuf::from(&dir);

@@ -214,11 +214,16 @@ final class MainToolbarController: NSObject {
             // replacement for it: the glyph still says connected or not.
             titleItem.image = ConnectionColor.swatchImage(forHex: config.color)
             let colorLabel = ConnectionColor.label(forHex: config.color)
+            // A failed connect carries its reason; "Connection error" alone
+            // sent the user to the Connections window to find out why.
+            let reason = status == .error
+                ? stateManager.connectionError(for: config.id).map { DisplayEscape.escaped($0) }
+                : nil
             connectionButton.toolTip = [
-                DisplayEscape.escaped(config.name), statusName(for: status), colorLabel,
+                DisplayEscape.escaped(config.name), statusName(for: status), reason, colorLabel,
             ].compactMap { $0 }.joined(separator: " — ")
             connectionButton.setAccessibilityValue(
-                [statusName(for: status), colorLabel].compactMap { $0 }.joined(separator: ", "))
+                [statusName(for: status), reason, colorLabel].compactMap { $0 }.joined(separator: ", "))
         } else {
             connectionButton.toolTip = String(localized: "Connection for the active tab")
             connectionButton.setAccessibilityValue(nil)

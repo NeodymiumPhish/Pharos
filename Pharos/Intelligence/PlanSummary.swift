@@ -131,6 +131,10 @@ final class PlanSummaryView: NSView {
             contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
         ])
 
+        // A plain NSView is not an accessibility element until it says so;
+        // without this the group, its role and its identifier never reach the
+        // tree (the children still do).
+        setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(String(localized: "Plan summary"))
         setAccessibilityIdentifier("plan.summary")

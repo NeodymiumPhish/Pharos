@@ -205,3 +205,80 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
     }
 }
 
+
+/// A failed connect must leave the state exactly as it was, so the NEXT
+/// Connect runs the whole path again instead of finding a half-created pool.
+///
+/// Slow by nature — the pool retries a refused port until its acquire deadline
+/// — so it is opt-in. It needs no server; run it with
+///
+///   cargo test --release failed_connect -- --ignored --nocapture
+#[cfg(test)]
+mod failed_connect_state_tests {
+    use super::{connect_postgres, disconnect_postgres};
+    use crate::models::{ConnectionConfig, ConnectionStatus, SslMode};
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+
+    /// A port nothing listens on, so every attempt fails the same way.
+    const CLOSED_PORT: u16 = 5499;
+
+    fn state_with_a_dead_connection() -> (AppState, String) {
+        let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+        let config = ConnectionConfig {
+            id: "dead".to_string(),
+            name: "dead".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: CLOSED_PORT,
+            database: "nowhere".to_string(),
+            username: "nobody".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Disable,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+        };
+        let id = config.id.clone();
+        state.set_config(config);
+        (state, id)
+    }
+
+    #[test]
+    #[ignore = "waits out two connect timeouts (~20 s); needs no server"]
+    fn a_failed_connect_leaves_no_pool_and_the_next_one_still_runs() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let (state, id) = state_with_a_dead_connection();
+
+            let first = connect_postgres(id.clone(), &state)
+                .await
+                .expect("connect reports failure as a value, not an Err");
+            assert_eq!(first.status, ConnectionStatus::Error);
+            assert!(first.error.is_some(), "the failure must carry a reason");
+            assert!(
+                !state.has_pool(&id),
+                "a failed connect registered a pool; the next Connect would \
+                 short-circuit and report Connected"
+            );
+
+            // The tell that distinguishes a real second attempt from the
+            // has_pool short-circuit: it must come back Error again, never
+            // Connected, and still leave the registry empty.
+            let second = connect_postgres(id.clone(), &state)
+                .await
+                .expect("the second connect must run");
+            assert_eq!(
+                second.status,
+                ConnectionStatus::Error,
+                "the second Connect returned a cached success"
+            );
+            assert!(!state.has_pool(&id));
+
+            // Disconnecting after a failure is a no-op, not an error.
+            disconnect_postgres(id.clone(), &state)
+                .await
+                .expect("disconnect after a failed connect must succeed");
+            assert!(!state.has_pool(&id));
+        });
+    }
+}

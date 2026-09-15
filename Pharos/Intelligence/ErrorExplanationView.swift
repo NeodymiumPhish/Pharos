@@ -115,6 +115,7 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
             fixesStack.widthAnchor.constraint(equalTo: root.widthAnchor),
         ])
 
+        setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("intelligence.explainError")
         clear()

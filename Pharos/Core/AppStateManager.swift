@@ -195,6 +195,16 @@ final class AppStateManager: ObservableObject {
     func saveConnection(_ config: ConnectionConfig) {
         do {
             try PharosCore.saveConnection(config)
+            // The record the last attempt failed against no longer exists, so
+            // the failure no longer describes anything: a port the user has
+            // just corrected would otherwise keep showing "Connection refused"
+            // beside the badge. A live pool is untouched — editing a connected
+            // record does not close it.
+            if connectionStatuses[config.id] == .error {
+                connectionStatuses[config.id] = .disconnected
+                connectionErrors.removeValue(forKey: config.id)
+                postStatusChange(config.id)
+            }
             loadConnections()
         } catch {
             Log.state.error("Failed to save connection: \(error.localizedDescription, privacy: .public)")
@@ -231,6 +241,15 @@ final class AppStateManager: ObservableObject {
     /// schema when the connection changes, syncs the global active connection
     /// and schema when the tab is the active one, and connects when the
     /// connection is idle. The toolbar pull-down goes through here.
+    ///
+    /// "Idle" means `.disconnected` OR `.error`. A failed attempt leaves the
+    /// record in `.error`, and nothing clears that by itself — so treating
+    /// `.error` as busy made the error STICKY: picking the same connection
+    /// again did nothing at all, and the only ways out were File ▸ Connect
+    /// (whose own `canConnect` has always allowed `.error`) or a relaunch.
+    /// Nothing is held on the failed attempt — the Rust side registers no pool
+    /// unless the pool is created — so a repeat attempt is free to run the
+    /// whole path again.
     func useConnection(_ connectionId: String, forTabId tabId: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let connectionChanged = tab.connectionId != connectionId
@@ -243,8 +262,11 @@ final class AppStateManager: ObservableObject {
             activeConnectionId = connectionId
             if connectionChanged { activeSchema = newSchema }
         }
-        if status(for: connectionId) == .disconnected {
+        switch status(for: connectionId) {
+        case .disconnected, .error:
             connect(id: connectionId)
+        case .connecting, .connected:
+            break
         }
     }
 
