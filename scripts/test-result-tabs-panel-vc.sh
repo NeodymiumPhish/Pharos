@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/result-tabs-panel-vc-tests \
   Pharos/ViewControllers/ResultTabsPanelVC.swift \
   Pharos/Views/ResultTabRowCell.swift \
+  Pharos/Views/MarkerShape.swift \
+  Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Views/ResultTabContextMenu.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \
