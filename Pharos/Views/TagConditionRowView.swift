@@ -62,6 +62,9 @@ final class TagConditionRowView: NSStackView, NSTextFieldDelegate {
         // predates this row — or one in a rule this build cannot edit — is
         // exactly the one a reader most needs told about.
         badge.update(for: valueField.stringValue)
+        // The badge describes THIS field; say so in the accessibility tree,
+        // where standing next to something means nothing.
+        badge.link(to: valueField)
         showError(nil)
 
         setEditable(isEditable)

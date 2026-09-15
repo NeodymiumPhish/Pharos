@@ -477,14 +477,16 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
         // A lookup, not a computation: the bands were baked when the tag map
         // landed. The row's tooltip is NOT set here — it belongs on the cells,
-        // which cover this view; see `viewFor`.
+        // which cover this view; see `viewFor`. The row view does take the same
+        // text as its accessibility VALUE: a tooltip needs a pointer, and the
+        // bands carry their identity in colour alone.
         guard let dataRow = TagPalette.dataRow(displayRow: row, displayRows: displayRows),
               let bands = segmentsByRow[dataRow]
         else {
             view.clearTag()
             return view
         }
-        view.configure(segments: bands)
+        view.configure(segments: bands, tagDescription: tooltipByRow[dataRow])
         return view
     }
 

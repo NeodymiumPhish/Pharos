@@ -45,12 +45,19 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     /// row 1 comes from each column's `title`. Owned by the view (not the cell) so
     /// the header cells can stay Swift-property-free — see `SortAwareHeaderCell`.
     var columnTypes: [String: String] = [:] {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            // The column SET changed, so the accessibility children did too.
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
     }
 
     /// Column names that currently have active filters.
     var activeFilterColumns: Set<String> = [] {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            postElementValuesChanged()
+        }
     }
 
     /// Sort directions per column identifier, pushed by sort controller.
@@ -58,6 +65,7 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         didSet {
             updateSortCellIndicators()
             needsDisplay = true
+            postElementValuesChanged()
         }
     }
 
@@ -339,6 +347,147 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         let x = headerRect.minX + SortAwareHeaderCell.hInset
         (name as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
         (type as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
+    }
+
+    // MARK: - Accessibility
+
+    /// One element per column TITLE, keyed by column identifier.
+    ///
+    /// Cached rather than rebuilt, because an accessibility element's IDENTITY
+    /// is what a screen reader keeps its place with; a fresh element per redraw
+    /// — and this view redraws on every hover sweep and every drag tick — would
+    /// throw the user back to the start of the header each time. Entries for
+    /// columns that have gone are dropped in `refreshAccessibilityElements`.
+    private var titleElements: [String: AccessibilityProxyElement] = [:]
+
+    /// One element per FUNNEL, keyed the same way.
+    private var funnelElements: [String: AccessibilityProxyElement] = [:]
+
+    /// The header's whole contents are drawn, not hosted: `NSTableHeaderView`
+    /// publishes one rectangle with no children, so a screen reader could see
+    /// neither the column names, nor which column was sorted, nor that a funnel
+    /// existed at all. These put each drawn thing back.
+    override func accessibilityChildren() -> [Any]? {
+        refreshAccessibilityElements()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard let window else { return self }
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        let elements = refreshAccessibilityElements()
+        for element in elements {
+            let screenFrame = element.accessibilityFrame()
+            guard screenFrame != .zero else { continue }
+            let localFrame = convert(window.convertFromScreen(screenFrame), from: nil)
+            if localFrame.contains(local) { return element }
+        }
+        return self
+    }
+
+    /// Build or update the elements for the columns that exist right now, and
+    /// forget the ones that do not. Returns them in column order, titles and
+    /// funnels interleaved, which is the order the eye reads them in.
+    @discardableResult
+    private func refreshAccessibilityElements() -> [AccessibilityProxyElement] {
+        guard let tableView = tableView else { return [] }
+        var ordered: [AccessibilityProxyElement] = []
+        var liveIds = Set<String>()
+
+        for (index, column) in tableView.tableColumns.enumerated() {
+            let colId = column.identifier.rawValue
+            liveIds.insert(colId)
+            let headerRect = self.headerRect(ofColumn: index)
+
+            // The `#` column has no name, no type row and no sort — its only
+            // affordance is the tag funnel, so it gets no title element either.
+            if colId != "__rownum__" {
+                let element = titleElements[colId] ?? AccessibilityProxyElement.button(
+                    label: column.title, frame: .zero, parent: self
+                ) { [weak self] in self?.pressSort(columnId: colId) ?? false }
+                titleElements[colId] = element
+                element.setAccessibilityLabel(column.title)
+                element.setAccessibilityValue(stateDescription(forColumn: colId))
+                element.setAccessibilityFrame(
+                    AccessibilityProxyElement.frameInScreen(of: headerRect, in: self))
+                ordered.append(element)
+            }
+
+            let funnelLabel = colId == "__rownum__" ? "Filter tags" : "Filter \(column.title)"
+            let funnel = funnelElements[colId] ?? AccessibilityProxyElement.button(
+                label: funnelLabel, frame: .zero, parent: self
+            ) { [weak self] in self?.pressFilter(columnId: colId) ?? false }
+            funnelElements[colId] = funnel
+            funnel.setAccessibilityLabel(funnelLabel)
+            funnel.setAccessibilityValue(activeFilterColumns.contains(colId) ? "filtered" : nil)
+            funnel.setAccessibilityFrame(
+                AccessibilityProxyElement.frameInScreen(
+                    of: filterIconRect(inHeaderRect: headerRect), in: self))
+            ordered.append(funnel)
+        }
+
+        titleElements = titleElements.filter { liveIds.contains($0.key) }
+        funnelElements = funnelElements.filter { liveIds.contains($0.key) }
+        return ordered
+    }
+
+    /// What the column's own drawn state says, in words: the sort chevron and
+    /// the filled funnel, which are otherwise a glyph and a tint.
+    private func stateDescription(forColumn colId: String) -> String? {
+        var parts: [String] = []
+        if let direction = sortDirections[colId] {
+            parts.append(direction == .ascending ? "sorted ascending" : "sorted descending")
+        }
+        if activeFilterColumns.contains(colId) { parts.append("filtered") }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    private func postElementValuesChanged() {
+        guard !titleElements.isEmpty || !funnelElements.isEmpty else { return }
+        refreshAccessibilityElements()
+        for element in titleElements.values {
+            NSAccessibility.post(element: element, notification: .valueChanged)
+        }
+    }
+
+    private func columnIndex(forId colId: String) -> Int? {
+        tableView?.tableColumns.firstIndex { $0.identifier.rawValue == colId }
+    }
+
+    /// The sort a header CLICK performs, without the click.
+    ///
+    /// A mouse click goes to `super.mouseDown`, which reads the column's
+    /// `sortDescriptorPrototype` and writes `tableView.sortDescriptors`; the
+    /// table then calls its delegate, and `ResultsSortController` does the
+    /// work. This writes the same descriptor, so the third press resets the
+    /// sort exactly as the third click does — the click count lives in the
+    /// controller, not in the event.
+    private func pressSort(columnId: String) -> Bool {
+        guard let tableView = tableView,
+              let index = columnIndex(forId: columnId),
+              let prototype = tableView.tableColumns[index].sortDescriptorPrototype,
+              let key = prototype.key else { return false }
+        let current = tableView.sortDescriptors.first
+        let ascending = current?.key == key ? !(current?.ascending ?? true) : prototype.ascending
+        tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
+        return true
+    }
+
+    /// The funnel CLICK's delegate call, without the click — same delegate,
+    /// same rect, so the popover opens where the icon is.
+    private func pressFilter(columnId: String) -> Bool {
+        guard let tableView = tableView, let index = columnIndex(forId: columnId),
+              let delegate = filterDelegate else { return false }
+        let column = tableView.tableColumns[index]
+        let iconRect = filterIconRect(inHeaderRect: headerRect(ofColumn: index))
+        delegate.headerView(self, didClickFilterForColumn: column, at: iconRect)
+        return true
+    }
+
+    /// Test seam: the elements the header publishes right now. Production reads
+    /// them through `accessibilityChildren()`; a harness cannot, because AppKit
+    /// only calls that from an accessibility client.
+    func accessibilityElementsForTesting() -> [AccessibilityProxyElement] {
+        refreshAccessibilityElements()
     }
 
     // MARK: - Sort Cell Indicators

@@ -352,6 +352,7 @@ final class TagManagerSheet: NSViewController,
         noteField.setAccessibilityLabel("Tag note")
 
         let noteRow = NSStackView(views: [noteField, noteBadge])
+        noteBadge.link(to: noteField)
         noteRow.orientation = .horizontal
         noteRow.alignment = .centerY
         noteRow.spacing = 6
@@ -497,6 +498,7 @@ final class TagManagerSheet: NSViewController,
         // Return resolves to whatever holds "\r" — and a Return that CLOSED the
         // sheet would silently discard the edit just typed.
         saveButton.keyEquivalent = "\r"
+        saveButton.setAccessibilityIdentifier("sheet.tagmanager.default")
 
         cancelButton.title = "Cancel"
         cancelButton.bezelStyle = .rounded
@@ -504,6 +506,7 @@ final class TagManagerSheet: NSViewController,
         cancelButton.target = self
         cancelButton.action = #selector(cancelTapped)
         cancelButton.keyEquivalent = "\u{1b}"
+        cancelButton.setAccessibilityIdentifier("sheet.tagmanager.cancel")
     }
 
     private func labelled(_ text: String, _ control: NSView) -> NSStackView {

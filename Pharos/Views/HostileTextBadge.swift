@@ -29,6 +29,22 @@ final class HostileTextBadge: NSImageView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// Tie the badge to the field it speaks for.
+    ///
+    /// The badge sits beside the field and describes ITS contents, but nothing
+    /// in the view tree says so: a screen reader reaching the field hears
+    /// nothing about the warning standing next to it, and reaching the warning
+    /// hears nothing about which field it belongs to. The link says it in both
+    /// directions.
+    ///
+    /// Called by whoever pairs the two — `TagConditionRowView` does it at
+    /// construction; `ConnectionsManagerVC` and `TagManagerSheet` own their own
+    /// pairings and should call this where they build theirs.
+    func link(to field: NSView) {
+        setAccessibilityLinkedUIElements([field])
+        field.setAccessibilityLinkedUIElements([self])
+    }
+
     /// Raises or lowers the badge for `text`.
     ///
     /// Both directions are assigned every time: a badge that is only ever

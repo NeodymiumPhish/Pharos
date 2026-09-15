@@ -43,6 +43,7 @@ final class ErrorBadgeButton: NSButton {
         font = .systemFont(ofSize: 11, weight: .medium)
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
+        setAccessibilityLabel("Query errors")
     }
 
     /// Push the log state of the pane's active tab.
@@ -51,6 +52,11 @@ final class ErrorBadgeButton: NSButton {
         // A single entry needs no number; the symbol alone says everything.
         title = total > 1 ? "\(total)" : ""
         toolTip = unread > 0 ? "Query Errors (\(total), \(unread) new)" : "Query Errors (\(total))"
+        // Read vs unread is otherwise carried by colour and by a pulse — one
+        // channel a screen reader cannot see and one Reduce Motion removes.
+        // The count goes in the VALUE so the label stays the name of the
+        // control and only the number changes as errors arrive.
+        setAccessibilityValue("\(total) error\(total == 1 ? "" : "s"), \(unread) unread")
         setPulsing(total > 0 && unread > 0)
         // Unconditional: `setPulsing` returns early when the pulse state does not
         // change, so a state that only moves between hidden and quiet would

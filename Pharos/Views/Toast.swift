@@ -21,6 +21,18 @@ enum ToastStyle {
         case .error:   return "xmark.octagon.fill"
         }
     }
+
+    /// What the icon MEANS. The symbol carries the severity and the message
+    /// text usually does not repeat it, so without this a screen reader hears
+    /// "Connection closed" for a failure and a success alike.
+    var accessibilityDescription: String {
+        switch self {
+        case .info:    return "Information"
+        case .success: return "Success"
+        case .warning: return "Warning"
+        case .error:   return "Error"
+        }
+    }
 }
 
 /// Self-managed transient notification. Each call adds one toast view to the
@@ -38,6 +50,7 @@ enum Toast {
                      onClick: (() -> Void)? = nil) {
         let toast = ToastView(message: message, style: style)
         toast.onClick = onClick
+        toast.updateAccessibilityHelp()
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
 
@@ -58,9 +71,49 @@ enum Toast {
             toast.animator().alphaValue = 1.0
         })
 
+        // A toast is the app telling the user something and then taking it away
+        // again. Nothing moves the focus to it, so a screen reader would never
+        // reach it before it faded: the message has to be ANNOUNCED, at high
+        // priority so a queued low-priority announcement cannot outlive it.
+        NSAccessibility.post(
+            element: host.window ?? host,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             toast.fadeOut()
         }
+    }
+
+    /// Dismiss the newest toast at or under `host`, and say whether there was
+    /// one. This is what Escape means before it means anything else.
+    ///
+    /// The newest is the LAST subview, because `show` appends. The search
+    /// descends the whole tree rather than reading `host.subviews`, because the
+    /// caller that owns Escape and the view a toast was raised in are rarely
+    /// the same: `ResultsGridVC` handles the key, `ContentViewController` hosts
+    /// the toast. Toasts do all live in one host in practice, so "last in a
+    /// reverse depth-first walk" and "last raised" agree.
+    ///
+    /// A toast already on its way out is skipped — dismissing it again would
+    /// report a dismissal the user cannot see, and would swallow the Escape
+    /// that was meant for whatever is behind it.
+    @discardableResult
+    static func dismissNewest(in host: NSView) -> Bool {
+        guard let toast = newestToast(in: host) else { return false }
+        toast.fadeOut()
+        return true
+    }
+
+    private static func newestToast(in view: NSView) -> ToastView? {
+        for subview in view.subviews.reversed() {
+            if let toast = subview as? ToastView, !toast.isFadingOut { return toast }
+            if let found = newestToast(in: subview) { return found }
+        }
+        return nil
     }
 }
 
@@ -97,7 +150,8 @@ final class ToastView: NSVisualEffectView {
         let icon = NSImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        icon.image = NSImage(systemSymbolName: style.symbolName, accessibilityDescription: nil)?
+        icon.image = NSImage(systemSymbolName: style.symbolName,
+                             accessibilityDescription: style.accessibilityDescription)?
             .withSymbolConfiguration(config)
         icon.contentTintColor = style.color
         addSubview(icon)
@@ -128,6 +182,21 @@ final class ToastView: NSVisualEffectView {
             widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
             widthAnchor.constraint(lessThanOrEqualToConstant: 520),
         ])
+
+        // One element, not a group of three: the stripe and the icon say the
+        // same thing the style already put in front of the message, and a
+        // screen reader stepping through a view that is about to vanish is not
+        // a thing anyone wants. The severity is spoken with the text.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel("\(style.accessibilityDescription): \(message)")
+        setAccessibilityValue(message)
+    }
+
+    /// Set by `Toast.show` once the click handler is attached, so the help
+    /// reflects whether there is anything to click.
+    func updateAccessibilityHelp() {
+        setAccessibilityHelp(onClick != nil ? "Click to open" : nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }

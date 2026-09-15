@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tagged-row-view-tests \
   Pharos/ViewControllers/ResultsGrid/TaggedRowView.swift \
+  Pharos/Views/MarkerShape.swift \
+  Pharos/Core/AccessibilityDisplay.swift \
   PharosTests/TaggedRowViewTests.swift \
   PharosTests/main.swift
 /tmp/tagged-row-view-tests

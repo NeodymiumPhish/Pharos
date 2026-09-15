@@ -51,20 +51,29 @@ final class TaggedRowView: NSTableRowView {
     /// beyond the first only affect the bar.
     var isPartial: Bool { segments.first?.isPartial ?? false }
 
-    /// 15% for a solid strongest match, 8% for a partial one, 0 when untagged.
-    /// This file keeps zero non-AppKit dependencies (plan scope decision 12),
-    /// so this literal cannot become a shared CONSTANT with anything in
-    /// `TagPalette`. The actual duplicate to watch is prose, not a constant:
-    /// `TagPalette.cellTintAlpha`'s doc comment ("Above the 0.15 row wash…",
-    /// `TagPalette.swift`) hardcodes this same 0.15 in words. Change the
-    /// number here, and go check that comment too.
+    /// 15% for a solid strongest match, 8% for a partial one, 0 when untagged —
+    /// doubled under Increase Contrast, where a 15% wash is very nearly not
+    /// there. The numbers live in `ContrastInk` (`Pharos/Views/MarkerShape.swift`)
+    /// with the rest of the contrast-raised alphas; this file's old "zero
+    /// non-AppKit dependencies" rule now admits `ContrastInk` and
+    /// `MarkerShape`, both of which its harness compiles alongside it.
+    /// The duplicate to watch is still prose: `TagPalette.cellTintAlpha`'s doc
+    /// comment ("Above the 0.15 row wash…") hardcodes the ordinary number in
+    /// words. Change it there too.
     var tintAlpha: CGFloat {
         guard let first = segments.first else { return 0 }
-        return first.isPartial ? 0.08 : 0.15
+        return ContrastInk.tagWashAlpha(isPartial: first.isPartial)
     }
 
-    func configure(segments: [(color: NSColor, isPartial: Bool)]) {
+    /// The row's tag list as text — the same lines the cell tooltip carries.
+    /// A band's identity is its COLOUR and nothing else, so this is the only
+    /// channel a screen reader has for it.
+    private(set) var tagDescription: String?
+
+    func configure(segments: [(color: NSColor, isPartial: Bool)], tagDescription: String? = nil) {
         self.segments = segments
+        self.tagDescription = tagDescription
+        setAccessibilityValue(tagDescription)
         needsDisplay = true
     }
 
@@ -74,6 +83,8 @@ final class TaggedRowView: NSTableRowView {
     /// what `ResultsDataSource` actually calls.
     func clearTag() {
         segments = []
+        tagDescription = nil
+        setAccessibilityValue(nil)
         needsDisplay = true
     }
 
@@ -128,7 +139,8 @@ final class TaggedRowView: NSTableRowView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard !segments.isEmpty else { return }
-        for (segment, rect) in zip(segments, segmentRects(in: bounds)) {
+        let hatched = AccessibilityDisplay.shared.differentiateWithoutColor
+        for (index, (segment, rect)) in zip(segments, segmentRects(in: bounds)).enumerated() {
             if segment.isPartial {
                 let path = NSBezierPath()
                 path.move(to: NSPoint(x: rect.midX, y: rect.minY))
@@ -141,6 +153,24 @@ final class TaggedRowView: NSTableRowView {
                 segment.color.setFill()
                 rect.fill()
             }
+            if hatched { drawHatch(bandIndex: index, in: rect) }
         }
+    }
+
+    /// A texture per band, over the colour rather than instead of it.
+    ///
+    /// Bands are told apart by colour alone — three 4pt stripes with no text,
+    /// no glyph and no order the eye can name. Under Differentiate Without
+    /// Color each band gets a hatch whose angle and spacing follow its
+    /// POSITION in the bar, so the strongest match reads differently from the
+    /// second even in greyscale. Clipped to the band so a diagonal cannot
+    /// bleed into its neighbour.
+    private func drawHatch(bandIndex: Int, in rect: NSRect) {
+        guard let ctx = NSGraphicsContext.current else { return }
+        ctx.saveGraphicsState()
+        defer { ctx.restoreGraphicsState() }
+        NSBezierPath(rect: rect).setClip()
+        MarkerShape.hatchInk.setStroke()
+        MarkerShape.hatchPath(forBand: bandIndex, in: rect).stroke()
     }
 }

@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/result-tab-row-cell-tests \
   Pharos/Views/ResultTabRowCell.swift \
+  Pharos/Views/MarkerShape.swift \
+  Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/HistoryRowText.swift \

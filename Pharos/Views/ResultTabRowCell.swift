@@ -18,7 +18,11 @@ struct ResultTabRowModel: Equatable {
 /// can compile it without the FFI bridge (the same split as
 /// `WorkspacePreviewRowCell` / `QueryHistoryVC`).
 class ResultTabRowCell: NSTableCellView {
-    let dot = NSView()
+    /// The colour dot. A `MarkerDotView` rather than a plain `NSView` only so
+    /// that Differentiate Without Color can add a shape; with the setting off
+    /// it is the same layer-backed disc it always was, and `dot.layer` still
+    /// carries the row colour.
+    let dot = MarkerDotView()
     let primaryLabel = NSTextField(labelWithString: "")
     let secondaryLabel = NSTextField(labelWithString: "")
     let closeButton = NSButton()
@@ -105,8 +109,7 @@ class ResultTabRowCell: NSTableCellView {
         primaryLabel.stringValue = escaped
         primaryLabel.textColor = model.isStale ? .tertiaryLabelColor : .labelColor
 
-        let dotColor = model.isStale ? model.color.withAlphaComponent(0.4) : model.color
-        dot.layer?.backgroundColor = dotColor.cgColor
+        dot.configure(color: model.color, isStale: model.isStale)
 
         secondaryLabel.stringValue = model.countsText
         secondaryLabel.textColor = model.isStale ? .tertiaryLabelColor : .secondaryLabelColor

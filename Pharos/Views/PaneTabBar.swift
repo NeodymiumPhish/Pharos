@@ -154,8 +154,23 @@ class PaneTabBar: NSView {
         for (index, tab) in tabs.enumerated() {
             let label = segmentLabel(for: tab)
             segmentedControl.setLabel(label, forSegment: index)
-            segmentedControl.setToolTip(tab.name, forSegment: index)
+            // "Running" is otherwise a pulsing dot drawn by the overlay — a
+            // signal with no text at all, and one Reduce Motion stills. The
+            // tooltip is the per-segment channel AppKit does give us.
+            segmentedControl.setToolTip(tab.isExecuting ? "\(tab.name) — running" : tab.name,
+                                        forSegment: index)
         }
+
+        // `NSSegmentedControl` publishes its segments itself, but their
+        // accessibility VALUES are not API — `setToolTip(_:forSegment:)` has no
+        // accessibility counterpart, and a segment is not an `NSView` we could
+        // annotate. So the running set is said once, on the control. The
+        // alternative would be replacing the segmented control with eight drawn
+        // buttons carrying their own elements, which is a bigger change than
+        // this pass is for.
+        let running = tabs.filter(\.isExecuting).map(\.name)
+        segmentedControl.setAccessibilityValue(running.isEmpty
+            ? nil : "Running: " + running.joined(separator: ", "))
 
         // Explicitly set equal widths so we can reliably position close buttons.
         // Must be done after layoutSubviews() sets the segmented control frame.
@@ -216,6 +231,7 @@ class PaneTabBar: NSView {
         // Remove old close buttons
         for btn in closeButtons { btn.removeFromSuperview() }
         closeButtons.removeAll()
+        rebuildCloseProxies()
 
         for i in 0..<tabs.count {
             let btn = NSButton(frame: .zero)
@@ -233,6 +249,47 @@ class PaneTabBar: NSView {
             addSubview(btn)
             closeButtons.append(btn)
         }
+    }
+
+    // MARK: - Accessibility for the hidden close buttons
+
+    /// One press target per tab's close button, alive whether or not the button
+    /// is on screen.
+    ///
+    /// The buttons themselves are `isHidden` until the segment is hovered or
+    /// active, and a hidden view is not in the accessibility tree — so seven of
+    /// eight tabs had no reachable close at all. Keeping them visible at
+    /// `alphaValue = 0` instead is not an option: AppKit hit-tests on geometry,
+    /// not on opacity, so a transparent button would go on swallowing the
+    /// clicks meant for its segment. These elements give the close back to the
+    /// keyboard and the screen reader without putting an invisible target in
+    /// the mouse's way.
+    private var closeProxies: [AccessibilityProxyElement] = []
+
+    private func rebuildCloseProxies() {
+        closeProxies = tabs.enumerated().map { index, tab in
+            AccessibilityProxyElement.button(
+                label: "Close \(tab.name)", frame: .zero, parent: self
+            ) { [weak self] in
+                guard let self, index < self.tabs.count else { return false }
+                self.onCloseTab?(self.tabs[index].id)
+                return true
+            }
+        }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        // The proxies sit ON the segments, so their frames follow the buttons
+        // that would be drawn there. Refreshed on every read rather than on
+        // layout: a segment's width changes whenever a tab is added, removed
+        // or renamed, and AX asks for children far less often than layout runs.
+        for (index, proxy) in closeProxies.enumerated() where index < closeButtons.count {
+            proxy.setAccessibilityFrame(
+                AccessibilityProxyElement.frameInScreen(of: closeButtons[index].frame, in: self))
+        }
+        var children = super.accessibilityChildren() ?? []
+        children.append(contentsOf: closeProxies)
+        return children
     }
 
     @objc private func closeTabButtonTapped(_ sender: NSButton) {
@@ -421,7 +478,7 @@ class PaneTabBar: NSView {
         bounds.fill()
 
         // Bottom border
-        NSColor.separatorColor.setStroke()
+        ContrastInk.separator.setStroke()
         let borderPath = NSBezierPath()
         borderPath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
         borderPath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))

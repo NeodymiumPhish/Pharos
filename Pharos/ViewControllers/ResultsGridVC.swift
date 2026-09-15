@@ -129,6 +129,8 @@ class ResultsGridVC: NSViewController {
     /// if a future refactor makes this VC per-tab or per-pane, the removal is
     /// already in place rather than something the next change has to remember.
     private var tagStoreObserver: NSObjectProtocol?
+    /// Token for the accessibility-display observer; see `viewDidLoad`.
+    private var accessibilityDisplayObserver: NSObjectProtocol?
     /// Key-window and accent-colour observers; see `viewDidLoad`.
     private var appearanceObservers: [NSObjectProtocol] = []
 
@@ -157,7 +159,12 @@ class ResultsGridVC: NSViewController {
         tableView.rowSizeStyle = .custom
         tableView.rowHeight = 22
         tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
-        tableView.gridColor = .separatorColor
+        tableView.gridColor = ContrastInk.gridLine
+        // The grid is what separates one value from the next across a wide
+        // result; `separatorColor` is designed to be barely visible, which is
+        // the wrong answer once the user has asked for contrast.
+        tableView.setAccessibilityIdentifier("results.table")
+        tableView.setAccessibilityLabel("Results")
         // `.automatic` resolves to `.inset` on macOS 11+, which adds leading padding
         // nobody chose — it is what the row-number dot was invented to live beside.
         // `.fullWidth` removes it, so the row's leading edge is the tag bar's home
@@ -224,6 +231,26 @@ class ResultsGridVC: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // Stable names for the two things a UI test — or a person driving the
+        // app through the accessibility API — has to find by name rather than
+        // by position.
+        findField.setAccessibilityIdentifier("results.findField")
+        findField.setAccessibilityLabel("Find in results")
+
+        // Increase Contrast changes the grid's own lines, which are set once
+        // and never recomputed; the toolbar's rules and the tagged rows repaint
+        // themselves from `ContrastInk` but the table needs telling.
+        accessibilityDisplayObserver = NotificationCenter.default.addObserver(
+            forName: AccessibilityDisplay.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.tableView.gridColor = ContrastInk.gridLine
+                self.tableView.needsDisplay = true
+                self.tableView.reloadData()
+            }
+        }
+
         // Tags are global, so every post is for this grid: there is no
         // connection to filter on any more. The observer stays cheap and must
         // not write `AppStateManager` state — `TagStore` is `@MainActor` and
@@ -283,6 +310,9 @@ class ResultsGridVC: NSViewController {
     deinit {
         if let tagStoreObserver {
             NotificationCenter.default.removeObserver(tagStoreObserver)
+        }
+        if let accessibilityDisplayObserver {
+            NotificationCenter.default.removeObserver(accessibilityDisplayObserver)
         }
         for observer in appearanceObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -764,6 +794,11 @@ class ResultsGridVC: NSViewController {
     // MARK: - Escape to Deselect
 
     @objc override func cancelOperation(_ sender: Any?) {
+        // A toast is the newest thing on screen and the only one with no
+        // control of its own to dismiss it, so Escape means the toast first —
+        // before the find bar, which the user can see is still there and press
+        // Escape again for.
+        if let host = view.window?.contentView, Toast.dismissNewest(in: host) { return }
         if findController.isFindVisible {
             findController.closeFind(nil)
         } else {
@@ -1291,14 +1326,14 @@ class ResultsToolbarBar: NSView {
 
         if pulseAlpha > 0 {
             // Paint the base separator first, then overlay the accent at current alpha.
-            NSColor.separatorColor.setStroke()
+            ContrastInk.separator.setStroke()
             let basePath = NSBezierPath()
             basePath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
             basePath.line(to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
             basePath.stroke()
             NSColor.controlAccentColor.withAlphaComponent(pulseAlpha).setStroke()
         } else {
-            NSColor.separatorColor.setStroke()
+            ContrastInk.separator.setStroke()
         }
         let topPath = NSBezierPath()
         topPath.move(to: NSPoint(x: bounds.minX, y: bounds.maxY - 0.5))
@@ -1316,7 +1351,7 @@ class ResultsToolbarBar: NSView {
 
         // Bottom separator line
         if drawsBottomSeparator {
-            NSColor.separatorColor.setStroke()
+            ContrastInk.separator.setStroke()
             let bottomPath = NSBezierPath()
             bottomPath.move(to: NSPoint(x: bounds.minX, y: bounds.minY + 0.5))
             bottomPath.line(to: NSPoint(x: bounds.maxX, y: bounds.minY + 0.5))

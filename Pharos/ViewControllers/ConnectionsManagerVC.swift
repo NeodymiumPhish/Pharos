@@ -498,6 +498,8 @@ final class ConnectionsManagerVC: NSViewController {
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(labelView)
         container.addSubview(field)
+        // The badge announces the field it warns about, and the field the badge.
+        badge?.link(to: field)
 
         var constraints: [NSLayoutConstraint] = [
             labelView.leadingAnchor.constraint(equalTo: container.leadingAnchor),

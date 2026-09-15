@@ -21,7 +21,11 @@ class ResultTabBar: NSView {
 
     private let scrollView = NSScrollView()
     private let containerView = NSView()
-    private var tabButtons: [ResultTabButton] = []
+    /// Internal, not private: the accessibility suite reads the buttons the bar
+    /// built, and `accessibilityChildren` hands the same array to VoiceOver.
+    private(set) var tabButtons: [ResultTabButton] = []
+
+    private var displayObserver: NSObjectProtocol?
 
     // Layout constants
     private static let barHeight: CGFloat = 26
@@ -41,6 +45,30 @@ class ResultTabBar: NSView {
 
     private func setup() {
         wantsLayer = true
+
+        // The bar is a tab group and each button is a radio button inside it —
+        // the AX shape AppKit gives a real `NSTabView`, which this drawn bar
+        // otherwise has no way to claim.
+        //
+        // `setAccessibilityElement(true)` is not decoration: a plain NSView is
+        // an IGNORED accessibility element, and an ignored element's children
+        // are hoisted into its parent. Without it the tabs really did appear in
+        // the tree — hanging off the content pane, with nothing to say they
+        // were a group of tabs at all. Seen in the live AX walk.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.tabGroup)
+        setAccessibilityLabel("Results")
+        setAccessibilityIdentifier("results.tabBar")
+
+        displayObserver = NotificationCenter.default.addObserver(
+            forName: AccessibilityDisplay.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.needsDisplay = true
+                for button in self.tabButtons { button.needsDisplay = true }
+            }
+        }
 
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
@@ -116,6 +144,20 @@ class ResultTabBar: NSView {
         }
 
         needsDisplay = true
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    // MARK: - Accessibility
+
+    /// The tabs, directly under the tab group. Without this the buttons hang
+    /// off the scroll view's clip view and read as the contents of a scroll
+    /// area rather than as the group's tabs.
+    override func accessibilityChildren() -> [Any]? {
+        tabButtons
+    }
+
+    deinit {
+        if let displayObserver { NotificationCenter.default.removeObserver(displayObserver) }
     }
 
     // MARK: - Actions
@@ -171,7 +213,7 @@ class ResultTabBar: NSView {
         bounds.fill()
 
         // Top separator
-        NSColor.separatorColor.setStroke()
+        ContrastInk.separator.setStroke()
         let path = NSBezierPath()
         path.move(to: NSPoint(x: bounds.minX, y: 0.5))
         path.line(to: NSPoint(x: bounds.maxX, y: 0.5))
@@ -182,7 +224,10 @@ class ResultTabBar: NSView {
 // MARK: - ResultTabButton
 
 /// A single tab button in the result tab bar.
-private class ResultTabButton: NSView {
+///
+/// Internal rather than private so `ResultTabBar.tabButtons` can be read by the
+/// accessibility suite and handed to VoiceOver as the tab group's children.
+class ResultTabButton: NSView {
 
     let resultTabId: String
     private let resultTab: ResultTab
@@ -232,6 +277,11 @@ private class ResultTabButton: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 4
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.radioButton)
+        setAccessibilityLabel(accessibilityTabLabel)
+        setAccessibilityValue(isActive ? 1 : 0)
     }
 
     required init?(coder: NSCoder) {
@@ -239,6 +289,46 @@ private class ResultTabButton: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    // MARK: - Accessibility
+
+    /// The tab as it is spoken: the label the eye reads, plus the one piece of
+    /// state the tab carries that has no text of its own.
+    var accessibilityTabLabel: String {
+        resultTab.isStale ? "\(escapedLabel), stale" : escapedLabel
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        _ = target?.perform(selectAction, with: self)
+        return true
+    }
+
+    /// The close glyph, which is DRAWN rather than hosted, and which is not
+    /// even painted until the tab is hovered or active. It is always in the AX
+    /// tree: a hover is not a thing a keyboard or a screen reader can perform,
+    /// so a close that only appears on hover would be a close that only a mouse
+    /// can reach.
+    private lazy var closeElement: AccessibilityProxyElement = {
+        AccessibilityProxyElement.button(
+            label: "Close \(escapedLabel)", frame: .zero, parent: self
+        ) { [weak self] in
+            guard let self else { return false }
+            _ = self.target?.perform(self.closeAction, with: self)
+            return true
+        }
+    }()
+
+    override func accessibilityChildren() -> [Any]? {
+        closeElement.setAccessibilityFrame(
+            AccessibilityProxyElement.frameInScreen(of: closeRect, in: self))
+        return [closeElement]
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard let window else { return self }
+        let local = convert(window.convertPoint(fromScreen: point), from: nil)
+        return closeRect.contains(local) ? closeElement : self
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -262,16 +352,21 @@ private class ResultTabButton: NSView {
         needsDisplay = true
     }
 
-    override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
-        // Check if click is on the close button area
-        let closeRect = NSRect(
+    /// The close glyph's hit box. One definition, read by the click, by the
+    /// draw, and by the accessibility element's frame — three copies of this
+    /// rect is exactly how a close target drifts out from under its glyph.
+    var closeRect: NSRect {
+        NSRect(
             x: bounds.width - hPadding - closeButtonSize,
             y: (bounds.height - closeButtonSize) / 2,
             width: closeButtonSize,
             height: closeButtonSize
         )
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+
         if closeRect.contains(point) {
             _ = target?.perform(closeAction, with: self)
         } else {
@@ -282,22 +377,32 @@ private class ResultTabButton: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Background
+        // Background. The alphas rise under Increase Contrast — at 0.05 a
+        // hovered tab is barely a tab at all.
         if isActive {
-            NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+            NSColor.controlAccentColor.withAlphaComponent(ContrastInk.tabActiveAlpha).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
         } else if isHovered {
-            NSColor.labelColor.withAlphaComponent(0.05).setFill()
+            NSColor.labelColor.withAlphaComponent(ContrastInk.tabHoverAlpha).setFill()
             NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
         }
 
         var x = hPadding
 
-        // Colored dot
+        // Colour marker. A disc normally; under Differentiate Without Color a
+        // shape from `MarkerShape`, keyed on the palette colour so this bar and
+        // the vertical panel mark the same result the same way. The index comes
+        // from the BASE colour, not the faded stale one — see `MarkerShape`.
         let dotY = (bounds.height - dotSize) / 2
+        let dotRect = NSRect(x: x, y: dotY, width: dotSize, height: dotSize)
         let dotColor = resultTab.isStale ? resultTab.color.withAlphaComponent(0.4) : resultTab.color
-        dotColor.setFill()
-        NSBezierPath(ovalIn: NSRect(x: x, y: dotY, width: dotSize, height: dotSize)).fill()
+        if AccessibilityDisplay.shared.differentiateWithoutColor {
+            MarkerShape.fill(index: MarkerShape.index(for: resultTab.color),
+                             in: dotRect, color: dotColor)
+        } else {
+            dotColor.setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+        }
         x += dotSize + dotLabelGap
 
         // Label
@@ -313,9 +418,7 @@ private class ResultTabButton: NSView {
 
         // Close button (only visible on hover or when active)
         if isHovered || isActive {
-            let closeX = bounds.width - hPadding - closeButtonSize
-            let closeY = (bounds.height - closeButtonSize) / 2
-            let closeRect = NSRect(x: closeX, y: closeY, width: closeButtonSize, height: closeButtonSize)
+            let closeRect = self.closeRect
 
             let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
             if let closeImage = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?
