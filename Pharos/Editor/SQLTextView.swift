@@ -130,6 +130,7 @@ class SQLTextView: NSTextView {
         // completion UI that would compete with SQLCompletionProvider.
         smartInsertDeleteEnabled = false
         isAutomaticTextCompletionEnabled = false
+        writingToolsBehavior = .none
         usesFindBar = true
         isIncrementalSearchingEnabled = true
 

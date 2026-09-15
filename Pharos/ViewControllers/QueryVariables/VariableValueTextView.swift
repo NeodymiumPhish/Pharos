@@ -63,6 +63,7 @@ final class VariableValueTextView: NSTextView {
         isContinuousSpellCheckingEnabled = false
         isGrammarCheckingEnabled = false
         smartInsertDeleteEnabled = false
+        writingToolsBehavior = .none
         allowsUndo = true
         font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         textColor = .labelColor

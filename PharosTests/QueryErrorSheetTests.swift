@@ -121,6 +121,17 @@ func runTests() {
     expectString(sheet.errorTextView.string, failure("a").message, "the error text is the message")
     expectString(sheet.sqlTextView.string, failure("a").sql, "the SQL text is the query that ran")
 
+    // MARK: Writing Tools and spell-check are off (C1) — both panes show
+    // attacker-controlled server text, so no rewriting or underlines belong here.
+    expectTrue(sheet.sqlTextView.writingToolsBehavior == .none, "the SQL view has Writing Tools off")
+    expectTrue(sheet.errorTextView.writingToolsBehavior == .none, "the error view has Writing Tools off")
+    expectTrue(!sheet.sqlTextView.isContinuousSpellCheckingEnabled, "the SQL view has spell-checking off")
+    expectTrue(!sheet.errorTextView.isContinuousSpellCheckingEnabled, "the error view has spell-checking off")
+    expectTrue(!sheet.sqlTextView.isGrammarCheckingEnabled, "the SQL view has grammar-checking off")
+    expectTrue(!sheet.errorTextView.isGrammarCheckingEnabled, "the error view has grammar-checking off")
+    expectTrue(!sheet.sqlTextView.isAutomaticSpellingCorrectionEnabled, "the SQL view has spelling correction off")
+    expectTrue(!sheet.errorTextView.isAutomaticSpellingCorrectionEnabled, "the error view has spelling correction off")
+
     // The highlight must land on the token the message names: `WHERE` starts at
     // character 21, which is index 20, and is 5 characters long.
     var highlighted: NSRange? = nil
