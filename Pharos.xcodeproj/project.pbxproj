@@ -132,6 +132,7 @@
 		9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AC310E071D54672B86BAFE /* InspectorOwnership.swift */; };
 		9B9F6D8FA3841680CC02ED11 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F4063BCD81FC7D7C5AE7D509 /* Assets.xcassets */; };
 		9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */; };
+		9C75698AFD4443F5F35DEAA9 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9D2681720A71CCE84786DE54 /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F2105483936AE6C2C9AEB8 /* Tag.swift */; };
 		9E783607775B25FA87D42A2B /* SQLLexSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */; };
@@ -396,6 +397,7 @@
 		D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaListFilter.swift; sourceTree = "<group>"; };
 		D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockMenu.swift"; sourceTree = "<group>"; };
 		D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterableHeaderView.swift; sourceTree = "<group>"; };
+		DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		DB64B2BF2E18E915B3D81878 /* ResultTabName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabName.swift; sourceTree = "<group>"; };
 		DB718C65F3D74705409121A4 /* TableDDL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableDDL.swift; sourceTree = "<group>"; };
 		DD847E740BEC6F542D9BE20D /* DrillSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillSummary.swift; sourceTree = "<group>"; };
@@ -764,6 +766,7 @@
 				FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */,
 				AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */,
 				0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */,
+				DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */,
 				CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */,
 				E68BF94CE61EBF4C33A1896B /* HostileTextBadge.swift */,
 				369938D654B2C568F8707A08 /* MarkerShape.swift */,
@@ -931,6 +934,7 @@
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
 				0B25DA68EEA7AD800FE3EEFF /* EditorResultsSplitView.swift in Sources */,
+				9C75698AFD4443F5F35DEAA9 /* EmptyStateView.swift in Sources */,
 				0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */,
 				C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */,
 				6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */,
