@@ -63,7 +63,7 @@ async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Pos
 
 /// Format a database error, preserving PostgreSQL's character position if available.
 /// sqlx's `.to_string()` drops the position field; this re-extracts it from PgDatabaseError.
-fn format_db_error(e: &sqlx::Error) -> String {
+pub(crate) fn format_db_error(e: &sqlx::Error) -> String {
     if let sqlx::Error::Database(db_err) = e {
         if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
             if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {

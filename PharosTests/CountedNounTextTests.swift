@@ -43,6 +43,27 @@ func runTests() {
     expectEqual(CountedNounText.phrase(1, "unusual space"), "1 unusual space", "one unusual space stays singular")
     expectEqual(CountedNounText.phrase(2, "unusual space"), "2 unusual spaces", "two unusual spaces pluralise")
 
+    // The pending-edits bar and the discard alert count cell changes.
+    expectEqual(CountedNounText.phrase(1, "change"), "1 change", "one change stays singular")
+    expectEqual(CountedNounText.phrase(3, "change"), "3 changes", "three changes pluralise")
+
+    // MARK: "pending change" — a two-word noun the inflector gets BACKWARDS.
+    //
+    // "invisible character" and "unusual space" above inflect correctly, so a
+    // two-word noun is not the problem in itself. "pending" is: the engine
+    // takes the participle as the head and agrees with it, which INVERTS the
+    // answer — "1 pending changes" and "3 pending change". Measured on macOS
+    // 26 with a bare swiftc binary, and seen first on the live app in the
+    // discard alert, which now says "Discard 3 changes?" instead.
+    //
+    // Asserted rather than fixed: the lesson is not that this phrase needs an
+    // override, it is that a modifier can be mistaken for the head, so a new
+    // two-word noun has to be checked here before it reaches a call site.
+    expectEqual(CountedNounText.phrase(1, "pending change"), "1 pending changes",
+                "the inflector inverts a participle-modified noun at one — do not use it")
+    expectEqual(CountedNounText.phrase(3, "pending change"), "3 pending change",
+                "and inverts it again in the plural")
+
     // MARK: "tuple" — the noun the automatic inflector does NOT know.
     //
     // Left to `^[...](inflect: true)` alone this comes back "2 tuple": the

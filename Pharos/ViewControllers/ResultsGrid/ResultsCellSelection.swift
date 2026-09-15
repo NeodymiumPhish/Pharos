@@ -368,10 +368,34 @@ protocol ResultsTableFindRouting: AnyObject {
     func setSearchString(_ text: String)
 }
 
+// MARK: - Cell Editing Routing
+
+/// The slice of the grid's view controller that the table needs in order to
+/// start an inline cell edit.
+///
+/// A protocol rather than a reference to `ResultsGridVC`, for the same reason
+/// as `ResultsTableFindRouting` above: this file is compiled on its own by
+/// several standalone harnesses (test-sql-copy-format.sh, test-tag-copy-export.sh,
+/// test-grid-column-resize.sh and friends), and naming the view controller here
+/// would drag the whole app, TagStore and the FFI in behind it.
+/// `ResultsGridVC` conforms in `ResultsGridVC+Editing.swift`.
+protocol ResultsCellEditingRouting: AnyObject {
+    /// Whether this cell may be edited at all. The table asks BEFORE doing
+    /// anything, so a double-click on a read-only cell behaves exactly as an
+    /// ordinary click does — silently, with no beep and no explanation.
+    func canEditCell(at position: CellPosition) -> Bool
+    /// Put an editable field in the cell and give it the keyboard.
+    func beginEditingCell(at position: CellPosition)
+}
+
 // MARK: - ResultsTableView
 
 class ResultsTableView: NSTableView {
     var cellSelectionController: CellSelectionController?
+
+    /// Wired by `ResultsGridVC` alongside `findController`. nil in the
+    /// standalone harnesses, where every editing path below is inert.
+    weak var cellEditingRouter: ResultsCellEditingRouting?
 
     /// Wired by `ResultsGridVC` alongside `findController` itself, so
     /// `performTextFinderAction` below can route ⌘F / ⌘G / ⌘⇧G / ⌘E to it
@@ -442,6 +466,30 @@ class ResultsTableView: NSTableView {
         // Do NOT call super.mouseDown -- we replace row selection with cell selection.
         // Ensure the table becomes first responder.
         window?.makeFirstResponder(self)
+
+        // A plain double-click on an editable cell opens it for editing. The
+        // first click of the pair already went through here as an ordinary
+        // click, so the cell is selected by the time this branch runs; the
+        // selection call below is what makes the second click's cell — which
+        // can differ from the first's by a pixel at a boundary — the active
+        // one, so Return/Tab afterwards move from the cell being edited.
+        //
+        // A modified double-click is not this gesture: ⇧ and ⌘ extend or
+        // toggle a selection, and stealing them would break range selection by
+        // double-click. On a read-only cell nothing happens at all — no beep —
+        // and the click falls through to its ordinary selection behaviour: a
+        // result is mostly read-only cells, and a sound per double-click would
+        // be a rebuke for using the app normally.
+        if event.clickCount == 2,
+           event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty,
+           let router = cellEditingRouter,
+           let position = cellSelectionController?.cellPosition(from: event),
+           router.canEditCell(at: position) {
+            pendingSelectionEvent = nil
+            cellSelectionController?.handleMouseDown(with: event)
+            router.beginEditingCell(at: position)
+            return
+        }
 
         // Shift/Command are always selection gestures, never drags.
         let modifiers = event.modifierFlags.intersection([.shift, .command])
@@ -526,6 +574,38 @@ class ResultsTableView: NSTableView {
     override func selectAll(_ sender: Any?) {
         guard numberOfRows > 0 else { return }
         cellSelectionController?.selectRows(IndexSet(integersIn: 0..<numberOfRows))
+    }
+
+    /// ⌘Return opens the active cell for editing.
+    ///
+    /// It has to be caught HERE and not in `keyDown`, because ⌘Return is
+    /// already the main menu's key equivalent for Query ▸ Run Query. A menu
+    /// key equivalent is dispatched before `keyDown` reaches the first
+    /// responder, so a `keyDown` branch never runs — measured on the live app,
+    /// where ⌘Return in the grid neither started an edit nor ran the query.
+    /// `performKeyEquivalent` travels down the key window's view tree FIRST,
+    /// which is the one place a view can claim the combination back.
+    ///
+    /// Claimed narrowly: only when this table is the first responder AND the
+    /// active cell is editable. Everywhere else — a read-only result, the
+    /// editor, any other view — ⌘Return still runs the query, which is what
+    /// the vast majority of results need it to do.
+    ///
+    /// Plain Return is deliberately left alone; it stays "move down one row"
+    /// (`handleKeyDown`), because re-purposing it would be a regression for
+    /// every read-only result.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 36 || event.keyCode == 76,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+               .subtracting(.function) == .command,
+           window?.firstResponder === self,
+           let router = cellEditingRouter,
+           let position = cellSelectionController?.state.active,
+           router.canEditCell(at: position) {
+            router.beginEditingCell(at: position)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {

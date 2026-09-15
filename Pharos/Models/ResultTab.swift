@@ -39,6 +39,19 @@ struct ResultTab: Identifiable {
     /// Captured grid state (column widths, scroll position, sort, filters, selection).
     var gridState: ResultsGridState?
 
+    /// Cell edits made in this result and not yet applied.
+    ///
+    /// Beside `gridState` and captured and restored on the same path, so
+    /// switching result tabs and coming back does not lose a change the user
+    /// made — the rows in memory have not moved, and the set is keyed on their
+    /// data indices.
+    ///
+    /// Deliberately NOT in the workspace snapshot. A pending edit is a change
+    /// the user has not agreed to make yet, and restoring one from disk days
+    /// later — against rows that may since have changed — would put an
+    /// unreviewed UPDATE in front of them with no memory of writing it.
+    var pendingEdits = PendingCellEdits()
+
     // MARK: - Plan tabs
 
     /// The decoded `EXPLAIN` plan, when this tab holds one.

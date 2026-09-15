@@ -3,8 +3,9 @@
 #
 # The bar's own file is small; the tail of model files below comes entirely from
 # `ResultTab`, which the bar takes as its input and which reaches QueryResult,
-# the chart config and the tab-preference types. Nothing here is a stub: the
-# suite drives the real bar with a real ResultTab.
+# the chart config and the tab-preference types — and, since D5,
+# `PendingCellEdits`, which `ResultTab` carries beside its grid state. Nothing
+# here is a stub: the suite drives the real bar with a real ResultTab.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/result-tab-bar-accessibility-tests \
@@ -23,6 +24,7 @@ swiftc -o /tmp/result-tab-bar-accessibility-tests \
   Pharos/Core/ResultTabsPanelPrefs.swift \
   Pharos/Core/VariablesPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
+  Pharos/Models/PendingCellEdits.swift \
   Pharos/Models/ResultTab.swift \
   Pharos/Models/QueryPlan.swift \
   Pharos/Models/QueryResult.swift \

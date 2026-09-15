@@ -68,6 +68,10 @@ class ContentViewController: NSViewController {
     /// active tab. Zero height and hidden when there is nothing to say.
     private let errorBanner = QueryErrorBanner()
     private var errorBannerHeight: NSLayoutConstraint!
+    /// One line below the error banner, for the cell edits the active result
+    /// tab is holding. Zero height and hidden when there are none.
+    private let pendingEditsBar = PendingEditsBar()
+    private var pendingEditsBarHeight: NSLayoutConstraint!
     private var resultsTopToResultTabBar: NSLayoutConstraint!
     private var resultsBottomToContainer: NSLayoutConstraint!
     private var resultTabBarHeightConstraint: NSLayoutConstraint!
@@ -253,6 +257,9 @@ class ContentViewController: NSViewController {
         errorBanner.translatesAutoresizingMaskIntoConstraints = false
         errorBanner.isHidden = true
         resultsArea.addSubview(errorBanner)
+        pendingEditsBar.translatesAutoresizingMaskIntoConstraints = false
+        pendingEditsBar.isHidden = true
+        resultsArea.addSubview(pendingEditsBar)
         resultsArea.addSubview(actionBar)
         resultsArea.addSubview(resultTabBar)
         resultsArea.addSubview(resultsVC.view)
@@ -304,6 +311,7 @@ class ContentViewController: NSViewController {
         let safeTop = container.topAnchor
 
         errorBannerHeight = errorBanner.heightAnchor.constraint(equalToConstant: 0)
+        pendingEditsBarHeight = pendingEditsBar.heightAnchor.constraint(equalToConstant: 0)
         resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
         resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
         resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor)
@@ -329,8 +337,15 @@ class ContentViewController: NSViewController {
             errorBanner.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             errorBannerHeight,
 
-            // Action bar: below the banner, full width, fixed height
-            actionBar.topAnchor.constraint(equalTo: errorBanner.bottomAnchor),
+            // Pending-edits bar: directly under the error banner, so a failed
+            // run and a set of uncommitted edits can both be on screen.
+            pendingEditsBar.topAnchor.constraint(equalTo: errorBanner.bottomAnchor),
+            pendingEditsBar.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            pendingEditsBar.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
+            pendingEditsBarHeight,
+
+            // Action bar: below the banners, full width, fixed height
+            actionBar.topAnchor.constraint(equalTo: pendingEditsBar.bottomAnchor),
             actionBar.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
             actionBar.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: Self.actionBarHeight),
@@ -380,6 +395,18 @@ class ContentViewController: NSViewController {
         // Wire up pin toggle
         resultsVC.onPinToggle = { [weak self] pinned in
             self?.handlePinToggle(pinned)
+        }
+
+        // Inline cell editing: the grid owns the pending set, this owns the
+        // bar that reports it and the sheet that applies it.
+        resultsVC.onPendingEditsChanged = { [weak self] in
+            self?.refreshPendingEditsBar()
+        }
+        pendingEditsBar.onReview = { [weak self] in
+            self?.presentReviewRowChanges()
+        }
+        pendingEditsBar.onDiscard = { [weak self] in
+            self?.confirmDiscardPendingEdits()
         }
 
         // Wire up selection changes for inspector. Drag-select fires this for
@@ -1286,7 +1313,8 @@ class ContentViewController: NSViewController {
     /// Height of the results area's fixed chrome: the action bar plus the
     /// result tab bar when it is shown. The grid sits below both.
     private var resultsAreaChromeHeight: CGFloat {
-        Self.actionBarHeight + resultTabBarHeightConstraint.constant + errorBannerHeight.constant
+        Self.actionBarHeight + resultTabBarHeightConstraint.constant
+            + errorBannerHeight.constant + pendingEditsBarHeight.constant
     }
 
     /// The editor's share of the split, as the split view has it now.
@@ -2167,6 +2195,10 @@ class ContentViewController: NSViewController {
         if let outgoingId = activeResultTabId,
            let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
             resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+            // Beside the grid state and for the same reason: the outgoing
+            // tab's rows stay in memory, so its uncommitted cell edits are
+            // still valid when the user comes back to it.
+            resultTabs[outgoingIdx].pendingEdits = resultsVC.pendingEdits
             captureChartConfig(intoTabAt: outgoingIdx)
         }
 
@@ -2225,6 +2257,10 @@ class ContentViewController: NSViewController {
         if let outgoingId = activeResultTabId,
            let outgoingIdx = resultTabs.firstIndex(where: { $0.id == outgoingId }) {
             resultTabs[outgoingIdx].gridState = resultsVC.captureGridState()
+            // Beside the grid state and for the same reason: the outgoing
+            // tab's rows stay in memory, so its uncommitted cell edits are
+            // still valid when the user comes back to it.
+            resultTabs[outgoingIdx].pendingEdits = resultsVC.pendingEdits
             captureChartConfig(intoTabAt: outgoingIdx)
         }
 
@@ -2246,6 +2282,8 @@ class ContentViewController: NSViewController {
         if let gridState = tab.gridState {
             resultsVC.restoreGridState(gridState)
         }
+        // And the pending cell edits, which `showResult` has just cleared.
+        restorePendingEdits(from: tab)
 
         // Restore grid vs. chart view mode for the newly-selected result tab.
         syncChartToggleToActiveTab()
@@ -2552,6 +2590,7 @@ class ContentViewController: NSViewController {
             if let gridState = activeRT.gridState {
                 resultsVC.restoreGridState(gridState)
             }
+            restorePendingEdits(from: activeRT)
         } else {
             resultsVC.clear()
         }
@@ -2764,6 +2803,188 @@ class ContentViewController: NSViewController {
         guard !errorBanner.isHidden else { return }
         errorBanner.hide()
         errorBannerHeight.constant = 0
+    }
+
+    // MARK: - Pending Cell Edits
+
+    /// Put the grid's pending set back on the grid after a `showResult`, which
+    /// clears it. Only the tab-switch paths call this: the rows are the same
+    /// rows, so the data-row keys still point where they did.
+    private func restorePendingEdits(from tab: ResultTab) {
+        resultsVC.pendingEdits = tab.pendingEdits
+        resultsVC.notifyPendingEditsChanged()
+        resultsVC.tableView.reloadData()
+    }
+
+    /// Show, hide or update the bar from whatever the grid is holding. The one
+    /// writer of the bar's height, so the two cannot disagree.
+    private func refreshPendingEditsBar() {
+        let count = resultsVC.pendingEdits.count
+        guard count > 0 else {
+            guard !pendingEditsBar.isHidden else { return }
+            pendingEditsBar.hide()
+            pendingEditsBarHeight.constant = 0
+            return
+        }
+        pendingEditsBar.show(changeCount: count, tableDisplay: resultsVC.pendingEditsTableDisplay)
+        pendingEditsBarHeight.constant = PendingEditsBar.height
+    }
+
+    /// "Discard" on the bar. Asked once, because there is no undo for it: the
+    /// user's typing is the only copy of a pending edit.
+    private func confirmDiscardPendingEdits() {
+        let count = resultsVC.pendingEdits.count
+        guard count > 0, let window = view.window else { return }
+        let alert = NSAlert()
+        // "change", not "pending change": the automatic inflector works on
+        // ordinary English nouns, and a two-word one comes back as
+        // "1 pending changes" — seen on the live app. The word "pending" is
+        // on the bar and in the sentence below, where it needs no agreement.
+        alert.messageText = String(localized: "Discard \(CountedNounText.phrase(count, "change"))?")
+        alert.informativeText = String(localized: "The cells go back to the values the query returned. Nothing has been written to the database.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "Discard"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.resultsVC.discardPendingEdits()
+        }
+    }
+
+    /// "Review Changes…" on the bar: the sheet with the exact statements.
+    ///
+    /// Shown whatever `confirmDestructive` says. It is not a confirmation — it
+    /// is the only place this SQL is ever visible, because the user did not
+    /// write it.
+    private func presentReviewRowChanges() {
+        guard let request = resultsVC.makeRowUpdateRequest() else {
+            Toast.show(in: view, message: String(localized: "These changes can no longer be matched to rows. Discard them and try again."),
+                       style: .warning, duration: 4.0)
+            return
+        }
+        // No window means do not run — the same rule as
+        // `presentDestructiveQueryConfirmation`. An unreviewed write is worse
+        // than one that silently does not happen.
+        guard view.window != nil else { return }
+        let resultTabId = activeResultTabId
+        presentAsSheet(ReviewRowChangesSheet(request: request) { [weak self] in
+            self?.applyRowUpdates(request, forResultTab: resultTabId)
+        })
+    }
+
+    /// Send the request to the core and act on what comes back.
+    ///
+    /// On success the pending set is gone and the rows are re-read from the
+    /// server, so what is on screen is what is in the table — not what the app
+    /// believes it wrote. On failure the pending set is KEPT: the core rolls
+    /// the whole transaction back, so nothing changed, and throwing the user's
+    /// edits away on top of that would be a second loss.
+    private func applyRowUpdates(_ request: RowUpdateRequest, forResultTab resultTabId: String?) {
+        guard let tab = stateManager.activeTab,
+              let connectionId = tab.connectionId,
+              stateManager.status(for: connectionId) == .connected else {
+            Toast.show(in: view, message: String(localized: "Connect to a database to apply changes."),
+                       style: .warning)
+            return
+        }
+        Task {
+            do {
+                let result = try await PharosCore.applyRowUpdates(connectionId: connectionId, request: request)
+                await MainActor.run {
+                    Log.query.info("Applied row updates: \(result.rowsUpdated, privacy: .public) rows")
+                    self.resultsVC.pendingEdits.removeAll()
+                    self.resultsVC.notifyPendingEditsChanged()
+                    if let resultTabId {
+                        self.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
+                    }
+                    // The core records the write in query history like any
+                    // other statement, so the history list has to hear about it.
+                    NotificationCoalescer.post(.queryHistoryDidChange)
+                    Toast.show(in: self.view,
+                               message: String(localized: "Applied \(CountedNounText.phrase(result.rowsUpdated, "row")) in \(DurationText.short(milliseconds: result.executionTimeMs))"),
+                               style: .success)
+                    self.reloadResultTabAfterEdit(resultTabId)
+                }
+            } catch {
+                await MainActor.run {
+                    let message = error.localizedDescription
+                    Log.query.error("Row update failed: \(message, privacy: .public)")
+                    guard let window = self.view.window else {
+                        Toast.show(in: self.view, message: message, style: .error, duration: 5.0)
+                        return
+                    }
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "The changes were not applied.")
+                    // The core's own words. It names the 1-based row of the
+                    // request that failed, which is what tells the user which
+                    // of their edits to look at.
+                    alert.informativeText = DisplayEscape.escaped(message)
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: String(localized: "OK"))
+                    alert.beginSheetModal(for: window) { _ in }
+                }
+            }
+        }
+    }
+
+    /// Re-read the rows of the result tab an edit was applied to, so the grid
+    /// shows what the server now holds — including anything a trigger or a
+    /// default changed on the way in.
+    private func reloadResultTabAfterEdit(_ resultTabId: String?) {
+        guard let resultTabId,
+              let editorTabId = resultStore.editorTabId(forResultTab: resultTabId),
+              let editorTab = stateManager.tabs.first(where: { $0.id == editorTabId }),
+              let connectionId = editorTab.connectionId,
+              stateManager.status(for: connectionId) == .connected,
+              let rt = resultStore.tab(withId: resultTabId),
+              let current = rt.queryResult else { return }
+        let sql = rt.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sql.isEmpty else { return }
+        // At least as many rows as were on screen, so a grid the user had
+        // paged out does not shrink back to one page under them.
+        let limit = Int32(clamping: max(Int(stateManager.settings.query.defaultLimit), current.rows.count))
+        let schema = editorTab.schemaName
+        Task {
+            guard let refreshed = try? await PharosCore.executeQuery(
+                connectionId: connectionId, sql: sql, limit: limit, schema: schema,
+                source: "row-edit-refresh") else { return }
+            await MainActor.run {
+                self.resultStore.mutateTab(id: resultTabId) { $0.queryResult = refreshed }
+                guard self.stateManager.pinnedResult == nil,
+                      self.activeResultTabId == resultTabId else { return }
+                // Keep the user's widths, sort and filters across the swap, the
+                // way the Load All snapshot does.
+                let gridState = self.resultsVC.captureGridState()
+                self.resultsVC.showResult(refreshed)
+                if let gridState { self.resultsVC.restoreGridState(gridState) }
+            }
+        }
+    }
+
+    /// Ask before something throws the pending set away, and say how many
+    /// changes are at stake. `proceed` runs only on Discard.
+    ///
+    /// Cancel ABORTS the caller — a Load All that quietly discarded a set of
+    /// edits would be indistinguishable from the app losing them.
+    private func confirmDiscardingPendingEdits(forResultTab resultTabId: String,
+                                               proceed: @escaping () -> Void) {
+        let count = resultStore.tab(withId: resultTabId)?.pendingEdits.count ?? 0
+        let liveCount = activeResultTabId == resultTabId ? resultsVC.pendingEdits.count : count
+        guard liveCount > 0, let window = view.window else { proceed(); return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Discard \(CountedNounText.phrase(liveCount, "change"))?")
+        alert.informativeText = String(localized: "Reloading this result replaces its rows, so the changes can no longer be matched to them.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "Discard"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.resultStore.mutateTab(id: resultTabId) { $0.pendingEdits.removeAll() }
+            if self?.activeResultTabId == resultTabId { self?.resultsVC.discardPendingEdits() }
+            proceed()
+        }
     }
 
     /// The log entry the banner is showing, looked up fresh — the copy the
@@ -3693,6 +3914,20 @@ extension ContentViewController {
     /// snapshot short.
     private func runSnapshotLoad(forResultTab rtId: String, cap: Int, showInGrid: Bool,
                                  completion: @escaping (Bool) -> Void) {
+        // This is the ONE path on which a run replaces a result tab's rows in
+        // place. Every other run appends a NEW result tab, which leaves the old
+        // tab's rows — and therefore its pending cell edits — exactly where
+        // they were. A snapshot re-executes the statement and swaps the rows
+        // wholesale, so the data-row indices the pending set is keyed on stop
+        // meaning anything. Ask first; Cancel aborts the load.
+        if resultStore.tab(withId: rtId)?.pendingEdits.isEmpty == false
+            || (activeResultTabId == rtId && !resultsVC.pendingEdits.isEmpty) {
+            confirmDiscardingPendingEdits(forResultTab: rtId) { [weak self] in
+                self?.runSnapshotLoad(forResultTab: rtId, cap: cap, showInGrid: showInGrid,
+                                      completion: completion)
+            }
+            return
+        }
         guard let editorTabId = resultStore.editorTabId(forResultTab: rtId),
               let editorTab = stateManager.tabs.first(where: { $0.id == editorTabId }),
               let connectionId = editorTab.connectionId,

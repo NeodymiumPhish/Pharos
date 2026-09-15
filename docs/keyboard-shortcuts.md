@@ -117,6 +117,18 @@ nav_order: 17
 | Clear selection (or close find bar) | Escape |
 | Navigate find matches | Enter / Shift+Enter |
 
+## Editing a Cell
+
+Only on an editable cell — see [Editing Cells](results-grid.md#editing-cells).
+
+| Action | Key |
+|--------|-----|
+| Start editing the active cell | Cmd+Return (or double-click) |
+| Commit and move down a row | Return |
+| Commit and move right a column | Tab |
+| Commit and move left a column | Shift+Tab |
+| Abandon the edit | Escape |
+
 ## In a Chart
 
 | Action | Key |

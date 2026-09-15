@@ -79,6 +79,35 @@ class ResultsGridVC: NSViewController {
     /// blank map is worth acting on. ContentViewController uses this to
     /// refresh the Inspector's Tags section in place.
     var onTagMapChanged: (() -> Void)?
+
+    // MARK: - Inline Cell Editing
+    //
+    // The whole of the editing state lives here rather than in the data
+    // source: the data source RENDERS a pending edit, but the rule about what
+    // may be edited, and the set itself, belong with the result — which is
+    // what `ContentViewController` parks on the `ResultTab` across a tab
+    // switch. The behaviour is in `ResultsGridVC+Editing.swift`.
+
+    /// Cell changes the user has made and not yet applied, keyed by DATA row
+    /// and DATA column so a sort, a column filter or a Load More leaves them
+    /// pointing at the same values. Never written to the database from here:
+    /// the review sheet and `PharosCore.applyRowUpdates` do that.
+    var pendingEdits = PendingCellEdits()
+
+    /// Fires after every change to `pendingEdits`, including the clears.
+    /// `ContentViewController` drives the pending-edits bar from it.
+    var onPendingEditsChanged: (() -> Void)?
+
+    /// The cell showing an editable field, or nil. A DISPLAY row and a TABLE
+    /// column index, matching `CellSelectionState`.
+    var editingPosition: CellPosition?
+
+    /// Set for the length of an Escape (or a programmatic teardown) so the
+    /// field's own `controlTextDidEndEditing` — which AppKit fires as focus
+    /// leaves, AFTER the key has been handled — does not commit the text the
+    /// user just abandoned.
+    var isAbandoningEdit = false
+
     var hasMore: Bool = false
     /// True once Load More has appended a page for a statement with no
     /// outermost ORDER BY. PostgreSQL does not promise the same row order
@@ -198,6 +227,9 @@ class ResultsGridVC: NSViewController {
             self?.cellSelectionDidChange(state)
         }
         tableView.cellSelectionController = cellSelectionController
+        // Double-click and ⌘Return ask here whether a cell may be edited.
+        tableView.cellEditingRouter = self
+        dataSource.cellEditorDelegate = self
 
         columnFilterController = ResultsColumnFilterController()
         columnFilterController.delegate = self
@@ -384,6 +416,14 @@ class ResultsGridVC: NSViewController {
         let signpost = Log.signposter.beginInterval("showResult", id: Log.signposter.makeSignpostID())
         defer { Log.signposter.endInterval("showResult", signpost) }
 
+        // A new result invalidates every pending edit: the set is keyed on
+        // data-row indices of the OLD rows, and nothing says row 4 of the new
+        // result is row 4 of the old one. The owner warns before it gets here
+        // (see `ContentViewController.runSnapshotLoad`) and restores the set
+        // afterwards on a plain tab switch, where the rows have not changed.
+        abandonEditing()
+        pendingEdits.removeAll()
+
         self.columns = result.columns
         self.rows = result.rows
         self.rowIdentity = result.rowIdentity
@@ -406,6 +446,9 @@ class ResultsGridVC: NSViewController {
         rebuildColumns()
         recomputeTagMap()
         pushDataToHelpers()
+        // After `pushDataToHelpers`, which is the one place the data source's
+        // inputs are refreshed; the bar follows in the same turn.
+        notifyPendingEditsChanged()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
 
@@ -523,6 +566,8 @@ class ResultsGridVC: NSViewController {
     }
 
     func clear() {
+        abandonEditing()
+        pendingEdits.removeAll()
         columns = []
         rows = []
         rowIdentity = nil
@@ -544,6 +589,7 @@ class ResultsGridVC: NSViewController {
             tableView.removeTableColumn(col)
         }
         pushDataToHelpers()
+        notifyPendingEditsChanged()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
         showNoResultState()

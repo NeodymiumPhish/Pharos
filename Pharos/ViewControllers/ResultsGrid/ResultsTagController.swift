@@ -13,11 +13,13 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
     private let copyExport: ResultsCopyExport
 
     /// Item tags: 20 = "Add Tag…", 21 = "Remove From Tag", 22 = "Manage Tags…",
-    /// 23 = "Quick Look".
+    /// 23 = "Quick Look", 24 = "Set NULL", 25 = "Revert Edit".
     private static let addTag = 20
     private static let removeTag = 21
     private static let manageTags = 22
     private static let quickLook = 23
+    private static let setNull = 24
+    private static let revertEdit = 25
 
     init(grid: ResultsGridVC, copyExport: ResultsCopyExport) {
         self.grid = grid
@@ -40,6 +42,26 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         quickLook.keyEquivalentModifierMask = []
         quickLook.tag = Self.quickLook
         quickLook.target = grid
+
+        menu.addItem(.separator())
+
+        // The two editing items, on the clicked cell. Both target the grid
+        // directly, for the same reason Quick Look does: a context menu has no
+        // first responder of its own to route through. They are disabled far
+        // more often than not — most cells of most results are read-only — and
+        // that is the point: the menu is where a user finds out that a cell
+        // CAN be edited without having to guess at a double-click.
+        let setNull = menu.addItem(withTitle: String(localized: "Set NULL"),
+                                   action: #selector(ResultsGridVC.setNullAtClickedCell(_:)),
+                                   keyEquivalent: "")
+        setNull.tag = Self.setNull
+        setNull.target = grid
+
+        let revert = menu.addItem(withTitle: String(localized: "Revert Edit"),
+                                  action: #selector(ResultsGridVC.revertEditAtClickedCell(_:)),
+                                  keyEquivalent: "")
+        revert.tag = Self.revertEdit
+        revert.target = grid
 
         menu.addItem(.separator())
 
@@ -73,6 +95,15 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
         if let quickLook = menu.item(withTag: Self.quickLook) {
             // Needs a selection, not a tag: there is nothing to preview without one.
             quickLook.isEnabled = grid.hasQuickLookSelection
+        }
+
+        if let setNull = menu.item(withTag: Self.setNull) {
+            // Editability only — the grid cannot know whether the column is
+            // NULLABLE; see `canSetNullAtClickedCell`.
+            setNull.isEnabled = grid.canSetNullAtClickedCell()
+        }
+        if let revert = menu.item(withTag: Self.revertEdit) {
+            revert.isEnabled = grid.canRevertClickedCell()
         }
 
         let targets = grid.tagTargetDataRows()
