@@ -563,6 +563,14 @@ const SNAPSHOT_FETCH_CHUNK: i64 = 5_000;
 /// caller then shows the first `max_rows` and says so. Cancel works as for
 /// `execute_query`: the query is registered under `query_id`, and a
 /// `pg_cancel_backend` aborts the running FETCH, which rolls back.
+///
+/// `on_progress` is called once per FETCH chunk with the RUNNING TOTAL of rows
+/// held so far, so the caller can show a determinate bar instead of a spinner
+/// that says nothing. It is called after the chunk is in hand and after the cap
+/// has cut it, so the number it reports is never larger than `max_rows` and
+/// never larger than the row count the result finally carries. It is not called
+/// for a failed or cancelled chunk: the last number the caller saw stays the
+/// last number that was true.
 pub async fn fetch_all_rows_snapshot(
     connection_id: String,
     sql: String,
@@ -570,6 +578,7 @@ pub async fn fetch_all_rows_snapshot(
     max_rows: i64,
     schema: Option<String>,
     state: &AppState,
+    on_progress: impl Fn(u64) + Send,
 ) -> Result<QueryResult, String> {
     let pool = state
         .get_pool(&connection_id)
@@ -656,13 +665,16 @@ pub async fn fetch_all_rows_snapshot(
             abort!();
             return Err(if was_cancelled { "Query was cancelled".to_string() } else { err });
         }
-        if rows.len() as i64 > max_rows {
+        // The cap is applied BEFORE the progress report, so the caller is never
+        // told about a row the result does not keep.
+        let capped = rows.len() as i64 > max_rows;
+        if capped {
             has_more = true;
             rows.truncate(max_rows as usize);
-            break;
         }
-        if got < want {
-            break; // the cursor is exhausted
+        on_progress(rows.len() as u64);
+        if capped || got < want {
+            break; // the cap cut it short, or the cursor is exhausted
         }
     }
 
@@ -1535,15 +1547,20 @@ mod live_query_identity_tests {
             // 12,000 rows: more than two FETCH chunks, with an ORDER BY so the
             // expected order is exact.
             let sql = "SELECT g AS n, md5(g::text) AS h FROM generate_series(1, 12000) g ORDER BY g";
+            // Every call the snapshot makes on its progress callback, in order.
+            let ticks: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
             let snap = |max_rows: i64, sql: &'static str| {
                 let state = &state;
+                let ticks = &ticks;
                 async move {
                     fetch_all_rows_snapshot(
                         CONN.to_string(), sql.to_string(), format!("snap-{}", max_rows), max_rows, None, state,
+                        |rows| ticks.lock().expect("ticks").push(rows),
                     )
                     .await
                 }
             };
+            let drain_ticks = || std::mem::take(&mut *ticks.lock().expect("ticks"));
 
             // Whole result under the cap.
             let all = snap(100_000, sql).await.expect("snapshot under cap");
@@ -1555,11 +1572,27 @@ mod live_query_identity_tests {
             assert_eq!(all.rows[11_999][0], serde_json::json!("12000"), "last row is the last of the ORDER BY");
             assert!(all.history_entry_id.is_none(), "a snapshot is not a new history entry");
 
+            // One progress call per 5,000-row chunk, each carrying the running
+            // total: 12,000 rows is three chunks (5,000 · 10,000 · 12,000).
+            assert_eq!(
+                drain_ticks(),
+                vec![5_000_u64, 10_000, 12_000],
+                "progress reports a running total, once per chunk"
+            );
+
             // Cap inside the result: exactly the cap, and has_more says so.
             let capped = snap(5_000, sql).await.expect("snapshot at cap");
             assert_eq!(capped.rows.len(), 5_000);
             assert!(capped.has_more, "the cap cut the snapshot short");
             assert_eq!(capped.rows[4_999][0], serde_json::json!("5000"));
+            // The cap is applied before the report, so no tick is larger than it.
+            let capped_ticks = drain_ticks();
+            assert!(
+                capped_ticks.iter().all(|&n| n <= 5_000),
+                "no progress call may claim more rows than the cap keeps; got {:?}",
+                capped_ticks
+            );
+            assert_eq!(capped_ticks.last().copied(), Some(5_000), "the last tick is the row count");
 
             // Cap exactly at the row count: full result, no has_more.
             let exact = snap(12_000, sql).await.expect("snapshot at exact count");

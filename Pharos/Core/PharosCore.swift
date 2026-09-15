@@ -24,9 +24,79 @@ enum PharosCore { }
 /// keeping the C function pointer free of generic parameters.
 class CallbackBox {
     let handler: (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void
-    init(handler: @escaping (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void) {
+    /// Progress handler for the operations that report one, nil for the rest.
+    /// The core hands the progress callback the SAME context pointer, so one
+    /// box carries both closures and there is only one retain to balance.
+    let progress: (@Sendable (Int) -> Void)?
+    init(
+        handler: @escaping (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void,
+        progress: (@Sendable (Int) -> Void)? = nil
+    ) {
         self.handler = handler
+        self.progress = progress
     }
+}
+
+/// The completion side of the bridge: decode the core's answer into `T` and
+/// resume the continuation. Shared by both `withAsyncCallback` overloads so
+/// the decode rules cannot drift between them.
+private func continuationHandler<T: Decodable>(
+    _ continuation: CheckedContinuation<T, Error>
+) -> (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void {
+    return { resultJson, errorMsg in
+        if let errorMsg {
+            let error = String(cString: errorMsg)
+            continuation.resume(throwing: PharosCoreError.rustError(error))
+        } else if let resultJson {
+            // Decode directly from the C buffer instead of String(cString:)
+            // + Data(json.utf8), which used to make two full-JSON copies
+            // per FFI call. The pointer is owned by Rust and freed on
+            // callback return, so the no-copy Data is only safe to use
+            // synchronously inside this closure — JSONDecoder reads it
+            // before we return.
+            let length = strlen(resultJson)
+            let bytes = UnsafeRawPointer(resultJson)
+            let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes),
+                            count: length,
+                            deallocator: .none)
+            do {
+                // The decode is the whole cost of a large result on this side
+                // of the FFI, so it gets its own interval rather than being
+                // hidden inside the caller's.
+                let signpost = Log.signposter.beginInterval("decode", id: Log.signposter.makeSignpostID())
+                defer { Log.signposter.endInterval("decode", signpost) }
+                let decoded = try JSONDecoder.pharos.decode(T.self, from: data)
+                continuation.resume(returning: decoded)
+            } catch {
+                // Only materialize the full string on the error path; the
+                // happy path skips the allocation entirely.
+                let json = String(cString: resultJson)
+                continuation.resume(throwing: PharosCoreError.decodingError(json, error))
+            }
+        } else {
+            continuation.resume(throwing: PharosCoreError.nullResult)
+        }
+    }
+}
+
+/// The C completion trampoline. Takes the retain back, so it must fire exactly
+/// once per call — which is the core's contract for `AsyncCallback`.
+private let asyncCompletionTrampoline: AsyncCallback = { ctx, resultJson, errorMsg in
+    guard let ctx else { return }
+    let box = Unmanaged<CallbackBox>.fromOpaque(ctx).takeRetainedValue()
+    box.handler(resultJson, errorMsg)
+}
+
+/// The C progress trampoline. It must NOT consume the retain — the completion
+/// trampoline does that, once, afterwards. The closure is copied out of the box
+/// before the hop to the main actor, so the hop can never touch a box the
+/// completion side has already released.
+private let asyncProgressTrampoline: ProgressCallback = { ctx, rowsLoaded in
+    guard let ctx else { return }
+    let box = Unmanaged<CallbackBox>.fromOpaque(ctx).takeUnretainedValue()
+    guard let progress = box.progress else { return }
+    let count = Int(clamping: rowsLoaded)
+    DispatchQueue.main.async { progress(count) }
 }
 
 /// Bridge between C callback pattern and Swift async/await.
@@ -35,44 +105,23 @@ func withAsyncCallback<T: Decodable>(
     _ invoke: @escaping (AsyncCallback, UnsafeMutableRawPointer) -> Void
 ) async throws -> T {
     return try await withCheckedThrowingContinuation { continuation in
-        let box = CallbackBox { resultJson, errorMsg in
-            if let errorMsg {
-                let error = String(cString: errorMsg)
-                continuation.resume(throwing: PharosCoreError.rustError(error))
-            } else if let resultJson {
-                // Decode directly from the C buffer instead of String(cString:)
-                // + Data(json.utf8), which used to make two full-JSON copies
-                // per FFI call. The pointer is owned by Rust and freed on
-                // callback return, so the no-copy Data is only safe to use
-                // synchronously inside this closure — JSONDecoder reads it
-                // before we return.
-                let length = strlen(resultJson)
-                let bytes = UnsafeRawPointer(resultJson)
-                let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes),
-                                count: length,
-                                deallocator: .none)
-                do {
-                    let decoded = try JSONDecoder.pharos.decode(T.self, from: data)
-                    continuation.resume(returning: decoded)
-                } catch {
-                    // Only materialize the full string on the error path; the
-                    // happy path skips the allocation entirely.
-                    let json = String(cString: resultJson)
-                    continuation.resume(throwing: PharosCoreError.decodingError(json, error))
-                }
-            } else {
-                continuation.resume(throwing: PharosCoreError.nullResult)
-            }
-        }
+        let box = CallbackBox(handler: continuationHandler(continuation))
         let context = Unmanaged.passRetained(box).toOpaque()
+        invoke(asyncCompletionTrampoline, context)
+    }
+}
 
-        let callback: AsyncCallback = { ctx, resultJson, errorMsg in
-            guard let ctx else { return }
-            let box = Unmanaged<CallbackBox>.fromOpaque(ctx).takeRetainedValue()
-            box.handler(resultJson, errorMsg)
-        }
-
-        invoke(callback, context)
+/// As `withAsyncCallback`, for a core function that also reports progress while
+/// it runs. `onProgress` is delivered on the main actor, zero or more times,
+/// always before the call returns.
+func withAsyncCallback<T: Decodable>(
+    onProgress: @escaping @Sendable (Int) -> Void,
+    _ invoke: @escaping (AsyncCallback, ProgressCallback, UnsafeMutableRawPointer) -> Void
+) async throws -> T {
+    return try await withCheckedThrowingContinuation { continuation in
+        let box = CallbackBox(handler: continuationHandler(continuation), progress: onProgress)
+        let context = Unmanaged.passRetained(box).toOpaque()
+        invoke(asyncCompletionTrampoline, asyncProgressTrampoline, context)
     }
 }
 

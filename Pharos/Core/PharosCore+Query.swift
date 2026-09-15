@@ -68,6 +68,8 @@ extension PharosCore {
         offset: Int64,
         schema: String? = nil
     ) async throws -> QueryResult {
+        let signpost = Log.signposter.beginInterval("fetchMore", id: Log.signposter.makeSignpostID())
+        defer { Log.signposter.endInterval("fetchMore", signpost) }
         return try await withAsyncCallback { callback, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
@@ -83,19 +85,27 @@ extension PharosCore {
     /// return every row up to `maxRows` as one consistent snapshot. Unlike
     /// `fetchMoreRows`, the rows come from a single execution, so they line
     /// up even without an ORDER BY. Cancellable through `queryId`.
+    ///
+    /// `onProgress` is called on the main actor once per 5,000-row chunk with
+    /// the running total, so a long load can show how far it has got instead of
+    /// a spinner that says nothing. It is never called after the call returns,
+    /// and never with a count larger than `maxRows`.
     static func fetchAllRows(
         connectionId: String,
         sql: String,
         queryId: String,
         maxRows: Int64,
-        schema: String? = nil
+        schema: String? = nil,
+        onProgress: @escaping @Sendable (Int) -> Void = { _ in }
     ) async throws -> QueryResult {
-        return try await withAsyncCallback { callback, context in
+        let signpost = Log.signposter.beginInterval("fetchAll", id: Log.signposter.makeSignpostID())
+        defer { Log.signposter.endInterval("fetchAll", signpost) }
+        return try await withAsyncCallback(onProgress: onProgress) { callback, progress, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
                     queryId.withCString { cQid in
                         withOptionalCString(schema) { cSchema in
-                            pharos_fetch_all_rows(cConn, cSql, cQid, maxRows, cSchema, callback, context)
+                            pharos_fetch_all_rows(cConn, cSql, cQid, maxRows, cSchema, progress, callback, context)
                         }
                     }
                 }

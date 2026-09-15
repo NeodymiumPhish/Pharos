@@ -25,6 +25,10 @@ final class QueryErrorPresenter {
     /// Take the sheet off screen. The owner fills this with `dismiss`.
     var closeSheet: (QueryErrorSheet) -> Void = { _ in }
 
+    /// Put the inline banner on screen for one failure. The owner fills this
+    /// with its `QueryErrorBanner`.
+    var showBanner: (QueryFailure) -> Void = { _ in }
+
     /// Runs a block after the current turn of the run loop. Injected so a test
     /// stays deterministic — a test replaces it with one that runs the block at
     /// once. Production needs the wait: AppKit ends a sheet asynchronously.
@@ -46,9 +50,17 @@ final class QueryErrorPresenter {
     private var pendingSheet: QueryErrorSheet?
 
     /// A failure has just arrived on the tab the user is looking at.
+    ///
+    /// `unreadBefore` is how many entries the tab's log already held unread
+    /// BEFORE this one went in. It is the whole of the banner rule: the first
+    /// failure the user has not read gets the inline banner, because a line is
+    /// enough to say "this run failed" and the editor stays usable behind it. A
+    /// second unread failure means the user now has a list to read rather than a
+    /// message, so the sheet opens as it always did.
     func failureDidArrive(
         _ failure: QueryFailure,
         entries: [QueryFailure],
+        unreadBefore: Int,
         delegate: QueryErrorSheetDelegate
     ) {
         if let sheet = liveSheet, sheet.tabId == failure.tabId {
@@ -62,6 +74,13 @@ final class QueryErrorPresenter {
         // The setting only holds back the automatic sheet for a cancellation. The
         // entry is in the log either way, so the tab button still shows it.
         if failure.kind == .cancelled, !showCancelledDialog() { return }
+
+        // A cancellation is never a banner: the user asked for it, and the
+        // dialog — when the setting wants one — is the acknowledgement.
+        if failure.kind == .error, unreadBefore == 0 {
+            showBanner(failure)
+            return
+        }
 
         open(entries: entries, index: 0, tabId: failure.tabId, delegate: delegate)
     }

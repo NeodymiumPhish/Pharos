@@ -15,7 +15,9 @@ private struct ActiveConnectionStatus: Equatable {
 class ContentViewController: NSViewController {
 
     private let resultsVC = ResultsGridVC()
-    private let emptyState = NSView()
+    /// The "no connection" state. Shown by `updateVisibility`, which today
+    /// always hides it — see the note there.
+    private let emptyState = EmptyStateView()
 
     // Action bar — independent element between the editor and the results grid
     let actionBar = ResultsToolbarBar()
@@ -55,6 +57,10 @@ class ContentViewController: NSViewController {
     private let editorResultsSplit = EditorResultsSplitView()
     /// Bottom pane of `editorResultsSplit`: action bar, result tab bar, grid/chart.
     private let resultsArea = NSView()
+    /// One line above the action bar, for the first unread failure on the
+    /// active tab. Zero height and hidden when there is nothing to say.
+    private let errorBanner = QueryErrorBanner()
+    private var errorBannerHeight: NSLayoutConstraint!
     private var resultsTopToResultTabBar: NSLayoutConstraint!
     private var resultsBottomToContainer: NSLayoutConstraint!
     private var resultTabBarHeightConstraint: NSLayoutConstraint!
@@ -128,6 +134,11 @@ class ContentViewController: NSViewController {
     /// Query IDs that the user has cancelled. Checked in the error handler to
     /// suppress the "Query failed" notification for user-initiated cancellations.
     private var cancelledQueryIds: Set<String> = []
+
+    /// Query id of the "Load All Rows" snapshot whose progress the grid's bar
+    /// is showing, or nil when no load is in flight. It is what the bar's
+    /// Cancel cancels, and what a late progress call is checked against.
+    private var snapshotQueryId: String?
 
     /// "Run All Queries" queue: segments still to be launched. Pop from the front
     /// when a slot opens up. Cleared on abort (tab close / disconnect / completion).
@@ -227,6 +238,9 @@ class ContentViewController: NSViewController {
         editorResultsSplit.setHoldingPriority(.defaultLow, forSubviewAt: 1)
         contentStack.addSubview(editorResultsSplit)
 
+        errorBanner.translatesAutoresizingMaskIntoConstraints = false
+        errorBanner.isHidden = true
+        resultsArea.addSubview(errorBanner)
         resultsArea.addSubview(actionBar)
         resultsArea.addSubview(resultTabBar)
         resultsArea.addSubview(resultsVC.view)
@@ -270,6 +284,7 @@ class ContentViewController: NSViewController {
 
         let safeTop = container.topAnchor
 
+        errorBannerHeight = errorBanner.heightAnchor.constraint(equalToConstant: 0)
         resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
         resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
         resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor)
@@ -288,8 +303,15 @@ class ContentViewController: NSViewController {
             editorResultsSplit.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             editorResultsSplit.bottomAnchor.constraint(equalTo: contentStack.bottomAnchor),
 
-            // Action bar: top of the results area, full width, fixed height
-            actionBar.topAnchor.constraint(equalTo: resultsArea.topAnchor),
+            // Error banner: the very top of the results area, above the action
+            // bar, taking no height at all until it has something to show.
+            errorBanner.topAnchor.constraint(equalTo: resultsArea.topAnchor),
+            errorBanner.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
+            errorBanner.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
+            errorBannerHeight,
+
+            // Action bar: below the banner, full width, fixed height
+            actionBar.topAnchor.constraint(equalTo: errorBanner.bottomAnchor),
             actionBar.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
             actionBar.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: Self.actionBarHeight),
@@ -324,6 +346,10 @@ class ContentViewController: NSViewController {
         }
         resultsVC.onLoadAll = { [weak self] in
             self?.loadAllRowsSnapshot()
+        }
+        resultsVC.onCancelLoad = { [weak self] in
+            guard let self, let id = self.snapshotQueryId else { return }
+            self.cancelQuery(id: id)
         }
 
         // Wire up pin toggle
@@ -542,6 +568,7 @@ class ContentViewController: NSViewController {
         }
         errorPresenter.showSheet = { [weak self] sheet in self?.presentAsSheet(sheet) }
         errorPresenter.closeSheet = { [weak self] sheet in self?.dismiss(sheet) }
+        errorPresenter.showBanner = { [weak self] failure in self?.showErrorBanner(failure) }
 
         // A click on a failure banner (in-app or system) lands here.
         NotificationCenter.default.addObserver(
@@ -783,7 +810,7 @@ class ContentViewController: NSViewController {
             // The buttons would simply never render. That is exactly the kind
             // of silent read-layer failure this phase keeps producing, so it
             // gets a line in the log rather than nothing at all.
-            NSLog("Inspector tag controls not wired: no split view controller parent yet.")
+            Log.ui.error("Inspector tag controls not wired: no split view controller parent yet.")
             return
         }
         inspectorVC.onEditTag = { [weak self] tagId in
@@ -832,7 +859,7 @@ class ContentViewController: NSViewController {
             guard response == .alertFirstButtonReturn else { return }
             do { try TagStore.shared.deleteTag(id: id) }
             catch {
-                NSLog("Tag delete failed: \(error)")
+                Log.ui.error("Tag delete failed: \(error.localizedDescription, privacy: .public)")
                 // Deferred by a turn: this runs inside the confirmation
                 // alert's completion handler, and AppKit tears a sheet down
                 // ASYNCHRONOUSLY, so presenting in the same turn can be
@@ -1104,36 +1131,37 @@ class ContentViewController: NSViewController {
 
     private func setupEmptyState() {
         emptyState.translatesAutoresizingMaskIntoConstraints = false
+        emptyState.show(
+            symbol: "cylinder.split.1x2",
+            title: "No Connection",
+            message: "Choose a connection for this tab to start.",
+            actionTitle: "Choose Connection…"
+        ) { [weak self] in
+            self?.chooseConnectionForActiveTab()
+        }
+    }
 
-        let imageView = NSImageView()
-        imageView.image = NSImage(systemSymbolName: "text.page.badge.magnifyingglass", accessibilityDescription: "No database connection")
-        imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 48, weight: .light)
-        imageView.contentTintColor = .tertiaryLabelColor
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-
-        let label = NSTextField(labelWithString: "Connect to a database to get started")
-        label.textColor = .secondaryLabelColor
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = NSStackView(views: [imageView, label])
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        emptyState.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: emptyState.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: emptyState.centerYAnchor),
-        ])
+    /// The empty state's button. There is no way to drop the toolbar's
+    /// connection pull-down from here, so it does the thing that pull-down
+    /// would lead to: the first saved connection when there is one, and the
+    /// Connections Manager when there is nothing to choose from yet.
+    private func chooseConnectionForActiveTab() {
+        guard let first = stateManager.connections.first, let tabId = stateManager.activeTabId else {
+            ConnectionsManagerWindowController.show()
+            return
+        }
+        stateManager.useConnection(first.id, forTabId: tabId)
     }
 
     // MARK: - Visibility
 
     private func updateVisibility() {
-        // Always show the editor — users can select a connection from the editor toolbar.
-        // Empty state is hidden; content stack always visible.
+        // Always show the editor — users can select a connection from the
+        // toolbar's connection pull-down, and the editor is usable without one.
+        // The "No Connection" empty state is therefore built and wired but never
+        // shown: it covers the whole pane, so showing it would take the editor
+        // away. It stays here for the day the pane gains a state with no editor
+        // in it; until then this line is the whole of its show/hide rule.
         emptyState.isHidden = true
 
         let hasConnection: Bool
@@ -1184,7 +1212,7 @@ class ContentViewController: NSViewController {
     /// Height of the results area's fixed chrome: the action bar plus the
     /// result tab bar when it is shown. The grid sits below both.
     private var resultsAreaChromeHeight: CGFloat {
-        Self.actionBarHeight + resultTabBarHeightConstraint.constant
+        Self.actionBarHeight + resultTabBarHeightConstraint.constant + errorBannerHeight.constant
     }
 
     /// The editor's share of the split, as the split view has it now.
@@ -1549,6 +1577,12 @@ class ContentViewController: NSViewController {
         let isSelectLike = Self.isSelectLikeSQL(sql)
 
         Task {
+            // One interval per run, begun before the FFI call and ended on
+            // every path out of it — success, failure and cancellation — so an
+            // Instruments trace shows the whole cost of a run, not only the
+            // runs that worked.
+            let signpost = Log.signposter.beginInterval("execute", id: Log.signposter.makeSignpostID())
+            defer { Log.signposter.endInterval("execute", signpost) }
             do {
                 if isSelectLike {
                     let result = try await PharosCore.executeQuery(
@@ -2020,7 +2054,7 @@ class ContentViewController: NSViewController {
             try PharosCore.updateResultMeta(resultId: historyResultId, customLabel: name ?? "")
             NotificationCoalescer.post(.workspaceHistoryDidChange)
         } catch {
-            NSLog("updateResultMeta failed for result \(historyResultId): \(error)")
+            Log.query.error("updateResultMeta failed for result \(historyResultId, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2201,7 +2235,7 @@ class ContentViewController: NSViewController {
             } catch {
                 await MainActor.run {
                     self.resultsVC.setLoadingMore(false)
-                    NSLog("Failed to load more rows: \(error)")
+                    Log.query.error("Failed to load more rows: \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
@@ -2312,7 +2346,7 @@ class ContentViewController: NSViewController {
             }
             return wsId
         } catch {
-            NSLog("upsertWorkspace failed: \(error)")
+            Log.query.error("upsertWorkspace failed: \(error.localizedDescription, privacy: .public)")
             return tab.workspaceId
         }
     }
@@ -2348,7 +2382,7 @@ class ContentViewController: NSViewController {
             ))
             NotificationCoalescer.post(.workspaceHistoryDidChange)
         } catch {
-            NSLog("associateResult failed: \(error)")
+            Log.query.error("associateResult failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2378,12 +2412,18 @@ class ContentViewController: NSViewController {
     /// the editor marker are for the active tab only; a background tab gets the
     /// pulsing button.
     private func recordFailure(_ failure: QueryFailure) {
+        // Read BEFORE the append: the presenter's banner rule asks how many
+        // unread failures the tab had before this one, and the append would
+        // have already counted it.
+        let unreadBefore = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.unreadCount ?? 0
         stateManager.updateTab(id: failure.tabId) { $0.failureLog.append(failure) }
 
         if stateManager.activeTabId == failure.tabId {
             markEditor(with: failure, in: editorPane)
             let entries = stateManager.tabs.first { $0.id == failure.tabId }?.failureLog.entries ?? []
-            errorPresenter.failureDidArrive(failure, entries: entries, delegate: self)
+            errorPresenter.failureDidArrive(
+                failure, entries: entries, unreadBefore: unreadBefore, delegate: self
+            )
         }
 
         // Always, not only for a background tab: a sheet that opens behind another
@@ -2394,6 +2434,55 @@ class ContentViewController: NSViewController {
         announceFailure(failure)
 
         refreshErrorBadge(forTabId: failure.tabId)
+    }
+
+    // MARK: - Inline Error Banner
+
+    /// Show the one-line banner for `failure`, in place of the sheet. Called by
+    /// the presenter, which owns the rule about when that happens.
+    private func showErrorBanner(_ failure: QueryFailure) {
+        errorBanner.onGoToError = { [weak self] in
+            guard let self, let failure = self.bannerFailure() else { return }
+            self.hideErrorBanner()
+            self.revealFailure(failure)
+        }
+        errorBanner.onDetails = { [weak self] in
+            guard let self,
+                  let tabId = self.errorBanner.tabId,
+                  let failureId = self.errorBanner.failureId,
+                  let log = self.stateManager.tabs.first(where: { $0.id == tabId })?.failureLog,
+                  let index = log.index(of: failureId) else { return }
+            self.hideErrorBanner()
+            self.errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
+        }
+        errorBanner.onClose = { [weak self] in
+            guard let self else { return }
+            // Dismissing is reading it: the tab's error button stops pulsing,
+            // and the next failure is then a first unread one again — so it
+            // gets a banner too, instead of a sheet out of nowhere.
+            if let tabId = self.errorBanner.tabId, let failureId = self.errorBanner.failureId {
+                self.stateManager.updateTab(id: tabId) { $0.failureLog.markRead(id: failureId) }
+                self.refreshErrorBadge(forTabId: tabId)
+            }
+            self.hideErrorBanner()
+        }
+
+        errorBanner.show(failure)
+        errorBannerHeight.constant = QueryErrorBanner.height
+    }
+
+    /// Take the banner off screen, whatever put it there.
+    func hideErrorBanner() {
+        guard !errorBanner.isHidden else { return }
+        errorBanner.hide()
+        errorBannerHeight.constant = 0
+    }
+
+    /// The log entry the banner is showing, looked up fresh — the copy the
+    /// banner was given could have been removed from the log since.
+    private func bannerFailure() -> QueryFailure? {
+        guard let tabId = errorBanner.tabId, let failureId = errorBanner.failureId else { return nil }
+        return stateManager.tabs.first { $0.id == tabId }?.failureLog.entries.first { $0.id == failureId }
     }
 
     /// Put the gutter dot and the underline on the faulty text.
@@ -2472,6 +2561,12 @@ class ContentViewController: NSViewController {
 extension ContentViewController: EditorPaneDelegate {
 
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?) {
+        // The banner belongs to the tab whose failure it shows, and the results
+        // area below it is about to be another tab's. It goes, unread: the
+        // incoming tab's error button still carries the entry, so nothing is
+        // lost by not bringing it back.
+        hideErrorBanner()
+
         // activeTabId publisher handles results grid update. The error badge
         // is refreshed here, after the editor has switched tabs, so it shows
         // the incoming tab's log.
@@ -2595,7 +2690,7 @@ extension ContentViewController {
             resultStore[tab.id] = EditorTabResults(tabs: [rt], activeId: rt.id)
             applySeededResultState(forTabId: tab.id)
         } catch {
-            NSLog("Failed to load history results: \(error)")
+            Log.query.error("Failed to load history results: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -3320,14 +3415,30 @@ extension ContentViewController {
             startTime: CACurrentMediaTime()
         )
         stateManager.updateTab(id: editorTabId) { $0.runningQueries.append(running) }
-        if showInGrid { resultsVC.setLoadingMore(true) }
+        if showInGrid {
+            snapshotQueryId = queryId
+            resultsVC.beginLoadingAll(cap: cap)
+        }
+
+        // The progress callback lands on the main actor. It must not touch the
+        // grid once the user has moved to another result tab: the bar down
+        // there belongs to whatever is on screen now, not to this load.
+        let onProgress: @Sendable (Int) -> Void = { [weak self] rows in
+            MainActor.assumeIsolated {
+                guard let self, showInGrid,
+                      self.snapshotQueryId == queryId,
+                      self.stateManager.pinnedResult == nil,
+                      self.activeResultTabId == rtId else { return }
+                self.resultsVC.updateLoadingAll(rows: rows)
+            }
+        }
 
         Task {
             let outcome: Result<QueryResult, Error>
             do {
                 outcome = .success(try await PharosCore.fetchAllRows(
                     connectionId: connectionId, sql: sql, queryId: queryId,
-                    maxRows: Int64(cap), schema: schema))
+                    maxRows: Int64(cap), schema: schema, onProgress: onProgress))
             } catch {
                 outcome = .failure(error)
             }
@@ -3335,7 +3446,8 @@ extension ContentViewController {
                 self.stateManager.updateTab(id: editorTabId) { $0.runningQueries.removeAll { $0.id == queryId } }
                 let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
                 let stillDisplaying = self.stateManager.pinnedResult == nil && self.activeResultTabId == rtId
-                if stillDisplaying { self.resultsVC.setLoadingMore(false) }
+                if self.snapshotQueryId == queryId { self.snapshotQueryId = nil }
+                if showInGrid { self.resultsVC.endLoadingAll() }
 
                 switch outcome {
                 case .failure(let error):
@@ -3567,7 +3679,7 @@ extension ContentViewController {
                 stateManager.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {
-                NSLog("Failed to update saved query: \(error)")
+                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
             }
             return
         }
@@ -3889,6 +4001,12 @@ extension ContentViewController: QueryErrorSheetDelegate {
 
     func errorSheet(_ sheet: QueryErrorSheet, didRequestGoToError failure: QueryFailure) {
         errorPresenter.close()
+        revealFailure(failure)
+    }
+
+    /// "Go to Error", from the sheet or from the inline banner: go to the tab
+    /// the failure belongs to and put the editor on the failing text.
+    func revealFailure(_ failure: QueryFailure) {
         stateManager.selectTab(id: failure.tabId)
         guard let location = failure.location else { return }
         let pane = editorPane

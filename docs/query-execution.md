@@ -72,6 +72,10 @@ Separately, the Dock icon shows a badge counting how many queries finished while
 
 When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the editor underlines the location in red to help you find the problem.
 
+The first failure you have not read appears as a one-line banner above the results, not as a dialog: the editor stays usable behind it. The banner carries **Go to Error** (move the editor to the failing text), **Details…** (open the full error sheet on that entry) and a close button. If a second failure arrives while the first is still unread, the error sheet opens as before — at that point there is a list to read rather than a single message. Switching editor tabs takes the banner away; the tab's error button still holds every failure.
+
+A cancelled query is never a banner. It opens the cancellation dialog when **Show cancelled query dialog** is on, and nothing at all when it is off.
+
 ## History
 
 Successful queries are recorded automatically — grouped into workspaces per editor tab — in [Query History](query-history.md).

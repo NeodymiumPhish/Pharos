@@ -22,6 +22,24 @@
 typedef void (*AsyncCallback)(void *context, const char *result_json, const char *error_msg);
 
 /**
+ * Callback invoked while a long operation is still running.
+ * - `context`: the SAME opaque pointer the operation's `AsyncCallback` is given,
+ *   so one box on the caller's side carries both closures.
+ * - `rows_loaded`: rows held so far — a running total, never a per-chunk delta.
+ *
+ * It is called zero or more times, always BEFORE the completion callback and
+ * never after it, and always from the operation's own task. The caller's box
+ * must therefore stay alive until completion (it already must), and the
+ * progress side must not consume the retain the completion side ends with.
+ *
+ * `Option<fn>` rather than a bare `fn`: a nullable C function pointer. It has
+ * to be the alias that carries the `Option`, not the parameter that wraps the
+ * alias — cbindgen cannot see through `Option<Alias>` and emits an opaque
+ * `struct Option_ProgressCallback` for it, which no caller can pass NULL to.
+ */
+typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
+
+/**
  * Load all connection configs. Returns JSON array. Caller must free.
  */
  char *pharos_load_connections(void);
@@ -126,6 +144,11 @@ void pharos_fetch_more_rows(const char *connection_id,
  * Re-run a statement through a cursor in one transaction and return every
  * row up to `max_rows` as one consistent snapshot. Registered under
  * `query_id` for cancellation. Returns JSON QueryResult via callback.
+ *
+ * `progress` may be NULL. When it is not, it is called once per 5,000-row
+ * chunk with the running total, and is given the SAME `context` as `callback`
+ * — one box on the Swift side carries both closures, and only the completion
+ * callback consumes it.
  */
 
 void pharos_fetch_all_rows(const char *connection_id,
@@ -133,6 +156,7 @@ void pharos_fetch_all_rows(const char *connection_id,
                            const char *query_id,
                            int64_t max_rows,
                            const char *schema,
+                           ProgressCallback progress,
                            AsyncCallback callback,
                            void *context);
 

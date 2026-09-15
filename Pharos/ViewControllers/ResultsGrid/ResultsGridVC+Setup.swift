@@ -24,8 +24,38 @@ extension ResultsGridVC {
         loadMoreSpinner.controlSize = .small
         loadMoreSpinner.isHidden = true
 
-        // One centred row: Load More · Load All · spinner.
-        let row = NSStackView(views: [loadMoreButton, loadAllButton, loadMoreSpinner])
+        // The Load All progress trio. A determinate bar, because the core
+        // reports a running total per chunk and the cap is a known maximum —
+        // a spinner during a half-million-row load says only "still going".
+        loadAllProgress.style = .bar
+        loadAllProgress.isIndeterminate = false
+        loadAllProgress.controlSize = .small
+        loadAllProgress.minValue = 0
+        loadAllProgress.maxValue = 1
+        loadAllProgress.doubleValue = 0
+        loadAllProgress.isHidden = true
+        loadAllProgress.setAccessibilityLabel("Load progress")
+        loadAllProgress.translatesAutoresizingMaskIntoConstraints = false
+        loadAllProgress.widthAnchor.constraint(equalToConstant: 140).isActive = true
+
+        loadAllLabel.font = .systemFont(ofSize: 11)
+        loadAllLabel.textColor = .secondaryLabelColor
+        loadAllLabel.isHidden = true
+        loadAllLabel.setAccessibilityIdentifier("results.loadAllProgressLabel")
+
+        loadAllCancelButton.bezelStyle = .rounded
+        loadAllCancelButton.controlSize = .small
+        loadAllCancelButton.target = self
+        loadAllCancelButton.action = #selector(cancelLoadTapped)
+        loadAllCancelButton.isHidden = true
+        loadAllCancelButton.toolTip = "Stop the load. The rows already on screen stay."
+        loadAllCancelButton.setAccessibilityIdentifier("results.cancelLoad")
+
+        // One centred row: Load More · Load All · spinner · bar · count · Cancel.
+        let row = NSStackView(views: [
+            loadMoreButton, loadAllButton, loadMoreSpinner,
+            loadAllProgress, loadAllLabel, loadAllCancelButton,
+        ])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8

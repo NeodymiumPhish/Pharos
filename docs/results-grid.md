@@ -84,6 +84,16 @@ Cell values are colored by type: numeric blue, temporal purple, JSON orange, boo
 
 When a query has more rows than the current page (see [Row Limit](query-execution.md#row-limit-and-load-more)), a **Load More Rows** bar appears at the bottom of the grid. Loading appends the next page and re-applies the active sort and filters.
 
+## Load All Rows
+
+The same bar carries a **Load All Rows** button. It re-runs the statement through a server-side cursor inside one transaction and replaces the result with a single consistent snapshot of every row, up to 500,000. Paging with **Load More** re-executes the statement per page, so without an outermost `ORDER BY` the pages can repeat or skip rows; one cursor reads one execution, so the rows line up.
+
+A long load reports its progress: the bar shows a progress indicator, a running count ("Loaded 45,000 rows", updated every 5,000 rows) and a **Cancel** button. Cancelling stops the load on the server and leaves the page already on screen untouched. If the result is larger than 500,000 rows, the count says the limit was reached and the grid keeps the first 500,000.
+
+## Empty States
+
+The grid says which kind of empty it is. **No Results** — with a **Run Query** button — means the tab has not run anything yet. **No Rows** means a query did run and returned nothing.
+
 ## Pin Results
 
 Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name.

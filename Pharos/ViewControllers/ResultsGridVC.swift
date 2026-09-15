@@ -8,7 +8,10 @@ class ResultsGridVC: NSViewController {
 
     let tableView = ResultsTableView()
     let scrollView = InsetScrollView()
-    private let emptyLabel = NSTextField(labelWithString: "Run a query to see results")
+    /// The "nothing to show" state, in place of an empty table. It answers two
+    /// different questions — "there is no result yet" and "the result has no
+    /// rows" — so its content is set at each transition, never once at build.
+    private let emptyState = EmptyStateView()
 
     // Helpers
     var dataSource: ResultsDataSource!
@@ -104,8 +107,18 @@ class ResultsGridVC: NSViewController {
     /// with one consistent snapshot — the explicit, paid-for alternative to
     /// paging by OFFSET when the order between pages is not guaranteed.
     let loadAllButton = NSButton(title: "Load All Rows", target: nil, action: nil)
+    /// Indeterminate, for `Load More`: one page is one round trip with nothing
+    /// to count part-way through, so there is nothing a bar could show.
     let loadMoreSpinner = NSProgressIndicator()
+    /// Determinate, for `Load All`: the core reports a running total per chunk,
+    /// and the cap is the bar's maximum.
+    let loadAllProgress = NSProgressIndicator()
+    let loadAllLabel = NSTextField(labelWithString: "")
+    let loadAllCancelButton = NSButton(title: "Cancel", target: nil, action: nil)
     private var isLoadingMore = false
+    /// Cap of the load in flight, so `updateLoadingAll` can say when the load
+    /// stopped because it reached the ceiling rather than the end of the result.
+    private var loadAllCap = 0
 
     // Layout constraints to toggle
     var scrollViewBottomToLoadMore: NSLayoutConstraint!
@@ -114,6 +127,8 @@ class ResultsGridVC: NSViewController {
     // Callbacks
     var onLoadMore: (() -> Void)?
     var onLoadAll: (() -> Void)?
+    /// Cancel the running "Load All" snapshot. The owner knows its query id.
+    var onCancelLoad: (() -> Void)?
     var onPinToggle: ((Bool) -> Void)?
     var onSelectionChanged: ((IndexSet) -> Void)?
 
@@ -198,16 +213,17 @@ class ResultsGridVC: NSViewController {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
 
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.textColor = .tertiaryLabelColor
-        emptyLabel.font = .systemFont(ofSize: 13)
-        emptyLabel.alignment = .center
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+        // The grid opens with no result, so it opens in that state — `clear()`
+        // may not have run yet when the view is first shown.
+        showNoResultState()
+        scrollView.isHidden = true
 
         setupLoadMoreBar()
 
         container.addSubview(scrollView)
         container.addSubview(loadMoreBar)
-        container.addSubview(emptyLabel)
+        container.addSubview(emptyState)
 
         scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         scrollViewBottomToLoadMore = scrollView.bottomAnchor.constraint(equalTo: loadMoreBar.topAnchor)
@@ -223,8 +239,10 @@ class ResultsGridVC: NSViewController {
             loadMoreBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             loadMoreBar.heightAnchor.constraint(equalToConstant: 32),
 
-            emptyLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            emptyState.topAnchor.constraint(equalTo: container.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
     }
 
@@ -357,6 +375,11 @@ class ResultsGridVC: NSViewController {
     // MARK: - Public API
 
     func showResult(_ result: QueryResult) {
+        // The grid reload is the second half of what a user calls "the query
+        // took N seconds", so it is measured separately from the execute.
+        let signpost = Log.signposter.beginInterval("showResult", id: Log.signposter.makeSignpostID())
+        defer { Log.signposter.endInterval("showResult", signpost) }
+
         self.columns = result.columns
         self.rows = result.rows
         self.rowIdentity = result.rowIdentity
@@ -384,12 +407,10 @@ class ResultsGridVC: NSViewController {
 
         // 0 rows with no column info — show clear empty state
         if rows.isEmpty && columns.isEmpty {
-            emptyLabel.stringValue = "Query returned no results"
-            emptyLabel.textColor = .tertiaryLabelColor
-            emptyLabel.isHidden = false
+            showNoRowsState()
             scrollView.isHidden = true
         } else {
-            emptyLabel.isHidden = true
+            emptyState.isHidden = true
             scrollView.isHidden = false
         }
 
@@ -541,9 +562,7 @@ class ResultsGridVC: NSViewController {
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: Set(), currentMatchRow: -1, currentMatchColId: nil)
         tableView.reloadData()
-        emptyLabel.stringValue = "Run a query to see results"
-        emptyLabel.textColor = .tertiaryLabelColor
-        emptyLabel.isHidden = false
+        showNoResultState()
         scrollView.isHidden = true
         // The status label lives in the shared action bar (owned by
         // ContentViewController), so it isn't reset by emptying our own
@@ -557,6 +576,32 @@ class ResultsGridVC: NSViewController {
         if findController.isFindVisible {
             findController.closeFind(nil)
         }
+    }
+
+    // MARK: - Empty State
+
+    /// No result at all: the tab has not run anything yet, or its result was
+    /// cleared. The button runs the query at the cursor, which is the one
+    /// thing the user came here to do.
+    private func showNoResultState() {
+        emptyState.show(
+            symbol: "tablecells",
+            title: "No Results",
+            message: "Run a query to see its rows here.",
+            actionTitle: "Run Query"
+        ) { [weak self] in
+            self?.contentVC?.menuRunQuery(nil)
+        }
+    }
+
+    /// A result arrived and carried nothing — not the same thing as no result,
+    /// and not a state a button can improve, so there is none.
+    private func showNoRowsState() {
+        emptyState.show(
+            symbol: "tablecells",
+            title: "No Rows",
+            message: "The query returned no rows."
+        )
     }
 
     // MARK: - Result Banner
@@ -587,6 +632,9 @@ class ResultsGridVC: NSViewController {
     private static let resultBannerDateStyle = Date.FormatStyle(
         date: .abbreviated, time: .shortened, locale: .autoupdatingCurrent)
 
+    /// The `Load More` path only. One page is a single round trip with nothing
+    /// to count part-way through, so it keeps the indeterminate spinner;
+    /// `Load All` has its own determinate bar below.
     func setLoadingMore(_ loading: Bool) {
         isLoadingMore = loading
         loadMoreButton.isEnabled = !loading
@@ -597,6 +645,54 @@ class ResultsGridVC: NSViewController {
         } else {
             loadMoreSpinner.stopAnimation(nil)
         }
+    }
+
+    // MARK: - Load All Progress
+
+    /// A "Load All Rows" snapshot has started. `cap` is the ceiling the load
+    /// stops at, and the bar's maximum.
+    func beginLoadingAll(cap: Int) {
+        loadAllCap = max(cap, 1)
+        isLoadingMore = true
+        loadMoreButton.isEnabled = false
+        loadAllButton.isEnabled = false
+        loadMoreSpinner.isHidden = true
+        loadMoreSpinner.stopAnimation(nil)
+
+        loadAllProgress.minValue = 0
+        loadAllProgress.maxValue = Double(loadAllCap)
+        loadAllProgress.doubleValue = 0
+        loadAllProgress.isHidden = false
+        loadAllLabel.isHidden = false
+        loadAllCancelButton.isHidden = false
+        loadAllCancelButton.isEnabled = true
+        loadMoreBar.toolTip = "Loads up to \(formatRowCount(loadAllCap)) rows"
+        updateLoadingAll(rows: 0)
+    }
+
+    /// The core has finished another chunk. `rows` is the running total.
+    func updateLoadingAll(rows: Int) {
+        let shown = min(max(rows, 0), loadAllCap)
+        loadAllProgress.doubleValue = Double(shown)
+        let text = shown >= loadAllCap
+            ? "Loaded \(formatRowCount(shown)) rows — the limit"
+            : "Loaded \(formatRowCount(shown)) rows"
+        loadAllLabel.stringValue = text
+        // The bar is the thing a screen reader would otherwise read as a bare
+        // percentage, so it carries the same sentence the label shows.
+        loadAllProgress.setAccessibilityValueDescription(text)
+    }
+
+    /// The load has ended — finished, failed or cancelled. The bar goes away
+    /// either way; what the grid shows afterwards is the caller's business.
+    func endLoadingAll() {
+        isLoadingMore = false
+        loadMoreButton.isEnabled = true
+        loadAllButton.isEnabled = true
+        loadAllProgress.isHidden = true
+        loadAllLabel.isHidden = true
+        loadAllLabel.stringValue = ""
+        loadAllCancelButton.isHidden = true
     }
 
     // MARK: - Column Setup
@@ -789,6 +885,13 @@ class ResultsGridVC: NSViewController {
 
     @objc func loadAllTapped() {
         onLoadAll?()
+    }
+
+    @objc func cancelLoadTapped() {
+        // The button goes dead at once: the cancel is a round trip to the
+        // server, and a second press would send a second one.
+        loadAllCancelButton.isEnabled = false
+        onCancelLoad?()
     }
 
     // MARK: - Escape to Deselect

@@ -16,6 +16,7 @@ swiftc -o "$BIN" \
   -lz -liconv -lm -lresolv \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/RustScalarError.swift \
+  Pharos/Core/Log.swift \
   Pharos/Core/PharosCore.swift \
   Pharos/Core/PharosCore+Tags.swift \
   Pharos/Core/RowFingerprint.swift \

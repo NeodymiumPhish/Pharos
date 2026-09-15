@@ -89,6 +89,23 @@ pub type AsyncCallback = extern "C" fn(
     error_msg: *const c_char,
 );
 
+/// Callback invoked while a long operation is still running.
+/// - `context`: the SAME opaque pointer the operation's `AsyncCallback` is given,
+///   so one box on the caller's side carries both closures.
+/// - `rows_loaded`: rows held so far — a running total, never a per-chunk delta.
+///
+/// It is called zero or more times, always BEFORE the completion callback and
+/// never after it, and always from the operation's own task. The caller's box
+/// must therefore stay alive until completion (it already must), and the
+/// progress side must not consume the retain the completion side ends with.
+///
+/// `Option<fn>` rather than a bare `fn`: a nullable C function pointer. It has
+/// to be the alias that carries the `Option`, not the parameter that wraps the
+/// alias — cbindgen cannot see through `Option<Alias>` and emits an opaque
+/// `struct Option_ProgressCallback` for it, which no caller can pass NULL to.
+pub type ProgressCallback =
+    Option<extern "C" fn(context: *mut std::ffi::c_void, rows_loaded: u64)>;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

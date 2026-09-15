@@ -219,6 +219,11 @@ pub extern "C" fn pharos_fetch_more_rows(
 /// Re-run a statement through a cursor in one transaction and return every
 /// row up to `max_rows` as one consistent snapshot. Registered under
 /// `query_id` for cancellation. Returns JSON QueryResult via callback.
+///
+/// `progress` may be NULL. When it is not, it is called once per 5,000-row
+/// chunk with the running total, and is given the SAME `context` as `callback`
+/// — one box on the Swift side carries both closures, and only the completion
+/// callback consumes it.
 #[no_mangle]
 pub extern "C" fn pharos_fetch_all_rows(
     connection_id: *const c_char,
@@ -226,6 +231,7 @@ pub extern "C" fn pharos_fetch_all_rows(
     query_id: *const c_char,
     max_rows: i64,
     schema: *const c_char,
+    progress: ProgressCallback,
     callback: AsyncCallback,
     context: *mut std::ffi::c_void,
 ) {
@@ -236,9 +242,16 @@ pub extern "C" fn pharos_fetch_all_rows(
     let schema_str = unsafe { c_str_to_option(schema) };
 
     let ctx = context as usize;
+    // `usize` and the fn pointer are Copy and Send; the raw pointer is not, so
+    // it is carried across the spawn as the integer and rebuilt at the call.
+    let on_progress = move |rows_loaded: u64| {
+        if let Some(cb) = progress {
+            cb(ctx as *mut std::ffi::c_void, rows_loaded);
+        }
+    };
     ffi_spawn!(callback, context, async move {
 
-        match crate::commands::fetch_all_rows_snapshot(conn_id, sql_str, qid, max_rows, schema_str, state).await {
+        match crate::commands::fetch_all_rows_snapshot(conn_id, sql_str, qid, max_rows, schema_str, state, on_progress).await {
             Ok(result) => {
                 let json = serde_json::to_string(&result).unwrap_or_default();
                 callback_ok(callback, ctx, &json);
