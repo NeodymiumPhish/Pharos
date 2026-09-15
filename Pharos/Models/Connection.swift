@@ -109,6 +109,17 @@ struct ConnectionConfig: Codable, Identifiable {
     var color: String?
     var defaultSchema: String?
 
+    /// Ask the device owner to authenticate (Touch ID, Apple Watch or the login
+    /// password) before connecting with this record and before showing its
+    /// stored password.
+    ///
+    /// The gate guards the two places the app ACTS on the password; it does not
+    /// change where the password lives. The Keychain item is written and read
+    /// exactly as before, so anything else on the machine that can read that
+    /// item still can. The flag buys a shoulder-surfing and walk-up barrier, not
+    /// storage protection.
+    var requiresAuthentication: Bool = false
+
     // Custom decoder: Rust skips "password" when empty and "color" when nil,
     // so these keys may be absent in the JSON.
     init(from decoder: Decoder) throws {
@@ -123,11 +134,15 @@ struct ConnectionConfig: Codable, Identifiable {
         sslMode = try c.decodeIfPresent(SslMode.self, forKey: .sslMode) ?? .prefer
         color = try c.decodeIfPresent(String.self, forKey: .color)
         defaultSchema = try c.decodeIfPresent(String.self, forKey: .defaultSchema)
+        // `decodeIfPresent`, so a record written before the column existed —
+        // and any producer that still omits the key — reads back ungated.
+        requiresAuthentication = try c.decodeIfPresent(Bool.self, forKey: .requiresAuthentication) ?? false
     }
 
     init(id: String, name: String, host: String, port: UInt16, database: String,
          username: String, password: String = "", sslMode: SslMode = .prefer,
-         color: String? = nil, defaultSchema: String? = nil) {
+         color: String? = nil, defaultSchema: String? = nil,
+         requiresAuthentication: Bool = false) {
         self.id = id
         self.name = name
         self.host = host
@@ -138,10 +153,24 @@ struct ConnectionConfig: Codable, Identifiable {
         self.sslMode = sslMode
         self.color = color
         self.defaultSchema = defaultSchema
+        self.requiresAuthentication = requiresAuthentication
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, host, port, database, username, password, sslMode, color, defaultSchema
+        case requiresAuthentication
+    }
+}
+
+// MARK: - Equality (drives the connections form's dirty state)
+
+extension ConnectionConfig: Equatable {
+    public static func == (a: ConnectionConfig, b: ConnectionConfig) -> Bool {
+        a.id == b.id && a.name == b.name && a.host == b.host && a.port == b.port
+            && a.database == b.database && a.username == b.username
+            && a.password == b.password && a.sslMode == b.sslMode
+            && a.color == b.color && a.defaultSchema == b.defaultSchema
+            && a.requiresAuthentication == b.requiresAuthentication
     }
 }
 

@@ -38,6 +38,17 @@ pub struct ConnectionConfig {
     pub color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_schema: Option<String>,
+    /// When true the app asks the device owner to authenticate (Touch ID, Apple
+    /// Watch or the login password) before it connects with this record and
+    /// before it shows the stored password. The gate is a UI decision only —
+    /// the password stays in the Keychain exactly as before, and this flag adds
+    /// no protection to the stored bytes.
+    ///
+    /// Not `skip_serializing_if`: Swift decodes it with `decodeIfPresent`, so an
+    /// absent key is legal, but always writing the key keeps the false case
+    /// visible on the wire.
+    #[serde(default)]
+    pub requires_authentication: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

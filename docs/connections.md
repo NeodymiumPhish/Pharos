@@ -90,9 +90,23 @@ In the window toolbar, open the **connection pull-down**. It lists every saved c
 
 Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection.
 
+## Touch ID
+
+Each connection can carry its own gate. In the Connections Manager, under **Authentication**, tick **Require Touch ID to connect and to show the password**. Two things then ask you to authenticate first — with Touch ID, an unlocked Apple Watch, or your login password, whichever your Mac offers:
+
+- **Connecting** with that connection, however the connection is started — the toolbar pull-down, **File > Connect**, or selecting the connection for a tab
+- **Showing its stored password** in the form
+
+A gated connection shows `••••••••` in its password field instead of the stored password, and the field cannot be edited. Press **Show** beside it to authenticate; the real password then appears and the field becomes editable until you select another connection. Cancel the prompt and nothing changes — a caption under the field says so, and the password stays hidden. Saving the form while the password is hidden leaves the stored password exactly as it was.
+
+If you cancel the prompt when connecting, the tab simply stays disconnected. Nothing failed, so no error is reported.
+
+{: .note }
+The gate guards the two places Pharos *acts* on the password. It does not change where the password is kept: the Keychain item is written and read exactly as before, so anything else on your Mac that could already read it still can. Think of it as a barrier against someone walking up to an unlocked Mac, not as extra protection for the stored password.
+
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, color label, default schema) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+Connection metadata (name, host, port, database, username, SSL mode, color label, default schema, Touch ID requirement) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
 
 {: .note }
 Passwords never leave your machine — they live in the macOS Keychain and are read into memory only to open connections.

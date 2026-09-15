@@ -215,6 +215,34 @@ final class ConnectionsManagerVC: NSViewController {
     private let passwordFromLinkLabel = NSTextField(labelWithString: "")
     private var passwordFromLinkRow: NSView?
 
+    /// The Touch ID gate for this record: ask the device owner to authenticate
+    /// before connecting, and before the stored password is shown.
+    private let requireAuthCheckbox = NSButton()
+
+    /// Stands beside a masked password field. Pressing it runs the gate; the
+    /// real password appears only after the device owner authenticates.
+    private let showPasswordButton = NSButton()
+
+    /// Caption under the password field for the gate's own reporting — the
+    /// reason an attempt did not succeed. Its row is hidden when it is empty.
+    private let passwordAuthLabel = NSTextField(labelWithString: "")
+    private var passwordAuthRow: NSView?
+
+    /// False while the password field shows the mask rather than the stored
+    /// password. It is per SELECTION, not per record: a gated record starts
+    /// masked every time it is selected, and revealing it lasts only until the
+    /// selection moves.
+    ///
+    /// The mask is what makes `syncFormIntoDraft` skip the password — otherwise
+    /// a Save from the masked form would write the mask over the stored value.
+    /// The checkbox does NOT drive this: unticking the box must not reveal a
+    /// password the gate is still holding back.
+    private var passwordRevealed = true
+
+    /// What a masked password field shows. Eight bullets, so the field's width
+    /// carries no hint of the stored password's length.
+    private static let passwordMask = "••••••••"
+
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()
@@ -398,6 +426,28 @@ final class ConnectionsManagerVC: NSViewController {
         usernameField.placeholderString = "postgres"
         passwordField.placeholderString = "Optional"
 
+        showPasswordButton.title = String(localized: "Show")
+        showPasswordButton.bezelStyle = .rounded
+        showPasswordButton.controlSize = .regular
+        showPasswordButton.target = self
+        showPasswordButton.action = #selector(revealPassword)
+        showPasswordButton.setAccessibilityIdentifier("connections.showPassword")
+        showPasswordButton.toolTip = String(localized: "Authenticate to show the stored password.")
+        showPasswordButton.setContentHuggingPriority(.required, for: .horizontal)
+        showPasswordButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // A hidden arranged subview is detached from the stack, so an ungated
+        // record's password field fills the row exactly as it did before.
+        showPasswordButton.isHidden = true
+
+        requireAuthCheckbox.setButtonType(.switch)
+        requireAuthCheckbox.title = String(localized: "Require Touch ID to connect and to show the password")
+        requireAuthCheckbox.target = self
+        requireAuthCheckbox.action = #selector(requireAuthChanged)
+        requireAuthCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        requireAuthCheckbox.setAccessibilityIdentifier("connections.requireAuth")
+        requireAuthCheckbox.toolTip = String(localized:
+            "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was.")
+
         sslPopup.target = self
         sslPopup.action = #selector(sslPopupChanged)
         sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
@@ -467,12 +517,36 @@ final class ConnectionsManagerVC: NSViewController {
         passwordNoteRow.isHidden = true
         passwordFromLinkRow = passwordNoteRow
 
+        passwordAuthLabel.font = .systemFont(ofSize: 11)
+        passwordAuthLabel.textColor = .secondaryLabelColor
+        passwordAuthLabel.setAccessibilityIdentifier("connections.passwordAuthNote")
+        let authNoteRow = noteRow(passwordAuthLabel)
+        authNoteRow.isHidden = true
+        passwordAuthRow = authNoteRow
+
+        // The field and its Show button travel together, so the badge still owns
+        // the row's trailing edge and the row keeps ONE width whichever state
+        // the gate is in.
+        let passwordControls = NSStackView(views: [passwordField, showPasswordButton])
+        passwordControls.orientation = .horizontal
+        passwordControls.alignment = .centerY
+        passwordControls.distribution = .fill
+        passwordControls.spacing = 8
+        passwordControls.translatesAutoresizingMaskIntoConstraints = false
+        passwordField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
         let authSection = section(title: "Authentication", rows: [
             row(label: "Username", field: usernameField, badge: usernameBadge),
-            row(label: "Password", field: passwordField, badge: passwordBadge),
+            row(label: "Password", field: passwordControls, badge: passwordBadge),
             passwordNoteRow,
+            authNoteRow,
             row(label: "SSL Mode", control: sslPopup),
+            row(label: "", control: requireAuthCheckbox),
         ])
+        // `row` linked the badge to the stack it was handed. The warning is
+        // about the FIELD, so say so — a screen reader on the badge must land
+        // on the password field, not on its container.
+        passwordBadge.link(to: passwordField)
         let dbSection = section(title: "Database", rows: [
             row(label: "Database", field: databaseField, badge: databaseBadge),
             row(label: "Default Schema", control: defaultSchemaPopup),
@@ -515,7 +589,7 @@ final class ConnectionsManagerVC: NSViewController {
     /// Builds one label-plus-field row. `badge`, when given, stands at the
     /// trailing edge and discloses an invisible character in a field whose text
     /// must never be altered.
-    private func row(label: String, field: NSControl, fieldFixedWidth: CGFloat? = nil,
+    private func row(label: String, field: NSView, fieldFixedWidth: CGFloat? = nil,
                      badge: HostileTextBadge? = nil) -> NSView {
         let labelView = NSTextField(labelWithString: label)
         labelView.alignment = .right
@@ -774,7 +848,17 @@ final class ConnectionsManagerVC: NSViewController {
         portField.stringValue = String(config.port)
         databaseField.stringValue = config.database
         usernameField.stringValue = config.username
-        passwordField.stringValue = config.password
+        // A gated record is masked on EVERY selection, including a return to a
+        // record revealed a moment ago: the gate is about walking up to the
+        // window, so it has to re-arm when the form moves on.
+        requireAuthCheckbox.state = config.requiresAuthentication ? .on : .off
+        passwordRevealed = !config.requiresAuthentication
+        showPasswordAuthNote("")
+        // The field is reloaded here whatever state it was in — the guard inside
+        // `applyPasswordGateState` protects TYPED edits, and a selection change
+        // has none to protect.
+        if passwordRevealed { passwordField.stringValue = config.password }
+        applyPasswordGateState(storedPassword: config.password)
         switch config.sslMode {
         case .prefer:  sslPopup.selectItem(at: 0)
         case .require: sslPopup.selectItem(at: 1)
@@ -813,8 +897,13 @@ final class ConnectionsManagerVC: NSViewController {
         statusBadge.isHidden = false
         if pendingStubIds.contains(id) {
             statusBadge.apply(state: .stub)
+            statusBadge.toolTip = nil
             return
         }
+        // The badge says THAT the last attempt failed; the tooltip says why —
+        // including a refused Touch ID gate, which otherwise leaves the user
+        // with a red badge and no sentence.
+        statusBadge.toolTip = stateManager.connectionError(for: id)
         switch listModel.status(for: id) {
         case .connected:   statusBadge.apply(state: .connected)
         case .connecting:  statusBadge.apply(state: .connecting)
@@ -844,6 +933,72 @@ final class ConnectionsManagerVC: NSViewController {
 
     @objc private func fieldEdited() { syncFormIntoDraft() }
     @objc private func sslPopupChanged() { syncFormIntoDraft() }
+
+    /// Ticking the box gates the record from the next save on. Unticking it does
+    /// NOT reveal a password the gate is currently holding — that still needs
+    /// the Show button — so a masked field stays masked either way, and a record
+    /// whose password is already on screen keeps it until the selection changes.
+    @objc private func requireAuthChanged() {
+        syncFormIntoDraft()
+        applyPasswordGateState(storedPassword: draft?.password ?? "")
+    }
+
+    /// Runs the gate for the Show button. On success the stored password takes
+    /// the field and the field becomes editable; on cancel or refusal nothing
+    /// about the field changes and the reason appears as a caption.
+    @objc private func revealPassword() {
+        let selectionAtRequest = listModel.selectedId
+        let name = DisplayEscape.escapedTrimmed(draft?.name ?? "").ifEmpty(String(localized: "this connection"))
+        showPasswordButton.isEnabled = false
+        Task { @MainActor in
+            let outcome = await DeviceOwnerGate.authenticate(
+                reason: String(localized: "show the password for \(name)"))
+            self.showPasswordButton.isEnabled = true
+            // The prompt is modal to the app, not to this form. If the selection
+            // moved while it was up, the answer belongs to a record that is no
+            // longer on screen.
+            guard self.listModel.selectedId == selectionAtRequest else { return }
+            switch outcome {
+            case .authenticated:
+                self.passwordRevealed = true
+                self.passwordAuthLabel.stringValue = ""
+                self.applyPasswordGateState(storedPassword: self.draft?.password ?? "")
+            case .cancelled:
+                self.showPasswordAuthNote(String(localized: "Cancelled. The password stays hidden."))
+            case .failed(let reason):
+                self.showPasswordAuthNote(reason)
+                Log.ui.error("Password reveal refused: \(reason, privacy: .public)")
+            }
+        }
+    }
+
+    /// Puts the password field into the state `passwordRevealed` calls for: the
+    /// stored password and an editable field, or the mask and a Show button.
+    private func applyPasswordGateState(storedPassword: String) {
+        if passwordRevealed {
+            // Assign only when the field is coming OUT of the mask — an
+            // already-revealed field may hold edits the user has typed. The
+            // test is the field's own editability, not its text: a user whose
+            // password IS the mask string would fail a text comparison.
+            if !passwordField.isEditable {
+                passwordField.stringValue = storedPassword
+            }
+            passwordField.isEditable = true
+            passwordField.isSelectable = true
+            showPasswordButton.isHidden = true
+        } else {
+            passwordField.stringValue = Self.passwordMask
+            passwordField.isEditable = false
+            passwordField.isSelectable = false
+            showPasswordButton.isHidden = false
+        }
+        refreshHostileTextBadges()
+    }
+
+    private func showPasswordAuthNote(_ text: String) {
+        passwordAuthLabel.stringValue = text
+        passwordAuthRow?.isHidden = text.isEmpty
+    }
     @objc private func colorPopupChanged() {
         updateColorTooltip(for: selectedColorHex)
         syncFormIntoDraft()
@@ -907,7 +1062,13 @@ final class ConnectionsManagerVC: NSViewController {
         d.port = UInt16(portField.stringValue) ?? d.port
         d.database = databaseField.stringValue
         d.username = usernameField.stringValue
-        d.password = passwordField.stringValue
+        // A masked field holds the MASK, not a password. Reading it here is
+        // what would write "••••••••" over the stored password on the next
+        // Save, so the draft keeps the value it already has.
+        if passwordRevealed {
+            d.password = passwordField.stringValue
+        }
+        d.requiresAuthentication = requireAuthCheckbox.state == .on
         switch sslPopup.indexOfSelectedItem {
         case 1: d.sslMode = .require
         case 2: d.sslMode = .disable
@@ -1161,7 +1322,10 @@ extension ConnectionsManagerVC: NSTextFieldDelegate {
         hostBadge.update(for: hostField.stringValue)
         databaseBadge.update(for: databaseField.stringValue)
         usernameBadge.update(for: usernameField.stringValue)
-        passwordBadge.update(for: passwordField.stringValue)
+        // A masked field shows the mask, which carries no invisible character
+        // and would silence a warning the STORED password has earned. Read the
+        // draft instead, so the badge tells the truth in both states.
+        passwordBadge.update(for: passwordRevealed ? passwordField.stringValue : (draft?.password ?? ""))
     }
 }
 
@@ -1227,16 +1391,9 @@ private final class StatusBadge: NSView {
     }
 }
 
-// MARK: - Equality (drives isDirty)
-
-extension ConnectionConfig: Equatable {
-    public static func == (a: ConnectionConfig, b: ConnectionConfig) -> Bool {
-        a.id == b.id && a.name == b.name && a.host == b.host && a.port == b.port
-            && a.database == b.database && a.username == b.username
-            && a.password == b.password && a.sslMode == b.sslMode
-            && a.color == b.color && a.defaultSchema == b.defaultSchema
-    }
-}
+// The `ConnectionConfig: Equatable` conformance that drives `isDirty` lives
+// beside the type, in `Pharos/Models/Connection.swift`, so a suite that compiles
+// the model alone can assert it.
 
 // MARK: - Helpers
 

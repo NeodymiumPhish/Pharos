@@ -1,7 +1,68 @@
 import Foundation
 import Combine
 import AppKit
+import LocalAuthentication
 import os
+
+/// The device-owner authentication gate: Touch ID, an unlocked Apple Watch, or
+/// the login password, whichever the Mac offers.
+///
+/// It guards two ACTIONS — connecting with a record, and showing that record's
+/// stored password — for connections whose `requiresAuthentication` is set. It
+/// does not change where the password is stored: the Keychain item is written
+/// and read exactly as before.
+///
+/// A cancel is reported apart from a failure, because the two mean different
+/// things to the caller: nothing went wrong when the user changed their mind,
+/// so the caller must not leave an error behind.
+enum DeviceOwnerGate {
+
+    enum Outcome {
+        /// The device owner proved who they are.
+        case authenticated
+        /// The user dismissed the prompt, or the system withdrew it. Nothing failed.
+        case cancelled
+        /// No policy is available on this Mac, or the attempt was refused.
+        case failed(reason: String)
+    }
+
+    /// Asks the device owner to authenticate. `reason` completes the system's
+    /// own sentence, so it reads as a verb phrase ("connect to prod-db").
+    ///
+    /// `evaluatePolicy` is callback-based and answers on a private queue, so it
+    /// is bridged with a continuation: the caller awaits, and the main actor
+    /// keeps running while the prompt is up.
+    static func authenticate(reason: String) async -> Outcome {
+        let context = LAContext()
+
+        // `.deviceOwnerAuthentication` already falls back to the login password,
+        // so this only fails where NO policy is available at all — no biometry
+        // enrolled and no password set. Asking first turns that into a sentence
+        // the user can act on instead of a bare refusal.
+        var policyError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &policyError) else {
+            return .failed(reason: policyError?.localizedDescription
+                ?? String(localized: "This Mac cannot ask you to authenticate."))
+        }
+
+        return await withCheckedContinuation { continuation in
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+                if success {
+                    continuation.resume(returning: .authenticated)
+                    return
+                }
+                switch (error as? LAError)?.code {
+                case .userCancel, .appCancel, .systemCancel:
+                    continuation.resume(returning: .cancelled)
+                default:
+                    continuation.resume(returning: .failed(
+                        reason: error?.localizedDescription
+                            ?? String(localized: "Authentication did not succeed.")))
+                }
+            }
+        }
+    }
+}
 
 /// Central state manager for the Pharos app. Observable via Combine.
 /// Manages connections, active connection, settings, and connection status.
@@ -187,8 +248,54 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Why the last connect attempt for a connection did not succeed, keyed by
+    /// connection id. A `.error` status says THAT it failed; this says why, so
+    /// the connections form can show the reason beside the badge.
+    @Published private(set) var connectionErrors: [String: String] = [:]
+
+    func connectionError(for connectionId: String) -> String? {
+        connectionErrors[connectionId]
+    }
+
+    /// Connects, asking the device owner to authenticate first when the record
+    /// requires it.
+    ///
+    /// The status goes to `.connecting` before the prompt, so the toolbar is not
+    /// silent while the sheet is up. A CANCEL returns it to `.disconnected`, not
+    /// `.error`: nothing failed, and an error state here would be sticky.
     func connect(id: String) {
+        guard let config = connections.first(where: { $0.id == id }),
+              config.requiresAuthentication else {
+            performConnect(id: id)
+            return
+        }
+
         connectionStatuses[id] = .connecting
+        connectionErrors.removeValue(forKey: id)
+        postStatusChange(id)
+
+        let name = DisplayEscape.escapedTrimmed(config.name)
+        Task { @MainActor in
+            switch await DeviceOwnerGate.authenticate(
+                reason: String(localized: "connect to \(name)")
+            ) {
+            case .authenticated:
+                self.performConnect(id: id)
+            case .cancelled:
+                self.connectionStatuses[id] = .disconnected
+                self.postStatusChange(id)
+            case .failed(let reason):
+                self.connectionErrors[id] = reason
+                self.connectionStatuses[id] = .error
+                self.postStatusChange(id)
+                Log.state.error("Connection gate refused: \(reason, privacy: .public)")
+            }
+        }
+    }
+
+    private func performConnect(id: String) {
+        connectionStatuses[id] = .connecting
+        connectionErrors.removeValue(forKey: id)
         postStatusChange(id)
 
         Task {
@@ -199,7 +306,9 @@ final class AppStateManager: ObservableObject {
                 // without this the reason was lost and the toolbar only turned
                 // red.
                 if info.status == .error {
-                    Log.state.error("Connection failed: \(info.error ?? "no reason given", privacy: .public)")
+                    let reason = info.error ?? String(localized: "No reason given.")
+                    self.connectionErrors[id] = reason
+                    Log.state.error("Connection failed: \(reason, privacy: .public)")
                 }
                 self.activeConnectionId = id
                 // Apply default schema from connection config, falling back to "public"
@@ -224,6 +333,7 @@ final class AppStateManager: ObservableObject {
                 self.postStatusChange(id)
             } catch {
                 self.connectionStatuses[id] = .error
+                self.connectionErrors[id] = error.localizedDescription
                 self.postStatusChange(id)
                 Log.state.error("Connection failed: \(error.localizedDescription, privacy: .public)")
             }

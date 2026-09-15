@@ -297,6 +297,22 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
+    // Migration: Add requires_authentication column if it doesn't exist.
+    // Existing records must keep connecting without a prompt, so the default
+    // is 0 — the flag is opt-in per connection.
+    let has_requires_authentication: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'requires_authentication'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_requires_authentication {
+        conn.execute(
+            "ALTER TABLE connections ADD COLUMN requires_authentication INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
     conn.execute_batch(
         r#"
 
@@ -667,8 +683,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -678,6 +694,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             ssl_mode = excluded.ssl_mode,
             color = excluded.color,
             default_schema = excluded.default_schema,
+            requires_authentication = excluded.requires_authentication,
             updated_at = CURRENT_TIMESTAMP
         "#,
         (
@@ -691,6 +708,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             next_order,
             &config.color,
             &config.default_schema,
+            config.requires_authentication,
         ),
     )?;
     Ok(())
@@ -699,7 +717,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema FROM connections ORDER BY sort_order, name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0) FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
@@ -720,6 +738,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             ssl_mode,
             color: row.get(7)?,
             default_schema: row.get(8)?,
+            requires_authentication: row.get(9)?,
         })
     })?;
 
@@ -745,6 +764,87 @@ pub fn reorder_connections(conn: &mut Connection, ids: &[String]) -> SqliteResul
         )?;
     }
     tx.commit()
+}
+
+#[cfg(test)]
+mod connection_auth_flag_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn config(id: &str, requires_authentication: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "127.0.0.1".to_string(),
+            port: 5432,
+            database: "nfinn".to_string(),
+            username: "nfinn".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Disable,
+            color: None,
+            default_schema: None,
+            requires_authentication,
+        }
+    }
+
+    fn loaded(conn: &Connection, id: &str) -> ConnectionConfig {
+        load_connections(conn)
+            .expect("load_connections")
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    /// The flag survives save → load, and BOTH values are asserted from the same
+    /// store: a select that dropped the column would read every record as false
+    /// and a select that hard-coded true would fail on `off`, so the pair pins
+    /// the column rather than the default.
+    #[test]
+    fn requires_authentication_round_trips_through_save_and_load() {
+        let dir = temp_db_dir("conn_auth_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+
+        save_connection(&conn, &config("on", true)).expect("save on");
+        save_connection(&conn, &config("off", false)).expect("save off");
+
+        assert!(loaded(&conn, "on").requires_authentication, "flag set survives the round trip");
+        assert!(!loaded(&conn, "off").requires_authentication, "flag clear survives the round trip");
+
+        // The upsert branch: re-saving an existing record must carry the new
+        // value, so the user can turn the gate back off.
+        save_connection(&conn, &config("on", false)).expect("re-save on");
+        assert!(!loaded(&conn, "on").requires_authentication, "the conflict branch updates the flag");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The guarded ALTER has to survive a second init, and a record saved before
+    /// the column existed has to read back as `false` rather than failing the
+    /// decode. The second init stands in for "an existing store on disk".
+    #[test]
+    fn requires_authentication_migration_is_idempotent() {
+        let dir = temp_db_dir("conn_auth_migration");
+        let conn = init_database(&dir).expect("init 1");
+        save_connection(&conn, &config("legacy", false)).expect("save legacy");
+        drop(conn);
+
+        let conn = init_database(&dir).expect("init 2 idempotent");
+        let count: i64 = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'requires_authentication'")
+            .expect("prepare")
+            .query_row([], |r| r.get(0))
+            .expect("query_row");
+        assert_eq!(count, 1, "requires_authentication column present after migration");
+        assert!(!loaded(&conn, "legacy").requires_authentication, "an untouched record stays ungated");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ==================== Saved Queries ====================
