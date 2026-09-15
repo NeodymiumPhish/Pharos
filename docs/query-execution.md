@@ -66,6 +66,8 @@ When **Confirm before DROP / DELETE / TRUNCATE** is enabled in [Settings](settin
 
 Pharos can post a macOS notification when a query finishes (successfully or with an error) so you don't have to babysit long runs. A notification fires when the query ran at least the configured minimum duration (default 5 seconds) **and** either Pharos is in the background or the query's tab isn't the one you're looking at — both conditions are individually toggleable in [Settings](settings.md). Clicking the notification brings Pharos forward and focuses the originating tab. Queries you cancelled yourself don't notify.
 
+Separately, the Dock icon shows a badge counting how many queries finished while Pharos was in the background — even ones too quick to trigger a notification — and clears as soon as you switch back to Pharos.
+
 ## Error Handling
 
 When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the editor underlines the location in red to help you find the problem.

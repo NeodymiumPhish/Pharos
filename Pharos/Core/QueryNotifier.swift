@@ -37,9 +37,20 @@ final class QueryNotifier: NSObject {
 
     private var authState: AuthState = .unknown
 
+    /// Count of query completions that landed while the app was inactive,
+    /// shown on the Dock tile so a background run isn't missed entirely even
+    /// when the notification gates below (duration threshold, focus settings)
+    /// keep it quiet. Reset to 0 (and the badge cleared) the moment the app
+    /// becomes active again.
+    private var backgroundCompletionCount = 0
+
     /// Register the notification categories / actions and set the center delegate.
     /// Call once from `AppDelegate.applicationDidFinishLaunching`.
     func registerCategories() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification, object: nil
+        )
         let dismiss = UNNotificationAction(
             identifier: Self.dismissActionIdentifier,
             title: "Dismiss",
@@ -79,6 +90,15 @@ final class QueryNotifier: NSObject {
         outcome: Outcome,
         durationMs: UInt64
     ) {
+        // Dock badge: any completion while inactive counts, independent of the
+        // notification gates below — a fast query that would never clear the
+        // duration threshold should still nudge the Dock tile, since it's the
+        // only thing the user sees if they never come back to check.
+        if !NSApp.isActive {
+            backgroundCompletionCount += 1
+            NSApp.dockTile.badgeLabel = "\(backgroundCompletionCount)"
+        }
+
         let settings = AppStateManager.shared.settings.query
 
         // Gate 1: duration threshold.
@@ -190,6 +210,13 @@ final class QueryNotifier: NSObject {
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
 
+    /// Clear the Dock badge and reset its counter once the user comes back —
+    /// they've now had a chance to see whatever finished while they were away.
+    @objc private func handleDidBecomeActive() {
+        backgroundCompletionCount = 0
+        NSApp.dockTile.badgeLabel = nil
+    }
+
     // MARK: - Authorization
 
     private func requestAuthorizationIfNeeded(completion: @escaping (Bool) -> Void) {
@@ -255,9 +282,7 @@ final class QueryNotifier: NSObject {
     }
 
     private static func formatDuration(_ ms: UInt64) -> String {
-        if ms < 1000 { return "\(ms)ms" }
-        let seconds = Double(ms) / 1000.0
-        return String(format: "%.1fs", seconds)
+        DurationText.short(milliseconds: ms)
     }
 }
 
