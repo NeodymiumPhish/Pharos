@@ -178,12 +178,18 @@ pub struct AppSettings {
     pub show_leaf_partitions: bool,
     #[serde(default = "default_vertical_result_tabs")]
     pub vertical_result_tabs: bool,
+    /// Whether the on-device Apple Intelligence features are offered at all.
+    /// Defaults ON: the model runs on this Mac and sends nothing anywhere, and
+    /// a user who does not want it turns it off in Settings ▸ General.
+    #[serde(default = "default_use_apple_intelligence")]
+    pub use_apple_intelligence: bool,
     #[serde(default)]
     pub charts: ChartSettings,
 }
 
 fn default_check_for_updates() -> bool { true }
 fn default_vertical_result_tabs() -> bool { true }
+fn default_use_apple_intelligence() -> bool { true }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -197,6 +203,7 @@ impl Default for AppSettings {
             check_for_updates: default_check_for_updates(),
             show_leaf_partitions: false,
             vertical_result_tabs: default_vertical_result_tabs(),
+            use_apple_intelligence: default_use_apple_intelligence(),
             charts: ChartSettings::default(),
         }
     }
@@ -239,6 +246,39 @@ mod tests {
         // alone: the serde attribute, then the Default impl.
         assert!(parsed.vertical_result_tabs, "the serde default gives true");
         assert!(AppSettings::default().vertical_result_tabs, "the Default impl also gives true");
+    }
+
+    /// Settings stored before the Apple Intelligence switch existed must load
+    /// with it ON. A bare `#[serde(default)]` would give `false` and take the
+    /// features away from every existing user without them asking.
+    ///
+    /// The Swift side has no `decodeIfPresent`: it decodes the object the core
+    /// re-serializes, so this default is also what puts the key on the wire at
+    /// all. Losing it makes Swift's synthesized decode THROW.
+    #[test]
+    fn app_settings_default_use_apple_intelligence() {
+        let json = r#"{
+            "theme": "auto",
+            "query": {"defaultLimit": 500}
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
+        assert!(parsed.use_apple_intelligence, "the serde default gives true");
+        assert!(AppSettings::default().use_apple_intelligence, "the Default impl also gives true");
+
+        // The key must survive a round trip, under the camelCase name Swift
+        // decodes. `rename_all` is what produces it, and a struct-level
+        // attribute is easy to lose in a merge.
+        let re_serialized = serde_json::to_string(&parsed).expect("must re-serialize");
+        assert!(
+            re_serialized.contains("\"useAppleIntelligence\":true"),
+            "the key crosses the FFI camelCased: {}",
+            re_serialized
+        );
+
+        // And a stored `false` must not be silently turned back on.
+        let off: AppSettings =
+            serde_json::from_str(r#"{"useAppleIntelligence": false}"#).expect("must parse");
+        assert!(!off.use_apple_intelligence, "a stored refusal is honoured");
     }
 
     // One test per struct below. Each feeds an EMPTY object — the worst case
@@ -298,6 +338,7 @@ mod tests {
         assert_eq!(parsed.check_for_updates, d.check_for_updates);
         assert_eq!(parsed.show_leaf_partitions, d.show_leaf_partitions);
         assert_eq!(parsed.vertical_result_tabs, d.vertical_result_tabs);
+        assert_eq!(parsed.use_apple_intelligence, d.use_apple_intelligence);
         assert!(parsed.empty_folders.is_empty());
         // The nested structs must also come back at their defaults.
         assert_eq!(parsed.editor.font_size, d.editor.font_size);

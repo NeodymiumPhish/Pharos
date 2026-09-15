@@ -1,7 +1,7 @@
 import AppKit
 
 /// Settings ▸ General. Appearance, the NULL and boolean renderings, and the
-/// three application-wide switches.
+/// application-wide switches.
 final class GeneralSettingsPaneVC: SettingsPaneVC {
 
     private let themeControl = NSSegmentedControl()
@@ -17,6 +17,19 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
     /// tabs away.
     private let verticalResultTabsCheck = NSButton(
         checkboxWithTitle: String(localized: "Show result tabs in a vertical panel, not a horizontal bar"), target: nil, action: nil)
+    private let appleIntelligenceCheck = NSButton(
+        checkboxWithTitle: String(localized: "Use Apple Intelligence features"), target: nil, action: nil)
+    /// Says what the switch buys and, when the model cannot run here, why the
+    /// checkbox above it is greyed out. The second sentence is the promise the
+    /// whole feature rests on, so it is on screen beside the switch rather
+    /// than only in the documentation.
+    private let appleIntelligenceCaption: NSTextField = {
+        let label = NSTextField(wrappingLabelWithString: "")
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        label.setAccessibilityIdentifier("settings.general.appleIntelligence.caption")
+        return label
+    }()
 
     override func loadView() {
         themeControl.segmentCount = 3
@@ -54,6 +67,10 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         verticalResultTabsCheck.action = #selector(verticalResultTabsChanged)
         verticalResultTabsCheck.setAccessibilityIdentifier("settings.general.verticalResultTabs")
 
+        appleIntelligenceCheck.target = self
+        appleIntelligenceCheck.action = #selector(appleIntelligenceChanged)
+        appleIntelligenceCheck.setAccessibilityIdentifier("settings.general.appleIntelligence")
+
         let grid = NSGridView(views: [
             [NSTextField.formLabel(String(localized: "Appearance")), themeControl],
             [NSTextField.formLabel(String(localized: "NULL Display")), nullDisplayPopup],
@@ -61,8 +78,15 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
             [NSGridCell.emptyContentView, checkForUpdatesCheck],
             [NSGridCell.emptyContentView, showLeafPartitionsCheck],
             [NSGridCell.emptyContentView, verticalResultTabsCheck],
+            [NSGridCell.emptyContentView, appleIntelligenceCheck],
+            [NSGridCell.emptyContentView, appleIntelligenceCaption],
         ])
         SettingsForm.configureGrid(grid)
+
+        // A wrapping label has no natural width, so without this it would set
+        // the pane's width to the length of the whole sentence.
+        appleIntelligenceCaption.preferredMaxLayoutWidth = 380
+        appleIntelligenceCaption.widthAnchor.constraint(lessThanOrEqualToConstant: 380).isActive = true
 
         view = SettingsForm.wrap(grid)
         populate()
@@ -88,6 +112,28 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
             checkForUpdatesCheck.state = s.checkForUpdates ? .on : .off
             showLeafPartitionsCheck.state = s.showLeafPartitions ? .on : .off
             verticalResultTabsCheck.state = s.verticalResultTabs ? .on : .off
+            appleIntelligenceCheck.state = s.useAppleIntelligence ? .on : .off
+        }
+        updateAppleIntelligenceAvailability()
+    }
+
+    /// The checkbox is only clickable where the model can actually run. When
+    /// it cannot, the caption says why instead of describing features the user
+    /// cannot have.
+    ///
+    /// It asks `systemModelIsAvailable`, not `isAvailable`: a user who cleared
+    /// the checkbox must still be able to set it again.
+    private func updateAppleIntelligenceAvailability() {
+        let availability = ModelAvailability.shared
+        availability.refresh()
+        appleIntelligenceCheck.isEnabled = availability.systemModelIsAvailable
+        if availability.systemModelIsAvailable {
+            appleIntelligenceCaption.stringValue = String(
+                localized: "Explain errors, suggest names, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac.")
+        } else {
+            appleIntelligenceCaption.stringValue =
+                availability.unavailableReason
+                ?? String(localized: "Apple Intelligence is not available on this Mac right now.")
         }
     }
 
@@ -98,8 +144,9 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         boolDisplayPopup.nextKeyView = checkForUpdatesCheck
         checkForUpdatesCheck.nextKeyView = showLeafPartitionsCheck
         showLeafPartitionsCheck.nextKeyView = verticalResultTabsCheck
+        verticalResultTabsCheck.nextKeyView = appleIntelligenceCheck
         // Closes the loop: the last control leads back to the first.
-        verticalResultTabsCheck.nextKeyView = themeControl
+        appleIntelligenceCheck.nextKeyView = themeControl
     }
 
     // MARK: - Actions
@@ -136,5 +183,9 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
 
     @objc private func verticalResultTabsChanged() {
         apply { $0.verticalResultTabs = verticalResultTabsCheck.state == .on }
+    }
+
+    @objc private func appleIntelligenceChanged() {
+        apply { $0.useAppleIntelligence = appleIntelligenceCheck.state == .on }
     }
 }

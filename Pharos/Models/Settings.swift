@@ -94,5 +94,13 @@ struct AppSettings: Codable, Equatable {
     var checkForUpdates: Bool = true
     var showLeafPartitions: Bool = false
     var verticalResultTabs: Bool = true
+    /// Whether the on-device Apple Intelligence features are offered at all.
+    ///
+    /// The default here is a belt-and-braces copy of the core's own default:
+    /// `AppSettings` uses Swift's synthesized `init(from:)`, which THROWS on a
+    /// missing key rather than falling back to this value. The key is always
+    /// present because the core re-serializes its own struct, where the field
+    /// carries `#[serde(default = "default_use_apple_intelligence")]`.
+    var useAppleIntelligence: Bool = true
     var charts: ChartSettings = ChartSettings()
 }

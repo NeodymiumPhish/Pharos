@@ -44,6 +44,7 @@ macro_rules! ffi_spawn {
 
 mod connection;
 mod lifecycle;
+mod model_feedback;
 mod query;
 mod query_history;
 mod saved_queries;

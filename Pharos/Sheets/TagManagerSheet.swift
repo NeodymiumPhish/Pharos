@@ -351,6 +351,12 @@ final class TagManagerSheet: NSViewController,
         noteField.cell?.wraps = true
         noteField.maximumNumberOfLines = 3
         noteField.setAccessibilityLabel("Tag note")
+        // The note is prose, the one free-text field in the sheet that is not
+        // SQL or an identifier, so Writing Tools apply here — and the
+        // affordance shows so the user can find them. Every SQL view keeps
+        // `writingToolsBehavior = .none`.
+        noteField.allowsWritingTools = true
+        noteField.allowsWritingToolsAffordance = true
 
         let noteRow = NSStackView(views: [noteField, noteBadge])
         noteBadge.link(to: noteField)

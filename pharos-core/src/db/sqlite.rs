@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -440,6 +440,21 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             cursor_position INTEGER NOT NULL DEFAULT 0,
             variables_json TEXT,
             is_active INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- Thumbs up / thumbs down on what the on-device model wrote. One row
+        -- per press, so a user who changes their mind leaves two rows and the
+        -- later one wins by `created_at`.
+        --
+        -- `prompt_hash` is a short digest, NEVER the prompt: the prompt can
+        -- carry the user's own schema names and row values, and this table is
+        -- only here to tell which FEATURE is answering badly.
+        CREATE TABLE IF NOT EXISTS model_feedback (
+            id TEXT PRIMARY KEY,
+            feature TEXT NOT NULL,
+            prompt_hash TEXT NOT NULL,
+            rating INTEGER NOT NULL,
+            created_at TEXT NOT NULL
         );
         "#,
     )?;
@@ -1264,6 +1279,50 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> SqliteResult<
         [&json],
     )?;
     Ok(())
+}
+
+// ==================== Model Feedback ====================
+
+/// Store one rating. Every press is its own row — nothing is updated in place,
+/// so a user who presses thumbs-down and then thumbs-up leaves both.
+pub fn record_model_feedback(
+    conn: &Connection,
+    id: &str,
+    feature: &str,
+    prompt_hash: &str,
+    rating: i32,
+) -> SqliteResult<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO model_feedback (id, feature, prompt_hash, rating, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        (id, feature, prompt_hash, rating, &now),
+    )?;
+    Ok(())
+}
+
+/// The most recent ratings, newest first.
+///
+/// `id` breaks the tie on `created_at`: two presses inside the same
+/// millisecond would otherwise come back in an arbitrary order, and a caller
+/// that pages through this would see a row twice or not at all.
+pub fn load_model_feedback(conn: &Connection, limit: i32) -> SqliteResult<Vec<ModelFeedbackEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feature, prompt_hash, rating, created_at FROM model_feedback \
+         ORDER BY created_at DESC, id DESC LIMIT ?1",
+    )?;
+
+    let rows = stmt.query_map([limit.max(0)], |row| {
+        Ok(ModelFeedbackEntry {
+            id: row.get(0)?,
+            feature: row.get(1)?,
+            prompt_hash: row.get(2)?,
+            rating: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+
+    rows.collect()
 }
 
 // ==================== Session (open tabs) ====================

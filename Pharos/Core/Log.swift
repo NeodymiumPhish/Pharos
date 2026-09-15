@@ -40,6 +40,11 @@ enum Log {
     /// The background release-check poller (`UpdateChecker`).
     static let updates = Logger(subsystem: subsystem, category: "updates")
 
+    /// The on-device Apple Intelligence features: availability, the sessions
+    /// they open, and the ratings the user gives their answers. Never the
+    /// prompts themselves — those carry the user's schema and row values.
+    static let intelligence = Logger(subsystem: subsystem, category: "intelligence")
+
     /// Signpost intervals for the paths whose cost is worth measuring: the
     /// execute, the two fetch paths, the JSON decode, and the grid reload.
     ///

@@ -1,6 +1,7 @@
 pub mod connection;
 pub mod ddl;
 pub mod metadata;
+pub mod model_feedback;
 pub mod query;
 pub mod query_history;
 pub mod row_identity;
@@ -14,6 +15,7 @@ pub mod workspace;
 pub use connection::*;
 pub use ddl::*;
 pub use metadata::*;
+pub use model_feedback::*;
 pub use query::*;
 pub use query_history::*;
 pub use row_identity::*;

@@ -101,6 +101,18 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
 void pharos_free_string(char *ptr);
 
 /**
+ * Record one rating of model output. `rating` is `1` (helpful) or `-1` (not
+ * helpful). Returns `{"ok":true}` on success. Caller must free.
+ */
+ char *pharos_record_model_feedback(const char *feature, const char *prompt_hash, int32_t rating);
+
+/**
+ * Load the most recent ratings, newest first. Returns a JSON array. Caller
+ * must free.
+ */
+ char *pharos_load_model_feedback(int32_t limit);
+
+/**
  * Format SQL with PostgreSQL conventions. Returns formatted SQL. Caller must free.
  */
  char *pharos_format_sql(const char *sql);
