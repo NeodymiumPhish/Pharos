@@ -65,6 +65,15 @@ class InspectorViewController: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
+        // Transparent, so the inspector's own material is the only thing behind
+        // its content — the same treatment the three sidebar lists get, and for
+        // the same reason: an NSScrollView draws `controlBackgroundColor` by
+        // default, which put an opaque white plate over the glass and made the
+        // pane read as a continuation of the editor instead of a surface beside
+        // it. The clip view is a separate NSClipView with its own background
+        // flag; setting the scroll view alone still leaves the plate.
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.isHidden = true
 
