@@ -240,6 +240,38 @@ enum ContrastInk {
         return isPartial ? 0.08 : 0.15
     }
 
+    /// The gutter's segment band — a statement's colour washed BEHIND its line
+    /// numbers. Same ladder as `tagWashAlpha`, and for the same reason: the
+    /// numbers have to stay readable through it.
+    ///
+    /// `running` is deliberately near `hovered` rather than near the 0.55–1.0
+    /// swing the thin bar used to pulse through. That range is right for a 4pt
+    /// stripe and wrong for a band: at band size it washes out the numbers it
+    /// sits behind. The pulse's amplitude rides on top of this base.
+    enum SegmentBand {
+        /// Every statement, at rest — what tells the user where one ends.
+        case idle
+        /// The statement holding the caret, or one with a result tab's colour.
+        case active
+        /// The statement under the pointer.
+        case hovered
+        /// The statement being executed. The pulse adds `segmentBandPulseSwing`.
+        case running
+    }
+
+    static func segmentBandAlpha(_ state: SegmentBand) -> CGFloat {
+        switch state {
+        case .idle: return increased ? 0.16 : 0.07
+        case .active: return increased ? 0.30 : 0.15
+        case .hovered: return increased ? 0.38 : 0.22
+        case .running: return increased ? 0.34 : 0.18
+        }
+    }
+
+    /// How far the running pulse moves the band's alpha. The thin bar swung
+    /// 0.45; a band this size cannot.
+    static var segmentBandPulseSwing: CGFloat { 0.08 }
+
     /// Hairlines: a bar's edge, a toolbar's rule, the grid's own lines.
     /// `separatorColor` is designed to be barely there, which is the wrong
     /// answer when the user has asked for contrast.

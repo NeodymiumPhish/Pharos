@@ -10,6 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/gutter-accessibility-tests \
   Pharos/Editor/LineNumberGutter.swift \
+  Pharos/Views/MarkerShape.swift \
   Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Core/PulseClock.swift \
   Pharos/Editor/SQLLexer.swift \

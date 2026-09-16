@@ -550,18 +550,22 @@ private func testGutterMetricsWidths() {
     let sql = LineNumberGutter(textView: textView, scrollView: scroll)
     let compact = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
 
-    // The literal formula the gutter used before Metrics existed:
-    // 3-digit floor, +20 of padding, plus the 4pt bar and its 6pt gap.
+    // 3-digit floor plus 20pt of padding. The 4pt segment-bar column and its
+    // 6pt gap are gone: the segment colour is a band behind the numbers now,
+    // so it needs no column of its own.
     expectClose(
-        sql.desiredWidth, 3 * digit + 20 + 4 + 6,
-        "the SQL editor's gutter is exactly as wide as it was before Metrics")
+        sql.desiredWidth, 3 * digit + 20,
+        "the SQL editor's gutter is its digits plus 20pt of padding")
     // 2-digit floor, 4pt leading, 5pt trailing, no bar column.
     expectClose(
         compact.desiredWidth, 2 * digit + 4 + 5,
         "the compact gutter is only its digits plus 9pt of padding")
+    // The margin used to be 25pt. It is smaller now only because the SQL
+    // gutter itself lost the 10pt bar column — the compact gutter is
+    // unchanged, and still reclaims its own digit and padding difference.
     expectTrue(
-        compact.desiredWidth < sql.desiredWidth - 25,
-        "the compact gutter reclaims over 25pt from the SQL editor's "
+        compact.desiredWidth < sql.desiredWidth - 15,
+        "the compact gutter reclaims over 15pt from the SQL editor's "
             + "(\(compact.desiredWidth) vs \(sql.desiredWidth))")
 
     // The width must be right in the host's FIRST layout pass, before any

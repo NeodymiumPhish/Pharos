@@ -1,6 +1,6 @@
 {
-  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.fFS5yk/Pharos.app",
-  "captured_at": "2026-09-16T14:18:37+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.gnDhmM/Pharos.app",
+  "captured_at": "2026-09-16T15:21:09+00:00",
   "tree": {
     "children": [
       {
@@ -264,7 +264,7 @@
                         "description": "Line gutter",
                         "frame": {
                           "h": 385,
-                          "w": 52.68,
+                          "w": 42.68,
                           "x": 2200,
                           "y": 284
                         },
@@ -276,8 +276,8 @@
                           {
                             "frame": {
                               "h": 385,
-                              "w": 417,
-                              "x": 2252.68,
+                              "w": 427,
+                              "x": 2242.68,
                               "y": 284
                             },
                             "identifier": "editor.text",
@@ -287,8 +287,8 @@
                         ],
                         "frame": {
                           "h": 385,
-                          "w": 417.32,
-                          "x": 2252.68,
+                          "w": 427.32,
+                          "x": 2242.68,
                           "y": 284
                         },
                         "role": "AXScrollArea"
@@ -766,7 +766,7 @@
         "X": 1960,
         "Y": 168
       },
-      "number": 7299
+      "number": 9238
     }
   ]
 }

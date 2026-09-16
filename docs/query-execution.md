@@ -25,7 +25,7 @@ Pharos executes SQL against the editor tab's active connection and shows the out
 The editor splits your SQL into individual statements. There are three ways to run:
 
 - **Cmd+Return** (or **Query > Run Query**) runs the **statement under the cursor** and opens a result tab for it. If nothing parses as a statement, the entire editor text is sent as one batch.
-- **Gutter run buttons** — each statement has its own run button in the line-number gutter.
+- **Gutter bands** — each statement has a coloured band behind its line numbers; hover it to turn it into a run button, and click to run that statement.
 - **Run All Queries** — **Query > Run All Queries** (**Cmd+Opt+Return**): runs every statement, up to 3 at a time, in order. Run All pauses if you switch away from the tab and resumes when you return.
 
 Each result tab is color-matched to its source statement's bar in the editor gutter, so you can always tell which result came from which SQL.

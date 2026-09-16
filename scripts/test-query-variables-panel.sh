@@ -27,6 +27,7 @@ swiftc -o /tmp/query-variables-panel-tests \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Editor/SQLFoldingParser.swift \
   Pharos/Editor/LineNumberGutter.swift \
+  Pharos/Views/MarkerShape.swift \
   Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Core/CountedNounText.swift \
   Pharos/Models/QueryVariable.swift \

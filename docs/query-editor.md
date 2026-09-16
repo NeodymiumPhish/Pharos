@@ -128,7 +128,7 @@ Press **Ctrl+I**, choose **Query > Format SQL**, or click the toolbar Format but
 
 ## Statements and the Gutter
 
-The editor parses the buffer into individual SQL statements ("segments"). The line-number gutter shows a **run button per statement**, and each statement's results get a matching colored bar in the gutter and [result tab](results-grid.md#result-tabs). While a statement runs, its gutter bar pulses. See [Query Execution](query-execution.md) for run semantics.
+The editor parses the buffer into individual SQL statements ("segments"). Each statement gets a **coloured band behind its line numbers** in the gutter, spanning exactly the lines it covers, in the same colour as its [result tab](results-grid.md#result-tabs). Hovering a band fades that statement's line numbers out and a **play button** in; clicking the band runs the statement. While a statement runs, its band pulses. See [Query Execution](query-execution.md) for run semantics.
 
 ## Error Markers
 
