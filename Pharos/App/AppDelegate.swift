@@ -70,6 +70,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // This has to come after `pharos_init`: it reads them from the core.
         SavedQuerySpotlightIndexer.shared.start()
 
+        // Read the app-wide query variables before any window exists, so each
+        // sidebar can seed its Variables navigator directly from the store. A
+        // failure is not fatal: the list is simply empty until the next save.
+        do {
+            try QueryVariableStore.shared.loadIfNeeded()
+        } catch {
+            Log.state.warning("Failed to load query variables: \(error.localizedDescription, privacy: .public)")
+        }
+
         // Read the stored tab set BEFORE the window exists: its content
         // controller asks for a tab as soon as its view loads, and that "Query 1"
         // would otherwise sit beside the restored tabs.

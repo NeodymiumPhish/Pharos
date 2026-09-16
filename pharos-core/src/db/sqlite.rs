@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, SavedQuery, Session, SessionTab, SessionWindow, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, QueryVariable, SavedQuery, Session, SessionTab, SessionWindow, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -450,6 +450,19 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             variables_json TEXT,
             is_active INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (window_id, tab_index)
+        );
+
+        -- App-wide query variables: the `{{name}}` tokens the editor resolves
+        -- against, ONE list for every window, tab and connection. `position`
+        -- is the user's order; the whole table is rewritten on each save, the
+        -- way `session_tabs` is, so a save can never leave a mixed list behind.
+        -- `type` is Swift's VariableType raw value, opaque here.
+        CREATE TABLE IF NOT EXISTS query_variables (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            value TEXT NOT NULL DEFAULT '',
+            type TEXT NOT NULL DEFAULT 'literal',
+            position INTEGER NOT NULL
         );
 
         -- Thumbs up / thumbs down on what the on-device model wrote. One row
@@ -1428,6 +1441,120 @@ pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()
     }
     tx.commit()?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Query variables (app-wide `{{name}}` list)
+// ---------------------------------------------------------------------------
+
+/// Every stored variable, in `position` order. An empty table is a valid
+/// answer — the list starts empty and there is no migration from the old
+/// per-tab copies.
+pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, value, type FROM query_variables ORDER BY position ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(QueryVariable {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            value: row.get(2)?,
+            kind: row.get(3)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Replace the stored list with `variables`, the array index becoming
+/// `position`. One transaction: the table is emptied and rewritten, so a
+/// half-old, half-new list can never be observed.
+pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) -> SqliteResult<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM query_variables", [])?;
+    for (position, variable) in variables.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO query_variables (id, name, value, type, position) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                variable.id,
+                variable.name,
+                variable.value,
+                variable.kind,
+                position as i64,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod query_variable_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn variable(id: &str, name: &str, value: &str, kind: &str) -> QueryVariable {
+        QueryVariable {
+            id: id.to_string(),
+            name: name.to_string(),
+            value: value.to_string(),
+            kind: kind.to_string(),
+        }
+    }
+
+    #[test]
+    fn round_trips_three_in_order() {
+        let mut conn = db();
+        let saved = vec![
+            variable("c", "target_ip", "10.0.0.1", "text"),
+            variable("a", "limit", "50", "number"),
+            variable("b", "note", "it's \"quoted\"\nand multi-line", "literal"),
+        ];
+        save_query_variables(&mut conn, &saved).unwrap();
+        let loaded = load_query_variables(&conn).unwrap();
+        assert_eq!(loaded, saved, "array order, not id order, is the stored order");
+    }
+
+    #[test]
+    fn replace_with_one_keeps_only_that_one() {
+        let mut conn = db();
+        save_query_variables(&mut conn, &[variable("a", "x", "1", "literal"), variable("b", "y", "2", "literal")]).unwrap();
+        save_query_variables(&mut conn, &[variable("b", "y", "3", "number")]).unwrap();
+        let loaded = load_query_variables(&conn).unwrap();
+        assert_eq!(loaded, vec![variable("b", "y", "3", "number")]);
+    }
+
+    #[test]
+    fn replace_with_empty_clears_the_table() {
+        let mut conn = db();
+        save_query_variables(&mut conn, &[variable("a", "x", "1", "literal")]).unwrap();
+        save_query_variables(&mut conn, &[]).unwrap();
+        assert!(load_query_variables(&conn).unwrap().is_empty());
+    }
+
+    /// `type` is opaque to Rust: a value written by a newer Swift build must
+    /// come back exactly as stored, never rejected or normalised.
+    #[test]
+    fn unknown_type_survives_verbatim() {
+        let mut conn = db();
+        save_query_variables(&mut conn, &[variable("a", "x", "1", "hexadecimal")]).unwrap();
+        assert_eq!(load_query_variables(&conn).unwrap()[0].kind, "hexadecimal");
+    }
+
+    /// The JSON keys are the Swift CodingKeys: `type`, not `kind`, and a
+    /// missing `value`/`type` takes the defaults.
+    #[test]
+    fn json_keys_match_swift() {
+        let v = variable("a", "x", "1", "bool");
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"id":"a","name":"x","value":"1","type":"bool"}"#);
+        let sparse: QueryVariable = serde_json::from_str(r#"{"id":"b","name":"y"}"#).unwrap();
+        assert_eq!(sparse, variable("b", "y", "", "literal"));
+    }
 }
 
 /// Read the stored session back: windows ordered by `window_index`, each

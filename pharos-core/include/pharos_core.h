@@ -227,6 +227,19 @@ char *pharos_load_query_history(const char *json);
  char *pharos_batch_delete_query_history(const char *json);
 
 /**
+ * Load every stored variable, in the user's order. Returns a JSON array.
+ * Caller must free.
+ */
+ char *pharos_load_query_variables(void);
+
+/**
+ * Replace the stored list. `json` is a JSON array of QueryVariable; the array
+ * order becomes the stored order. Returns NULL on success, an error C-string
+ * otherwise.
+ */
+ char *pharos_save_query_variables(const char *json);
+
+/**
  * Apply pending grid cell edits in ONE transaction.
  * `json` is a JSON-encoded `RowUpdateRequest` (camelCase).
  * On success the callback receives a JSON `RowUpdateResult`.

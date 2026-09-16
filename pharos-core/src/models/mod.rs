@@ -1,6 +1,7 @@
 pub mod connection;
 pub mod model_feedback;
 pub mod query_history;
+pub mod query_variable;
 pub mod row_identity;
 pub mod saved_query;
 pub mod schema;
@@ -12,6 +13,7 @@ pub mod workspace;
 pub use connection::*;
 pub use model_feedback::*;
 pub use query_history::*;
+pub use query_variable::*;
 pub use row_identity::*;
 pub use saved_query::*;
 pub use schema::*;

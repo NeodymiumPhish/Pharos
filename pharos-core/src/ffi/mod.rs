@@ -47,6 +47,7 @@ mod lifecycle;
 mod model_feedback;
 mod query;
 mod query_history;
+mod query_variables;
 mod row_edit;
 mod saved_queries;
 mod schema;
