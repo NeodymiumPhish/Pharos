@@ -18,7 +18,7 @@ nav_order: 3
 
 ## Overview
 
-Connections are managed in the **Connections Manager** window (**Cmd+Shift+N** or **File > Manage Connections…**) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
+Connections are managed in the **Connections Manager** sheet (**Cmd+Shift+N** or **File > Manage Connections…**; **Done** or Escape closes it, and it asks before discarding unsaved edits) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
 
 ## The Connections Manager
 
@@ -44,7 +44,7 @@ Edits are made inline — click **Save** to persist, or **Revert** to discard. U
 
 Click **Test Connection** to verify the settings:
 
-- **Success** — shows "Connected" with the round-trip latency in milliseconds, and populates the **Default Schema** menu with the database's schemas
+- **Success** — shows "Connected" with the round-trip latency in milliseconds, and populates the **Default Schema** menu with the database's schemas. Pick one and press **Save**; choose **None** at the top of the menu to clear the default. The fetched list stays on screen for the rest of the session, so you do not have to test again after editing another connection.
 - **Failure** — shows the PostgreSQL error message in red
 
 ## Connection Links

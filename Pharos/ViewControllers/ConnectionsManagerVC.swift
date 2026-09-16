@@ -171,6 +171,19 @@ final class ConnectionsManagerVC: NSViewController {
         set { listModel.pendingStubIds = newValue }
     }
 
+    /// Schema lists fetched by "Test Connection", keyed by connection id.
+    ///
+    /// Without this the list lived only in the popup's menu, and
+    /// `loadSelectionIntoForm` rebuilt that menu from the SAVED value and
+    /// disabled it again. That runs from `updateDetailVisibility`, which
+    /// `externalConnectionsChanged` calls on EVERY `AppStateManager.$connections`
+    /// publish — so any connection write anywhere in the app silently threw the
+    /// fetched list away and took the picker back to "test the connection
+    /// first", losing an unsaved pick with it.
+    private var fetchedSchemas: [String: [String]] = [:]
+
+    private let doneButton = NSButton()
+
     private var draft: ConnectionConfig?
     private var draftBaseline: ConnectionConfig?
 
@@ -263,19 +276,22 @@ final class ConnectionsManagerVC: NSViewController {
         static let badgeGap: CGFloat = 6
     }
 
-    /// Slightly darker than the right pane content background so the left
-    /// pane reads as a sidebar. Tracks light/dark mode via NSColor.
-    private static let sidebarBackgroundColor: NSColor = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .vibrantDark]) != nil
-            ? NSColor(white: 0.16, alpha: 1.0)
-            : NSColor(white: 0.94, alpha: 1.0)
-    }
+    /// Slightly darker than the right pane's content background, so the left
+    /// pane reads as a sidebar.
+    ///
+    /// The system pair, not two hand-picked greys: `windowBackgroundColor`
+    /// behind `controlBackgroundColor` is the contrast macOS already uses for
+    /// exactly this, and it stays right in both appearances and under Increase
+    /// Contrast without anyone maintaining a number.
+    private static var sidebarBackgroundColor: NSColor { .windowBackgroundColor }
 
     // MARK: - Lifecycle
 
     override func loadView() {
-        let root = NSView()
-        root.translatesAutoresizingMaskIntoConstraints = false
+        // A sheet takes its size from this frame, the way every other sheet in
+        // Pharos/Sheets does. 860x560 is what the free-floating window used and
+        // what TagManagerSheet uses.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 560))
         self.view = root
 
         let split = NSSplitView()
@@ -288,18 +304,69 @@ final class ConnectionsManagerVC: NSViewController {
         split.addArrangedSubview(left)
         split.addArrangedSubview(right)
 
+        doneButton.title = String(localized: "Done")
+        doneButton.bezelStyle = .rounded
+        // Escape closes the sheet. Save and Revert are per-connection and stay
+        // in the form; this button only dismisses, after the same unsaved-work
+        // prompt a selection change already puts up.
+        doneButton.keyEquivalent = "\u{1b}"
+        doneButton.target = self
+        doneButton.action = #selector(doneTapped)
+        doneButton.setAccessibilityIdentifier("sheet.connections.done")
+        doneButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let footer = NSView()
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(doneButton)
+
         root.addSubview(split)
+        root.addSubview(footer)
         NSLayoutConstraint.activate([
             split.topAnchor.constraint(equalTo: root.topAnchor),
             split.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             split.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            split.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            split.bottomAnchor.constraint(equalTo: footer.topAnchor),
             left.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
             left.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
             right.widthAnchor.constraint(greaterThanOrEqualToConstant: 480),
+
+            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            footer.heightAnchor.constraint(equalToConstant: 52),
+            doneButton.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -20),
+            doneButton.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
         ])
         DispatchQueue.main.async { [weak split] in
             split?.setPosition(L.listWidth, ofDividerAt: 0)
+        }
+    }
+
+    /// Close the sheet, after the same unsaved-work prompt that guards moving
+    /// between connections.
+    @objc private func doneTapped() {
+        guard isDirty, let window = view.window else {
+            dismiss(nil)
+            return
+        }
+        let alert = NSAlert()
+        let name = (draft?.name.isEmpty == false ? draft?.name : nil) ?? "this connection"
+        alert.messageText = DestructiveConfirmationText.unsavedChangesConfirmTitle(name: name)
+        alert.informativeText = String(localized: "Your changes will be lost if you close now.")
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Discard"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.saveChangesInternal()
+                self.dismiss(nil)
+            case .alertSecondButtonReturn:
+                self.dismiss(nil)
+            default:
+                break
+            }
         }
     }
 
@@ -344,9 +411,8 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Left pane (SwiftUI host)
 
     private func buildLeftPane() -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = Self.sidebarBackgroundColor.cgColor
+        let container = AppearanceBackgroundView()
+        container.colorProvider = { Self.sidebarBackgroundColor }
         container.translatesAutoresizingMaskIntoConstraints = false
 
         let host = NSHostingView(rootView: ConnectionsListView(model: listModel))
@@ -364,10 +430,9 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Right pane (AppKit form)
 
     private func buildRightPane() -> NSView {
-        let container = NSView()
+        let container = AppearanceBackgroundView()
+        container.colorProvider = { .controlBackgroundColor }
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.alignment = .center
@@ -729,6 +794,22 @@ final class ConnectionsManagerVC: NSViewController {
            connections.contains(where: { $0.id == preservedSelection }) {
             listModel.selectedIds = [preservedSelection]
         }
+
+        // An UNSAVED edit to the record on screen outlives a republish.
+        //
+        // `$connections` fires for every connection write anywhere in the app —
+        // the editor's "Set as Default Schema" (EditorPaneVC), a delete, a drag
+        // reorder — and reloading the form here reset `draft` and
+        // `draftBaseline` from the SAVED record. The user's edit vanished and
+        // Save went grey with the form still showing their typing, which is
+        // exactly the "Save is greyed out unless I change some other setting"
+        // report: only a further edit could make the draft differ again.
+        //
+        // The list still updates above; only the form is left alone.
+        if isDirty, let id = draft?.id, connections.contains(where: { $0.id == id }) {
+            updateButtonStates()
+            return
+        }
         updateDetailVisibility()
     }
 
@@ -856,9 +937,12 @@ final class ConnectionsManagerVC: NSViewController {
         case .require: sslPopup.selectItem(at: 1)
         case .disable: sslPopup.selectItem(at: 2)
         }
-        // This path shows the one saved schema and nothing else — there is no
-        // list to pick from until the connection is tested, so no sentinel.
-        if let saved = config.defaultSchema, !saved.isEmpty {
+        if let fetched = fetchedSchemas[config.id] {
+            // Tested this session: keep the real list and the user's pick.
+            showSchemaChoices(fetched, selecting: draft?.defaultSchema)
+        } else if let saved = config.defaultSchema, !saved.isEmpty {
+            // Not tested yet: show the one saved schema and nothing else, since
+            // there is no list to pick from until the connection is tested.
             PopupValueMenu.populate(defaultSchemaPopup, sentinel: nil, values: [saved])
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = "Test the connection to refresh the schema list."
@@ -907,7 +991,10 @@ final class ConnectionsManagerVC: NSViewController {
         let canSave = isDirty && isDraftValid()
         saveButton.isEnabled = canSave
         saveButton.bezelColor = canSave ? .controlAccentColor : nil
-        saveButton.contentTintColor = canSave ? .white : nil
+        // NOT `.white`: on a `controlAccentColor` bezel the system's own
+        // label colour is the one that stays legible when the user picks a
+        // light accent, or turns Increase Contrast on.
+        saveButton.contentTintColor = canSave ? .alternateSelectedControlTextColor : nil
         revertButton.isEnabled = isDirty
         listModel.dirtyConnectionId = isDirty ? draft?.id : nil
     }
@@ -1011,10 +1098,14 @@ final class ConnectionsManagerVC: NSViewController {
         case 2: d.sslMode = .disable
         default: d.sslMode = .prefer
         }
-        if defaultSchemaPopup.isEnabled,
-           defaultSchemaPopup.indexOfSelectedItem > 0,
-           let selected = PopupValueMenu.selectedValue(in: defaultSchemaPopup) {
-            d.defaultSchema = selected
+        // Only once a list has actually been fetched — until then the popup
+        // holds a placeholder, not a choice, and must not write over the saved
+        // value. `selectedValue` returns nil for the "None" sentinel, and nil
+        // is a real answer here: it is how the default schema gets CLEARED.
+        // The old guard was `indexOfSelectedItem > 0`, which silently ignored
+        // row 0, so "None" could never be chosen and the draft never changed.
+        if fetchedSchemas[d.id] != nil, defaultSchemaPopup.isEnabled {
+            d.defaultSchema = PopupValueMenu.selectedValue(in: defaultSchemaPopup)
         }
         draft = d
 
@@ -1112,6 +1203,18 @@ final class ConnectionsManagerVC: NSViewController {
         }
     }
 
+    /// Show a fetched schema list in the picker. "None" is row 0 and clears
+    /// the default schema; it is a real choice, not a placeholder.
+    private func showSchemaChoices(_ names: [String], selecting value: String?) {
+        PopupValueMenu.populate(defaultSchemaPopup, sentinel: "None", values: names)
+        defaultSchemaPopup.isEnabled = true
+        defaultSchemaPopup.toolTip = nil
+        // By value, not by index: a schema named "None" does not have to be
+        // counted around, and a saved schema the server has since dropped
+        // simply leaves row 0 ("None") selected.
+        PopupValueMenu.selectValue(value, in: defaultSchemaPopup)
+    }
+
     private func populateDefaultSchemas(using config: ConnectionConfig) {
         Task { [weak self] in
             do {
@@ -1125,16 +1228,15 @@ final class ConnectionsManagerVC: NSViewController {
                 try PharosCore.deleteConnection(id: tempId)
 
                 await MainActor.run { [weak self] in
-                    guard let self else { return }
-                    PopupValueMenu.populate(self.defaultSchemaPopup,
-                                            sentinel: "None",
-                                            values: schemas.map(\.name))
-                    self.defaultSchemaPopup.isEnabled = true
-                    // By value, not by index: a schema named "None" no longer
-                    // has to be counted around, and a saved schema the server
-                    // has since dropped simply leaves row 0 selected.
-                    PopupValueMenu.selectValue(self.draft?.defaultSchema,
-                                               in: self.defaultSchemaPopup)
+                    guard let self, let id = self.draft?.id else { return }
+                    let names = schemas.map(\.name)
+                    self.fetchedSchemas[id] = names
+                    self.showSchemaChoices(names, selecting: self.draft?.defaultSchema)
+                    // The populate above can MOVE the selection — a saved
+                    // schema the server has since dropped lands on "None" —
+                    // and a selection the draft does not know about is a
+                    // change the Save button has to hear about.
+                    self.syncFormIntoDraft()
                 }
             } catch {
                 Log.ui.error("Failed to fetch schemas for default schema picker: \(error.localizedDescription, privacy: .public)")
@@ -1376,5 +1478,50 @@ private extension NSAlert {
     func runModal(for window: NSWindow) -> NSApplication.ModalResponse {
         self.window.title = window.title
         return self.runModal()
+    }
+}
+
+// MARK: - Appearance-following background
+
+/// A view whose layer colour is resolved in `updateLayer()` rather than baked
+/// into the layer once.
+///
+/// `NSColor.cgColor` resolves a dynamic colour against whatever appearance is
+/// current at the moment it is read — and in `loadView()` that is before the
+/// view is in a window at all. Both panes of this window did exactly that, so
+/// their backgrounds froze at launch: AppKit's own controls repainted for Dark
+/// Mode while the two plates behind them stayed light. That is the "light-grey
+/// chrome with dark fields" the user saw, and switching the app's Light/Dark
+/// preference (`ThemeApplier`) could not fix it either.
+///
+/// The rest of the app already does this properly — `VariableListView`,
+/// `ResultTabsPanelVC`, `FilterableHeaderView` all resolve inside
+/// `updateLayer()`. This is the same pattern, with the colour injected.
+final class AppearanceBackgroundView: NSView {
+
+    /// Read at draw time, never cached.
+    var colorProvider: () -> NSColor = { .windowBackgroundColor } {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = colorProvider().cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 }

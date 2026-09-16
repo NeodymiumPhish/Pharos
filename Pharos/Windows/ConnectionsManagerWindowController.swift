@@ -1,34 +1,69 @@
 import AppKit
 
-/// Free-floating window that hosts ConnectionsManagerVC. Singleton — calling
-/// `show()` repeatedly brings the existing window forward instead of stacking.
-final class ConnectionsManagerWindowController: NSWindowController, NSWindowDelegate {
+/// Presents `ConnectionsManagerVC` as a sheet on the main window.
+///
+/// It used to be a free-floating `NSWindow`. That window never adopted the
+/// app's look: its two background plates were baked into their layers at
+/// `loadView` time and so stayed light after a switch to Dark Mode, and it sat
+/// outside the sheet vocabulary every other multi-field editor in Pharos uses
+/// (`Pharos/Sheets/`). A sheet fixes both at once and costs only the things a
+/// sheet cannot have — a saved frame, resizing, and staying open while the user
+/// works in the editor behind it.
+///
+/// The type keeps its name and its `show()` API so every call site is unchanged.
+enum ConnectionsManagerWindowController {
 
-    private static var shared: ConnectionsManagerWindowController?
-    private static let frameAutosaveKey = "PharosConnectionsManager"
+    /// The sheet on screen, if any. One at a time, whatever asks for it.
+    @MainActor private static weak var presented: ConnectionsManagerVC?
 
     @MainActor
     static func show() {
-        if let existing = shared {
-            existing.window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-        let wc = ConnectionsManagerWindowController()
-        shared = wc
-        wc.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        present(prefill: nil, passwordFromLink: false)
     }
 
-    /// Opens the window on a NEW, unsaved connection filled in from a
+    /// Opens the manager on a NEW, unsaved connection filled in from a
     /// `postgres://` link. Nothing is stored — the record is a stub in the list
     /// until the user presses Save.
     @MainActor
     static func show(prefill: ParsedConnectionURL) {
-        show()
-        guard let manager = shared?.window?.contentViewController as? ConnectionsManagerVC else { return }
-        manager.beginNewConnection(prefilled: config(from: prefill),
-                                   passwordFromLink: prefill.passwordWasInURL)
+        present(prefill: config(from: prefill), passwordFromLink: prefill.passwordWasInURL)
+    }
+
+    @MainActor
+    private static func present(prefill: ConnectionConfig?, passwordFromLink: Bool) {
+        // Already up: bring its window forward and hand it the new stub, rather
+        // than stacking a second sheet on the same window.
+        if let existing = presented {
+            existing.view.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            if let prefill {
+                existing.beginNewConnection(prefilled: prefill, passwordFromLink: passwordFromLink)
+            }
+            return
+        }
+
+        // A sheet needs a host. A `postgres://` link can arrive with no window
+        // at all — the app may not even be frontmost — so one is opened first.
+        guard let host = hostWindowController() else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        host.window?.makeKeyAndOrderFront(nil)
+
+        guard let presenter = host.contentViewController else { return }
+        let manager = ConnectionsManagerVC()
+        presented = manager
+        presenter.presentAsSheet(manager)
+        if let prefill {
+            manager.beginNewConnection(prefilled: prefill, passwordFromLink: passwordFromLink)
+        }
+    }
+
+    /// The window to hang the sheet on. `showMainWindow()` already answers
+    /// "the one the user is in, opening one when the app has none on screen",
+    /// which is exactly what a `postgres://` link arriving at a hidden app
+    /// needs.
+    @MainActor
+    private static func hostWindowController() -> MainWindowController? {
+        (NSApp.delegate as? AppDelegate)?.showMainWindow()
     }
 
     /// The link's fields as a connection record. The mapping lives here, not in
@@ -55,48 +90,5 @@ final class ConnectionsManagerWindowController: NSWindowController, NSWindowDele
         case nil:      break
         }
         return config
-    }
-
-    init() {
-        let defaultRect = NSRect(x: 0, y: 0, width: 860, height: 560)
-        // Standard (non-fullSizeContentView) title bar: content sits naturally
-        // below the title bar, no overlap with the sidebar list, no scroll
-        // view inset gymnastics for the right pane.
-        let window = NSWindow(
-            contentRect: defaultRect,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Connections"
-        window.titleVisibility = .visible
-        window.minSize = NSSize(width: 720, height: 460)
-        window.isReleasedWhenClosed = false
-        window.tabbingMode = .disallowed
-        window.contentViewController = ConnectionsManagerVC()
-
-        super.init(window: window)
-        window.delegate = self
-
-        if !window.setFrameUsingName(Self.frameAutosaveKey) {
-            window.center()
-        }
-        window.setFrameAutosaveName(Self.frameAutosaveKey)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        Self.shared = nil
-    }
-
-    /// ⌘W is File > Close Tab, whose action only the content controller
-    /// answers, so in this window it did nothing. Closing the window is what
-    /// the key means for a window with no tabs in it.
-    @MainActor
-    @objc func menuCloseTab(_ sender: Any?) {
-        window?.performClose(sender)
     }
 }
