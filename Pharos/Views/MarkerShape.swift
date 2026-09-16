@@ -261,17 +261,19 @@ enum ContrastInk {
 
     /// Measured, not guessed (scratch probe, 2026-09-16). Over the editor
     /// background, a band at 0.15 moves the surface by a contrast ratio of only
-    /// ~1.20 — which is what "the colours are very dim" looked like. 0.32 moves
-    /// it ~1.50, and the line numbers on top barely care: a tertiary-label
-    /// number keeps ~1.8 (light) and ~2.0 (dark) all the way to 0.5, against
-    /// ~1.85 on the plain background. Legibility was never the binding
-    /// constraint here, so these sit where the colour reads.
+    /// ~1.20, and 0.32 by ~1.50 — the user called both too subtle. These sit
+    /// near 0.5, which moves it ~2.0.
+    ///
+    /// The line numbers on top barely care, which is why the ladder can go this
+    /// far: a tertiary-label number keeps ~1.8 (light) and ~1.9 (dark) contrast
+    /// over the band at alpha 0.5, against ~1.85 on the plain background.
+    /// Legibility was never the binding constraint here — visibility was.
     static func segmentBandAlpha(_ state: SegmentBand) -> CGFloat {
         switch state {
-        case .idle: return increased ? 0.26 : 0.14
-        case .active: return increased ? 0.50 : 0.32
-        case .hovered: return increased ? 0.62 : 0.44
-        case .running: return increased ? 0.55 : 0.36
+        case .idle: return increased ? 0.34 : 0.20
+        case .active: return increased ? 0.68 : 0.48
+        case .hovered: return increased ? 0.80 : 0.60
+        case .running: return increased ? 0.72 : 0.52
         }
     }
 

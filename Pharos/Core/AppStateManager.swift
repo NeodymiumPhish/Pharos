@@ -376,14 +376,27 @@ final class AppStateManager: ObservableObject {
                 // second window stays on whatever it was showing.
                 if let session {
                     session.activeConnectionId = id
-                    // Setting the id above already put back this window's
-                    // remembered schema for it, so a nil here means there was
-                    // none to remember — the same test the per-connection
-                    // selection table used to answer directly.
-                    if session.activeSchema == nil {
+
+                    // The ACTIVE TAB's own schema wins, when it has one.
+                    //
+                    // The tab is what queries actually run against and what the
+                    // editor's schema selector displays, so seeding the window
+                    // from the connection's default instead put the schema
+                    // browser on a different schema from the editor: a restored
+                    // tab on `tagtest` beside a navigator listing `whois`, the
+                    // connection default. Setting the id above already restored
+                    // this window's remembered schema, so the default is the
+                    // last resort, not the first.
+                    let tabSchema = session.activeTab.flatMap {
+                        $0.connectionId == id ? $0.schemaName : nil
+                    }
+                    if let tabSchema {
+                        session.activeSchema = tabSchema
+                    } else if session.activeSchema == nil {
                         session.activeSchema = defaultSchema
                     }
-                    // Also update the active tab's schema to match
+
+                    // A tab that has no schema of its own takes the window's.
                     if let tabId = session.activeTabId {
                         session.updateTab(id: tabId) { tab in
                             if tab.connectionId == id && tab.schemaName == nil {

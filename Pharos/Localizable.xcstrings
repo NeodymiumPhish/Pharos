@@ -236,7 +236,7 @@
     "Columns" : {
 
     },
-    "Confirm before DROP / DELETE / TRUNCATE" : {
+    "Confirm queries that change the database" : {
 
     },
     "Connect" : {
@@ -838,10 +838,16 @@
     "Run All Queries" : {
 
     },
+    "Run destructive query?" : {
+
+    },
     "Run Query" : {
 
     },
     "Run Query (⌘↩)" : {
+
+    },
+    "Run query that changes the database?" : {
 
     },
     "Run Saved Query" : {
