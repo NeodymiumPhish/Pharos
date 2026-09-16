@@ -8,7 +8,6 @@ cd "$(dirname "$0")/.."
 BIN="$(mktemp -t connection-auth-flag-tests)"
 trap 'rm -f "$BIN"' EXIT
 swiftc -o "$BIN" \
-  Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Models/Connection.swift \
   PharosTests/ConnectionAuthFlagTests.swift \
   PharosTests/main.swift

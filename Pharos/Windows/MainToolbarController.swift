@@ -212,20 +212,16 @@ final class MainToolbarController: NSObject {
            let titleItem = connectionButton.item(at: 0) {
             let status = stateManager.status(for: config.id)
             titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
-            // The colour is a SECOND channel beside the status glyph, never a
-            // replacement for it: the glyph still says connected or not.
-            titleItem.image = ConnectionColor.swatchImage(forHex: config.color)
-            let colorLabel = ConnectionColor.label(forHex: config.color)
             // A failed connect carries its reason; "Connection error" alone
             // sent the user to the Connections window to find out why.
             let reason = status == .error
                 ? stateManager.connectionError(for: config.id).map { DisplayEscape.escaped($0) }
                 : nil
             connectionButton.toolTip = [
-                DisplayEscape.escaped(config.name), statusName(for: status), reason, colorLabel,
+                DisplayEscape.escaped(config.name), statusName(for: status), reason,
             ].compactMap { $0 }.joined(separator: " — ")
             connectionButton.setAccessibilityValue(
-                [statusName(for: status), reason, colorLabel].compactMap { $0 }.joined(separator: ", "))
+                [statusName(for: status), reason].compactMap { $0 }.joined(separator: ", "))
         } else {
             connectionButton.toolTip = String(localized: "Connection for the active tab")
             connectionButton.setAccessibilityValue(nil)
@@ -240,10 +236,6 @@ final class MainToolbarController: NSObject {
                 item.target = self
                 item.representedObject = config.id
                 item.attributedTitle = styledTitle(title, status: status)
-                item.image = ConnectionColor.swatchImage(forHex: config.color)
-                if let colorLabel = ConnectionColor.label(forHex: config.color) {
-                    item.toolTip = "\(DisplayEscape.escaped(config.name)) — \(colorLabel)"
-                }
                 if config.id == activeId { item.state = .on }
                 connectionButton.menu?.addItem(item)
             }

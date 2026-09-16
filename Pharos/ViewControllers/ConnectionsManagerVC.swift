@@ -198,7 +198,6 @@ final class ConnectionsManagerVC: NSViewController {
     private let usernameField = NSTextField()
     private let passwordField = NSSecureTextField()
     private let sslPopup = NSPopUpButton()
-    private let colorPopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
 
     // One badge per round-trip field. `nameField` has none — it is an authored
@@ -453,12 +452,6 @@ final class ConnectionsManagerVC: NSViewController {
         sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
         sslPopup.translatesAutoresizingMaskIntoConstraints = false
 
-        colorPopup.target = self
-        colorPopup.action = #selector(colorPopupChanged)
-        colorPopup.translatesAutoresizingMaskIntoConstraints = false
-        colorPopup.setAccessibilityIdentifier("connections.color")
-        populateColorPopup(includingCustom: nil)
-
         defaultSchemaPopup.target = self
         defaultSchemaPopup.action = #selector(defaultSchemaChanged)
         PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
@@ -505,7 +498,6 @@ final class ConnectionsManagerVC: NSViewController {
 
         let serverSection = section(title: "Server", rows: [
             row(label: "Name", field: nameField),
-            row(label: "Color", control: colorPopup),
             row(label: "Host", field: hostField, badge: hostBadge),
             row(label: "Port", field: portField, fieldFixedWidth: L.portWidth),
         ])
@@ -864,7 +856,6 @@ final class ConnectionsManagerVC: NSViewController {
         case .require: sslPopup.selectItem(at: 1)
         case .disable: sslPopup.selectItem(at: 2)
         }
-        selectColor(config.color)
         // This path shows the one saved schema and nothing else — there is no
         // list to pick from until the connection is tested, so no sentinel.
         if let saved = config.defaultSchema, !saved.isEmpty {
@@ -999,61 +990,7 @@ final class ConnectionsManagerVC: NSViewController {
         passwordAuthLabel.stringValue = text
         passwordAuthRow?.isHidden = text.isEmpty
     }
-    @objc private func colorPopupChanged() {
-        updateColorTooltip(for: selectedColorHex)
-        syncFormIntoDraft()
-    }
     @objc private func defaultSchemaChanged() { syncFormIntoDraft() }
-
-    // MARK: - Colour label
-
-    /// Builds the colour menu: "None" and the eight named swatches, each with
-    /// its hex in `representedObject`. A record carrying a colour that is not
-    /// one of the eight gets a ninth item so that saving an untouched record
-    /// cannot silently discard its colour.
-    private func populateColorPopup(includingCustom customHex: String?) {
-        colorPopup.removeAllItems()
-
-        let none = NSMenuItem(title: "None", action: nil, keyEquivalent: "")
-        none.representedObject = nil as String?
-        colorPopup.menu?.addItem(none)
-        colorPopup.menu?.addItem(.separator())
-
-        for swatch in ConnectionColor.allCases {
-            let item = NSMenuItem(title: swatch.displayName, action: nil, keyEquivalent: "")
-            item.image = ConnectionColor.swatchImage(forHex: swatch.hex)
-            item.representedObject = swatch.hex
-            colorPopup.menu?.addItem(item)
-        }
-
-        if let customHex, ConnectionColor.named(forHex: customHex) == nil,
-           ConnectionColor.color(forHex: customHex) != nil {
-            colorPopup.menu?.addItem(.separator())
-            let item = NSMenuItem(title: customHex, action: nil, keyEquivalent: "")
-            item.image = ConnectionColor.swatchImage(forHex: customHex)
-            item.representedObject = customHex
-            colorPopup.menu?.addItem(item)
-        }
-    }
-
-    private func selectColor(_ hex: String?) {
-        populateColorPopup(includingCustom: hex)
-        let match = colorPopup.menu?.items.first {
-            ($0.representedObject as? String)?.caseInsensitiveCompare(hex ?? "") == .orderedSame
-        }
-        colorPopup.select(match ?? colorPopup.menu?.items.first)
-        updateColorTooltip(for: hex)
-    }
-
-    private func updateColorTooltip(for hex: String?) {
-        colorPopup.toolTip = ConnectionColor.label(forHex: hex).map {
-            "\($0) — shown as a dot beside the connection and as a band over the editor."
-        } ?? "No color label."
-    }
-
-    private var selectedColorHex: String? {
-        colorPopup.selectedItem?.representedObject as? String
-    }
 
     private func syncFormIntoDraft() {
         guard var d = draft else { return }
@@ -1074,7 +1011,6 @@ final class ConnectionsManagerVC: NSViewController {
         case 2: d.sslMode = .disable
         default: d.sslMode = .prefer
         }
-        d.color = selectedColorHex
         if defaultSchemaPopup.isEnabled,
            defaultSchemaPopup.indexOfSelectedItem > 0,
            let selected = PopupValueMenu.selectedValue(in: defaultSchemaPopup) {

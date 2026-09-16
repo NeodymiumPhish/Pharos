@@ -30,7 +30,6 @@ The Connections Manager is a two-pane window:
 | Field | Description | Default |
 |-------|-------------|---------|
 | Name | A display label for this connection | — |
-| Color | A color label for this connection: None, or one of eight named colors | None |
 | Host | Server hostname or IP address | — |
 | Port | PostgreSQL listening port | 5432 |
 | Database | Database name to connect to | postgres |
@@ -40,17 +39,6 @@ The Connections Manager is a two-pane window:
 | Default Schema | Schema focused on connect; populated after a successful Test Connection | None |
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
-
-## Color Labels
-
-A color label makes it obvious which database a window is pointed at — the point being to notice production before you run something on it, not after. Pick one of eight named colors (Red, Orange, Yellow, Green, Teal, Blue, Purple, Pink) in the **Color** field, or **None**. The color then shows in two places:
-
-- **The connection pull-down** in the window toolbar — a filled dot beside the connection name, on the button and on every row of the menu. The status glyph stays as it is: the color says *which* database, the glyph says *connected or not*.
-- **A thin band across the top of the editor**, following the active tab's connection. Tabs on an uncolored connection have no band.
-
-With **Differentiate Without Color** turned on in System Settings ▸ Accessibility ▸ Display, the band grows and carries the connection's name as text, so the label still reads with color removed. VoiceOver announces the band as "Connection colour: *name*".
-
-The color is stored with the connection, so it survives a relaunch.
 
 ## Testing a Connection
 
@@ -106,7 +94,7 @@ The gate guards the two places Pharos *acts* on the password. It does not change
 
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, color label, default schema, Touch ID requirement) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+Connection metadata (name, host, port, database, username, SSL mode, default schema, Touch ID requirement) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
 
 {: .note }
 Passwords never leave your machine — they live in the macOS Keychain and are read into memory only to open connections.
