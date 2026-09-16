@@ -111,6 +111,15 @@ final class WindowSession: ObservableObject {
     private var closedTabHistory: [QueryTab] = []
     private let maxClosedHistory = 20
 
+    // MARK: - Query variables
+
+    /// The `{{name}}` tokens the active editor's text references, kept fresh
+    /// by `EditorPaneVC` (a debounced scan on every edit, and synchronously on
+    /// a tab switch). The sidebar's Variables navigator reads it to mark which
+    /// rows the current SQL uses — the variables themselves are app-wide
+    /// (`QueryVariableStore`), only the references are per window.
+    @Published var referencedVariableNames: Set<String> = []
+
     // MARK: - Pin state
 
     @Published var pinnedResult: QueryResult?

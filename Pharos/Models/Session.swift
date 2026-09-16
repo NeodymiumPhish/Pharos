@@ -12,8 +12,8 @@ struct SessionTab: Codable, Equatable {
     /// Position in the tab bar, 0-based.
     var tabIndex: Int
     /// Set only for a tab that has run a query. The workspace row holds the
-    /// authoritative editor text, variables and cursor for such a tab; the
-    /// copies below are the fallback for a workspace that no longer exists.
+    /// authoritative editor text and cursor for such a tab; the copies below
+    /// are the fallback for a workspace that no longer exists.
     var workspaceId: String?
     var name: String
     /// False when `name` is the generated "Query <n>".
@@ -22,7 +22,9 @@ struct SessionTab: Codable, Equatable {
     var schemaName: String?
     var sql: String
     var cursorPosition: Int
-    /// `[QueryVariable]` encoded as JSON, exactly as a workspace snapshot stores it.
+    /// LEGACY: always `nil` now. Variables are app-wide (`QueryVariableStore`),
+    /// not per tab. The field stays because the Rust `SessionTab` has it and
+    /// `SessionStoreShapeTests` pins the key set.
     var variablesJson: String?
     var isActive: Bool
 }

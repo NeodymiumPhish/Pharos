@@ -20,6 +20,8 @@ final class SidebarFilterBar: NSView {
     var onNewQuery: (() -> Void)?
     /// "+" ▸ New Folder.
     var onNewFolder: (() -> Void)?
+    /// "+" ▸ New Variable (the Variables navigator).
+    var onNewVariable: (() -> Void)?
     /// Every keystroke in the filter field (the field sends immediately; the
     /// owner debounces).
     var onTextChanged: ((String) -> Void)?
@@ -33,10 +35,46 @@ final class SidebarFilterBar: NSView {
     private let trailingSlot = NSView()
     private let stack = NSStackView()
 
-    /// Whether the "+" pull-down is on screen. Only the Query Library can
-    /// create things, so only it shows one; the stack closes the gap.
+    /// Whether the "+" pull-down is on screen. Only the Query Library and the
+    /// Variables navigator can create things, so only they show one; the
+    /// stack closes the gap.
     var showsAddButton: Bool = true {
         didSet { addButton.isHidden = !showsAddButton }
+    }
+
+    /// Rebuild the "+" menu for `navigator`. Item 0 is the hidden title item
+    /// that carries the glyph and is kept; everything from index 1 is
+    /// replaced. The default (built in `buildAddButton`) is the Library's
+    /// menu, so a bar that is never told otherwise still offers New Query
+    /// and New Folder.
+    func configureAddMenu(for navigator: Navigator) {
+        guard let menu = addButton.menu else { return }
+        while menu.items.count > 1 {
+            menu.removeItem(at: menu.items.count - 1)
+        }
+        for item in addMenuItems(for: navigator) {
+            menu.addItem(item)
+        }
+    }
+
+    private func addMenuItems(for navigator: Navigator) -> [NSMenuItem] {
+        switch navigator {
+        case .library:
+            let newQuery = NSMenuItem(title: String(localized: "New Query"),
+                                      action: #selector(newQueryChosen), keyEquivalent: "")
+            newQuery.target = self
+            let newFolder = NSMenuItem(title: String(localized: "New Folder"),
+                                       action: #selector(newFolderChosen), keyEquivalent: "")
+            newFolder.target = self
+            return [newQuery, newFolder]
+        case .variables:
+            let newVariable = NSMenuItem(title: String(localized: "New Variable"),
+                                         action: #selector(newVariableChosen), keyEquivalent: "")
+            newVariable.target = self
+            return [newVariable]
+        case .history, .schema:
+            return []
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -93,15 +131,9 @@ final class SidebarFilterBar: NSView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .medium))
         menu.addItem(titleItem)
 
-        let newQuery = NSMenuItem(title: String(localized: "New Query"),
-                                  action: #selector(newQueryChosen), keyEquivalent: "")
-        newQuery.target = self
-        menu.addItem(newQuery)
-
-        let newFolder = NSMenuItem(title: String(localized: "New Folder"),
-                                   action: #selector(newFolderChosen), keyEquivalent: "")
-        newFolder.target = self
-        menu.addItem(newFolder)
+        for item in addMenuItems(for: .library) {
+            menu.addItem(item)
+        }
 
         addButton.menu = menu
         (addButton.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
@@ -143,6 +175,7 @@ final class SidebarFilterBar: NSView {
 
     @objc private func newQueryChosen() { onNewQuery?() }
     @objc private func newFolderChosen() { onNewFolder?() }
+    @objc private func newVariableChosen() { onNewVariable?() }
 
     @objc private func filterFieldChanged(_ sender: NSSearchField) {
         onTextChanged?(sender.stringValue)

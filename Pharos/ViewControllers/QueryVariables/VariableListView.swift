@@ -19,6 +19,24 @@ final class VariableListView: NSView {
     /// rebuilding the list (a rebuild would drop scroll position and hover).
     private var rows: [(id: UUID, view: VariableRowView)] = []
 
+    /// Whether the title / count / "+" header and its hairline are on screen.
+    /// The sidebar hides it: the navigator group already names the list and
+    /// the filter bar's "+" ▸ New Variable adds to it, so the rows start at
+    /// the top the way the other three sidebar lists do.
+    var showsHeader: Bool = true {
+        didSet {
+            titleLabel.isHidden = !showsHeader
+            countLabel.isHidden = !showsHeader
+            addButton.isHidden = !showsHeader
+            headerSeparator.isHidden = !showsHeader
+            scrollTopToHeader.isActive = showsHeader
+            scrollTopToEdge.isActive = !showsHeader
+        }
+    }
+    private let headerSeparator = HairlineView()
+    private var scrollTopToHeader: NSLayoutConstraint!
+    private var scrollTopToEdge: NSLayoutConstraint!
+
     init() {
         super.init(frame: .zero)
         buildLayout()
@@ -31,13 +49,23 @@ final class VariableListView: NSView {
     // MARK: - Content
 
     /// Rebuild every row. Call on variable add/delete/edit and on tab switch.
-    func setVariables(_ variables: [QueryVariable], referenced: Set<String>) {
+    ///
+    /// `visible` narrows which rows are BUILT, not which variables are
+    /// considered: the row states come from the whole array, so a variable a
+    /// filter hides still shadows a duplicate name that the filter shows.
+    func setVariables(_ variables: [QueryVariable], referenced: Set<String>,
+                      visible: (QueryVariable) -> Bool = { _ in true }) {
         countLabel.stringValue = variables.isEmpty ? "" : "\(variables.count)"
         rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         rows.removeAll()
 
-        guard !variables.isEmpty else {
-            let empty = NSTextField(labelWithString: "No variables — click + to add one.")
+        let shown = variables.filter(visible)
+
+        guard !shown.isEmpty else {
+            let message = variables.isEmpty
+                ? (showsHeader ? "No variables — click + to add one." : "No variables — use + ▸ New Variable to add one.")
+                : "No variables match the filter."
+            let empty = NSTextField(labelWithString: message)
             empty.font = .systemFont(ofSize: 11)
             empty.textColor = .tertiaryLabelColor
             // Explicit, and pinned inside `padded` below rather than added to the
@@ -68,7 +96,7 @@ final class VariableListView: NSView {
         // row can fail — and which row is inert — depends on its neighbours.
         let states = VariableSubstitutor.rowStates(in: variables, referenced: referenced)
 
-        for variable in variables {
+        for variable in shown {
             let row = VariableRowView(frame: .zero)
             row.configure(with: variable, state: states[variable.id])
             let id = variable.id
@@ -122,7 +150,6 @@ final class VariableListView: NSView {
         addButton.action = #selector(addTapped)
         addButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let headerSeparator = HairlineView()
         headerSeparator.wantsLayer = true
         headerSeparator.translatesAutoresizingMaskIntoConstraints = false
 
@@ -151,6 +178,13 @@ final class VariableListView: NSView {
         addSubview(headerSeparator)
         addSubview(scrollView)
 
+        // Two candidates for the scroll view's top edge; `showsHeader` picks
+        // one. Both are created here so the toggle is a pure `isActive` swap.
+        scrollTopToHeader = scrollView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor)
+        scrollTopToEdge = scrollView.topAnchor.constraint(equalTo: topAnchor)
+        scrollTopToHeader.isActive = showsHeader
+        scrollTopToEdge.isActive = !showsHeader
+
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
@@ -166,7 +200,6 @@ final class VariableListView: NSView {
             headerSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerSeparator.heightAnchor.constraint(equalToConstant: 1),
 
-            scrollView.topAnchor.constraint(equalTo: headerSeparator.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -203,8 +236,8 @@ private final class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
 }
 
-/// A 1pt hairline that tracks light/dark via `updateLayer`, matching the
-/// panel's existing `PanelBackgroundView` idiom (see `QueryVariablesPanelVC`).
+/// A 1pt hairline that tracks light/dark via `updateLayer` — the house
+/// pattern for a layer colour (never a one-shot `.cgColor` in an initialiser).
 ///
 /// Deliberately not `NSBox(boxType: .separator)`, which the plan originally
 /// specified — but not because `NSBox` is broken. Measured directly, a separator

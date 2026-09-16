@@ -1678,7 +1678,7 @@ class ContentViewController: NSViewController {
         let tabId = activeTab.id
         let tabSchema = activeTab.schemaName
 
-        let rendered = VariableSubstitutor.render(querySQL, with: activeTab.variables)
+        let rendered = VariableSubstitutor.render(querySQL, with: QueryVariableStore.shared.variables)
         if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
             presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
             return
@@ -1886,7 +1886,9 @@ class ContentViewController: NSViewController {
     }
 
     /// Surface an unresolved/invalid-variable error before a query runs, and
-    /// reveal the variables panel so the user can correct it.
+    /// bring the sidebar's Variables navigator forward so the user can correct
+    /// it. Variables are app-wide (`QueryVariableStore`), so the fix is made
+    /// there, not in the tab.
     private func presentVariableError(
         unresolved: [String],
         invalid: [VariableSubstitutor.Invalid],
@@ -1905,7 +1907,7 @@ class ContentViewController: NSViewController {
             style: .error,
             duration: 3.0
         )
-        editorPane.revealVariablesPanel()
+        (parent as? PharosSplitViewController)?.revealNavigator(.variables)
     }
 
     /// Confirmation sheet for destructive SQL run from the editor. Same style
@@ -1963,7 +1965,7 @@ class ContentViewController: NSViewController {
         }
         guard let target = sqlForExplain() else { return }
 
-        let rendered = VariableSubstitutor.render(target.sql, with: activeTab.variables)
+        let rendered = VariableSubstitutor.render(target.sql, with: QueryVariableStore.shared.variables)
         if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
             presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: activeTab.id)
             return
@@ -2408,7 +2410,7 @@ class ContentViewController: NSViewController {
 
         let sheet = QueryDetailSheet(resultTab: tab) { [weak self] sql in
             guard let self else { return }
-            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql, variables: []) { _ in
+            let saveSheet = SaveQuerySheet(tabName: "Query", sql: sql) { _ in
                 NotificationCoalescer.post(.savedQueriesDidChange)
             }
             // Delay briefly so the detail sheet dismiss animation completes
@@ -3187,7 +3189,6 @@ extension ContentViewController {
         let tab = session.createTab(sql: query.sql, name: query.name)
         session.updateTab(id: tab.id) {
             $0.savedQueryId = query.id
-            $0.variables = SavedQueryVariables.decode(query.variables)
         }
     }
 
@@ -3270,8 +3271,6 @@ extension ContentViewController {
             // the error case and the "workspace no longer exists" case.
             guard let detail = try? PharosCore.loadWorkspace(id: wsId) else { return }
 
-            let vars = (try? JSONDecoder.pharos.decode([QueryVariable].self, from: Data(detail.variablesJson.utf8))) ?? []
-
             // Rebuild result tabs from metadata; fetch cached blobs eagerly for
             // results that have them, leave "SQL only" ones as re-runnable stubs.
             var restored: [ResultTab] = []
@@ -3334,7 +3333,6 @@ extension ContentViewController {
                 self.session.updateTab(id: tab.id) {
                     $0.workspaceId = detail.id
                     $0.connectionId = detail.connectionId
-                    $0.variables = vars
                     $0.cursorPosition = detail.cursorPosition ?? 0
                 }
 
@@ -4248,7 +4246,7 @@ extension ContentViewController {
         if let savedId = tab.savedQueryId {
             let currentSQL = editorPane.getSQL()
             do {
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: tab.variables.toSavedJSON())
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: nil)
                 _ = try PharosCore.updateSavedQuery(update)
                 session.updateTab(id: tab.id) { $0.sql = currentSQL }
                 NotificationCoalescer.post(.savedQueriesDidChange)
@@ -4270,7 +4268,7 @@ extension ContentViewController {
     @objc func menuExportEditorAsSQL(_: Any?) {
         guard let tab = session.activeTab else { return }
         let raw = editorPane.getSQL()
-        let text = VariableSubstitutor.render(raw, with: tab.variables).sql
+        let text = VariableSubstitutor.render(raw, with: QueryVariableStore.shared.variables).sql
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
@@ -4297,8 +4295,7 @@ extension ContentViewController {
     private func presentSaveQuerySheet(tab: QueryTab) {
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: editorPane.getSQL(),
-            variables: tab.variables
+            sql: editorPane.getSQL()
         ) { [weak self] action in
             guard let self else { return }
             let savedQuery: SavedQuery

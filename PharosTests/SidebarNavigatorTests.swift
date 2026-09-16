@@ -73,15 +73,18 @@ private func host(_ view: NSView, width: CGFloat = 260) -> NSWindow {
 
 private func testNavigatorModel() {
     expect(Navigator.library.rawValue, 0, "library is raw value 0")
-    expect(Navigator.history.rawValue, 1, "history is raw value 1")
-    expect(Navigator.schema.rawValue, 2, "schema is raw value 2")
-    expect(Navigator.allCases.count, 3, "three navigators")
+    expect(Navigator.variables.rawValue, 1, "variables is raw value 1")
+    expect(Navigator.history.rawValue, 2, "history is raw value 2")
+    expect(Navigator.schema.rawValue, 3, "schema is raw value 3")
+    expect(Navigator.allCases.count, 4, "four navigators")
 
     expect(Navigator.library.title, "Query Library", "library title")
+    expect(Navigator.variables.title, "Variables", "variables title")
     expect(Navigator.history.title, "Results History", "history title")
-    expect(Navigator.schema.title, "Database Navigation", "schema title")
+    expect(Navigator.schema.title, "Database Navigator", "schema title")
 
     expect(Navigator.library.symbolName, "folder", "library symbol")
+    expect(Navigator.variables.symbolName, "curlybraces", "variables symbol")
     expect(Navigator.history.symbolName, "clock.arrow.circlepath", "history symbol")
     expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
 }
@@ -102,11 +105,11 @@ private func testNavigatorToolbarGroup() {
 
     // The convenience constructor is the whole point: `selectionMode` is
     // documented to apply only to a group built by one, and it creates the
-    // subitems itself. Three of them, in Navigator order.
+    // subitems itself. Four of them, in Navigator order.
     expect(Int(group.selectionMode.rawValue),
            Int(NSToolbarItemGroup.SelectionMode.selectOne.rawValue),
            "group selects exactly one")
-    expect(group.subitems.count, 3, "three subitems")
+    expect(group.subitems.count, 4, "four subitems")
 
     for (index, navigator) in Navigator.allCases.enumerated() where index < group.subitems.count {
         let subitem = group.subitems[index]
@@ -122,7 +125,8 @@ private func testNavigatorToolbarGroup() {
     // Measured live: with `.automatic` the toolbar judges the sidebar region
     // too tight and falls back to `.collapsed`, which is a pull-down menu
     // reading "Query Library" — not a capsule. `.expanded` is what makes it a
-    // capsule, and the sidebar's minimumThickness (240) is sized to hold it.
+    // capsule, and the sidebar's minimumThickness (280) is sized to hold all
+    // four segments.
     expect(Int(group.controlRepresentation.rawValue),
            Int(NSToolbarItemGroup.ControlRepresentation.expanded.rawValue),
            "group representation is expanded")
@@ -131,9 +135,11 @@ private func testNavigatorToolbarGroup() {
     // toolbar draws an unlit capsule over a collapsed sidebar.
     expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: -1) == nil,
                "-1 names no navigator")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 1) == .history,
-               "index 1 names history")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == nil,
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 1) == .variables,
+               "index 1 names variables")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == .schema,
+               "index 3 names schema")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 4) == nil,
                "an out-of-range index names no navigator")
 
     // The action reaches the target; the group is the sender.
@@ -196,6 +202,26 @@ private func testFilterBar() {
     }
     expect(newFolders, 1, "New Folder fires its closure")
 
+    // The Variables navigator rebuilds the menu from index 1: the glyph item
+    // stays, one New Variable item replaces the two library items.
+    var newVariables = 0
+    bar.onNewVariable = { newVariables += 1 }
+    bar.configureAddMenu(for: .variables)
+    expect(bar.addButton.menu?.items.count ?? 0, 2, "variables: item 0 plus New Variable")
+    expectTrue(bar.addButton.menu?.items.first?.image != nil, "variables: item 0 still carries the plus image")
+    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Variable", "variables: the action is New Variable")
+    if let item = bar.addButton.menu?.items[1] {
+        _ = item.target?.perform(item.action, with: item)
+    }
+    expect(newVariables, 1, "New Variable fires its closure")
+    expect(newQueries, 1, "New Variable does not fire New Query")
+
+    // Back to the library: the two original items return.
+    bar.configureAddMenu(for: .library)
+    expect(bar.addButton.menu?.items.count ?? 0, 3, "library again: item 0 plus two real items")
+    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Query", "library again: first action is New Query")
+    expect(bar.addButton.menu?.items[2].title ?? "nil", "New Folder", "library again: second action is New Folder")
+
     // Hiding the pull-down: the stack closes the gap so the field starts at
     // the leading inset, as it must in the two navigators with nothing to add.
     expectTrue(bar.showsAddButton, "the add button shows by default")
@@ -242,18 +268,28 @@ private func testPrefs() {
 
     SidebarNavigatorPrefs.lastNavigator = .schema
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .schema, "schema round-trips")
-    expect(suite.integer(forKey: "SidebarLastNavigator"), 2, "stored under SidebarLastNavigator")
+    // "2": the Variables navigator was inserted at raw value 1, so the old
+    // key's stored values would read as the wrong list.
+    expect(suite.integer(forKey: "SidebarLastNavigator2"), 3, "stored under SidebarLastNavigator2")
+    expectTrue(suite.object(forKey: "SidebarLastNavigator") == nil, "the old key is not written")
 
     SidebarNavigatorPrefs.lastNavigator = .history
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .history, "history round-trips")
+    SidebarNavigatorPrefs.lastNavigator = .variables
+    expectTrue(SidebarNavigatorPrefs.lastNavigator == .variables, "variables round-trips")
+
+    // An old build's value under the OLD key is ignored, not reinterpreted.
+    suite.removeObject(forKey: "SidebarLastNavigator2")
+    suite.set(1, forKey: "SidebarLastNavigator")
+    expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "an old-key value is ignored")
 
     // A value from an older or newer build must not leave the sidebar showing
     // nothing.
-    suite.set(99, forKey: "SidebarLastNavigator")
+    suite.set(99, forKey: "SidebarLastNavigator2")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "an unknown raw value falls back")
-    suite.set(-1, forKey: "SidebarLastNavigator")
+    suite.set(-1, forKey: "SidebarLastNavigator2")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "a negative raw value falls back")
-    suite.set("folder", forKey: "SidebarLastNavigator")
+    suite.set("folder", forKey: "SidebarLastNavigator2")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "a non-integer value falls back")
 }
 
@@ -277,6 +313,11 @@ private func testFilterState() {
 
     state.select(.history)
     expect(state.currentText, "", "the history navigator was never typed in")
+    state.select(.variables)
+    expect(state.currentText, "", "the variables navigator was never typed in")
+    state.setText("ip")
+    state.select(.library)
+    expect(state.text(for: .variables), "ip", "variables text readable while hidden")
     expect(state.text(for: .library), "abc", "library text readable while hidden")
     expect(state.text(for: .schema), "public", "schema text readable while hidden")
 

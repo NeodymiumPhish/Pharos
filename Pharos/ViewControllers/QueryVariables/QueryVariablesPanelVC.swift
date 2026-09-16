@@ -1,19 +1,36 @@
 import AppKit
 
-/// Right-docked panel listing a tab's query variables, as two levels: a
-/// read-only list, and a detail level for one variable. This controller owns the
-/// variable array and the level swap; each level owns its own header and
-/// rendering.
+/// The Variables navigator's content: the app-wide query variables as two
+/// levels — a read-only list, and a detail level for one variable. This
+/// controller owns the variable array and the level swap; each level owns its
+/// own header and rendering.
 ///
-/// The panel is docked inside the white content area beside the editor, so it
-/// uses the content background — matching the editor and inspector — rather than
-/// the sidebar's edge vibrancy.
+/// Host-agnostic: `[QueryVariable]` and the referenced-name set come in through
+/// `setVariables`, edits go out through `onChange`, and nothing here knows
+/// about the store or the sidebar. The root view paints NOTHING — it sits on
+/// the sidebar's own material, like the other three sidebar lists — and there
+/// is no leading hairline, because the split view's divider already draws
+/// the pane's edge.
 final class QueryVariablesPanelVC: NSViewController {
 
     /// Called whenever the variable set changes (add / delete / edit).
     var onChange: (([QueryVariable]) -> Void)?
 
     private(set) var variables: [QueryVariable] = []
+
+    /// Whether the list level shows its own title / count / "+" header.
+    /// The sidebar turns it off: the navigator group names the list, and the
+    /// filter bar's "+" adds to it. Forwarded straight to the list view, which
+    /// exists from `init`, so this can be set before `loadView` runs.
+    var showsListHeader: Bool = true {
+        didSet { listView.showsHeader = showsListHeader }
+    }
+
+    /// The sidebar's filter text, lower-cased; empty means every row shows.
+    /// Applied in `refreshList()` as a case-insensitive substring match on
+    /// the name and the value. Row STATES are still computed over the whole
+    /// array — see `VariableListView.setVariables(_:referenced:visible:)`.
+    private var filterText = ""
 
     /// Names the current SQL references. Combined with each variable's value to
     /// decide the red failure state — an unreferenced variable is never flagged.
@@ -45,22 +62,24 @@ final class QueryVariablesPanelVC: NSViewController {
 
     // MARK: - Input
 
-    /// Replace the displayed variables and the referenced-name set (e.g. on tab
-    /// switch). Returns to the list level, since the detail level belonged to
-    /// whatever was showing before.
+    /// Replace the displayed variables and the referenced-name set. Returns
+    /// to the list level, since the detail level belonged to whatever was
+    /// showing before.
     ///
-    /// Does NOT settle the outgoing detail level's name field itself — by the
-    /// time this runs, the caller (`EditorPaneVC.syncVariablesPanel`, on the
-    /// tab-switch path) has *already* moved its own bookkeeping of "which tab
-    /// is active" on to the incoming tab, so a settle triggered from in here
-    /// would misattribute the rename to the wrong tab. Callers that can
-    /// change which tab is active must call `settlePendingEdit()` first,
-    /// while their own notion of "current tab" (and `variables` below) still
-    /// belongs to the outgoing one. `dismissDetail` still calls
-    /// `settleForDismissal()` as a safety net for callers that don't (it's a
-    /// no-op if this already ran), so a colliding draft is still dropped
-    /// either way — only a *valid* rename depends on the caller settling
-    /// first.
+    /// The one caller today is the sidebar, on a `QueryVariableStore.didChange`
+    /// it did not originate (an edit in ANOTHER window). `variables` is
+    /// assigned FIRST and only then is the detail level dismissed, and that
+    /// order is load-bearing: `dismissDetail` settles the detail level's name
+    /// field as a safety net, and `variableEdited` looks the edited id up in
+    /// `variables` — so a rename that was pending here lands on the incoming
+    /// list, merged with the other window's change, rather than on the stale
+    /// one. (If the other window deleted that very variable, the lookup fails
+    /// and the rename is dropped, which is the right answer.) `pruneIfAbandoned`
+    /// reads the same array with the same result.
+    ///
+    /// `settlePendingEdit()` exists for the caller that wants to commit a
+    /// pending rename WITHOUT replacing the list — the sidebar, when the user
+    /// switches to another navigator while the detail level is showing.
     func setVariables(_ vars: [QueryVariable], referenced: Set<String>) {
         variables = vars
         self.referenced = referenced
@@ -74,23 +93,17 @@ final class QueryVariablesPanelVC: NSViewController {
     /// `pruneIfAbandoned`) — without dismissing anything else: no level
     /// swap, no list rebuild. A no-op if the detail level isn't showing.
     ///
-    /// This exists specifically for a caller that is about to change which
-    /// tab is active (`EditorPaneVC.paneStateChanged`): it must call this
-    /// *before* updating its own "which tab is this" state and before
-    /// calling `setVariables` for the incoming tab. `variableEdited` below
-    /// (which `settleForDismissal` -> `commitNameIfValid` -> `onChange`
-    /// ultimately triggers) looks up the edited variable's id in `variables`
-    /// — while that array, and the caller's own tab bookkeeping, still belong
-    /// to the outgoing tab, the lookup succeeds and the rename lands on the
-    /// right tab. Called even one step later than that — e.g. from inside
-    /// `setVariables` itself, after `variables` and the caller's tab
-    /// bookkeeping have already moved on — the same lookup would either fail
-    /// silently (losing the rename) or, if that guard were ever relaxed,
-    /// succeed against the *incoming* tab's array and land the outgoing
-    /// tab's rename in the wrong tab's stored variables. `pruneIfAbandoned`
-    /// has the identical ordering requirement, for the identical reason: its
-    /// own `variables.contains(where:)` lookup would just as silently find
-    /// nothing once `variables` has moved on to the incoming tab.
+    /// The sidebar calls this when the user leaves the Variables navigator
+    /// with the detail level showing: the level stays open behind the other
+    /// list, but the rename the user typed must not sit uncommitted in a
+    /// hidden field — a run in the meantime resolves against the store, and
+    /// the store must already hold it.
+    ///
+    /// History: in the per-tab panel this had to run BEFORE `setVariables`,
+    /// because a settle from inside the swap would have looked the edited id
+    /// up in the incoming TAB's array and either lost the rename or landed it
+    /// on the wrong tab. With one app-wide list there is no wrong list, and
+    /// `setVariables` relies on the inside-the-swap settle to merge instead.
     func settlePendingEdit() {
         guard let detail = detailVC else { return }
         detail.settleForDismissal()
@@ -100,9 +113,9 @@ final class QueryVariablesPanelVC: NSViewController {
     /// Discards `variable` if it is empty in both (trimmed) name and value —
     /// an abandoned `+` row, or a name that only ever collided (so never
     /// committed, per `commitNameIfValid`'s collision guard) and was never
-    /// given a value either. Shared by `settlePendingEdit` (the tab-switch
-    /// path, called before `variables` moves on to the incoming tab) and
-    /// `dismissDetail` (back/delete, where `variables` hasn't moved at all).
+    /// given a value either. Shared by `settlePendingEdit` (a navigator
+    /// switch) and `dismissDetail` (back/delete, and the list replacement in
+    /// `setVariables`).
     /// A variable with a non-empty value is always kept, even with an empty
     /// name — the user typed something, and discarding it silently would be
     /// the same class of mistake the mangled-prefix bug was.
@@ -111,6 +124,29 @@ final class QueryVariablesPanelVC: NSViewController {
               variables.contains(where: { $0.id == variable.id }) else { return }
         variables.removeAll { $0.id == variable.id }
         onChange?(variables)
+    }
+
+    /// Narrow the list to rows whose name or value contains `text`
+    /// (case-insensitive). The detail level, if showing, is left alone: a
+    /// filter is typed in the sidebar's field, and swapping levels under the
+    /// user would be a surprise. The list is rebuilt behind it and is what
+    /// the user sees on the way back.
+    func applyFilter(_ text: String) {
+        filterText = text.lowercased()
+        refreshList()
+    }
+
+    /// Show every row again.
+    func clearFilter() {
+        guard !filterText.isEmpty else { return }
+        filterText = ""
+        refreshList()
+    }
+
+    private func isVisible(_ variable: QueryVariable) -> Bool {
+        filterText.isEmpty
+            || variable.name.lowercased().contains(filterText)
+            || variable.value.lowercased().contains(filterText)
     }
 
     /// Update only which names the SQL references — called from the debounced
@@ -154,26 +190,19 @@ final class QueryVariablesPanelVC: NSViewController {
     // MARK: - View
 
     override func loadView() {
-        let container = PanelBackgroundView()
-        container.wantsLayer = true
+        // A plain, non-painting root: the sidebar's split view item supplies
+        // the material, and an opaque plate here would sit on top of it.
+        let container = NSView()
         self.view = container
-
-        // Leading hairline so the panel edge reads cleanly against the editor.
-        let edge = NSBox()
-        edge.boxType = .separator
-        edge.translatesAutoresizingMaskIntoConstraints = false
 
         contentArea.wantsLayer = true
         // The level-slide animation parallaxes the outgoing view to
         // `x = -bounds.width * 0.35` (see `push`/`pop` below). AppKit does not
         // clip subviews to their superview's bounds by default, so without
         // this the part that slides past the leading edge keeps drawing —
-        // over the resize divider and into the editor beside the panel —
-        // until the animation completes. `contentArea` is already
-        // layer-backed, so `masksToBounds` is the minimal fix; `edge` (the
-        // panel's leading hairline) and the split view's resize divider are
-        // both siblings of `contentArea`, not its descendants, so this clip
-        // cannot hide either of them.
+        // over the split view divider and into the neighbouring pane — until
+        // the animation completes. `contentArea` is already layer-backed, so
+        // `masksToBounds` is the minimal fix.
         contentArea.layer?.masksToBounds = true
         contentArea.translatesAutoresizingMaskIntoConstraints = false
 
@@ -182,17 +211,21 @@ final class QueryVariablesPanelVC: NSViewController {
         listView.onDelete = { [weak self] id in self?.deleteVariable(id) }
         contentArea.addSubview(listView)
 
-        container.addSubview(edge)
         container.addSubview(contentArea)
 
         NSLayoutConstraint.activate([
-            edge.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            edge.topAnchor.constraint(equalTo: container.topAnchor),
-            edge.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            edge.widthAnchor.constraint(equalToConstant: 1),
-
-            contentArea.topAnchor.constraint(equalTo: container.topAnchor),
-            contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 1),
+            // The SAFE-AREA top, not the view's top. In the sidebar this view
+            // runs up under the toolbar glass, and only an NSScrollView insets
+            // itself for that automatically: the detail level's header row
+            // (Back, name, type, Delete) is frame-laid-out and was measured
+            // live sitting 5pt below the window's top edge, hidden under the
+            // toolbar, while its value editor's scroll view had inset itself
+            // 52pt. Pinning the whole content area below the safe area gives
+            // both levels one consistent top. The cost is that the list does
+            // not scroll under the glass the way the other three sidebar lists
+            // do; a header that hides under it is the worse trade.
+            contentArea.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
@@ -262,9 +295,9 @@ final class QueryVariablesPanelVC: NSViewController {
     /// ever collided and so never committed — on EVERY dismissal path now,
     /// not only back: a colliding draft never commits regardless of how the
     /// detail level closes, so a variable left with an empty name this way
-    /// is exactly as abandoned whether the user pressed Back or switched
-    /// tabs. (History: this used to only prune when `onBack` passed
-    /// `pruningEmpty: true`, and the tab-switch path passed `false` —
+    /// is exactly as abandoned whether the user pressed Back or the list was
+    /// replaced under it. (History: this used to only prune when `onBack`
+    /// passed `pruningEmpty: true`, and the tab-switch path passed `false` —
     /// leaving a variable that was typed toward a colliding name, then
     /// abandoned by switching tabs, sitting in the list forever as a
     /// subdued, valueless row. Made uniform instead of threading a flag
@@ -272,15 +305,11 @@ final class QueryVariablesPanelVC: NSViewController {
     ///
     /// Every path here — `onBack` (which already settled via `attemptBack`
     /// before calling this), and every other path that tears the detail
-    /// level down without going through it at all (a tab switch is the one
-    /// that actually happened) — must settle the name field, and prune if
+    /// level down without going through it at all (`setVariables` from
+    /// another window's edit) — must settle the name field, and prune if
     /// abandoned, before reading `detail.variable` below.
     /// `settleForDismissal()`/`pruneIfAbandoned` are no-ops if
-    /// `settlePendingEdit()` already ran for this same variable (the
-    /// tab-switch path calls that first, before `variables` moves on — see
-    /// its own doc comment); they exist here for the paths that don't call
-    /// it (back, delete), where `variables` hasn't moved and the lookups
-    /// still succeed normally.
+    /// `settlePendingEdit()` already ran for this same variable.
     private func dismissDetail(animated: Bool) {
         guard let detail = detailVC else {
             listView.isHidden = false
@@ -355,10 +384,13 @@ final class QueryVariablesPanelVC: NSViewController {
     // MARK: - Mutations
 
     private func refreshList() {
-        listView.setVariables(variables, referenced: referenced)
+        listView.setVariables(variables, referenced: referenced, visible: isVisible)
     }
 
-    private func addVariable() {
+    /// Append an empty variable, drill into it and focus its name field. The
+    /// list's own "+" and the sidebar filter bar's "+" ▸ New Variable both
+    /// land here.
+    func addVariable() {
         let variable = QueryVariable(name: "", value: "", type: .literal)
         variables.append(variable)
         onChange?(variables)
@@ -389,15 +421,5 @@ final class QueryVariablesPanelVC: NSViewController {
         // updating here — the list is offscreen and is rebuilt by dismissDetail
         // on the way back, which is where other rows pick up the change.
         refreshDetailState()
-    }
-}
-
-/// Solid content-background panel that tracks light/dark. Uses `updateLayer`
-/// (not a one-shot `layer.backgroundColor = ....cgColor`) so the semantic color
-/// is re-resolved whenever the effective appearance changes.
-private final class PanelBackgroundView: NSView {
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     }
 }

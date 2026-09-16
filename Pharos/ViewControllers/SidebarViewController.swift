@@ -12,6 +12,7 @@ class SidebarViewController: NSViewController {
 
     // Containers for each panel (only one visible at a time)
     private let savedContainer = NSView()
+    private let variablesContainer = NSView()
     private let historyContainer = NSView()
     private let browserContainer = NSView()
 
@@ -19,6 +20,9 @@ class SidebarViewController: NSViewController {
     let schemaBrowser = SchemaBrowserVC()
     let savedQueries = SavedQueriesVC()
     let queryHistory = QueryHistoryVC()
+    /// The Variables navigator. Edits go to `QueryVariableStore`; the list is
+    /// seeded from it and follows its `didChange`.
+    let variablesPanel = QueryVariablesPanelVC()
 
     let session: WindowSession
     private let stateManager = AppStateManager.shared
@@ -63,22 +67,38 @@ class SidebarViewController: NSViewController {
         filterBar.onNewFolder = { [weak self] in
             self?.savedQueries.createNewFolder()
         }
+        filterBar.onNewVariable = { [weak self] in
+            self?.variablesPanel.addVariable()
+        }
 
-        // Content area holds all three containers
+        // The Variables navigator: no header of its own (the navigator group
+        // names it and the filter bar's "+" adds to it), seeded from the
+        // store, every edit written straight back to it.
+        variablesPanel.showsListHeader = false
+        variablesPanel.setVariables(QueryVariableStore.shared.variables,
+                                    referenced: session.referencedVariableNames)
+        variablesPanel.onChange = { vars in
+            QueryVariableStore.shared.replace(vars)
+        }
+
+        // Content area holds all four containers
         contentArea.translatesAutoresizingMaskIntoConstraints = false
         savedContainer.translatesAutoresizingMaskIntoConstraints = false
+        variablesContainer.translatesAutoresizingMaskIntoConstraints = false
         historyContainer.translatesAutoresizingMaskIntoConstraints = false
         browserContainer.translatesAutoresizingMaskIntoConstraints = false
 
+        variablesContainer.isHidden = true
         historyContainer.isHidden = true
         browserContainer.isHidden = true
 
         contentArea.addSubview(savedContainer)
+        contentArea.addSubview(variablesContainer)
         contentArea.addSubview(historyContainer)
         contentArea.addSubview(browserContainer)
 
         // Each container fills the entire content area
-        for child in [savedContainer, historyContainer, browserContainer] {
+        for child in [savedContainer, variablesContainer, historyContainer, browserContainer] {
             NSLayoutConstraint.activate([
                 child.topAnchor.constraint(equalTo: contentArea.topAnchor),
                 child.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
@@ -89,6 +109,7 @@ class SidebarViewController: NSViewController {
 
         // Embed child VCs
         embedChild(savedQueries, in: savedContainer)
+        embedChild(variablesPanel, in: variablesContainer)
         embedChild(queryHistory, in: historyContainer)
         embedChild(schemaBrowser, in: browserContainer)
 
@@ -162,6 +183,37 @@ class SidebarViewController: NSViewController {
             }
         )
 
+        // The app-wide variable list changed. The sidebar that made the change
+        // receives this too, so compare first: its panel already holds the
+        // edited array, and re-setting it would dismiss the detail level under
+        // the field being typed in. A real change (another window's edit, or
+        // the initial load) replaces the list; `setVariables` merges a pending
+        // rename here onto the incoming list — see its doc comment.
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: QueryVariableStore.didChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                // `addObserver`'s block is `@Sendable`, so the compiler cannot
+                // see that `queue: .main` already guarantees main-actor
+                // execution; asserting it is the pattern the `TagStore.didChange`
+                // observers use.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    let stored = QueryVariableStore.shared.variables
+                    guard self.variablesPanel.variables != stored else { return }
+                    self.variablesPanel.setVariables(stored, referenced: self.session.referencedVariableNames)
+                }
+            }
+        )
+
+        // Which `{{name}}` tokens the active editor uses: marks the rows in
+        // place, no rebuild. Written by EditorPaneVC.
+        session.$referencedVariableNames
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] names in self?.variablesPanel.setReferencedNames(names) }
+            .store(in: &cancellables)
+
         // Manual refresh from connection menu
         notificationObservers.append(
             NotificationCenter.default.addObserver(
@@ -199,14 +251,24 @@ class SidebarViewController: NSViewController {
     }
 
     private func select(_ navigator: Navigator) {
+        // Leaving the Variables list with its detail level showing: commit
+        // the rename now, while the user still remembers typing it. The level
+        // itself stays where it is behind the other list.
+        if filterState.current == .variables && navigator != .variables {
+            variablesPanel.settlePendingEdit()
+        }
+
         filterState.select(navigator)
 
         savedContainer.isHidden = (navigator != .library)
+        variablesContainer.isHidden = (navigator != .variables)
         historyContainer.isHidden = (navigator != .history)
         browserContainer.isHidden = (navigator != .schema)
 
-        // Only the Query Library holds things the user can create.
-        filterBar.showsAddButton = (navigator == .library)
+        // Only the Query Library and the Variables list hold things the user
+        // can create, and each has its own "+" menu.
+        filterBar.showsAddButton = (navigator == .library || navigator == .variables)
+        filterBar.configureAddMenu(for: navigator)
 
         // A pending debounce belongs to the navigator that is leaving; firing
         // it now would filter the incoming list with the outgoing list's text.
@@ -217,7 +279,7 @@ class SidebarViewController: NSViewController {
 
         SidebarNavigatorPrefs.lastNavigator = navigator
 
-        // The toolbar's navigator group follows this, so ⌥⌘1/2/3 light the
+        // The toolbar's navigator group follows this, so ⌥⌘1–4 light the
         // right segment. Held weakly by the toolbar controller.
         onNavigatorChanged?(navigator)
     }
@@ -244,11 +306,13 @@ class SidebarViewController: NSViewController {
         schemaBrowser.clearFilter()
         savedQueries.clearFilter()
         queryHistory.clearFilter()
+        variablesPanel.clearFilter()
 
         guard !text.isEmpty else { return }
 
         switch filterState.current {
         case .library: savedQueries.applyFilter(text)
+        case .variables: variablesPanel.applyFilter(text)
         case .history: queryHistory.applyFilter(text)
         case .schema: schemaBrowser.applyFilter(text)
         }

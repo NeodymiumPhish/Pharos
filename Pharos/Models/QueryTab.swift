@@ -52,17 +52,15 @@ struct QueryTab: Identifiable {
     /// Filesystem URL this tab was opened from, if any. Set when the tab is
     /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
     var sourceURL: URL?
-    /// User-defined query variables for this tab (referenced as `{{name}}`).
-    var variables: [QueryVariable] = []
-    /// Whether the right-docked variables panel is shown for this tab. Seeded
-    /// from the app-wide default so new tabs open with the panel showing (and,
-    /// after the user toggles it, inherit whatever they last chose). Defaulting
-    /// here rather than at each `QueryTab(...)` call site covers every path that
-    /// makes a tab — new, initial, duplicate, and reopen-from-history.
-    var variablesPanelVisible: Bool = VariablesPanelPrefs.visibleByDefault
     /// Whether the right-docked vertical result-tabs panel is shown for this
-    /// tab. Same seeding rationale as `variablesPanelVisible` above. Only
-    /// consulted while `AppSettings.verticalResultTabs` is ON.
+    /// tab. Seeded from the app-wide default so new tabs open the way the user
+    /// last left the panel. Defaulting here rather than at each `QueryTab(...)`
+    /// call site covers every path that makes a tab — new, initial, duplicate,
+    /// and reopen-from-history. Only consulted while
+    /// `AppSettings.verticalResultTabs` is ON.
+    ///
+    /// Query variables are NOT per tab any more: they are app-wide, in
+    /// `QueryVariableStore`.
     var resultTabsPanelVisible: Bool = ResultTabsPanelPrefs.visibleByDefault
     /// The persisted workspace history record this tab is bound to. nil until
     /// the first query executes (or until reopened from history). When set,

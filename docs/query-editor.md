@@ -22,9 +22,9 @@ The query editor is a native text view providing SQL editing with syntax highlig
 
 ## Editor Toolbar
 
-The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **schema** selector, and — pinned to the right — the **Query Variables** toggle and the **Result Tabs** toggle. The **navigator selector** (a grouped set of three icons over the sidebar), **Run**, **Cancel** and the **connection** pull-down live in the window toolbar above (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), the **schema** selector, and — pinned to the right — the **Result Tabs** toggle. The **navigator selector** (a grouped set of four icons over the sidebar), **Run**, **Cancel** and the **connection** pull-down live in the window toolbar above (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
-Both right-hand toggles open a panel docked to the right of the editor text, and both can be open at once: variables first, then result tabs at the far edge. Each remembers its state per editor tab, and your last choice becomes the default for new tabs. The Result Tabs toggle is hidden when [Settings](settings.md#general-tab) is set to show result tabs on a horizontal bar instead. See [Result Tabs](results-grid.md#where-the-tabs-appear).
+The Result Tabs toggle opens a panel docked to the right of the editor text. It remembers its state per editor tab, and your last choice becomes the default for new tabs. [Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in a panel here. The Result Tabs toggle is hidden when [Settings](settings.md#general-tab) is set to show result tabs on a horizontal bar instead. See [Result Tabs](results-grid.md#where-the-tabs-appear).
 
 ## Syntax Highlighting
 
@@ -78,7 +78,7 @@ Pharos supports multiple editor tabs. The **+** button at the right of the tab b
 | Reopen Closed Tab | Cmd+Shift+T |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 
-Double-click a tab to rename it. Each tab keeps its own SQL text, connection, variables, and results. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
+Double-click a tab to rename it. Each tab keeps its own SQL text, connection, and results; [query variables](query-variables.md) are shared by every tab. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
 
 ## Windows
 

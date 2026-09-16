@@ -18,7 +18,7 @@ nav_order: 13
 
 ## Overview
 
-The **Query Library** is the first navigator of the sidebar (the folder icon of the navigator selector in the window toolbar; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
+The **Query Library** is the first navigator of the sidebar (the folder icon of the navigator selector in the window toolbar; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries. `{{name}}` placeholders stay in the saved SQL and are filled from the app-wide [query variables](query-variables.md) whenever the query is run, copied, shared or exported.
 
 ## An Empty Library
 
@@ -30,7 +30,7 @@ Before you have saved anything, the panel shows **No Saved Queries** — "Save a
 - **Save As…** in the editor toolbar's Save dropdown always opens the save sheet, creating a new saved query from the current tab.
 - Saving with a name that already exists offers **Replace All / Keep Both / Cancel**.
 
-Query variables are saved along with the SQL, so a parameterized query reopens with its variables and values intact.
+`{{name}}` placeholders are saved as written. Their values are not stored with the query: they come from the app-wide [Variables](query-variables.md) list, so the same saved query can be run against several databases with one set of values.
 
 ## Organization
 

@@ -39,10 +39,10 @@ struct QueryVariable: Identifiable, Codable, Equatable {
     }
 
     /// Decoding is written by hand for one reason: an unrecognised `type` must not
-    /// throw. These arrive from `saved_queries.variables`, and
-    /// `SavedQueryVariables.decode` swallows errors and returns `[]` — so a single
-    /// stale type string would silently drop every variable attached to that saved
-    /// query, not just the one it appeared on.
+    /// throw. These arrive from the `query_variables` table through
+    /// `PharosCore.loadQueryVariables()`, which decodes the whole array at once —
+    /// so a single stale type string would fail the load and leave the app-wide
+    /// list empty, not just the one variable it appeared on.
     ///
     /// `"null"` is the one such string that exists in the wild: it was a variable
     /// type before `Bool` gained a `NULL` value. It maps to a `Literal` holding

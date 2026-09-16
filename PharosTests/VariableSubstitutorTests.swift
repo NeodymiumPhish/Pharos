@@ -131,9 +131,10 @@ func runTests() {
     expectTrue(VariableType.allCases.count == 4, "four variable types remain")
     expectTrue(VariableType(rawValue: "null") == nil, "there is no null variable type")
 
-    // Legacy saved queries may carry `"type": "null"`. Decoding must migrate it to
-    // a Literal holding NULL — identical rendering — rather than throw, because
-    // SavedQueryVariables.decode swallows errors and would drop the whole array.
+    // A stored variable may carry `"type": "null"` from an old build. Decoding
+    // must migrate it to a Literal holding NULL — identical rendering — rather
+    // than throw, because the store decodes the whole array at once and one
+    // bad type would leave the app-wide list empty.
     let legacyJSON = #"[{"id":"3F2504E0-4F89-11D3-9A0C-0305E82C3301","name":"n","value":"ignored","type":"null"}]"#
     if let data = legacyJSON.data(using: .utf8),
        let migrated = try? JSONDecoder().decode([QueryVariable].self, from: data),

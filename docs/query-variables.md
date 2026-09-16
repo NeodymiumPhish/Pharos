@@ -18,7 +18,7 @@ nav_order: 6
 
 ## Overview
 
-Query variables let you parameterize SQL with `{{name}}` placeholders and fill in values from a panel beside the editor — change the value and re-run instead of editing the query text. Variables are saved along with [saved queries](saved-queries.md), so a parameterized query stays reusable.
+Query variables let you parameterize SQL with `{{name}}` placeholders and fill in values from the sidebar — change the value and re-run instead of editing the query text. There is **one list of variables for the whole app**: every window, every tab and every connection resolves its placeholders against the same list, so a value you enter once (a target IP, a date range, a row limit) is available to every query you run, on any database, until you change it. The list is saved locally and comes back on the next launch.
 
 ## Syntax
 
@@ -33,16 +33,18 @@ LIMIT {{max_rows}};
 
 Variable names are identifiers (letters, digits, underscores; not starting with a digit), and whitespace inside the braces is tolerated (`{{ name }}`). In the editor, defined variables are highlighted indigo and undefined ones red.
 
-## The Variables Panel
+## The Variables Navigator
 
-Click the **braces button** in the group at the right of the editor toolbar to toggle the **Variables** panel, docked to the right of the editor text. It's open by default for a new tab. When the [Result Tabs](results-grid.md#where-the-tabs-appear) panel is open too, it sits further right and the Variables panel keeps the place next to the editor.
+Variables live in the sidebar, as the **Variables** navigator — the second icon (braces) of the grouped navigator selector in the window toolbar, between Query Library and Results History; **View > Navigators > Variables**, **Cmd+Opt+2**. Pressing the icon that is already selected hides the sidebar; pressing it again brings it back.
 
-The panel is a two-level list and detail, similar to Settings on iOS:
+The navigator is a two-level list and detail, similar to Settings on iOS:
 
-- The **list** shows every variable as a read-only row: `{{name}}`, its type, and a preview of its value. A row with a value that would break the query (e.g., an empty Literal, or an invalid Number/Bool) shows a warning badge. Click **+** to add a variable, or a row to drill in and edit it. Right-click a row for a **Delete** option that doesn't require drilling in.
+- The **list** shows every variable as a read-only row: `{{name}}`, its type, and a preview of its value. A row with a value that would break the query (e.g., an empty Literal, or an invalid Number/Bool) shows a warning badge — but only when the active editor tab actually references that name; an unreferenced variable is never flagged. Click a row to drill in and edit it. Right-click a row for a **Delete** option that doesn't require drilling in.
 - The **detail** level, reached by clicking a row, is where you actually edit: the name, a **type** popup, and the value. Editing the value happens in a multi-line editor with its own line-number gutter, matching the SQL editor — useful for a comma- or newline-separated list of IDs. A **Back** chevron (or Escape) returns to the list.
 
-The panel is per-tab (each query tab has its own variables and panel visibility) and can be resized by dragging its divider.
+To add a variable, open the **+** pull-down beside the sidebar's filter field and choose **New Variable**; the new row opens at the detail level with its name field focused. The **Filter** field along the bottom of the sidebar narrows the list to rows whose name **or value** contains the text (case-insensitive), so you can find a variable by the value you remember typing into it.
+
+Because the list is shared, an edit made in one window appears at once in every other window's sidebar, and every editor's highlighting follows it.
 
 ## Types and Substitution
 
@@ -55,7 +57,7 @@ Four types, chosen from the detail level's type popup. When you run the query, e
 | Number | Validated as numeric, inserted bare | `42.5` → `42.5` |
 | Bool | One of three values — `True`, `False`, or `NULL`, chosen from a segmented control rather than typed — normalized to lowercase `true`/`false` or the SQL keyword `NULL` | `False` → `false` |
 
-Substitution happens at execution time — the editor text always keeps the `{{token}}` form. It is also applied when exporting a query as a SQL file and when copying a saved query's SQL.
+Substitution happens at execution time — the editor text always keeps the `{{token}}` form. It is also applied to **EXPLAIN**, when exporting a query as a SQL file, and when copying or sharing a saved query's SQL.
 
 ## Duplicate Names
 
@@ -64,15 +66,15 @@ Two variables can't share a name. If you type a name that another variable alrea
 An empty name never collides, so adding several variables and naming them one at a time is unaffected.
 
 {: .note }
-A duplicate pair can still arrive from a saved query created before this rule existed. In that case the earlier of the two rows is shown dimmed in the list ("not used — redefined below") and inert in the detail level, since `render` always resolves a duplicate name to its last definition — but you still have to rename it to leave its detail level, since the rule applies to every edit going forward.
+If a duplicate pair does exist in the list, the earlier of the two rows is shown dimmed ("not used — redefined below") and inert in the detail level, since substitution always resolves a duplicate name to its last definition. A filter that hides the later twin does not change this: the visible row stays dimmed.
 
 ## Validation
 
-If any placeholder is undefined, or a typed value is invalid (e.g., a non-numeric Number), the query does **not** run: an error toast lists the problems and the Variables panel opens automatically so you can fix them.
+If any placeholder is undefined, or a typed value is invalid (e.g., a non-numeric Number), the query does **not** run: an error toast lists the problems and the sidebar opens on the Variables navigator so you can fix them.
 
 {: .tip }
 Use the **Literal** type for anything that isn't a quoted value — table names, column lists, or whole SQL fragments. Use **Text** when you want proper string quoting handled for you.
 
 ## Persistence
 
-Variables are stored with the tab's saved query, so reopening a saved query restores its variables and their last values. Saving (**Cmd+S**) keeps the placeholders intact; only exports render them.
+The variable list is stored in Pharos's local database and restored, in order, at the next launch. Saving a query (**Cmd+S**) keeps the placeholders intact and stores no values with it: a [saved query](saved-queries.md) is rendered against whatever the app-wide list holds when you copy, share, export or run it.

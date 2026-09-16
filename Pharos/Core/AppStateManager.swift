@@ -460,7 +460,6 @@ final class AppStateManager: ObservableObject {
     func workspaceUpsertPayload(for tab: QueryTab, workspaceId: String) -> WorkspaceUpsert? {
         guard let connId = tab.connectionId else { return nil }
         let connName = connections.first { $0.id == connId }?.name ?? connId
-        let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
         return WorkspaceUpsert(
             id: workspaceId,
             name: nil,
@@ -468,7 +467,9 @@ final class AppStateManager: ObservableObject {
             connectionId: connId,
             connectionName: connName,
             editorText: tab.sql,
-            variablesJson: varsJson,
+            // Legacy column: variables are app-wide now (`QueryVariableStore`),
+            // so every snapshot writes an empty list and nothing reads it back.
+            variablesJson: "[]",
             cursorPosition: tab.cursorPosition
         )
     }
@@ -521,10 +522,6 @@ final class AppStateManager: ObservableObject {
         guard !sessions.isEmpty else { return }
         let windows = sessions.enumerated().map { windowIndex, session -> SessionWindow in
             let saved = session.tabs.enumerated().map { idx, tab -> SessionTab in
-                // Same encoder the workspace snapshot uses, so the two copies of
-                // a tab's variables are byte-identical and decode the same way
-                // back.
-                let varsJson = (try? String(decoding: JSONEncoder.pharos.encode(tab.variables), as: UTF8.self)) ?? "[]"
                 return SessionTab(
                     tabIndex: idx,
                     workspaceId: tab.workspaceId,
@@ -534,7 +531,8 @@ final class AppStateManager: ObservableObject {
                     schemaName: tab.schemaName,
                     sql: tab.sql,
                     cursorPosition: tab.cursorPosition,
-                    variablesJson: varsJson,
+                    // Legacy field, kept for the wire shape; never read back.
+                    variablesJson: nil,
                     isActive: tab.id == session.activeTabId
                 )
             }
@@ -657,8 +655,8 @@ final class AppStateManager: ObservableObject {
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 40_000_000)
             guard let tab = session.tabs.first(where: { $0.workspaceId == workspaceId }) else { continue }
-            // The workspace row owns the editor text, variables and cursor. It
-            // does not store the schema, so that comes from the session.
+            // The workspace row owns the editor text and cursor. It does not
+            // store the schema, so that comes from the session.
             session.updateTab(id: tab.id) { $0.schemaName = saved.schemaName }
             return tab.id
         }
@@ -669,16 +667,12 @@ final class AppStateManager: ObservableObject {
     @discardableResult
     private func restoreDraftTab(_ saved: SessionTab, in session: WindowSession) -> QueryTab {
         let tab = session.createTab(sql: saved.sql, name: saved.name)
-        let variables: [QueryVariable] = saved.variablesJson.flatMap {
-            try? JSONDecoder.pharos.decode([QueryVariable].self, from: Data($0.utf8))
-        } ?? []
         // The connection is recorded, not dialled: restoring must never open a
         // database connection the user did not ask for.
         session.updateTab(id: tab.id) {
             $0.connectionId = saved.connectionId
             $0.schemaName = saved.schemaName
             $0.cursorPosition = saved.cursorPosition
-            $0.variables = variables
             $0.isDirty = false
         }
         return tab

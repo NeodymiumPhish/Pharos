@@ -13,6 +13,8 @@ struct WorkspaceUpsert: Codable {
     var connectionId: String
     var connectionName: String
     var editorText: String
+    /// LEGACY: always `"[]"` now. Variables are app-wide (`QueryVariableStore`),
+    /// not per workspace; the Rust struct still has the column.
     var variablesJson: String
     var cursorPosition: Int?
 }
@@ -63,6 +65,7 @@ struct WorkspaceDetail: Codable {
     let connectionId: String
     let connectionName: String
     let editorText: String
+    /// LEGACY: never read. See `WorkspaceUpsert.variablesJson`.
     let variablesJson: String
     let cursorPosition: Int?
     let results: [WorkspaceResultMeta]

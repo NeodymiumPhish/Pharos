@@ -36,12 +36,14 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         super.viewDidLoad()
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
-        // 240, not 200: the navigator group lives in the toolbar's sidebar
-        // region now, which runs from the traffic lights to the tracking
-        // separator. Measured live, three expanded segments need ~130pt there
-        // and the traffic lights take the first ~92pt. At 200 the toolbar sends
-        // the whole group to the overflow menu.
-        sidebarItem.minimumThickness = 240
+        // 280, not 200: the navigator group lives in the toolbar's sidebar
+        // region, which runs from the traffic lights to the tracking
+        // separator. Measured live, three expanded segments needed ~130pt
+        // there and the traffic lights take the first ~92pt, so 240 held
+        // three. With the fourth (Variables) segment, 240 sends the whole
+        // group — and the sidebar toggle — to the overflow menu (measured
+        // 2026-09-16); 280 holds all four.
+        sidebarItem.minimumThickness = 280
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
         // Just one step above the content's holding priority — enough to make
@@ -171,6 +173,13 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     /// closed means "show me that list", never "do nothing".
     @objc func menuShowNavigator(_ sender: NSMenuItem) {
         guard let navigator = Navigator(rawValue: sender.tag) else { return }
+        revealNavigator(navigator)
+    }
+
+    /// Show the sidebar if it is hidden, then swap it to `navigator`. The
+    /// content pane uses it to bring the Variables list forward when a run
+    /// fails on a `{{token}}` that has no value.
+    func revealNavigator(_ navigator: Navigator) {
         revealSidebar()
         sidebarVC.showNavigator(navigator)
     }

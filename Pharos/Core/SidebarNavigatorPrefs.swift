@@ -5,7 +5,11 @@ import Foundation
 /// was last reading, not always on the Query Library.
 enum SidebarNavigatorPrefs {
 
-    private static let lastNavigatorKey = "SidebarLastNavigator"
+    /// "2", not the original key: the Variables navigator was inserted at raw
+    /// value 1, so a stored 1 from an earlier build (Results History) would
+    /// now read as Variables. A fresh key makes every old value absent, and an
+    /// absent value is the Library — the same first launch every user had.
+    private static let lastNavigatorKey = "SidebarLastNavigator2"
 
     /// Injectable so the suite can round-trip through its own suite domain
     /// instead of the user's defaults.

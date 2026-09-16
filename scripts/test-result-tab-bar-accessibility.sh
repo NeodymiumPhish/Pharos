@@ -22,7 +22,6 @@ swiftc -o /tmp/result-tab-bar-accessibility-tests \
   Pharos/Core/HistoryRowText.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/ResultTabsPanelPrefs.swift \
-  Pharos/Core/VariablesPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Models/PendingCellEdits.swift \
   Pharos/Models/ResultTab.swift \

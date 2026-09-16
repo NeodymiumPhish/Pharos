@@ -27,7 +27,6 @@ class SaveQuerySheet: NSViewController {
 
     private let initialName: String
     private let sql: String
-    private let variables: [QueryVariable]
     private var existingQueries: [SavedQuery] = []
     private var onSave: ((SaveQueryAction) -> Void)?
 
@@ -46,10 +45,9 @@ class SaveQuerySheet: NSViewController {
     private var suggestionTask: Task<Void, Never>?
     private var nameChangeObserver: NSObjectProtocol?
 
-    init(tabName: String, sql: String, variables: [QueryVariable], onSave: @escaping (SaveQueryAction) -> Void) {
+    init(tabName: String, sql: String, onSave: @escaping (SaveQueryAction) -> Void) {
         self.initialName = tabName
         self.sql = sql
-        self.variables = variables
         self.onSave = onSave
         super.init(nibName: nil, bundle: nil)
     }
@@ -351,7 +349,7 @@ class SaveQuerySheet: NSViewController {
 
     private func replaceQuery(duplicate: SavedQuery, name: String, folder: String?) {
         do {
-            let update = UpdateSavedQuery(id: duplicate.id, name: name, folder: folder, sql: sql, variables: variables.toSavedJSON())
+            let update = UpdateSavedQuery(id: duplicate.id, name: name, folder: folder, sql: sql, variables: nil)
             let updated = try PharosCore.updateSavedQuery(update)
             onSave?(.replaced(updated))
             dismiss(nil)
@@ -366,7 +364,7 @@ class SaveQuerySheet: NSViewController {
     }
 
     private func createNewQuery(name: String, folder: String?) {
-        let create = CreateSavedQuery(name: name, folder: folder, sql: sql, connectionId: nil, variables: variables.toSavedJSON())
+        let create = CreateSavedQuery(name: name, folder: folder, sql: sql, connectionId: nil, variables: nil)
         do {
             let saved = try PharosCore.createSavedQuery(create)
             onSave?(.created(saved))

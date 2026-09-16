@@ -16,7 +16,6 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/window-session-tests \
   Pharos/Core/WindowSession.swift \
   Pharos/Core/ResultTabsPanelPrefs.swift \
-  Pharos/Core/VariablesPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Core/CountedNounText.swift \
   Pharos/Core/HistoryRowText.swift \

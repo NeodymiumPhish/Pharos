@@ -2,7 +2,6 @@ import Foundation
 
 /// `UserDefaults`-backed preferences for the vertical result-tabs panel. Both
 /// keys live here so panel width and default visibility cannot drift apart.
-/// Mirrors `VariablesPanelPrefs`, which established the pattern.
 ///
 /// Width is app-wide. Visibility is per-tab (`QueryTab.resultTabsPanelVisible`);
 /// `visibleByDefault` is only the value a *new* tab starts from, rewritten

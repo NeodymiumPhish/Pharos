@@ -110,32 +110,20 @@ final class ErrorBadgeButton: NSButton {
     /// would activate a duplicate set of constraints and move every view into a
     /// second stack.
     ///
-    /// `resultTabsToggle` defaults to nil for the tests, not for production:
-    /// `EditorPaneVC` — the only caller in the app — always passes one. Two
-    /// older cases in ErrorBadgeButtonTests predate the toggle and assert the
-    /// two-button layout, so the default keeps them building unchanged. Removing
-    /// it would only mean editing those two calls.
+    /// Two buttons: the error badge, then the result-tabs toggle. (The
+    /// variables toggle that used to sit between them is gone — variables live
+    /// in the sidebar's Variables navigator now.)
     static func makeToolbarTrailingGroup(
-        errorButton: ErrorBadgeButton, variablesToggle: NSButton,
-        resultTabsToggle: NSButton? = nil
+        errorButton: ErrorBadgeButton, resultTabsToggle: NSButton
     ) -> NSStackView {
-        variablesToggle.translatesAutoresizingMaskIntoConstraints = false
+        resultTabsToggle.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            variablesToggle.widthAnchor.constraint(equalToConstant: 28),
-            variablesToggle.heightAnchor.constraint(equalToConstant: 28),
+            resultTabsToggle.widthAnchor.constraint(equalToConstant: 28),
+            resultTabsToggle.heightAnchor.constraint(equalToConstant: 28),
             errorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
             errorButton.heightAnchor.constraint(equalToConstant: 28),
         ])
-        var views: [NSView] = [errorButton, variablesToggle]
-        if let resultTabsToggle {
-            resultTabsToggle.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                resultTabsToggle.widthAnchor.constraint(equalToConstant: 28),
-                resultTabsToggle.heightAnchor.constraint(equalToConstant: 28),
-            ])
-            views.append(resultTabsToggle)
-        }
-        let stack = NSStackView(views: views)
+        let stack = NSStackView(views: [errorButton, resultTabsToggle])
         stack.orientation = .horizontal
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false

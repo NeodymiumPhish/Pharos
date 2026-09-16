@@ -58,7 +58,7 @@ Building from source requires Xcode and a Rust toolchain installed via [rustup](
 
 The Pharos window has three panes:
 
-- **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with three navigators, switched by the grouped selector in the window toolbar above it, level with the window buttons (or from **View > Navigators**, **Cmd+Opt+1/2/3**). Pressing the icon that is already selected hides the sidebar; pressing it again brings it back. The three navigators are: **Query Library** (saved queries), **Results History** (workspaces and past queries), and **Database Navigation** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. In the Query Library a **+** pull-down sits beside the field, holding **New Query** and **New Folder**.
+- **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with four navigators, switched by the grouped selector in the window toolbar above it, level with the window buttons (or from **View > Navigators**, **Cmd+Opt+1/2/3/4**). Pressing the icon that is already selected hides the sidebar; pressing it again brings it back. The four navigators are: **Query Library** (saved queries), **Variables** (the app-wide `{{name}}` values), **Results History** (workspaces and past queries), and **Database Navigator** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. A **+** pull-down sits beside the field in the Query Library (**New Query**, **New Folder**) and in Variables (**New Variable**).
 - **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid or chart) and its action bar.
 - **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 
@@ -78,7 +78,7 @@ Connections are chosen **per editor tab** from the connection pull-down in the w
 4. Click **Test Connection** to verify — on success, the latency is shown and the **Default Schema** menu is populated
 5. Click **Save**
 
-Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigation panel populates with your schema, and you're ready to run queries.
+Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigator panel populates with your schema, and you're ready to run queries.
 
 ## Running Your First Query
 

@@ -34,10 +34,10 @@ Each executed statement gets its own result tab, labeled with the statement's li
 
 Two layouts are available, chosen by **Show result tabs in a vertical panel, not a horizontal bar** in [Settings > General](settings.md#general-tab). Only one is ever shown.
 
-**Vertical panel (default).** Result tabs list down a panel at the right edge of the editor, to the right of the [Query Variables](query-variables.md) panel. Each row shows the colored dot, the label, and the result's size as columns×rows. This is the layout to prefer when you run many statements in one tab: a long list scrolls in place instead of pushing tabs off the edge of the window.
+**Vertical panel (default).** Result tabs list down a panel at the right edge of the editor. Each row shows the colored dot, the label, and the result's size as columns×rows. This is the layout to prefer when you run many statements in one tab: a long list scrolls in place instead of pushing tabs off the edge of the window.
 
-- Toggle the panel per editor tab with the **Result Tabs** button at the right of the editor toolbar, next to the Query Variables toggle. Your last choice becomes the default for new tabs.
-- Drag the panel's left edge to resize it. The width survives a relaunch. The panel keeps the width you chose while the editor has room to give, down to about 200pt of editor. Below that the panel gives way — the result tabs panel first, then the Query Variables panel, and neither below its own minimum width. Your chosen widths are never overwritten, so they come back when the window widens.
+- Toggle the panel per editor tab with the **Result Tabs** button at the right of the editor toolbar. Your last choice becomes the default for new tabs.
+- Drag the panel's left edge to resize it. The width survives a relaunch. The panel keeps the width you chose while the editor has room to give, down to about 200pt of editor. Below that the panel gives way, but never below its own minimum width. Your chosen width is never overwritten, so it comes back when the window widens.
 - Collapsing the panel hides the result tabs. The grid keeps showing the current result, and a new query still shows its own result.
 
 **Horizontal bar.** Result tabs run along a bar between the action bar and the results grid. With many results the bar scrolls sideways.

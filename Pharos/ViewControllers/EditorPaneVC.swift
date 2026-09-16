@@ -18,9 +18,13 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
 }
 
-/// The editor area: the tab bar, the SQL editor and its toolbar, the
-/// variables panel and the vertical result-tabs panel. It shows
-/// `AppStateManager.activeTab`.
+/// The editor area: the tab bar, the SQL editor and its toolbar, and the
+/// vertical result-tabs panel. It shows `AppStateManager.activeTab`.
+///
+/// Query variables are not here any more. They are app-wide
+/// (`QueryVariableStore`) and edited in the sidebar's Variables navigator;
+/// this pane only reports which `{{name}}` tokens the editor text references
+/// (`WindowSession.referencedVariableNames`) and highlights the defined names.
 class EditorPaneVC: NSViewController {
 
     let editorVC: QueryEditorVC
@@ -44,35 +48,23 @@ class EditorPaneVC: NSViewController {
     private let schemaSpinner = NSProgressIndicator()
     private var schemaPopover: NSPopover?
 
-    // Query variables
-    private let variablesToggle = NSButton()
     /// Per-tab failure indicator. Hidden until the pane's active tab has a
     /// failure in its log.
     let errorButton = ErrorBadgeButton()
-    private let variablesPanelVC = QueryVariablesPanelVC()
-    private let variablesDivider = ResizeDividerView()
 
-    /// Shared by both side-panel dividers, which are the same width by design.
-    /// One constant genuinely shared says that; two that must be kept equal
-    /// would only look accidental.
+    /// Width of the result-tabs panel's resize divider.
     private let panelDividerWidth: CGFloat = 5
 
     /// Smallest editor `viewDidLayout` will leave before it starts reducing the
-    /// panels. The panels render at the widths the user chose and the editor
-    /// absorbs the rest, until the editor reaches this floor.
-    ///
-    /// When even this floor plus the chosen widths will not fit, the panels are
-    /// reduced in a fixed order — results first, then variables, each no
-    /// further than its own `minWidth` — and only then does the editor take
-    /// what is left. Fixed order, never proportional: reducing both panels
-    /// proportionally made the results panel's displayed width a function of
-    /// the VARIABLES pref, so 10pt of pointer travel moved the divider 4-5pt
-    /// and dragging one divider moved the other panel.
+    /// result-tabs panel. The panel renders at the width the user chose and the
+    /// editor absorbs the rest, until the editor reaches this floor; only then
+    /// is the panel reduced, and no further than its own `minWidth`. Display
+    /// only: the pref is never written from here.
     ///
     /// The floor's value is not what makes a drag exact — `widthForDrag` is. By
-    /// stopping a widen at the ceiling, it keeps the prefs inside what can be
-    /// displayed, so the ordered reduction above never engages mid-drag whatever
-    /// this floor is set to.
+    /// stopping a widen at the ceiling, it keeps the pref inside what can be
+    /// displayed, so the reduction never engages mid-drag whatever this floor
+    /// is set to.
     private let minEditorWidth: CGFloat = 200
 
     // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
@@ -87,35 +79,14 @@ class EditorPaneVC: NSViewController {
     private var referencedNamesScanTimer: Timer?
     private let referencedNamesScanDelay: TimeInterval = 0.15
 
-    /// Panel width when the current divider drag began. The width is re-derived
-    /// from this on every drag event rather than nudged, so overshooting the
-    /// min/max is not absorbed — see `ResizeDividerView`.
-    ///
-    /// This snapshots the **pref**, never the width last displayed. The two
-    /// differ whenever the narrow-window shrink in `viewDidLayout` is active,
-    /// and a drag assigns its result back to the pref — so anchoring on the
-    /// displayed width mixed the two units and made the drag move the panel the
-    /// WRONG WAY. Measured at pane 700 with prefs 300/400 (shrink active,
-    /// results displayed at 280): the first widening event collapsed the pref
-    /// from 400 to 285, the shrink re-divided the budget between both panels,
-    /// and the results panel fell to 238 — 42pt NARROWER — while the user
-    /// dragged to widen it. Each fresh drag re-anchored on the newly shrunk
-    /// width, ratcheting the pref down (400 → 320 → 272 → 213) and growing the
-    /// variables panel to absorb it.
-    ///
-    /// Anchoring on the pref costs a cosmetic mismatch, and that is deliberate:
-    /// while shrunk, the divider moves a fraction of the pointer travel (5pt of
-    /// travel moved the panel 1pt in the same measurement), and the committed
-    /// pref can be a width the user did not see until the window widens. A
-    /// divider that lags the pointer is a papercut; a divider that moves the
-    /// wrong way is the bug that was reported. Do not "fix" this back.
-    private var variablesPanelWidthAtDragStart: CGFloat = 0
-
-    private var isVariablesPanelVisible: Bool {
-        guard let tabId = lastActiveTabId,
-              let tab = session.tabs.first(where: { $0.id == tabId }) else { return false }
-        return tab.variablesPanelVisible
-    }
+    // `resultTabsPanelWidthAtDragStart` above snapshots the **pref**, never the
+    // width last displayed. The two differ whenever the narrow-window shrink in
+    // `viewDidLayout` is active, and a drag assigns its result back to the pref
+    // — so anchoring on the displayed width mixed the two units and made the
+    // drag move the panel the WRONG WAY (measured, when two panels shared the
+    // budget: a widen collapsed the pref 400 → 285 and the panel fell 42pt).
+    // Anchoring on the pref costs a cosmetic lag while shrunk; a divider that
+    // moves the wrong way is the bug that was reported. Do not "fix" this back.
 
     private var isResultTabsPanelVisible: Bool {
         guard stateManager.settings.verticalResultTabs,
@@ -196,7 +167,8 @@ class EditorPaneVC: NSViewController {
             guard let self else { return }
             self.delegate?.editorPaneDidEditText(self)
             // Adding or removing a `{{token}}` changes which variables are
-            // referenced, and therefore which of them are flagged in the panel.
+            // referenced, and therefore which rows the sidebar's Variables
+            // navigator flags.
             self.scheduleReferencedNamesScan()
         }
         editorVC.textView.onListPasteDetected = { [weak self] in
@@ -207,17 +179,12 @@ class EditorPaneVC: NSViewController {
         }
         addChild(editorVC)
 
-        addChild(variablesPanelVC)
-        variablesPanelVC.onChange = { [weak self] vars in
-            self?.variablesDidChange(vars)
-        }
-        variablesDivider.onDragBegan = { [weak self] in
-            guard let self else { return }
-            self.variablesPanelWidthAtDragStart = VariablesPanelPrefs.width
-        }
-        variablesDivider.onDrag = { [weak self] offset in
-            self?.resizeVariablesPanel(byOffset: offset)
-        }
+        // Highlight the app-wide variable names in the editor, and follow the
+        // store: an edit in any window's sidebar recolours every editor.
+        editorVC.setVariableNames(QueryVariableStore.shared.definedNames)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(queryVariablesDidChange(_:)),
+            name: QueryVariableStore.didChange, object: nil)
 
         addChild(resultTabsPanelVC)
         resultTabsPanelVC.onSelectRow = { [weak self] id in
@@ -247,12 +214,8 @@ class EditorPaneVC: NSViewController {
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(editorVC.view)
-        container.addSubview(variablesPanelVC.view)
-        container.addSubview(variablesDivider)
         container.addSubview(resultTabsPanelVC.view)
         container.addSubview(resultTabsDivider)
-        variablesPanelVC.view.isHidden = true
-        variablesDivider.isHidden = true
         resultTabsPanelVC.view.isHidden = true
         resultTabsDivider.isHidden = true
 
@@ -367,50 +330,29 @@ class EditorPaneVC: NSViewController {
     override func viewDidLayout() {
         super.viewDidLayout()
         // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
-        // Horizontal order: editor | divider | variables | divider | result tabs.
+        // Horizontal order: editor | divider | result tabs.
         let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
-        let showVariables = isVariablesPanelVisible
         let showResults = isResultTabsPanelVisible
 
-        var variablesW = showVariables ? VariablesPanelPrefs.width : 0
         var resultsW = showResults ? ResultTabsPanelPrefs.width : 0
-        let dividersW = (showVariables ? panelDividerWidth : 0)
-            + (showResults ? panelDividerWidth : 0)
+        let dividersW = showResults ? panelDividerWidth : 0
 
-        // The panels render at the widths the user chose; the editor absorbs
-        // what is left. Only when the editor would fall under its floor are the
-        // panels reduced, in a FIXED order and never below their own minimums —
-        // results first, then variables. Display only: prefs are never written
-        // from here, so a temporarily narrow window does not destroy them.
-        //
-        // The order matters more than it looks. Reducing both panels
-        // proportionally, as this did, made the results panel's displayed width
-        // depend on the VARIABLES pref, so dragging the results divider moved
-        // the variables panel and tracked the pointer at less than half speed.
-        var editorW = view.bounds.width - variablesW - resultsW - dividersW
+        // The panel renders at the width the user chose; the editor absorbs
+        // what is left. Only when the editor would fall under its floor is the
+        // panel reduced, and never below its own minimum. Display only: the
+        // pref is never written from here, so a temporarily narrow window does
+        // not destroy it.
+        var editorW = view.bounds.width - resultsW - dividersW
         if editorW < minEditorWidth {
-            var deficit = minEditorWidth - editorW
-            func take(_ width: inout CGFloat, downTo floor: CGFloat) {
-                let give = min(deficit, max(0, width - floor))
-                width -= give
-                deficit -= give
-            }
-            take(&resultsW, downTo: showResults ? ResultTabsPanelPrefs.minWidth : 0)
-            take(&variablesW, downTo: showVariables ? VariablesPanelPrefs.minWidth : 0)
-            editorW = view.bounds.width - variablesW - resultsW - dividersW
+            let deficit = minEditorWidth - editorW
+            let floor = showResults ? ResultTabsPanelPrefs.minWidth : 0
+            resultsW -= min(deficit, max(0, resultsW - floor))
+            editorW = view.bounds.width - resultsW - dividersW
         }
         editorW = max(0, editorW)
         editorVC.view.frame = NSRect(x: 0, y: 0, width: editorW, height: editorHeight)
 
         var x = editorW
-        variablesDivider.isHidden = !showVariables
-        variablesPanelVC.view.isHidden = !showVariables
-        if showVariables {
-            variablesDivider.frame = NSRect(x: x, y: 0, width: panelDividerWidth, height: editorHeight)
-            x += panelDividerWidth
-            variablesPanelVC.view.frame = NSRect(x: x, y: 0, width: variablesW, height: editorHeight)
-            x += variablesW
-        }
         resultTabsDivider.isHidden = !showResults
         resultTabsPanelVC.view.isHidden = !showResults
         if showResults {
@@ -430,15 +372,6 @@ class EditorPaneVC: NSViewController {
         // Detect active tab change (the publisher also fires on a re-select).
         if tabId != lastActiveTabId {
             let oldTabId = lastActiveTabId
-            // Settle any pending variable-name edit in the OUTGOING tab's
-            // panel *before* `lastActiveTabId` moves on to the new tab. This
-            // has to happen here, not inside `setVariables` (called below,
-            // via `tabChanged` -> `syncVariablesPanel`): by the time that
-            // runs, `lastActiveTabId` already points at the incoming tab, so
-            // a settle triggered from in there would have `variablesDidChange`
-            // write the outgoing tab's rename into the incoming tab's stored
-            // variables instead — see `QueryVariablesPanelVC.settlePendingEdit`.
-            variablesPanelVC.settlePendingEdit()
             lastActiveTabId = tabId
             tabChanged(from: oldTabId, to: tabId)
             delegate?.editorPane(self, didChangeActiveTab: tabId)
@@ -502,7 +435,10 @@ class EditorPaneVC: NSViewController {
         // and the popups would stay stuck on the previous tab's values. Rebuild
         // them explicitly here.
         updateSchemaPopupTitle()
-        syncVariablesPanel()
+        // The incoming tab's text references a different token set; the
+        // sidebar must not wait out the typing debounce to learn it.
+        referencedNamesScanTimer?.invalidate()
+        publishReferencedNames()
         syncResultTabsPanel()
     }
 
@@ -556,14 +492,6 @@ class EditorPaneVC: NSViewController {
 
     func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
         editorVC.setSegmentColor(color, forSegmentIndex: index)
-    }
-
-    /// Ensure the variables panel is visible for the active tab (e.g. after a
-    /// variable error). Updates state and relayouts directly.
-    func revealVariablesPanel() {
-        guard let tabId = lastActiveTabId else { return }
-        session.updateTab(id: tabId) { $0.variablesPanelVisible = true }
-        syncVariablesPanel()
     }
 
     func clearSegmentColors() {
@@ -700,18 +628,8 @@ class EditorPaneVC: NSViewController {
 
         editorToolbar.addSubview(toolbarStack)
 
-        // Variables panel toggle and the error badge, right-aligned as one group
-        // and not part of the leading stack. The error badge goes to the left of
-        // the toggle, so the toggle keeps the position it always had.
-        let varConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        variablesToggle.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: "Query Variables")?.withSymbolConfiguration(varConfig)
-        variablesToggle.bezelStyle = .recessed
-        variablesToggle.isBordered = false
-        variablesToggle.toolTip = "Query Variables"
-        variablesToggle.contentTintColor = .secondaryLabelColor
-        variablesToggle.target = self
-        variablesToggle.action = #selector(toggleVariablesPanel)
-
+        // The error badge and the result-tabs toggle, right-aligned as one
+        // group and not part of the leading stack.
         let resultTabsConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         resultTabsToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Result Tabs")?.withSymbolConfiguration(resultTabsConfig)
         resultTabsToggle.bezelStyle = .recessed
@@ -725,8 +643,7 @@ class EditorPaneVC: NSViewController {
         errorButton.action = #selector(showErrors)
 
         let trailingGroup = ErrorBadgeButton.makeToolbarTrailingGroup(
-            errorButton: errorButton, variablesToggle: variablesToggle,
-            resultTabsToggle: resultTabsToggle
+            errorButton: errorButton, resultTabsToggle: resultTabsToggle
         )
         editorToolbar.addSubview(trailingGroup)
 
@@ -750,18 +667,6 @@ class EditorPaneVC: NSViewController {
             trailingGroup.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
             trailingGroup.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
         ])
-    }
-
-    @objc private func toggleVariablesPanel() {
-        guard let tabId = lastActiveTabId else { return }
-        var nowVisible = false
-        session.updateTab(id: tabId) {
-            $0.variablesPanelVisible.toggle()
-            nowVisible = $0.variablesPanelVisible
-        }
-        // Remember the choice so new tabs inherit it.
-        VariablesPanelPrefs.visibleByDefault = nowVisible
-        syncVariablesPanel()
     }
 
     @objc private func toggleResultTabsPanel() {
@@ -792,25 +697,10 @@ class EditorPaneVC: NSViewController {
         delegate?.editorPaneDidRequestShowErrors(self)
     }
 
-    /// `offset` is how far the pointer has moved since the drag began; dragging
-    /// left (negative) widens the panel. Deriving the width from the drag-start
-    /// snapshot each time — rather than nudging the current width — is what keeps
-    /// the divider stuck to the cursor after an overshoot past the min or max.
-    private func resizeVariablesPanel(byOffset offset: CGFloat) {
-        VariablesPanelPrefs.width = widthForDrag(
-            requested: variablesPanelWidthAtDragStart - offset,
-            current: VariablesPanelPrefs.width,
-            ceiling: view.bounds.width - currentDividersWidth - minEditorWidth
-                - (isResultTabsPanelVisible ? ResultTabsPanelPrefs.width : 0)
-        )
-        view.needsLayout = true
-    }
-
-    /// Total width the visible dividers take, so a drag's ceiling is computed
-    /// from the same budget `viewDidLayout` divides.
+    /// Width the visible divider takes, so a drag's ceiling is computed from
+    /// the same budget `viewDidLayout` divides.
     private var currentDividersWidth: CGFloat {
-        (isVariablesPanelVisible ? panelDividerWidth : 0)
-            + (isResultTabsPanelVisible ? panelDividerWidth : 0)
+        isResultTabsPanelVisible ? panelDividerWidth : 0
     }
 
     /// Resolve one drag event into a width to store, holding two invariants:
@@ -832,61 +722,49 @@ class EditorPaneVC: NSViewController {
         return min(requested, max(current, ceiling))
     }
 
-    /// Same sign convention as resizeVariablesPanel: the panel sits to the
-    /// right of its divider, so dragging left (negative) widens it.
+    /// The panel sits to the right of its divider, so dragging left (negative)
+    /// widens it. Deriving the width from the drag-start snapshot each time —
+    /// rather than nudging the current width — is what keeps the divider stuck
+    /// to the cursor after an overshoot past the min or max.
     private func resizeResultTabsPanel(byOffset offset: CGFloat) {
         ResultTabsPanelPrefs.width = widthForDrag(
             requested: resultTabsPanelWidthAtDragStart - offset,
             current: ResultTabsPanelPrefs.width,
             ceiling: view.bounds.width - currentDividersWidth - minEditorWidth
-                - (isVariablesPanelVisible ? VariablesPanelPrefs.width : 0)
         )
         view.needsLayout = true
     }
 
-    private func variablesDidChange(_ vars: [QueryVariable]) {
-        guard let tabId = lastActiveTabId else { return }
-        session.updateTab(id: tabId) { $0.variables = vars }
-        editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
+    /// The app-wide variable list changed (this window's sidebar or another's):
+    /// recolour the `{{name}}` tokens the editor highlights.
+    @objc private func queryVariablesDidChange(_ note: Notification) {
+        editorVC.setVariableNames(QueryVariableStore.shared.definedNames)
     }
 
-    /// Re-scan the editor text for `{{token}}` references and push the result to
-    /// the panel, which uses it to decide the red warning state. Debounced.
+    /// Re-scan the editor text for `{{token}}` references and publish the
+    /// result on the window's session, where the sidebar's Variables navigator
+    /// reads it to decide the red warning state. Debounced.
     private func scheduleReferencedNamesScan() {
         referencedNamesScanTimer?.invalidate()
         referencedNamesScanTimer = Timer.scheduledTimer(
             withTimeInterval: referencedNamesScanDelay, repeats: false
         ) { [weak self] _ in
-            guard let self else { return }
-            self.variablesPanelVC.setReferencedNames(
-                VariableSubstitutor.referencedNames(in: self.editorVC.textView.string))
+            self?.publishReferencedNames()
         }
     }
 
-    /// Refresh the panel's data, visibility, toolbar tint, and editor highlighting
-    /// from the active tab. Call on toggle and on tab switch.
-    ///
-    /// This is the only path that updates the panel. `variables` and
-    /// `variablesPanelVisible` are deliberately absent from the `$tabs`
-    /// `removeDuplicates` whitelist above, so mutating them never republishes —
-    /// do not try to drive the panel from that sink.
-    private func syncVariablesPanel() {
-        let tab = lastActiveTabId.flatMap { id in session.tabs.first(where: { $0.id == id }) }
-        let vars = tab?.variables ?? []
-        let referenced = VariableSubstitutor.referencedNames(in: editorVC.textView.string)
-        variablesPanelVC.setVariables(vars, referenced: referenced)
-        editorVC.setVariableNames(Set(vars.map { $0.name }.filter { !$0.isEmpty }))
-        variablesToggle.contentTintColor = (tab?.variablesPanelVisible ?? false)
-            ? .controlAccentColor : .secondaryLabelColor
-        view.needsLayout = true
+    private func publishReferencedNames() {
+        let names = VariableSubstitutor.referencedNames(in: editorVC.textView.string)
+        if session.referencedVariableNames != names {
+            session.referencedVariableNames = names
+        }
     }
 
     /// Refresh the result-tabs toggle tint, its visibility (the button hides
     /// entirely while the setting selects the horizontal bar), and relayout.
     /// Driven imperatively — `resultTabsPanelVisible` is deliberately absent
-    /// from the `$tabs` `removeDuplicates` whitelist, same as the variables
-    /// panel fields. Called on toggle, on tab switch, and by
-    /// ContentViewController when the setting flips.
+    /// from the `$tabs` `removeDuplicates` whitelist. Called on toggle, on tab
+    /// switch, and by ContentViewController when the setting flips.
     func syncResultTabsPanel() {
         let tab = lastActiveTabId.flatMap { id in session.tabs.first(where: { $0.id == id }) }
         let verticalMode = stateManager.settings.verticalResultTabs

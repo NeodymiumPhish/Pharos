@@ -844,9 +844,105 @@ private func testEmptyNameButNonEmptyValueSurvivesTabSwitch() {
         "a variable with an empty name but a non-empty value survives a tab switch")
 }
 
+// MARK: - Sidebar host
+
+/// `showsListHeader = false` (the sidebar's setting) hides the title, count
+/// and "+" and pins the rows to the top of the list.
+private func testHiddenHeaderPinsRowsToTop() {
+    let (window, _, vc) = makeHostedPanel(width: 260)
+    defer { window.close() }
+    vc.showsListHeader = false
+    vc.setVariables(makeVariables(2), referenced: [])
+    vc.view.needsLayout = true
+    window.contentView?.layoutSubtreeIfNeeded()
+
+    let list = listView(in: vc)
+    let scroll = listScrollView(in: list)
+    expectTrue(scroll.frame.minY <= 0.5 && scroll.frame.maxY >= list.bounds.height - 0.5,
+               "with the header hidden the scroll view fills the list top to bottom (\(scroll.frame) in \(list.bounds))")
+    let visibleLabels = list.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+    expectTrue(visibleLabels.isEmpty, "no header labels are visible")
+    let visibleButtons = list.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+    expectTrue(visibleButtons.isEmpty, "the header's + is hidden")
+    expectTrue(!hasAmbiguousLayoutRecursively(vc.view), "no ambiguous layout with the header hidden")
+
+    // Turning it back on restores the header.
+    vc.showsListHeader = true
+    vc.view.needsLayout = true
+    window.contentView?.layoutSubtreeIfNeeded()
+    let labelsAgain = list.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+    expectTrue(!labelsAgain.isEmpty, "showsListHeader = true brings the header back")
+    expectTrue(listScrollView(in: list).frame.maxY < list.bounds.height - 10,
+               "with the header shown the scroll view starts below it")
+}
+
+/// A filter narrows the rows by name OR value, case-insensitively, while row
+/// STATES still come from the whole list: a duplicate the filter hides still
+/// shadows the twin the filter shows.
+private func testFilterMatchesNameAndValueAndHiddenTwinStillShadows() {
+    let (window, _, vc) = makeHostedPanel(width: 260)
+    defer { window.close() }
+    let vars = [
+        QueryVariable(name: "target_ip", value: "10.0.0.1", type: .text),
+        QueryVariable(name: "limit", value: "50", type: .number),
+        QueryVariable(name: "target_ip", value: "192.168.0.9", type: .text),  // the later twin wins
+        QueryVariable(name: "note", value: "an IP block", type: .literal),
+    ]
+    vc.setVariables(vars, referenced: ["target_ip"])
+    expectTrue(rowViews(in: listView(in: vc)).count == 4, "setup: four rows unfiltered")
+
+    vc.applyFilter("IP")
+    let rows = rowViews(in: listView(in: vc))
+    // Matches: target_ip (name) ×2, "an IP block" (value); not limit.
+    expectTrue(rows.count == 3, "filter 'IP' shows the two names and the one value match (\(rows.count))")
+    expectTrue(vc.variables.count == 4, "the filter hides rows, it does not remove variables")
+
+    // Hide the WINNING twin: filter by its value. The first twin stays visible
+    // and must still be marked as shadowed by the hidden one.
+    vc.applyFilter("10.0.0")
+    let shadowedRows = rowViews(in: listView(in: vc))
+    expectTrue(shadowedRows.count == 1, "filter by value shows exactly the one matching row")
+    let states = VariableSubstitutor.rowStates(in: vars, referenced: ["target_ip"])
+    expectTrue(states[vars[0].id]?.duplication == .shadowed,
+               "setup: the first twin is shadowed by the hidden later one")
+    expectTrue(shadowedRows.first?.toolTip?.contains("defined further down") == true,
+               "the visible twin is still drawn as shadowed by its hidden duplicate")
+
+    vc.clearFilter()
+    expectTrue(rowViews(in: listView(in: vc)).count == 4, "clearFilter shows every row again")
+
+    vc.applyFilter("zzz")
+    expectTrue(rowViews(in: listView(in: vc)).isEmpty, "a filter that matches nothing shows no rows")
+    let emptyLabel = allDescendants(of: listView(in: vc)).compactMap { $0 as? NSTextField }
+        .first { $0.stringValue.contains("match") }
+    expectTrue(emptyLabel != nil, "a no-match filter says so rather than showing the empty-list text")
+}
+
+/// The sidebar's filter bar adds through `addVariable()` from outside the
+/// panel; it must behave exactly like the list's own "+".
+private func testExternalAddVariableDrillsIn() {
+    let (window, _, vc) = makeHostedPanel(width: 260)
+    defer { window.close() }
+    vc.showsListHeader = false
+    vc.setVariables(makeVariables(1), referenced: [])
+    var changes = 0
+    vc.onChange = { _ in changes += 1 }
+
+    vc.addVariable()
+
+    expectTrue(vc.variables.count == 2, "addVariable appends one variable")
+    expectTrue(changes == 1, "addVariable reports the change once")
+    expectTrue(detailVC(in: vc) != nil, "addVariable drills into the new variable")
+    expectTrue(detailVC(in: vc)?.variable.id == vc.variables.last?.id, "the detail level shows the new variable")
+}
+
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
+
+    testHiddenHeaderPinsRowsToTop()
+    testFilterMatchesNameAndValueAndHiddenTwinStillShadows()
+    testExternalAddVariableDrillsIn()
 
     testStartsOnListLevelNoDetailChild()
     testDrillingInAddsDetailAndHidesList()
