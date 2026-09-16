@@ -103,6 +103,19 @@ enum DestructiveConfirmationText {
     /// multi-line variant: ordinary editor SQL is indented and multi-line, so
     /// its own newlines, tabs and leading whitespace are not disclosure
     /// targets — only genuinely hostile scalars are.
+    /// Keywords that destroy rows or objects, as opposed to the ones that only
+    /// write or re-permission. The confirmation is worded from this: calling an
+    /// `INSERT` a destructive query is both wrong and the kind of wrong that
+    /// teaches people to click through the sheet without reading it.
+    private static let destroying: Set<String> = ["DROP", "DELETE", "TRUNCATE"]
+
+    /// Title for the run confirmation.
+    static func destructiveQueryTitle(keywords: [String]) -> String {
+        keywords.contains(where: destroying.contains)
+            ? String(localized: "Run destructive query?")
+            : String(localized: "Run query that changes the database?")
+    }
+
     static func destructiveQueryMessage(keywords: [String], sql: String) -> String {
         let preview = sql.count > sqlPreviewMaxLength
             ? String(sql.prefix(sqlPreviewMaxLength)) + "…" : sql

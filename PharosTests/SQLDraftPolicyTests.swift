@@ -257,14 +257,32 @@ private func testDestructiveDrafts() {
 }
 
 private func testNotASelect() {
+    // Not a SELECT, and NOT in the scanner's keyword set either: the warning
+    // has to come from the leading keyword alone.
     for (sql, keyword) in [
-        ("UPDATE orders SET total = 0", "UPDATE"),
-        ("INSERT INTO orders (id) VALUES (1)", "INSERT"),
         ("CREATE TABLE t (id int)", "CREATE"),
+        ("VACUUM orders", "VACUUM"),
     ] {
         let review = SQLDraftPolicy.review(sql)
         expect(!review.isSelect, "\(keyword) is not a SELECT")
-        expect(!review.isDestructive, "\(keyword) is not destructive")
+        expect(!review.isDestructive, "\(keyword) is not scanned as destructive")
+        expect(review.needsConfirmation, "\(keyword) needs confirmation")
+        expect(review.warning?.contains(keyword) == true,
+               "the warning for \(keyword) names the keyword")
+    }
+
+    // Writes and permission changes ARE scanned, since 2026-09-16 — the gutter's
+    // run target is a full-width band now, and an accidental UPDATE is no easier
+    // to undo than an accidental DELETE.
+    for (sql, keyword) in [
+        ("UPDATE orders SET total = 0", "UPDATE"),
+        ("INSERT INTO orders (id) VALUES (1)", "INSERT"),
+        ("ALTER TABLE orders ADD COLUMN note text", "ALTER"),
+        ("GRANT SELECT ON orders TO analyst", "GRANT"),
+    ] {
+        let review = SQLDraftPolicy.review(sql)
+        expect(!review.isSelect, "\(keyword) is not a SELECT")
+        expect(review.isDestructive, "\(keyword) is scanned as destructive")
         expect(review.needsConfirmation, "\(keyword) needs confirmation")
         expect(review.warning?.contains(keyword) == true,
                "the warning for \(keyword) names the keyword")

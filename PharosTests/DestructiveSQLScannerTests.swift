@@ -37,6 +37,29 @@ func runTests() {
     expectKeywords("SELECT * FROM users", [], "plain SELECT")
     expectKeywords("", [], "empty input")
 
+    // MARK: - Writes and permission changes (added 2026-09-16)
+    //
+    // The gutter's run target grew from a 4pt bar to a band the full width of
+    // the gutter, so a mis-click became far easier — and an accidental UPDATE
+    // is no easier to undo than an accidental DELETE. These four must obey the
+    // same string/comment/identifier rules the original three do, which is the
+    // whole reason the scan runs through the lexer's state map.
+
+    expectKeywords("UPDATE orders SET total = 0", ["UPDATE"], "plain UPDATE")
+    expectKeywords("insert into t values (1)", ["INSERT"], "lowercase INSERT")
+    expectKeywords("ALTER TABLE t ADD COLUMN c int", ["ALTER"], "plain ALTER")
+    expectKeywords("GRANT SELECT ON t TO analyst", ["GRANT"], "plain GRANT")
+    expectKeywords("INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET n = 1",
+                   ["INSERT", "UPDATE"], "an upsert names both keywords, in order")
+    expectKeywords("WITH w AS (UPDATE t SET n = 1 RETURNING *) SELECT * FROM w",
+                   ["UPDATE"], "writing CTE with UPDATE caught")
+
+    expectKeywords("SELECT * FROM updates", [], "a table called updates is not an UPDATE")
+    expectKeywords("SELECT 'please UPDATE me'", [], "UPDATE inside a string literal")
+    expectKeywords("SELECT 1 -- INSERT", [], "INSERT inside a line comment")
+    expectKeywords("SELECT \"grant\" FROM t", [], "a quoted identifier called grant")
+    expectKeywords("SELECT inserted_at FROM t", [], "INSERT is not a prefix match")
+
     // MARK: - Order and dedup
 
     expectKeywords("DELETE FROM a; DELETE FROM b; DROP TABLE c",

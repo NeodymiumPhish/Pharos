@@ -75,7 +75,7 @@ Each query runs with a server-side timeout (PostgreSQL's `statement_timeout`), s
 
 ## Destructive Query Confirmation
 
-When **Confirm before DROP / DELETE / TRUNCATE** is enabled in [Settings](settings.md) (the default), running SQL that contains a `DROP`, `DELETE`, or `TRUNCATE` keyword shows a confirmation dialog with a preview of the statement before it executes. Detection ignores keywords inside string literals, comments, and quoted identifiers, and catches data-modifying CTEs (e.g., `WITH x AS (DELETE …)`). The same setting guards Truncate and Drop in the [schema browser](table-operations.md#destructive-operations).
+When **Confirm queries that change the database** is enabled in [Settings](settings.md) (the default), running SQL that contains a `DROP`, `DELETE`, `TRUNCATE`, `UPDATE`, `ALTER`, `INSERT` or `GRANT` keyword shows a confirmation dialog with a preview of the statement before it executes. The dialog says "Run destructive query?" for `DROP`, `DELETE` and `TRUNCATE`, and "Run query that changes the database?" for the rest. Detection ignores keywords inside string literals, comments, and quoted identifiers, and catches data-modifying CTEs (e.g., `WITH x AS (DELETE …)`). The same setting guards Truncate and Drop in the [schema browser](table-operations.md#destructive-operations).
 
 ## Completion Notifications
 

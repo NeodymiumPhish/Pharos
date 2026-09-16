@@ -1916,7 +1916,7 @@ class ContentViewController: NSViewController {
         onConfirm: @escaping () -> Void
     ) {
         let alert = NSAlert()
-        alert.messageText = "Run destructive query?"
+        alert.messageText = DestructiveConfirmationText.destructiveQueryTitle(keywords: keywords)
         // Rendered through the disclosing builder: the SQL here has variables
         // already substituted, so a hostile variable value could otherwise
         // make the preview read as a different statement than will run.

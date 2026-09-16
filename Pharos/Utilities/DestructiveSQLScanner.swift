@@ -1,6 +1,6 @@
 import Foundation
 
-/// Detects destructive keywords (DROP, DELETE, TRUNCATE) in SQL so the editor
+/// Detects statements that change data, schema or permissions, so the editor
 /// can confirm before running, mirroring the schema browser's guard.
 /// Uses the shared SQLLexer state map so keywords inside string literals,
 /// comments, quoted identifiers, and dollar-quoted bodies never match.
@@ -9,7 +9,16 @@ import Foundation
 /// the cost is a rare needless confirmation, never a missed one.
 enum DestructiveSQLScanner {
 
-    private static let destructiveKeywords: Set<String> = ["DROP", "DELETE", "TRUNCATE"]
+    /// DROP, DELETE and TRUNCATE destroy rows or objects outright. UPDATE,
+    /// ALTER, INSERT and GRANT were added 2026-09-16 at the user's request,
+    /// when the gutter's run target grew from a 4pt bar to a band the full
+    /// width of the gutter: a mis-click on `UPDATE users SET role='admin'` had
+    /// no confirmation at all, and an accidental write is no easier to undo
+    /// than an accidental delete.
+    private static let destructiveKeywords: Set<String> = [
+        "DROP", "DELETE", "TRUNCATE",
+        "UPDATE", "ALTER", "INSERT", "GRANT",
+    ]
 
     /// Returns the destructive keywords present in `sql`, uppercased, in first-seen
     /// order. Empty when the SQL contains none.

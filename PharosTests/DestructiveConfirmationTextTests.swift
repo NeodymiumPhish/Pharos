@@ -12,6 +12,18 @@ private func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: Strin
 }
 
 func runTests() {
+    // The title follows the keywords: only DROP/DELETE/TRUNCATE destroy
+    // anything. Since the scanner also catches writes and GRANT, a sheet that
+    // called an INSERT "destructive" would be teaching people to ignore it.
+    expectEqual(DestructiveConfirmationText.destructiveQueryTitle(keywords: ["DELETE"]),
+                "Run destructive query?", "DELETE is destructive")
+    expectEqual(DestructiveConfirmationText.destructiveQueryTitle(keywords: ["DROP", "UPDATE"]),
+                "Run destructive query?", "a mix containing DROP is destructive")
+    expectEqual(DestructiveConfirmationText.destructiveQueryTitle(keywords: ["UPDATE"]),
+                "Run query that changes the database?", "UPDATE only changes")
+    expectEqual(DestructiveConfirmationText.destructiveQueryTitle(keywords: ["INSERT", "GRANT"]),
+                "Run query that changes the database?", "INSERT and GRANT only change")
+
     // Ordinary names pass through looking ordinary.
     expectEqual(DestructiveConfirmationText.truncateConfirmTitle(table: "users"),
                 "Truncate \"users\"?",

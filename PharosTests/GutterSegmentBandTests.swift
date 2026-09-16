@@ -238,6 +238,9 @@ private func testNumbersStayReadableOverTheBand() {
                           ("dark", NSAppearance.Name.darkAqua)] {
         let (window, gutter, _) = makeGutter(twoStatements)
         defer { window.close() }
+        // A result tab's colour, so this measures the level a statement with
+        // results actually shows — the one the screenshots were taken of.
+        gutter.setSegmentColor(.systemPink, forSegmentIndex: 0)
         guard let rep = paint(gutter, appearance: name) else {
             print("FAIL could not render the gutter in \(label)"); failures += 1; continue
         }
@@ -262,6 +265,24 @@ private func testNumbersStayReadableOverTheBand() {
         expectTrue(sampled > 0, "\(label): the band row was sampled")
         expectTrue(distinct > 0,
                    "\(label): the line number is still drawn over the band (\(distinct) px)")
+
+        // And the band is actually VISIBLE. It was shipped at half this
+        // strength once and read as "very dim" in both appearances, so the
+        // floor is pinned: the band must move the surface away from the plain
+        // gutter background by a measurable amount.
+        //
+        // The comparison point is the LEADING column at the same y — the fold
+        // chevron's strip, which no band ever covers. Sampling below the band
+        // instead lands inside the next statement's band and reads zero.
+        if let inside = rep.colorAt(x: Int(band.rect.minX) + 2, y: Int(band.rect.minY) + 4),
+           let outside = rep.colorAt(x: 1, y: Int(band.rect.minY) + 4) {
+            let delta = abs(inside.redComponent - outside.redComponent)
+                + abs(inside.greenComponent - outside.greenComponent)
+                + abs(inside.blueComponent - outside.blueComponent)
+            expectTrue(delta > 0.08,
+                       "\(label): the band is visible against the gutter background "
+                           + "(delta \(String(format: "%.3f", delta)))")
+        }
     }
 }
 

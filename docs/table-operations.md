@@ -84,4 +84,4 @@ Two destructive operations are available from the table context menu:
 - **Drop Table** / **Drop View** — permanently deletes the object and its data
 
 {: .warning }
-Both operations are irreversible. When **Confirm before DROP / DELETE / TRUNCATE** is enabled in [Settings](settings.md) (the default), Pharos shows a confirmation dialog first; with the setting off, they execute immediately.
+Both operations are irreversible. When **Confirm queries that change the database** is enabled in [Settings](settings.md) (the default), Pharos shows a confirmation dialog first; with the setting off, they execute immediately.

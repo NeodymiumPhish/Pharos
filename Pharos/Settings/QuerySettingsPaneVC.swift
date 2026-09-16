@@ -7,7 +7,7 @@ final class QuerySettingsPaneVC: SettingsPaneVC {
     private let defaultLimitField = NSTextField()
     private let timeoutField = NSTextField()
     private let confirmDestructiveCheck = NSButton(
-        checkboxWithTitle: String(localized: "Confirm before DROP / DELETE / TRUNCATE"), target: nil, action: nil)
+        checkboxWithTitle: String(localized: "Confirm queries that change the database"), target: nil, action: nil)
     private let showCancelledDialogCheck = NSButton(
         checkboxWithTitle: String(localized: "Show details when you cancel a query"), target: nil, action: nil)
     private let notifyAppInactiveCheck = NSButton(
