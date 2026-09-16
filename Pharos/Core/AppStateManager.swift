@@ -364,44 +364,46 @@ final class AppStateManager: ObservableObject {
                     self.connectionErrors[id] = reason
                     Log.state.error("Connection failed: \(reason, privacy: .public)")
                 }
-                // Apply default schema from connection config, falling back to "public"
-                let defaultSchema: String = {
-                    if let config = self.connections.first(where: { $0.id == id }),
-                       let ds = config.defaultSchema {
-                        return ds
-                    }
-                    return "public"
-                }()
+                // The schema the connection is CONFIGURED to open on, if any.
+                // Nil is meaningful and is not the same as "public": it means
+                // the record names no default, so whatever this window was last
+                // using for the connection stands.
+                let configuredSchema: String? = self.connections
+                    .first(where: { $0.id == id })?
+                    .defaultSchema
+                    .flatMap { $0.isEmpty ? nil : $0 }
                 // Only the window that asked follows the new connection. A
                 // second window stays on whatever it was showing.
                 if let session {
                     session.activeConnectionId = id
 
-                    // The ACTIVE TAB's own schema wins, when it has one.
+                    // ONE schema, applied to the window AND to the active tab.
                     //
-                    // The tab is what queries actually run against and what the
-                    // editor's schema selector displays, so seeding the window
-                    // from the connection's default instead put the schema
-                    // browser on a different schema from the editor: a restored
-                    // tab on `tagtest` beside a navigator listing `whois`, the
-                    // connection default. Setting the id above already restored
-                    // this window's remembered schema, so the default is the
-                    // last resort, not the first.
+                    // Two bugs came from letting these diverge. Seeding only the
+                    // window left a restored tab on `tagtest` beside a schema
+                    // browser listing the connection's default `whois` — the
+                    // editor's selector and the navigator naming different
+                    // schemas. Then letting the tab win meant a default schema
+                    // changed in the connections sheet never took effect,
+                    // because the restored tab's old value outranked it.
+                    //
+                    // So: the connection's configured default is what "connect"
+                    // means, exactly as the settings table says ("schema focused
+                    // on connect"). With no configured default, this window's
+                    // remembered choice for the connection stands, then the
+                    // tab's own, then `public`.
                     let tabSchema = session.activeTab.flatMap {
                         $0.connectionId == id ? $0.schemaName : nil
                     }
-                    if let tabSchema {
-                        session.activeSchema = tabSchema
-                    } else if session.activeSchema == nil {
-                        session.activeSchema = defaultSchema
-                    }
+                    let schema = configuredSchema
+                        ?? session.activeSchema
+                        ?? tabSchema
+                        ?? "public"
+                    session.activeSchema = schema
 
-                    // A tab that has no schema of its own takes the window's.
                     if let tabId = session.activeTabId {
                         session.updateTab(id: tabId) { tab in
-                            if tab.connectionId == id && tab.schemaName == nil {
-                                tab.schemaName = session.activeSchema ?? defaultSchema
-                            }
+                            if tab.connectionId == id { tab.schemaName = schema }
                         }
                     }
                 }

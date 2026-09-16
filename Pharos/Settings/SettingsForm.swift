@@ -42,25 +42,27 @@ enum SettingsForm {
         content.translatesAutoresizingMaskIntoConstraints = false
         wrapper.addSubview(content)
 
-        // Breakable equalities: they decide `fittingSize`, and they yield to
-        // the centring constraint once the wrapper is made wider than that.
-        let leading = content.leadingAnchor.constraint(
-            equalTo: wrapper.leadingAnchor, constant: inset)
-        let trailing = wrapper.trailingAnchor.constraint(
-            equalTo: content.trailingAnchor, constant: inset)
-        leading.priority = .defaultLow
-        trailing.priority = .defaultLow
+        // Load-bearing, and the whole reason the first attempt at this did not
+        // work. `NSGridView` hugs horizontally at 249 — just under
+        // `.defaultLow` — so with breakable side insets at 250 the solver
+        // happily STRETCHED the grid to satisfy them instead of centring it,
+        // and the slack went straight into the trailing label column again.
+        // Raising the content's hugging above any constraint here is what makes
+        // "stay your natural width, and let the wrapper centre you" the answer.
+        // A pane that genuinely wants to fill can lower this after wrapping.
+        content.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: inset),
             wrapper.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: inset),
-            // The inset is a MINIMUM at any width.
+            // The insets are MINIMA at any width, and together they are also
+            // what gives `fittingSize` the right answer: the narrowest wrapper
+            // satisfying both is the content plus two insets.
             content.leadingAnchor.constraint(
                 greaterThanOrEqualTo: wrapper.leadingAnchor, constant: inset),
             wrapper.trailingAnchor.constraint(
                 greaterThanOrEqualTo: content.trailingAnchor, constant: inset),
             content.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
-            leading, trailing,
         ])
         return wrapper
     }

@@ -769,6 +769,9 @@
     "Quit Pharos" : {
 
     },
+    "Reading schemas…" : {
+
+    },
     "Redo" : {
 
     },
@@ -1007,6 +1010,9 @@
 
     },
     "Tables" : {
+
+    },
+    "Test connection first" : {
 
     },
     "That connection is no longer saved in Pharos." : {

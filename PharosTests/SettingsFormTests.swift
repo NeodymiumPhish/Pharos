@@ -25,60 +25,72 @@ private func expectTrue(_ condition: Bool, _ name: String) {
     if condition { print("PASS \(name)") } else { failures += 1; print("FAIL \(name)") }
 }
 
-/// A form the size a real pane's grid is: narrower than the 540 pt floor.
-private func makeContent(width: CGFloat = 300, height: CGFloat = 120) -> NSView {
-    let v = NSView()
-    v.translatesAutoresizingMaskIntoConstraints = false
-    NSLayoutConstraint.activate([
-        v.widthAnchor.constraint(equalToConstant: width),
-        v.heightAnchor.constraint(equalToConstant: height),
+/// A REAL pane grid, built exactly as the panes build theirs.
+///
+/// This must not be a view with a fixed width constraint. The first version of
+/// this suite used one, it passed, and the Editor pane was still skewed:
+/// `NSGridView` hugs horizontally at 249, so it will happily stretch to satisfy
+/// any constraint of priority 250 or more, while a required width constraint
+/// cannot stretch at all. A fixed-width stand-in tests the wrapper against
+/// content that does not behave like the content it actually wraps.
+private func makeGrid() -> NSGridView {
+    let grid = NSGridView(views: [
+        [NSTextField(labelWithString: "Font:"), NSPopUpButton()],
+        [NSTextField(labelWithString: "Font Size:"), NSTextField(string: "12")],
+        [NSTextField(labelWithString: "Tab Size:"), NSPopUpButton()],
     ])
-    return v
+    SettingsForm.configureGrid(grid)
+    return grid
 }
 
 private func testNaturalSize() {
-    let content = makeContent()
-    let wrapper = SettingsForm.wrap(content)
+    let grid = makeGrid()
+    let natural = grid.fittingSize
+    let wrapper = SettingsForm.wrap(grid)
     let fitting = wrapper.fittingSize
-    // The window's width for a tab comes from this, so the breakable side
-    // insets must still hold at the natural size.
-    expectClose(fitting.width, 300 + 40, "fittingSize is the content plus both insets")
-    expectClose(fitting.height, 120 + 40, "fittingSize height is the content plus both insets")
+    // The window's width for a tab comes from this.
+    expectClose(fitting.width, natural.width + 40, "fittingSize is the grid plus both insets")
+    expectClose(fitting.height, natural.height + 40, "fittingSize height is the grid plus both insets")
 }
 
 private func testCentredWhenStretched() {
-    let content = makeContent()
-    let wrapper = SettingsForm.wrap(content)
+    let grid = makeGrid()
+    let natural = grid.fittingSize.width
+    let wrapper = SettingsForm.wrap(grid)
     // What the window actually does: floor the pane at the minimum width.
     let paneWidth = SettingsForm.minimumPaneWidth
-    wrapper.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 200)
+    wrapper.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 220)
     wrapper.layoutSubtreeIfNeeded()
 
-    let leftGap = content.frame.minX
-    let rightGap = paneWidth - content.frame.maxX
-    expectClose(content.frame.width, 300, "the content keeps its natural width")
+    expectTrue(natural < paneWidth - 40, "the fixture really is narrower than the pane floor")
+    // THE regression: the grid stretching to fill is what pushed every label
+    // into the right-hand side of the window, because column 0 is `.trailing`
+    // and took all of the slack.
+    expectClose(grid.frame.width, natural, "the grid keeps its natural width, it does not stretch")
+
+    let leftGap = grid.frame.minX
+    let rightGap = paneWidth - grid.frame.maxX
     expectClose(leftGap, rightGap, "the slack is split evenly, not dumped on one side")
-    // The regression itself: all the slack on the left is the right-shifted form.
-    expectTrue(leftGap > 20, "the content is not jammed against the leading inset")
-    expectClose(content.frame.midX, paneWidth / 2, "the content is centred in the pane")
+    expectTrue(leftGap > 20, "the grid is not jammed against the leading inset")
+    expectClose(grid.frame.midX, paneWidth / 2, "the grid is centred in the pane")
 }
 
 private func testInsetIsAMinimum() {
-    let content = makeContent(width: 300)
-    let wrapper = SettingsForm.wrap(content)
-    // Narrower than the content wants: the inset must not collapse to nothing.
-    wrapper.frame = NSRect(x: 0, y: 0, width: 300 + 40, height: 200)
+    let grid = makeGrid()
+    let natural = grid.fittingSize.width
+    let wrapper = SettingsForm.wrap(grid)
+    // Exactly the natural width: the inset must not collapse to nothing.
+    wrapper.frame = NSRect(x: 0, y: 0, width: natural + 40, height: 220)
     wrapper.layoutSubtreeIfNeeded()
-    expectTrue(content.frame.minX >= 19.5, "the leading inset holds at the natural width")
-    expectTrue(wrapper.frame.width - content.frame.maxX >= 19.5,
+    expectTrue(grid.frame.minX >= 19.5, "the leading inset holds at the natural width")
+    expectTrue(wrapper.frame.width - grid.frame.maxX >= 19.5,
                "the trailing inset holds at the natural width")
 }
 
 private func testGridLabelColumnTrailing() {
     // The property that makes the stretch visible, and the one a future edit
     // is most likely to "tidy away".
-    let grid = NSGridView(views: [[NSTextField(labelWithString: "Font"), NSPopUpButton()]])
-    SettingsForm.configureGrid(grid)
+    let grid = makeGrid()
     expectTrue(grid.column(at: 0).xPlacement == .trailing, "labels are trailing-aligned")
     expectClose(grid.rowSpacing, 8, "row spacing")
     expectClose(grid.columnSpacing, 8, "column spacing")
