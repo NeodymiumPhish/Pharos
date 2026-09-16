@@ -36,7 +36,7 @@ The Connections Manager is a two-pane window:
 | Username | PostgreSQL role for authentication | — |
 | Password | Password for the role (stored in the Keychain) | — |
 | SSL Mode | Prefer, Require, or Disable | Prefer |
-| Default Schema | Schema focused on connect; populated after a successful Test Connection | None |
+| Default Schema | Schema focused on connect. Filled from the open connection when the connection is already connected and its settings are unchanged; otherwise press **Test Connection** first | None |
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 
@@ -45,6 +45,8 @@ Edits are made inline — click **Save** to persist, or **Revert** to discard. U
 Click **Test Connection** to verify the settings:
 
 - **Success** — shows "Connected" with the round-trip latency in milliseconds, and populates the **Default Schema** menu with the database's schemas. Pick one and press **Save**; choose **None** at the top of the menu to clear the default. The fetched list stays on screen for the rest of the session, so you do not have to test again after editing another connection.
+
+**Test Connection is only needed when Pharos cannot already answer.** If the connection is connected and you have not changed its host, port, database, username, SSL mode or Touch ID setting, the **Default Schema** menu fills itself from the open connection as soon as you select the record. Editing any of those fields takes the menu back to "Test connection first", because the open connection no longer describes what the form says.
 - **Failure** — shows the PostgreSQL error message in red
 
 ## Connection Links

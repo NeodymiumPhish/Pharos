@@ -182,6 +182,15 @@ final class ConnectionsManagerVC: NSViewController {
     /// first", losing an unsaved pick with it.
     private var fetchedSchemas: [String: [String]] = [:]
 
+    /// The connection settings each fetched list was read with. An edit to any
+    /// of them makes the list stale: it describes a different server now, so
+    /// the picker has to go back to asking for a test.
+    private var fetchedSchemaFingerprints: [String: String] = [:]
+
+    /// Connections whose schema list is being read from the live connection, so
+    /// two status updates cannot start the same fetch twice.
+    private var liveSchemaFetchesInFlight: Set<String> = []
+
     private let doneButton = NSButton()
 
     private var draft: ConnectionConfig?
@@ -402,8 +411,15 @@ final class ConnectionsManagerVC: NSViewController {
         stateManager.$connectionStatuses
             .receive(on: RunLoop.main)
             .sink { [weak self] statuses in
-                self?.listModel.statuses = statuses
-                self?.refreshStatusBadge()
+                guard let self else { return }
+                self.listModel.statuses = statuses
+                self.refreshStatusBadge()
+                // Connecting in another window is enough to make the picker
+                // usable, so take the list as soon as one is available.
+                if let d = self.draft, self.liveOrFetchedSchemas(for: d) == nil,
+                   self.canUseLiveSchemas(for: d) {
+                    self.loadLiveSchemas(for: d.id)
+                }
             }
             .store(in: &cancellables)
     }
@@ -937,9 +953,19 @@ final class ConnectionsManagerVC: NSViewController {
         case .require: sslPopup.selectItem(at: 1)
         case .disable: sslPopup.selectItem(at: 2)
         }
-        if let fetched = fetchedSchemas[config.id] {
-            // Tested this session: keep the real list and the user's pick.
+        if let fetched = liveOrFetchedSchemas(for: config) {
+            // Already read this session, for these settings: keep the real list
+            // and the user's pick.
             showSchemaChoices(fetched, selecting: draft?.defaultSchema)
+        } else if canUseLiveSchemas(for: config) {
+            // Connected, and the form still describes that server — read the
+            // list straight off the open connection instead of making the user
+            // press Test Connection.
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: nil,
+                                    values: [config.defaultSchema ?? ""].filter { !$0.isEmpty })
+            defaultSchemaPopup.isEnabled = false
+            defaultSchemaPopup.toolTip = String(localized: "Reading schemas…")
+            loadLiveSchemas(for: config.id)
         } else if let saved = config.defaultSchema, !saved.isEmpty {
             // Not tested yet: show the one saved schema and nothing else, since
             // there is no list to pick from until the connection is tested.
@@ -1104,10 +1130,29 @@ final class ConnectionsManagerVC: NSViewController {
         // is a real answer here: it is how the default schema gets CLEARED.
         // The old guard was `indexOfSelectedItem > 0`, which silently ignored
         // row 0, so "None" could never be chosen and the draft never changed.
-        if fetchedSchemas[d.id] != nil, defaultSchemaPopup.isEnabled {
+        // Only while the picker holds a list read for THESE settings. A stale
+        // list describes a different server, and a placeholder is not a choice
+        // at all — either would write over the saved value. `selectedValue`
+        // returns nil for the "None" sentinel, and nil is a real answer here:
+        // it is how the default schema gets CLEARED. The old guard was
+        // `indexOfSelectedItem > 0`, which silently ignored row 0, so "None"
+        // could never be chosen and the draft never changed.
+        if liveOrFetchedSchemas(for: d) != nil, defaultSchemaPopup.isEnabled {
             d.defaultSchema = PopupValueMenu.selectedValue(in: defaultSchemaPopup)
         }
         draft = d
+
+        // An edit to the host, port, database, user or SSL mode has just made
+        // any fetched list describe a different server. Take the picker back to
+        // asking for a test rather than letting it offer the old server's
+        // schemas as if they were this one's.
+        if defaultSchemaPopup.isEnabled, liveOrFetchedSchemas(for: d) == nil {
+            PopupValueMenu.populate(defaultSchemaPopup,
+                                    sentinel: String(localized: "Test connection first"),
+                                    values: [])
+            defaultSchemaPopup.isEnabled = false
+            defaultSchemaPopup.toolTip = nil
+        }
 
         titleField.stringValue = d.name.isEmpty ? "Untitled Connection" : d.name
         // Update the row's display name in the SwiftUI list.
@@ -1203,6 +1248,60 @@ final class ConnectionsManagerVC: NSViewController {
         }
     }
 
+    /// Everything about a record that decides WHICH server it reaches. The
+    /// name, the colour and the default schema itself are deliberately absent:
+    /// changing those does not make a fetched schema list wrong.
+    private static func connectionFingerprint(_ c: ConnectionConfig) -> String {
+        "\(c.host):\(c.port)/\(c.database)@\(c.username)#\(c.sslMode.rawValue)#\(c.requiresAuthentication)"
+    }
+
+    /// Whether the picker can be filled from the connection Pharos already has
+    /// open, with no "Test Connection" round trip.
+    ///
+    /// Two conditions, both necessary. The connection has to be CONNECTED — an
+    /// open pool is what makes this free — and the form has to still describe
+    /// that same server: once the user edits the host, port, database, user or
+    /// SSL mode, the open connection is not the one the form is talking about,
+    /// and only a test can answer for the new settings.
+    private func canUseLiveSchemas(for d: ConnectionConfig) -> Bool {
+        guard stateManager.status(for: d.id) == .connected,
+              let saved = stateManager.connections.first(where: { $0.id == d.id })
+        else { return false }
+        return Self.connectionFingerprint(saved) == Self.connectionFingerprint(d)
+    }
+
+    /// Fill the picker from the open connection. Cheap: no temporary record, no
+    /// second connection, no password.
+    private func loadLiveSchemas(for id: String) {
+        guard !liveSchemaFetchesInFlight.contains(id) else { return }
+        liveSchemaFetchesInFlight.insert(id)
+        Task { [weak self] in
+            defer { Task { @MainActor [weak self] in self?.liveSchemaFetchesInFlight.remove(id) } }
+            do {
+                let schemas: [SchemaInfo] = try await PharosCore.getSchemas(connectionId: id)
+                await MainActor.run { [weak self] in
+                    guard let self, let d = self.draft, d.id == id,
+                          self.canUseLiveSchemas(for: d) else { return }
+                    self.fetchedSchemas[id] = schemas.map(\.name)
+                    self.fetchedSchemaFingerprints[id] = Self.connectionFingerprint(d)
+                    self.showSchemaChoices(schemas.map(\.name), selecting: d.defaultSchema)
+                    self.syncFormIntoDraft()
+                }
+            } catch {
+                Log.ui.error("Failed to read schemas from the open connection: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// The fetched list for a record, or nil when there is none or it was read
+    /// with different connection settings.
+    private func liveOrFetchedSchemas(for d: ConnectionConfig) -> [String]? {
+        guard let names = fetchedSchemas[d.id],
+              fetchedSchemaFingerprints[d.id] == Self.connectionFingerprint(d)
+        else { return nil }
+        return names
+    }
+
     /// Show a fetched schema list in the picker. "None" is row 0 and clears
     /// the default schema; it is a real choice, not a placeholder.
     private func showSchemaChoices(_ names: [String], selecting value: String?) {
@@ -1231,6 +1330,7 @@ final class ConnectionsManagerVC: NSViewController {
                     guard let self, let id = self.draft?.id else { return }
                     let names = schemas.map(\.name)
                     self.fetchedSchemas[id] = names
+                    self.fetchedSchemaFingerprints[id] = Self.connectionFingerprint(config)
                     self.showSchemaChoices(names, selecting: self.draft?.defaultSchema)
                     // The populate above can MOVE the selection — a saved
                     // schema the server has since dropped lands on "None" —
