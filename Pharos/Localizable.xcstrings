@@ -1,7 +1,1128 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
 
+    },
+    "—" : {
+
+    },
+    "“%@” returned %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” returned %2$@."
+          }
+        }
+      }
+    },
+    "(%@, %@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "(%1$@, %2$@)"
+          }
+        }
+      }
+    },
+    "%@" : {
+
+    },
+    "%@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "%@ in %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "%@ ms" : {
+
+    },
+    "%@ will be read by the model on this Mac. Nothing leaves this Mac." : {
+
+    },
+    "%@, %@ of the plan" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@ of the plan"
+          }
+        }
+      }
+    },
+    "%@, edited, was %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, edited, was %2$@"
+          }
+        }
+      }
+    },
+    "%lld connections" : {
+
+    },
+    "%lld queries running — click to manage" : {
+
+    },
+    "%lld saved queries" : {
+
+    },
+    "%lld workspaces" : {
+
+    },
+    "^[%lld %@](inflect: true)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "^[%1$lld %2$@](inflect: true)"
+          }
+        }
+      }
+    },
+    "2 spaces" : {
+
+    },
+    "4 spaces" : {
+
+    },
+    "8 spaces" : {
+
+    },
+    "A query named '%@' already exists in this folder." : {
+
+    },
+    "About Pharos" : {
+
+    },
+    "Add color" : {
+
+    },
+    "Add Connection" : {
+
+    },
+    "Add Tag…" : {
+
+    },
+    "Aggregate on server" : {
+
+    },
+    "All" : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Apple Intelligence is not available on this Mac right now." : {
+
+    },
+    "Apple Intelligence is not available right now." : {
+
+    },
+    "Apple Intelligence is turned off in System Settings." : {
+
+    },
+    "Applied %@ in %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Applied %1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "Apply" : {
+
+    },
+    "Apply %@ to %@.%@?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Apply %1$@ to %2$@.%3$@?"
+          }
+        }
+      }
+    },
+    "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was." : {
+
+    },
+    "Authenticate to show the stored password." : {
+
+    },
+    "Authentication did not succeed." : {
+
+    },
+    "Auto" : {
+
+    },
+    "Bool Display" : {
+
+    },
+    "Bring All to Front" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Cancel Query" : {
+
+    },
+    "Cancel Query (⌘.)" : {
+
+    },
+    "Cancelled. The password stays hidden." : {
+
+    },
+    "Category" : {
+
+    },
+    "Charts" : {
+
+    },
+    "Check for updates in the background" : {
+
+    },
+    "Choose a connection for this tab to start." : {
+
+    },
+    "Choose Connection…" : {
+
+    },
+    "Choose the export options for %@.%@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Choose the export options for %1$@.%2$@."
+          }
+        }
+      }
+    },
+    "Choose where to save the exported data" : {
+
+    },
+    "Choose…" : {
+
+    },
+    "Close Tab" : {
+
+    },
+    "Close Window" : {
+
+    },
+    "Columns" : {
+
+    },
+    "Confirm before DROP / DELETE / TRUNCATE" : {
+
+    },
+    "Connect" : {
+
+    },
+    "Connect a tab to browse its schema." : {
+
+    },
+    "Connect this tab to a database to draft a query." : {
+
+    },
+    "connect to %@" : {
+
+    },
+    "Connect to a database to apply changes." : {
+
+    },
+    "Connect to a database to explain a query." : {
+
+    },
+    "Connected" : {
+
+    },
+    "Connected to %@." : {
+
+    },
+    "Connecting" : {
+
+    },
+    "Connection" : {
+
+    },
+    "Connection error" : {
+
+    },
+    "Connection for the active tab" : {
+
+    },
+    "Connections" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Copied!" : {
+
+    },
+    "Copy" : {
+
+    },
+    "Copy Error" : {
+
+    },
+    "Copy Generated SQL" : {
+
+    },
+    "Copy Plan JSON" : {
+
+    },
+    "Copy Query" : {
+
+    },
+    "Copy the server's EXPLAIN (FORMAT JSON) output." : {
+
+    },
+    "Cost" : {
+
+    },
+    "cost %@, %@ of the plan" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "cost %1$@, %2$@ of the plan"
+          }
+        }
+      }
+    },
+    "Create" : {
+
+    },
+    "CSV file has headers" : {
+
+    },
+    "CSV File:" : {
+
+    },
+    "Customize Toolbar…" : {
+
+    },
+    "Cut" : {
+
+    },
+    "Dark" : {
+
+    },
+    "Decrease Editor Font" : {
+
+    },
+    "DEFAULT SERIES PALETTE" : {
+
+    },
+    "Delete Connection" : {
+
+    },
+    "Describe the query…" : {
+
+    },
+    "Discard" : {
+
+    },
+    "Discard %@?" : {
+
+    },
+    "Disconnect" : {
+
+    },
+    "Disconnected" : {
+
+    },
+    "Dismiss" : {
+
+    },
+    "Dismiss All" : {
+
+    },
+    "Do you want to replace it or save as a new query?" : {
+
+    },
+    "Done" : {
+
+    },
+    "Draft" : {
+
+    },
+    "Draft the query (⌘↩)" : {
+
+    },
+    "Drafting…" : {
+
+    },
+    "Edit" : {
+
+    },
+    "Editor" : {
+
+    },
+    "Empty string" : {
+
+    },
+    "End" : {
+
+    },
+    "Estimated cost %@..%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Estimated cost %1$@..%2$@"
+          }
+        }
+      }
+    },
+    "Executed At" : {
+
+    },
+    "Execution %@" : {
+
+    },
+    "Execution Time" : {
+
+    },
+    "Explain Analyze Query" : {
+
+    },
+    "Explain Analyze runs the statement." : {
+
+    },
+    "Explain errors, suggest names, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac." : {
+
+    },
+    "Explain Query" : {
+
+    },
+    "Explaining the error…" : {
+
+    },
+    "Export Data" : {
+
+    },
+    "Export Query as SQL File…" : {
+
+    },
+    "Export Table" : {
+
+    },
+    "Export…" : {
+
+    },
+    "Failed to Save Query" : {
+
+    },
+    "File" : {
+
+    },
+    "Filter" : {
+
+    },
+    "Filter Results…" : {
+
+    },
+    "Filter Sidebar" : {
+
+    },
+    "Filter the sidebar list" : {
+
+    },
+    "Find" : {
+
+    },
+    "Find Next" : {
+
+    },
+    "Find Previous" : {
+
+    },
+    "Find…" : {
+
+    },
+    "Folder" : {
+
+    },
+    "Folder name" : {
+
+    },
+    "Font" : {
+
+    },
+    "Font Size" : {
+
+    },
+    "Format" : {
+
+    },
+    "Format SQL" : {
+
+    },
+    "Format SQL (⌃I)" : {
+
+    },
+    "General" : {
+
+    },
+    "Generated by Apple Intelligence" : {
+
+    },
+    "Go to Error" : {
+
+    },
+    "Hash Cond" : {
+
+    },
+    "Headers" : {
+
+    },
+    "Help" : {
+
+    },
+    "Helpful" : {
+
+    },
+    "Hide Column" : {
+
+    },
+    "Hide Others" : {
+
+    },
+    "Hide Pharos" : {
+
+    },
+    "Hide Sidebar" : {
+
+    },
+    "Import" : {
+
+    },
+    "Import Data" : {
+
+    },
+    "Include headers" : {
+
+    },
+    "Increase Editor Font" : {
+
+    },
+    "Index Cond" : {
+
+    },
+    "Insert" : {
+
+    },
+    "Insert Anyway" : {
+
+    },
+    "Insert Draft" : {
+
+    },
+    "Insert this draft?" : {
+
+    },
+    "Jump to Selection" : {
+
+    },
+    "Keyboard Shortcuts" : {
+
+    },
+    "Light" : {
+
+    },
+    "Load all rows" : {
+
+    },
+    "Manage Connections…" : {
+
+    },
+    "Manage Tags…" : {
+
+    },
+    "Minimize" : {
+
+    },
+    "Name" : {
+
+    },
+    "Name suggested by Apple Intelligence" : {
+
+    },
+    "New Folder" : {
+
+    },
+    "New Folder..." : {
+
+    },
+    "New Query Tab" : {
+
+    },
+    "New Tab" : {
+
+    },
+    "New Tab (⌘T)" : {
+
+    },
+    "New Window" : {
+
+    },
+    "No assumptions given." : {
+
+    },
+    "No Connection" : {
+
+    },
+    "No Connections" : {
+
+    },
+    "No file selected" : {
+
+    },
+    "No Folder" : {
+
+    },
+    "No History" : {
+
+    },
+    "No reason given." : {
+
+    },
+    "No Results" : {
+
+    },
+    "No Rows" : {
+
+    },
+    "No Saved Queries" : {
+
+    },
+    "Node" : {
+
+    },
+    "None" : {
+
+    },
+    "Not helpful" : {
+
+    },
+    "Notification minimum" : {
+
+    },
+    "Notify when query completes and app is in background" : {
+
+    },
+    "Notify when query completes in a background tab" : {
+
+    },
+    "NULL" : {
+
+    },
+    "NULL Display" : {
+
+    },
+    "NULL values" : {
+
+    },
+    "OK" : {
+
+    },
+    "Open Connection" : {
+
+    },
+    "Open Saved Query" : {
+
+    },
+    "Open…" : {
+
+    },
+    "Opened “%@”." : {
+
+    },
+    "Opened a new query tab." : {
+
+    },
+    "Opens a new query tab in Pharos bound to one of your saved connections, and connects it." : {
+
+    },
+    "Opens a new query tab in Pharos with the text you supply. The query is not run." : {
+
+    },
+    "Opens one of your saved queries in a Pharos query tab. The query is not run." : {
+
+    },
+    "Opens one of your saved queries in Pharos, runs it, and hands back the rows as a CSV file." : {
+
+    },
+    "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
+
+    },
+    "Orders per region this year" : {
+
+    },
+    "Password taken from the link." : {
+
+    },
+    "Paste" : {
+
+    },
+    "Pending changes" : {
+
+    },
+    "Pharos could not connect: %@" : {
+
+    },
+    "Pharos could not open its main window." : {
+
+    },
+    "Pharos could not read the selected text." : {
+
+    },
+    "Pharos could not read the table's columns: %@" : {
+
+    },
+    "Pharos could not read this connection link." : {
+
+    },
+    "Pharos does not run destructive statements under EXPLAIN ANALYZE. This statement contains %@. Use Explain Query for an estimated plan instead." : {
+
+    },
+    "Pharos Help" : {
+
+    },
+    "Plan %@" : {
+
+    },
+    "Plan JSON copied." : {
+
+    },
+    "Plan summary" : {
+
+    },
+    "Planning %@" : {
+
+    },
+    "primary key" : {
+
+    },
+    "Queries" : {
+
+    },
+    "Queries you run appear here." : {
+
+    },
+    "Query" : {
+
+    },
+    "Query Detail" : {
+
+    },
+    "Query name" : {
+
+    },
+    "Query plan" : {
+
+    },
+    "Quick Look" : {
+
+    },
+    "Quit Pharos" : {
+
+    },
+    "Redo" : {
+
+    },
+    "Refresh Metadata" : {
+
+    },
+    "Release Notes" : {
+
+    },
+    "Reloading this result replaces its rows, so the changes can no longer be matched to them." : {
+
+    },
+    "Reopen Closed Tab" : {
+
+    },
+    "Replace" : {
+
+    },
+    "Require Touch ID to connect and to show the password" : {
+
+    },
+    "Reset to defaults" : {
+
+    },
+    "Reset to palette" : {
+
+    },
+    "Restore open tabs at launch" : {
+
+    },
+    "Results" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Revert Edit" : {
+
+    },
+    "Review Changes…" : {
+
+    },
+    "Row Limit" : {
+
+    },
+    "Rows" : {
+
+    },
+    "Rows Affected" : {
+
+    },
+    "Rows are matched on the %@." : {
+
+    },
+    "Rows Returned" : {
+
+    },
+    "Run" : {
+
+    },
+    "Run a query to see its rows here." : {
+
+    },
+    "Run All Queries" : {
+
+    },
+    "Run Query" : {
+
+    },
+    "Run Query (⌘↩)" : {
+
+    },
+    "Run Saved Query" : {
+
+    },
+    "Running server aggregation…" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save a query with ⌘S to keep it here." : {
+
+    },
+    "Save as New" : {
+
+    },
+    "Save Query" : {
+
+    },
+    "Save Query…" : {
+
+    },
+    "Save Query… (⌘S)" : {
+
+    },
+    "Saved Query" : {
+
+    },
+    "Schema" : {
+
+    },
+    "seconds" : {
+
+    },
+    "Select a CSV file to import into %@" : {
+
+    },
+    "Select All" : {
+
+    },
+    "Select Connection" : {
+
+    },
+    "Send row data to the on-device model?" : {
+
+    },
+    "Series" : {
+
+    },
+    "Series %lld" : {
+
+    },
+    "Server aggregation is on." : {
+
+    },
+    "Services" : {
+
+    },
+    "Set NULL" : {
+
+    },
+    "Settings" : {
+
+    },
+    "Settings…" : {
+
+    },
+    "Share" : {
+
+    },
+    "Share…" : {
+
+    },
+    "Show" : {
+
+    },
+    "Show All" : {
+
+    },
+    "Show All Columns" : {
+
+    },
+    "Show details when you cancel a query" : {
+
+    },
+    "Show Inspector" : {
+
+    },
+    "Show leaf partitions in the Database Navigator" : {
+
+    },
+    "Show line numbers" : {
+
+    },
+    "Show Next Result Tab" : {
+
+    },
+    "Show Next Tab" : {
+
+    },
+    "Show Previous Result Tab" : {
+
+    },
+    "Show Previous Tab" : {
+
+    },
+    "Show result tabs in a vertical panel, not a horizontal bar" : {
+
+    },
+    "Show the exact UPDATE statements before anything is written." : {
+
+    },
+    "show the password for %@" : {
+
+    },
+    "Slowest step: %@" : {
+
+    },
+    "Source Line" : {
+
+    },
+    "Source Lines" : {
+
+    },
+    "SQL" : {
+
+    },
+    "Stale (editor modified since execution)" : {
+
+    },
+    "Start" : {
+
+    },
+    "Statements to apply" : {
+
+    },
+    "Status" : {
+
+    },
+    "Suggested…" : {
+
+    },
+    "Suggestion: %@" : {
+
+    },
+    "Summarising the plan…" : {
+
+    },
+    "Tab %lld" : {
+
+    },
+    "Tab Size" : {
+
+    },
+    "Table" : {
+
+    },
+    "Tables" : {
+
+    },
+    "That connection is no longer saved in Pharos." : {
+
+    },
+    "That saved query is no longer in Pharos." : {
+
+    },
+    "That was too much for one request. Choose a schema first, or describe a smaller query." : {
+
+    },
+    "The cells go back to the values the query returned. Nothing has been written to the database." : {
+
+    },
+    "The changes were not applied." : {
+
+    },
+    "The explanation could not be generated." : {
+
+    },
+    "The model could not draft a query. Try again." : {
+
+    },
+    "The model declined to explain this error." : {
+
+    },
+    "The model did not finish in time. Try again." : {
+
+    },
+    "The model did not write a statement. Try again." : {
+
+    },
+    "The model does not support this language yet." : {
+
+    },
+    "The model does not support this language." : {
+
+    },
+    "The model would not answer that. Try describing the query another way." : {
+
+    },
+    "The on-device model is not ready. Try again shortly." : {
+
+    },
+    "The on-device model is still downloading. Try again shortly." : {
+
+    },
+    "The plan could not be summarised." : {
+
+    },
+    "The query did not finish in time." : {
+
+    },
+    "The query returned no result to hand back." : {
+
+    },
+    "The query returned no rows." : {
+
+    },
+    "The selection has no SQL in it." : {
+
+    },
+    "The server's plan could not be read as JSON." : {
+
+    },
+    "The server's reply carried no query plan." : {
+
+    },
+    "The statement is too long to explain." : {
+
+    },
+    "These changes can no longer be matched to rows. Discard them and try again." : {
+
+    },
+    "this connection" : {
+
+    },
+    "This draft is not a plain SELECT: it contains %@." : {
+
+    },
+    "This draft is not a plain SELECT: it starts with %@." : {
+
+    },
+    "This Mac cannot ask you to authenticate." : {
+
+    },
+    "This Mac does not support Apple Intelligence." : {
+
+    },
+    "This saved query has no connection, so Pharos cannot run it." : {
+
+    },
+    "Throw the pending changes away and reload the rows." : {
+
+    },
+    "Time" : {
+
+    },
+    "Timeout" : {
+
+    },
+    "Turned off in Pharos settings." : {
+
+    },
+    "Undo" : {
+
+    },
+    "unique index" : {
+
+    },
+    "Use Apple Intelligence features" : {
+
+    },
+    "Use Selection for Find" : {
+
+    },
+    "Value" : {
+
+    },
+    "View" : {
+
+    },
+    "What should the query return?" : {
+
+    },
+    "Window" : {
+
+    },
+    "Workspace" : {
+
+    },
+    "Wrap long lines" : {
+
+    },
+    "X" : {
+
+    },
+    "Y" : {
+
+    },
+    "Zoom" : {
+
+    }
   },
   "version" : "1.0"
 }
