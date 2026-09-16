@@ -18,7 +18,7 @@ nav_order: 14
 
 ## Overview
 
-The **Results History** panel is the second navigator of the sidebar (clock icon; **View > Navigators > Results History**, **Cmd+Opt+2**). Pharos records your work as **workspaces**: one workspace per editor-tab session, capturing the editor text, its [query variables](query-variables.md), and every result the tab produced. Reopening a workspace restores the whole session — SQL, variables, result tabs, even chart configurations.
+The **Results History** panel is the second navigator of the sidebar (the clock icon of the navigator selector in the window toolbar; **View > Navigators > Results History**, **Cmd+Opt+2**). Pharos records your work as **workspaces**: one workspace per editor-tab session, capturing the editor text, its [query variables](query-variables.md), and every result the tab produced. Reopening a workspace restores the whole session — SQL, variables, result tabs, even chart configurations.
 
 ## Workspaces
 

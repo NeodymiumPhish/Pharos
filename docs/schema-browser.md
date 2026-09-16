@@ -18,7 +18,7 @@ nav_order: 4
 
 ## Overview
 
-The schema browser is the **Database Navigation** navigator of the sidebar (the third icon at the top of the sidebar, alongside Query Library and Results History; **View > Navigators > Database Navigation**, **Cmd+Opt+3**). It displays the connected database's structure as an expandable tree, letting you browse schemas, tables, views, partitions, and columns without writing SQL.
+The schema browser is the **Database Navigation** navigator of the sidebar (the third icon of the navigator selector in the window toolbar, alongside Query Library and Results History; **View > Navigators > Database Navigation**, **Cmd+Opt+3**). It displays the connected database's structure as an expandable tree, letting you browse schemas, tables, views, partitions, and columns without writing SQL.
 
 ## Tree Hierarchy
 

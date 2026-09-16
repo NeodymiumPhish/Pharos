@@ -58,7 +58,7 @@ Building from source requires Xcode and a Rust toolchain installed via [rustup](
 
 The Pharos window has three panes:
 
-- **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with three navigators, switched by the icons at its top (or from **View > Navigators**, **Cmd+Opt+1/2/3**): **Query Library** (saved queries), **Results History** (workspaces and past queries), and **Database Navigation** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. In the Query Library a **+** pull-down sits beside the field, holding **New Query** and **New Folder**.
+- **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with three navigators, switched by the grouped selector in the window toolbar above it, level with the window buttons (or from **View > Navigators**, **Cmd+Opt+1/2/3**). Pressing the icon that is already selected hides the sidebar; pressing it again brings it back. The three navigators are: **Query Library** (saved queries), **Results History** (workspaces and past queries), and **Database Navigation** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. In the Query Library a **+** pull-down sits beside the field, holding **New Query** and **New Folder**.
 - **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid or chart) and its action bar.
 - **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 

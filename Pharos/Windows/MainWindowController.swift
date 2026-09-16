@@ -89,8 +89,7 @@ class MainWindowController: NSWindowController {
 
         let toolbarController = MainToolbarController(
             session: session,
-            contentVC: splitViewController.contentVC,
-            sidebarVC: splitViewController.sidebarVC
+            splitVC: splitViewController
         )
         toolbarController.install(on: window)
         self.toolbarController = toolbarController

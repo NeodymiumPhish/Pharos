@@ -175,6 +175,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // Transparent, so the sidebar's own material is the only thing behind
+        // the list. The clip view is a separate NSClipView with its own
+        // background flag — setting the scroll view alone still leaves an
+        // opaque plate. Row selection and group rows are drawn by
+        // NSTableRowView and are unaffected.
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        tableView.backgroundColor = .clear
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         // Bottom preview pane: shows the selected workspace's results.
@@ -196,6 +204,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         previewScroll.documentView = previewTable
         previewScroll.hasVerticalScroller = true
         previewScroll.autohidesScrollers = true
+        // Transparent, so the sidebar's own material is the only thing behind
+        // the list. The clip view is a separate NSClipView with its own
+        // background flag — setting the scroll view alone still leaves an
+        // opaque plate. Row selection and group rows are drawn by
+        // NSTableRowView and are unaffected.
+        previewScroll.drawsBackground = false
+        previewScroll.contentView.drawsBackground = false
+        previewTable.backgroundColor = .clear
         previewScroll.translatesAutoresizingMaskIntoConstraints = false
 
         splitView.isVertical = false // stacks top/bottom

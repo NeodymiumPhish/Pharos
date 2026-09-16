@@ -114,6 +114,14 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // Transparent, so the sidebar's own material is the only thing behind
+        // the list. The clip view is a separate NSClipView with its own
+        // background flag — setting the scroll view alone still leaves an
+        // opaque plate. Row selection and group rows are drawn by
+        // NSTableRowView and are unaffected.
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
+        outlineView.backgroundColor = .clear
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         emptyState.translatesAutoresizingMaskIntoConstraints = false

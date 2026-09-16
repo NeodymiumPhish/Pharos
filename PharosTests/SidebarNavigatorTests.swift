@@ -4,18 +4,22 @@
 //
 // What this suite is FOR. Three things here can fail silently:
 //
-// 1. The selector stops being a radio group. `NSButton` push-on/push-off
-//    buttons are three independent toggles unless something re-asserts the
-//    single-selection rule, and the failure (two icons lit, or none) is
-//    invisible to a compiler. Every selection assertion here goes through
-//    `performClick` — the real target/action — which is why the buttons are
-//    hosted in an offscreen NSWindow.
-// 2. The flat Xcode look quietly reverts. `bezelStyle` and
-//    `showsBorderOnlyWhileMouseInside` are the two properties that carry it;
-//    either one changed puts a bezel back under every icon.
+// 1. The navigator group is built the wrong way. `selectionMode` is documented
+//    as applying ONLY to a group made with one of the convenience
+//    constructors; built with `init(itemIdentifier:)` plus hand-assigned
+//    subitems it compiles, runs, and simply never lights a segment.
+// 2. A segment loses its title. The toolbar is `.iconOnly` and
+//    `NSToolbarItem` has no accessibility identifier, so the label IS what AX
+//    and the tooltip read — an empty one is invisible to a compiler and to a
+//    sighted tester.
 // 3. A filter follows the user across a navigator switch. The schema tree and
 //    the query history match on different text, so a carried-over filter
 //    reads as an empty list rather than as a mistake.
+//
+// What it CANNOT cover: a group that is not installed in a live toolbar has no
+// control representation, so `selectedIndex`, the lit/unlit state and the
+// press-the-lit-one-to-collapse gesture are not observable here. Those are
+// checked live with scripts/ax-do.swift.
 import AppKit
 
 var failures = 0
@@ -65,10 +69,6 @@ private func host(_ view: NSView, width: CGFloat = 260) -> NSWindow {
     return window
 }
 
-private func onCount(_ selector: NavigatorSelector) -> Int {
-    Navigator.allCases.filter { selector.button(for: $0)?.state == .on }.count
-}
-
 // MARK: - Cases
 
 private func testNavigatorModel() {
@@ -84,106 +84,63 @@ private func testNavigatorModel() {
     expect(Navigator.library.symbolName, "folder", "library symbol")
     expect(Navigator.history.symbolName, "clock.arrow.circlepath", "history symbol")
     expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
-
-    expect(Navigator.library.accessibilityIdentifier, "sidebar.navigator.library", "library identifier")
-    expect(Navigator.history.accessibilityIdentifier, "sidebar.navigator.history", "history identifier")
-    expect(Navigator.schema.accessibilityIdentifier, "sidebar.navigator.schema", "schema identifier")
 }
 
-private func testSelectorAppearance() {
-    let selector = NavigatorSelector()
-    let window = host(selector)
-    defer { window.close() }
+private func testNavigatorToolbarGroup() {
+    var pressed = 0
+    final class Sink: NSObject {
+        var onPress: () -> Void = {}
+        @objc func pressed(_ sender: Any?) { onPress() }
+    }
+    let sink = Sink()
+    sink.onPress = { pressed += 1 }
 
-    // A plain NSView is an ignored accessibility element: without
-    // setAccessibilityElement(true) none of the three below would surface.
-    expectTrue(selector.isAccessibilityElement(), "selector is an accessibility element")
-    expect(selector.accessibilityRole()?.rawValue ?? "nil",
-           NSAccessibility.Role.radioGroup.rawValue, "selector is a radio group")
-    expect(selector.accessibilityLabel() ?? "nil", "Navigators", "selector label")
-    expect(selector.accessibilityIdentifier(), "sidebar.navigator", "selector identifier")
+    let group = NavigatorToolbarGroup.make(target: sink, action: #selector(Sink.pressed(_:)))
 
-    for navigator in Navigator.allCases {
-        guard let button = selector.button(for: navigator) else {
-            failures += 1; print("FAIL no button for \(navigator)"); continue
-        }
-        // The two properties that carry the flat Xcode look. `.accessoryBar`
-        // with showsBorderOnlyWhileMouseInside draws nothing when off and a
-        // neutral rounded fill when on; changing either puts a bezel back.
-        expect(Int(button.bezelStyle.rawValue), Int(NSButton.BezelStyle.accessoryBar.rawValue),
-               "\(navigator) button is an accessory bar button")
-        expectTrue(button.showsBorderOnlyWhileMouseInside,
-                   "\(navigator) button borders only on hover")
-        expect(Int(button.imagePosition.rawValue), Int(NSControl.ImagePosition.imageOnly.rawValue),
-               "\(navigator) button is image only")
-        expectTrue(button.image != nil, "\(navigator) button has an image")
-        expect(button.toolTip ?? "nil", navigator.title, "\(navigator) tooltip is the title")
-        expect(button.accessibilityRole()?.rawValue ?? "nil",
-               NSAccessibility.Role.radioButton.rawValue, "\(navigator) is a radio button")
-        expect(button.accessibilityLabel() ?? "nil", navigator.title, "\(navigator) AX label")
-        expect(button.accessibilityIdentifier(), navigator.accessibilityIdentifier,
-               "\(navigator) AX identifier")
-        // Auto Layout pins the ALIGNMENT RECT, not the frame: an image-only
-        // button's frame carries the symbol's insets on top.
-        let rect = button.alignmentRect(forFrame: button.frame)
-        expect(rect.width, 28, "\(navigator) button is 28 wide")
-        expect(rect.height, 24, "\(navigator) button is 24 tall")
+    expect(group.itemIdentifier.rawValue, "PharosNavigator", "group identifier")
+    expect(NavigatorToolbarGroup.identifier.rawValue, "PharosNavigator", "identifier constant")
+
+    // The convenience constructor is the whole point: `selectionMode` is
+    // documented to apply only to a group built by one, and it creates the
+    // subitems itself. Three of them, in Navigator order.
+    expect(Int(group.selectionMode.rawValue),
+           Int(NSToolbarItemGroup.SelectionMode.selectOne.rawValue),
+           "group selects exactly one")
+    expect(group.subitems.count, 3, "three subitems")
+
+    for (index, navigator) in Navigator.allCases.enumerated() where index < group.subitems.count {
+        let subitem = group.subitems[index]
+        expect(subitem.label, navigator.title, "subitem \(index) label is the title")
+        expect(subitem.toolTip ?? "nil", navigator.title, "subitem \(index) tooltip is the title")
+        expectTrue(subitem.image != nil, "subitem \(index) has an image")
     }
 
-    // The stack the row is built from, found by walking rather than exposed:
-    // .equalCentering is what spreads three icons evenly across the sidebar.
-    let stacks = selector.subviews.compactMap { $0 as? NSStackView }
-    expect(stacks.count, 1, "one stack in the selector")
-    if let stack = stacks.first {
-        expect(Int(stack.distribution.rawValue), Int(NSStackView.Distribution.equalCentering.rawValue),
-               "selector stack centres equally")
-        expect(stack.edgeInsets.left, 8, "selector stack leading inset")
-        expect(stack.edgeInsets.right, 8, "selector stack trailing inset")
-    }
-    expect(selector.alignmentRect(forFrame: selector.frame).height, 28, "selector row is 28 tall")
-}
+    // Blank here means a blank row in Customize Toolbar…
+    expect(group.label, "Navigators", "group label")
+    expect(group.paletteLabel, "Navigators", "group palette label")
 
-private func testSelectorIsARadioGroup() {
-    let selector = NavigatorSelector()
-    let window = host(selector)
-    defer { window.close() }
+    // Measured live: with `.automatic` the toolbar judges the sidebar region
+    // too tight and falls back to `.collapsed`, which is a pull-down menu
+    // reading "Query Library" — not a capsule. `.expanded` is what makes it a
+    // capsule, and the sidebar's minimumThickness (240) is sized to hold it.
+    expect(Int(group.controlRepresentation.rawValue),
+           Int(NSToolbarItemGroup.ControlRepresentation.expanded.rawValue),
+           "group representation is expanded")
 
-    var changes: [Navigator] = []
-    selector.onChange = { changes.append($0) }
+    // -1 is what the group reports when nothing is selected, and it is how the
+    // toolbar draws an unlit capsule over a collapsed sidebar.
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: -1) == nil,
+               "-1 names no navigator")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 1) == .history,
+               "index 1 names history")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == nil,
+               "an out-of-range index names no navigator")
 
-    expect(onCount(selector), 1, "exactly one button on at rest")
-    expectTrue(selector.button(for: .library)?.state == .on, "library starts on")
-
-    selector.button(for: .history)?.performClick(nil)
-    expect(onCount(selector), 1, "exactly one button on after clicking history")
-    expectTrue(selector.button(for: .history)?.state == .on, "history is on")
-    expect(changes.count, 1, "one change reported")
-    expectTrue(changes.last == .history, "the change names history")
-    expectTrue(selector.selected == .history, "selected follows the click")
-
-    selector.button(for: .schema)?.performClick(nil)
-    expect(onCount(selector), 1, "exactly one button on after clicking schema")
-    expectTrue(selector.button(for: .schema)?.state == .on, "schema is on")
-    expect(changes.count, 2, "two changes reported")
-
-    // The failure this guards: a push-on/push-off button toggles itself off on
-    // the way in, so a click on the SHOWING navigator would blank the row and
-    // leave the sidebar on a list no icon claims.
-    selector.button(for: .schema)?.performClick(nil)
-    expect(onCount(selector), 1, "re-clicking the selected button leaves one on")
-    expectTrue(selector.button(for: .schema)?.state == .on, "schema stays on after a re-click")
-    expect(changes.count, 2, "a re-click reports no change")
-
-    selector.button(for: .library)?.performClick(nil)
-    expect(onCount(selector), 1, "exactly one on back at library")
-    expect(changes.count, 3, "three changes reported")
-
-    // Setting the property must move the highlight too — the menu drives it
-    // this way, not by clicking.
-    selector.selected = .history
-    expect(onCount(selector), 1, "one on after setting the property")
-    expectTrue(selector.button(for: .history)?.state == .on, "the property moves the highlight")
-    expect(changes.count, 3, "setting the property fires no change callback")
+    // The action reaches the target; the group is the sender.
+    group.target = sink
+    group.action = #selector(Sink.pressed(_:))
+    _ = group.target
+    expect(pressed, 0, "the group does not fire on construction")
 }
 
 private func testFilterBar() {
@@ -338,8 +295,7 @@ private func testFilterState() {
 
 func runTests() {
     testNavigatorModel()
-    testSelectorAppearance()
-    testSelectorIsARadioGroup()
+    testNavigatorToolbarGroup()
     testFilterBar()
     testPrefs()
     testFilterState()

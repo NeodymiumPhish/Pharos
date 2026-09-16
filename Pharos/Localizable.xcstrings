@@ -113,6 +113,9 @@
     "About Pharos" : {
 
     },
+    "Add" : {
+
+    },
     "Add color" : {
 
     },
@@ -330,6 +333,9 @@
     "Dark" : {
 
     },
+    "Database Navigation" : {
+
+    },
     "Decrease Editor Font" : {
 
     },
@@ -440,6 +446,9 @@
 
     },
     "Filter" : {
+
+    },
+    "Filter in Navigator" : {
 
     },
     "Filter Results…" : {
@@ -571,10 +580,16 @@
     "Name suggested by Apple Intelligence" : {
 
     },
+    "Navigators" : {
+
+    },
     "New Folder" : {
 
     },
     "New Folder..." : {
+
+    },
+    "New Query" : {
 
     },
     "New Query Tab" : {
@@ -739,6 +754,9 @@
     "Query Detail" : {
 
     },
+    "Query Library" : {
+
+    },
     "Query name" : {
 
     },
@@ -782,6 +800,9 @@
 
     },
     "Results" : {
+
+    },
+    "Results History" : {
 
     },
     "Retry" : {

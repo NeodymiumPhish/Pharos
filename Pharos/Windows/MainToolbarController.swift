@@ -9,6 +9,8 @@ extension NSToolbarItem.Identifier {
     static let pharosFormatSQL = NSToolbarItem.Identifier("PharosFormatSQL")
     static let pharosNewTab = NSToolbarItem.Identifier("PharosNewTab")
     static let pharosSaveQuery = NSToolbarItem.Identifier("PharosSaveQuery")
+    /// The grouped navigator selector. Defined by the factory that builds it.
+    static let pharosNavigator = NavigatorToolbarGroup.identifier
 }
 
 /// A toolbar item with a custom view whose enabled state comes from a closure.
@@ -25,9 +27,12 @@ private final class ValidatingViewToolbarItem: NSToolbarItem {
 
 /// Delegate and state driver for the main window's `NSToolbar`.
 ///
-/// Default set, left to right: sidebar toggle | tracking separator |
+/// Default set, left to right: navigator group | tracking separator |
 /// connection pull-down, Run, Cancel | flexible space | tracking separator |
-/// inspector toggle. Run is the one prominent item and carries a badge with
+/// inspector toggle. The navigator group stands where the sidebar toggle used
+/// to: it both picks the sidebar's list and, when the lit segment is pressed
+/// again, collapses the pane — the way Calendar's Calendars/Invites control
+/// behaves. Run is the one prominent item and carries a badge with
 /// the count of running queries on the active tab. Every item here has a
 /// menu command; the toolbar adds nothing that the menu bar cannot reach.
 ///
@@ -37,8 +42,12 @@ private final class ValidatingViewToolbarItem: NSToolbarItem {
 @MainActor
 final class MainToolbarController: NSObject {
 
-    private weak var contentVC: ContentViewController?
-    private weak var sidebarVC: SidebarViewController?
+    /// The split view controller is the single source for the two panes and
+    /// for the sidebar's collapse state; holding one weak reference instead of
+    /// three keeps them from disagreeing.
+    private weak var splitVC: PharosSplitViewController?
+    private var contentVC: ContentViewController? { splitVC?.contentVC }
+    private var sidebarVC: SidebarViewController? { splitVC?.sidebarVC }
     private let session: WindowSession
     private let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
@@ -49,20 +58,27 @@ final class MainToolbarController: NSObject {
     private weak var toolbar: NSToolbar?
     private weak var runItem: NSToolbarItem?
     private weak var cancelItem: NSToolbarItem?
+    private weak var navigatorItem: NSToolbarItemGroup?
 
     private let connectionButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let cancelButton = NSButton()
     private var runningQueriesPopover: NSPopover?
     private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
 
-    init(session: WindowSession, contentVC: ContentViewController, sidebarVC: SidebarViewController) {
+    init(session: WindowSession, splitVC: PharosSplitViewController) {
         self.session = session
-        self.contentVC = contentVC
-        self.sidebarVC = sidebarVC
+        self.splitVC = splitVC
         super.init()
         configureConnectionButton()
         configureCancelButton()
         subscribe()
+        // ⌥⌘1/2/3 go straight to the sidebar; this is how the group hears about
+        // them. Weak, or the sidebar (owned by the window) would keep this
+        // controller alive past `windowWillClose` and its `deinit` would never
+        // remove the running-queries observer.
+        splitVC.sidebarVC.onNavigatorChanged = { [weak self] navigator in
+            self?.navigatorItem?.selectedIndex = navigator.rawValue
+        }
     }
 
     deinit {
@@ -73,7 +89,13 @@ final class MainToolbarController: NSObject {
 
     /// Installs a customizable toolbar on `window` with this object as delegate.
     func install(on window: NSWindow) {
-        let toolbar = NSToolbar(identifier: "PharosToolbar")
+        // "PharosToolbar2", not "PharosToolbar". `autosavesConfiguration` is
+        // on, and AppKit reconciles a saved configuration by DROPPING unknown
+        // identifiers, never by adding new default ones — so a window that had
+        // saved the old set would keep the sidebar toggle and never show the
+        // navigator group. The new name costs one reset of the user's own
+        // toolbar customisation, display mode and size mode.
+        let toolbar = NSToolbar(identifier: "PharosToolbar2")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -309,6 +331,41 @@ final class MainToolbarController: NSObject {
     @objc private func refreshMetadata() { contentVC?.menuRefreshMetadata(nil) }
     @objc private func showConnectionsManager() { ConnectionsManagerWindowController.show() }
 
+    // MARK: - Navigator group
+
+    /// The sidebar's navigator group was pressed.
+    ///
+    /// Pressing the segment that is already lit collapses the sidebar, and
+    /// pressing it again brings it back — Calendar's behaviour. Any other
+    /// segment shows the sidebar on that list.
+    @objc private func navigatorChanged(_ sender: NSToolbarItemGroup) {
+        guard let splitVC,
+              let sidebarVC,
+              let navigator = NavigatorToolbarGroup.navigator(forSelectedIndex: sender.selectedIndex)
+        else { return }
+
+        if navigator == sidebarVC.currentNavigator && !splitVC.isSidebarCollapsed {
+            splitVC.setSidebarCollapsed(true)
+        } else {
+            splitVC.setSidebarCollapsed(false)
+            sidebarVC.showNavigator(navigator)
+        }
+    }
+
+    /// Lights the segment for the navigator on screen.
+    ///
+    /// The lit segment deliberately stays lit while the sidebar is hidden: it
+    /// then reads as "the list the sidebar will come back on", which is
+    /// already how the View ▸ Navigators menu items behave (they keep their
+    /// checkmark when the pane is collapsed). It is also the only option —
+    /// measured live, `NSToolbarItemGroup` in `.selectOne` mode ignores
+    /// `selectedIndex = -1` and keeps the previous segment lit, with or
+    /// without the macOS 27 `.tabs` role.
+    private func syncNavigatorSelection(group: NSToolbarItemGroup? = nil) {
+        guard let group = group ?? navigatorItem, let sidebarVC else { return }
+        group.selectedIndex = sidebarVC.currentNavigator.rawValue
+    }
+
     // MARK: - Cancel button
 
     private func configureCancelButton() {
@@ -332,6 +389,20 @@ extension MainToolbarController: NSToolbarDelegate {
         case .toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, .space,
              .inspectorTrackingSeparator, .toggleInspector:
             return NSToolbarItem(itemIdentifier: itemIdentifier)
+
+        case .pharosNavigator:
+            let group = NavigatorToolbarGroup.make(target: self,
+                                                   action: #selector(navigatorChanged(_:)))
+            if flag {
+                navigatorItem = group
+                // Seeded HERE, not from the sidebar's change callback. The
+                // sidebar restores its last navigator in `loadView`, which runs
+                // when the window's content view controller is set — before this
+                // controller exists — so the callback would fire into nothing and
+                // the group would always launch lit on Query Library.
+                syncNavigatorSelection(group: group)
+            }
+            return group
 
         case .pharosConnection:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
@@ -421,7 +492,7 @@ extension MainToolbarController: NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            .toggleSidebar,
+            .pharosNavigator,
             .sidebarTrackingSeparator,
             .pharosConnection,
             .pharosRunQuery,
@@ -434,6 +505,10 @@ extension MainToolbarController: NSToolbarDelegate {
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
+            .pharosNavigator,
+            // Still offered in Customize Toolbar… for anyone who wants a plain
+            // toggle back. ⌃⌘S works either way; it goes to the split view
+            // controller, never to a toolbar item.
             .toggleSidebar,
             .sidebarTrackingSeparator,
             .pharosConnection,

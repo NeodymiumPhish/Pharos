@@ -18,7 +18,7 @@ nav_order: 13
 
 ## Overview
 
-The **Query Library** is the first navigator of the sidebar (folder icon; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
+The **Query Library** is the first navigator of the sidebar (the folder icon of the navigator selector in the window toolbar; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
 
 ## An Empty Library
 

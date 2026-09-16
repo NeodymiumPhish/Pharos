@@ -3,7 +3,6 @@ import Combine
 
 class SidebarViewController: NSViewController {
 
-    private let navigatorSelector = NavigatorSelector()
     private let filterBar = SidebarFilterBar()
     private let contentArea = NSView()
 
@@ -53,12 +52,6 @@ class SidebarViewController: NSViewController {
         container.setAccessibilityIdentifier("pane.sidebar")
         self.view = container
 
-        // Navigator selector (top) — icon only, Xcode's navigator chooser.
-        navigatorSelector.translatesAutoresizingMaskIntoConstraints = false
-        navigatorSelector.onChange = { [weak self] navigator in
-            self?.select(navigator)
-        }
-
         // Filter bar (bottom) — "+" pull-down and the filter field.
         filterBar.translatesAutoresizingMaskIntoConstraints = false
         filterBar.onTextChanged = { [weak self] text in
@@ -99,18 +92,19 @@ class SidebarViewController: NSViewController {
         embedChild(queryHistory, in: historyContainer)
         embedChild(schemaBrowser, in: browserContainer)
 
-        // Layout: navigator selector at the top, the lists in the middle, the
-        // filter bar along the bottom.
-        container.addSubview(navigatorSelector)
+        // Layout: the lists fill the pane, the filter bar along the bottom.
+        // The navigator chooser is a toolbar item now (NavigatorToolbarGroup),
+        // not a row in here.
         container.addSubview(contentArea)
         container.addSubview(filterBar)
 
         NSLayoutConstraint.activate([
-            navigatorSelector.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
-            navigatorSelector.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            navigatorSelector.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-
-            contentArea.topAnchor.constraint(equalTo: navigatorSelector.bottomAnchor, constant: 4),
+            // Pinned to the container, NOT to the safe area: the lists scroll
+            // UNDER the toolbar glass, as Xcode's and Calendar's do. Each list's
+            // NSScrollView has automaticallyAdjustsContentInsets on (the
+            // default), which supplies the titlebar inset. Pinning to the safe
+            // area as well would inset the content twice.
+            contentArea.topAnchor.constraint(equalTo: container.topAnchor),
             contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             contentArea.bottomAnchor.constraint(equalTo: filterBar.topAnchor),
@@ -123,7 +117,6 @@ class SidebarViewController: NSViewController {
 
         // Open on the navigator the user was last reading.
         filterState = NavigatorFilterState(current: SidebarNavigatorPrefs.lastNavigator)
-        navigatorSelector.selected = filterState.current
         select(filterState.current)
 
         // Observe connection changes (deduplicate to avoid redundant reloads on tab switch)
@@ -194,12 +187,16 @@ class SidebarViewController: NSViewController {
     /// filter text, and remembers the choice for the next launch.
     func showNavigator(_ navigator: Navigator) {
         guard navigator != filterState.current else { return }
-        navigatorSelector.selected = navigator
         select(navigator)
     }
 
     /// The navigator on screen.
     var currentNavigator: Navigator { filterState.current }
+
+    /// Fired whenever the navigator on screen changes, including the restore
+    /// at launch. The toolbar's navigator group uses it to keep its lit
+    /// segment true when the change came from the menu rather than the group.
+    var onNavigatorChanged: ((Navigator) -> Void)?
 
     /// Put the caret in the filter field (View ▸ Filter in Navigator).
     func focusFilter() {
@@ -224,6 +221,10 @@ class SidebarViewController: NSViewController {
         applyFilterToVisibleChild(text)
 
         SidebarNavigatorPrefs.lastNavigator = navigator
+
+        // The toolbar's navigator group follows this, so ⌥⌘1/2/3 light the
+        // right segment. Held weakly by the toolbar controller.
+        onNavigatorChanged?(navigator)
     }
 
     // MARK: - Filtering

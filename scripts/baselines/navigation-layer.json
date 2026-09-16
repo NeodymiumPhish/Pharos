@@ -1,6 +1,6 @@
 {
-  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.7vYqCe/Pharos.app",
-  "captured_at": "2026-09-16T13:02:05+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.fFS5yk/Pharos.app",
+  "captured_at": "2026-09-16T14:18:37+00:00",
   "tree": {
     "children": [
       {
@@ -12,75 +12,20 @@
                   {
                     "children": [
                       {
-                        "description": "Query Library",
                         "frame": {
-                          "h": 26,
-                          "w": 30,
-                          "x": 1967,
-                          "y": 229
-                        },
-                        "identifier": "sidebar.navigator.library",
-                        "role": "AXRadioButton",
-                        "subrole": "AXToggle",
-                        "title": "",
-                        "value": 1
-                      },
-                      {
-                        "description": "Results History",
-                        "frame": {
-                          "h": 26,
-                          "w": 30,
-                          "x": 2045,
-                          "y": 229
-                        },
-                        "identifier": "sidebar.navigator.history",
-                        "role": "AXRadioButton",
-                        "subrole": "AXToggle",
-                        "title": "",
-                        "value": 0
-                      },
-                      {
-                        "description": "Database Navigation",
-                        "frame": {
-                          "h": 26,
-                          "w": 30,
-                          "x": 2123,
-                          "y": 229
-                        },
-                        "identifier": "sidebar.navigator.schema",
-                        "role": "AXRadioButton",
-                        "subrole": "AXToggle",
-                        "title": "",
-                        "value": 0
-                      }
-                    ],
-                    "description": "Navigators",
-                    "frame": {
-                      "h": 28,
-                      "w": 200,
-                      "x": 1960,
-                      "y": 228
-                    },
-                    "identifier": "sidebar.navigator",
-                    "role": "AXRadioGroup"
-                  },
-                  {
-                    "children": [
-                      {
-                        "frame": {
-                          "h": 682,
-                          "w": 202,
+                          "h": 722,
+                          "w": 242,
                           "x": 1959,
-                          "y": 259
+                          "y": 219
                         },
                         "role": "AXOutline"
                       }
                     ],
                     "frame": {
-                      "h": 680,
-                      "w": 200,
+                      "h": 720,
+                      "w": 240,
                       "x": 1960,
-                      "y": 260
+                      "y": 220
                     },
                     "role": "AXScrollArea"
                   },
@@ -90,8 +35,8 @@
                         "frame": {
                           "h": 22,
                           "w": 148,
-                          "x": 1986,
-                          "y": 598
+                          "x": 2006,
+                          "y": 552
                         },
                         "role": "AXStaticText",
                         "value": "No Saved Queries"
@@ -99,9 +44,9 @@
                       {
                         "frame": {
                           "h": 34,
-                          "w": 170,
+                          "w": 210,
                           "x": 1975,
-                          "y": 626
+                          "y": 580
                         },
                         "role": "AXStaticText",
                         "value": "Save a query with \u2318S to keep it here."
@@ -109,10 +54,10 @@
                     ],
                     "description": "No Saved Queries. Save a query with \u2318S to keep it here.",
                     "frame": {
-                      "h": 680,
-                      "w": 200,
+                      "h": 772,
+                      "w": 240,
                       "x": 1960,
-                      "y": 260
+                      "y": 168
                     },
                     "role": "AXGroup"
                   },
@@ -144,7 +89,7 @@
                     ],
                     "frame": {
                       "h": 26,
-                      "w": 146,
+                      "w": 186,
                       "x": 2001,
                       "y": 941
                     },
@@ -156,7 +101,7 @@
                 ],
                 "frame": {
                   "h": 800,
-                  "w": 200,
+                  "w": 240,
                   "x": 1960,
                   "y": 168
                 },
@@ -168,11 +113,11 @@
                 "frame": {
                   "h": 748,
                   "w": 1,
-                  "x": 2160,
+                  "x": 2200,
                   "y": 220
                 },
                 "role": "AXSplitter",
-                "value": 200
+                "value": 240
               },
               {
                 "children": [
@@ -197,8 +142,8 @@
                                 "description": "Query 1",
                                 "frame": {
                                   "h": 24,
-                                  "w": 962,
-                                  "x": 2165,
+                                  "w": 922,
+                                  "x": 2205,
                                   "y": 225
                                 },
                                 "role": "AXRadioButton",
@@ -208,8 +153,8 @@
                             ],
                             "frame": {
                               "h": 26,
-                              "w": 964,
-                              "x": 2163,
+                              "w": 924,
+                              "x": 2203,
                               "y": 223
                             },
                             "role": "AXRadioGroup"
@@ -239,8 +184,8 @@
                         ],
                         "frame": {
                           "h": 32,
-                          "w": 1000,
-                          "x": 2160,
+                          "w": 960,
+                          "x": 2200,
                           "y": 220
                         },
                         "identifier": "editor.tabBar",
@@ -251,7 +196,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2167,
+                          "x": 2207,
                           "y": 253
                         },
                         "role": "AXButton",
@@ -263,7 +208,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2199,
+                          "x": 2239,
                           "y": 253
                         },
                         "identifier": "editor.describeQuery",
@@ -275,7 +220,7 @@
                         "frame": {
                           "h": 19,
                           "w": 34,
-                          "x": 2231,
+                          "x": 2271,
                           "y": 258
                         },
                         "role": "AXMenuButton",
@@ -287,7 +232,7 @@
                         "frame": {
                           "h": 18,
                           "w": 102,
-                          "x": 2267,
+                          "x": 2307,
                           "y": 259
                         },
                         "role": "AXMenuButton",
@@ -320,7 +265,7 @@
                         "frame": {
                           "h": 385,
                           "w": 52.68,
-                          "x": 2160,
+                          "x": 2200,
                           "y": 284
                         },
                         "identifier": "editor.gutter",
@@ -331,8 +276,8 @@
                           {
                             "frame": {
                               "h": 385,
-                              "w": 457,
-                              "x": 2212.68,
+                              "w": 417,
+                              "x": 2252.68,
                               "y": 284
                             },
                             "identifier": "editor.text",
@@ -342,8 +287,8 @@
                         ],
                         "frame": {
                           "h": 385,
-                          "w": 457.32,
-                          "x": 2212.68,
+                          "w": 417.32,
+                          "x": 2252.68,
                           "y": 284
                         },
                         "role": "AXScrollArea"
@@ -444,8 +389,8 @@
                         "enabled": false,
                         "frame": {
                           "h": 0,
-                          "w": 1000,
-                          "x": 2160,
+                          "w": 960,
+                          "x": 2200,
                           "y": 669
                         },
                         "role": "AXSplitter",
@@ -458,7 +403,7 @@
                             "frame": {
                               "h": 24,
                               "w": 51,
-                              "x": 2168,
+                              "x": 2208,
                               "y": 674
                             },
                             "role": "AXRadioButton",
@@ -470,7 +415,7 @@
                             "frame": {
                               "h": 24,
                               "w": 59,
-                              "x": 2219,
+                              "x": 2259,
                               "y": 674
                             },
                             "role": "AXRadioButton",
@@ -481,7 +426,7 @@
                         "frame": {
                           "h": 26,
                           "w": 110,
-                          "x": 2167,
+                          "x": 2207,
                           "y": 672
                         },
                         "role": "AXRadioGroup"
@@ -491,7 +436,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2277,
+                          "x": 2317,
                           "y": 670
                         },
                         "role": "AXButton",
@@ -502,7 +447,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2307,
+                          "x": 2347,
                           "y": 670
                         },
                         "role": "AXButton",
@@ -513,7 +458,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2337,
+                          "x": 2377,
                           "y": 670
                         },
                         "role": "AXButton",
@@ -524,7 +469,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 2367,
+                          "x": 2407,
                           "y": 670
                         },
                         "role": "AXButton",
@@ -568,7 +513,7 @@
                             "frame": {
                               "h": 22,
                               "w": 92,
-                              "x": 2614,
+                              "x": 2634,
                               "y": 820
                             },
                             "role": "AXStaticText",
@@ -578,7 +523,7 @@
                             "frame": {
                               "h": 18,
                               "w": 204,
-                              "x": 2558,
+                              "x": 2578,
                               "y": 848
                             },
                             "role": "AXStaticText",
@@ -588,7 +533,7 @@
                             "frame": {
                               "h": 26,
                               "w": 90,
-                              "x": 2615,
+                              "x": 2635,
                               "y": 880
                             },
                             "role": "AXButton",
@@ -598,8 +543,8 @@
                         "description": "No Results. Run a query to see its rows here.",
                         "frame": {
                           "h": 267,
-                          "w": 1000,
-                          "x": 2160,
+                          "w": 960,
+                          "x": 2200,
                           "y": 701
                         },
                         "role": "AXGroup"
@@ -607,8 +552,8 @@
                     ],
                     "frame": {
                       "h": 748,
-                      "w": 1000,
-                      "x": 2160,
+                      "w": 960,
+                      "x": 2200,
                       "y": 220
                     },
                     "role": "AXSplitGroup"
@@ -616,8 +561,8 @@
                 ],
                 "frame": {
                   "h": 800,
-                  "w": 1000,
-                  "x": 2160,
+                  "w": 960,
+                  "x": 2200,
                   "y": 168
                 },
                 "identifier": "pane.content",
@@ -632,7 +577,7 @@
                   "y": 220
                 },
                 "role": "AXSplitter",
-                "value": 999
+                "value": 959
               }
             ],
             "frame": {
@@ -646,21 +591,69 @@
           {
             "children": [
               {
-                "description": "Sidebar",
+                "children": [
+                  {
+                    "children": [
+                      {
+                        "description": "Query Library",
+                        "frame": {
+                          "h": 36,
+                          "w": 40,
+                          "x": 2056,
+                          "y": 177
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXTabButton",
+                        "value": 1
+                      },
+                      {
+                        "description": "Results History",
+                        "frame": {
+                          "h": 36,
+                          "w": 39,
+                          "x": 2096,
+                          "y": 177
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXTabButton",
+                        "value": 0
+                      },
+                      {
+                        "description": "Database Navigation",
+                        "frame": {
+                          "h": 36,
+                          "w": 40,
+                          "x": 2135,
+                          "y": 177
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXTabButton",
+                        "value": 0
+                      }
+                    ],
+                    "frame": {
+                      "h": 38,
+                      "w": 119,
+                      "x": 2055,
+                      "y": 175
+                    },
+                    "role": "AXTabGroup"
+                  }
+                ],
                 "frame": {
                   "h": 52,
-                  "w": 44,
+                  "w": 125,
                   "x": 2052,
                   "y": 168
                 },
-                "role": "AXButton"
+                "role": "AXGroup"
               },
               {
                 "description": "Connection",
                 "frame": {
                   "h": 52,
                   "w": 158,
-                  "x": 2164,
+                  "x": 2204,
                   "y": 168
                 },
                 "identifier": "toolbar.connection",
@@ -672,7 +665,7 @@
                 "frame": {
                   "h": 52,
                   "w": 44,
-                  "x": 2322,
+                  "x": 2362,
                   "y": 168
                 },
                 "role": "AXButton"
@@ -683,7 +676,7 @@
                 "frame": {
                   "h": 52,
                   "w": 40,
-                  "x": 2366,
+                  "x": 2406,
                   "y": 168
                 },
                 "identifier": "toolbar.cancel",
@@ -773,7 +766,7 @@
         "X": 1960,
         "Y": 168
       },
-      "number": 5875
+      "number": 7299
     }
   ]
 }

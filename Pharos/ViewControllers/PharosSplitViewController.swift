@@ -36,7 +36,12 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         super.viewDidLoad()
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
-        sidebarItem.minimumThickness = 200
+        // 240, not 200: the navigator group lives in the toolbar's sidebar
+        // region now, which runs from the traffic lights to the tracking
+        // separator. Measured live, three expanded segments need ~130pt there
+        // and the traffic lights take the first ~92pt. At 200 the toolbar sends
+        // the whole group to the overflow menu.
+        sidebarItem.minimumThickness = 240
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
         // Just one step above the content's holding priority — enough to make
@@ -178,8 +183,21 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     }
 
     private func revealSidebar() {
-        if let item = splitViewItems.first, item.isCollapsed {
-            item.animator().isCollapsed = false
-        }
+        setSidebarCollapsed(false)
+    }
+
+    // MARK: - Sidebar collapse (for the toolbar's navigator group)
+
+    /// The sidebar's split view item.
+    private var sidebarItem: NSSplitViewItem? { splitViewItems.first }
+
+    /// Whether the sidebar is hidden.
+    var isSidebarCollapsed: Bool { sidebarItem?.isCollapsed ?? false }
+
+    /// Shows or hides the sidebar, animated, and does nothing if it is already
+    /// in that state.
+    func setSidebarCollapsed(_ collapsed: Bool) {
+        guard let item = sidebarItem, item.isCollapsed != collapsed else { return }
+        item.animator().isCollapsed = collapsed
     }
 }

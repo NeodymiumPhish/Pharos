@@ -13,7 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-sidebar-navigator-tests \
-  Pharos/Views/NavigatorSelector.swift \
+  Pharos/Models/Navigator.swift \
+  Pharos/Views/NavigatorToolbarGroup.swift \
   Pharos/Views/SidebarFilterBar.swift \
   Pharos/Core/SidebarNavigatorPrefs.swift \
   PharosTests/SidebarNavigatorTests.swift \
