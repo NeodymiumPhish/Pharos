@@ -116,51 +116,23 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Bottom bar with New Folder button
-        let bottomBar = NSView()
-        bottomBar.translatesAutoresizingMaskIntoConstraints = false
-
-        let newFolderButton = NSButton()
-        let folderConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        newFolderButton.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "New Folder")?.withSymbolConfiguration(folderConfig)
-        newFolderButton.bezelStyle = .recessed
-        newFolderButton.isBordered = false
-        newFolderButton.toolTip = "New Folder"
-        newFolderButton.target = self
-        newFolderButton.action = #selector(newFolderClicked)
-        newFolderButton.translatesAutoresizingMaskIntoConstraints = false
-        newFolderButton.contentTintColor = .secondaryLabelColor
-
-        bottomBar.addSubview(newFolderButton)
-        NSLayoutConstraint.activate([
-            newFolderButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 8),
-            newFolderButton.centerYAnchor.constraint(equalTo: bottomBar.centerYAnchor),
-            newFolderButton.widthAnchor.constraint(equalToConstant: 28),
-            newFolderButton.heightAnchor.constraint(equalToConstant: 28),
-        ])
-
         emptyState.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(scrollView)
         container.addSubview(emptyState)
-        container.addSubview(bottomBar)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            // Over the list, not over the New Folder bar — that button is the
-            // other way out of an empty library and must stay reachable.
+            // The full pane. New Query and New Folder now live in the
+            // sidebar's own filter bar ("+"), below this list, so nothing here
+            // has to leave room for them.
             emptyState.topAnchor.constraint(equalTo: container.topAnchor),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            emptyState.bottomAnchor.constraint(equalTo: bottomBar.topAnchor),
-
-            bottomBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            bottomBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            bottomBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            bottomBar.heightAnchor.constraint(equalToConstant: 32),
+            emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
         updateEmptyState()
@@ -696,15 +668,13 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     @objc private func contextNewFolder(_: Any?) {
-        createNewFolderInline()
+        createNewFolder()
     }
 
-    @objc private func newFolderClicked(_: Any?) {
-        createNewFolderInline()
-    }
-
-    /// Creates a new folder named "New Folder" and immediately begins inline editing of its name.
-    private func createNewFolderInline() {
+    /// Creates a new folder named "New Folder" and immediately begins inline
+    /// editing of its name. Called by the context menu and by the sidebar
+    /// filter bar's "+" pull-down.
+    func createNewFolder() {
         createEmptyFolder(name: "New Folder")
 
         // Find the newly created folder node and begin editing
@@ -739,6 +709,12 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     @objc private func contextNewQuery(_: Any?) {
+        createNewQuery()
+    }
+
+    /// Creates an empty saved query and opens it in a tab. Called by the
+    /// context menu and by the sidebar filter bar's "+" pull-down.
+    func createNewQuery() {
         let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: nil, variables: nil)
         do {
             let saved = try PharosCore.createSavedQuery(query)

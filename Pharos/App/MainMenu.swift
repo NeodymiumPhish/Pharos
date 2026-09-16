@@ -198,6 +198,34 @@ enum MainMenu {
         inspectorToggle.keyEquivalentModifierMask = [.command, .option]
         inspectorToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: nil)
 
+        // Navigators — one item per sidebar list, each of which SHOWS the
+        // sidebar if it is hidden, the way Xcode's ⌥⌘1…⌘9 do. ⌘1–9 are
+        // already the editor's tabs, hence the ⌥ here.
+        let navigatorsItem = viewMenu.addItem(
+            withTitle: String(localized: "Navigators"), action: nil, keyEquivalent: ""
+        )
+        navigatorsItem.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: nil)
+        let navigatorsMenu = NSMenu(title: String(localized: "Navigators"))
+        for navigator in Navigator.allCases {
+            let item = navigatorsMenu.addItem(
+                withTitle: navigator.title,
+                action: #selector(PharosSplitViewController.menuShowNavigator(_:)),
+                keyEquivalent: "\(navigator.rawValue + 1)"
+            )
+            item.keyEquivalentModifierMask = [.command, .option]
+            item.tag = navigator.rawValue
+            item.image = NSImage(systemSymbolName: navigator.symbolName, accessibilityDescription: nil)
+        }
+        navigatorsItem.submenu = navigatorsMenu
+
+        let navigatorFilterItem = viewMenu.addItem(
+            withTitle: String(localized: "Filter in Navigator"),
+            action: #selector(PharosSplitViewController.menuFocusNavigatorFilter(_:)),
+            keyEquivalent: "j"
+        )
+        navigatorFilterItem.keyEquivalentModifierMask = [.command, .option]
+        navigatorFilterItem.image = NSImage(systemSymbolName: "line.3.horizontal.decrease", accessibilityDescription: nil)
+
         viewMenu.addItem(.separator())
         let customizeToolbar = viewMenu.addItem(withTitle: String(localized: "Customize Toolbar…"), action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
         customizeToolbar.image = NSImage(systemSymbolName: "wrench.and.screwdriver", accessibilityDescription: nil)

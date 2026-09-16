@@ -18,7 +18,7 @@ nav_order: 4
 
 ## Overview
 
-The schema browser is the **Database Navigation** panel of the sidebar (the third segment at the top of the sidebar, alongside Query Library and Results History). It displays the connected database's structure as an expandable tree, letting you browse schemas, tables, views, partitions, and columns without writing SQL.
+The schema browser is the **Database Navigation** navigator of the sidebar (the third icon at the top of the sidebar, alongside Query Library and Results History; **View > Navigators > Database Navigation**, **Cmd+Opt+3**). It displays the connected database's structure as an expandable tree, letting you browse schemas, tables, views, partitions, and columns without writing SQL.
 
 ## Tree Hierarchy
 
@@ -70,7 +70,7 @@ Selecting a schema focuses the navigator on just that schema's tables and views;
 
 ## Filtering
 
-Use the search field at the top of the sidebar to filter the schema tree. Matching is a case-insensitive substring match against schema, table, view, and column names, and matching branches auto-expand to reveal hits. Partition names are also indexed — a partitioned table whose partitions match shows "N matching" without needing to be expanded.
+Use the **Filter** field along the bottom of the sidebar (**Cmd+Opt+J**) to filter the schema tree. Its text is remembered per navigator, so a filter typed here is not carried into the Query Library or Results History. Matching is a case-insensitive substring match against schema, table, view, and column names, and matching branches auto-expand to reveal hits. Partition names are also indexed — a partitioned table whose partitions match shows "N matching" without needing to be expanded.
 
 ## Context Menu Actions
 

@@ -5,9 +5,8 @@ import AppKit
 // macOS 26 they get the Liquid Glass material, the standard
 // `toggleSidebar:` / `toggleInspector:` actions, the tracking-separator
 // toolbar items and the system collapse animation for free. The content item
-// opts into `automaticallyAdjustsSafeAreaInsets`, so its safe area grows where
-// a glass pane overlays it; `ContentViewController` extends its background
-// under that overlay with an `NSBackgroundExtensionView`.
+// keeps `automaticallyAdjustsSafeAreaInsets` OFF, so its background stops at
+// the divider and the translucent sidebar keeps a visible boundary.
 //
 // Holding priorities make the sidebar and inspector resize like classic
 // panels (content absorbs window resize). They must stay LOW and only
@@ -52,7 +51,11 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         let contentItem = NSSplitViewItem(viewController: contentVC)
         contentItem.minimumThickness = 400
         contentItem.holdingPriority = .defaultLow
-        contentItem.automaticallyAdjustsSafeAreaInsets = true
+        // Deliberately OFF. With it on, the content's `NSBackgroundExtensionView`
+        // grows into the safe-area inset the glass sidebar creates and paints
+        // its own plate UNDER the sidebar, so the two panes read as one sheet.
+        // Xcode's navigator keeps a visible boundary; so does this.
+        contentItem.automaticallyAdjustsSafeAreaInsets = false
 
         let inspectorItem = NSSplitViewItem(inspectorWithViewController: inspectorVC)
         inspectorItem.minimumThickness = 220
@@ -133,6 +136,16 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
             menuItem.title = (splitViewItems.last?.isCollapsed ?? true) ? "Show Inspector" : "Hide Inspector"
             return true
         }
+        if menuItem.action == #selector(menuShowNavigator(_:)) {
+            // A checkmark on the list that is showing. It stays checked with
+            // the sidebar hidden: the item then means "show the sidebar on
+            // this list", and the state says which one that is.
+            menuItem.state = (menuItem.tag == sidebarVC.currentNavigator.rawValue) ? .on : .off
+            return true
+        }
+        if menuItem.action == #selector(menuFocusNavigatorFilter(_:)) {
+            return true
+        }
         return contentVC.validateMenuItem(menuItem)
     }
 
@@ -142,6 +155,30 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     /// (e.g. showing a preview row's SQL).
     func showInspector() {
         if let item = splitViewItems.last, item.isCollapsed {
+            item.animator().isCollapsed = false
+        }
+    }
+
+    // MARK: - Navigators
+
+    /// View ▸ Navigators ▸ … — shows the sidebar if it is hidden, then swaps
+    /// it to the chosen list. Asking for a navigator while the sidebar is
+    /// closed means "show me that list", never "do nothing".
+    @objc func menuShowNavigator(_ sender: NSMenuItem) {
+        guard let navigator = Navigator(rawValue: sender.tag) else { return }
+        revealSidebar()
+        sidebarVC.showNavigator(navigator)
+    }
+
+    /// View ▸ Filter in Navigator — shows the sidebar if it is hidden, then
+    /// puts the caret in its filter field.
+    @objc func menuFocusNavigatorFilter(_ sender: Any?) {
+        revealSidebar()
+        sidebarVC.focusFilter()
+    }
+
+    private func revealSidebar() {
+        if let item = splitViewItems.first, item.isCollapsed {
             item.animator().isCollapsed = false
         }
     }

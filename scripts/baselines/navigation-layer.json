@@ -1,6 +1,6 @@
 {
-  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.7Nvxip/Pharos.app",
-  "captured_at": "2026-09-14T20:40:57+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.7vYqCe/Pharos.app",
+  "captured_at": "2026-09-16T13:02:05+00:00",
   "tree": {
     "children": [
       {
@@ -10,799 +10,158 @@
               {
                 "children": [
                   {
-                    "description": "Queries",
+                    "children": [
+                      {
+                        "description": "Query Library",
+                        "frame": {
+                          "h": 26,
+                          "w": 30,
+                          "x": 1967,
+                          "y": 229
+                        },
+                        "identifier": "sidebar.navigator.library",
+                        "role": "AXRadioButton",
+                        "subrole": "AXToggle",
+                        "title": "",
+                        "value": 1
+                      },
+                      {
+                        "description": "Results History",
+                        "frame": {
+                          "h": 26,
+                          "w": 30,
+                          "x": 2045,
+                          "y": 229
+                        },
+                        "identifier": "sidebar.navigator.history",
+                        "role": "AXRadioButton",
+                        "subrole": "AXToggle",
+                        "title": "",
+                        "value": 0
+                      },
+                      {
+                        "description": "Database Navigation",
+                        "frame": {
+                          "h": 26,
+                          "w": 30,
+                          "x": 2123,
+                          "y": 229
+                        },
+                        "identifier": "sidebar.navigator.schema",
+                        "role": "AXRadioButton",
+                        "subrole": "AXToggle",
+                        "title": "",
+                        "value": 0
+                      }
+                    ],
+                    "description": "Navigators",
                     "frame": {
-                      "h": 24,
-                      "w": 63,
-                      "x": 1968,
+                      "h": 28,
+                      "w": 200,
+                      "x": 1960,
                       "y": 228
                     },
-                    "role": "AXRadioButton",
-                    "subrole": "AXSegment",
-                    "value": 1
+                    "identifier": "sidebar.navigator",
+                    "role": "AXRadioGroup"
                   },
-                  {
-                    "description": "History",
-                    "frame": {
-                      "h": 24,
-                      "w": 60,
-                      "x": 2032,
-                      "y": 228
-                    },
-                    "role": "AXRadioButton",
-                    "subrole": "AXSegment",
-                    "value": 0
-                  },
-                  {
-                    "description": "Database",
-                    "frame": {
-                      "h": 24,
-                      "w": 59,
-                      "x": 2093,
-                      "y": 228
-                    },
-                    "role": "AXRadioButton",
-                    "subrole": "AXSegment",
-                    "value": 0
-                  }
-                ],
-                "frame": {
-                  "h": 26,
-                  "w": 186,
-                  "x": 1967,
-                  "y": 227
-                },
-                "role": "AXRadioGroup"
-              },
-              {
-                "children": [
-                  {
-                    "description": "Search",
-                    "frame": {
-                      "h": 9,
-                      "w": 15,
-                      "x": 1978,
-                      "y": 268
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  }
-                ],
-                "frame": {
-                  "h": 26,
-                  "w": 178,
-                  "x": 1971,
-                  "y": 259
-                },
-                "role": "AXTextField",
-                "subrole": "AXSearchField",
-                "value": ""
-              },
-              {
-                "children": [
                   {
                     "children": [
                       {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 62,
-                                  "x": 2006,
-                                  "y": 305
-                                },
-                                "role": "AXStaticText",
-                                "value": "Honeypot"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 302
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
                         "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 302
+                          "h": 682,
+                          "w": 202,
+                          "x": 1959,
+                          "y": 259
                         },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 75,
-                                  "x": 2020,
-                                  "y": 329
-                                },
-                                "role": "AXStaticText",
-                                "value": "DLink - July"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 326
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 326
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 86,
-                                  "x": 2020,
-                                  "y": 353
-                                },
-                                "role": "AXStaticText",
-                                "value": "DrayTek Coda"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 350
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 350
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 78,
-                                  "x": 2020,
-                                  "y": 377
-                                },
-                                "role": "AXStaticText",
-                                "value": "Ruckus_cert"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 374
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 374
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 58,
-                                  "x": 2006,
-                                  "y": 401
-                                },
-                                "role": "AXStaticText",
-                                "value": "Template"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 398
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 398
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 135,
-                                  "x": 2020,
-                                  "y": 425
-                                },
-                                "role": "AXStaticText",
-                                "value": "Open Ports - Peers from Flows"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 422
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 422
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 135,
-                                  "x": 2020,
-                                  "y": 449
-                                },
-                                "role": "AXStaticText",
-                                "value": "Seed Details - Flowsplode"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 446
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 446
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 135,
-                                  "x": 2020,
-                                  "y": 473
-                                },
-                                "role": "AXStaticText",
-                                "value": "selector_peer_flows - sessions_by_peer"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 470
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 470
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 28,
-                                  "x": 2006,
-                                  "y": 497
-                                },
-                                "role": "AXStaticText",
-                                "value": "Test"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 494
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 494
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 105,
-                                  "x": 2020,
-                                  "y": 521
-                                },
-                                "role": "AXStaticText",
-                                "value": "Test ip_summary"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 518
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 518
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 128,
-                                  "x": 2020,
-                                  "y": 545
-                                },
-                                "role": "AXStaticText",
-                                "value": "open_ports_raw - all"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 542
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 542
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 112,
-                                  "x": 2020,
-                                  "y": 569
-                                },
-                                "role": "AXStaticText",
-                                "value": "tcp_udp_sessions"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 566
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 566
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 87,
-                                  "x": 2006,
-                                  "y": 593
-                                },
-                                "role": "AXStaticText",
-                                "value": "exfil_sessions"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 590
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 590
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 149,
-                                  "x": 2006,
-                                  "y": 617
-                                },
-                                "role": "AXStaticText",
-                                "value": "Flowsplode Queries (T603)"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 614
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 614
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 149,
-                                  "x": 2006,
-                                  "y": 641
-                                },
-                                "role": "AXStaticText",
-                                "value": "Flowsplode Selector Summary"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 638
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 638
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 117,
-                                  "x": 2006,
-                                  "y": 665
-                                },
-                                "role": "AXStaticText",
-                                "value": "SoS - Ransomware"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 662
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 662
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 35,
-                                  "x": 2006,
-                                  "y": 689
-                                },
-                                "role": "AXStaticText",
-                                "value": "T540"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 686
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 686
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 114,
-                                  "x": 2006,
-                                  "y": 713
-                                },
-                                "role": "AXStaticText",
-                                "value": "T603 - ODIN Zeek"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 710
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 710
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 139,
-                                  "x": 2006,
-                                  "y": 737
-                                },
-                                "role": "AXStaticText",
-                                "value": "T603 - Spam Domains"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 734
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 734
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 35,
-                                  "x": 2006,
-                                  "y": 761
-                                },
-                                "role": "AXStaticText",
-                                "value": "T609"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 758
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 758
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
-                      },
-                      {
-                        "children": [
-                          {
-                            "children": [
-                              {
-                                "frame": {
-                                  "h": 18,
-                                  "w": 149,
-                                  "x": 2006,
-                                  "y": 785
-                                },
-                                "role": "AXStaticText",
-                                "value": "x509_summary-common_selectors"
-                              }
-                            ],
-                            "frame": {
-                              "h": 24,
-                              "w": 214,
-                              "x": 1960,
-                              "y": 782
-                            },
-                            "role": "AXCell"
-                          }
-                        ],
-                        "frame": {
-                          "h": 24,
-                          "w": 214,
-                          "x": 1960,
-                          "y": 782
-                        },
-                        "role": "AXRow",
-                        "subrole": "AXOutlineRow"
+                        "role": "AXOutline"
                       }
                     ],
                     "frame": {
-                      "h": 646,
-                      "w": 216,
-                      "x": 1959,
-                      "y": 291
+                      "h": 680,
+                      "w": 200,
+                      "x": 1960,
+                      "y": 260
                     },
-                    "role": "AXOutline"
+                    "role": "AXScrollArea"
+                  },
+                  {
+                    "children": [
+                      {
+                        "frame": {
+                          "h": 22,
+                          "w": 148,
+                          "x": 1986,
+                          "y": 598
+                        },
+                        "role": "AXStaticText",
+                        "value": "No Saved Queries"
+                      },
+                      {
+                        "frame": {
+                          "h": 34,
+                          "w": 170,
+                          "x": 1975,
+                          "y": 626
+                        },
+                        "role": "AXStaticText",
+                        "value": "Save a query with \u2318S to keep it here."
+                      }
+                    ],
+                    "description": "No Saved Queries. Save a query with \u2318S to keep it here.",
+                    "frame": {
+                      "h": 680,
+                      "w": 200,
+                      "x": 1960,
+                      "y": 260
+                    },
+                    "role": "AXGroup"
+                  },
+                  {
+                    "description": "Add",
+                    "frame": {
+                      "h": 18,
+                      "w": 30,
+                      "x": 1967,
+                      "y": 945
+                    },
+                    "identifier": "sidebar.filter.add",
+                    "role": "AXMenuButton",
+                    "title": ""
+                  },
+                  {
+                    "children": [
+                      {
+                        "description": "Filter",
+                        "frame": {
+                          "h": 24,
+                          "w": 21,
+                          "x": 2005,
+                          "y": 942
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      }
+                    ],
+                    "frame": {
+                      "h": 26,
+                      "w": 146,
+                      "x": 2001,
+                      "y": 941
+                    },
+                    "identifier": "sidebar.filter.field",
+                    "role": "AXTextField",
+                    "subrole": "AXSearchField",
+                    "value": ""
                   }
                 ],
                 "frame": {
-                  "h": 644,
+                  "h": 800,
                   "w": 200,
                   "x": 1960,
-                  "y": 292
+                  "y": 168
                 },
-                "role": "AXScrollArea"
-              },
-              {
-                "description": "New Folder",
-                "frame": {
-                  "h": 30,
-                  "w": 30,
-                  "x": 1967,
-                  "y": 937
-                },
-                "role": "AXButton",
-                "title": ""
+                "identifier": "pane.sidebar",
+                "role": "AXUnknown"
               },
               {
                 "enabled": false,
@@ -818,378 +177,451 @@
               {
                 "children": [
                   {
-                    "description": "New Tab",
-                    "frame": {
-                      "h": 30,
-                      "w": 32,
-                      "x": 3129,
-                      "y": 221
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
                     "children": [
                       {
-                        "description": "Query 1",
+                        "children": [
+                          {
+                            "description": "New Tab",
+                            "frame": {
+                              "h": 30,
+                              "w": 32,
+                              "x": 3129,
+                              "y": 221
+                            },
+                            "role": "AXButton",
+                            "title": ""
+                          },
+                          {
+                            "children": [
+                              {
+                                "description": "Query 1",
+                                "frame": {
+                                  "h": 24,
+                                  "w": 962,
+                                  "x": 2165,
+                                  "y": 225
+                                },
+                                "role": "AXRadioButton",
+                                "subrole": "AXSegment",
+                                "value": 1
+                              }
+                            ],
+                            "frame": {
+                              "h": 26,
+                              "w": 964,
+                              "x": 2163,
+                              "y": 223
+                            },
+                            "role": "AXRadioGroup"
+                          },
+                          {
+                            "description": "Close Tab",
+                            "frame": {
+                              "h": 15,
+                              "w": 18,
+                              "x": 3105,
+                              "y": 228
+                            },
+                            "role": "AXButton",
+                            "title": ""
+                          },
+                          {
+                            "description": "Close Query 1",
+                            "enabled": false,
+                            "frame": {
+                              "h": 16,
+                              "w": 16,
+                              "x": 3106,
+                              "y": 228
+                            },
+                            "role": "AXButton"
+                          }
+                        ],
                         "frame": {
-                          "h": 24,
-                          "w": 961,
-                          "x": 2165,
-                          "y": 224
+                          "h": 32,
+                          "w": 1000,
+                          "x": 2160,
+                          "y": 220
                         },
-                        "role": "AXRadioButton",
-                        "subrole": "AXSegment",
-                        "value": 1
-                      }
-                    ],
-                    "frame": {
-                      "h": 26,
-                      "w": 963,
-                      "x": 2164,
-                      "y": 223
-                    },
-                    "role": "AXRadioGroup"
-                  },
-                  {
-                    "description": "Close Tab",
-                    "frame": {
-                      "h": 15,
-                      "w": 18,
-                      "x": 3105,
-                      "y": 228
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Format SQL",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2168,
-                      "y": 253
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "frame": {
-                      "h": 19,
-                      "w": 34,
-                      "x": 2200,
-                      "y": 258
-                    },
-                    "role": "AXMenuButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Run Query",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2236,
-                      "y": 253
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "frame": {
-                      "h": 18,
-                      "w": 142,
-                      "x": 2268,
-                      "y": 259
-                    },
-                    "role": "AXMenuButton",
-                    "title": "Select Connection"
-                  },
-                  {
-                    "enabled": false,
-                    "frame": {
-                      "h": 18,
-                      "w": 102,
-                      "x": 2412,
-                      "y": 259
-                    },
-                    "role": "AXMenuButton",
-                    "title": "No Schema"
-                  },
-                  {
-                    "description": "Query Variables",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 3091,
-                      "y": 253
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Result Tabs",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 3123,
-                      "y": 253
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "children": [
+                        "identifier": "editor.tabBar",
+                        "role": "AXUnknown"
+                      },
                       {
+                        "description": "Format SQL",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2167,
+                          "y": 253
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Describe the query\u2026",
+                        "enabled": false,
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2199,
+                          "y": 253
+                        },
+                        "identifier": "editor.describeQuery",
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Save",
+                        "frame": {
+                          "h": 19,
+                          "w": 34,
+                          "x": 2231,
+                          "y": 258
+                        },
+                        "role": "AXMenuButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "",
+                        "enabled": false,
+                        "frame": {
+                          "h": 18,
+                          "w": 102,
+                          "x": 2267,
+                          "y": 259
+                        },
+                        "role": "AXMenuButton",
+                        "title": "No Schema"
+                      },
+                      {
+                        "description": "Query Variables",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 3091,
+                          "y": 253
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Result Tabs",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 3123,
+                          "y": 253
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Line gutter",
                         "frame": {
                           "h": 385,
-                          "w": 458,
-                          "x": 2211.98,
+                          "w": 52.68,
+                          "x": 2160,
                           "y": 284
                         },
-                        "role": "AXTextArea",
-                        "value": ""
-                      }
-                    ],
-                    "frame": {
-                      "h": 385,
-                      "w": 458.02,
-                      "x": 2211.98,
-                      "y": 284
-                    },
-                    "role": "AXScrollArea"
-                  },
-                  {
-                    "frame": {
-                      "h": 16,
-                      "w": 53,
-                      "x": 2685,
-                      "y": 291
-                    },
-                    "role": "AXStaticText",
-                    "value": "Variables"
-                  },
-                  {
-                    "frame": {
-                      "h": 16,
-                      "w": 2,
-                      "x": 2741,
-                      "y": 291
-                    },
-                    "role": "AXStaticText",
-                    "value": ""
-                  },
-                  {
-                    "description": "Add variable",
-                    "frame": {
-                      "h": 10,
-                      "w": 13,
-                      "x": 2915,
-                      "y": 294
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "children": [
+                        "identifier": "editor.gutter",
+                        "role": "AXGroup"
+                      },
+                      {
+                        "children": [
+                          {
+                            "frame": {
+                              "h": 385,
+                              "w": 457,
+                              "x": 2212.68,
+                              "y": 284
+                            },
+                            "identifier": "editor.text",
+                            "role": "AXTextArea",
+                            "value": ""
+                          }
+                        ],
+                        "frame": {
+                          "h": 385,
+                          "w": 457.32,
+                          "x": 2212.68,
+                          "y": 284
+                        },
+                        "role": "AXScrollArea"
+                      },
                       {
                         "frame": {
                           "h": 16,
-                          "w": 224,
+                          "w": 53,
                           "x": 2685,
-                          "y": 323
+                          "y": 291
                         },
                         "role": "AXStaticText",
-                        "value": "No variables \u2014 click + to add one."
-                      }
-                    ],
-                    "frame": {
-                      "h": 355,
-                      "w": 259,
-                      "x": 2676,
-                      "y": 314
-                    },
-                    "role": "AXScrollArea"
-                  },
-                  {
-                    "frame": {
-                      "h": 16,
-                      "w": 43,
-                      "x": 2949,
-                      "y": 289
-                    },
-                    "role": "AXStaticText",
-                    "value": "Results"
-                  },
-                  {
-                    "children": [
-                      {
-                        "frame": {
-                          "h": 361,
-                          "w": 221,
-                          "x": 2940,
-                          "y": 309
-                        },
-                        "role": "AXTable"
-                      }
-                    ],
-                    "frame": {
-                      "h": 359,
-                      "w": 219,
-                      "x": 2941,
-                      "y": 310
-                    },
-                    "role": "AXScrollArea"
-                  },
-                  {
-                    "frame": {
-                      "h": 17,
-                      "w": 60,
-                      "x": 3020,
-                      "y": 321
-                    },
-                    "role": "AXStaticText",
-                    "value": "No results"
-                  },
-                  {
-                    "enabled": false,
-                    "frame": {
-                      "h": 0,
-                      "w": 999,
-                      "x": 2161,
-                      "y": 669
-                    },
-                    "role": "AXSplitter",
-                    "value": 449
-                  },
-                  {
-                    "children": [
-                      {
-                        "description": "Grid",
-                        "frame": {
-                          "h": 24,
-                          "w": 46,
-                          "x": 2169,
-                          "y": 673
-                        },
-                        "role": "AXRadioButton",
-                        "subrole": "AXSegment",
-                        "value": 1
+                        "value": "Variables"
                       },
                       {
-                        "description": "Chart",
                         "frame": {
-                          "h": 24,
-                          "w": 54,
-                          "x": 2216,
-                          "y": 673
+                          "h": 16,
+                          "w": 2,
+                          "x": 2741,
+                          "y": 291
                         },
-                        "role": "AXRadioButton",
-                        "subrole": "AXSegment",
-                        "value": 0
+                        "role": "AXStaticText",
+                        "value": ""
+                      },
+                      {
+                        "description": "Add variable",
+                        "frame": {
+                          "h": 10,
+                          "w": 13,
+                          "x": 2915,
+                          "y": 294
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "children": [
+                          {
+                            "frame": {
+                              "h": 16,
+                              "w": 224,
+                              "x": 2685,
+                              "y": 323
+                            },
+                            "role": "AXStaticText",
+                            "value": "No variables \u2014 click + to add one."
+                          }
+                        ],
+                        "frame": {
+                          "h": 355,
+                          "w": 259,
+                          "x": 2676,
+                          "y": 314
+                        },
+                        "role": "AXScrollArea"
+                      },
+                      {
+                        "frame": {
+                          "h": 16,
+                          "w": 43,
+                          "x": 2949,
+                          "y": 289
+                        },
+                        "role": "AXStaticText",
+                        "value": "Results"
+                      },
+                      {
+                        "children": [
+                          {
+                            "frame": {
+                              "h": 361,
+                              "w": 221,
+                              "x": 2940,
+                              "y": 309
+                            },
+                            "role": "AXTable"
+                          }
+                        ],
+                        "frame": {
+                          "h": 359,
+                          "w": 219,
+                          "x": 2941,
+                          "y": 310
+                        },
+                        "role": "AXScrollArea"
+                      },
+                      {
+                        "frame": {
+                          "h": 17,
+                          "w": 60,
+                          "x": 3020,
+                          "y": 321
+                        },
+                        "role": "AXStaticText",
+                        "value": "No results"
+                      },
+                      {
+                        "enabled": false,
+                        "frame": {
+                          "h": 0,
+                          "w": 1000,
+                          "x": 2160,
+                          "y": 669
+                        },
+                        "role": "AXSplitter",
+                        "value": 449
+                      },
+                      {
+                        "children": [
+                          {
+                            "description": "Grid",
+                            "frame": {
+                              "h": 24,
+                              "w": 51,
+                              "x": 2168,
+                              "y": 674
+                            },
+                            "role": "AXRadioButton",
+                            "subrole": "AXSegment",
+                            "value": 1
+                          },
+                          {
+                            "description": "Chart",
+                            "frame": {
+                              "h": 24,
+                              "w": 59,
+                              "x": 2219,
+                              "y": 674
+                            },
+                            "role": "AXRadioButton",
+                            "subrole": "AXSegment",
+                            "value": 0
+                          }
+                        ],
+                        "frame": {
+                          "h": 26,
+                          "w": 110,
+                          "x": 2167,
+                          "y": 672
+                        },
+                        "role": "AXRadioGroup"
+                      },
+                      {
+                        "description": "Pin Results",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2277,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Export",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2307,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Copy",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2337,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Find (Cmd+F)",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 2367,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "frame": {
+                          "h": 16,
+                          "w": 2,
+                          "x": 3085,
+                          "y": 677
+                        },
+                        "role": "AXStaticText",
+                        "value": ""
+                      },
+                      {
+                        "description": "Expand Editor",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 3093,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Expand Results",
+                        "frame": {
+                          "h": 30,
+                          "w": 30,
+                          "x": 3123,
+                          "y": 670
+                        },
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "children": [
+                          {
+                            "frame": {
+                              "h": 22,
+                              "w": 92,
+                              "x": 2614,
+                              "y": 820
+                            },
+                            "role": "AXStaticText",
+                            "value": "No Results"
+                          },
+                          {
+                            "frame": {
+                              "h": 18,
+                              "w": 204,
+                              "x": 2558,
+                              "y": 848
+                            },
+                            "role": "AXStaticText",
+                            "value": "Run a query to see its rows here."
+                          },
+                          {
+                            "frame": {
+                              "h": 26,
+                              "w": 90,
+                              "x": 2615,
+                              "y": 880
+                            },
+                            "role": "AXButton",
+                            "title": "Run Query"
+                          }
+                        ],
+                        "description": "No Results. Run a query to see its rows here.",
+                        "frame": {
+                          "h": 267,
+                          "w": 1000,
+                          "x": 2160,
+                          "y": 701
+                        },
+                        "role": "AXGroup"
                       }
                     ],
                     "frame": {
-                      "h": 26,
-                      "w": 103,
-                      "x": 2168,
-                      "y": 672
+                      "h": 748,
+                      "w": 1000,
+                      "x": 2160,
+                      "y": 220
                     },
-                    "role": "AXRadioGroup"
-                  },
-                  {
-                    "description": "Pin Results",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2271,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Export",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2301,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Copy",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2331,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Find (Cmd+F)",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 2361,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "frame": {
-                      "h": 16,
-                      "w": 2,
-                      "x": 3085,
-                      "y": 677
-                    },
-                    "role": "AXStaticText",
-                    "value": ""
-                  },
-                  {
-                    "description": "Expand Editor",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 3093,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "description": "Expand Results",
-                    "frame": {
-                      "h": 30,
-                      "w": 30,
-                      "x": 3123,
-                      "y": 670
-                    },
-                    "role": "AXButton",
-                    "title": ""
-                  },
-                  {
-                    "frame": {
-                      "h": 18,
-                      "w": 164,
-                      "x": 2579,
-                      "y": 825
-                    },
-                    "role": "AXStaticText",
-                    "value": "Run a query to see results"
+                    "role": "AXSplitGroup"
                   }
                 ],
                 "frame": {
-                  "h": 748,
-                  "w": 999,
-                  "x": 2161,
-                  "y": 220
+                  "h": 800,
+                  "w": 1000,
+                  "x": 2160,
+                  "y": 168
                 },
-                "role": "AXSplitGroup"
+                "identifier": "pane.content",
+                "role": "AXUnknown"
               },
               {
                 "enabled": false,
@@ -1214,11 +646,55 @@
           {
             "children": [
               {
+                "description": "Sidebar",
+                "frame": {
+                  "h": 52,
+                  "w": 44,
+                  "x": 2052,
+                  "y": 168
+                },
+                "role": "AXButton"
+              },
+              {
+                "description": "Connection",
+                "frame": {
+                  "h": 52,
+                  "w": 158,
+                  "x": 2164,
+                  "y": 168
+                },
+                "identifier": "toolbar.connection",
+                "role": "AXMenuButton"
+              },
+              {
+                "description": "Run",
+                "enabled": false,
+                "frame": {
+                  "h": 52,
+                  "w": 44,
+                  "x": 2322,
+                  "y": 168
+                },
+                "role": "AXButton"
+              },
+              {
+                "description": "Cancel",
+                "enabled": false,
+                "frame": {
+                  "h": 52,
+                  "w": 40,
+                  "x": 2366,
+                  "y": 168
+                },
+                "identifier": "toolbar.cancel",
+                "role": "AXButton"
+              },
+              {
                 "description": "Inspector",
                 "frame": {
                   "h": 52,
-                  "w": 48,
-                  "x": 3108,
+                  "w": 44,
+                  "x": 3112,
                   "y": 168
                 },
                 "role": "AXButton"
@@ -1231,17 +707,6 @@
               "y": 168
             },
             "role": "AXToolbar"
-          },
-          {
-            "description": "Toggle Sidebar",
-            "frame": {
-              "h": 54,
-              "w": 38,
-              "x": 2047,
-              "y": 167
-            },
-            "role": "AXButton",
-            "title": ""
           },
           {
             "frame": {
@@ -1291,6 +756,7 @@
           "x": 1960,
           "y": 168
         },
+        "identifier": "window.main.1",
         "role": "AXWindow",
         "subrole": "AXStandardWindow",
         "title": "Pharos"
@@ -1307,7 +773,7 @@
         "X": 1960,
         "Y": 168
       },
-      "number": 61545
+      "number": 5875
     }
   ]
 }

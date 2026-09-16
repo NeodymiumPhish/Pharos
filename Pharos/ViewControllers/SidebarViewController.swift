@@ -3,9 +3,13 @@ import Combine
 
 class SidebarViewController: NSViewController {
 
-    private let searchField = NSSearchField()
-    private let segmentBar = NSSegmentedControl()
+    private let navigatorSelector = NavigatorSelector()
+    private let filterBar = SidebarFilterBar()
     private let contentArea = NSView()
+
+    /// Which navigator is showing and what each one is filtered by. Seeded
+    /// from the preference in `loadView`.
+    private var filterState = NavigatorFilterState()
 
     // Containers for each panel (only one visible at a time)
     private let savedContainer = NSView()
@@ -49,31 +53,23 @@ class SidebarViewController: NSViewController {
         container.setAccessibilityIdentifier("pane.sidebar")
         self.view = container
 
-        // Search field
-        searchField.placeholderString = "Filter"
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.sendsWholeSearchString = false
-        searchField.sendsSearchStringImmediately = true
-        searchField.target = self
-        searchField.action = #selector(searchChanged(_:))
+        // Navigator selector (top) — icon only, Xcode's navigator chooser.
+        navigatorSelector.translatesAutoresizingMaskIntoConstraints = false
+        navigatorSelector.onChange = { [weak self] navigator in
+            self?.select(navigator)
+        }
 
-        // Segment bar (bottom) — icon-only segments
-        segmentBar.segmentCount = 3
-        segmentBar.trackingMode = .selectOne
-        segmentBar.segmentStyle = .capsule
-        segmentBar.selectedSegment = 0
-        segmentBar.target = self
-        segmentBar.action = #selector(segmentChanged(_:))
-        segmentBar.translatesAutoresizingMaskIntoConstraints = false
-
-        let segConfig = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        segmentBar.setImage(NSImage(systemSymbolName: "folder", accessibilityDescription: "Queries")?.withSymbolConfiguration(segConfig), forSegment: 0)
-        segmentBar.setImage(NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: "History")?.withSymbolConfiguration(segConfig), forSegment: 1)
-        segmentBar.setImage(NSImage(systemSymbolName: "cylinder.split.1x2", accessibilityDescription: "Database")?.withSymbolConfiguration(segConfig), forSegment: 2)
-
-        segmentBar.setToolTip("Query Library", forSegment: 0)
-        segmentBar.setToolTip("Results History", forSegment: 1)
-        segmentBar.setToolTip("Database Navigation", forSegment: 2)
+        // Filter bar (bottom) — "+" pull-down and the filter field.
+        filterBar.translatesAutoresizingMaskIntoConstraints = false
+        filterBar.onTextChanged = { [weak self] text in
+            self?.filterTextChanged(text)
+        }
+        filterBar.onNewQuery = { [weak self] in
+            self?.savedQueries.createNewQuery()
+        }
+        filterBar.onNewFolder = { [weak self] in
+            self?.savedQueries.createNewFolder()
+        }
 
         // Content area holds all three containers
         contentArea.translatesAutoresizingMaskIntoConstraints = false
@@ -103,25 +99,32 @@ class SidebarViewController: NSViewController {
         embedChild(queryHistory, in: historyContainer)
         embedChild(schemaBrowser, in: browserContainer)
 
-        // Layout: segment bar at top, then search field, then content area
-        container.addSubview(segmentBar)
-        container.addSubview(searchField)
+        // Layout: navigator selector at the top, the lists in the middle, the
+        // filter bar along the bottom.
+        container.addSubview(navigatorSelector)
         container.addSubview(contentArea)
+        container.addSubview(filterBar)
 
         NSLayoutConstraint.activate([
-            segmentBar.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
-            segmentBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            segmentBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
+            navigatorSelector.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            navigatorSelector.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            navigatorSelector.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
-            searchField.topAnchor.constraint(equalTo: segmentBar.bottomAnchor, constant: 8),
-            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-
-            contentArea.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            contentArea.topAnchor.constraint(equalTo: navigatorSelector.bottomAnchor, constant: 4),
             contentArea.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentArea.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            contentArea.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            contentArea.bottomAnchor.constraint(equalTo: filterBar.topAnchor),
+
+            filterBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            filterBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            filterBar.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.bottomAnchor),
+            filterBar.heightAnchor.constraint(equalToConstant: SidebarFilterBar.height),
         ])
+
+        // Open on the navigator the user was last reading.
+        filterState = NavigatorFilterState(current: SidebarNavigatorPrefs.lastNavigator)
+        navigatorSelector.selected = filterState.current
+        select(filterState.current)
 
         // Observe connection changes (deduplicate to avoid redundant reloads on tab switch)
         session.$activeConnectionId
@@ -185,27 +188,53 @@ class SidebarViewController: NSViewController {
         )
     }
 
-    // MARK: - Segment Switching
+    // MARK: - Navigator Switching
 
-    @objc private func segmentChanged(_ sender: NSSegmentedControl) {
-        let index = sender.selectedSegment
-        savedContainer.isHidden = (index != 0)
-        historyContainer.isHidden = (index != 1)
-        browserContainer.isHidden = (index != 2)
-
-        // Re-apply search filter to the newly visible child
-        applyFilterToVisibleChild(searchField.stringValue)
+    /// Shows one navigator: swaps the lists, restores that navigator's own
+    /// filter text, and remembers the choice for the next launch.
+    func showNavigator(_ navigator: Navigator) {
+        guard navigator != filterState.current else { return }
+        navigatorSelector.selected = navigator
+        select(navigator)
     }
 
-    // MARK: - Search
+    /// The navigator on screen.
+    var currentNavigator: Navigator { filterState.current }
+
+    /// Put the caret in the filter field (View ▸ Filter in Navigator).
+    func focusFilter() {
+        filterBar.focus()
+    }
+
+    private func select(_ navigator: Navigator) {
+        filterState.select(navigator)
+
+        savedContainer.isHidden = (navigator != .library)
+        historyContainer.isHidden = (navigator != .history)
+        browserContainer.isHidden = (navigator != .schema)
+
+        // Only the Query Library holds things the user can create.
+        filterBar.showsAddButton = (navigator == .library)
+
+        // A pending debounce belongs to the navigator that is leaving; firing
+        // it now would filter the incoming list with the outgoing list's text.
+        pendingFilterWorkItem?.cancel()
+        let text = filterState.currentText
+        filterBar.filterField.stringValue = text
+        applyFilterToVisibleChild(text)
+
+        SidebarNavigatorPrefs.lastNavigator = navigator
+    }
+
+    // MARK: - Filtering
 
     /// Pending debounced filter dispatch. Coalesces keystrokes so the filter
     /// (which can rebuild large schema trees and hit the SQLite-backed query
     /// history) runs at most once per ~150ms while the user is typing.
     private var pendingFilterWorkItem: DispatchWorkItem?
 
-    @objc private func searchChanged(_ sender: NSSearchField) {
-        let text = sender.stringValue
+    private func filterTextChanged(_ text: String) {
+        filterState.setText(text)
         pendingFilterWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.applyFilterToVisibleChild(text)
@@ -222,11 +251,10 @@ class SidebarViewController: NSViewController {
 
         guard !text.isEmpty else { return }
 
-        switch segmentBar.selectedSegment {
-        case 0: savedQueries.applyFilter(text)
-        case 1: queryHistory.applyFilter(text)
-        case 2: schemaBrowser.applyFilter(text)
-        default: break
+        switch filterState.current {
+        case .library: savedQueries.applyFilter(text)
+        case .history: queryHistory.applyFilter(text)
+        case .schema: schemaBrowser.applyFilter(text)
         }
     }
 
@@ -234,7 +262,8 @@ class SidebarViewController: NSViewController {
     /// applies it to the visible list at once, keeping the sidebar's own
     /// field in step.
     func setFilterText(_ text: String) {
-        searchField.stringValue = text
+        filterState.setText(text)
+        filterBar.filterField.stringValue = text
         pendingFilterWorkItem?.cancel()
         applyFilterToVisibleChild(text)
     }

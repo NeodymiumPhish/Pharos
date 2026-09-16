@@ -165,7 +165,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         // queries list use, at the system row height rather than a fixed 40.
         tableView.style = .sourceList
         tableView.rowSizeStyle = .default
-        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.usesAlternatingRowBackgroundColors = false
         tableView.allowsMultipleSelection = true
         tableView.action = #selector(singleClickedRow(_:))
         tableView.doubleAction = #selector(doubleClickedRow(_:))
@@ -187,7 +187,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         previewTable.delegate = self
         previewTable.style = .sourceList
         previewTable.rowSizeStyle = .default
-        previewTable.usesAlternatingRowBackgroundColors = true
+        previewTable.usesAlternatingRowBackgroundColors = false
         previewTable.allowsMultipleSelection = false
         previewTable.doubleAction = #selector(previewDoubleClicked(_:))
         previewTable.target = self

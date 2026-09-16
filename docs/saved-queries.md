@@ -18,11 +18,11 @@ nav_order: 13
 
 ## Overview
 
-The **Query Library** is the first panel of the sidebar (folder icon). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
+The **Query Library** is the first navigator of the sidebar (folder icon; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries — including their [query variables](query-variables.md).
 
 ## An Empty Library
 
-Before you have saved anything, the panel shows **No Saved Queries** — "Save a query with ⌘S to keep it here." The New Folder button stays available below it. A filter that matches nothing does not replace the list: the field is still live, so the empty list is the filter's own answer.
+Before you have saved anything, the panel shows **No Saved Queries** — "Save a query with ⌘S to keep it here." The **+** pull-down in the filter bar below it stays available, so New Query and New Folder are still one click away. A filter that matches nothing does not replace the list: the field is still live, so the empty list is the filter's own answer.
 
 ## Saving a Query
 
@@ -62,9 +62,20 @@ Double-click a saved query to open it in a new editor tab. If it's already open 
 | Rename… | Renames the folder |
 | Delete | Deletes the folder and its queries (with confirmation) |
 
+## Adding Queries and Folders
+
+The **+** pull-down at the leading edge of the sidebar's filter bar holds two items, and shows only while the Query Library is the navigator on screen:
+
+| Item | What it does |
+|------|--------------|
+| New Query | Creates an "Untitled Query" and opens it in a tab |
+| New Folder | Creates a "New Folder" row and starts renaming it inline |
+
+Both are also on the list's context menu.
+
 ## Filtering
 
-The sidebar's **Filter** field searches saved queries by name and SQL content.
+The sidebar's **Filter** field — along the bottom of the sidebar — searches saved queries by name and SQL content. **Cmd+Opt+J** (**View > Filter in Navigator**) puts the caret in it. The text is remembered per navigator, so switching to Results History and back brings your query filter with you.
 
 ## Storage
 
