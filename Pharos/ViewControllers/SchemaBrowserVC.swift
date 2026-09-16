@@ -193,15 +193,15 @@ class SchemaBrowserVC: NSViewController {
                     // Only update display if this connection is still active
                     guard self.connectionId == connectionId else { return }
                     self.unfilteredRootNodes = schemaNodes
-                    self.rootNodes = schemaNodes
-                    self.outlineView.reloadData()
-                    // Same threshold as rebuildDisplayTree: do not auto-expand
-                    // schemas with thousands of tables — that single expandItem
-                    // call blocks the main thread for seconds.
-                    if let pub = self.rootNodes.first(where: { $0.schemaName == "public" }),
-                       pub.children.count <= Self.autoExpandTableThreshold {
-                        self.outlineView.expandItem(pub)
-                    }
+                    // Through rebuildDisplayTree, NOT by assigning rootNodes
+                    // directly. A schema may already be pinned: the sidebar
+                    // pins it as soon as the connection reports its schema,
+                    // which is usually BEFORE this load returns. Assigning the
+                    // unfiltered nodes here put every schema back on screen and
+                    // the pin was only honoured again when that schema's tables
+                    // happened to stream in. rebuildDisplayTree applies the
+                    // pinned schema and the text filter, and carries the same
+                    // auto-expand of `public` with the same size threshold.
                 }
 
                 // Load ALL schemas' tables concurrently (tables only — columns are lazy)

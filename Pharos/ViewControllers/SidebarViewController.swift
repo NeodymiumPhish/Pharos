@@ -137,13 +137,7 @@ class SidebarViewController: NSViewController {
         session.$activeSchema
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] schema in
-                if let schema {
-                    self?.schemaBrowser.showSchema(schema)
-                } else {
-                    self?.schemaBrowser.showAllSchemas()
-                }
-            }
+            .sink { [weak self] _ in self?.applyActiveSchemaToBrowser() }
             .store(in: &cancellables)
 
         // Highlight saved query that's open in the active tab
@@ -177,6 +171,7 @@ class SidebarViewController: NSViewController {
                       let activeId = self.session.activeConnectionId,
                       self.stateManager.status(for: activeId) == .connected else { return }
                 self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
+                self.applyActiveSchemaToBrowser()
             }
         )
     }
@@ -280,6 +275,7 @@ class SidebarViewController: NSViewController {
         let status = stateManager.status(for: activeId)
         if status == .connected {
             schemaBrowser.loadSchemas(connectionId: activeId)
+            applyActiveSchemaToBrowser()
         } else {
             schemaBrowser.clear()
         }
@@ -288,11 +284,31 @@ class SidebarViewController: NSViewController {
         queryHistory.reload()
     }
 
+    /// Pins the session's schema in the schema browser.
+    ///
+    /// Pushed after every load as well as observed. The browser drops its pin
+    /// in `clear()` and `clearConnection(_:)`, while `session.activeSchema`
+    /// keeps its value across a disconnect — and the `$activeSchema`
+    /// publisher is deduplicated, so it has nothing to say when the value has
+    /// not changed. Re-asserting the pin wherever the tree is (re)loaded makes
+    /// "the browser shows what the editor's selector reads" an invariant
+    /// instead of something that depends on the order two publishers fire in.
+    /// `showSchema` ignores a pin it already holds, so the extra calls cost
+    /// nothing.
+    private func applyActiveSchemaToBrowser() {
+        if let schema = session.activeSchema {
+            schemaBrowser.showSchema(schema)
+        } else {
+            schemaBrowser.showAllSchemas()
+        }
+    }
+
     private func connectionStatusChanged() {
         guard let activeId = session.activeConnectionId else { return }
         let status = stateManager.status(for: activeId)
         if status == .connected {
             schemaBrowser.loadSchemas(connectionId: activeId)
+            applyActiveSchemaToBrowser()
         } else if status == .disconnected || status == .error {
             // Clear only this connection's cache; preserve other connections' caches
             schemaBrowser.clearConnection(activeId)
