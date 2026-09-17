@@ -1129,8 +1129,9 @@ class ContentViewController: NSViewController {
         resetFiltersButton.target = self
         resetFiltersButton.action = #selector(resetAllFiltersAndDrill)
 
+        // No accent here: reset-sort and reset-filters mark an APPLIED state
+        // the button undoes; a selection is not a state the grid is in.
         configureToolbarButtonAppearance(clearSelectionButton, symbol: "eraser", tooltip: "Clear Selection")
-        clearSelectionButton.contentTintColor = .controlAccentColor
         clearSelectionButton.isHidden = true
         clearSelectionButton.target = resultsVC
         clearSelectionButton.action = #selector(ResultsGridVC.clearCellSelection)
@@ -1143,7 +1144,11 @@ class ContentViewController: NSViewController {
         // -- Grid/Chart toggle (front of the action bar) --
 
         chartToggle.selectedSegment = 0
-        chartToggle.segmentStyle = .texturedRounded
+        // The same two lines the editor tab bar uses, so the two bars share one
+        // idiom (and match the navigator capsule): a neutral lit segment, not
+        // an accent-filled one that reads as a call to action.
+        chartToggle.segmentStyle = .capsule
+        chartToggle.selectedSegmentBezelColor = .controlColor
         chartToggle.target = self
         chartToggle.action = #selector(chartToggleChanged)
         chartToggle.setContentHuggingPriority(.required, for: .horizontal)

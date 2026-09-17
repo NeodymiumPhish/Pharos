@@ -45,9 +45,9 @@ func runTests() {
     NSApplication.shared.setActivationPolicy(.prohibited)
 
     // --- ResultTabRowText ---
-    expectEqual(ResultTabRowText.countsText(columnCount: 46, rowCount: 240), "46×240",
-                "counts text is cols×rows")
-    expectEqual(ResultTabRowText.countsText(columnCount: 3, rowCount: 1200), "3×1,200",
+    expectEqual(ResultTabRowText.countsText(columnCount: 46, rowCount: 240), "240×46",
+                "counts text is rows×cols")
+    expectEqual(ResultTabRowText.countsText(columnCount: 3, rowCount: 1200), "1,200×3",
                 "row count gets thousands grouping")
     expectEqual(ResultTabRowText.affectedText(rowsAffected: 1), "1 row",
                 "one affected row is singular")
