@@ -19,6 +19,10 @@ enum NavigatorToolbarGroup {
 
     static let identifier = NSToolbarItem.Identifier("PharosNavigator")
 
+    /// `NSToolbarItemGroupRoleTabs`, spelled out because the enum itself is
+    /// absent from the macOS 26 SDK. See the `role` note in `make`.
+    private static let tabsRole = 1
+
     /// Builds the group. `action` is sent with the group as the sender; read
     /// `selectedIndex` from it to learn which segment was pressed.
     static func make(target: AnyObject?, action: Selector) -> NSToolbarItemGroup {
@@ -47,10 +51,17 @@ enum NavigatorToolbarGroup {
         // minimumThickness is raised to match (PharosSplitViewController).
         group.controlRepresentation = .expanded
 
-        // The semantic role for exactly this control. macOS 27 only, and the
-        // deployment target is 26.0, so the guard is load-bearing.
-        if #available(macOS 27, *) {
-            group.role = .tabs
+        // The semantic role for exactly this control. `role` is macOS 27 only
+        // and the deployment target is 26.0, so a guard is load-bearing — but
+        // it is set through the runtime, not as `group.role = .tabs`, because
+        // `#available` is a run-time test and the symbol must also exist at
+        // compile time. The release runner (`macos-26`) tops out at Xcode 26.6,
+        // whose SDK has no `NSToolbarItemGroup.role`, so the direct form breaks
+        // the build there. `NSToolbarItemGroupRoleTabs` is 1, and `responds(to:)`
+        // is the real gate: it is false on every system that lacks the property.
+        let setRole = Selector(("setRole:"))
+        if group.responds(to: setRole) {
+            group.setValue(Self.tabsRole, forKey: "role")
         }
 
         // Set on the parent item: what Customize Toolbar… shows, and what the
