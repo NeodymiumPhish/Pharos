@@ -29,6 +29,16 @@ func runTests() {
     expect(jan?.y == 150, "bar: Jan summed to 150")
     expect(bar.plottedRowCount == 3, "bar: plotted 3 loaded rows")
 
+    // --- a text column of dates is a time axis (sniffed kind) ---
+    let textDates = makeResult([("day", "text"), ("v", "numeric")],
+                               [["2024-01-03", "1"], ["2024-01-20", "2"], ["2024-02-02", "3"]])
+    var tdCfg = ChartConfig(chartType: .bar, temporalBin: .month)
+    tdCfg.mappings[.category] = ColumnRef(index: 0, name: "day")
+    tdCfg.mappings[.value] = ColumnRef(index: 1, name: "v")
+    let td = ChartAggregator.aggregate(textDates, tdCfg)
+    expect(td.series[0].points.map(\.xLabel) == ["2024-01", "2024-02"], "text dates bin by month like a timestamp column")
+    expect(td.series[0].points.first?.y == 3, "text dates: January sums 1 + 2")
+
     // --- count aggregation ignores value numerics ---
     var countCfg = cfg; countCfg.aggregation = .count
     let counted = ChartAggregator.aggregate(sales, countCfg)
@@ -232,6 +242,34 @@ func runTests() {
         }
         expect(gantt("int8").ganttAxisKind == .numeric, "numeric gantt start → .numeric axis kind")
         expect(gantt("timestamptz").ganttAxisKind == .temporal, "temporal gantt start → .temporal axis kind")
+    }
+
+    // Scatter size: the `.size` mapping fills ChartPoint.size; a sized scatter
+    // is capped at 5,000 points (per-point marks), an unsized one is not.
+    do {
+        func scatter(rows: Int, withSize: Bool) -> ChartData {
+            let cols = [("x", "numeric"), ("y", "numeric"), ("s", "numeric")]
+            let data: [[String?]] = (0..<rows).map { i in [String(i), String(i * 2), String(i % 7 + 1)] }
+            var cfg = ChartConfig(chartType: .scatter)
+            cfg.mappings[.x] = ColumnRef(index: 0, name: "x")
+            cfg.mappings[.y] = ColumnRef(index: 1, name: "y")
+            if withSize { cfg.mappings[.size] = ColumnRef(index: 2, name: "s") }
+            return ChartAggregator.aggregate(makeResult(cols, data), cfg)
+        }
+        let sized = scatter(rows: 10, withSize: true)
+        expect(sized.series.first?.points.count == 10, "scatter: 10 rows → 10 points")
+        expect(sized.series.first?.points[3].size == 4, "scatter: size column fills ChartPoint.size")
+        expect(sized.series.first?.points.allSatisfy { $0.size != nil } == true, "scatter: every point carries a size")
+        let unsized = scatter(rows: 10, withSize: false)
+        expect(unsized.series.first?.points.allSatisfy { $0.size == nil } == true, "scatter: no size mapped → size nil")
+
+        let bigSized = scatter(rows: 6_000, withSize: true)
+        expect(bigSized.series.first?.points.count == 5_000, "scatter: 6,000 sized rows cap at 5,000 points")
+        expect(bigSized.wasSampled, "scatter: sized cap sets wasSampled")
+        expect(bigSized.plottedRowCount == 5_000, "scatter: sized plottedRowCount is the sampled count")
+        let bigUnsized = scatter(rows: 6_000, withSize: false)
+        expect(bigUnsized.series.first?.points.count == 6_000, "scatter: 6,000 unsized rows keep every point")
+        expect(!bigUnsized.wasSampled, "scatter: unsized 6,000 rows not sampled")
     }
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }

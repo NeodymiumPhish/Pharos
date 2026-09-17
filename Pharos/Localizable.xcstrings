@@ -526,10 +526,16 @@
     "Hide Column" : {
 
     },
+    "Hide Editor" : {
+
+    },
     "Hide Others" : {
 
     },
     "Hide Pharos" : {
+
+    },
+    "Hide Results" : {
 
     },
     "Hide Sidebar" : {
@@ -958,6 +964,9 @@
     "Show details when you cancel a query" : {
 
     },
+    "Show Editor" : {
+
+    },
     "Show Inspector" : {
 
     },
@@ -980,6 +989,9 @@
 
     },
     "Show result tabs in a vertical panel, not a horizontal bar" : {
+
+    },
+    "Show Results" : {
 
     },
     "Show the exact UPDATE statements before anything is written." : {

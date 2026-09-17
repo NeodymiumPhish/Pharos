@@ -1,9 +1,36 @@
 import SwiftUI
 
+/// Where the rail's Suggest section is: idle, asking, answered (with the words
+/// to show under the label), or failed (with one sentence and Retry).
+enum ChartSuggestionState: Equatable {
+    case idle
+    case working
+    case answered(reason: String, promptHash: String?, fromModel: Bool)
+    case failed(String)
+}
+
 /// Owns the live ChartConfig, recomputes ChartData, and reports config changes.
 final class ChartViewModel: ObservableObject {
     @Published var config: ChartConfig
     @Published private(set) var data: ChartData = ChartData()
+    /// `config` with every `.auto` time bucket resolved from the data's span —
+    /// what the aggregator, the generator and the canvas actually use. The
+    /// stored `config` keeps `.auto` because that is what the user chose.
+    @Published private(set) var resolvedConfig: ChartConfig
+
+    // MARK: Suggestions
+    /// One profile per column: kinds (refined from the values), cardinality,
+    /// shape. The rail's pickers, the recommender and the model prompt all read
+    /// these, so a text column of numbers is a measure everywhere at once.
+    let profiles: [ColumnProfile]
+    /// The deterministic recommender's ranked list for this result.
+    let recommendations: [ChartRecommendation]
+    var rowCount: Int { result.rows.count }
+    @Published var suggestionState: ChartSuggestionState = .idle
+    /// Ask the on-device model (host-owned; the rail calls it only when the
+    /// model may be used).
+    var onSuggest: (() -> Void)?
+    var onCancelSuggest: (() -> Void)?
 
     // MARK: Server-aggregation (push-down) state
     /// A server-aggregation query is in flight for this chart.
@@ -42,7 +69,12 @@ final class ChartViewModel: ObservableObject {
     init(result: QueryResult, columns: [ColumnDef], initialConfig: ChartConfig?) {
         self.result = result
         self.columns = columns
-        self.config = initialConfig ?? ChartConfig.infer(from: columns)
+        self.profiles = ColumnProfiler.profile(result)
+        self.recommendations = ChartRecommender.recommend(profiles: profiles, columns: columns)
+        // First open: the recommender's top pick, never the model (a press asks it).
+        let initial = initialConfig ?? recommendations.first?.config ?? ChartConfig.infer(from: columns)
+        self.config = initial
+        self.resolvedConfig = initial.resolvingAutoBins(for: result)
         recompute()
     }
 
@@ -60,8 +92,9 @@ final class ChartViewModel: ObservableObject {
         // don't clobber it with a client-side aggregation of the loaded rows.
         // Only skip for chart types that support server mode — gantt falls back
         // to the client render even if the flag is on (it can't push down).
+        resolvedConfig = config.resolvingAutoBins(for: result)
         if config.serverAggregation && chartTypeSupportsServer { return }
-        data = ChartSorter.sorted(ChartAggregator.aggregate(result, config),
+        data = ChartSorter.sorted(ChartAggregator.aggregate(result, resolvedConfig),
                                   by: config.display.sort, chartType: config.chartType)
     }
 
@@ -80,24 +113,46 @@ final class ChartViewModel: ObservableObject {
         onConfigChanged?(config)
     }
 
-    func kind(_ ref: ColumnRef?) -> ColumnKind? {
-        guard let ref, ref.index < columns.count else { return nil }
-        return ColumnClassifier.kind(forDataType: columns[ref.index].dataType)
+    /// A display-only edit (title, legend, layout, scale, axis titles): no
+    /// re-aggregation, so a keystroke in a title field does not walk the rows.
+    /// Sort lives in `display` too and DOES reorder, so it recomputes.
+    func updateDisplay(_ mutate: (inout ChartDisplayOptions) -> Void) {
+        let before = config.display.sort
+        mutate(&config.display)
+        resolvedConfig.display = config.display
+        if config.display.sort != before { recompute() }
+        onConfigChanged?(config)
     }
 
-    /// Columns eligible for a role, by kind.
-    func eligible(for role: ChartColumnRole, chartType: ChartType) -> [ColumnRef] {
-        let refs = columns.enumerated().map { ColumnRef(index: $0.offset, name: $0.element.name) }
-        if chartType == .heatmap, role == .x || role == .y { return refs }   // any kind
-        switch role {
-        case .value, .y, .x, .size, .start, .end:
-            return refs.filter { r in
-                let k = ColumnClassifier.kind(forDataType: columns[r.index].dataType)
-                return k == .numeric || (role == .start || role == .end || role == .x ? k == .temporal : false)
-            }
-        default:
-            return refs   // category/series/label accept anything
+    /// Apply a suggested config. What the user set about the chart's
+    /// surroundings survives — server mode and the legend switch — and a
+    /// colour override does not, because the colour domain has changed.
+    func apply(config new: ChartConfig, state: ChartSuggestionState) {
+        update { cfg in
+            var next = new
+            next.serverAggregation = cfg.serverAggregation
+            next.display.showLegend = cfg.display.showLegend
+            next.seriesColors = []
+            cfg = next
         }
+        suggestionState = state
+    }
+
+    func applyRecommendation(_ rec: ChartRecommendation) {
+        apply(config: rec.config, state: .answered(reason: rec.reason, promptHash: nil, fromModel: false))
+    }
+
+    /// The column's kind as the values show it (a text column of numbers is
+    /// numeric here), so the pickers offer what the recommender may map.
+    func kind(_ ref: ColumnRef?) -> ColumnKind? {
+        guard let ref, ref.index < profiles.count else { return nil }
+        return profiles[ref.index].kind
+    }
+
+    /// Columns eligible for a role, by kind (one table: `ChartRoleEligibility`).
+    func eligible(for role: ChartColumnRole, chartType: ChartType) -> [ColumnRef] {
+        profiles.filter { ChartRoleEligibility.accepts(role, kind: $0.kind, chartType: chartType) }
+            .map { ColumnRef(index: $0.index, name: $0.name) }
     }
 }
 
@@ -115,6 +170,9 @@ struct ChartRootView: View {
     /// in Settings.
     @ObservedObject private var appState = AppStateManager.shared
     private var globalPalette: [String] { appState.settings.charts.palette }
+    /// Whether "Suggest chart" may ask the on-device model. Read from the view,
+    /// never re-read inside a sink (tasks/lessons.md, @Published willSet).
+    @ObservedObject private var availability = ModelAvailability.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,7 +183,7 @@ struct ChartRootView: View {
             if model.config.serverAggregation && model.chartTypeSupportsServer { serverBanner }
             else if bannerInfo.shouldShow { banner }
             HStack(spacing: 0) {
-                ChartCanvas(data: model.data, config: model.config,
+                ChartCanvas(data: model.data, config: model.resolvedConfig,
                             onSelectionChanged: { keys in model.onSelectionChanged?(keys) },
                             committedKeys: model.committedKeys,
                             clearToken: model.clearToken,
@@ -212,6 +270,8 @@ struct ChartRootView: View {
     private var configRail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
+                suggestSection
+
                 railLabel("Chart type")
                 Picker("", selection: Binding(get: { model.config.chartType },
                                               set: { t in model.update { $0.chartType = t } })) {
@@ -259,12 +319,120 @@ struct ChartRootView: View {
                     }.labelsHidden()
                 }
 
+                displaySection
+
                 colorSection
 
                 if usesAggregation { serverAggregationSection }
 
                 Spacer()
             }.padding(10)
+        }
+    }
+
+    // MARK: suggest rail section
+    // One button. With the model available it asks the model (the recommender's
+    // candidates ride along in the prompt); without it, it applies the top
+    // candidate. "More layouts" lists every candidate either way.
+    @ViewBuilder private var suggestSection: some View {
+        railLabel("Suggest")
+        let working = model.suggestionState == .working
+        let canSuggest = !model.recommendations.isEmpty
+        HStack(spacing: 6) {
+            Button {
+                if availability.isAvailable { model.onSuggest?() }
+                else if let top = model.recommendations.first { model.applyRecommendation(top) }
+            } label: {
+                Label("Suggest chart", systemImage: availability.isAvailable ? "sparkles" : "wand.and.stars")
+                    .font(.caption)
+            }
+            .disabled(working || !canSuggest)
+            .help(availability.isAvailable
+                  ? "Ask the on-device model which chart fits this result."
+                  : "Apply the chart Pharos recommends for these columns.")
+            .accessibilityIdentifier("chart.suggest")
+            if working { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14) }
+        }
+        switch model.suggestionState {
+        case .idle:
+            EmptyView()
+        case .working:
+            HStack(spacing: 6) {
+                Text("Asking the on-device model\u{2026}").font(.caption).foregroundStyle(.secondary)
+                Button("Cancel") { model.onCancelSuggest?() }.buttonStyle(.link).font(.caption)
+            }
+        case .answered(let reason, let promptHash, let fromModel):
+            if fromModel {
+                GeneratedContentLabelView(feature: "suggest-chart", promptHash: promptHash)
+                    .frame(height: 22)
+            }
+            if !reason.isEmpty {
+                Text(reason)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("chart.suggest.reason")
+            }
+        case .failed(let message):
+            Text(message).font(.caption).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Retry") { model.onSuggest?() }.buttonStyle(.link).font(.caption)
+        }
+        if model.recommendations.count > 1 {
+            Menu {
+                ForEach(Array(model.recommendations.enumerated()), id: \.offset) { _, rec in
+                    Button(rec.title) { model.applyRecommendation(rec) }
+                }
+            } label: {
+                Text("More layouts").font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("chart.suggest.more")
+        }
+    }
+
+    // MARK: display rail section
+    @ViewBuilder private var displaySection: some View {
+        railLabel("Display")
+        let type = model.config.chartType
+        if type != .gantt && type != .scatter {
+            Toggle("Legend", isOn: Binding(
+                get: { model.config.display.showLegend },
+                set: { on in model.updateDisplay { $0.showLegend = on } }))
+                .toggleStyle(.checkbox).font(.caption)
+        }
+        if type == .bar, model.config.mappings[.series] != nil {
+            Picker("", selection: Binding(get: { model.config.display.barLayout },
+                                          set: { l in model.updateDisplay { $0.barLayout = l } })) {
+                ForEach(BarLayout.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().controlSize(.small)
+        }
+        if type == .bar || type == .line || type == .area || type == .scatter {
+            let canLog = ChartCanvas.canUseLogScale(model.data, chartType: type)
+            Toggle("Log scale", isOn: Binding(
+                get: { model.config.display.logScale && canLog },
+                set: { on in model.updateDisplay { $0.logScale = on } }))
+                .toggleStyle(.checkbox).font(.caption)
+                .disabled(!canLog)
+                .help(canLog ? "Plot the Y axis on a logarithmic scale." : "A log scale needs every value above zero.")
+        }
+        TextField("Title", text: Binding(
+            get: { model.config.display.title },
+            set: { t in model.updateDisplay { $0.title = t } }))
+            .textFieldStyle(.roundedBorder).font(.caption)
+            .accessibilityIdentifier("chart.display.title")
+        if type != .pie && type != .gantt {
+            let derived = ChartAxisTitles.derive(model.config)
+            TextField(derived.x.isEmpty ? "X axis title" : derived.x, text: Binding(
+                get: { model.config.display.xAxisTitle },
+                set: { t in model.updateDisplay { $0.xAxisTitle = t } }))
+                .textFieldStyle(.roundedBorder).font(.caption)
+                .accessibilityIdentifier("chart.display.xAxisTitle")
+            TextField(derived.y.isEmpty ? "Y axis title" : derived.y, text: Binding(
+                get: { model.config.display.yAxisTitle },
+                set: { t in model.updateDisplay { $0.yAxisTitle = t } }))
+                .textFieldStyle(.roundedBorder).font(.caption)
+                .accessibilityIdentifier("chart.display.yAxisTitle")
         }
     }
 
@@ -346,15 +514,10 @@ struct ChartRootView: View {
 
     // MARK: role helpers
     private func rolesForCurrentType() -> [ChartColumnRole] {
-        switch model.config.chartType {
-        case .bar, .line, .area, .pie: return [.category, .value, .series]
-        case .scatter: return [.x, .y, .size]
-        case .gantt: return [.label, .start, .end]
-        case .heatmap: return [.x, .y, .value]
-        }
+        ChartRoleEligibility.roles(for: model.config.chartType)
     }
     private var usesAggregation: Bool {
-        switch model.config.chartType { case .scatter, .gantt: return false; default: return true }
+        ChartRoleEligibility.usesAggregation(model.config.chartType)
     }
     // Sort applies only to categorical charts (bar/line/area/pie); scatter and
     // numeric axes auto-sort by value, and gantt/heatmap aren't categorical.

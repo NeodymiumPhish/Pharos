@@ -48,6 +48,10 @@ struct ChartCanvas: View {
     @State private var pieSelection: String?
     // Scatter click callout (chart-local; not a drill — brushing filters instead).
     @State private var scatterSelection: XYPoint?
+    // Hover tooltips: the category under the pointer (bar/line/area) and the
+    // hovered heatmap cell id. Nil once the pointer leaves the plot.
+    @State private var hoverCategory: String?
+    @State private var hoverCellID: String?
 
     // Staged-selection scaffold (B1). Marks tracked by stable ID; range/brush
     // selections carried as a merged key set. B2 fleshes out per-type gestures.
@@ -138,23 +142,33 @@ struct ChartCanvas: View {
         if let reason = data.emptyReason {
             emptyState(reason)
         } else {
-            chart.padding(8)
-                .onChange(of: clearToken) { _, _ in clearSelection() }
-                .onChange(of: configFingerprint) { _, _ in clearSelection() }
+            VStack(alignment: .leading, spacing: 4) {
+                if !chartTitle.isEmpty { Text(chartTitle).font(.headline).lineLimit(1) }
+                chart
+            }
+            .padding(8)
+            .onChange(of: clearToken) { _, _ in clearSelection() }
+            .onChange(of: configFingerprint) { _, _ in clearSelection() }
         }
     }
 
     @ViewBuilder private var chart: some View {
         switch chartType {
         case .bar:
-            categoryChart { BarMark(x: .value("Category", $0.xLabel), y: .value("Value", $0.y)) }
-                .chartOverlay { proxy in categoryOverlay(proxy) }
+            // Multi-series bars stack by default; `.grouped` sets them side by side.
+            let grouped = config.display.barLayout == .grouped && data.series.count > 1
+            categoryChart { pt, name in
+                if grouped {
+                    BarMark(x: .value("Category", pt.xLabel), y: .value("Value", pt.y))
+                        .position(by: .value("Series", name))
+                } else {
+                    BarMark(x: .value("Category", pt.xLabel), y: .value("Value", pt.y))
+                }
+            }
         case .line:
-            categoryChart { LineMark(x: .value("Category", $0.xLabel), y: .value("Value", $0.y)) }
-                .chartOverlay { proxy in categoryOverlay(proxy) }
+            categoryChart { pt, _ in LineMark(x: .value("Category", pt.xLabel), y: .value("Value", pt.y)) }
         case .area:
-            categoryChart { AreaMark(x: .value("Category", $0.xLabel), y: .value("Value", $0.y)) }
-                .chartOverlay { proxy in categoryOverlay(proxy) }
+            categoryChart { pt, _ in AreaMark(x: .value("Category", pt.xLabel), y: .value("Value", pt.y)) }
         case .pie:     pieChart
         case .scatter: scatterChart
         case .gantt:   ganttChart
@@ -162,32 +176,171 @@ struct ChartCanvas: View {
         }
     }
 
+    // MARK: - Display options (title, legend, axis titles, scales)
+
+    private var chartTitle: String { config.display.title.trimmingCharacters(in: .whitespaces) }
+    private var axisTitles: ChartAxisTitles.Titles { ChartAxisTitles.resolve(config) }
+
+    /// Bar/line/area legend: hidden when asked, and also for a lone unnamed
+    /// series — one entry reading "value" is noise.
+    private var categoryLegendVisible: Bool {
+        guard config.display.showLegend else { return false }
+        return !(data.series.count == 1 && data.series[0].name.isEmpty)
+    }
+
+    /// True when the log-scale flag can be honoured: every plotted y is > 0.
+    /// Pure, so the config rail can call it to enable/disable its toggle.
+    static func canUseLogScale(_ data: ChartData, chartType: ChartType) -> Bool {
+        switch chartType {
+        case .bar, .line, .area, .scatter:
+            let ys = data.series.flatMap { $0.points.map(\.y) }
+            return !ys.isEmpty && ys.allSatisfy { $0 > 0 }
+        case .pie, .gantt, .heatmap:
+            return false
+        }
+    }
+    private var useLogScale: Bool { config.display.logScale && Self.canUseLogScale(data, chartType: chartType) }
+
+    /// The largest |y| the Y axis must label: stacked totals per category for
+    /// multi-series stacked bars, else the largest single point.
+    private var maxAbsY: Double {
+        if chartType == .bar, data.series.count > 1, config.display.barLayout == .stacked {
+            var totals: [String: Double] = [:]
+            for s in data.series { for p in s.points { totals[p.xLabel, default: 0] += p.y } }
+            return totals.values.map(abs).max() ?? 0
+        }
+        return data.series.flatMap { $0.points.map { abs($0.y) } }.max() ?? 0
+    }
+
+    /// Y axis on the leading edge with gridlines; compact notation ("12K")
+    /// only once values reach 10,000 so small values keep their digits.
+    private func yAxisMarks() -> some AxisContent {
+        let compact = maxAbsY >= 10_000
+        return AxisMarks(position: .leading) { _ in
+            AxisGridLine()
+            AxisTick()
+            if compact {
+                AxisValueLabel(format: FloatingPointFormatStyle<Double>.number.notation(.compactName))
+            } else {
+                AxisValueLabel()
+            }
+        }
+    }
+
+    private static let xLabelMaxChars = 24
+
+    /// Many or long categories: turn the labels vertical so they stop
+    /// colliding; long labels are cut to 24 characters with an ellipsis.
+    private var xAxisRotated: Bool {
+        let cats = orderedCategories
+        return cats.count > 12 || cats.contains { $0.count > 12 }
+    }
+    private var xAxisNeedsCustomMarks: Bool {
+        xAxisRotated || orderedCategories.contains { $0.count > Self.xLabelMaxChars }
+    }
+    private static func truncatedLabel(_ s: String) -> String {
+        s.count > xLabelMaxChars ? String(s.prefix(xLabelMaxChars - 1)) + "\u{2026}" : s
+    }
+    private func xAxisMarks() -> some AxisContent {
+        let orientation: AxisValueLabelOrientation = xAxisRotated ? .vertical : .automatic
+        return AxisMarks { value in
+            AxisGridLine()
+            AxisTick()
+            AxisValueLabel(orientation: orientation) {
+                if let s = value.as(String.self) { Text(Self.truncatedLabel(s)) }
+            }
+        }
+    }
+
     @ViewBuilder private var heatmapChart: some View {
-        Chart(data.heatmapCells) { cell in     // HeatmapCell is Identifiable (Task 3)
-            RectangleMark(
-                x: .value("X", cell.x),
-                y: .value("Y", cell.y)
-            )
-            .foregroundStyle(by: .value("Value", cell.value))
-            .opacity(isLit(cell.drill) ? 1 : 0.2)
+        Chart {
+            ForEach(data.heatmapCells) { cell in     // HeatmapCell is Identifiable (Task 3)
+                RectangleMark(
+                    x: .value("X", cell.x),
+                    y: .value("Y", cell.y)
+                )
+                .foregroundStyle(by: .value("Value", cell.value))
+                .opacity(isLit(cell.drill) ? 1 : 0.2)
+            }
+            // Hover tooltip: a clear mark over the hovered cell carries the callout.
+            if let id = hoverCellID, let cell = data.heatmapCells.first(where: { $0.id == id }) {
+                RectangleMark(x: .value("X", cell.x), y: .value("Y", cell.y))
+                    .foregroundStyle(.clear)
+                    .annotation(position: .top, alignment: .center, spacing: 4,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        callout { Text("\(cell.x) \u{00B7} \(cell.y) \u{2014} \(fmtNum(cell.value))") }
+                    }
+            }
         }
         .chartForegroundStyleScale(range: Gradient(colors: [Color.blue.opacity(0.15), Color.blue]))
+        .chartLegend(config.display.showLegend ? .visible : .hidden)
+        .axisTitles(axisTitles)
         .chartOverlay { proxy in heatmapOverlay(proxy) }
     }
 
-    // Bar/line/area, one MarkContent per point, colored by series.
-    private func categoryChart<M: ChartContent>(@ChartContentBuilder _ mark: @escaping (ChartPoint) -> M) -> some View {
+    // Bar/line/area, one MarkContent per point, colored by series. The mark
+    // builder receives the point and its legend series name.
+    private func categoryChart<M: ChartContent>(@ChartContentBuilder _ mark: @escaping (ChartPoint, String) -> M) -> some View {
         let names = categorySeriesNames
         let colors = resolvedColors(count: names.count)
         return Chart {
             ForEach(Array(data.series.enumerated()), id: \.offset) { _, series in
+                let name = series.name.isEmpty ? "value" : series.name
                 ForEach(Array(series.points.enumerated()), id: \.offset) { _, pt in
-                    mark(pt).foregroundStyle(by: .value("Series", series.name.isEmpty ? "value" : series.name))
+                    mark(pt, name).foregroundStyle(by: .value("Series", name))
                         .opacity(isLit(pt.drill) ? 1 : 0.2)
                 }
             }
+            if let cat = hoverCategory { hoverRule(cat) }
         }
         .chartForegroundStyleScale(domain: names, range: colors)
+        .chartLegend(categoryLegendVisible ? .visible : .hidden)
+        .axisTitles(axisTitles)
+        .chartYAxis { yAxisMarks() }
+        .when(xAxisNeedsCustomMarks) { $0.chartXAxis { xAxisMarks() } }
+        .when(useLogScale) { $0.chartYScale(type: .log) }
+        .chartOverlay { proxy in categoryOverlay(proxy) }
+    }
+
+    // MARK: - Hover callouts (bar/line/area)
+
+    // A faint vertical rule at the hovered category, with the values of every
+    // series at that category pinned to the top of the plot.
+    @ChartContentBuilder private func hoverRule(_ cat: String) -> some ChartContent {
+        RuleMark(x: .value("Category", cat))
+            .foregroundStyle(.secondary.opacity(0.35))
+            .annotation(position: .top, alignment: .center, spacing: 4,
+                        overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                categoryCallout(cat)
+            }
+    }
+
+    @ViewBuilder private func categoryCallout(_ cat: String) -> some View {
+        let rows: [(String, Double)] = data.series.compactMap { s in
+            s.points.first(where: { $0.xLabel == cat }).map { (s.name, $0.y) }
+        }
+        callout {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(cat).font(.caption.bold())
+                if rows.count == 1 {
+                    Text(fmtNum(rows[0].1))
+                } else {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        Text("\(row.0)  \(fmtNum(row.1))")
+                    }
+                }
+            }
+        }
+    }
+
+    /// The shared callout chrome: rounded, control-background fill, thin stroke.
+    private func callout<V: View>(@ViewBuilder _ content: () -> V) -> some View {
+        content()
+            .font(.caption2)
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+            .fixedSize()
     }
 
     @ViewBuilder private var pieChart: some View {
@@ -200,6 +353,7 @@ struct ChartCanvas: View {
             domain: pieLabels,
             range: resolvedColors(count: pieLabels.count)
         )
+        .chartLegend(config.display.showLegend ? .visible : .hidden)
         .chartAngleSelection(value: $pieSelection)
         .onChange(of: pieSelection) { _, newValue in
             guard let label = newValue else { clearSelection(); return }
@@ -214,17 +368,30 @@ struct ChartCanvas: View {
 
     // Vectorized scatter (macOS 15+). PointPlot takes the whole collection and
     // renders 100k+ points efficiently, so no per-point ForEach or sampling.
-    private struct XYPoint: Identifiable { let id = UUID(); let x: Double; let y: Double }
+    // With a mapped size column the points render one by one (PointMark +
+    // symbolSize), so the aggregator caps that path at 5,000 points.
+    private struct XYPoint: Identifiable { let id = UUID(); let x: Double; let y: Double; var size: Double? = nil }
 
     private var scatterPoints: [XYPoint] {
-        (data.series.first?.points ?? []).map { XYPoint(x: $0.xValue ?? 0, y: $0.y) }
+        (data.series.first?.points ?? []).map { XYPoint(x: $0.xValue ?? 0, y: $0.y, size: $0.size) }
     }
 
     @ViewBuilder private var scatterChart: some View {
         let pts = scatterPoints
+        let sized = pts.contains { $0.size != nil }
+        let inR: (XYPoint) -> Bool = { p in
+            guard let r = rangeSel else { return true }
+            return r.xLo <= p.x && p.x <= r.xHi && (r.yLo == nil || (r.yLo! <= p.y && p.y <= r.yHi!))
+        }
         Chart {
-            if let r = rangeSel {
-                let inR: (XYPoint) -> Bool = { r.xLo <= $0.x && $0.x <= r.xHi && (r.yLo == nil || (r.yLo! <= $0.y && $0.y <= r.yHi!)) }
+            if sized {
+                ForEach(pts) { p in
+                    PointMark(x: .value("X", p.x), y: .value("Y", p.y))
+                        .symbolSize(by: .value("Size", p.size ?? 0))
+                        .foregroundStyle(scatterColor)
+                        .opacity(inR(p) ? 1 : 0.2)
+                }
+            } else if rangeSel != nil {
                 let inside = pts.filter(inR); let outside = pts.filter { !inR($0) }
                 PointPlot(outside, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(.gray.opacity(0.2))
                 PointPlot(inside, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(scatterColor)
@@ -232,6 +399,10 @@ struct ChartCanvas: View {
                 PointPlot(pts, x: .value("X", \.x), y: .value("Y", \.y)).foregroundStyle(scatterColor)
             }
         }
+        .when(sized) { $0.chartSymbolSizeScale(range: 20...400) }
+        .axisTitles(axisTitles)
+        .chartYAxis { yAxisMarks() }
+        .when(useLogScale) { $0.chartYScale(type: .log) }
         .chartOverlay { proxy in
             GeometryReader { geo in
                 let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
@@ -280,6 +451,16 @@ struct ChartCanvas: View {
             let plotHeight = proxy.plotFrame.map { geo[$0].height } ?? geo.size.height
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(Color.clear).contentShape(Rectangle())
+                    // Hover and drag share one rectangle so tooltips never steal clicks.
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let p):
+                            let cat = proxy.value(atX: p.x - origin.x, as: String.self)
+                            if hoverCategory != cat { hoverCategory = cat }
+                        case .ended:
+                            hoverCategory = nil
+                        }
+                    }
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
@@ -334,9 +515,10 @@ struct ChartCanvas: View {
         }
         switch chartType {
         case .bar:
-            // Multi-series bars render stacked (Swift Charts stacks same-x marks by
-            // series), so a click resolves to the band containing the tapped y —
-            // regardless of the `display.stacked` flag — giving band-precise selection.
+            // Stacked bars: a click resolves to the band containing the tapped y,
+            // giving band-precise selection. Grouped bars sit side by side, so the
+            // y alone cannot name a series — fall back to category-only.
+            if config.display.barLayout == .grouped { return "" }
             var acc = 0.0
             for s in data.series { if let pt = s.points.first(where: { $0.xLabel == label }) { acc += pt.y; if tv <= acc { return s.name } } }
             return ""
@@ -368,6 +550,20 @@ struct ChartCanvas: View {
             let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(Color.clear).contentShape(Rectangle())
+                    // Hover and drag share one rectangle so tooltips never steal clicks.
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let p):
+                            var id: String? = nil
+                            if let xl = proxy.value(atX: p.x - origin.x, as: String.self),
+                               let yl = proxy.value(atY: p.y - origin.y, as: String.self) {
+                                id = data.heatmapCells.first(where: { $0.x == xl && $0.y == yl })?.id
+                            }
+                            if hoverCellID != id { hoverCellID = id }
+                        case .ended:
+                            hoverCellID = nil
+                        }
+                    }
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { v in
                             let sx = v.startLocation.x - origin.x, ex = v.location.x - origin.x
@@ -449,12 +645,13 @@ struct ChartCanvas: View {
     }
 
     @ViewBuilder private func scatterCallout(_ p: XYPoint) -> some View {
-        Text("(\(fmtNum(p.x)), \(fmtNum(p.y)))")
-            .font(.caption2)
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
-            .fixedSize()
+        callout {
+            if let s = p.size {
+                Text("(\(fmtNum(p.x)), \(fmtNum(p.y))) \u{00B7} \(fmtNum(s))")
+            } else {
+                Text("(\(fmtNum(p.x)), \(fmtNum(p.y)))")
+            }
+        }
     }
 
     private func fmtNum(_ d: Double) -> String {
@@ -624,9 +821,25 @@ struct ChartCanvas: View {
 
     private func message(_ reason: EmptyReason) -> String {
         switch reason {
-        case .noColumns: return "Pick columns to chart."
+        case .noColumns: return "Pick columns to chart, or press Suggest."
         case .allNull: return "The selected value column is all null."
         case .noData: return "This result's rows weren't saved. Re-run the query to chart it."
         }
+    }
+}
+
+// MARK: - Conditional chart modifiers
+
+private extension View {
+    /// Applies `transform` only when `condition` holds; otherwise the view is unchanged.
+    @ViewBuilder func when<T: View>(_ condition: Bool, _ transform: (Self) -> T) -> some View {
+        if condition { transform(self) } else { self }
+    }
+
+    /// Axis titles: X centred beneath the plot, Y at the axis's default spot;
+    /// an empty title draws nothing (no reserved space).
+    @ViewBuilder func axisTitles(_ t: ChartAxisTitles.Titles) -> some View {
+        self.when(!t.x.isEmpty) { $0.chartXAxisLabel(t.x, position: .bottom, alignment: .center) }
+            .when(!t.y.isEmpty) { $0.chartYAxisLabel(t.y) }
     }
 }

@@ -92,32 +92,50 @@ enum ChartSort: String, Codable, CaseIterable {
     }
 }
 
+/// How multi-series bars share a category slot.
+enum BarLayout: String, Codable, CaseIterable {
+    case stacked, grouped
+    var displayName: String { rawValue.capitalized }
+}
+
 /// Non-mapping display options.
 struct ChartDisplayOptions: Codable, Equatable {
     var title: String = ""
     var showLegend: Bool = true
-    var stacked: Bool = false          // grouped vs stacked for series
-    var topNCategories: Int = 25       // cardinality cap
-    var sort: ChartSort = .queryOrder  // categorical point ordering
+    var barLayout: BarLayout = .stacked   // multi-series bars: stacked (the historical look) or side by side
+    var logScale: Bool = false            // Y axis on a log scale; the canvas ignores it unless every plotted y > 0
+    var xAxisTitle: String = ""           // empty = derived from the mapping (see ChartAxisTitles)
+    var yAxisTitle: String = ""           // empty = derived from the mapping
+    var topNCategories: Int = 25          // cardinality cap
+    var sort: ChartSort = .queryOrder     // categorical point ordering
 
-    init(title: String = "", showLegend: Bool = true, stacked: Bool = false,
+    init(title: String = "", showLegend: Bool = true, barLayout: BarLayout = .stacked,
+         logScale: Bool = false, xAxisTitle: String = "", yAxisTitle: String = "",
          topNCategories: Int = 25, sort: ChartSort = .queryOrder) {
         self.title = title
         self.showLegend = showLegend
-        self.stacked = stacked
+        self.barLayout = barLayout
+        self.logScale = logScale
+        self.xAxisTitle = xAxisTitle
+        self.yAxisTitle = yAxisTitle
         self.topNCategories = topNCategories
         self.sort = sort
     }
 
     // Tolerant decode: every field decodeIfPresent with a default, so a persisted
-    // `display` blob written before `sort` existed still decodes (Swift's
+    // `display` blob written before a field existed still decodes (Swift's
     // synthesized decoder would otherwise throw keyNotFound on the missing key).
-    enum CodingKeys: String, CodingKey { case title, showLegend, stacked, topNCategories, sort }
+    // The retired `stacked` key is ignored on purpose: bars always stacked before
+    // it was read, so `.stacked` — the default — keeps every saved chart's look.
+    enum CodingKeys: String, CodingKey { case title, showLegend, barLayout, logScale, xAxisTitle, yAxisTitle, topNCategories, sort }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         showLegend = try c.decodeIfPresent(Bool.self, forKey: .showLegend) ?? true
-        stacked = try c.decodeIfPresent(Bool.self, forKey: .stacked) ?? false
+        barLayout = try c.decodeIfPresent(BarLayout.self, forKey: .barLayout) ?? .stacked
+        logScale = try c.decodeIfPresent(Bool.self, forKey: .logScale) ?? false
+        xAxisTitle = try c.decodeIfPresent(String.self, forKey: .xAxisTitle) ?? ""
+        yAxisTitle = try c.decodeIfPresent(String.self, forKey: .yAxisTitle) ?? ""
         topNCategories = try c.decodeIfPresent(Int.self, forKey: .topNCategories) ?? 25
         sort = try c.decodeIfPresent(ChartSort.self, forKey: .sort) ?? .queryOrder
     }

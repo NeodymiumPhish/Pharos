@@ -3536,6 +3536,7 @@ extension ContentViewController {
             chartHost.onRunServerAggregation = nil
             chartHost.present(
                 result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
+                sql: resultTabs[idx].sql,
                 initialConfig: resultTabs[idx].chartConfig,
                 banner: ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "")
             )
@@ -3565,7 +3566,7 @@ extension ContentViewController {
         chartHost.onCopySQL = { [weak self] in self?.copyGeneratedChartSQL() }
         // The reopen "Run…" affordance runs immediately (no debounce).
         chartHost.onRunServerAggregation = { [weak self] in self?.runServerAggregation(debounced: false) }
-        chartHost.present(result: result, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
+        chartHost.present(result: result, sql: resultTabs[idx].sql, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
         // Capture the config the host actually used (inference may have filled it).
         resultTabs[idx].chartConfig = chartHost.currentConfig
         // Reopen is explicit: even with serverAggregation on we do NOT auto-run
@@ -3586,7 +3587,7 @@ extension ContentViewController {
             return
         }
         let userSQL = resultTabs[idx].sql
-        if SqlPushdownGenerator.generate(cfg, userSQL: userSQL, columns: result.columns) != nil {
+        if SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: userSQL, columns: result.columns) != nil {
             chartHost.setPushdownAvailability(true, reason: nil)
         } else {
             chartHost.setPushdownAvailability(false, reason: pushdownUnavailableReason(cfg, userSQL: userSQL))
@@ -3641,7 +3642,7 @@ extension ContentViewController {
             chartHost.setServerLoading(false)
             return
         }
-        guard let pushdown = SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) else {
+        guard let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: resultTabs[idx].sql, columns: result.columns) else {
             chartHost.setServerError("Server aggregation isn't available for this configuration.")
             return
         }
@@ -3727,7 +3728,7 @@ extension ContentViewController {
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               let result = resultTabs[idx].queryResult,
               let cfg = resultTabs[idx].chartConfig,
-              let pushdown = SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) else {
+              let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: resultTabs[idx].sql, columns: result.columns) else {
             NSSound.beep(); return
         }
         NSPasteboard.general.clearContents()
@@ -3745,7 +3746,7 @@ extension ContentViewController {
               let idx = resultTabs.firstIndex(where: { $0.id == id }),
               let result = resultTabs[idx].queryResult,
               let cfg = resultTabs[idx].chartConfig, cfg.serverAggregation else { return false }
-        return SqlPushdownGenerator.generate(cfg, userSQL: resultTabs[idx].sql, columns: result.columns) != nil
+        return SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: resultTabs[idx].sql, columns: result.columns) != nil
     }
 
     // MARK: Chart Drill-down

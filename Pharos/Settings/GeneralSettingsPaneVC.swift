@@ -137,7 +137,7 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         appleIntelligenceCheck.isEnabled = availability.systemModelIsAvailable
         if availability.systemModelIsAvailable {
             appleIntelligenceCaption.stringValue = String(
-                localized: "Explain errors, suggest names, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac.")
+                localized: "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac.")
         } else {
             appleIntelligenceCaption.stringValue =
                 availability.unavailableReason

@@ -7,6 +7,12 @@ final class ChartHostingController: NSViewController {
     private var model: ChartViewModel?
     private var hosting: NSHostingController<AnyView>?
 
+    /// The statement behind the presented result, for the chart suggestion's
+    /// prompt (schema-level text, like the name and describe features send).
+    private var sql = ""
+    private let suggester = ChartSuggester()
+    private var suggestionTask: Task<Void, Never>?
+
     /// Reports a config change (debounced by the caller) for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
     /// Requests loading all remaining rows for the current result.
@@ -26,7 +32,9 @@ final class ChartHostingController: NSViewController {
     override func loadView() { view = NSView() }
 
     /// Configure (or reconfigure) for a result.
-    func present(result: QueryResult, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
+    func present(result: QueryResult, sql: String, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
+        cancelSuggestion()
+        self.sql = sql
         let vm = ChartViewModel(result: result, columns: result.columns, initialConfig: initialConfig)
         vm.onConfigChanged = { [weak self] cfg in
             self?.onConfigChanged?(cfg)
@@ -34,6 +42,11 @@ final class ChartHostingController: NSViewController {
             if cfg.serverAggregation { self?.onServerConfigChanged?() }
         }
         vm.onSelectionChanged = { [weak self] keys in self?.onSelectionChanged?(keys) }
+        vm.onSuggest = { [weak self] in self?.runSuggestion() }
+        vm.onCancelSuggest = { [weak self] in
+            self?.cancelSuggestion()
+            self?.model?.suggestionState = .idle
+        }
         self.model = vm
 
         let root = ChartRootView(
@@ -50,6 +63,39 @@ final class ChartHostingController: NSViewController {
 
     /// The current config (for persistence on teardown/tab-switch).
     var currentConfig: ChartConfig? { model?.config }
+
+    // MARK: Suggest a chart (Apple Intelligence)
+
+    /// Ask the on-device model for a chart. The rail only calls this when
+    /// `ModelAvailability` says the model may be used; the deterministic
+    /// recommender is applied by the view model itself and never comes here.
+    private func runSuggestion() {
+        guard let model else { return }
+        cancelSuggestion()
+        model.suggestionState = .working
+        suggestionTask = Task { @MainActor [weak self, weak model] in
+            guard let self, let model else { return }
+            do {
+                let outcome = try await self.suggester.suggest(
+                    profiles: model.profiles, rowCount: model.rowCount,
+                    candidates: model.recommendations, sql: self.sql)
+                guard !Task.isCancelled else { return }
+                model.apply(config: outcome.config,
+                            state: .answered(reason: outcome.reason, promptHash: outcome.promptHash, fromModel: outcome.fromModel))
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.intelligence.error("suggest-chart: \(ChartSuggester.kind(of: error), privacy: .public)")
+                model.suggestionState = .failed(ChartSuggester.userMessage(for: error))
+            }
+        }
+    }
+
+    private func cancelSuggestion() {
+        suggestionTask?.cancel()
+        suggestionTask = nil
+    }
 
     // MARK: Staged-selection forwarding (VC-driven)
 
@@ -99,7 +145,7 @@ final class ChartHostingController: NSViewController {
     /// rows needing a re-run).
     func buildExportSnapshot() -> ExportSnapshot? {
         guard let model, model.data.emptyReason == nil else { return nil }
-        let cfg = model.config
+        let cfg = model.resolvedConfig
         let data = model.data
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let exportView = ChartExportView(

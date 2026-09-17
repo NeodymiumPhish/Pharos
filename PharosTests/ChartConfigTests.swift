@@ -116,5 +116,19 @@ func runTests() {
     // `old3` was decoded earlier from a legacy blob whose `display` object lacks "sort".
     expect(old3.display.sort == .queryOrder, "legacy display without sort defaults to queryOrder")
 
+    // display: the new fields default, round-trip, and a legacy `stacked` key is
+    // ignored in favour of barLayout (.stacked, the historical look).
+    var disp = ChartConfig(chartType: .bar)
+    expect(disp.display.barLayout == .stacked && disp.display.logScale == false, "display defaults: stacked, linear")
+    expect(disp.display.xAxisTitle.isEmpty && disp.display.yAxisTitle.isEmpty, "display defaults: no axis titles")
+    disp.display.barLayout = .grouped; disp.display.logScale = true
+    disp.display.xAxisTitle = "Month"; disp.display.yAxisTitle = "Revenue"; disp.display.title = "Sales"
+    let dispData = try! JSONEncoder().encode(disp)
+    let dispBack = try! JSONDecoder().decode(ChartConfig.self, from: dispData)
+    expect(dispBack.display.barLayout == .grouped && dispBack.display.logScale, "barLayout and logScale round-trip")
+    expect(dispBack.display.xAxisTitle == "Month" && dispBack.display.yAxisTitle == "Revenue" && dispBack.display.title == "Sales", "titles round-trip")
+    expect(old3.display.barLayout == .stacked, "legacy display with stacked:false still reads as stacked bars")
+    expect(!String(decoding: dispData, as: UTF8.self).contains("\"stacked\""), "the retired stacked key is no longer written")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

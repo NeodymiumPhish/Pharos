@@ -13,6 +13,8 @@ struct ChartPoint {
     var xValue: Double?
     var y: Double
     var drill: DrillKey? = nil
+    /// Scatter only: the mapped `size` column's value, when one is mapped.
+    var size: Double? = nil
 }
 
 /// A heatmap cell at the intersection of a discrete X and Y axis value.

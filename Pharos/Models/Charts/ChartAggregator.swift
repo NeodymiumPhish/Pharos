@@ -24,7 +24,7 @@ enum ChartAggregator {
         if !isCount, valRef == nil || (valRef!.index >= result.columns.count) { return .empty(.noColumns) }
 
         let seriesRef = config.mappings[.series]
-        let catKind = ColumnClassifier.kind(forDataType: result.columns[catRef.index].dataType)
+        let catKind = ColumnClassifier.kind(of: catRef.index, in: result)
 
         // Decide numeric binning up front (needs a first pass for range + distinct).
         var numericBins: [(lo: Double, hi: Double)] = []
@@ -183,12 +183,15 @@ enum ChartAggregator {
               xRef.index < result.columns.count, yRef.index < result.columns.count else {
             return .empty(.noColumns)
         }
+        // Optional size column (bubble radius); only read when it maps to a real column.
+        let sizeRef = config.mappings[.size].flatMap { $0.index < result.columns.count ? $0 : nil }
         var pts: [ChartPoint] = []
         for row in result.rows {
             guard xRef.index < row.count, yRef.index < row.count,
                   let x = ValueCoercion.double(from: row[xRef.index]),
                   let y = ValueCoercion.double(from: row[yRef.index]) else { continue }
-            pts.append(ChartPoint(xLabel: "", xValue: x, y: y))
+            let size = sizeRef.flatMap { $0.index < row.count ? ValueCoercion.double(from: row[$0.index]) : nil }
+            pts.append(ChartPoint(xLabel: "", xValue: x, y: y, size: size))
         }
         if pts.isEmpty { return .empty(.allNull) }
 
@@ -197,12 +200,13 @@ enum ChartAggregator {
         // which handles 100k+ points, so no sampling is needed in normal use.
         // Keep only a high safety cap to bound worst-case memory; it flags
         // wasSampled so the UI can note it in the rare case it trips.
-        let safetyCap = 100_000
+        // A sized scatter renders one PointMark per point instead, so it is
+        // capped far lower.
+        let safetyCap = sizeRef == nil ? 100_000 : 5_000
         if pts.count > safetyCap {
+            // Exact index per slot (no accumulating float error), so the cap holds.
             let stride = Double(pts.count) / Double(safetyCap)
-            var sampled: [ChartPoint] = []
-            var i = 0.0
-            while Int(i) < pts.count { sampled.append(pts[Int(i)]); i += stride }
+            let sampled = (0..<safetyCap).map { pts[min(Int(Double($0) * stride), pts.count - 1)] }
             out.wasSampled = true
             out.series = [ChartSeries(name: "", points: sampled)]
         } else {
@@ -235,7 +239,7 @@ enum ChartAggregator {
         out.ganttBars = bars
         out.plottedRowCount = bars.count
         out.totalLoadedRowCount = result.rows.count
-        let startKind = ColumnClassifier.kind(forDataType: result.columns[startRef.index].dataType)
+        let startKind = ColumnClassifier.kind(of: startRef.index, in: result)
         out.ganttAxisKind = startKind == .temporal ? .temporal : .numeric
         return out
     }
@@ -257,8 +261,8 @@ enum ChartAggregator {
         var drillOf: [Key: DrillKey] = [:]
         var saw = false
 
-        let xKind = ColumnClassifier.kind(forDataType: result.columns[xRef.index].dataType)
-        let yKind = ColumnClassifier.kind(forDataType: result.columns[yRef.index].dataType)
+        let xKind = ColumnClassifier.kind(of: xRef.index, in: result)
+        let yKind = ColumnClassifier.kind(of: yRef.index, in: result)
 
         // Build a per-axis labeller: numeric binning (first pass for range +
         // distinct, with the low-cardinality escape) mirrors the categorical
