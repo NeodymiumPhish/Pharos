@@ -78,7 +78,7 @@ Connections are chosen **per editor tab** from the connection pull-down in the w
 4. Click **Test Connection** to verify — on success, the latency is shown and the **Default Schema** menu is populated
 5. Click **Save**
 
-Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigator panel populates with your schema, and you're ready to run queries.
+Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigator panel populates with your schema, and you're ready to run queries. The **schema pull-down** next to the connection pins one schema for the tab (or **All Schemas**); it is also where you set a connection's default schema.
 
 ## Running Your First Query
 

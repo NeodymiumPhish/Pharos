@@ -78,7 +78,7 @@ In the window toolbar, open the **connection pull-down**. It lists every saved c
 - **Refresh Connection** — reload schema metadata (refreshes the schema browser)
 - **Manage Connections…** — open the Connections Manager
 
-Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection.
+Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection. The **schema pull-down** beside the connection in the window toolbar shows the tab's schema (or **All Schemas**) and opens a searchable list to change it or to **Set as Default** for the connection.
 
 ## Touch ID
 

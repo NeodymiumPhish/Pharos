@@ -3,6 +3,7 @@ import Combine
 
 extension NSToolbarItem.Identifier {
     static let pharosConnection = NSToolbarItem.Identifier("PharosConnection")
+    static let pharosSchema = NSToolbarItem.Identifier("PharosSchema")
     static let pharosRunQuery = NSToolbarItem.Identifier("PharosRunQuery")
     static let pharosCancelQuery = NSToolbarItem.Identifier("PharosCancelQuery")
     static let pharosFilterSidebar = NSToolbarItem.Identifier("PharosFilterSidebar")
@@ -28,13 +29,19 @@ private final class ValidatingViewToolbarItem: NSToolbarItem {
 /// Delegate and state driver for the main window's `NSToolbar`.
 ///
 /// Default set, left to right: navigator group | tracking separator |
-/// connection pull-down, Run, Cancel | flexible space | tracking separator |
-/// inspector toggle. The navigator group stands where the sidebar toggle used
-/// to: it both picks the sidebar's list and, when the lit segment is pressed
-/// again, collapses the pane — the way Calendar's Calendars/Invites control
-/// behaves. Run is the one prominent item and carries a badge with
-/// the count of running queries on the active tab. Every item here has a
-/// menu command; the toolbar adds nothing that the menu bar cannot reach.
+/// connection pull-down, schema pull-down, Run, Cancel | flexible space |
+/// tracking separator | inspector toggle. The navigator group stands where the
+/// sidebar toggle used to: it both picks the sidebar's list and, when the lit
+/// segment is pressed again, collapses the pane — the way Calendar's
+/// Calendars/Invites control behaves. The connection and schema pull-downs
+/// are two adjacent items with the same bezel, so the pair reads as "this
+/// database, this schema"; both follow the active tab. (Measured 2026-09-17: an
+/// `NSToolbarItemGroup` of two view-based items gives each its own glass
+/// platter, with the same 8pt gap as two separate items — a group would buy
+/// nothing but a shared Customize Toolbar… entry.) Run is the one prominent
+/// item and carries a badge with the count of running queries on the active
+/// tab. Every item here has a menu command or an editor-side equivalent; the
+/// toolbar adds nothing that cannot be reached another way.
 ///
 /// The user can customize the toolbar (View > Customize Toolbar…). The
 /// allowed-but-not-default items are the sidebar filter field, Format SQL,
@@ -61,6 +68,11 @@ final class MainToolbarController: NSObject {
     private weak var navigatorItem: NSToolbarItemGroup?
 
     private let connectionButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    /// The schema for the active tab. Presents `SchemaSelectorPopoverVC` rather
+    /// than a menu, so a long schema list scrolls and can be searched.
+    private let schemaButton = SchemaPopUpButton(frame: .zero, pullsDown: true)
+    private let schemaSpinner = NSProgressIndicator()
+    private var schemaPopover: NSPopover?
     private let cancelButton = NSButton()
     private var runningQueriesPopover: NSPopover?
     private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
@@ -70,6 +82,7 @@ final class MainToolbarController: NSObject {
         self.splitVC = splitVC
         super.init()
         configureConnectionButton()
+        configureSchemaButton()
         configureCancelButton()
         subscribe()
         // ⌥⌘1/2/3 go straight to the sidebar; this is how the group hears about
@@ -89,13 +102,14 @@ final class MainToolbarController: NSObject {
 
     /// Installs a customizable toolbar on `window` with this object as delegate.
     func install(on window: NSWindow) {
-        // "PharosToolbar2", not "PharosToolbar". `autosavesConfiguration` is
+        // "PharosToolbar3", not "PharosToolbar2". `autosavesConfiguration` is
         // on, and AppKit reconciles a saved configuration by DROPPING unknown
         // identifiers, never by adding new default ones — so a window that had
-        // saved the old set would keep the sidebar toggle and never show the
-        // navigator group. The new name costs one reset of the user's own
-        // toolbar customisation, display mode and size mode.
-        let toolbar = NSToolbar(identifier: "PharosToolbar2")
+        // saved the old set would never show the schema pull-down (as, one
+        // bump earlier, it would never have shown the navigator group). The
+        // new name costs one reset of the user's own toolbar customisation,
+        // display mode and size mode.
+        let toolbar = NSToolbar(identifier: "PharosToolbar3")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -116,6 +130,7 @@ final class MainToolbarController: NSObject {
                 for i in 0..<lhs.count {
                     if lhs[i].id != rhs[i].id
                         || lhs[i].connectionId != rhs[i].connectionId
+                        || lhs[i].schemaName != rhs[i].schemaName
                         || lhs[i].runningQueries.count != rhs[i].runningQueries.count
                     {
                         return false
@@ -134,16 +149,25 @@ final class MainToolbarController: NSObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _, _ in self?.refresh() }
             .store(in: &cancellables)
+
+        // The schema pull-down also follows the (app-wide) metadata cache; the
+        // tab it describes is always THIS window's, through `session` above.
+        Publishers.CombineLatest(metadataCache.$schemas, metadataCache.$isLoading)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _ in self?.refreshSchemaButton() }
+            .store(in: &cancellables)
     }
 
     private func refresh() {
         rebuildConnectionMenu()
+        refreshSchemaButton()
         updateRunState()
         toolbar?.validateVisibleItems()
     }
 
     private var activeTab: QueryTab? { session.activeTab }
     private var tabConnectionId: String? { activeTab?.connectionId }
+    private var tabSchemaName: String? { activeTab?.schemaName }
 
     private func updateRunState() {
         let count = activeTab?.runningQueries.count ?? 0
@@ -331,6 +355,106 @@ final class MainToolbarController: NSObject {
     @objc private func refreshMetadata() { contentVC?.menuRefreshMetadata(nil) }
     @objc private func showConnectionsManager() { ConnectionsManagerWindowController.show() }
 
+    // MARK: - Schema pull-down
+
+    private func configureSchemaButton() {
+        schemaButton.bezelStyle = .toolbar
+        schemaButton.controlSize = .regular
+        schemaButton.translatesAutoresizingMaskIntoConstraints = false
+        (schemaButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+        NSLayoutConstraint.activate([
+            schemaButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            schemaButton.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
+        ])
+        schemaButton.toolTip = String(localized: "Schema for the active tab")
+        schemaButton.setAccessibilityLabel(String(localized: "Schema"))
+        schemaButton.setAccessibilityIdentifier("toolbar.schema")
+        schemaButton.onActivate = { [weak self] button in
+            self?.presentSchemaPopover(from: button)
+        }
+
+        // Spinner overlay for "Loading…"
+        schemaSpinner.style = .spinning
+        schemaSpinner.controlSize = .small
+        schemaSpinner.isDisplayedWhenStopped = false
+        schemaSpinner.translatesAutoresizingMaskIntoConstraints = false
+        schemaButton.addSubview(schemaSpinner)
+        NSLayoutConstraint.activate([
+            schemaSpinner.trailingAnchor.constraint(equalTo: schemaButton.trailingAnchor, constant: -20),
+            schemaSpinner.centerYAnchor.constraint(equalTo: schemaButton.centerYAnchor),
+        ])
+    }
+
+    /// Title, enabled state and spinner from `SchemaButtonState` — the pure
+    /// rule — fed from this window's active tab and the shared cache.
+    private func refreshSchemaButton() {
+        let connectionId = tabConnectionId
+        let state = SchemaButtonState(
+            hasConnection: connectionId != nil,
+            isConnected: connectionId.map { stateManager.status(for: $0) == .connected } ?? false,
+            isLoading: metadataCache.isLoading,
+            hasSchemas: !metadataCache.schemas.isEmpty,
+            activeSchema: tabSchemaName)
+
+        // The button shows a single title item; the full schema list and the
+        // "All Schemas" / "Set as Default" actions live in the popover.
+        schemaButton.removeAllItems()
+        schemaButton.addItem(withTitle: state.title)
+        schemaButton.isEnabled = state.isEnabled
+        schemaButton.setAccessibilityValue(state.title)
+        if state.showsSpinner {
+            schemaSpinner.startAnimation(nil)
+        } else {
+            schemaSpinner.stopAnimation(nil)
+        }
+    }
+
+    /// Update the active tab's schema and the window's schema-following state
+    /// (the Database Navigator reads `activeSchema`).
+    private func setTabSchema(_ schemaName: String?) {
+        guard let tab = activeTab else { return }
+        session.updateTab(id: tab.id) { $0.schemaName = schemaName }
+        session.activeSchema = schemaName
+    }
+
+    private func presentSchemaPopover(from button: NSView) {
+        let schemaNames = metadataCache.schemas.map { $0.name }
+        let defaultSchema: String? = {
+            guard let connId = tabConnectionId else { return nil }
+            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
+        }()
+
+        let vc = SchemaSelectorPopoverVC(
+            schemas: schemaNames,
+            activeSchema: tabSchemaName,
+            defaultSchema: defaultSchema
+        )
+        vc.onSelectSchema = { [weak self] schema in
+            self?.setTabSchema(schema)
+            self?.schemaPopover?.close()
+        }
+        vc.onSetDefault = { [weak self] in
+            self?.setDefaultSchema()
+            self?.schemaPopover?.close()
+        }
+
+        let popover = NSPopover()
+        popover.contentViewController = vc
+        popover.behavior = .transient
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+        schemaPopover = popover
+    }
+
+    /// The tab's current schema becomes the connection's default (nil — "All
+    /// Schemas" — clears it). The connection store republishes, which
+    /// refreshes this button.
+    private func setDefaultSchema() {
+        guard let connId = tabConnectionId,
+              var config = stateManager.connections.first(where: { $0.id == connId }) else { return }
+        config.defaultSchema = tabSchemaName
+        stateManager.saveConnection(config)
+    }
+
     // MARK: - Navigator group
 
     /// The sidebar's navigator group was pressed.
@@ -370,6 +494,10 @@ final class MainToolbarController: NSObject {
 
     private func configureCancelButton() {
         cancelButton.bezelStyle = .toolbar
+        // Run beside it is prominent; a second bezel at rest made the pair
+        // read as two equal calls to action. The bezel comes back under the
+        // pointer, so the target is still visible when it matters.
+        cancelButton.showsBorderOnlyWhileMouseInside = true
         cancelButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: String(localized: "Cancel Query"))
         cancelButton.imagePosition = .imageOnly
         cancelButton.target = self
@@ -412,6 +540,18 @@ extension MainToolbarController: NSToolbarDelegate {
             item.view = connectionButton
             item.visibilityPriority = .high
             if flag { rebuildConnectionMenu() }
+            return item
+
+        case .pharosSchema:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = String(localized: "Schema")
+            item.paletteLabel = String(localized: "Schema")
+            item.toolTip = String(localized: "Schema for the active tab")
+            item.view = schemaButton
+            // `.standard`, below Run/Cancel/Connection's `.high`: in a narrow
+            // window the schema goes to the overflow menu before they do.
+            item.visibilityPriority = .standard
+            if flag { refreshSchemaButton() }
             return item
 
         case .pharosRunQuery:
@@ -495,6 +635,7 @@ extension MainToolbarController: NSToolbarDelegate {
             .pharosNavigator,
             .sidebarTrackingSeparator,
             .pharosConnection,
+            .pharosSchema,
             .pharosRunQuery,
             .pharosCancelQuery,
             .flexibleSpace,
@@ -512,6 +653,7 @@ extension MainToolbarController: NSToolbarDelegate {
             .toggleSidebar,
             .sidebarTrackingSeparator,
             .pharosConnection,
+            .pharosSchema,
             .pharosRunQuery,
             .pharosCancelQuery,
             .pharosFilterSidebar,

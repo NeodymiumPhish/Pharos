@@ -1,8 +1,8 @@
 import AppKit
 
 /// An NSPopUpButton that presents a custom popover instead of its native menu,
-/// while keeping the standard recessed/borderless arrow appearance so it matches
-/// the adjacent connection popup. Both mouse clicks and keyboard activation
+/// while keeping the standard pull-down appearance (in the window toolbar, the
+/// `.toolbar` bezel the adjacent connection pull-down has). Both mouse clicks and keyboard activation
 /// (Space / Return) open the popover, so the full schema list stays reachable for
 /// keyboard users; the native menu (which carries only the current title item) is
 /// never shown.

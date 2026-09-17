@@ -60,7 +60,7 @@ Partitioned tables are marked with a split-square icon and a RANGE/LIST/HASH bad
 
 ## Schema Selector
 
-The schema selector lives in the **editor toolbar** (next to the Save dropdown). Click it to open a popover with:
+The schema selector is the **schema pull-down** in the window toolbar, beside the connection pull-down; the pair reads as "this database, this schema", and both follow the active tab. Click it to open a popover with:
 
 - A **Filter schemas…** search field
 - A scrollable list of schemas, with **All Schemas** pinned at the top; the active schema is checkmarked and the connection's default schema is marked "★ default"

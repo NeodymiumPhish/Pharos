@@ -44,9 +44,6 @@ class EditorPaneVC: NSViewController {
 
     // Schema selector (in editor toolbar). Run, Cancel and the connection
     // pull-down live in the window toolbar (`MainToolbarController`).
-    private let schemaPopup = SchemaPopUpButton(frame: .zero, pullsDown: true)
-    private let schemaSpinner = NSProgressIndicator()
-    private var schemaPopover: NSPopover?
 
     /// Per-tab failure indicator. Hidden until the pane's active tab has a
     /// failure in its log.
@@ -279,7 +276,6 @@ class EditorPaneVC: NSViewController {
                 guard let self else { return }
                 self.refreshTabBar()
                 self.updateEditorToolbarState()
-                self.updateSchemaPopupTitle()
                 self.updateGutterPulseForActiveTab(tabs: tabs)
             }
             .store(in: &cancellables)
@@ -296,16 +292,6 @@ class EditorPaneVC: NSViewController {
                 schemas: schemas, tables: tables, columnsByTable: columns)
         }
         .store(in: &cancellables)
-
-        metadataCache.$schemas
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateSchemaPopupTitle() }
-            .store(in: &cancellables)
-
-        metadataCache.$isLoading
-            .receive(on: RunLoop.main)
-            .sink { [weak self] loading in self?.updateSchemaLoading(loading) }
-            .store(in: &cancellables)
 
         // "Describe the query…" appears and disappears with Apple
         // Intelligence, and takes its enabled state from whether the tab has
@@ -429,12 +415,6 @@ class EditorPaneVC: NSViewController {
         // Sync gutter pulse to the newly-activated tab.
         editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
 
-        // The connection/schema popup labels read from `activeTab?.connectionId`
-        // and `activeTab?.schemaName`. When the active tab in this pane changes,
-        // the QueryTab objects themselves are unchanged, so $tabs doesn't emit
-        // and the popups would stay stuck on the previous tab's values. Rebuild
-        // them explicitly here.
-        updateSchemaPopupTitle()
         // The incoming tab's text references a different token set; the
         // sidebar must not wait out the typing debounce to learn it.
         referencedNamesScanTimer?.invalidate()
@@ -573,27 +553,6 @@ class EditorPaneVC: NSViewController {
         exportSQLItem.image = NSImage(systemSymbolName: "doc.badge.arrow.up", accessibilityDescription: "Export as SQL File")
         saveDropdown.menu?.addItem(exportSQLItem)
 
-        // Schema popup
-        schemaPopup.bezelStyle = .recessed
-        schemaPopup.isBordered = false
-        schemaPopup.controlSize = .small
-        schemaPopup.translatesAutoresizingMaskIntoConstraints = false
-        (schemaPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
-        schemaPopup.onActivate = { [weak self] button in
-            self?.presentSchemaPopover(from: button)
-        }
-
-        // Schema spinner overlay
-        schemaSpinner.style = .spinning
-        schemaSpinner.controlSize = .small
-        schemaSpinner.isDisplayedWhenStopped = false
-        schemaSpinner.translatesAutoresizingMaskIntoConstraints = false
-        schemaPopup.addSubview(schemaSpinner)
-        NSLayoutConstraint.activate([
-            schemaSpinner.trailingAnchor.constraint(equalTo: schemaPopup.trailingAnchor, constant: -20),
-            schemaSpinner.centerYAnchor.constraint(equalTo: schemaPopup.centerYAnchor),
-        ])
-
         // "Format as SQL list" button — appears only while a list-paste
         // offer is pending; accent-colored so it stands out.
         formatListButton.bezelStyle = .rounded
@@ -618,10 +577,10 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // All controls in one row: Format, Describe, Save, Schema,
-        // Format-as-SQL-list
+        // All controls in one row: Format, Describe, Save, Format-as-SQL-list.
+        // The schema selector is in the window toolbar, beside the connection.
         let toolbarStack = NSStackView(
-            views: [formatButton, describeQueryButton, saveDropdown, schemaPopup, formatListButton])
+            views: [formatButton, describeQueryButton, saveDropdown, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
@@ -631,10 +590,12 @@ class EditorPaneVC: NSViewController {
         // The error badge and the result-tabs toggle, right-aligned as one
         // group and not part of the leading stack.
         let resultTabsConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        resultTabsToggle.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Result Tabs")?.withSymbolConfiguration(resultTabsConfig)
+        // Not `sidebar.trailing`: that is the Inspector toggle's glyph, drawn
+        // in the window toolbar directly above this button.
+        resultTabsToggle.image = NSImage(systemSymbolName: "rectangle.righthalf.inset.filled", accessibilityDescription: "Result Tabs")?.withSymbolConfiguration(resultTabsConfig)
         resultTabsToggle.bezelStyle = .recessed
         resultTabsToggle.isBordered = false
-        resultTabsToggle.toolTip = "Result Tabs"
+        resultTabsToggle.toolTip = "Show/Hide Result Tabs"
         resultTabsToggle.contentTintColor = .secondaryLabelColor
         resultTabsToggle.target = self
         resultTabsToggle.action = #selector(toggleResultTabsPanel)
@@ -653,9 +614,6 @@ class EditorPaneVC: NSViewController {
             describeQueryButton.widthAnchor.constraint(equalToConstant: 28),
             describeQueryButton.heightAnchor.constraint(equalToConstant: 28),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
-
-            schemaPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
-            schemaPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
 
             toolbarStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
             toolbarStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
@@ -881,101 +839,6 @@ class EditorPaneVC: NSViewController {
     /// The schema name for the active tab.
     private var tabSchemaName: String? {
         activeTab?.schemaName
-    }
-
-    // MARK: - Schema Selector
-
-    private func updateSchemaPopupTitle() {
-        schemaPopup.removeAllItems()
-
-        let schemas = metadataCache.schemas
-        let activeSchema = tabSchemaName
-
-        let isConnected: Bool
-        if let activeId = tabConnectionId {
-            isConnected = stateManager.status(for: activeId) == .connected
-        } else {
-            isConnected = false
-        }
-
-        guard isConnected, !schemas.isEmpty else {
-            schemaPopup.addItem(withTitle: "No Schema")
-            schemaPopup.isEnabled = false
-            return
-        }
-
-        schemaPopup.isEnabled = true
-
-        // The button shows a single title item; the full schema list and the
-        // "All Schemas" / "Set as Default" actions now live in the popover
-        // (see presentSchemaPopover), which scrolls naturally for long lists.
-        let titleText = DisplayEscape.escaped(activeSchema ?? "All Schemas")
-        schemaPopup.addItem(withTitle: titleText)
-    }
-
-    private func updateSchemaLoading(_ loading: Bool) {
-        if loading {
-            schemaPopup.removeAllItems()
-            schemaPopup.addItem(withTitle: "Loading\u{2026}")
-            schemaPopup.isEnabled = false
-            schemaSpinner.startAnimation(nil)
-        } else {
-            schemaSpinner.stopAnimation(nil)
-            updateSchemaPopupTitle()
-        }
-    }
-
-    // MARK: - Schema Actions
-
-    /// Update the active tab's schemaName and also sync global state.
-    private func setTabSchema(_ schemaName: String?) {
-        guard let tab = activeTab else { return }
-        session.updateTab(id: tab.id) { $0.schemaName = schemaName }
-        session.activeSchema = schemaName
-    }
-
-    /// Build and present the searchable schema popover anchored to the schema
-    /// button. Selection and set-default flow back through the existing
-    /// setTabSchema / setDefaultSchemaClicked logic.
-    private func presentSchemaPopover(from button: NSView) {
-        let schemaNames = metadataCache.schemas.map { $0.name }
-        let defaultSchema: String? = {
-            guard let connId = tabConnectionId else { return nil }
-            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
-        }()
-
-        let vc = SchemaSelectorPopoverVC(
-            schemas: schemaNames,
-            activeSchema: tabSchemaName,
-            defaultSchema: defaultSchema
-        )
-        vc.onSelectSchema = { [weak self] schema in
-            self?.setTabSchema(schema)
-            self?.schemaPopover?.close()
-        }
-        vc.onSetDefault = { [weak self] in
-            self?.setDefaultSchemaClicked()
-            self?.schemaPopover?.close()
-        }
-
-        let popover = NSPopover()
-        popover.contentViewController = vc
-        popover.behavior = .transient
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        schemaPopover = popover
-    }
-
-    @objc private func setDefaultSchemaClicked() {
-        guard let connId = tabConnectionId else { return }
-        guard var config = stateManager.connections.first(where: { $0.id == connId }) else { return }
-
-        // Current schema selection becomes the default (nil = "All Schemas" = clear default)
-        let currentSchema = tabSchemaName
-        config.defaultSchema = currentSchema
-        stateManager.saveConnection(config)
-
-        // Rebuild menu to update the badge
-        updateSchemaPopupTitle()
     }
 
     deinit {
