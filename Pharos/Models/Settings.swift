@@ -103,4 +103,10 @@ struct AppSettings: Codable, Equatable {
     /// carries `#[serde(default = "default_use_apple_intelligence")]`.
     var useAppleIntelligence: Bool = true
     var charts: ChartSettings = ChartSettings()
+    /// Whether the editor and the results grid pin legacy scroll bars on
+    /// screen. Off follows the system's scroll-bar preference (the HIG
+    /// default); on is what the grid did unconditionally before this existed.
+    /// Same belt-and-braces default as above: the key is always on the wire
+    /// because the core carries `#[serde(default)]`.
+    var alwaysShowScrollBars: Bool = false
 }

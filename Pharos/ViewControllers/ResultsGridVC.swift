@@ -21,6 +21,8 @@ class ResultsGridVC: NSViewController {
 
     let tableView = ResultsTableView()
     let scrollView = InsetScrollView()
+    /// Applies the scroll-bar setting to `scrollView` and follows its changes.
+    private var scrollBarPolicy: ScrollBarPolicy?
     /// The "nothing to show" state, in place of an empty table. It answers two
     /// different questions — "there is no result yet" and "the result has no
     /// rows" — so its content is set at each transition, never once at build.
@@ -257,8 +259,10 @@ class ResultsGridVC: NSViewController {
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = false
-        scrollView.scrollerStyle = .legacy
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        scrollBarPolicy = ScrollBarPolicy(
+            scrollView: scrollView,
+            alwaysVisible: AppStateManager.shared.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.borderType = .noBorder
 

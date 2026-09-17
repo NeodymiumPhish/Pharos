@@ -21,6 +21,8 @@ class QueryEditorVC: NSViewController {
         fatalError("init(coder:) not implemented")
     }
     private var cancellables = Set<AnyCancellable>()
+    /// Applies the scroll-bar setting to the scroll view and follows its changes.
+    private var scrollBarPolicy: ScrollBarPolicy?
     private var validationTask: Task<Void, Never>?
     private var segmentTask: Task<Void, Never>?
     private var foldRegionTask: Task<Void, Never>?
@@ -52,9 +54,12 @@ class QueryEditorVC: NSViewController {
         scrollView = NSScrollView(frame: container.bounds)
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        scrollBarPolicy = ScrollBarPolicy(
+            scrollView: scrollView,
+            alwaysVisible: stateManager.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())
 
         // Pinch-to-zoom the editor font. Attached to the scroll view (the
         // stable editor rectangle) rather than the text view, whose frame

@@ -17,6 +17,8 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
     /// tabs away.
     private let verticalResultTabsCheck = NSButton(
         checkboxWithTitle: String(localized: "Show result tabs in a vertical panel, not a horizontal bar"), target: nil, action: nil)
+    private let alwaysShowScrollBarsCheck = NSButton(
+        checkboxWithTitle: String(localized: "Always show scroll bars in the editor and results"), target: nil, action: nil)
     private let appleIntelligenceCheck = NSButton(
         checkboxWithTitle: String(localized: "Use Apple Intelligence features"), target: nil, action: nil)
     /// Says what the switch buys and, when the model cannot run here, why the
@@ -67,6 +69,10 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         verticalResultTabsCheck.action = #selector(verticalResultTabsChanged)
         verticalResultTabsCheck.setAccessibilityIdentifier("settings.general.verticalResultTabs")
 
+        alwaysShowScrollBarsCheck.target = self
+        alwaysShowScrollBarsCheck.action = #selector(alwaysShowScrollBarsChanged)
+        alwaysShowScrollBarsCheck.setAccessibilityIdentifier("settings.general.alwaysShowScrollBars")
+
         appleIntelligenceCheck.target = self
         appleIntelligenceCheck.action = #selector(appleIntelligenceChanged)
         appleIntelligenceCheck.setAccessibilityIdentifier("settings.general.appleIntelligence")
@@ -78,6 +84,7 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
             [NSGridCell.emptyContentView, checkForUpdatesCheck],
             [NSGridCell.emptyContentView, showLeafPartitionsCheck],
             [NSGridCell.emptyContentView, verticalResultTabsCheck],
+            [NSGridCell.emptyContentView, alwaysShowScrollBarsCheck],
             [NSGridCell.emptyContentView, appleIntelligenceCheck],
             [NSGridCell.emptyContentView, appleIntelligenceCaption],
         ])
@@ -112,6 +119,7 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
             checkForUpdatesCheck.state = s.checkForUpdates ? .on : .off
             showLeafPartitionsCheck.state = s.showLeafPartitions ? .on : .off
             verticalResultTabsCheck.state = s.verticalResultTabs ? .on : .off
+            alwaysShowScrollBarsCheck.state = s.alwaysShowScrollBars ? .on : .off
             appleIntelligenceCheck.state = s.useAppleIntelligence ? .on : .off
         }
         updateAppleIntelligenceAvailability()
@@ -144,7 +152,8 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
         boolDisplayPopup.nextKeyView = checkForUpdatesCheck
         checkForUpdatesCheck.nextKeyView = showLeafPartitionsCheck
         showLeafPartitionsCheck.nextKeyView = verticalResultTabsCheck
-        verticalResultTabsCheck.nextKeyView = appleIntelligenceCheck
+        verticalResultTabsCheck.nextKeyView = alwaysShowScrollBarsCheck
+        alwaysShowScrollBarsCheck.nextKeyView = appleIntelligenceCheck
         // Closes the loop: the last control leads back to the first.
         appleIntelligenceCheck.nextKeyView = themeControl
     }
@@ -183,6 +192,10 @@ final class GeneralSettingsPaneVC: SettingsPaneVC {
 
     @objc private func verticalResultTabsChanged() {
         apply { $0.verticalResultTabs = verticalResultTabsCheck.state == .on }
+    }
+
+    @objc private func alwaysShowScrollBarsChanged() {
+        apply { $0.alwaysShowScrollBars = alwaysShowScrollBarsCheck.state == .on }
     }
 
     @objc private func appleIntelligenceChanged() {

@@ -52,6 +52,15 @@ class InsetScrollView: NSScrollView {
     override func tile() {
         super.tile()
 
+        // The room beside the content is only right for scrollers that sit
+        // beside it. With overlay scrollers (the "follow the system" setting
+        // on a Mac set to show them automatically) the standard tiling is the
+        // right one: a reserved strip would hold nothing but a bar that fades
+        // out. `scrollerWidth(for:scrollerStyle:)` below still names
+        // `.overlay` — it did before this guard, and legacy scrollers measure
+        // the same on this SDK; changing it is not this pass's business.
+        guard scrollerStyle == .legacy else { return }
+
         // Only adjust the clip view's SIZE to make room for scrollers.
         // Do NOT change its origin -- super.tile() positions it correctly
         // relative to the floating header. Moving it creates a gap.

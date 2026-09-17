@@ -185,6 +185,11 @@ pub struct AppSettings {
     pub use_apple_intelligence: bool,
     #[serde(default)]
     pub charts: ChartSettings,
+    /// Whether the editor and the results grid pin legacy scroll bars on
+    /// screen. Defaults OFF — follow the system's scroll-bar preference, as
+    /// the HIG asks — so a bare `#[serde(default)]` is the right default here.
+    #[serde(default)]
+    pub always_show_scroll_bars: bool,
 }
 
 fn default_check_for_updates() -> bool { true }
@@ -205,6 +210,7 @@ impl Default for AppSettings {
             vertical_result_tabs: default_vertical_result_tabs(),
             use_apple_intelligence: default_use_apple_intelligence(),
             charts: ChartSettings::default(),
+            always_show_scroll_bars: false,
         }
     }
 }
@@ -281,6 +287,27 @@ mod tests {
         assert!(!off.use_apple_intelligence, "a stored refusal is honoured");
     }
 
+    /// Settings stored before the scroll-bar switch existed must load with it
+    /// OFF (follow the system), the key must cross the FFI camelCased — Swift's
+    /// synthesized decode THROWS on a missing key — and a stored `true` must
+    /// survive the round trip.
+    #[test]
+    fn app_settings_default_always_show_scroll_bars() {
+        let parsed: AppSettings = serde_json::from_str(r#"{"theme": "auto"}"#).expect("old settings must still parse");
+        assert!(!parsed.always_show_scroll_bars, "the serde default is off: follow the system");
+        assert!(!AppSettings::default().always_show_scroll_bars, "the Default impl also gives off");
+
+        let re_serialized = serde_json::to_string(&parsed).expect("must re-serialize");
+        assert!(
+            re_serialized.contains("\"alwaysShowScrollBars\":false"),
+            "the key crosses the FFI camelCased: {}",
+            re_serialized
+        );
+
+        let on: AppSettings = serde_json::from_str(r#"{"alwaysShowScrollBars": true}"#).expect("must parse");
+        assert!(on.always_show_scroll_bars, "a stored on is honoured");
+    }
+
     // One test per struct below. Each feeds an EMPTY object — the worst case
     // for a blob written by an older build — and asserts every field comes
     // back with the same value `impl Default` gives. A field that loses its
@@ -339,6 +366,7 @@ mod tests {
         assert_eq!(parsed.show_leaf_partitions, d.show_leaf_partitions);
         assert_eq!(parsed.vertical_result_tabs, d.vertical_result_tabs);
         assert_eq!(parsed.use_apple_intelligence, d.use_apple_intelligence);
+        assert_eq!(parsed.always_show_scroll_bars, d.always_show_scroll_bars);
         assert!(parsed.empty_folders.is_empty());
         // The nested structs must also come back at their defaults.
         assert_eq!(parsed.editor.font_size, d.editor.font_size);
