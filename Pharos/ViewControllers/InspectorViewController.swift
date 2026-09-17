@@ -410,6 +410,12 @@ class InspectorViewController: NSViewController {
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.isSelectable = true
+        // A selectable field hands its text to the window's shared field editor
+        // on the first click, and that editor takes the PLAIN string unless the
+        // field allows rich text — so one click anywhere in the pane turned the
+        // whole query monochrome until the pane was rebuilt. The field is not
+        // editable, so this only tells the editor to load the attributed run.
+        label.allowsEditingTextAttributes = true
         stackView.addArrangedSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true

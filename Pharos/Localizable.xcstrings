@@ -372,6 +372,9 @@
     "Done" : {
 
     },
+    "Double-click to open it in a tab." : {
+
+    },
     "Draft" : {
 
     },
@@ -1103,6 +1106,9 @@
 
     },
     "This Mac does not support Apple Intelligence." : {
+
+    },
+    "This query has no SQL yet." : {
 
     },
     "This saved query has no connection, so Pharos cannot run it." : {
