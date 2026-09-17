@@ -364,41 +364,26 @@ final class AppStateManager: ObservableObject {
                     self.connectionErrors[id] = reason
                     Log.state.error("Connection failed: \(reason, privacy: .public)")
                 }
-                // The schema the connection is CONFIGURED to open on, if any.
-                // Nil is meaningful and is not the same as "public": it means
-                // the record names no default, so whatever this window was last
-                // using for the connection stands.
-                let configuredSchema: String? = self.connections
-                    .first(where: { $0.id == id })?
-                    .defaultSchema
-                    .flatMap { $0.isEmpty ? nil : $0 }
                 // Only the window that asked follows the new connection. A
                 // second window stays on whatever it was showing.
                 if let session {
                     session.activeConnectionId = id
 
-                    // ONE schema, applied to the window AND to the active tab.
-                    //
-                    // Two bugs came from letting these diverge. Seeding only the
-                    // window left a restored tab on `tagtest` beside a schema
-                    // browser listing the connection's default `whois` — the
-                    // editor's selector and the navigator naming different
-                    // schemas. Then letting the tab win meant a default schema
-                    // changed in the connections sheet never took effect,
-                    // because the restored tab's old value outranked it.
-                    //
-                    // So: the connection's configured default is what "connect"
-                    // means, exactly as the settings table says ("schema focused
-                    // on connect"). With no configured default, this window's
-                    // remembered choice for the connection stands, then the
-                    // tab's own, then `public`.
+                    // ONE schema, applied to the window AND to the active tab,
+                    // so the toolbar's selector and the navigator never name
+                    // different schemas. The tab's own schema wins: a tab
+                    // restored at launch is linked to the schema it had last
+                    // run, and "connect" keeps that link (the user asked for
+                    // exactly this after a restored tab came back on the
+                    // default instead). The connection's configured default
+                    // is for a tab that has not chosen. See `ConnectSchema`.
                     let tabSchema = session.activeTab.flatMap {
                         $0.connectionId == id ? $0.schemaName : nil
                     }
-                    let schema = configuredSchema
-                        ?? session.activeSchema
-                        ?? tabSchema
-                        ?? "public"
+                    let schema = ConnectSchema.resolve(
+                        tabSchema: tabSchema,
+                        configured: self.connections.first(where: { $0.id == id })?.defaultSchema,
+                        windowRemembered: session.activeSchema)
                     session.activeSchema = schema
 
                     if let tabId = session.activeTabId {

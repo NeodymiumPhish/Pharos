@@ -125,6 +125,7 @@
 		6960CA0AB955C0E773C2EFE1 /* ResultsGridVC+Editing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF43222F596ED7C90FE8AB1C /* ResultsGridVC+Editing.swift */; };
 		6AE89942434EEB25F7E1C893 /* FilterCheckRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90AC102665AFB681E295853B /* FilterCheckRowView.swift */; };
 		6D36D71452C10B76F0579C71 /* TagRemovalModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */; };
+		712555DCFC7E130CD10415C1 /* ContentPaneLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F64ECD492568816876D0E808 /* ContentPaneLayout.swift */; };
 		7164A803D0AD86BA86C620D0 /* FindMatchDecoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */; };
 		71C89D3BC7CB5B56923C4DBB /* ResultTabsPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADF5D89720A5AA09490F63F /* ResultTabsPanelVC.swift */; };
 		71D042D2FCF7D53B783E22A0 /* ScrollBarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645CC515733651A8555D0BC9 /* ScrollBarPolicy.swift */; };
@@ -232,6 +233,7 @@
 		CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */; };
 		CFB0EA3E1B5BC908735FBF2D /* VariableValueTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */; };
 		CFB3EFEA0CF91443AA21DC63 /* VariableRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116E4CCC67DA783A2FCCFFEC /* VariableRowView.swift */; };
+		D0C43C4DB51855D79C012753 /* ConnectSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */; };
 		D3CCAA474E55F8232080947D /* ReviewRowChangesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F86E15E1706580700E0E7E8 /* ReviewRowChangesSheet.swift */; };
 		D490BC5B7339E95349267722 /* QueryVariableStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */; };
 		D4AA5CE5CFBC5C82D272798D /* ModelFeedbackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9540FC762F792920A98F2CAB /* ModelFeedbackStore.swift */; };
@@ -417,6 +419,7 @@
 		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
 		87AC310E071D54672B86BAFE /* InspectorOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorOwnership.swift; sourceTree = "<group>"; };
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
+		8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSchema.swift; sourceTree = "<group>"; };
 		8C34549177E366EA2564237F /* DescribeQueryPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DescribeQueryPopoverVC.swift; sourceTree = "<group>"; };
 		8C4D0427E59AB31AE00221DB /* Navigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigator.swift; sourceTree = "<group>"; };
 		8F86E15E1706580700E0E7E8 /* ReviewRowChangesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewRowChangesSheet.swift; sourceTree = "<group>"; };
@@ -542,6 +545,7 @@
 		F443CAC6284678541D0523EA /* Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schema.swift; sourceTree = "<group>"; };
 		F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueriesVC.swift; sourceTree = "<group>"; };
 		F57FAB393D30AA7EA6F42ADA /* IntentResultCSV.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentResultCSV.swift; sourceTree = "<group>"; };
+		F64ECD492568816876D0E808 /* ContentPaneLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentPaneLayout.swift; sourceTree = "<group>"; };
 		F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridMetrics.swift; sourceTree = "<group>"; };
 		F891B6EAB834D607054C3750 /* ChartHostingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartHostingController.swift; sourceTree = "<group>"; };
 		F91CCFF61F7242E1228C0835 /* PendingCellEdits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingCellEdits.swift; sourceTree = "<group>"; };
@@ -816,6 +820,8 @@
 				028712E3F9210287025ADAE8 /* AppStateManager.swift */,
 				324E7295B398823974915B5A /* AuthoredLabelSanitizer.swift */,
 				CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */,
+				8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */,
+				F64ECD492568816876D0E808 /* ContentPaneLayout.swift */,
 				CFE4964E6E0EFB8FE685BE32 /* CountedNounText.swift */,
 				F0BCCCCFD4E9B5194DCA6176 /* DestructiveConfirmationText.swift */,
 				5757A383E8948F38AB9B6545 /* Diagnostics.swift */,
@@ -1118,10 +1124,12 @@
 				828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */,
 				3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */,
 				D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */,
+				D0C43C4DB51855D79C012753 /* ConnectSchema.swift in Sources */,
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
 				37032AE66A9B2B0D4E5F3E9F /* ConnectionURLParser.swift in Sources */,
 				A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */,
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
+				712555DCFC7E130CD10415C1 /* ContentPaneLayout.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				F940C916FDF93F9D48DE2BBB /* CountedNounText.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,

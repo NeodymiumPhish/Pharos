@@ -143,9 +143,9 @@ Click the **pin** button in the action bar to keep the current result visible wh
 
 The pin releases as soon as you ask the grid to show something else: selecting any result tab, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result is deposited into its own tab without touching the grid, so the pinned rows stay on screen.
 
-## Expand Editor / Expand Results
+## Editor and Results toggles
 
-The two buttons at the right of the action bar expand the editor or the results grid to fill the whole pane, hiding the other; clicking the same button again — or clicking anywhere in the action bar while expanded — restores the split at its previous ratio. Restoring the split with a click on the action bar confirms with a short haptic tap; opening an expanded state does not.
+The two buttons at the right of the action bar show and hide the editor area and the results area, the way Xcode's debug-area button does. Each is lit while its area is on screen; both lit is the normal split. Deselect **Results** and the editor fills the pane, with the action bar left as a status strip along the bottom edge holding the status text and the two toggles (the result tools come back with the results). Deselect **Editor** and the results fill the pane. The last visible area cannot be hidden — its toggle is disabled — so the pane is never empty. Clicking anywhere in the blank stretch of the action bar while an area is hidden restores the split at its previous ratio, with a short haptic tap; hiding an area does not tap.
 
 ## Status Text
 

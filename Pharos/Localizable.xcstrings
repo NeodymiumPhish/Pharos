@@ -131,6 +131,12 @@
     "All" : {
 
     },
+    "All Schemas" : {
+
+    },
+    "Always show scroll bars in the editor and results" : {
+
+    },
     "Appearance" : {
 
     },
@@ -568,6 +574,9 @@
     "Load all rows" : {
 
     },
+    "Loading…" : {
+
+    },
     "Manage Connections…" : {
 
     },
@@ -638,6 +647,9 @@
 
     },
     "No Saved Queries" : {
+
+    },
+    "No Schema" : {
 
     },
     "Node" : {
@@ -887,6 +899,9 @@
 
     },
     "Schema" : {
+
+    },
+    "Schema for the active tab" : {
 
     },
     "seconds" : {

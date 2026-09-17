@@ -115,6 +115,11 @@ class ContentViewController: NSViewController {
     let resetSortButton = NSButton()
     let resetFiltersButton = NSButton()
     let clearSelectionButton = NSButton()
+    /// The result tools at the front of the action bar. Hidden as a group
+    /// while the results area is hidden: a Grid|Chart switch or an export
+    /// button for rows that are not on screen would be noise on what is then
+    /// a status strip with the two area toggles.
+    private let resultToolsStack = NSStackView()
     let tagButton = NSButton()
     let pinButton = NSButton()
     let findToolbarButton = NSButton()
@@ -174,7 +179,7 @@ class ContentViewController: NSViewController {
     private let runAllMaxConcurrent = 3
 
     // Editor/results expand state
-    enum ContentExpandState { case normal, editorExpanded, resultsExpanded }
+    /// Driven from `ContentPaneLayout` — the two toggles on the action bar.
     private(set) var expandState: ContentExpandState = .normal
     private var savedSplitRatio: CGFloat = 0.6
     /// Debounced UserDefaults write of `savedSplitRatio` during a divider drag.
@@ -334,6 +339,7 @@ class ContentViewController: NSViewController {
         resultTabBarHeightConstraint = resultTabBar.heightAnchor.constraint(equalToConstant: 0)
         resultsTopToResultTabBar = resultsVC.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor)
         resultsBottomToContainer = resultsVC.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor)
+            .yieldingBottom()
 
         NSLayoutConstraint.activate([
             contentStack.topAnchor.constraint(equalTo: safeTop),
@@ -385,13 +391,13 @@ class ContentViewController: NSViewController {
             chartHost.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor),
             chartHost.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
             chartHost.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
-            chartHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor),
+            chartHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor).yieldingBottom(),
 
             // Plan host occupies the same region as the results grid.
             planHost.view.topAnchor.constraint(equalTo: resultTabBar.bottomAnchor),
             planHost.view.leadingAnchor.constraint(equalTo: resultsArea.leadingAnchor),
             planHost.view.trailingAnchor.constraint(equalTo: resultsArea.trailingAnchor),
-            planHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor),
+            planHost.view.bottomAnchor.constraint(equalTo: resultsArea.bottomAnchor).yieldingBottom(),
 
             emptyState.topAnchor.constraint(equalTo: safeTop),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -1183,7 +1189,11 @@ class ContentViewController: NSViewController {
         chartFilterButton.setContentHuggingPriority(.required, for: .horizontal)
         chartFilterButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let actionStack = NSStackView(views: [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton, findToolbarButton, tagButton, resetSortButton, resetFiltersButton, clearSelectionButton])
+        let actionStack = resultToolsStack
+        for view in [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton,
+                     findToolbarButton, tagButton, resetSortButton, resetFiltersButton, clearSelectionButton] {
+            actionStack.addArrangedSubview(view)
+        }
         actionStack.orientation = .horizontal
         actionStack.spacing = 2
         actionStack.setHuggingPriority(.required, for: .horizontal)
@@ -1191,10 +1201,15 @@ class ContentViewController: NSViewController {
 
         // -- Expand Buttons (right side) --
 
+        // The two area toggles, as Xcode's debug-area button works: lit while
+        // the area is on screen, pressed to hide it, pressed again to bring it
+        // back. Tooltips and enabled state follow in `updateExpandButtonUI`.
         configureToolbarButton(expandEditorButton, symbol: "rectangle.tophalf.inset.filled",
-                               target: self, action: #selector(expandEditorTapped), tooltip: "Expand Editor")
+                               target: self, action: #selector(expandEditorTapped), tooltip: "Hide Editor")
         configureToolbarButton(expandResultsButton, symbol: "rectangle.bottomhalf.inset.filled",
-                               target: self, action: #selector(expandResultsTapped), tooltip: "Expand Results")
+                               target: self, action: #selector(expandResultsTapped), tooltip: "Hide Results")
+        expandEditorButton.setAccessibilityIdentifier("results.toggleEditor")
+        expandResultsButton.setAccessibilityIdentifier("results.toggleResults")
 
         let expandStack = NSStackView(views: [expandEditorButton, expandResultsButton])
         expandStack.orientation = .horizontal
@@ -1227,8 +1242,8 @@ class ContentViewController: NSViewController {
         ])
     }
 
-    @objc private func expandEditorTapped() { toggleExpandEditor() }
-    @objc private func expandResultsTapped() { toggleExpandResults() }
+    @objc private func expandEditorTapped() { toggleEditorArea() }
+    @objc private func expandResultsTapped() { toggleResultsArea() }
 
     private func configureToolbarButton(_ button: NSButton, symbol: String, target: AnyObject, action: Selector, tooltip: String) {
         configureToolbarButtonAppearance(button, symbol: symbol, tooltip: tooltip)
@@ -1312,25 +1327,23 @@ class ContentViewController: NSViewController {
         contentStack.isHidden = false
     }
 
-    // MARK: - Expand Editor / Results
+    // MARK: - Editor / Results area toggles
 
-    func toggleExpandEditor() {
-        if expandState == .editorExpanded {
-            expandState = .normal
-        } else {
-            if expandState == .normal { rememberSplitRatio() }
-            expandState = .editorExpanded
-        }
-        applyExpandState()
-    }
+    private var paneLayout: ContentPaneLayout { ContentPaneLayout(expandState) }
 
-    func toggleExpandResults() {
-        if expandState == .resultsExpanded {
-            expandState = .normal
-        } else {
-            if expandState == .normal { rememberSplitRatio() }
-            expandState = .resultsExpanded
-        }
+    /// The Editor toggle: hides the editor area, or brings it back. A no-op
+    /// while the editor is the only area on screen (its button is disabled).
+    func toggleEditorArea() { apply(layout: paneLayout.togglingEditor()) }
+
+    /// The Results toggle: hides the results area, or brings it back. A no-op
+    /// while the results are the only area on screen.
+    func toggleResultsArea() { apply(layout: paneLayout.togglingResults()) }
+
+    private func apply(layout: ContentPaneLayout) {
+        let newState = layout.expandState
+        guard newState != expandState else { return }
+        if expandState == .normal { rememberSplitRatio() }
+        expandState = newState
         applyExpandState()
     }
 
@@ -1362,8 +1375,13 @@ class ContentViewController: NSViewController {
             editorResultsSplit.setPosition(editorHeight, ofDividerAt: 0)
 
         case .editorExpanded:
-            // The results area keeps only its chrome (the action bar holds the
-            // expand buttons); the grid and chart are hidden below.
+            // The results area keeps only its chrome — the action bar, which
+            // holds the two toggles and the status text — and sits flush with
+            // the bottom edge at exactly that height. The grid, chart and plan
+            // views are hidden below it; their bottom constraints yield (see
+            // `yieldingBottom`) so a hidden view's own minimum cannot push the
+            // pane taller than the bar (measured: 48pt instead of 32, the bar
+            // floating 16pt above the window's edge).
             editorPane.view.isHidden = false
             editorResultsSplit.setPosition(total - resultsAreaChromeHeight, ofDividerAt: 0)
 
@@ -1396,8 +1414,20 @@ class ContentViewController: NSViewController {
     }
 
     private func updateExpandButtonUI() {
-        expandEditorButton.contentTintColor = expandState == .editorExpanded ? .controlAccentColor : .secondaryLabelColor
-        expandResultsButton.contentTintColor = expandState == .resultsExpanded ? .controlAccentColor : .secondaryLabelColor
+        let layout = paneLayout
+        // Lit while its area is on screen; disabled while its area is the
+        // only one, so the pane can never be emptied.
+        expandEditorButton.contentTintColor = layout.editorVisible ? .controlAccentColor : .secondaryLabelColor
+        expandEditorButton.isEnabled = layout.editorToggleEnabled
+        expandEditorButton.toolTip = layout.editorTooltip
+        expandEditorButton.setAccessibilityLabel(layout.editorTooltip)
+        expandResultsButton.contentTintColor = layout.resultsVisible ? .controlAccentColor : .secondaryLabelColor
+        expandResultsButton.isEnabled = layout.resultsToggleEnabled
+        expandResultsButton.toolTip = layout.resultsTooltip
+        expandResultsButton.setAccessibilityLabel(layout.resultsTooltip)
+        // With the results hidden the bar is a status strip with two toggles;
+        // the result tools come back with the results.
+        resultToolsStack.isHidden = !layout.resultsVisible
     }
 
     private func persistSplitRatio() {
@@ -4690,5 +4720,21 @@ extension ContentViewController: NSMenuItemValidation {
             return editorPane.editorFontSize > FontSizeStepper.range.lowerBound
         }
         return true
+    }
+}
+
+// MARK: - Constraint helpers
+
+private extension NSLayoutConstraint {
+    /// A bottom pin that gives way when the pane is shorter than the view's
+    /// own minimum (the load-more bar's 32pt, say) — which only happens while
+    /// the view is hidden in the results-hidden layout. `NSSplitView` sizes
+    /// its panes from their FITTING height, hidden children included, so a
+    /// required pin here made the collapsed results pane 48pt instead of the
+    /// bar's 32. At `.defaultHigh` the pin still holds in every layout the
+    /// view is actually visible in.
+    func yieldingBottom() -> NSLayoutConstraint {
+        priority = .defaultHigh
+        return self
     }
 }

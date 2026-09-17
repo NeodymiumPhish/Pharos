@@ -50,13 +50,28 @@ final class ScrollBarPolicy {
     /// The whole rule, as a pure function of the setting: legacy and pinned
     /// when the setting is on, the system's preferred style and auto-hiding
     /// when it is off.
+    ///
+    /// Setting the two properties is not enough on its own. Measured: a scroll
+    /// view whose scrollers autohide had hidden them stays with them HIDDEN
+    /// after `autohidesScrollers = false` — the flag is only consulted the
+    /// next time the view decides visibility, and nothing prompts it to. So a
+    /// user who turned the setting on saw no bars on a short result, and the
+    /// grid's bars only came back with the next result. The scrollers are
+    /// un-hidden by hand for the pinned case, and `tile()` re-runs the
+    /// decision for both.
     static func apply(alwaysVisible: Bool, to scrollView: NSScrollView) {
         if alwaysVisible {
             scrollView.scrollerStyle = .legacy
             scrollView.autohidesScrollers = false
+            if scrollView.hasVerticalScroller { scrollView.verticalScroller?.isHidden = false }
+            if scrollView.hasHorizontalScroller { scrollView.horizontalScroller?.isHidden = false }
         } else {
             scrollView.scrollerStyle = NSScroller.preferredScrollerStyle
             scrollView.autohidesScrollers = true
         }
+        scrollView.tile()
+        // `tile()` places; this is what re-decides whether an autohiding
+        // scroller is needed for the document as it stands.
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 }

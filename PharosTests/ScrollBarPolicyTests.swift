@@ -64,6 +64,47 @@ func runTests() {
     expectTrue(live.autohidesScrollers, "the preference notification re-applies the rule")
     expectEqual(live.scrollerStyle, NSScroller.preferredScrollerStyle, "…with the (possibly new) preferred style")
 
+    // --- transitions on a REAL document: the failure the properties alone
+    //     could not show. A short document under autohide hides the bars;
+    //     turning the setting on must bring them back at once, and turning it
+    //     off again must hide them again.
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+    window.contentView = root
+    let docScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+    docScroll.hasVerticalScroller = true
+    docScroll.hasHorizontalScroller = true
+    let text = NSTextView(frame: docScroll.bounds)
+    text.isVerticallyResizable = true
+    text.autoresizingMask = [.width]
+    text.string = "select 1"
+    docScroll.documentView = text
+    root.addSubview(docScroll)
+    let docSetting = CurrentValueSubject<Bool, Never>(false)
+    let docPolicy = ScrollBarPolicy(scrollView: docScroll, alwaysVisible: docSetting.eraseToAnyPublisher())
+    drain()
+    // Force the legacy style for this part: with overlay scrollers "hidden"
+    // has a different meaning, and the bug is a legacy-scroller one.
+    docScroll.scrollerStyle = .legacy
+    docScroll.tile()
+    expectTrue(docScroll.verticalScroller?.isHidden == true, "off + a short document: the vertical bar is hidden")
+    docSetting.send(true)
+    drain()
+    expectTrue(docScroll.verticalScroller?.isHidden == false, "turning the setting ON shows the vertical bar at once")
+    expectTrue(docScroll.horizontalScroller?.isHidden == false, "…and the horizontal bar")
+    expectTrue(docScroll.contentSize.width < 400, "…and the clip makes room for it")
+    docSetting.send(false)
+    drain()
+    if NSScroller.preferredScrollerStyle == .legacy {
+        expectTrue(docScroll.verticalScroller?.isHidden == true, "turning it OFF hides the bar again for a short document")
+        expectTrue(docScroll.contentSize.width == 400, "…and the clip takes the room back")
+    } else {
+        // Overlay scrollers on this Mac: they take no room either way.
+        expectTrue(docScroll.contentSize.width == 400, "turning it OFF gives the clip its full width back")
+    }
+    _ = docPolicy
+
     // --- the policy does not keep its scroll view alive ---
     var weakScroll: NSScrollView?
     var heldPolicy: ScrollBarPolicy?
