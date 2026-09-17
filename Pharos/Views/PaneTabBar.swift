@@ -26,9 +26,12 @@ class PaneTabBar: NSView {
     // MARK: - UI Elements
 
     private let addButton = NSButton()
-    private let segmentedControl = NSSegmentedControl()
+    /// Internal, not private: the layout suite reads segment widths and labels
+    /// off the real control rather than off a mirror of it.
+    let segmentedControl = NSSegmentedControl()
 
-    /// Close buttons overlaid on each segment of the segmented control.
+    /// The close slot of each segment: a ✕, or the unsaved dot, or nothing.
+    /// See `closeSlotGlyph(at:)` for which.
     private var closeButtons: [NSButton] = []
 
     /// Overlay that draws pulsing dots on segments whose tabs are executing.
@@ -45,6 +48,40 @@ class PaneTabBar: NSView {
     private let segmentInsetH: CGFloat = 4
     private let segmentInsetV: CGFloat = 4
 
+    // MARK: - Size-to-fit metrics
+
+    /// A tab is as wide as its title needs, up to this. Past it the title is
+    /// truncated with an ellipsis — by this class, not by AppKit: a capsule
+    /// segment CLIPS a label that does not fit (measured: the ink of a 325pt
+    /// title in a 120pt segment ran from 0 to 117), it does not truncate it.
+    static let maxTabWidth: CGFloat = 220
+    /// The floor for the equal-width fallback when the titles will not all
+    /// fit at their natural widths.
+    static let minTabWidth: CGFloat = 80
+    /// Where a left-aligned label's ink starts inside a capsule segment
+    /// (measured offscreen, selected and not, light and dark: 12pt).
+    static let titleLeadingPad: CGFloat = 12
+    /// Title → close slot → trailing edge. The close slot is reserved whether
+    /// or not anything is drawn in it, so a title never sits under the ✕.
+    static let titleCloseGap: CGFloat = 6
+    static let closeSlotWidth: CGFloat = 16
+    static let closeTrailingPad: CGFloat = 6
+    /// Everything in a segment that is not title.
+    static var titleChrome: CGFloat {
+        titleLeadingPad + titleCloseGap + closeSlotWidth + closeTrailingPad
+    }
+    /// Blank kept in front of an executing tab's title so the pulse dot
+    /// (`PaneTabBarPulseOverlay`, drawn 8–14pt in) does not sit on its first
+    /// letter. An en space is 6.5pt at 13pt: the title starts at 18.5pt, 4.5pt
+    /// clear of the dot.
+    static let executingTitlePrefix = "\u{2002}"
+
+    /// The font the control lays its labels out in; the width sums use the
+    /// same one so they agree with the ink.
+    private var labelFont: NSFont {
+        segmentedControl.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+    }
+
     // MARK: - Init
 
     init() {
@@ -59,7 +96,9 @@ class PaneTabBar: NSView {
     private func setup() {
         wantsLayer = true
 
-        // Add button (+): one click adds a tab.
+        // Add button (+): one click adds a tab. It keeps its slot at the bar's
+        // trailing edge however short the tab run is (the macOS tab-bar
+        // convention), so it never drifts as tabs come and go.
         let addConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New Tab")?.withSymbolConfiguration(addConfig)
         addButton.toolTip = "New Tab"
@@ -103,30 +142,81 @@ class PaneTabBar: NSView {
     override func layout() {
         super.layout()
         layoutSubviews()
-        applyEqualSegmentWidths()
-        layoutCloseButtons()
-        refreshPulseOverlay()
+    }
+
+    /// The room the tab run may take: the bar less the `+` slot and the insets.
+    private var availableTabWidth: CGFloat {
+        max(0, bounds.width - addButtonWidth - segmentInsetH * 2)
     }
 
     private func layoutSubviews() {
         // Add button at trailing edge
         addButton.frame = NSRect(x: bounds.width - addButtonWidth, y: 0, width: addButtonWidth, height: barHeight)
 
-        // Segmented control fills up to the add button
-        let segX = segmentInsetH
-        let segWidth = bounds.width - addButtonWidth - segmentInsetH * 2
+        // Segments size to their titles, or fall back to equal widths; the
+        // control is exactly as wide as its segments, pinned leading.
+        let available = availableTabWidth
+        let widths = segmentWidths(fitting: available)
+        let font = labelFont
+        for (i, w) in widths.enumerated() where i < tabs.count {
+            segmentedControl.setWidth(w, forSegment: i)
+            let title = Self.truncatedTitle(segmentLabel(for: tabs[i]), toFit: w - Self.titleChrome, font: font)
+            if segmentedControl.label(forSegment: i) != title {
+                segmentedControl.setLabel(title, forSegment: i)
+            }
+        }
         segmentedControl.frame = NSRect(
-            x: segX,
+            x: segmentInsetH,
             y: segmentInsetV,
-            width: max(0, segWidth),
+            width: min(widths.reduce(0, +), available),
             height: barHeight - segmentInsetV * 2
         )
 
-        // Position close buttons on each segment
         layoutCloseButtons()
 
         // Overlay covers the same frame as the segmented control.
         pulseOverlay.frame = segmentedControl.frame
+        refreshPulseOverlay()
+        // The hover rect follows the control's frame, which just moved.
+        updateTrackingAreas()
+    }
+
+    /// The natural width of each tab: its full title plus the chrome, capped
+    /// at `maxTabWidth`. Public to the layout suite.
+    func naturalSegmentWidths() -> [CGFloat] {
+        let font = labelFont
+        return tabs.map { tab in
+            let text = ceil((segmentLabel(for: tab) as NSString).size(withAttributes: [.font: font]).width)
+            return min(Self.maxTabWidth, text + Self.titleChrome)
+        }
+    }
+
+    /// Natural widths when they all fit in `available`; otherwise every tab
+    /// gets the same share, floored at `minTabWidth` (titles then truncate).
+    private func segmentWidths(fitting available: CGFloat) -> [CGFloat] {
+        let natural = naturalSegmentWidths()
+        guard !natural.isEmpty else { return [] }
+        if natural.reduce(0, +) <= available { return natural }
+        let equal = max(Self.minTabWidth, floor(available / CGFloat(natural.count)))
+        return Array(repeating: equal, count: natural.count)
+    }
+
+    /// `title` if it fits in `width`, else the longest prefix that does with
+    /// an ellipsis after it. Pure, so the suite can pin it directly.
+    static func truncatedTitle(_ title: String, toFit width: CGFloat, font: NSFont) -> String {
+        func fits(_ s: String) -> Bool {
+            (s as NSString).size(withAttributes: [.font: font]).width <= width
+        }
+        if fits(title) { return title }
+        let ellipsis = "\u{2026}"
+        let chars = Array(title)
+        var low = 0, high = chars.count
+        // Largest prefix length whose "prefix…" fits; 0 → the ellipsis alone.
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if fits(String(chars[0..<mid]) + ellipsis) { low = mid } else { high = mid - 1 }
+        }
+        return String(chars[0..<low]) + ellipsis
     }
 
     private func layoutCloseButtons() {
@@ -134,15 +224,16 @@ class PaneTabBar: NSView {
         let count = segmentedControl.segmentCount
         guard count > 0, !closeButtons.isEmpty else { return }
 
-        let closeSize: CGFloat = 16
+        let closeSize = Self.closeSlotWidth
 
         var segX: CGFloat = 0
         for i in 0..<count {
             let segW = segmentedControl.width(forSegment: i)
 
             if i < closeButtons.count {
-                // Place close button at the trailing edge of the segment, vertically centered
-                let btnX = segFrame.origin.x + segX + segW - closeSize - 4
+                // The close slot: at the trailing edge of the segment, inside
+                // the trailing pad, vertically centred.
+                let btnX = segFrame.origin.x + segX + segW - closeSize - Self.closeTrailingPad
                 let btnY = segFrame.origin.y + (segFrame.height - closeSize) / 2
                 closeButtons[i].frame = NSRect(x: btnX, y: btnY, width: closeSize, height: closeSize)
             }
@@ -157,13 +248,16 @@ class PaneTabBar: NSView {
         segmentedControl.segmentCount = tabs.count
 
         for (index, tab) in tabs.enumerated() {
-            let label = segmentLabel(for: tab)
-            segmentedControl.setLabel(label, forSegment: index)
+            // The label itself is set in `layoutSubviews`, truncated to the
+            // width the segment ends up with. Left-aligned so the title starts
+            // at the leading edge and the close slot stays clear at the trailing
+            // one, whatever the segment's width.
+            segmentedControl.setAlignment(.left, forSegment: index)
             // "Running" is otherwise a pulsing dot drawn by the overlay — a
-            // signal with no text at all, and one Reduce Motion stills. The
-            // tooltip is the per-segment channel AppKit does give us.
-            segmentedControl.setToolTip(tab.isExecuting ? "\(tab.name) — running" : tab.name,
-                                        forSegment: index)
+            // signal with no text at all, and one Reduce Motion stills. And
+            // "unsaved" is a 6pt dot. The tooltip is the per-segment channel
+            // AppKit does give us, so it names both.
+            segmentedControl.setToolTip(Self.tooltip(for: tab), forSegment: index)
         }
 
         // `NSSegmentedControl` publishes its segments itself, but their
@@ -177,10 +271,6 @@ class PaneTabBar: NSView {
         segmentedControl.setAccessibilityValue(running.isEmpty
             ? nil : "Running: " + running.joined(separator: ", "))
 
-        // Explicitly set equal widths so we can reliably position close buttons.
-        // Must be done after layoutSubviews() sets the segmented control frame.
-        // We call layoutSubviews() first, then set widths, then layout close buttons.
-
         // Select the active segment
         if let activeId = activeTabId,
            let activeIndex = tabs.firstIndex(where: { $0.id == activeId }) {
@@ -191,12 +281,16 @@ class PaneTabBar: NSView {
 
         rebuildCloseButtons()
         layoutSubviews()
-        applyEqualSegmentWidths()
-        layoutCloseButtons()
         updateCloseButtonVisibility()
-        updateTrackingAreas()
         needsDisplay = true
-        refreshPulseOverlay()
+    }
+
+    /// "<name>", "<name> — running", "<name> — unsaved", or both notes.
+    static func tooltip(for tab: QueryTab) -> String {
+        var notes: [String] = []
+        if tab.isExecuting { notes.append("running") }
+        if tab.isDirty { notes.append("unsaved") }
+        return notes.isEmpty ? tab.name : "\(tab.name) — \(notes.joined(separator: ", "))"
     }
 
     private func refreshPulseOverlay() {
@@ -220,17 +314,20 @@ class PaneTabBar: NSView {
         pulseOverlay.update(executingIndexes: executing, segmentFrames: frames)
     }
 
-    /// Set explicit equal widths on every segment so that `width(forSegment:)`
-    /// returns accurate values for close-button positioning and hit-testing.
-    private func applyEqualSegmentWidths() {
-        let count = segmentedControl.segmentCount
-        guard count > 0 else { return }
-        let totalWidth = segmentedControl.bounds.width
-        let perSegment = floor(totalWidth / CGFloat(count))
-        for i in 0..<count {
-            segmentedControl.setWidth(perSegment, forSegment: i)
-        }
-    }
+    private static let closeImage: NSImage? = {
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+        return NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
+            .withSymbolConfiguration(config)
+    }()
+
+    /// The unsaved marker, in the close slot. It IS the close button — the
+    /// click that lands on it closes the tab, as it does in every macOS tab
+    /// bar that marks unsaved documents this way — so its description says so.
+    private static let unsavedDotImage: NSImage? = {
+        let config = NSImage.SymbolConfiguration(pointSize: 6, weight: .regular)
+        return NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "Close Tab")?
+            .withSymbolConfiguration(config)
+    }()
 
     private func rebuildCloseButtons() {
         // Remove old close buttons
@@ -240,9 +337,7 @@ class PaneTabBar: NSView {
 
         for i in 0..<tabs.count {
             let btn = NSButton(frame: .zero)
-            let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-            btn.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close Tab")?
-                .withSymbolConfiguration(config)
+            btn.image = Self.closeImage
             btn.bezelStyle = .recessed
             btn.isBordered = false
             btn.imageScaling = .scaleNone
@@ -250,7 +345,7 @@ class PaneTabBar: NSView {
             btn.target = self
             btn.action = #selector(closeTabButtonTapped(_:))
             btn.tag = i
-            btn.isHidden = true  // Only shown on hover or for active tab
+            btn.isHidden = true  // `updateCloseButtonVisibility` decides
             addSubview(btn)
             closeButtons.append(btn)
         }
@@ -273,13 +368,17 @@ class PaneTabBar: NSView {
 
     private func rebuildCloseProxies() {
         closeProxies = tabs.enumerated().map { index, tab in
-            AccessibilityProxyElement.button(
+            let element = AccessibilityProxyElement.button(
                 label: "Close \(tab.name)", frame: .zero, parent: self
             ) { [weak self] in
                 guard let self, index < self.tabs.count else { return false }
                 self.onCloseTab?(self.tabs[index].id)
                 return true
             }
+            // The unsaved dot is drawn in this element's slot; this is the
+            // same fact, said to the screen reader.
+            element.setAccessibilityValue(tab.isDirty ? "edited" : nil)
+            return element
         }
     }
 
@@ -303,12 +402,37 @@ class PaneTabBar: NSView {
         onCloseTab?(tabs[index].id)
     }
 
-    /// Build label with dirty/executing indicators.
-    private func segmentLabel(for tab: QueryTab) -> String {
-        if tab.isDirty && !tab.isExecuting {
-            return "· \(tab.name)"
-        }
-        return tab.name
+    /// The segment's full (untruncated) title: the tab's name, with the blank
+    /// for the pulse dot in front while the tab executes. Nothing marks
+    /// "unsaved" here any more — that is the close slot's job.
+    func segmentLabel(for tab: QueryTab) -> String {
+        tab.isExecuting ? Self.executingTitlePrefix + tab.name : tab.name
+    }
+
+    // MARK: - Close slot
+
+    /// What the close slot of a segment shows.
+    enum CloseSlotGlyph: Equatable {
+        /// Nothing: an inactive, clean tab the pointer is not over.
+        case hidden
+        /// A 6pt dot: the tab has unsaved changes and the pointer is not over
+        /// it. An executing tab never shows it — its leading pulse dot is the
+        /// one signal it carries, and a second dot would read as noise.
+        case unsavedDot
+        /// The ✕: the pointer is over the tab, or the tab is active and clean.
+        case close
+    }
+
+    /// The glyph for segment `index` in the bar's current state. The one rule
+    /// behind `updateCloseButtonVisibility`, exposed so the suite can pin it.
+    func closeSlotGlyph(at index: Int) -> CloseSlotGlyph {
+        guard index >= 0, index < tabs.count else { return .hidden }
+        let tab = tabs[index]
+        let isHovered = index == hoveredSegmentIndex
+        let isActive = tab.id == activeTabId
+        if tab.isDirty && !tab.isExecuting && !isHovered { return .unsavedDot }
+        if isHovered || isActive { return .close }
+        return .hidden
     }
 
     // MARK: - Mouse Tracking for Close Buttons
@@ -352,12 +476,19 @@ class PaneTabBar: NSView {
 
     private func updateCloseButtonVisibility() {
         for (i, btn) in closeButtons.enumerated() {
-            // Show close button if this segment is hovered or is the active tab
-            let isHovered = (i == hoveredSegmentIndex)
-            let isActive = (i < tabs.count && tabs[i].id == activeTabId)
-            btn.isHidden = !(isHovered || isActive)
-            // Brighter tint when hovered directly
-            btn.contentTintColor = isHovered ? .secondaryLabelColor : .tertiaryLabelColor
+            switch closeSlotGlyph(at: i) {
+            case .hidden:
+                btn.isHidden = true
+            case .unsavedDot:
+                btn.image = Self.unsavedDotImage
+                btn.contentTintColor = .secondaryLabelColor
+                btn.isHidden = false
+            case .close:
+                btn.image = Self.closeImage
+                // Brighter tint when hovered directly
+                btn.contentTintColor = i == hoveredSegmentIndex ? .secondaryLabelColor : .tertiaryLabelColor
+                btn.isHidden = false
+            }
         }
     }
 
