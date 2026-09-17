@@ -111,9 +111,9 @@ func runTests() {
     // carries non-zero vertical alignmentRectInsets, so its frame is a few
     // points taller than the constraint. Measure what the constraint governs.
     let alignmentRect = resultTabsToggle.alignmentRect(forFrame: resultTabsToggle.frame)
-    expectClose(alignmentRect.width, 28, "the result-tabs toggle is 28pt wide", tolerance: 0.5)
-    expectClose(alignmentRect.height, 28, "the result-tabs toggle is 28pt tall", tolerance: 0.5)
-    expectTrue(errorButton.frame.width >= 28, "the error button is at least 28 pt wide")
+    expectClose(alignmentRect.width, 24, "the result-tabs toggle is 24pt wide", tolerance: 0.5)
+    expectClose(alignmentRect.height, 24, "the result-tabs toggle is 24pt tall", tolerance: 0.5)
+    expectTrue(errorButton.frame.width >= 24, "the error button is at least 24 pt wide")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

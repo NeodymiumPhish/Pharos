@@ -118,10 +118,10 @@ final class ErrorBadgeButton: NSButton {
     ) -> NSStackView {
         resultTabsToggle.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            resultTabsToggle.widthAnchor.constraint(equalToConstant: 28),
-            resultTabsToggle.heightAnchor.constraint(equalToConstant: 28),
-            errorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
-            errorButton.heightAnchor.constraint(equalToConstant: 28),
+            resultTabsToggle.widthAnchor.constraint(equalToConstant: 24),
+            resultTabsToggle.heightAnchor.constraint(equalToConstant: 24),
+            errorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
+            errorButton.heightAnchor.constraint(equalToConstant: 24),
         ])
         let stack = NSStackView(views: [errorButton, resultTabsToggle])
         stack.orientation = .horizontal

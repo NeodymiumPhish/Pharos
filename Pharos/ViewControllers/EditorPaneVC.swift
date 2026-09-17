@@ -31,7 +31,9 @@ class EditorPaneVC: NSViewController {
     private(set) var paneTabBar: PaneTabBar!
 
     // Editor toolbar (below tab bar)
-    private let editorToolbar = NSView()
+    /// The header row under the tab bar. Painted the same ground as the tab
+    /// bar so the two read as one strip of chrome, not two surfaces.
+    private let editorToolbar = EditorHeaderRowView()
     private let formatButton = NSButton()
     /// "Describe the query…" — hidden entirely unless Apple Intelligence is
     /// available, and disabled until the tab has a live connection to read a
@@ -114,7 +116,9 @@ class EditorPaneVC: NSViewController {
     // MARK: - View Lifecycle
 
     private let tabBarHeight: CGFloat = 32
-    private let editorToolbarHeight: CGFloat = 32
+    /// 28, the sidebar filter bar's height — one height for every secondary
+    /// row of chrome in the window.
+    private let editorToolbarHeight: CGFloat = 28
     private var totalHeaderHeight: CGFloat {
         tabBarHeight + editorToolbarHeight
     }
@@ -609,10 +613,10 @@ class EditorPaneVC: NSViewController {
         editorToolbar.addSubview(trailingGroup)
 
         NSLayoutConstraint.activate([
-            formatButton.widthAnchor.constraint(equalToConstant: 28),
-            formatButton.heightAnchor.constraint(equalToConstant: 28),
-            describeQueryButton.widthAnchor.constraint(equalToConstant: 28),
-            describeQueryButton.heightAnchor.constraint(equalToConstant: 28),
+            formatButton.widthAnchor.constraint(equalToConstant: 24),
+            formatButton.heightAnchor.constraint(equalToConstant: 24),
+            describeQueryButton.widthAnchor.constraint(equalToConstant: 24),
+            describeQueryButton.heightAnchor.constraint(equalToConstant: 24),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
 
             toolbarStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
@@ -859,5 +863,18 @@ extension EditorPaneVC: NSPopoverDelegate {
             return
         }
         describeQueryPopover = nil
+    }
+}
+
+// MARK: - Header row surface
+
+/// The editor header row's ground: `controlBackgroundColor`, the colour the
+/// tab bar above it paints. Drawn, not set on a layer — a layer colour
+/// resolved in `loadView` freezes at the launch appearance (tasks/lessons.md,
+/// 2026-09-16); `draw(_:)` resolves against the live one every time.
+private final class EditorHeaderRowView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        bounds.fill()
     }
 }
