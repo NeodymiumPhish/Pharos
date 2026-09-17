@@ -1467,8 +1467,8 @@ class ResultsToolbarBar: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Background — matches window chrome
-        NSColor.controlBackgroundColor.setFill()
+        // Background: the shared chrome ground (see ContrastInk.chromeGround)
+        ContrastInk.chromeGround.setFill()
         bounds.fill()
 
         // Top separator line — blended with accent color when pulsing (or during fade-out).

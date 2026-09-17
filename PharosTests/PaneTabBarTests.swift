@@ -125,6 +125,7 @@ func runTests() {
         testCloseSlotGlyphs()
         testTooltipsAndAccessibility()
         testTruncatedTitle()
+        testChromeGroundReadsGreyInLight()
     }
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
@@ -289,4 +290,31 @@ private func testTruncatedTitle() {
     let oneMore = String(long.prefix(cut.count)) + "\u{2026}"
     expectTrue(textWidth(oneMore, font) > 100, "the cut is the longest prefix that fits")
     expectEqual(PaneTabBar.truncatedTitle("abc", toFit: 0, font: font), "\u{2026}", "no room at all leaves the ellipsis alone")
+}
+
+/// The bar's ground is what makes the white lit capsule visible in Light mode:
+/// on macOS 26 every candidate system ground resolves to pure white there, so
+/// the bar paints `ContrastInk.chromeGround` (≈0.88) instead. `draw(_:)` output
+/// lands in an offscreen render, so this is measurable; the capsule itself is
+/// not, so its contrast against this ground is for the user's eyes.
+@MainActor
+private func testChromeGroundReadsGreyInLight() {
+    func groundLuminance(_ appearance: NSAppearance.Name) -> CGFloat {
+        let host = Host(width: 400)
+        host.window.appearance = NSAppearance(named: appearance)
+        host.bar.update(tabs: [tab("Q")], activeTabId: "Q")
+        host.layout()
+        let rep = host.bar.bitmapImageRepForCachingDisplay(in: host.bar.bounds)!
+        host.bar.cacheDisplay(in: host.bar.bounds, to: rep)
+        // Bare ground: right of the one tab, left of the +.
+        let scale = CGFloat(rep.pixelsWide) / host.bar.bounds.width
+        let c = rep.colorAt(x: Int(300 * scale), y: Int(16 * scale))!.usingColorSpace(.deviceRGB)!
+        return 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent
+    }
+    let light = groundLuminance(.aqua)
+    let dark = groundLuminance(.darkAqua)
+    expectTrue(light > 0.80 && light < 0.93, "in Light the bar's ground is a light grey, not white (\(light))")
+    expectTrue(dark < 0.20, "in Dark the bar's ground stays the dark control ground (\(dark))")
+    // Non-vacuity: the two appearances really did resolve differently.
+    expectTrue(light - dark > 0.5, "light and dark grounds differ")
 }

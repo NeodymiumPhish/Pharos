@@ -12,6 +12,18 @@ final class SchemaPopUpButton: NSPopUpButton {
     /// to present the schema popover anchored to `self`.
     var onActivate: ((SchemaPopUpButton) -> Void)?
 
+    /// Whether the popover this button opened is on screen. While it is, the
+    /// button draws pressed — the look AppKit gives an ordinary pull-down while
+    /// its menu is up, which this button never gets on its own because its
+    /// `mouseDown` never reaches the cell's menu tracking. The owner sets it
+    /// when the popover shows and clears it on `NSPopover.didCloseNotification`.
+    var isPresenting = false {
+        didSet {
+            guard isPresenting != oldValue else { return }
+            highlight(isPresenting)
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard isEnabled, let onActivate else {
             super.mouseDown(with: event)

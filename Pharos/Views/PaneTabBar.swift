@@ -609,8 +609,9 @@ class PaneTabBar: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Bar background — slightly darker than window to contrast with white active segment
-        NSColor.controlBackgroundColor.setFill()
+        // Bar background: the shared chrome ground, grey in Light so the white
+        // lit capsule reads as selected (see `ContrastInk.chromeGround`).
+        ContrastInk.chromeGround.setFill()
         bounds.fill()
 
         // Bottom border

@@ -73,6 +73,7 @@ final class MainToolbarController: NSObject {
     private let schemaButton = SchemaPopUpButton(frame: .zero, pullsDown: true)
     private let schemaSpinner = NSProgressIndicator()
     private var schemaPopover: NSPopover?
+    private var schemaPopoverCloseObserver: NSObjectProtocol?
     private let cancelButton = NSButton()
     private var runningQueriesPopover: NSPopover?
     private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
@@ -96,6 +97,9 @@ final class MainToolbarController: NSObject {
 
     deinit {
         if let observer = runningQueriesPopoverCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = schemaPopoverCloseObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -224,17 +228,32 @@ final class MainToolbarController: NSObject {
 
     // MARK: - Connection pull-down
 
-    private func configureConnectionButton() {
-        connectionButton.bezelStyle = .toolbar
-        connectionButton.controlSize = .regular
-        connectionButton.translatesAutoresizingMaskIntoConstraints = false
-        (connectionButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+    /// The one look both pull-downs share: bezel, size, arrow, title alignment
+    /// and — the part that made them read as two different controls — the same
+    /// width range. With 150 vs 100 as their minimums the connection read as a
+    /// wide dropdown and the schema as a chip hugging its title.
+    private static func configureToolbarPullDown(_ button: NSPopUpButton, label: String, identifier: String) {
+        button.bezelStyle = .toolbar
+        button.controlSize = .regular
+        button.translatesAutoresizingMaskIntoConstraints = false
+        if let cell = button.cell as? NSPopUpButtonCell {
+            cell.arrowPosition = .arrowAtBottom
+            cell.alignment = .left
+        }
         NSLayoutConstraint.activate([
-            connectionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
-            connectionButton.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: pullDownMinWidth),
+            button.widthAnchor.constraint(lessThanOrEqualToConstant: pullDownMaxWidth),
         ])
-        connectionButton.setAccessibilityLabel(String(localized: "Connection"))
-        connectionButton.setAccessibilityIdentifier("toolbar.connection")
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier(identifier)
+    }
+
+    static let pullDownMinWidth: CGFloat = 150
+    static let pullDownMaxWidth: CGFloat = 260
+
+    private func configureConnectionButton() {
+        Self.configureToolbarPullDown(connectionButton, label: String(localized: "Connection"),
+                                      identifier: "toolbar.connection")
     }
 
     private func rebuildConnectionMenu() {
@@ -358,17 +377,9 @@ final class MainToolbarController: NSObject {
     // MARK: - Schema pull-down
 
     private func configureSchemaButton() {
-        schemaButton.bezelStyle = .toolbar
-        schemaButton.controlSize = .regular
-        schemaButton.translatesAutoresizingMaskIntoConstraints = false
-        (schemaButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
-        NSLayoutConstraint.activate([
-            schemaButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
-            schemaButton.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
-        ])
+        Self.configureToolbarPullDown(schemaButton, label: String(localized: "Schema"),
+                                      identifier: "toolbar.schema")
         schemaButton.toolTip = String(localized: "Schema for the active tab")
-        schemaButton.setAccessibilityLabel(String(localized: "Schema"))
-        schemaButton.setAccessibilityIdentifier("toolbar.schema")
         schemaButton.onActivate = { [weak self] button in
             self?.presentSchemaPopover(from: button)
         }
@@ -443,6 +454,21 @@ final class MainToolbarController: NSObject {
         popover.behavior = .transient
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         schemaPopover = popover
+
+        // Pressed while open, released when it closes — the look AppKit gives
+        // the connection pull-down while its menu is up.
+        schemaButton.isPresenting = true
+        if let existing = schemaPopoverCloseObserver {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        schemaPopoverCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSPopover.didCloseNotification, object: popover, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.schemaButton.isPresenting = false
+                self?.schemaPopover = nil
+            }
+        }
     }
 
     /// The tab's current schema becomes the connection's default (nil — "All

@@ -107,6 +107,20 @@ func runTests() {
            "every header element is a button")
     expect(elements.allSatisfy { $0.accessibilityFrame() != .zero },
            "every header element has a real screen frame")
+    // The funnel slot is centred on the header's midline (an overlay at the
+    // column's trailing edge), not on the lower text row — aligned there it
+    // sat 3.7pt off the bottom edge and read as pressed against it. The
+    // element's frame follows `filterIconRect`, so it measures the same thing.
+    if let window = header.window {
+        let headerOnScreen = window.convertToScreen(header.convert(header.bounds, to: nil))
+        let funnel = elements[2].accessibilityFrame()
+        expect(abs(funnel.midY - headerOnScreen.midY) < 0.5,
+               "the funnel is centred on the header's midline (\(funnel.midY) vs \(headerOnScreen.midY))")
+        expect(funnel.height <= header.bounds.height,
+               "the funnel slot fits inside the header")
+    } else {
+        expect(false, "the fixture header is in a window")
+    }
 
     // 2. Identity survives a redraw. A fresh element per draw would throw a
     //    screen reader back to the first column on every hover sweep.

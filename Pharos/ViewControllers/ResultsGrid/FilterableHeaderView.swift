@@ -438,8 +438,8 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         }
 
         // Sort arrow: persistent when a column is sorted (so sort state is visible
-        // at rest), drawn on row-2 right just left of the funnel slot. Overlay only —
-        // reserves no column width.
+        // at rest), drawn at the header's midline just left of the funnel slot.
+        // Overlay only — reserves no column width.
         for (colIndex, column) in tableView.tableColumns.enumerated() {
             let colId = column.identifier.rawValue
             guard colId != "__rownum__", !column.isHidden,
@@ -634,10 +634,11 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
 
     private func filterIconRect(inHeaderRect headerRect: NSRect) -> NSRect {
         let side = iconSize + iconPadding * 2
-        // Row 2 (the type row) is the LOWER band. NSTableHeaderView is flipped
-        // (y increases downward), so the lower band is near maxY, not minY.
-        let row2MidY = headerRect.maxY - headerRect.height * 0.30
-        return NSRect(x: headerRect.maxX - side - 8, y: row2MidY - side / 2, width: side, height: side)
+        // Centred on the header's own midline, not on the type row: the slot
+        // is an overlay at the column's trailing edge, and a glyph aligned to
+        // the lower text row sat 3.7pt off the bottom edge and read as
+        // pressed against it. (The sort chevron takes its y from here too.)
+        return NSRect(x: headerRect.maxX - side - 8, y: headerRect.midY - side / 2, width: side, height: side)
     }
 
     /// How far either side of a column's right edge counts as grabbing that

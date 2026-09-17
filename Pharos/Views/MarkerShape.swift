@@ -286,6 +286,36 @@ enum ContrastInk {
     /// answer when the user has asked for contrast.
     static var separator: NSColor { increased ? .tertiaryLabelColor : .separatorColor }
 
+    /// The ground behind the content pane's chrome rows — the editor tab bar,
+    /// the header row under it and the results action bar.
+    ///
+    /// Light mode is the reason this exists. On macOS 26 `controlBackgroundColor`,
+    /// `windowBackgroundColor` and `controlColor` all resolve to pure WHITE in
+    /// Light, so a white lit capsule on a white bar read at a contrast of 1.06
+    /// (measured) and the selected tab could not be told from the others.
+    /// Finder gets its grey tab bar from the window's chrome material; this is
+    /// the same idea as a colour: Light → the control ground blended 12 % toward
+    /// black (≈0.88, 18 % with Increase Contrast), Dark → the control ground as
+    /// it is, where the lit capsule already stands 1.4× off the track.
+    ///
+    /// A dynamic provider, so it re-resolves for every appearance it is drawn
+    /// in; the views that paint it also redraw on `AccessibilityDisplay.didChange`.
+    static var chromeGround: NSColor {
+        let fraction: CGFloat = increased ? 0.18 : 0.12
+        return NSColor(name: nil) { appearance in
+            var resolved = NSColor.controlBackgroundColor
+            appearance.performAsCurrentDrawingAppearance {
+                let base = NSColor.controlBackgroundColor
+                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                    resolved = base.usingColorSpace(.deviceRGB) ?? base
+                } else {
+                    resolved = base.blended(withFraction: fraction, of: .black) ?? base
+                }
+            }
+            return resolved
+        }
+    }
+
     /// The results table's grid lines. Named apart from `separator` because the
     /// two are set in different places and could reasonably diverge later.
     static var gridLine: NSColor { separator }

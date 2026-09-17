@@ -868,13 +868,13 @@ extension EditorPaneVC: NSPopoverDelegate {
 
 // MARK: - Header row surface
 
-/// The editor header row's ground: `controlBackgroundColor`, the colour the
+/// The editor header row's ground: `ContrastInk.chromeGround`, the colour the
 /// tab bar above it paints. Drawn, not set on a layer — a layer colour
 /// resolved in `loadView` freezes at the launch appearance (tasks/lessons.md,
 /// 2026-09-16); `draw(_:)` resolves against the live one every time.
 private final class EditorHeaderRowView: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
+        ContrastInk.chromeGround.setFill()
         bounds.fill()
     }
 }
