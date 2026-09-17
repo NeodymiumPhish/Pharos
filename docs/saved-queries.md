@@ -30,6 +30,8 @@ Before you have saved anything, the panel shows **No Saved Queries** — "Save a
 - **Save As…** in the editor toolbar's Save dropdown always opens the save sheet, creating a new saved query from the current tab.
 - Saving with a name that already exists offers **Replace All / Keep Both / Cancel**.
 
+A single click on a query previews its SQL in the [Inspector](inspector.md) (open it with **Cmd+Opt+I**), so you can read a query before opening it; a double-click opens it in a tab.
+
 `{{name}}` placeholders are saved as written. Their values are not stored with the query: they come from the app-wide [Variables](query-variables.md) list, so the same saved query can be run against several databases with one set of values.
 
 ## Organization

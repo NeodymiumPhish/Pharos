@@ -4,9 +4,10 @@ import Foundation
 
 /// Which surface last WROTE the shared Inspector pane.
 ///
-/// The right-hand pane has three unrelated writers: the results area (the
+/// The right-hand pane has four unrelated writers: the results area (the
 /// grid's row detail and the chart's selection summary), the schema browser's
-/// node detail, and the workspace-history SQL preview. Nothing in the pane
+/// node detail, the workspace-history SQL preview, and the Query Library's
+/// saved-query preview. Nothing in the pane
 /// itself said which of them put the current content there, so any writer that
 /// blanked the pane destroyed whatever another had left in it — running a
 /// query cleared the grid's selection as a side effect, and that wiped the
@@ -22,6 +23,9 @@ enum InspectorOwner: Equatable {
     case schemaBrowser
     /// The workspace-history SQL preview.
     case sqlView
+    /// The Query Library's preview of the selected saved query — its SQL, shown
+    /// on a single click so the analyst can read it before opening a tab.
+    case savedQuery
 }
 
 // MARK: - InspectorOwnership

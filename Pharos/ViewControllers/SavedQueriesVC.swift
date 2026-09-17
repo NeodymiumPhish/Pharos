@@ -84,6 +84,10 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     /// Called when outline view selection changes. Bool indicates whether a query is selected.
     var onSelectionChanged: ((Bool) -> Void)?
 
+    /// The saved query whose SQL the Inspector is previewing for this list,
+    /// so a reload that keeps the same row selected does not rebuild the pane.
+    private var previewedQueryId: String?
+
     override func loadView() {
         let container = NSView()
         self.view = container
@@ -876,15 +880,37 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         // Check if any selected row is a query node
-        var hasQuery = false
+        var selectedQueries: [SavedQuery] = []
         for row in outlineView.selectedRowIndexes {
             if let node = outlineView.item(atRow: row) as? SavedQueryNode,
-               case .query = node.kind {
-                hasQuery = true
-                break
+               case .query(let query) = node.kind {
+                selectedQueries.append(query)
             }
         }
-        onSelectionChanged?(hasQuery)
+        onSelectionChanged?(!selectedQueries.isEmpty)
+        previewSelectionInInspector(selectedQueries)
+    }
+
+    /// A single click on a saved query shows its SQL in the Inspector so it can
+    /// be read before it is opened in a tab (double-click). Same route as the
+    /// schema browser's node detail: write to the pane, never reveal it — the
+    /// analyst chooses whether the Inspector is open (Option-Command-I).
+    ///
+    /// Exactly one query previews. A folder, an empty selection or a
+    /// multi-selection withdraws the preview — through `withdraw(_:)`, so a
+    /// schema detail or a grid row the analyst is reading is left alone.
+    private func previewSelectionInInspector(_ selectedQueries: [SavedQuery]) {
+        guard let splitVC = parent?.parent as? PharosSplitViewController else { return }
+        guard selectedQueries.count == 1, let query = selectedQueries.first else {
+            previewedQueryId = nil
+            splitVC.inspectorVC.withdraw(.savedQuery)
+            return
+        }
+        // A reload (highlight, filter, rename) re-fires selection with the same
+        // row; rebuilding the pane would only drop the reader's scroll position.
+        if previewedQueryId == query.id, splitVC.inspectorVC.owner == .savedQuery { return }
+        previewedQueryId = query.id
+        splitVC.inspectorVC.showSavedQuery(query)
     }
 }
 

@@ -13,7 +13,14 @@ func expect(_ actual: Bool, _ expected: Bool, _ name: String) {
 }
 
 func runTests() {
-    let every: [InspectorOwner] = [.none, .results, .schemaBrowser, .sqlView]
+    let every: [InspectorOwner] = [.none, .results, .schemaBrowser, .sqlView, .savedQuery]
+
+    // The Query Library's preview is withdrawn when its selection moves to a
+    // folder or empties; it must not take a schema detail or a row detail with it.
+    expect(InspectorOwnership.allowsWithdrawal(currentOwner: .schemaBrowser, writer: .savedQuery),
+           false, "the saved-query preview cannot blank a schema-browser detail")
+    expect(InspectorOwnership.allowsWithdrawal(currentOwner: .savedQuery, writer: .savedQuery),
+           true, "the saved-query preview may withdraw itself")
 
     // The bug this rule exists for. The schema browser owns the pane; running
     // a query rebuilds the grid, which clears its selection as a SIDE EFFECT

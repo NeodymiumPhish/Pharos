@@ -54,7 +54,7 @@ Additional statistics by type:
 
 ## Schema Details
 
-Selecting a table, partition, or column in the [Schema Browser](schema-browser.md) shows its details in the Inspector, and selecting a result in [Results History](query-history.md) previews its SQL there.
+Selecting a table, partition, or column in the [Schema Browser](schema-browser.md) shows its details in the Inspector; selecting a result in [Results History](query-history.md) previews its SQL there; and a single click on a query in the [Query Library](saved-queries.md) previews that query's name, folder and SQL, so you can read it before double-clicking to open it in a tab. Like the other lists, the library writes to the Inspector without opening it — show it with **Cmd+Opt+I** first.
 
 For a **table or a partition**, the detail ends with a **Columns** section: every column on its own line — the name, its "PK" and "NOT NULL" markers, and its type in a monospaced column down the right. Right-click a column for **Copy Name** (the bare name) or **Copy Qualified Name** (`"schema"."table"."column"`, quoted and ready to paste into a query). Immediately after connecting the section may read "Loading…" while the schema metadata arrives in the background; it fills itself in as soon as the columns land.
 

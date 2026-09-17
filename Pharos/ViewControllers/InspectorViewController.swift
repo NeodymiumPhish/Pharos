@@ -369,7 +369,37 @@ class InspectorViewController: NSViewController {
     /// workspace-history preview row is selected.
     func showSQL(_ sql: String, title: String = "Query") {
         beginDetailSection(title: title, subtitle: "", owner: .sqlView)
+        addSQLBody(sql)
+    }
 
+    /// Previews a saved query on a single click in the Query Library: the
+    /// query's name as the title, its folder as the subtitle, then the SQL as
+    /// stored — `{{name}}` placeholders and all, since the preview is the text
+    /// that would open in a tab, not a rendering of it.
+    ///
+    /// Owned by `.savedQuery`, so the library withdraws it when its selection
+    /// leaves the query, and cannot take a schema or row detail with it.
+    func showSavedQuery(_ query: SavedQuery) {
+        beginDetailSection(title: query.name,
+                           subtitle: query.folder ?? String(localized: "Saved Query"),
+                           owner: .savedQuery)
+        if query.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let empty = makeFieldValueLabel(String(localized: "This query has no SQL yet."), color: .tertiaryLabelColor)
+            stackView.addArrangedSubview(empty)
+        } else {
+            addSQLBody(query.sql)
+        }
+        let hint = NSTextField(labelWithString: String(localized: "Double-click to open it in a tab."))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        hint.maximumNumberOfLines = 0
+        hint.lineBreakMode = .byWordWrapping
+        stackView.addArrangedSubview(hint)
+    }
+
+    /// The SQL body shared by `showSQL` and `showSavedQuery`: wrapped,
+    /// monospaced, selectable, editor-coloured.
+    private func addSQLBody(_ sql: String) {
         let label = makeFieldValueLabel(sql, color: .labelColor)
         label.attributedStringValue = SQLSyntaxHighlighter.attributedString(
             for: sql,
