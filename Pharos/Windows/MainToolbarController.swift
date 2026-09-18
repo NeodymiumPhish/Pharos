@@ -282,8 +282,12 @@ final class MainToolbarController: NSObject {
             let reason = status == .error
                 ? stateManager.connectionError(for: config.id).map { DisplayEscape.escaped($0) }
                 : nil
+            // The bastion, when there is one: the tooltip is the only place
+            // in the main window that says a query is travelling through an
+            // SSH tunnel.
+            let via = SshTunnelForm.viaPhrase(config.sshTunnel, escape: DisplayEscape.escaped)
             connectionButton.toolTip = [
-                DisplayEscape.escaped(config.name), statusName(for: status), reason,
+                DisplayEscape.escaped(config.name), statusName(for: status), via, reason,
             ].compactMap { $0 }.joined(separator: " — ")
             connectionButton.setAccessibilityValue(
                 [statusName(for: status), reason].compactMap { $0 }.joined(separator: ", "))
