@@ -5,6 +5,7 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
 
+use crate::db::ssh_tunnel::SshTunnel;
 use crate::models::{ConnectionConfig, TableKeyInfo};
 
 /// Represents a running query that can be cancelled
@@ -46,6 +47,15 @@ pub struct AppState {
     /// Live row counters for in-progress CSV imports.
     /// Keyed by `"{connection_id}|{schema}|{table}"`.
     pub import_progress: Mutex<HashMap<String, Arc<AtomicU64>>>,
+
+    /// Live SSH tunnels, keyed by connection ID. A connection with a tunnel
+    /// has an entry here for exactly as long as it has a pool.
+    pub tunnels: Mutex<HashMap<String, SshTunnel>>,
+
+    /// Why a connection's tunnel stopped, keyed by connection ID (D4).
+    /// Set by `reap_dead_tunnel`, read by `require_pool`, cleared when the
+    /// connection is connected again, disconnected or deleted.
+    pub tunnel_failures: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -59,6 +69,8 @@ impl AppState {
             analyze_denied: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
             import_progress: Mutex::new(HashMap::new()),
+            tunnels: Mutex::new(HashMap::new()),
+            tunnel_failures: Mutex::new(HashMap::new()),
         }
     }
 
@@ -116,6 +128,104 @@ impl AppState {
     pub fn has_pool(&self, connection_id: &str) -> bool {
         let connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.contains_key(connection_id)
+    }
+
+    // ---- SSH tunnels -----------------------------------------------------
+
+    /// Hold a tunnel for the life of its pool.
+    pub fn add_tunnel(&self, connection_id: String, tunnel: SshTunnel) {
+        let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        tunnels.insert(connection_id, tunnel);
+    }
+
+    /// Take a tunnel out so the caller can `close().await` it outside the lock.
+    pub fn take_tunnel(&self, connection_id: &str) -> Option<SshTunnel> {
+        let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        tunnels.remove(connection_id)
+    }
+
+    /// Take every tunnel, for shutdown.
+    pub fn take_all_tunnels(&self) -> Vec<SshTunnel> {
+        let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        tunnels.drain().map(|(_, t)| t).collect()
+    }
+
+    pub fn has_tunnel(&self, connection_id: &str) -> bool {
+        let tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        tunnels.contains_key(connection_id)
+    }
+
+    /// The reason this connection's tunnel stopped, if it did.
+    pub fn tunnel_failure(&self, connection_id: &str) -> Option<String> {
+        let failures = self.tunnel_failures.lock().unwrap_or_else(|e| e.into_inner());
+        failures.get(connection_id).cloned()
+    }
+
+    /// Forget a recorded failure. Call this whenever the connection is about
+    /// to be tried again, or a stale reason would outlive the fault.
+    pub fn clear_tunnel_failure(&self, connection_id: &str) {
+        let mut failures = self.tunnel_failures.lock().unwrap_or_else(|e| e.into_inner());
+        failures.remove(connection_id);
+    }
+
+    /// D4, lazy tunnel-death detection.
+    ///
+    /// When this connection's `ssh` has stopped, drop its pool and its tunnel
+    /// and record the reason, then return that reason. Returns `None` when
+    /// there is no tunnel or the tunnel is still alive.
+    ///
+    /// This runs at the two moments that matter — before a pool is handed out
+    /// (`require_pool`) and before Connect decides the connection is already
+    /// up — instead of in a task that watches the child. The plan asked for a
+    /// watcher task; the check here gives the same observable behaviour with
+    /// no `'static` handle on the state and no polling, and it is testable
+    /// without a runtime. The cost is that a dead tunnel is noticed at the
+    /// next call rather than at once, which is what "lazy" means in D4.
+    ///
+    /// The pool is dropped, not closed: `PgPool::drop` does not block, and the
+    /// far end of every socket is already gone with the tunnel.
+    pub fn reap_dead_tunnel(&self, connection_id: &str) -> Option<String> {
+        let dead = {
+            let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+            let exited = tunnels
+                .get_mut(connection_id)
+                .map(|tunnel| tunnel.has_exited())
+                .unwrap_or(false);
+            if exited {
+                tunnels.remove(connection_id)
+            } else {
+                None
+            }
+        };
+        let tunnel = dead?;
+        let reason = tunnel.exit_reason();
+        log::warn!("The SSH tunnel for {} stopped: {}", connection_id, reason);
+
+        self.connections
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(connection_id);
+        self.tunnel_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(connection_id.to_string(), reason.clone());
+        Some(reason)
+    }
+
+    /// The pool for a connection, or the reason there is none.
+    ///
+    /// Every command that needs a pool goes through here, so a tunnel that
+    /// stopped during the session is noticed once, in one place, and reported
+    /// with its reason instead of as a bare socket error.
+    pub fn require_pool(&self, connection_id: &str) -> Result<PgPool, String> {
+        self.reap_dead_tunnel(connection_id);
+        if let Some(pool) = self.get_pool(connection_id) {
+            return Ok(pool);
+        }
+        match self.tunnel_failure(connection_id) {
+            Some(reason) => Err(format!("SSH tunnel closed: {}", reason)),
+            None => Err(format!("Not connected to: {}", connection_id)),
+        }
     }
 
     /// Get a connection config by ID
@@ -292,5 +402,183 @@ mod key_cache_tests {
         s.cache_table_key_info("c1", 1, info("a"));
         s.cache_table_key_info("c2", 2, info("b"));
         assert_eq!(s.missing_key_cache_oids("c1", &[1, 2]), vec![2]);
+    }
+}
+
+/// The tunnel-aware pool lookup: what `require_pool` says, and what
+/// `reap_dead_tunnel` does when the `ssh` child stops (D4).
+///
+/// `/bin/sleep` stands in for the child, so every path here runs with no
+/// server, no network and no `ssh`.
+#[cfg(test)]
+mod tunnel_state_tests {
+    use super::*;
+    use crate::db::ssh_tunnel::SshTunnel;
+    use sqlx::postgres::PgPoolOptions;
+    use tokio::process::Command;
+    use tokio::runtime::Runtime;
+
+    fn state() -> AppState {
+        AppState::new(SqliteConnection::open_in_memory().unwrap())
+    }
+
+    /// A pool that has never connected and never will. `connect_lazy` builds
+    /// one without touching the network, which is all these tests need: the
+    /// question is whether the pool is HANDED OUT, not whether it works.
+    fn a_pool() -> PgPool {
+        // Needs a runtime context: hold an `rt.enter()` guard in the test.
+        PgPoolOptions::new()
+            .connect_lazy("postgres://nobody@127.0.0.1:1/nowhere")
+            .expect("a lazy pool needs no server")
+    }
+
+    fn sleeping_child() -> tokio::process::Child {
+        Command::new("/bin/sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn /bin/sleep")
+    }
+
+    fn live_tunnel(rt: &Runtime) -> SshTunnel {
+        rt.block_on(async { SshTunnel::for_test(sleeping_child(), 61001, "") })
+    }
+
+    /// Killed and REAPED before it is handed over, so `has_exited` cannot
+    /// race: the child is already gone when the test starts.
+    fn dead_tunnel(rt: &Runtime, tail: &str) -> SshTunnel {
+        rt.block_on(async {
+            let mut child = sleeping_child();
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            SshTunnel::for_test(child, 61002, tail)
+        })
+    }
+
+    #[test]
+    fn a_connection_with_no_pool_and_no_tunnel_reports_the_old_message() {
+        let state = state();
+        assert_eq!(
+            state.require_pool("c1").unwrap_err(),
+            "Not connected to: c1",
+            "a connection that was never connected must read exactly as before"
+        );
+    }
+
+    #[test]
+    fn a_live_tunnel_hands_the_pool_over_and_is_kept() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        state.add_pool("c1".to_string(), a_pool());
+        state.add_tunnel("c1".to_string(), live_tunnel(&rt));
+
+        assert!(state.require_pool("c1").is_ok(), "a healthy tunnel must not be reaped");
+        assert!(state.has_pool("c1"));
+        assert!(state.has_tunnel("c1"));
+        assert_eq!(state.tunnel_failure("c1"), None);
+    }
+
+    /// The whole of D4 in one test: the dead child costs the connection its
+    /// pool, and the next call says why instead of reporting a socket error.
+    #[test]
+    fn a_dead_tunnel_takes_the_pool_with_it_and_reports_the_reason() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        state.add_pool("c1".to_string(), a_pool());
+        state.add_tunnel(
+            "c1".to_string(),
+            dead_tunnel(&rt, "debug1: noise\nclient_loop: send disconnect: Broken pipe\n"),
+        );
+
+        let error = state.require_pool("c1").unwrap_err();
+        assert_eq!(
+            error,
+            "SSH tunnel closed: client_loop: send disconnect: Broken pipe"
+        );
+        assert!(!state.has_pool("c1"), "the pool must go with the tunnel");
+        assert!(!state.has_tunnel("c1"), "the dead tunnel must not be kept");
+
+        // The reason must survive: every later call reports the same thing,
+        // not "Not connected", or the user sees the cause once and then a
+        // different message for the same fault.
+        assert_eq!(
+            state.require_pool("c1").unwrap_err(),
+            "SSH tunnel closed: client_loop: send disconnect: Broken pipe"
+        );
+
+        // And it is forgotten when the connection is tried again.
+        state.clear_tunnel_failure("c1");
+        assert_eq!(state.require_pool("c1").unwrap_err(), "Not connected to: c1");
+    }
+
+    /// A tunnel that said nothing still needs a sentence.
+    #[test]
+    fn a_silent_death_still_gives_a_reason() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        state.add_pool("c1".to_string(), a_pool());
+        state.add_tunnel("c1".to_string(), dead_tunnel(&rt, ""));
+
+        assert_eq!(
+            state.require_pool("c1").unwrap_err(),
+            "SSH tunnel closed: the SSH process stopped"
+        );
+    }
+
+    /// One connection's tunnel dying must not disturb another's.
+    #[test]
+    fn reaping_one_connection_leaves_the_others_alone() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        state.add_pool("dead".to_string(), a_pool());
+        state.add_tunnel("dead".to_string(), dead_tunnel(&rt, "ssh: gone\n"));
+        state.add_pool("live".to_string(), a_pool());
+        state.add_tunnel("live".to_string(), live_tunnel(&rt));
+        // A third connection with a pool and NO tunnel at all.
+        state.add_pool("plain".to_string(), a_pool());
+
+        assert!(state.require_pool("dead").is_err());
+        assert!(state.require_pool("live").is_ok());
+        assert!(state.require_pool("plain").is_ok());
+        assert!(state.has_pool("live"));
+        assert!(state.has_pool("plain"));
+        assert_eq!(state.tunnel_failure("live"), None);
+        assert_eq!(state.tunnel_failure("plain"), None);
+    }
+
+    /// `reap_dead_tunnel` answers only when it actually reaped something, so
+    /// the caller can tell "nothing to do" from "the tunnel just died".
+    #[test]
+    fn reap_reports_only_a_death_it_found() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        assert_eq!(state.reap_dead_tunnel("c1"), None, "no tunnel, nothing to reap");
+
+        state.add_tunnel("c1".to_string(), live_tunnel(&rt));
+        assert_eq!(state.reap_dead_tunnel("c1"), None, "a live tunnel is not a death");
+
+        state.take_tunnel("c1");
+        state.add_tunnel("c1".to_string(), dead_tunnel(&rt, "ssh: gone\n"));
+        assert_eq!(state.reap_dead_tunnel("c1"), Some("ssh: gone".to_string()));
+        assert_eq!(state.reap_dead_tunnel("c1"), None, "the second reap finds nothing");
+    }
+
+    #[test]
+    fn take_all_tunnels_empties_the_map_for_shutdown() {
+        let rt = Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let state = state();
+        state.add_tunnel("a".to_string(), live_tunnel(&rt));
+        state.add_tunnel("b".to_string(), live_tunnel(&rt));
+
+        assert_eq!(state.take_all_tunnels().len(), 2);
+        assert!(!state.has_tunnel("a"));
+        assert!(!state.has_tunnel("b"));
+        assert!(state.take_all_tunnels().is_empty());
     }
 }

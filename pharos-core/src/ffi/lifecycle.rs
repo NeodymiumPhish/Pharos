@@ -102,6 +102,11 @@ pub extern "C" fn pharos_shutdown() {
         conns.drain().map(|(_, p)| p).collect()
     };
 
+    // Drain the tunnels too. Draining is what makes the timeout safe: a tunnel
+    // that is not closed in time is DROPPED inside the runtime, and
+    // `kill_on_drop` stops its `ssh` anyway, so no child can outlive the app.
+    let tunnels = state.take_all_tunnels();
+
     let _ = runtime.block_on(async {
         tokio::time::timeout(SHUTDOWN_TOTAL_BUDGET, async {
             let closes = pools.into_iter().map(|pool| async move {
@@ -109,6 +114,10 @@ pub extern "C" fn pharos_shutdown() {
                 // On timeout `pool` drops here — non-blocking.
             });
             futures::future::join_all(closes).await;
+
+            // The tunnels last: a pool still closing needs its road open.
+            // `close` caps its own wait at 2 s, and they all run together.
+            futures::future::join_all(tunnels.into_iter().map(|t| t.close())).await;
         })
         .await
     });

@@ -202,9 +202,7 @@ pub async fn execute_query(
     source: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let limit = limit.unwrap_or(1000);
     let start = Instant::now();
@@ -439,9 +437,7 @@ pub async fn fetch_more_rows(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
 
@@ -580,9 +576,7 @@ pub async fn fetch_all_rows_snapshot(
     state: &AppState,
     on_progress: impl Fn(u64) + Send,
 ) -> Result<QueryResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
     let max_rows = max_rows.max(1);
@@ -746,9 +740,7 @@ pub async fn execute_statement(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<ExecuteResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
 
@@ -831,9 +823,7 @@ pub async fn cancel_query(
     state: &AppState,
 ) -> Result<bool, String> {
     // Get the pool to send the cancel command
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Get the backend PID for the query we want to cancel
     let backend_pid = state
@@ -886,9 +876,7 @@ pub async fn validate_sql(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<ValidationResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Skip validation for empty queries
     let sql_trimmed = sql.trim();
@@ -1319,9 +1307,7 @@ pub async fn explain_query(
     // Build the statement first: a refusal costs no connection.
     let statement = explain_statement(&sql, analyze)?;
 
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 

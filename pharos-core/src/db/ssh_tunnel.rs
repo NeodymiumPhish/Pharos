@@ -67,10 +67,55 @@ impl SshTunnel {
             .unwrap_or_default()
     }
 
+    /// Has the `ssh` child stopped?
+    ///
+    /// Non-blocking, and it reaps the process, so a dead tunnel does not stay
+    /// a zombie. An I/O error asking the question is read as "stopped": the
+    /// tunnel is unusable either way, and a connection that cannot be judged
+    /// must not be reported as healthy.
+    pub fn has_exited(&mut self) -> bool {
+        !matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// One line saying why the tunnel stopped, for the user.
+    pub fn exit_reason(&self) -> String {
+        let tail = self.stderr_tail();
+        let line = last_meaningful_line(&tail);
+        if line.is_empty() {
+            "the SSH process stopped".to_string()
+        } else {
+            line
+        }
+    }
+
+    /// Ask the child to stop, without waiting. Shutdown uses this when it has
+    /// no budget left to wait.
+    pub fn start_kill(&mut self) {
+        let _ = self.child.start_kill();
+    }
+
     /// Stop the child and wait for it, so the local port is free again.
     pub async fn close(mut self) {
         let _ = self.child.start_kill();
         let _ = tokio::time::timeout(CLOSE_BUDGET, self.child.wait()).await;
+    }
+}
+
+#[cfg(test)]
+impl SshTunnel {
+    /// A tunnel wrapped around any child process, with a given stderr tail.
+    ///
+    /// The state machine AROUND a tunnel — death detection, the reap, the
+    /// message the user reads — is most of the risk in Phase 3, and none of it
+    /// is about `ssh` in particular. `/bin/sleep` stands in for a healthy
+    /// tunnel and a killed one for a dead tunnel, so those paths are tested
+    /// with no server, no network and no timing.
+    pub fn for_test(child: Child, local_port: u16, stderr_tail: &str) -> Self {
+        SshTunnel {
+            child,
+            local_port,
+            stderr_tail: Arc::new(Mutex::new(stderr_tail.to_string())),
+        }
     }
 }
 
@@ -392,6 +437,24 @@ fn last_meaningful_line(tail: &str) -> String {
         .next_back()
         .unwrap_or("")
         .to_string()
+}
+
+/// The reason a POOL failed, when the tunnel itself is healthy.
+///
+/// `ExitOnForwardFailure` covers the LOCAL bind only. When the SSH server
+/// cannot reach the database, `ssh` stays alive, accepts the local connection,
+/// and then writes `channel N: open failed: connect failed: ...` before it
+/// closes the channel — so the pool reports a plain socket error and the real
+/// reason is only in the tail. Returns `None` when the tail says nothing about
+/// a forward, so the caller keeps the pool's own message.
+pub fn forward_failure(tail: &str, db_host: &str, db_port: u16) -> Option<String> {
+    if tail.to_lowercase().contains("open failed") {
+        Some(format!(
+            "The SSH server could not reach {db_host}:{db_port}."
+        ))
+    } else {
+        None
+    }
 }
 
 /// Turn the child's `stderr` into one reason.
