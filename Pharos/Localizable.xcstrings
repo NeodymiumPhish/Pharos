@@ -27,8 +27,28 @@
         }
       }
     },
+    "(%@, %@) · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "(%1$@, %2$@) · %3$@"
+          }
+        }
+      }
+    },
     "%@" : {
 
+    },
+    "%@  %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@  %2$@"
+          }
+        }
+      }
     },
     "%@ — %@" : {
       "localizations" : {
@@ -36,6 +56,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ — %3$@"
           }
         }
       }
@@ -107,10 +137,16 @@
     "8 spaces" : {
 
     },
+    "A log scale needs every value above zero." : {
+
+    },
     "A query named '%@' already exists in this folder." : {
 
     },
     "About Pharos" : {
+
+    },
+    "Accept new host keys" : {
 
     },
     "Add" : {
@@ -172,16 +208,34 @@
         }
       }
     },
+    "Apply the chart Pharos recommends for these columns." : {
+
+    },
+    "Ask the on-device model which chart fits this result." : {
+
+    },
+    "Asking the on-device model…" : {
+
+    },
     "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was." : {
 
     },
     "Authenticate to show the stored password." : {
 
     },
+    "Authenticate to show the stored secret." : {
+
+    },
+    "Authentication" : {
+
+    },
     "Authentication did not succeed." : {
 
     },
     "Auto" : {
+
+    },
+    "bastion.example.com or a Host from ~/.ssh/config" : {
 
     },
     "Bool Display" : {
@@ -211,6 +265,9 @@
     "Check for updates in the background" : {
 
     },
+    "Choose" : {
+
+    },
     "Choose a connection for this tab to start." : {
 
     },
@@ -226,6 +283,9 @@
           }
         }
       }
+    },
+    "Choose the private key file for this tunnel." : {
+
     },
     "Choose where to save the exported data" : {
 
@@ -252,6 +312,9 @@
 
     },
     "Connect this tab to a database to draft a query." : {
+
+    },
+    "Connect through an SSH tunnel" : {
 
     },
     "connect to %@" : {
@@ -427,7 +490,7 @@
     "Explain Analyze runs the statement." : {
 
     },
-    "Explain errors, suggest names, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac." : {
+    "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac." : {
 
     },
     "Explain Query" : {
@@ -502,6 +565,9 @@
     "Format SQL (⌃I)" : {
 
     },
+    "From ~/.ssh/config" : {
+
+    },
     "General" : {
 
     },
@@ -571,7 +637,13 @@
     "Jump to Selection" : {
 
     },
+    "Key File" : {
+
+    },
     "Keyboard Shortcuts" : {
+
+    },
+    "Legend" : {
 
     },
     "Light" : {
@@ -583,6 +655,9 @@
     "Loading…" : {
 
     },
+    "Log scale" : {
+
+    },
     "Manage Connections…" : {
 
     },
@@ -590,6 +665,9 @@
 
     },
     "Minimize" : {
+
+    },
+    "More layouts" : {
 
     },
     "Name" : {
@@ -721,6 +799,12 @@
     "Orders per region this year" : {
 
     },
+    "Passphrase" : {
+
+    },
+    "Password" : {
+
+    },
     "Password taken from the link." : {
 
     },
@@ -751,6 +835,9 @@
     "Pharos Help" : {
 
     },
+    "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply." : {
+
+    },
     "Plan %@" : {
 
     },
@@ -763,7 +850,13 @@
     "Planning %@" : {
 
     },
+    "Plot the Y axis on a logarithmic scale." : {
+
+    },
     "primary key" : {
+
+    },
+    "Private key file" : {
 
     },
     "Queries" : {
@@ -794,6 +887,9 @@
 
     },
     "Reading schemas…" : {
+
+    },
+    "Records an unknown server key on the first connection. A changed key is still refused." : {
 
     },
     "Redo" : {
@@ -1000,6 +1096,9 @@
     "show the password for %@" : {
 
     },
+    "Size" : {
+
+    },
     "Slowest step: %@" : {
 
     },
@@ -1012,6 +1111,21 @@
     "SQL" : {
 
     },
+    "SSH agent" : {
+
+    },
+    "SSH Host" : {
+
+    },
+    "SSH Port" : {
+
+    },
+    "SSH Tunnel" : {
+
+    },
+    "SSH User" : {
+
+    },
     "Stale (editor modified since execution)" : {
 
     },
@@ -1022,6 +1136,9 @@
 
     },
     "Status" : {
+
+    },
+    "Suggest chart" : {
 
     },
     "Suggested…" : {
@@ -1048,6 +1165,9 @@
     "Test connection first" : {
 
     },
+    "Testing…" : {
+
+    },
     "That connection is no longer saved in Pharos." : {
 
     },
@@ -1069,6 +1189,9 @@
     "The model could not draft a query. Try again." : {
 
     },
+    "The model could not suggest a chart. Try again." : {
+
+    },
     "The model declined to explain this error." : {
 
     },
@@ -1082,6 +1205,9 @@
 
     },
     "The model does not support this language." : {
+
+    },
+    "The model would not answer for this result." : {
 
     },
     "The model would not answer that. Try describing the query another way." : {
@@ -1117,6 +1243,9 @@
     "The statement is too long to explain." : {
 
     },
+    "There is nothing to chart in this result." : {
+
+    },
     "These changes can no longer be matched to rows. Discard them and try again." : {
 
     },
@@ -1138,6 +1267,9 @@
     "This query has no SQL yet." : {
 
     },
+    "This result has too many columns for one request." : {
+
+    },
     "This saved query has no connection, so Pharos cannot run it." : {
 
     },
@@ -1148,6 +1280,9 @@
 
     },
     "Timeout" : {
+
+    },
+    "Title" : {
 
     },
     "Turned off in Pharos settings." : {

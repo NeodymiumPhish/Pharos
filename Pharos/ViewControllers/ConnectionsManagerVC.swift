@@ -321,6 +321,9 @@ final class ConnectionsManagerVC: NSViewController {
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 10
         static let badgeGap: CGFloat = 6
+        /// The gap under the pinned action bar, and above its separator.
+        static let actionBarInsetBottom: CGFloat = 16
+        static let actionBarInsetTop: CGFloat = 14
     }
 
     /// Slightly darker than the right pane's content background, so the left
@@ -336,9 +339,18 @@ final class ConnectionsManagerVC: NSViewController {
 
     override func loadView() {
         // A sheet takes its size from this frame, the way every other sheet in
-        // Pharos/Sheets does. 860x560 is what the free-floating window used and
-        // what TagManagerSheet uses.
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 560))
+        // Pharos/Sheets does. It used to be 860x560, matching TagManagerSheet —
+        // but MEASURED against this form that was always too short: with no SSH
+        // section at all the form wants 633 pt against a 508 pt viewport, so
+        // Test Connection, Revert and Save sat below the fold on a fresh
+        // connection and the user had to scroll to reach Save.
+        //
+        // 720 gives a 668 pt viewport, which holds the whole form with the SSH
+        // section closed — the common case — with room to spare. With the
+        // section open the form wants 848 pt and still scrolls; that is the
+        // right trade, because an advanced section should not make every
+        // connection's window taller.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 880, height: 720))
         self.view = root
 
         let split = NSSplitView()
@@ -592,10 +604,6 @@ final class ConnectionsManagerVC: NSViewController {
         testStatusLabel.lineBreakMode = .byTruncatingTail
         testStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let testRow = NSStackView(views: [testButton, testSpinner, testStatusLabel])
-        testRow.orientation = .horizontal
-        testRow.alignment = .centerY
-        testRow.spacing = 10
 
         revertButton.title = "Revert"
         revertButton.bezelStyle = .rounded
@@ -608,12 +616,27 @@ final class ConnectionsManagerVC: NSViewController {
         saveButton.target = self
         saveButton.action = #selector(saveChanges)
 
-        let footerSpacer = NSView()
-        footerSpacer.translatesAutoresizingMaskIntoConstraints = false
-        let footer = NSStackView(views: [footerSpacer, revertButton, saveButton])
-        footer.orientation = .horizontal
-        footer.spacing = 10
-        footer.alignment = .centerY
+        // Test Connection, Revert and Save live in a bar pinned to the bottom
+        // of the pane, OUTSIDE the scroll view — the same place, and the same
+        // reason, as the sheet's own Done button.
+        //
+        // Measured: with no SSH section at all this form wants 633 pt of a
+        // 508 pt viewport, so inside the scroll view Save sat below the fold on
+        // a fresh connection. An action the user must reach to finish the task
+        // must never be something they have to find by scrolling.
+        let actionSpacer = NSView()
+        actionSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let actionBar = NSStackView(views: [testButton, testSpinner, testStatusLabel,
+                                            actionSpacer, revertButton, saveButton])
+        actionBar.orientation = .horizontal
+        actionBar.alignment = .centerY
+        actionBar.spacing = 10
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
+        // The status text yields first: the three buttons keep their size and
+        // the message truncates, with the whole of it in the tooltip.
+        actionBar.setHuggingPriority(.defaultLow, for: .horizontal)
+        let actionSeparator = NSBox.separator()
+        actionSeparator.translatesAutoresizingMaskIntoConstraints = false
 
         let serverSection = section(title: "Server", rows: [
             row(label: "Name", field: nameField),
@@ -665,13 +688,16 @@ final class ConnectionsManagerVC: NSViewController {
             row(label: "Default Schema", control: defaultSchemaPopup),
         ])
 
-        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection, testRow, footer])
+        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection])
         main.orientation = .vertical
         main.alignment = .leading
         main.spacing = L.sectionSpacing
         main.translatesAutoresizingMaskIntoConstraints = false
         main.edgeInsets = NSEdgeInsets(top: L.formInsetTop, left: L.formInsetH,
                                        bottom: L.formInsetBottom, right: L.formInsetH)
+        // Nothing below the form now competes for the pane's height, so the
+        // stack keeps its content height and the scroll view supplies the rest.
+        main.setHuggingPriority(.required, for: .vertical)
 
         // The form scrolls.
         //
@@ -692,13 +718,24 @@ final class ConnectionsManagerVC: NSViewController {
         document.addSubview(main)
         scroll.documentView = document
         container.addSubview(scroll)
+        container.addSubview(actionSeparator)
+        container.addSubview(actionBar)
         detailScrollView = scroll
 
         NSLayoutConstraint.activate([
+            actionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: L.formInsetH),
+            actionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -L.formInsetH),
+            actionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -L.actionBarInsetBottom),
+
+            actionSeparator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            actionSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            actionSeparator.bottomAnchor.constraint(equalTo: actionBar.topAnchor,
+                                                    constant: -L.actionBarInsetTop),
+
             scroll.topAnchor.constraint(equalTo: container.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scroll.bottomAnchor.constraint(equalTo: actionSeparator.topAnchor),
             // The document takes the clip's width, so nothing ever scrolls
             // sideways and the rows keep the width they had before.
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
@@ -708,8 +745,6 @@ final class ConnectionsManagerVC: NSViewController {
             main.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             main.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             header.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            footer.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            testRow.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             serverSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             authSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             sshSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
@@ -729,6 +764,7 @@ final class ConnectionsManagerVC: NSViewController {
         sshEnabledCheckbox.title = String(localized: "Connect through an SSH tunnel")
         sshEnabledCheckbox.target = self
         sshEnabledCheckbox.action = #selector(sshEnabledChanged)
+        sshEnabledCheckbox.translatesAutoresizingMaskIntoConstraints = false
         sshEnabledCheckbox.setAccessibilityIdentifier("connections.ssh.enabled")
 
         for field in [sshHostField, sshPortField, sshUserField, sshKeyPathField] {
@@ -783,6 +819,7 @@ final class ConnectionsManagerVC: NSViewController {
         sshAcceptNewHostKeysCheckbox.title = String(localized: "Accept new host keys")
         sshAcceptNewHostKeysCheckbox.target = self
         sshAcceptNewHostKeysCheckbox.action = #selector(fieldEdited)
+        sshAcceptNewHostKeysCheckbox.translatesAutoresizingMaskIntoConstraints = false
         sshAcceptNewHostKeysCheckbox.setAccessibilityIdentifier("connections.ssh.acceptNewHostKeys")
 
         let keyControls = NSStackView(views: [sshKeyPathField, sshChooseKeyButton])
@@ -947,6 +984,7 @@ final class ConnectionsManagerVC: NSViewController {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(labelView)
+        field.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(field)
         // The badge announces the field it warns about, and the field the badge.
         badge?.link(to: field)
@@ -1007,6 +1045,13 @@ final class ConnectionsManagerVC: NSViewController {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(labelView)
+        // Here, not at the call site. A control that still translates its
+        // autoresizing mask brings constraints from its ZERO frame, which
+        // outrank the ones below: the control renders as a tiny square at the
+        // container's origin with its title clipped away, and it cannot be
+        // clicked. Every earlier caller happened to set this itself, so the
+        // helper's dependence on them was invisible until one did not.
+        control.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(control)
 
         NSLayoutConstraint.activate([
@@ -1266,7 +1311,7 @@ final class ConnectionsManagerVC: NSViewController {
             defaultSchemaPopup.toolTip = nil
         }
 
-        testStatusLabel.stringValue = ""
+        setTestStatus("")
         testSpinner.isHidden = true
         testSpinner.stopAnimation(nil)
 
@@ -1311,6 +1356,17 @@ final class ConnectionsManagerVC: NSViewController {
         saveButton.contentTintColor = canSave ? .alternateSelectedControlTextColor : nil
         revertButton.isEnabled = isDirty
         listModel.dirtyConnectionId = isDirty ? draft?.id : nil
+    }
+
+    /// The Test Connection result line.
+    ///
+    /// The label shares one row with three buttons now, so a long message —
+    /// and the SSH ones are long by design, because they tell the user what to
+    /// do next — truncates. The tooltip carries the whole of it, so nothing is
+    /// lost; without this the host-key sentence would end at "Turn on".
+    private func setTestStatus(_ text: String) {
+        testStatusLabel.stringValue = text
+        testStatusLabel.toolTip = text.isEmpty ? nil : text
     }
 
     private func isDraftValid() -> Bool {
@@ -1524,7 +1580,7 @@ final class ConnectionsManagerVC: NSViewController {
         testButton.isEnabled = false
         testSpinner.isHidden = false
         testSpinner.startAnimation(nil)
-        testStatusLabel.stringValue = "Testing…"
+        setTestStatus(String(localized: "Testing…"))
         testStatusLabel.textColor = .secondaryLabelColor
 
         Task { [weak self] in
@@ -1537,11 +1593,11 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testButton.isEnabled = true
                     if result.success {
                         let ms = result.latencyMs.map { " \($0)ms" } ?? ""
-                        self.testStatusLabel.stringValue = "Connected\(ms)"
+                        self.setTestStatus("Connected\(ms)")
                         self.testStatusLabel.textColor = .systemGreen
                         self.populateDefaultSchemas(using: d)
                     } else {
-                        self.testStatusLabel.stringValue = DisplayEscape.escaped(result.error ?? "Failed")
+                        self.setTestStatus(DisplayEscape.escaped(result.error ?? "Failed"))
                         self.testStatusLabel.textColor = .systemRed
                     }
                 }
@@ -1551,7 +1607,7 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    self.testStatusLabel.stringValue = DisplayEscape.escaped(error.localizedDescription)
+                    self.setTestStatus(DisplayEscape.escaped(error.localizedDescription))
                     self.testStatusLabel.textColor = .systemRed
                 }
             }
