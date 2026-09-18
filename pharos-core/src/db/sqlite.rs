@@ -1,7 +1,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 use std::path::Path;
 
-use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, QueryVariable, SavedQuery, Session, SessionTab, SessionWindow, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
+use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery, CreateTag, ModelFeedbackEntry, NewTagRule, QueryHistoryEntry, QueryVariable, SavedQuery, Session, SessionTab, SessionWindow, SshTunnelConfig, SslMode, Tag, TagRule, UpdateSavedQuery, UpdateTag, UpdateTagRule};
 
 // ==================== Compression Helpers ====================
 
@@ -309,6 +309,23 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     if !has_requires_authentication {
         conn.execute(
             "ALTER TABLE connections ADD COLUMN requires_authentication INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
+    // Migration: Add ssh_tunnel column if it doesn't exist. The column holds
+    // the tunnel as JSON with an EMPTY secret — the secret lives in the
+    // Keychain under "<connection id>/ssh" (see db/credentials.rs). NULL means
+    // the connection has no tunnel, which is every existing record.
+    let has_ssh_tunnel: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'ssh_tunnel'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_ssh_tunnel {
+        conn.execute(
+            "ALTER TABLE connections ADD COLUMN ssh_tunnel TEXT",
             [],
         )?;
     }
@@ -757,6 +774,26 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     Ok(())
 }
 
+/// The value the `ssh_tunnel` column takes for a config.
+///
+/// The secret is cleared first, so the column can never hold it however the
+/// caller filled the struct — the Keychain is the only store for it. `None`
+/// (no tunnel) writes SQL NULL. A serialize failure is impossible for this
+/// struct, but it must not lose the rest of the record, so it degrades to NULL
+/// with a warning.
+fn ssh_tunnel_column(tunnel: Option<&SshTunnelConfig>) -> Option<String> {
+    let tunnel = tunnel?;
+    let mut stored = tunnel.clone();
+    stored.secret = String::new();
+    match serde_json::to_string(&stored) {
+        Ok(json) => Some(json),
+        Err(e) => {
+            log::warn!("Could not serialize the SSH tunnel; the column stays NULL: {}", e);
+            None
+        }
+    }
+}
+
 /// Save a connection configuration to the database (password stored separately in keychain)
 pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteResult<()> {
     // Get the next sort_order value for new connections
@@ -770,8 +807,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -782,6 +819,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             color = excluded.color,
             default_schema = excluded.default_schema,
             requires_authentication = excluded.requires_authentication,
+            ssh_tunnel = excluded.ssh_tunnel,
             updated_at = CURRENT_TIMESTAMP
         "#,
         (
@@ -796,15 +834,40 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.color,
             &config.default_schema,
             config.requires_authentication,
+            ssh_tunnel_column(config.ssh_tunnel.as_ref()),
         ),
     )?;
     Ok(())
 }
 
+/// Read the `ssh_tunnel` column back.
+///
+/// NULL is the normal "no tunnel" case. A row that will not parse is reported
+/// and read as no tunnel, so one damaged record cannot stop the whole
+/// connection list loading — the user sees that connection without its tunnel
+/// rather than an empty Connections Manager.
+fn parse_ssh_tunnel_column(raw: Option<String>, connection_id: &str) -> Option<SshTunnelConfig> {
+    let raw = raw?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    match serde_json::from_str(&raw) {
+        Ok(tunnel) => Some(tunnel),
+        Err(e) => {
+            log::warn!(
+                "Connection {} has an unreadable ssh_tunnel column; it loads without a tunnel: {}",
+                connection_id,
+                e
+            );
+            None
+        }
+    }
+}
+
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0) FROM connections ORDER BY sort_order, name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
@@ -814,8 +877,9 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             "require" => SslMode::Require,
             _ => SslMode::Prefer,
         };
+        let id: String = row.get(0)?;
         Ok(ConnectionConfig {
-            id: row.get(0)?,
+            id: id.clone(),
             name: row.get(1)?,
             host: row.get(2)?,
             port: row.get(3)?,
@@ -826,6 +890,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             color: row.get(7)?,
             default_schema: row.get(8)?,
             requires_authentication: row.get(9)?,
+            ssh_tunnel: parse_ssh_tunnel_column(row.get::<_, Option<String>>(10)?, &id),
         })
     })?;
 
@@ -875,6 +940,7 @@ mod connection_auth_flag_tests {
             color: None,
             default_schema: None,
             requires_authentication,
+            ssh_tunnel: None,
         }
     }
 
@@ -928,6 +994,197 @@ mod connection_auth_flag_tests {
             .expect("query_row");
         assert_eq!(count, 1, "requires_authentication column present after migration");
         assert!(!loaded(&conn, "legacy").requires_authentication, "an untouched record stays ungated");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The `ssh_tunnel` column: the migration, the round trip, and the one rule
+/// that matters most — the secret must never reach SQLite.
+#[cfg(test)]
+mod connection_ssh_tunnel_tests {
+    use super::*;
+    use crate::models::SshAuth;
+    use std::path::PathBuf;
+
+    const SECRET: &str = "not-in-the-database";
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    /// Every optional field is filled and no field takes its default value, so
+    /// a column that dropped one, or a writer that wrote a default, fails.
+    fn tunnel() -> SshTunnelConfig {
+        SshTunnelConfig {
+            host: "bastion.example.com".to_string(),
+            port: 2222,
+            user: Some("deploy".to_string()),
+            auth: SshAuth::KeyFile,
+            key_path: Some("/Users/x/.ssh/id_ed25519".to_string()),
+            secret: SECRET.to_string(),
+            accept_new_host_keys: true,
+        }
+    }
+
+    fn config(id: &str, ssh_tunnel: Option<SshTunnelConfig>) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "db.internal".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Disable,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel,
+        }
+    }
+
+    fn loaded(conn: &Connection, id: &str) -> ConnectionConfig {
+        load_connections(conn)
+            .expect("load_connections")
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    fn raw_column(conn: &Connection, id: &str) -> Option<String> {
+        conn.query_row(
+            "SELECT ssh_tunnel FROM connections WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .expect("read the raw column")
+    }
+
+    /// Save → load keeps every field, and the stored column carries an EMPTY
+    /// secret. The raw-text assertion is the load-bearing one: the Keychain is
+    /// the only store for the secret, and a `skip_serializing_if` that stopped
+    /// working would be invisible to the struct comparison alone.
+    #[test]
+    fn a_tunnel_round_trips_and_its_secret_stays_out_of_the_column() {
+        let dir = temp_db_dir("ssh_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+
+        save_connection(&conn, &config("t1", Some(tunnel()))).expect("save");
+
+        let raw = raw_column(&conn, "t1").expect("the column holds JSON");
+        assert!(
+            !raw.contains(SECRET),
+            "the SSH secret reached SQLite: {raw}"
+        );
+        assert!(
+            !raw.contains("secret"),
+            "an empty secret must be omitted, not written: {raw}"
+        );
+
+        let back = loaded(&conn, "t1").ssh_tunnel.expect("the tunnel loads back");
+        let mut expected = tunnel();
+        expected.secret = String::new(); // filled from the Keychain, not from here
+        assert_eq!(back, expected);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Turning the tunnel off must clear the column. Without
+    /// `ssh_tunnel = excluded.ssh_tunnel` in the upsert the old tunnel would
+    /// survive and the connection would keep tunnelling after the user
+    /// switched it off.
+    #[test]
+    fn the_upsert_branch_clears_a_tunnel() {
+        let dir = temp_db_dir("ssh_upsert");
+        let conn = init_database(&dir).expect("init_database");
+
+        save_connection(&conn, &config("t1", Some(tunnel()))).expect("save with");
+        assert!(loaded(&conn, "t1").ssh_tunnel.is_some());
+
+        save_connection(&conn, &config("t1", None)).expect("save without");
+        assert_eq!(raw_column(&conn, "t1"), None, "the column must be NULL again");
+        assert!(loaded(&conn, "t1").ssh_tunnel.is_none());
+
+        // And back on again, so the branch is proved in both directions.
+        save_connection(&conn, &config("t1", Some(tunnel()))).expect("save with again");
+        assert!(loaded(&conn, "t1").ssh_tunnel.is_some());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A store written before this feature has no column at all. Dropping the
+    /// column reproduces that state exactly, which `init_database` alone
+    /// cannot — the first init already creates it.
+    #[test]
+    fn the_migration_adds_the_column_to_an_older_store_and_is_idempotent() {
+        let dir = temp_db_dir("ssh_migration");
+        let conn = init_database(&dir).expect("init 1");
+        save_connection(&conn, &config("legacy", None)).expect("save legacy");
+        conn.execute("ALTER TABLE connections DROP COLUMN ssh_tunnel", [])
+            .expect("make the store look pre-migration");
+        let gone: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'ssh_tunnel'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count");
+        assert_eq!(gone, 0, "the fixture must really be missing the column");
+        drop(conn);
+
+        let conn = init_database(&dir).expect("init 2 migrates");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'ssh_tunnel'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 1, "the column is back");
+        assert!(
+            loaded(&conn, "legacy").ssh_tunnel.is_none(),
+            "a record from before the feature has no tunnel"
+        );
+        drop(conn);
+
+        // A third init must not try the ALTER a second time.
+        let conn = init_database(&dir).expect("init 3 is idempotent");
+        assert!(loaded(&conn, "legacy").ssh_tunnel.is_none());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One damaged row must cost the user that row's tunnel, not the whole
+    /// Connections Manager. The good row is checked in the same load, so a
+    /// failure that aborted the query would fail this too.
+    #[test]
+    fn an_unreadable_column_loads_as_no_tunnel_and_does_not_stop_the_list() {
+        let dir = temp_db_dir("ssh_bad_json");
+        let conn = init_database(&dir).expect("init_database");
+
+        save_connection(&conn, &config("bad", Some(tunnel()))).expect("save bad");
+        save_connection(&conn, &config("good", Some(tunnel()))).expect("save good");
+        conn.execute(
+            "UPDATE connections SET ssh_tunnel = '{ this is not json' WHERE id = 'bad'",
+            [],
+        )
+        .expect("damage the row");
+
+        let all = load_connections(&conn).expect("the list must still load");
+        assert_eq!(all.len(), 2, "both rows are listed");
+        let bad = all.iter().find(|c| c.id == "bad").expect("bad row");
+        let good = all.iter().find(|c| c.id == "good").expect("good row");
+        assert!(bad.ssh_tunnel.is_none(), "the damaged tunnel reads as absent");
+        assert_eq!(
+            good.ssh_tunnel.as_ref().map(|t| t.host.as_str()),
+            Some("bastion.example.com"),
+            "the healthy row keeps its tunnel"
+        );
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

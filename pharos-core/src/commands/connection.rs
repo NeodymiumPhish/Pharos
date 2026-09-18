@@ -44,10 +44,27 @@ pub async fn save_connection(
     config: ConnectionConfig,
     state: &AppState,
 ) -> Result<(), String> {
-    // Store password securely in OS keychain and update cache
-    if !config.password.is_empty() {
+    // Store the secrets in the OS keychain and update the cache. An EMPTY
+    // secret means "the caller did not send one", never "clear it": the form
+    // sends the password masked unless the user revealed it, so an empty
+    // string must leave the stored value alone.
+    {
         let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
-        credentials::store_password_with_cache(&config.id, &config.password, &mut cache)?;
+        if !config.password.is_empty() {
+            credentials::store_password_with_cache(&config.id, &config.password, &mut cache)?;
+        }
+        let ssh_key = credentials::ssh_secret_key(&config.id);
+        match config.ssh_tunnel.as_ref() {
+            Some(tunnel) if !tunnel.secret.is_empty() => {
+                credentials::store_password_with_cache(&ssh_key, &tunnel.secret, &mut cache)?;
+            }
+            // The tunnel is gone, so its secret must go too. Without this the
+            // Keychain keeps a secret no connection can ever use or delete.
+            None if cache.contains_key(&ssh_key) => {
+                credentials::delete_password_with_cache(&ssh_key, &mut cache)?;
+            }
+            _ => {}
+        }
     }
 
     // Save metadata to SQLite (without password)
@@ -72,10 +89,10 @@ pub async fn delete_connection(
         pool.close().await;
     }
 
-    // Delete password from keychain and update cache
+    // Delete every secret this connection owns, in one keychain write
     {
         let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
-        credentials::delete_password_with_cache(&connection_id, &mut cache)?;
+        credentials::delete_connection_secrets_with_cache(&connection_id, &mut cache)?;
     }
 
     // Delete from SQLite
@@ -107,10 +124,19 @@ pub async fn load_connections(state: &AppState) -> Result<Vec<ConnectionConfig>,
         sqlite::load_connections(&db).map_err(|e| e.to_string())?
     };
 
-    // Load passwords from in-memory cache (populated at startup)
+    // Load the secrets from the in-memory cache (populated at startup). The
+    // SQLite column holds the tunnel with an empty secret, so the tunnel is
+    // only usable once this fills it back in.
     for config in &mut configs {
         if let Some(password) = state.get_cached_password(&config.id) {
             config.password = password;
+        }
+        if let Some(tunnel) = config.ssh_tunnel.as_mut() {
+            if let Some(secret) =
+                state.get_cached_password(&credentials::ssh_secret_key(&config.id))
+            {
+                tunnel.secret = secret;
+            }
         }
     }
 
@@ -237,6 +263,7 @@ mod failed_connect_state_tests {
             color: None,
             default_schema: None,
             requires_authentication: false,
+            ssh_tunnel: None,
         };
         let id = config.id.clone();
         state.set_config(config);

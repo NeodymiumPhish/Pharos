@@ -11,6 +11,22 @@ fn service_name() -> String {
     std::env::var("PHAROS_KEYCHAIN_SERVICE").unwrap_or_else(|_| DEFAULT_SERVICE_NAME.to_string())
 }
 
+/// Key convention inside the one Keychain blob.
+///
+/// The blob is a `HashMap<String, String>`. A connection's DATABASE password
+/// is held under the bare connection id. Every other secret for the same
+/// connection takes a suffixed key, so one map serves them all and the
+/// existing migration path is untouched. Today there is one suffix:
+///
+///   `"<connection id>"`      the PostgreSQL password
+///   `"<connection id>/ssh"`  the SSH password or key passphrase
+///
+/// A connection id is a UUID, so it can never contain `/` and the two key
+/// spaces cannot collide.
+pub fn ssh_secret_key(connection_id: &str) -> String {
+    format!("{}/ssh", connection_id)
+}
+
 /// Get the single keychain entry that stores all connection passwords
 fn get_credentials_entry() -> Result<Entry, String> {
     Entry::new(&service_name(), CREDENTIALS_KEY)
@@ -53,23 +69,47 @@ fn save_all_passwords(passwords: &HashMap<String, String>) -> Result<(), String>
     }
 }
 
-/// Store a password securely in the OS keychain (also updates the provided cache)
+/// Store one secret securely in the OS keychain (also updates the provided
+/// cache). `key` follows the convention in `ssh_secret_key` above: the bare
+/// connection id for the database password, `"<id>/ssh"` for the SSH secret.
 pub fn store_password_with_cache(
-    connection_id: &str,
+    key: &str,
     password: &str,
     cache: &mut HashMap<String, String>,
 ) -> Result<(), String> {
-    cache.insert(connection_id.to_string(), password.to_string());
+    cache.insert(key.to_string(), password.to_string());
     save_all_passwords(cache)
 }
 
-/// Delete a password from the OS keychain (also updates the provided cache)
+/// Remove one secret from the OS keychain (also updates the provided cache).
+/// `key` follows the same convention as `store_password_with_cache`.
 pub fn delete_password_with_cache(
+    key: &str,
+    cache: &mut HashMap<String, String>,
+) -> Result<(), String> {
+    cache.remove(key);
+    save_all_passwords(cache)
+}
+
+/// Delete EVERY secret a connection owns — the database password and the SSH
+/// secret — in one Keychain write.
+///
+/// Deleting a connection must not leave an orphan secret behind, and two
+/// separate deletes would write the blob twice and could leave the second
+/// secret if the first write failed.
+pub fn delete_connection_secrets_with_cache(
     connection_id: &str,
     cache: &mut HashMap<String, String>,
 ) -> Result<(), String> {
-    cache.remove(connection_id);
+    forget_connection_secrets(connection_id, cache);
     save_all_passwords(cache)
+}
+
+/// Which keys a connection owns, as a pure cache edit. Split out so a test can
+/// run the real rule without a Keychain.
+fn forget_connection_secrets(connection_id: &str, cache: &mut HashMap<String, String>) {
+    cache.remove(connection_id);
+    cache.remove(&ssh_secret_key(connection_id));
 }
 
 /// Migrate passwords from old per-connection keychain entries to the new unified entry.
@@ -107,4 +147,40 @@ pub fn migrate_legacy_passwords(connection_ids: &[String]) -> Result<HashMap<Str
     }
 
     Ok(passwords)
+}
+
+#[cfg(test)]
+mod key_convention_tests {
+    use super::*;
+
+    /// The suffix is a contract: `commands::connection` writes and reads the
+    /// SSH secret under it, and `migrate_legacy_passwords` must never mistake
+    /// it for a connection id. A connection id is a UUID, so the separator
+    /// cannot appear inside one.
+    #[test]
+    fn the_ssh_key_suffixes_the_connection_id() {
+        let id = "9d56a337-0000-4000-8000-000000000001";
+        assert_eq!(ssh_secret_key(id), format!("{id}/ssh"));
+        assert_ne!(ssh_secret_key(id), id, "the two secrets need distinct keys");
+    }
+
+    /// Deleting a connection clears BOTH keys and leaves every other
+    /// connection's secrets alone.
+    #[test]
+    fn deleting_a_connection_clears_both_of_its_keys_only() {
+        let mut cache = HashMap::new();
+        cache.insert("a".to_string(), "db-a".to_string());
+        cache.insert(ssh_secret_key("a"), "ssh-a".to_string());
+        cache.insert("b".to_string(), "db-b".to_string());
+        cache.insert(ssh_secret_key("b"), "ssh-b".to_string());
+
+        // The production rule itself, without the Keychain write that follows
+        // it in `delete_connection_secrets_with_cache`.
+        forget_connection_secrets("a", &mut cache);
+
+        assert!(!cache.contains_key("a"));
+        assert!(!cache.contains_key(&ssh_secret_key("a")), "no orphan SSH secret");
+        assert_eq!(cache.get("b").map(String::as_str), Some("db-b"));
+        assert_eq!(cache.get(&ssh_secret_key("b")).map(String::as_str), Some("ssh-b"));
+    }
 }
