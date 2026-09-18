@@ -17,6 +17,8 @@
 
 use std::io;
 use std::net::TcpListener;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -44,6 +46,28 @@ const CLOSE_BUDGET: Duration = Duration::from_secs(2);
 
 /// How much of the child's `stderr` is kept for a later failure message.
 const STDERR_TAIL_LIMIT: usize = 2048;
+
+/// The askpass helper's file name inside the application support directory.
+const ASKPASS_FILE: &str = "pharos-askpass";
+
+/// The environment variable the helper reads the secret from.
+const SECRET_VAR: &str = "PHAROS_SSH_SECRET";
+
+/// The helper script. It prints ONE environment variable and nothing else.
+///
+/// `printf '%s'` rather than `echo`: `echo` adds a newline, and some shells
+/// interpret backslashes in the argument, either of which would change a
+/// password before `ssh` ever saw it.
+const ASKPASS_SCRIPT: &str = "#!/bin/sh\nprintf '%s' \"$PHAROS_SSH_SECRET\"\n";
+
+/// Where the helper was written this launch. `None` until `pharos_init` calls
+/// `install_askpass_helper`, which is also the state in a unit test.
+///
+/// A `Mutex`, not a `OnceLock`: a later install must REPLACE the path. With a
+/// `OnceLock` the first caller wins for the life of the process, and a second
+/// install — a test with its own directory, or a re-initialised app — would
+/// leave `ssh` pointed at a file that no longer exists.
+static ASKPASS_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// A live `ssh` child and the local port it listens on.
 pub struct SshTunnel {
@@ -265,6 +289,23 @@ pub fn ssh_args(
         }
     }
 
+    // Password mode must USE the password.
+    //
+    // Found by the live test: with these two options absent, a wrong password
+    // still opened the tunnel, because `ssh` went on to the agent key in
+    // `~/.ssh/config` and succeeded. The user would never learn their password
+    // was wrong, and the connection would break later for no visible reason
+    // when the agent was locked. This is the same reasoning as
+    // `IdentitiesOnly=yes` above: the mode the user chose is the mode that
+    // runs. `PreferredAuthentications` only ORDERS the methods, so
+    // `PubkeyAuthentication=no` is what actually closes the key route.
+    if cfg.auth == SshAuth::Password {
+        args.push("-o".to_string());
+        args.push("PreferredAuthentications=password,keyboard-interactive".to_string());
+        args.push("-o".to_string());
+        args.push("PubkeyAuthentication=no".to_string());
+    }
+
     // A secret means a prompt is coming, and a prompt needs the askpass helper
     // (Phase 6). BatchMode would refuse that prompt, so it is only set where
     // no prompt can happen — otherwise `ssh` would fail instead of ask.
@@ -293,6 +334,80 @@ pub fn needs_askpass(cfg: &SshTunnelConfig) -> bool {
         SshAuth::KeyFile => !cfg.secret.is_empty(),
         SshAuth::Password => true,
     }
+}
+
+/// Write the `SSH_ASKPASS` helper and remember where it is (D3, Phase 6).
+///
+/// `ssh` will not read a password from its own standard input, and Pharos has
+/// no terminal to give it, so the only way to answer a prompt is an askpass
+/// helper. The helper carries no secret itself: it prints one environment
+/// variable, and only the `ssh` children that need a prompt are given it.
+///
+/// The file is rewritten at every launch, so a helper edited between launches
+/// cannot survive — `ssh` EXECUTES this file, which makes its contents as
+/// sensitive as the app's own code.
+///
+/// It is created with mode 0700 at open time rather than chmod-ed afterwards:
+/// a chmod leaves a window in which the file is world-readable and, worse,
+/// writable by anything the umask allows.
+///
+/// Known limit (D3): the secret is in the child's environment for the life of
+/// the `ssh` process, so the same user can read it with `ps -E`. Agent and
+/// key-file auth never use this path.
+pub fn install_askpass_helper(app_data_dir: &Path) -> io::Result<PathBuf> {
+    let path = app_data_dir.join(ASKPASS_FILE);
+    // Truncate through the same handle, so the mode is set before any content
+    // exists and an existing file is replaced rather than appended to.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o700)
+        .open(&path)?;
+    use std::io::Write;
+    file.write_all(ASKPASS_SCRIPT.as_bytes())?;
+    file.flush()?;
+    drop(file);
+    // `create` does not change an EXISTING file's mode, so set it as well:
+    // a helper left behind by an older build could be more permissive.
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+
+    remember_askpass_path(path.clone());
+    Ok(path)
+}
+
+fn remember_askpass_path(path: PathBuf) {
+    if let Ok(mut current) = ASKPASS_PATH.lock() {
+        *current = Some(path);
+    }
+}
+
+/// The helper written at startup, if there is one.
+pub fn askpass_path() -> Option<PathBuf> {
+    ASKPASS_PATH.lock().ok().and_then(|p| p.clone())
+}
+
+/// Install an arbitrary script as the askpass helper.
+///
+/// Only a test needs this, and exactly one test does: proving that `ssh`
+/// really EXECUTES the helper. Nothing else can see that — a run without
+/// `SSH_ASKPASS_REQUIRE=force` fails with the same message, only sooner — so
+/// the test installs a helper that leaves a mark when it is called.
+#[cfg(test)]
+pub fn install_askpass_script_for_test(dir: &Path, body: &str) -> io::Result<PathBuf> {
+    let path = dir.join(ASKPASS_FILE);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o700)
+        .open(&path)?;
+    use std::io::Write;
+    file.write_all(body.as_bytes())?;
+    file.flush()?;
+    drop(file);
+    remember_askpass_path(path.clone());
+    Ok(path)
 }
 
 /// Reserve a free loopback port.
@@ -348,7 +463,34 @@ async fn open_once(
         .kill_on_drop(true);
     // The environment is INHERITED on purpose: `ssh` needs HOME to find
     // ~/.ssh/config, SSH_AUTH_SOCK to reach the agent, and PATH for ProxyJump
-    // helpers. Phase 6 adds the askpass variables here.
+    // helpers.
+    //
+    // The askpass variables go on THIS CHILD only, never on the app's own
+    // environment, so no other process Pharos starts can see the secret.
+    // `SSH_ASKPASS_REQUIRE=force` is what makes `ssh` use the helper with no
+    // terminal and no DISPLAY (OpenSSH 8.4 and later; this Mac has 10.3).
+    //
+    // A consequence worth knowing: with the helper forced, an UNKNOWN host key
+    // is also put to the helper, which answers with the secret rather than
+    // "yes", so the connection fails with "Host key verification failed" — the
+    // strict behaviour D2 asks for, and the message names the checkbox.
+    if needs_askpass(cfg) {
+        match askpass_path() {
+            Some(helper) => {
+                command
+                    .env("SSH_ASKPASS", helper)
+                    .env("SSH_ASKPASS_REQUIRE", "force")
+                    .env(SECRET_VAR, &cfg.secret);
+            }
+            None => {
+                // Without the helper `ssh` would stop on a prompt it cannot
+                // show and sit there until the budget runs out. Say so instead.
+                return Err(TunnelError::SpawnFailed(
+                    "the SSH password helper was not installed at startup".to_string(),
+                ));
+            }
+        }
+    }
 
     let mut child = command
         .spawn()
@@ -650,11 +792,34 @@ mod ssh_tunnel_tests {
 
     /// Password auth uses no key, so `-i` and `IdentitiesOnly` must not appear
     /// — `IdentitiesOnly=yes` with no `-i` would offer no identity at all.
+    ///
+    /// And it must close the key route entirely. A live test found that
+    /// without these two options a WRONG password still opened the tunnel,
+    /// because `ssh` fell through to the agent key in `~/.ssh/config`.
     #[test]
-    fn password_auth_offers_no_identity_file() {
+    fn password_auth_offers_no_identity_file_and_closes_the_key_route() {
         let args = args_of(&password("pw"));
         assert!(!has(&args, "-i"), "{args:?}");
         assert!(!has(&args, "IdentitiesOnly=yes"), "{args:?}");
+        assert!(has(&args, "PreferredAuthentications=password,keyboard-interactive"), "{args:?}");
+        assert!(
+            has(&args, "PubkeyAuthentication=no"),
+            "PreferredAuthentications only orders the methods; this is what closes the key route: {args:?}"
+        );
+    }
+
+    /// The other modes must NOT carry it: the agent and a key file are key
+    /// authentication, and turning it off would break both.
+    #[test]
+    fn the_key_modes_keep_public_key_authentication() {
+        for cfg in [agent(Some("deploy")), key_file(Some("/k"), ""), key_file(Some("/k"), "pass")] {
+            let args = args_of(&cfg);
+            assert!(
+                !has(&args, "PubkeyAuthentication=no"),
+                "{:?} needs public key authentication: {args:?}",
+                cfg.auth
+            );
+        }
     }
 
     /// Key-file mode with an empty path is a half-filled form. Emitting
@@ -852,6 +1017,134 @@ mod ssh_tunnel_tests {
         let mut tail = format!("{}\u{1F600}abcdefgh\n", "x".repeat(40));
         trim_tail(&mut tail, 12);
         assert!(tail.len() <= 12, "kept {} bytes", tail.len());
+    }
+}
+
+/// The `SSH_ASKPASS` helper (D3, Phase 6).
+#[cfg(test)]
+mod askpass_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pharos_askpass_{}_{}", tag, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create the temp dir");
+        dir
+    }
+
+    /// `ssh` EXECUTES this file, so its mode is a security property, not a
+    /// detail: anything the owner's group or the world could write would run
+    /// inside the user's session.
+    #[test]
+    fn the_helper_is_written_owner_only_and_executable() {
+        let dir = temp_dir("mode");
+        let path = install_askpass_helper(&dir).expect("install");
+
+        assert!(path.exists(), "the helper must exist after install");
+        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "the helper must be owner-only, got {mode:o}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// It prints ONE variable and holds no secret of its own, so the file on
+    /// disk is worthless to anyone who reads it.
+    #[test]
+    fn the_helper_prints_the_variable_and_nothing_else() {
+        let dir = temp_dir("content");
+        let path = install_askpass_helper(&dir).expect("install");
+        let body = std::fs::read_to_string(&path).expect("read");
+
+        assert!(body.starts_with("#!/bin/sh\n"), "got {body:?}");
+        assert!(body.contains("$PHAROS_SSH_SECRET"), "got {body:?}");
+        // `printf '%s'`, not `echo`: `echo` appends a newline and some shells
+        // expand backslashes, either of which would change the password.
+        assert!(body.contains("printf '%s'"), "got {body:?}");
+        assert!(!body.contains("echo"), "echo would alter the secret: {body:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A helper edited between launches must not survive, and a file left too
+    /// permissive by an older build must be tightened.
+    #[test]
+    fn a_second_install_replaces_an_edited_helper_and_fixes_its_mode() {
+        let dir = temp_dir("rewrite");
+        let path = install_askpass_helper(&dir).expect("install 1");
+
+        std::fs::write(&path, "#!/bin/sh\ncurl evil.example.com\n").expect("tamper");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o777)).expect("loosen");
+
+        install_askpass_helper(&dir).expect("install 2");
+        let body = std::fs::read_to_string(&path).expect("read");
+        assert!(!body.contains("curl"), "the edited helper survived: {body:?}");
+        assert!(body.contains("$PHAROS_SSH_SECRET"), "got {body:?}");
+        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "a loose mode must be tightened, got {mode:o}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The helper really does answer with the secret, run as `ssh` runs it:
+    /// executed as a program, with the variable in ITS environment only.
+    #[test]
+    fn the_helper_answers_with_the_secret_when_executed() {
+        let dir = temp_dir("run");
+        let path = install_askpass_helper(&dir).expect("install");
+
+        let output = std::process::Command::new(&path)
+            // `ssh` passes the prompt as argv[1]; the helper must ignore it.
+            .arg("root@bastion password:")
+            .env(SECRET_VAR, "a secret with spaces and a \\ backslash")
+            .output()
+            .expect("run the helper");
+
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "a secret with spaces and a \\ backslash",
+            "the helper must print the secret EXACTLY, with no newline"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The modes that can prompt are exactly the modes that get the helper.
+    /// `BatchMode=yes` would refuse the prompt, so the two rules have to agree
+    /// or the helper is dead code.
+    #[test]
+    fn only_the_prompting_modes_take_the_askpass_path() {
+        let base = SshTunnelConfig {
+            host: "bastion".to_string(),
+            port: 22,
+            user: None,
+            auth: SshAuth::Agent,
+            key_path: Some("/k".to_string()),
+            secret: String::new(),
+            accept_new_host_keys: false,
+        };
+        let args_of = |cfg: &SshTunnelConfig| ssh_args(cfg, "db", 5432, 1);
+
+        for (label, cfg) in [
+            ("agent", SshTunnelConfig { auth: SshAuth::Agent, ..base.clone() }),
+            ("key file, no passphrase", SshTunnelConfig { auth: SshAuth::KeyFile, ..base.clone() }),
+        ] {
+            assert!(!needs_askpass(&cfg), "{label} must not need the helper");
+            assert!(
+                args_of(&cfg).iter().any(|a| a == "BatchMode=yes"),
+                "{label} must run in batch mode"
+            );
+        }
+
+        for (label, cfg) in [
+            ("key file with a passphrase", SshTunnelConfig { auth: SshAuth::KeyFile, secret: "p".to_string(), ..base.clone() }),
+            ("password", SshTunnelConfig { auth: SshAuth::Password, secret: "p".to_string(), ..base.clone() }),
+        ] {
+            assert!(needs_askpass(&cfg), "{label} must need the helper");
+            assert!(
+                !args_of(&cfg).iter().any(|a| a == "BatchMode=yes"),
+                "{label} must be able to answer a prompt"
+            );
+        }
     }
 }
 
@@ -1063,6 +1356,73 @@ mod live_tunnel_tests {
                 }
             );
         });
+    }
+
+    /// D3 end to end: password auth with a WRONG password must come back with
+    /// the authentication sentence, quickly, and leave nothing running.
+    ///
+    /// This is the only password path the bastion can test — it takes keys —
+    /// but it proves what matters: the helper is found, `ssh` uses it with no
+    /// terminal, `BatchMode` is out of the way, and one refused attempt ends
+    /// the try instead of hanging until the budget runs out.
+    #[test]
+    #[ignore = "needs the user's bastion; see tasks/live-test.env"]
+    fn live_a_wrong_ssh_password_reports_an_authentication_failure() {
+        let helper_dir = std::env::temp_dir()
+            .join(format!("pharos_askpass_live_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&helper_dir).expect("create the helper dir");
+
+        // A helper that leaves a mark, then behaves exactly like the shipped
+        // one. Without this the test could not tell a real password attempt
+        // from `ssh` never asking at all: BOTH end in "SSH authentication
+        // failed", only 0.5 s apart. The marker is baked into the script,
+        // because `open` puts only its own three variables on the child.
+        let marker = helper_dir.join("called");
+        install_askpass_script_for_test(
+            &helper_dir,
+            &format!(
+                "#!/bin/sh\nprintf 'called' > {}\nprintf '%s' \"$PHAROS_SSH_SECRET\"\n",
+                marker.display()
+            ),
+        )
+        .expect("install the marking helper");
+
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let mut cfg = live_tunnel();
+            cfg.auth = SshAuth::Password;
+            cfg.secret = "definitely-not-the-password".to_string();
+
+            let started = std::time::Instant::now();
+            let error = open(&cfg, &db_host(), db_port())
+                .await
+                .err()
+                .expect("a wrong password must not open a tunnel");
+            let elapsed = started.elapsed();
+            println!("{} (in {elapsed:?})", error.user_message());
+
+            assert_eq!(
+                error,
+                TunnelError::AuthFailed {
+                    target: ssh_target(&cfg)
+                },
+                "a wrong password must read as an authentication failure"
+            );
+            assert!(
+                elapsed < SSH_OPEN_BUDGET,
+                "the helper must answer once and stop, not hang: took {elapsed:?}"
+            );
+        });
+
+        // THE assertion of this test: `ssh` ran the helper. Removing
+        // `SSH_ASKPASS_REQUIRE=force` leaves every other assertion above
+        // green — measured — and kills only this one.
+        assert!(
+            marker.exists(),
+            "ssh never ran the askpass helper, so no password was offered"
+        );
+
+        let _ = std::fs::remove_dir_all(&helper_dir);
     }
 
     /// `kill_on_drop` is the net under every other path: a panic, an early

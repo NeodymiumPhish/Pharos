@@ -50,6 +50,13 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
         }
     };
 
+    // The SSH askpass helper (D3). A failure here is not fatal: every tunnel
+    // that uses the agent or a key with no passphrase works without it, and
+    // the ones that need it report a clear reason when they are tried.
+    if let Err(e) = crate::db::ssh_tunnel::install_askpass_helper(&path) {
+        log::warn!("Could not write the SSH password helper: {}", e);
+    }
+
     let state = AppState::new(metadata_db);
 
     // Load connections and initialize password cache
