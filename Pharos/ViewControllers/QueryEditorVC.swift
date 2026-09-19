@@ -56,7 +56,7 @@ class QueryEditorVC: NSViewController {
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
-        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ Appearance.
         scrollBarPolicy = ScrollBarPolicy(
             scrollView: scrollView,
             alwaysVisible: stateManager.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())

@@ -34,7 +34,7 @@ behaves exactly as it did before.
 
 ## Turning it on and off
 
-**Settings ▸ General ▸ Use Apple Intelligence features.**
+**Settings ▸ Intelligence ▸ Use Apple Intelligence features.**
 
 It is on by default. Clear it and every feature below disappears from its menu
 or panel — no prompts are built, no sessions are opened.

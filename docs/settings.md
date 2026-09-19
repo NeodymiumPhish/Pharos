@@ -18,7 +18,11 @@ nav_order: 16
 
 ## Overview
 
-Open Settings with **Cmd+,** or **Pharos > Settings…**. Settings is a window of its own, so it opens even when no query window is on screen. A toolbar across the top selects one of four panes — **General**, **Editor**, **Query**, and **Charts** — and the window resizes to the pane you select. Close it with **Cmd+W**; it reopens in the pane you left.
+Open Settings with **Cmd+,** or **Pharos > Settings…**. Settings is a window of its own, so it opens even when no query window is on screen.
+
+A list down the left side selects the pane. The pane's name is shown in bold at the top of the right side, with **Back** and **Forward** chevrons beside it; **Cmd+[** and **Cmd+]** do the same. The window keeps one size whichever pane you are in, and remembers the size you give it. Close it with **Cmd+W**; it reopens in the pane you left.
+
+The panes are **General**, **Appearance**, **Editor**, **Query**, **Results**, **Navigator**, **Library & History**, **Connections**, **Security & Privacy**, **Export & Import**, **Charts**, **Tags**, **Intelligence**, **Notifications**, **Shortcuts** and **Advanced**. A pane that shows **No Items** has no settings in it yet.
 
 There is no Save button. **Every change applies at once**: a checkbox, popup, or radio applies the moment you click it, and a number field applies as you type (and again when you leave the field). Change the editor font size and the editor text changes behind the window. Settings are stored in the local SQLite database and persist across launches.
 
@@ -26,21 +30,32 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Appearance | Auto, Light, Dark | Auto | Application color scheme; Auto follows the system. |
-| NULL Display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
-| Bool Display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
+| Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
-| Show leaf partitions in the Database Navigator | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
-| Show result tabs in a vertical panel, not a horizontal bar | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
-| Always show scroll bars in the editor and results | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
+
+## Appearance Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Appearance | Auto, Light, Dark | Auto | Application color scheme; Auto follows the system. |
+| NULL display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
+| Boolean display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
+| Show result tabs in a vertical panel | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
+| Always show scroll bars | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
+
+## Navigator Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Show leaf partitions | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
 
 ## Editor Pane
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Font | System Monospace, plus installed monospace fonts (Menlo, Monaco, SF Mono, JetBrains Mono, Fira Code, Source Code Pro, Courier New) | System Monospace | SQL editor font; only installed fonts are listed. |
-| Font Size | 9–24 | 13 | Editor font size in points. |
-| Tab Size | 2, 4, or 8 spaces | 2 spaces | Spaces inserted per Tab press. |
+| Size | 8–36 | 13 | Editor font size in points. |
+| Tab size | 2, 3, 4, or 8 spaces | 2 spaces | Spaces inserted per Tab press. |
 | Show line numbers | On/Off | On | Line numbers in the editor gutter. |
 | Wrap long lines | On/Off | Off | Soft-wrap long lines. |
 
@@ -48,13 +63,24 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Row Limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
-| Timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
+| Row limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
+| Statement timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
 | Confirm queries that change the database | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations) and before running SQL containing DROP, DELETE, TRUNCATE, UPDATE, ALTER, INSERT or GRANT from the editor. |
-| Notify when query completes and app is in background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
-| Notify when query completes in a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
-| Notification minimum | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
-| Restore open tabs at launch | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+| Show details when you cancel a query | On/Off | On | Opens the error sheet for a query you cancelled. The failure is recorded on its tab either way. |
+
+## Notifications Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Notify when the app is in the background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
+| Notify for a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
+| Minimum duration | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
+
+## Intelligence Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Use Apple Intelligence features | On/Off | On | Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac. The row is dimmed, with the reason in its place, on a Mac that cannot run the model. |
 
 ## Charts Pane
 

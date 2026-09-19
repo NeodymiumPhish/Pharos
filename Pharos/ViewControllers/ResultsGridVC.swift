@@ -259,7 +259,7 @@ class ResultsGridVC: NSViewController {
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ Appearance.
         scrollBarPolicy = ScrollBarPolicy(
             scrollView: scrollView,
             alwaysVisible: AppStateManager.shared.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())

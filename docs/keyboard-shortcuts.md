@@ -21,6 +21,8 @@ nav_order: 17
 | Action | Shortcut |
 |--------|----------|
 | Settings… | Cmd+, |
+| Settings: previous pane | Cmd+[ |
+| Settings: next pane | Cmd+] |
 | Hide Pharos | Cmd+H |
 | Hide Others | Cmd+Opt+H |
 | Quit Pharos | Cmd+Q |

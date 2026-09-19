@@ -41,7 +41,7 @@ final class ModelAvailability: ObservableObject {
 
     /// Whether the MODEL is usable, ignoring the Pharos setting.
     ///
-    /// Settings ▸ General needs this on its own: a checkbox that the user
+    /// Settings ▸ Intelligence needs this on its own: a switch that the user
     /// cleared must stay clickable so they can set it again, while a Mac that
     /// cannot run the model disables it outright. Features want `isAvailable`.
     @Published private(set) var systemModelIsAvailable: Bool = false

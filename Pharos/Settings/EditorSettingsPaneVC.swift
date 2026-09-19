@@ -2,140 +2,52 @@ import AppKit
 
 /// Settings ▸ Editor. The SQL editor's font, its tab width, and the two
 /// display switches.
-final class EditorSettingsPaneVC: SettingsPaneVC {
+final class EditorSettingsPaneVC: SettingsFormPaneVC {
 
-    private let fontPopup = NSPopUpButton()
-    private let fontSizeField = NSTextField()
-    private let fontSizeStepper = NSStepper()
-    private let tabSizePopup = NSPopUpButton()
-    private let lineNumbersCheck = NSButton(checkboxWithTitle: String(localized: "Show line numbers"), target: nil, action: nil)
-    private let wordWrapCheck = NSButton(checkboxWithTitle: String(localized: "Wrap long lines"), target: nil, action: nil)
+    init() { super.init(paneId: .editor) }
 
-    private static let fontSizeRange = (min: 9, max: 24)
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    override func loadView() {
-        populateFontPopup()
-        fontPopup.target = self
-        fontPopup.action = #selector(fontChanged)
-        fontPopup.setAccessibilityIdentifier("settings.editor.font")
+    static let fontSizeRange = 8...36
 
-        fontSizeField.formatter = SettingsForm.numberFormatter(
-            min: Self.fontSizeRange.min, max: Self.fontSizeRange.max)
-        fontSizeField.alignment = .right
-        fontSizeField.delegate = self
-        fontSizeField.widthAnchor.constraint(equalToConstant: 50).isActive = true
-        fontSizeField.setAccessibilityIdentifier("settings.editor.fontSize")
-
-        fontSizeStepper.minValue = Double(Self.fontSizeRange.min)
-        fontSizeStepper.maxValue = Double(Self.fontSizeRange.max)
-        fontSizeStepper.target = self
-        fontSizeStepper.action = #selector(stepperChanged)
-        fontSizeStepper.setAccessibilityIdentifier("settings.editor.fontSizeStepper")
-
-        let sizeRow = NSStackView(views: [fontSizeField, fontSizeStepper])
-        sizeRow.orientation = .horizontal
-        sizeRow.spacing = 4
-
-        tabSizePopup.addItems(withTitles: [
-            String(localized: "2 spaces"), String(localized: "4 spaces"), String(localized: "8 spaces"),
-        ])
-        tabSizePopup.target = self
-        tabSizePopup.action = #selector(tabSizeChanged)
-        tabSizePopup.setAccessibilityIdentifier("settings.editor.tabSize")
-
-        lineNumbersCheck.target = self
-        lineNumbersCheck.action = #selector(lineNumbersChanged)
-        lineNumbersCheck.setAccessibilityIdentifier("settings.editor.lineNumbers")
-
-        wordWrapCheck.target = self
-        wordWrapCheck.action = #selector(wordWrapChanged)
-        wordWrapCheck.setAccessibilityIdentifier("settings.editor.wordWrap")
-
-        let grid = NSGridView(views: [
-            [NSTextField.formLabel(String(localized: "Font")), fontPopup],
-            [NSTextField.formLabel(String(localized: "Font Size")), sizeRow],
-            [NSTextField.formLabel(String(localized: "Tab Size")), tabSizePopup],
-            [NSGridCell.emptyContentView, lineNumbersCheck],
-            [NSGridCell.emptyContentView, wordWrapCheck],
-        ])
-        SettingsForm.configureGrid(grid)
-
-        view = SettingsForm.wrap(grid)
-        populate()
-        preferredContentSize = SettingsWindowController.paneSize(for: view)
-    }
-
-    override func reloadFromSettings() { populate() }
-
-    private func populate() {
-        let s = stateManager.settings
-        populating {
-            selectFont(s.editor.fontFamily)
-            fontSizeField.integerValue = Int(s.editor.fontSize)
-            fontSizeStepper.integerValue = Int(s.editor.fontSize)
-            switch s.editor.tabSize {
-            case 4: tabSizePopup.selectItem(at: 1)
-            case 8: tabSizePopup.selectItem(at: 2)
-            default: tabSizePopup.selectItem(at: 0)
-            }
-            lineNumbersCheck.state = s.editor.lineNumbers ? .on : .off
-            wordWrapCheck.state = s.editor.wordWrap ? .on : .off
-        }
-    }
-
-    override func wireKeyLoop() {
-        view.window?.initialFirstResponder = fontPopup
-        fontPopup.nextKeyView = fontSizeField
-        fontSizeField.nextKeyView = fontSizeStepper
-        fontSizeStepper.nextKeyView = tabSizePopup
-        tabSizePopup.nextKeyView = lineNumbersCheck
-        lineNumbersCheck.nextKeyView = wordWrapCheck
-        wordWrapCheck.nextKeyView = fontPopup
-    }
-
-    // MARK: - Actions
-
-    @objc private func fontChanged() {
-        guard let selected = fontPopup.titleOfSelectedItem else { return }
-        apply { $0.editor.fontFamily = selected }
-    }
-
-    @objc private func stepperChanged() {
-        fontSizeField.integerValue = fontSizeStepper.integerValue
-        commitFontSize()
-    }
-
-    @objc private func tabSizeChanged() {
-        apply { s in
-            switch tabSizePopup.indexOfSelectedItem {
-            case 1: s.editor.tabSize = 4
-            case 2: s.editor.tabSize = 8
-            default: s.editor.tabSize = 2
-            }
-        }
-    }
-
-    @objc private func lineNumbersChanged() {
-        apply { $0.editor.lineNumbers = lineNumbersCheck.state == .on }
-    }
-
-    @objc private func wordWrapChanged() {
-        apply { $0.editor.wordWrap = wordWrapCheck.state == .on }
-    }
-
-    override func commitTextField(_ field: NSTextField) {
-        guard field === fontSizeField else { return }
-        commitFontSize()
-    }
-
-    /// The field's formatter rejects an out-of-range value only when editing
-    /// ends, so the size is clamped here as well — mid-typing "1" must not be
-    /// stored as a 1pt editor font.
-    private func commitFontSize() {
-        let typed = fontSizeField.integerValue
-        guard typed >= Self.fontSizeRange.min, typed <= Self.fontSizeRange.max else { return }
-        fontSizeStepper.integerValue = typed
-        apply { $0.editor.fontSize = UInt32(typed) }
+    override var sections: [SettingsSection] {
+        [
+            SettingsSection(title: String(localized: "Font"), items: [
+                SettingsItem(
+                    id: "font",
+                    title: String(localized: "Font"),
+                    caption: String(localized: "Only installed monospace fonts are listed."),
+                    icon: "textformat",
+                    kind: .popup(Self.fontChoice())),
+                SettingsItem(
+                    id: "fontSize",
+                    title: String(localized: "Size"),
+                    icon: "textformat.size",
+                    kind: .stepper(.settings(\.editor.fontSize), range: Self.fontSizeRange, unit: String(localized: "pt"))),
+            ]),
+            SettingsSection(title: String(localized: "Text"), items: [
+                SettingsItem(
+                    id: "tabSize",
+                    title: String(localized: "Tab size"),
+                    icon: "arrow.right.to.line",
+                    kind: .popup(.values(\.editor.tabSize, options: [
+                        (title: String(localized: "2 spaces"), value: UInt32(2)),
+                        (title: String(localized: "3 spaces"), value: UInt32(3)),
+                        (title: String(localized: "4 spaces"), value: UInt32(4)),
+                        (title: String(localized: "8 spaces"), value: UInt32(8)),
+                    ]))),
+                SettingsItem(
+                    id: "wordWrap",
+                    title: String(localized: "Wrap long lines"),
+                    icon: "text.word.spacing",
+                    kind: .toggle(.settings(\.editor.wordWrap))),
+                SettingsItem(
+                    id: "lineNumbers",
+                    title: String(localized: "Show line numbers"),
+                    icon: "list.number",
+                    kind: .toggle(.settings(\.editor.lineNumbers))),
+            ]),
+        ]
     }
 
     // MARK: - Fonts
@@ -144,6 +56,8 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         let displayName: String
         let postScriptName: String
     }
+
+    static let systemMonospaceTitle = "System Monospace"
 
     private static let monoFonts: [MonoFont] = [
         MonoFont(displayName: "Menlo", postScriptName: "Menlo-Regular"),
@@ -155,23 +69,20 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         MonoFont(displayName: "Courier New", postScriptName: "CourierNewPSMT"),
     ]
 
-    private func populateFontPopup() {
-        fontPopup.removeAllItems()
-        fontPopup.addItem(withTitle: "System Monospace")
-        fontPopup.menu?.addItem(.separator())
-
-        for mono in Self.monoFonts where NSFont(name: mono.postScriptName, size: 13) != nil {
-            fontPopup.addItem(withTitle: mono.displayName)
-        }
-    }
-
-    private func selectFont(_ family: String) {
-        let firstName = family.components(separatedBy: ",").first?
-            .trimmingCharacters(in: .whitespaces) ?? family
-        for i in 0..<fontPopup.numberOfItems where fontPopup.itemTitle(at: i) == firstName {
-            fontPopup.selectItem(at: i)
-            return
-        }
-        fontPopup.selectItem(at: 0)
+    /// The installed monospace fonts, System Monospace first. The stored
+    /// `fontFamily` may be a CSS-style list ("JetBrains Mono, Monaco, …"):
+    /// its first name selects the row; a name that is not installed shows as
+    /// System Monospace and is left unchanged until the user picks one.
+    @MainActor
+    private static func fontChoice() -> SettingsChoice {
+        var titles = [systemMonospaceTitle]
+        titles += monoFonts.filter { NSFont(name: $0.postScriptName, size: 13) != nil }.map(\.displayName)
+        let binding = SettingsBinding<String>.settings(\.editor.fontFamily).map(
+            to: { family -> String in
+                let first = family.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? family
+                return titles.contains(first) ? first : systemMonospaceTitle
+            },
+            from: { $0 })
+        return SettingsChoice(options: titles.map { (title: $0, value: $0) }, binding: binding)
     }
 }
