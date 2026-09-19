@@ -1134,6 +1134,16 @@ struct DataImportSettings: Codable, Equatable {
     var commitEvery: UInt32 = 0
 }
 
+/// How tags are drawn on a result (Settings ▸ Tags).
+struct TagSettings: Codable, Equatable {
+    /// Bands the leading bar may draw for one row. The tooltip and the
+    /// Inspector always carry the full list, so lowering this hides nothing.
+    var maximumColourSegments: UInt32 = 3
+    /// How strongly a matched cell is washed with its tag's colour. Clamped
+    /// to 0.05...0.6 where it is used: 0 is invisible and 1 hides the text.
+    var cellTintOpacity: Double = 0.2
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -1155,6 +1165,7 @@ struct AppSettings: Codable, Equatable {
     var results: ResultsSettings = ResultsSettings()
     var updates: UpdateSettings = UpdateSettings()
     var session: SessionSettings = SessionSettings()
+    var tags: TagSettings = TagSettings()
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Off follows the system's scroll-bar preference (the HIG
     /// default); on is what the grid did unconditionally before this existed.

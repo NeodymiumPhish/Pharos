@@ -172,6 +172,10 @@
     "restoreWindowFrames": false
   },
   "showLeafPartitions": true,
+  "tags": {
+    "cellTintOpacity": 0.35,
+    "maximumColourSegments": 4
+  },
   "theme": "dark",
   "updates": {
     "channel": "preRelease",

@@ -179,6 +179,10 @@
     "restoreWindowFrames": true
   },
   "showLeafPartitions": false,
+  "tags": {
+    "cellTintOpacity": 0.2,
+    "maximumColourSegments": 3
+  },
   "theme": "auto",
   "updates": {
     "channel": "stable",

@@ -854,6 +854,28 @@ pub struct DataImportSettings {
     pub commit_every: u32,
 }
 
+/// How tags are drawn on a result (Settings ▸ Tags).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSettings {
+    #[serde(default = "default_max_colour_segments")]
+    pub maximum_colour_segments: u32,
+    #[serde(default = "default_cell_tint_opacity")]
+    pub cell_tint_opacity: f64,
+}
+
+fn default_max_colour_segments() -> u32 { 3 }
+fn default_cell_tint_opacity() -> f64 { 0.2 }
+
+impl Default for TagSettings {
+    fn default() -> Self {
+        TagSettings {
+            maximum_colour_segments: default_max_colour_segments(),
+            cell_tint_opacity: default_cell_tint_opacity(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -886,6 +908,8 @@ pub struct AppSettings {
     pub updates: UpdateSettings,
     #[serde(default)]
     pub session: SessionSettings,
+    #[serde(default)]
+    pub tags: TagSettings,
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Defaults OFF — follow the system's scroll-bar preference, as
     /// the HIG asks — so a bare `#[serde(default)]` is the right default here.
@@ -1110,6 +1134,7 @@ impl Default for AppSettings {
             results: ResultsSettings::default(),
             updates: UpdateSettings::default(),
             session: SessionSettings::default(),
+            tags: TagSettings::default(),
             always_show_scroll_bars: false,
             intelligence: IntelligenceSettings::default(),
             notifications: NotificationSettings::default(),
@@ -1228,6 +1253,10 @@ pub(crate) mod fixture {
                 updates: UpdateSettings {
                     check_frequency: UpdateFrequency::Weekly,
                     channel: UpdateChannel::PreRelease,
+                },
+                tags: TagSettings {
+                    maximum_colour_segments: 4,
+                    cell_tint_opacity: 0.35,
                 },
                 session: SessionSettings {
                     autosave_interval_seconds: 31,

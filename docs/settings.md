@@ -329,6 +329,17 @@ export go straight back in.
 | When a row fails | Stop and undo everything, Skip the row and carry on | Stop and undo everything | **Stop** is what Pharos has always done: one refused row and the whole file is rolled back. **Skip the row** runs every row inside its own savepoint, so a bad row is undone on its own and the import carries on. The alert afterwards names how many rows were skipped and why, listing at most twenty reasons. |
 | Commit every | 0–1,000,000 rows | 0 | Rows per transaction. 0 is one transaction for the whole file: nothing lands until everything does. A number commits as it goes, so the batches that finished stay on the server even if a later row stops the import. |
 
+## Tags Pane
+
+How a [tagged](tags.md) row is drawn. The tag colours themselves are set in the Tag Manager.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Colour bands per row | 1–6 | 3 | How many tag colours the bar at the left edge of a row may show. A row with more tags is not hiding them: the tooltip and the Inspector always list every one. |
+| Cell tint | 0.05–0.6 | 0.2 | How strongly a matched cell is washed with its tag's colour. The wash always stays lighter than the find match you are looking at, so the two can be told apart. |
+
+Both apply to the result already on screen, not only to the next one.
+
 ## Charts Pane
 
 The default series palette used by every chart: one color well per slot, **Add color** and the minus button to change how many slots there are, and **Reset to defaults** for the built-in set. See [Charts](charts.md#colors) for how a chart chooses between this palette and its own override.

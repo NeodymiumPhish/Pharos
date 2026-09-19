@@ -90,6 +90,9 @@ class ResultsGridVC: NSViewController {
     /// text, the Inspector and the removal sheet. Keeping one bake is what
     /// makes band, tooltip and tint appear and disappear in a single repaint.
     var matchesByRow: [Int: [TagRowMatch]] = [:]
+
+    /// Holds the Settings ▸ Tags subscription. See `observeTagSettings`.
+    private var tagSettingsCancellable: AnyCancellable?
     /// The force-show toggle: tagged rows survive the data filters (stages 2
     /// and 3-as-wired). Transient, per grid, by scope decision. The flag
     /// latches while the button is hidden, so a newly-tagged row can bring it
@@ -316,6 +319,7 @@ class ResultsGridVC: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        observeTagSettings()
 
         // Stable names for the two things a UI test — or a person driving the
         // app through the accessibility API — has to find by name rather than
@@ -1201,6 +1205,24 @@ class ResultsGridVC: NSViewController {
     }
 
     /// The single landing point for a computed tag map, sync or async.
+    /// Re-bake when Settings ▸ Tags changes, so a new band count or tint
+    /// shows on the result already on screen rather than at the next run.
+    /// The sink uses the DELIVERED value only to decide THAT something
+    /// changed; `applyTagMap` reads the current settings itself, so there is
+    /// one place the numbers enter the render state.
+    func observeTagSettings() {
+        tagSettingsCancellable = AppStateManager.shared.$settings
+            .map(\.tags)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, !self.matchesByRow.isEmpty else { return }
+                self.applyTagMap(self.matchesByRow)
+                self.tableView.needsDisplay = true
+            }
+    }
+
     func applyTagMap(_ map: [Int: [TagRowMatch]]) {
         // Any landed map supersedes an in-flight match: a stale async result
         // must fail its generation check even when the landing came from
@@ -1210,7 +1232,14 @@ class ResultsGridVC: NSViewController {
         // Bands, tooltips and tints are baked HERE, once, and the data source
         // only looks them up. One bake also means one survivor rule: a deleted
         // tag leaves all three together.
-        let state = TagPalette.bake(tags: TagStore.shared.tags, matchesByRow: map)
+        // Settings ▸ Tags. Read at bake time rather than held: a change
+        // re-bakes through this same path, so there is one place the numbers
+        // enter the render state.
+        let tagSettings = AppStateManager.shared.settings.tags
+        let state = TagPalette.bake(
+            tags: TagStore.shared.tags, matchesByRow: map,
+            maxSegments: Int(tagSettings.maximumColourSegments),
+            tintAlpha: CGFloat(tagSettings.cellTintOpacity))
         dataSource.segmentsByRow = state.segmentsByRow
         dataSource.tooltipByRow = state.tooltipByRow
         dataSource.tintByRow = state.tintByRow

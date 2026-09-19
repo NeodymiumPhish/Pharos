@@ -18,7 +18,7 @@ extension SettingsPaneRegistry {
         case .security: return SecuritySettingsPaneVC()
         case .exportImport: return ExportImportSettingsPaneVC()
         case .charts: return ChartsSettingsPaneVC()
-        case .tags: return SettingsPlaceholderPaneVC(paneId: id)
+        case .tags: return TagsSettingsPaneVC()
         case .intelligence: return IntelligenceSettingsPaneVC()
         case .notifications: return NotificationsSettingsPaneVC()
         case .shortcuts: return ShortcutsSettingsPaneVC()
@@ -27,12 +27,8 @@ extension SettingsPaneRegistry {
     }
 }
 
-/// A pane with nothing in it yet. Shows the "No Items" row the HIG asks for
-/// instead of an empty surface.
-final class SettingsPlaceholderPaneVC: SettingsFormPaneVC {
-    override var sections: [SettingsSection] {
-        [SettingsSection(title: nil, items: [
-            SettingsItem(id: "empty", title: "", kind: .empty(String(localized: "No Items"))),
-        ])]
-    }
-}
+// `SettingsPlaceholderPaneVC` used to live here, showing a "No Items" row for
+// a pane not built yet. Every pane is real now, so it was dead code and has
+// gone. `SettingsItemKind.empty` still exists for a pane whose CONTENT can be
+// empty at run time — a list with nothing in it — which is a different thing
+// from a pane nobody has written.
