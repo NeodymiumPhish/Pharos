@@ -75,7 +75,14 @@ final class AppStateManager: ObservableObject {
 
     @Published private(set) var connections: [ConnectionConfig] = []
     @Published private(set) var connectionStatuses: [String: ConnectionStatus] = [:]
-    @Published private(set) var settings: AppSettings = AppSettings()
+    @Published private(set) var settings: AppSettings = AppSettings() {
+        didSet {
+            // The model layer's mirror of one settings field — see
+            // `ResultTabsPanelPrefs.visibleByDefault` for why it cannot read
+            // this object itself. One writer, here, so the two cannot drift.
+            ResultTabsPanelPrefs.visibleByDefault = settings.results.showResultTabsPanelByDefault
+        }
+    }
 
     /// Last error from a state operation (save, delete, load). Observed by UI to show alerts.
     @Published var lastError: String?
@@ -440,6 +447,19 @@ final class AppStateManager: ObservableObject {
         } catch {
             settingsLoadFailed = true
             Log.state.error("Failed to load settings: \(error.localizedDescription, privacy: .public)")
+            // No migration on this path: `settings` holds the Swift defaults,
+            // not the user's values, so folding the legacy keys in and saving
+            // would write those defaults over the stored blob — the very thing
+            // `settingsLoadFailed` exists to prevent.
+            return
+        }
+
+        // Only after a successful load. The legacy keys are removed as they
+        // are read, so this does nothing on every launch after the first.
+        var migrated = settings
+        if SettingsMigration.migrate(from: .standard, into: &migrated) {
+            Log.state.info("Migrated legacy UserDefaults preferences into AppSettings")
+            saveSettings(migrated)
         }
     }
 

@@ -31,7 +31,27 @@
     "timeoutSeconds": 300
   },
   "results": {
-    "nullStyle": "italic"
+    "allowInlineEditing": true,
+    "alternatingRowColors": true,
+    "columnWidthMode": "fitContent",
+    "copyIncludeHeaders": true,
+    "copyRichText": true,
+    "defaultCopyFormat": "tsv",
+    "density": "normal",
+    "escapeControlCharacters": true,
+    "findMatchCase": false,
+    "findMode": "contains",
+    "fixedColumnWidth": 200,
+    "fontSize": 12,
+    "gridLines": "both",
+    "maximumCellCharacters": 0,
+    "maximumColumnWidth": 1000,
+    "maximumResultTabs": 0,
+    "monospacedFont": true,
+    "nullStyle": "italic",
+    "showColumnTypeIcons": false,
+    "showResultTabsPanelByDefault": true,
+    "showRowNumbers": true
   },
   "showLeafPartitions": false,
   "theme": "auto",

@@ -72,6 +72,65 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | Confirm queries that change the database | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations) and before running SQL containing DROP, DELETE, TRUNCATE, UPDATE, ALTER, INSERT or GRANT from the editor. |
 | Show details when you cancel a query | On/Off | On | Opens the error sheet for a query you cancelled. The failure is recorded on its tab either way. |
 
+## Results Pane
+
+Everything about the [results grid](results-grid.md). NULL display, boolean display and NULL style are in the Appearance pane instead: those are value rendering, and they reach the Inspector too.
+
+### Grid
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Density | Compact, Normal, Comfortable | Normal | Row height, and a point off or on the text size. |
+| Text size | 9–18 pt | 12 | Body cell font size. Density is added to it, and the result is held inside 9–18. |
+| Use a monospaced font | On/Off | On | Digits share one advance, so a numeric column lines up on its last digit. Off uses the system font at the same size. |
+| Alternating row colours | On/Off | On | The striped row background. |
+| Grid lines | None, Horizontal, Both | Both | The rules drawn between cells. |
+| Show row numbers | On/Off | On | The leading `#` column. Hiding it leaves the [tag](tags.md) gutter where it is. |
+| Show column type icons | On/Off | Off | A glyph for the data type beside its name in the column header. Off is the header as it has always been: the type as text only. |
+
+### Columns
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Column width | Fit to content, Fixed width | Fit to content | Fit to content measures the header and a sample of the rows. Double-clicking a column's right edge always re-fits that column, whichever this says. |
+| Fixed width | 40–1,000 pt | 200 | The width every column starts at in Fixed width mode. Dimmed in Fit to content mode. |
+| Maximum column width | 100–4,000 pt | 1,000 | No column is ever made wider than this, by fitting or by dragging. |
+
+### Cells
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Maximum characters per cell | 0–10,000 | 0 | Longer values are drawn cut short with an ellipsis; 0 draws all of them. Counted in characters, so an accented letter or an emoji is one. Display only — copy, export, find, filter and sort always use the whole value. |
+| Escape control characters | On/Off | On | Shows invisible and direction-changing characters as `<U+XXXX>`. Turning it off lets a value **display as something it is not**: a right-to-left override can make a filename ending `gpj.exe` read as one ending `.jpg`. Leave it on unless you are reading text you trust. Display only, whichever this says. |
+
+### Find
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Match | Contains, Whole word, Regular expression | Contains | How the [find field](results-grid.md#find) matches a cell. Whole word does not match inside a longer word. A regular expression that cannot be read turns the field red and matches nothing, rather than matching everything. |
+| Match case | On/Off | Off | Applies to all three match modes. |
+
+### Copy
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Copy with ⌘C | TSV, CSV, Markdown, SQL INSERT, SQL WITH | TSV | The Copy menu still offers every format. A copy also carries the TSV form, so a paste into a spreadsheet lands as a table whichever this says. |
+| Include column headers | On/Off | On | The same switch as "Include Headers" in the grid's own Copy menu; changing it in either place changes it in both. |
+| Also copy as rich text | On/Off | On | Writes an HTML table beside the text, so a paste into Mail or Notes arrives as a table. Off leaves plain text only — and a drag out of the grid offers the same flavours. |
+
+### Editing
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Allow editing cells in the grid | On/Off | On | Off makes every result read-only. An [edit](editing-data.md) is never written until you review and apply it, whichever this says. |
+
+### Result tabs
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Maximum result tabs | 0–50 | 0 | Per editor tab. Reaching the limit closes the oldest result you have not looked at and have not renamed, and says so; a result you have viewed or named is never taken away. 0 keeps them all. |
+| Open new tabs with the result-tabs panel | On/Off | On | The value a *new* editor tab starts from. Toggling the panel in a tab also sets this. Only used while Appearance ▸ **Show result tabs in a vertical panel** is on. |
+
 ## Notifications Pane
 
 | Setting | Options | Default | Description |

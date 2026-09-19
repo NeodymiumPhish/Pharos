@@ -11,7 +11,7 @@ extension SettingsPaneRegistry {
         case .appearance: return AppearanceSettingsPaneVC()
         case .editor: return EditorSettingsPaneVC()
         case .query: return QuerySettingsPaneVC()
-        case .results: return SettingsPlaceholderPaneVC(paneId: id)
+        case .results: return ResultsSettingsPaneVC()
         case .navigator: return NavigatorSettingsPaneVC()
         case .library: return SettingsPlaceholderPaneVC(paneId: id)
         case .connections: return SettingsPlaceholderPaneVC(paneId: id)

@@ -36,6 +36,15 @@ class ResultsGridVC: NSViewController {
     var sortController: ResultsSortController!
     var columnFilterController: ResultsColumnFilterController!
     var filterableHeaderView: FilterableHeaderView!
+
+    /// The live Settings ▸ Results snapshot. One owner — the data source's
+    /// settings sink — so the grid and its cells can never be reading two
+    /// different generations of the same setting.
+    var gridSettings: ResultsGridSettings { dataSource?.gridSettings ?? ResultsGridSettings() }
+
+    /// The style the columns were last measured in; see
+    /// `dataSourceGridSettingsDidChange`.
+    var lastAppliedGridStyle: ResultsGridStyle = .default
     var cellSelectionController: CellSelectionController!
     /// The temporary files behind the open Quick Look panel, while this grid is
     /// the one driving it; nil the rest of the time. See
@@ -256,6 +265,12 @@ class ResultsGridVC: NSViewController {
         filterableHeaderView.frame = hf
         tableView.headerView = filterableHeaderView
 
+        // The literals above are the ship defaults; this puts the user's own
+        // Settings ▸ Results choices over them before the first draw. The
+        // data source primed its snapshot in its initializer, so this reads a
+        // real value rather than waiting for the sink's first delivery.
+        applyGridSettings(dataSource.gridSettings)
+
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -423,6 +438,89 @@ class ResultsGridVC: NSViewController {
         sortController.delegate = self
         resetSortButton.target = sortController
         resetSortButton.action = #selector(ResultsSortController.resetSort)
+
+        // `copyExport` and `findController` are born here, after `loadView`
+        // already applied the snapshot to the table itself — so they take
+        // their share of it now rather than starting on the ship defaults
+        // until the user next changes a setting.
+        copyExport.onIncludeHeadersChanged = { newValue in
+            var updated = AppStateManager.shared.settings
+            guard updated.results.copyIncludeHeaders != newValue else { return }
+            updated.results.copyIncludeHeaders = newValue
+            AppStateManager.shared.saveSettings(updated)
+        }
+        applyGridSettings(dataSource.gridSettings)
+    }
+
+    // MARK: - Settings ▸ Results
+
+    /// Apply one delivered Settings ▸ Results snapshot to the grid.
+    ///
+    /// Everything that reads those settings is written here and nowhere else,
+    /// so there is one order of application: fonts and row height, then the
+    /// column widths that are measured in those fonts.
+    func applyGridSettings(_ settings: ResultsGridSettings) {
+        lastAppliedGridStyle = settings.style
+        tableView.usesAlternatingRowBackgroundColors = settings.alternatingRowColors
+        tableView.rowHeight = settings.style.rowHeight
+        switch settings.gridLines {
+        case .none: tableView.gridStyleMask = []
+        case .horizontal: tableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        case .both: tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
+        }
+        filterableHeaderView?.showsColumnTypeIcons = settings.showColumnTypeIcons
+
+        // The `#` column is HIDDEN, never removed: the tag gutter's geometry,
+        // the cell-selection controller's column offset and the saved column
+        // state all count it, and taking it out of `tableColumns` would move
+        // every one of those by one.
+        if let rowNumCol = tableView.tableColumns.first(where: { $0.identifier.rawValue == "__rownum__" }) {
+            rowNumCol.isHidden = !settings.showRowNumbers
+        }
+
+        applyColumnWidthSettings(settings)
+
+        copyExport?.includeHeaders = settings.copyIncludeHeaders
+        copyExport?.writesRichText = settings.copyRichText
+        applyDefaultCopyFormat(settings.defaultCopyFormat)
+        findController?.setMatching(mode: settings.findMode, matchCase: settings.findMatchCase)
+    }
+
+    /// The `maxWidth` every data column carries, and — in fixed mode — the
+    /// width they take. Applied to the live columns as well as to the ones
+    /// `rebuildColumns` makes next, or a change would not be visible until the
+    /// next query.
+    private func applyColumnWidthSettings(_ settings: ResultsGridSettings) {
+        for column in tableView.tableColumns {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__" else { continue }
+            column.maxWidth = max(column.minWidth, settings.maximumColumnWidth)
+            if settings.columnWidthMode == .fixed {
+                column.width = min(max(settings.fixedColumnWidth, column.minWidth), column.maxWidth)
+            } else if column.width > column.maxWidth {
+                column.width = column.maxWidth
+            }
+        }
+    }
+
+    /// What ⌘C does, handed over as a plain closure.
+    ///
+    /// `ResultsCopyExport` never learns the settings enum on purpose: four
+    /// standalone harnesses compile that class without the settings model
+    /// behind it, and a reference to `CopyFormat` would drag it in.
+    private func applyDefaultCopyFormat(_ format: CopyFormat) {
+        // `[weak self]`, not a captured `copyExport`: the closure is stored ON
+        // copyExport, so a strong capture of it would be a cycle.
+        copyExport?.defaultCopyAction = { [weak self] sender in
+            guard let copyExport = self?.copyExport else { return }
+            switch format {
+            case .tsv: copyExport.copyAsTSV(sender)
+            case .csv: copyExport.copyAsCSV(sender)
+            case .markdown: copyExport.copyAsMarkdown(sender)
+            case .sqlInsert: copyExport.copyAsSQLInsert(sender)
+            case .sqlWith: copyExport.copyAsSQLWith(sender)
+            }
+        }
     }
 
     // MARK: - Public API
@@ -758,6 +856,8 @@ class ResultsGridVC: NSViewController {
         rowNumCol.width = 40
         rowNumCol.minWidth = 30
         rowNumCol.maxWidth = 60
+        // Hidden, not absent — see `applyGridSettings`.
+        rowNumCol.isHidden = !gridSettings.showRowNumbers
         tableView.addTableColumn(rowNumCol)
 
         var types: [String: String] = [:]
@@ -774,9 +874,12 @@ class ResultsGridVC: NSViewController {
             // for the header, and the two cannot fall out of step.
             col.title = DisplayEscape.escaped(colDef.name)
             col.minWidth = 50
-            col.maxWidth = 1000
+            // Settings ▸ Results ▸ Columns. Was a hard-coded 1000.
+            col.maxWidth = max(col.minWidth, gridSettings.maximumColumnWidth)
             types[colId] = colDef.dataType.uppercased()
-            col.width = measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
+            col.width = gridSettings.columnWidthMode == .fixed
+                ? min(max(gridSettings.fixedColumnWidth, col.minWidth), col.maxWidth)
+                : measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
             col.sortDescriptorPrototype = NSSortDescriptor(key: colId, ascending: true)
             tableView.addTableColumn(col)
         }
@@ -1342,7 +1445,8 @@ class ResultsGridVC: NSViewController {
     // MARK: - Auto-Fit Column
 
     /// Content-aware column width: the max of the header name row, the header type
-    /// row, and the rendered cell contents (sampled), clamped to [minWidth, 1000].
+    /// row, and the rendered cell contents (sampled), clamped to
+    /// [minWidth, Settings ▸ Results ▸ Maximum column width].
     /// No funnel/sort reserve — those overlay row 2 (two-row header). Pass
     /// `includeVisibleSample: true` for on-demand auto-fit (adds on-screen rows);
     /// the initial default passes false (reloadData hasn't run, visible rect stale).
@@ -1363,6 +1467,7 @@ class ResultsGridVC: NSViewController {
         let typeStr = (idx < columns.count ? columns[idx].dataType : "").uppercased()
         let nameW = (nameStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
         let typeW = (typeStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
+            + (typeStr.isEmpty ? 0 : FilterableHeaderView.typeIconSlot(enabled: gridSettings.showColumnTypeIcons))
         var maxW = ceil(max(nameW, typeW)) + pad
 
         var sampleIndices = Set<Int>()
@@ -1373,19 +1478,18 @@ class ResultsGridVC: NSViewController {
             let vr = tableView.rows(in: tableView.visibleRect)
             if vr.length > 0 { for i in vr.location..<(vr.location + vr.length) { sampleIndices.insert(i) } }
         }
-        let attrs: [NSAttributedString.Key: Any] = [.font: ResultsGridMetrics.cellFont]
+        let attrs: [NSAttributedString.Key: Any] = [.font: dataSource.gridStyle.cellFont]
         for r in sampleIndices {
             guard r < displayRows.count else { continue }
             let d = displayRows[r]
             guard d < rows.count, idx < rows[d].count else { continue }
             let cat = idx < columnCategories.count ? columnCategories[idx] : .string
-            let text = ResultCellText.rendered(value: rows[d][idx], category: cat,
-                                               boolTrue: dataSource.boolDisplayTrue,
-                                               boolFalse: dataSource.boolDisplayFalse,
-                                               nullString: dataSource.nullDisplay)
+            // The data source's OWN renderer, options and all, so a truncated
+            // cell is measured truncated.
+            let text = dataSource.renderedText(value: rows[d][idx], category: cat)
             maxW = max(maxW, ceil((text as NSString).size(withAttributes: attrs).width) + pad)
         }
-        return min(max(maxW, column.minWidth), 1000)
+        return min(max(maxW, column.minWidth), max(column.minWidth, gridSettings.maximumColumnWidth))
     }
 
     func autoFitColumn(at columnIndex: Int) {

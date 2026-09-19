@@ -197,11 +197,152 @@ pub struct UpdateSettings {
 }
 
 /// The results grid's own display settings.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// How tall a results row is and how large its text.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultsDensity {
+    Compact,
+    #[default]
+    Normal,
+    Comfortable,
+}
+
+/// Which rules the results grid draws between cells.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultsGridLines {
+    None,
+    Horizontal,
+    #[default]
+    Both,
+}
+
+/// How a result column takes its width when the grid first builds it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ColumnWidthMode {
+    #[default]
+    FitContent,
+    Fixed,
+}
+
+/// How the results Find field matches a cell.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FindMode {
+    #[default]
+    Contains,
+    WholeWord,
+    RegularExpression,
+}
+
+/// The format ⌘C writes in the results grid.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CopyFormat {
+    #[default]
+    Tsv,
+    Csv,
+    Markdown,
+    SqlInsert,
+    SqlWith,
+}
+
+/// The results grid's own display settings. Mirrors `ResultsSettings` in
+/// `Pharos/Models/Settings.swift`; every field needs `#[serde(default)]` or a
+/// blob written before it existed fails Swift's synthesized decode at launch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultsSettings {
     #[serde(default)]
     pub null_style: NullStyle,
+
+    // Grid
+    #[serde(default)]
+    pub density: ResultsDensity,
+    #[serde(default = "default_true")]
+    pub alternating_row_colors: bool,
+    #[serde(default)]
+    pub grid_lines: ResultsGridLines,
+    #[serde(default = "default_results_font_size")]
+    pub font_size: u32,
+    #[serde(default = "default_true")]
+    pub monospaced_font: bool,
+    #[serde(default = "default_true")]
+    pub show_row_numbers: bool,
+    #[serde(default)]
+    pub show_column_type_icons: bool,
+
+    // Columns
+    #[serde(default)]
+    pub column_width_mode: ColumnWidthMode,
+    #[serde(default = "default_maximum_column_width")]
+    pub maximum_column_width: u32,
+    #[serde(default = "default_fixed_column_width")]
+    pub fixed_column_width: u32,
+
+    // Cells
+    #[serde(default)]
+    pub maximum_cell_characters: u32,
+    #[serde(default = "default_true")]
+    pub escape_control_characters: bool,
+
+    // Find
+    #[serde(default)]
+    pub find_mode: FindMode,
+    #[serde(default)]
+    pub find_match_case: bool,
+
+    // Copy
+    #[serde(default)]
+    pub default_copy_format: CopyFormat,
+    #[serde(default = "default_true")]
+    pub copy_include_headers: bool,
+    #[serde(default = "default_true")]
+    pub copy_rich_text: bool,
+
+    // Editing
+    #[serde(default = "default_true")]
+    pub allow_inline_editing: bool,
+
+    // Result tabs
+    #[serde(default)]
+    pub maximum_result_tabs: u32,
+    #[serde(default = "default_true")]
+    pub show_result_tabs_panel_by_default: bool,
+}
+
+fn default_true() -> bool { true }
+fn default_results_font_size() -> u32 { 12 }
+fn default_maximum_column_width() -> u32 { 1000 }
+fn default_fixed_column_width() -> u32 { 200 }
+
+impl Default for ResultsSettings {
+    fn default() -> Self {
+        ResultsSettings {
+            null_style: NullStyle::default(),
+            density: ResultsDensity::default(),
+            alternating_row_colors: true,
+            grid_lines: ResultsGridLines::default(),
+            font_size: default_results_font_size(),
+            monospaced_font: true,
+            show_row_numbers: true,
+            show_column_type_icons: false,
+            column_width_mode: ColumnWidthMode::default(),
+            maximum_column_width: default_maximum_column_width(),
+            fixed_column_width: default_fixed_column_width(),
+            maximum_cell_characters: 0,
+            escape_control_characters: true,
+            find_mode: FindMode::default(),
+            find_match_case: false,
+            default_copy_format: CopyFormat::default(),
+            copy_include_headers: true,
+            copy_rich_text: true,
+            allow_inline_editing: true,
+            maximum_result_tabs: 0,
+            show_result_tabs_panel_by_default: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -311,7 +452,29 @@ pub(crate) mod fixture {
                 vertical_result_tabs: false,
                 use_apple_intelligence: false,
                 charts: ChartSettings { palette: vec!["#000000".to_string()] },
-                results: ResultsSettings { null_style: NullStyle::Dimmed },
+                results: ResultsSettings {
+                    null_style: NullStyle::Dimmed,
+                    density: ResultsDensity::Comfortable,
+                    alternating_row_colors: false,
+                    grid_lines: ResultsGridLines::Horizontal,
+                    font_size: 13,
+                    monospaced_font: false,
+                    show_row_numbers: false,
+                    show_column_type_icons: true,
+                    column_width_mode: ColumnWidthMode::Fixed,
+                    maximum_column_width: 1001,
+                    fixed_column_width: 201,
+                    maximum_cell_characters: 1,
+                    escape_control_characters: false,
+                    find_mode: FindMode::RegularExpression,
+                    find_match_case: true,
+                    default_copy_format: CopyFormat::Markdown,
+                    copy_include_headers: false,
+                    copy_rich_text: false,
+                    allow_inline_editing: false,
+                    maximum_result_tabs: 1,
+                    show_result_tabs_panel_by_default: false,
+                },
                 updates: UpdateSettings {
                     check_frequency: UpdateFrequency::Weekly,
                     channel: UpdateChannel::PreRelease,

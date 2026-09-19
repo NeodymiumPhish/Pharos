@@ -26,7 +26,27 @@
     "timeoutSeconds": 301
   },
   "results": {
-    "nullStyle": "dimmed"
+    "allowInlineEditing": false,
+    "alternatingRowColors": false,
+    "columnWidthMode": "fixed",
+    "copyIncludeHeaders": false,
+    "copyRichText": false,
+    "defaultCopyFormat": "markdown",
+    "density": "comfortable",
+    "escapeControlCharacters": false,
+    "findMatchCase": true,
+    "findMode": "regularExpression",
+    "fixedColumnWidth": 201,
+    "fontSize": 13,
+    "gridLines": "horizontal",
+    "maximumCellCharacters": 1,
+    "maximumColumnWidth": 1001,
+    "maximumResultTabs": 1,
+    "monospacedFont": false,
+    "nullStyle": "dimmed",
+    "showColumnTypeIcons": true,
+    "showResultTabsPanelByDefault": false,
+    "showRowNumbers": false
   },
   "showLeafPartitions": true,
   "theme": "dark",

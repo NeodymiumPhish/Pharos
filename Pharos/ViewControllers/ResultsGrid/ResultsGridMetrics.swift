@@ -5,14 +5,11 @@ import AppKit
 /// `cellInset`, the cell pins its label at `cellInset`, and the measurer pads
 /// every sampled string by `cellInset * 2` — read them from here so a change
 /// in one place cannot leave the other two behind.
+/// The fonts moved to `ResultsGridStyle`, which derives them from Settings ▸
+/// Results. They cannot be constants any more, and a constant beside the
+/// settable value is exactly the second source of truth this type exists to
+/// prevent.
 enum ResultsGridMetrics {
     /// Horizontal inset from the column edge to the text, header and body alike.
     static let cellInset: CGFloat = 6
-
-    /// Body cell font. Monospaced so digits share one advance and a
-    /// right-aligned numeric column lines up on its last digit.
-    static let cellFont: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)
-
-    /// Body cell font for a NULL — same metrics, italic trait.
-    static let cellItalicFont: NSFont = cellFont.withTraits(.italic)
 }

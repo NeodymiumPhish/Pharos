@@ -638,8 +638,14 @@ class EditorPaneVC: NSViewController {
             $0.resultTabsPanelVisible.toggle()
             nowVisible = $0.resultTabsPanelVisible
         }
-        // Remember the choice so new tabs inherit it.
-        ResultTabsPanelPrefs.visibleByDefault = nowVisible
+        // Remember the choice so new tabs inherit it. Settings ▸ Results ▸
+        // Result tabs is the home of that value now; `AppStateManager` pushes
+        // it back onto `ResultTabsPanelPrefs`, which is what `QueryTab` reads.
+        var updated = AppStateManager.shared.settings
+        if updated.results.showResultTabsPanelByDefault != nowVisible {
+            updated.results.showResultTabsPanelByDefault = nowVisible
+            AppStateManager.shared.saveSettings(updated)
+        }
         syncResultTabsPanel()
     }
 

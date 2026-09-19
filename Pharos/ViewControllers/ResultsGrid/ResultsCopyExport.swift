@@ -57,8 +57,30 @@ class ResultsCopyExport: NSObject {
     private var taggedOnly = false
 
     /// Whether to include column headers in copy/export output.
-    private var includeHeaders = true
-    private static let includeHeadersKey = "PharosCopyIncludeHeaders"
+    ///
+    /// Lives in `AppSettings.results.copyIncludeHeaders` (Settings ▸ Results ▸
+    /// Copy) and is PUSHED here by `ResultsGridVC`; the menu item and the
+    /// popover checkbox report a change back through
+    /// `onIncludeHeadersChanged` rather than writing a store themselves. It
+    /// used to be a `UserDefaults` key of this class's own, which is why
+    /// `SettingsMigration` exists.
+    var includeHeaders = true
+
+    /// Called when the user flips "Include Headers" from the menu or the
+    /// popover. The grid writes it to Settings; nil leaves this class working
+    /// exactly as it did for the standalone harnesses.
+    var onIncludeHeadersChanged: ((Bool) -> Void)?
+
+    /// Whether a copy also writes the `.html` rich-text flavour (Settings ▸
+    /// Results ▸ Copy). Off leaves the pasteboard with plain text and
+    /// `.tabularText` only, so a paste into Mail or Notes arrives as text
+    /// rather than as a styled table.
+    var writesRichText = true
+
+    /// What ⌘C copies, pushed by `ResultsGridVC` from Settings ▸ Results.
+    /// TSV until it is — which is what this class did unconditionally before
+    /// the setting existed.
+    var defaultCopyAction: ((Any?) -> Void)?
 
     weak var delegate: ResultsCopyExportDelegate?
 
@@ -78,7 +100,6 @@ class ResultsCopyExport: NSObject {
         self.tableView = tableView
         self.copyButton = copyButton
         self.exportButton = exportButton
-        self.includeHeaders = UserDefaults.standard.object(forKey: Self.includeHeadersKey) as? Bool ?? true
         super.init()
         // The grid's table view starts the drag (it owns the mouse), but the
         // payload is this class's job — it is the one place that knows how the
@@ -107,7 +128,8 @@ class ResultsCopyExport: NSObject {
     /// promised too).
     func makeDragWriter() -> NSPasteboardWriting? {
         guard let data = gatherData() else { return nil }
-        let provider = ResultsDragProvider(data: data, fileName: Self.dragFileName(base: dragFileBaseName))
+        let provider = ResultsDragProvider(data: data, fileName: Self.dragFileName(base: dragFileBaseName),
+                                           writesRichText: writesRichText)
         dragProvider = provider
         return provider
     }
@@ -339,7 +361,11 @@ class ResultsCopyExport: NSObject {
     // MARK: - Copy Support
 
     @objc func copy(_ sender: Any?) {
-        copyAsTSV(sender)
+        if let defaultCopyAction {
+            defaultCopyAction(sender)
+        } else {
+            copyAsTSV(sender)
+        }
     }
 
     /// Format a CopyData payload off the main thread, then set the pasteboard on main.
@@ -355,15 +381,18 @@ class ResultsCopyExport: NSObject {
     /// apps that prefer rich text (Mail, Notes, a browser's editable field).
     private func copyOnBackground(_ format: @escaping (CopyData) -> String) {
         guard let data = gatherData() else { return }
+        // Read on the main thread, where it is written, and carried into the
+        // background block as a value.
+        let richText = writesRichText
         DispatchQueue.global(qos: .userInitiated).async {
             let text = format(data)
             let tabularText = Self.tsvText(data: data)
-            let html = Self.htmlTable(data: data, includeHeaders: data.includeHeaders)
+            let html = richText ? Self.htmlTable(data: data, includeHeaders: data.includeHeaders) : nil
             DispatchQueue.main.async {
                 let item = NSPasteboardItem()
                 item.setString(text, forType: .string)
                 item.setString(tabularText, forType: .tabularText)
-                item.setString(html, forType: .html)
+                if let html { item.setString(html, forType: .html) }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects([item])
             }
@@ -691,7 +720,7 @@ class ResultsCopyExport: NSObject {
             onToggleHeaders: { [weak self] newValue in
                 guard let self else { return }
                 self.includeHeaders = newValue
-                UserDefaults.standard.set(newValue, forKey: Self.includeHeadersKey)
+                self.onIncludeHeadersChanged?(newValue)
             },
             onToggleTagged: { [weak self] newValue in
                 self?.taggedOnly = newValue
@@ -804,7 +833,7 @@ class ResultsCopyExport: NSObject {
 
     @objc private func toggleIncludeHeaders() {
         includeHeaders.toggle()
-        UserDefaults.standard.set(includeHeaders, forKey: Self.includeHeadersKey)
+        onIncludeHeadersChanged?(includeHeaders)
     }
 
     @objc private func toggleTaggedOnly() {
@@ -896,9 +925,14 @@ final class ResultsDragProvider: NSFilePromiseProvider, NSFilePromiseProviderDel
         return queue
     }()
 
-    init(data: CopyData, fileName: String) {
+    /// Settings ▸ Results ▸ Copy. Defaulted so the standalone harnesses, and
+    /// any caller that does not care, get the behaviour that shipped.
+    let writesRichText: Bool
+
+    init(data: CopyData, fileName: String, writesRichText: Bool = true) {
         self.data = data
         self.fileName = fileName
+        self.writesRichText = writesRichText
         super.init()
         self.fileType = UTType.commaSeparatedText.identifier
         self.delegate = self
@@ -907,7 +941,9 @@ final class ResultsDragProvider: NSFilePromiseProvider, NSFilePromiseProviderDel
     // MARK: NSPasteboardWriting
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        super.writableTypes(for: pasteboard) + [.string, .tabularText, .html]
+        // `.html` only when Settings ▸ Results ▸ Copy asks for rich text, so a
+        // drag out and a copy offer the same flavours.
+        super.writableTypes(for: pasteboard) + [.string, .tabularText] + (writesRichText ? [.html] : [])
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {

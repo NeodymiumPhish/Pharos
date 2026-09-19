@@ -13,6 +13,56 @@ struct CellAddress: Hashable {
 protocol ResultsDataSourceDelegate: AnyObject {
     func dataSourceSortDescriptorsDidChange(_ oldDescriptors: [NSSortDescriptor])
     func dataSourceSelectionDidChange()
+    /// The Settings ▸ Results fields that belong to the grid's CHROME — row
+    /// height, stripes, rules, column widths, the `#` column, find, copy and
+    /// editing — have changed.
+    ///
+    /// Pushed from the data source's one settings sink rather than a second
+    /// sink of the VC's own: two sinks on the same publisher would apply
+    /// halves of one change in an order nobody controls, and the column widths
+    /// depend on the fonts the data source has just taken.
+    func dataSourceGridSettingsDidChange(_ settings: ResultsGridSettings)
+}
+
+/// The Settings ▸ Results values the grid's chrome reads, snapshotted off one
+/// delivered `AppSettings` so nothing downstream has to re-read the store.
+struct ResultsGridSettings: Equatable {
+    var style: ResultsGridStyle = .default
+    var alternatingRowColors = true
+    var gridLines: ResultsGridLines = .both
+    var showRowNumbers = true
+    var showColumnTypeIcons = false
+    var columnWidthMode: ColumnWidthMode = .fitContent
+    var maximumColumnWidth: CGFloat = 1000
+    var fixedColumnWidth: CGFloat = 200
+    var allowInlineEditing = true
+    var findMode: FindMode = .contains
+    var findMatchCase = false
+    var defaultCopyFormat: CopyFormat = .tsv
+    var copyIncludeHeaders = true
+    var copyRichText = true
+    var maximumResultTabs: UInt32 = 0
+
+    init() {}
+
+    init(_ settings: AppSettings) {
+        let r = settings.results
+        style = ResultsGridStyle(r)
+        alternatingRowColors = r.alternatingRowColors
+        gridLines = r.gridLines
+        showRowNumbers = r.showRowNumbers
+        showColumnTypeIcons = r.showColumnTypeIcons
+        columnWidthMode = r.columnWidthMode
+        maximumColumnWidth = CGFloat(max(1, r.maximumColumnWidth))
+        fixedColumnWidth = CGFloat(max(1, r.fixedColumnWidth))
+        allowInlineEditing = r.allowInlineEditing
+        findMode = r.findMode
+        findMatchCase = r.findMatchCase
+        defaultCopyFormat = r.defaultCopyFormat
+        copyIncludeHeaders = r.copyIncludeHeaders
+        copyRichText = r.copyRichText
+        maximumResultTabs = r.maximumResultTabs
+    }
 }
 
 // MARK: - ResultCellView
@@ -259,8 +309,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var boolDisplayTrue: String { boolTrueString }
     var boolDisplayFalse: String { boolFalseString }
     var nullDisplay: String { nullDisplayString }
-    private var regularFont: NSFont = ResultsGridMetrics.cellFont
-    private var italicFont: NSFont = ResultsGridMetrics.cellItalicFont
+    /// The one style value the fonts come from. The column-width measurer in
+    /// `ResultsGridVC` reads the SAME value (through `gridSettings`), so what
+    /// is measured is drawn in the font it was measured in.
+    private(set) var gridStyle: ResultsGridStyle = .default
+    private var regularFont: NSFont = ResultsGridStyle.default.cellFont
+    private var italicFont: NSFont = ResultsGridStyle.default.cellItalicFont
 
     /// How a NULL is set apart from a real value (Settings ▸ Appearance).
     private var nullStyle: NullStyle = .italic
@@ -280,7 +334,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var nullTextColor: NSColor {
         nullStyle == .plain ? .labelColor : .tertiaryLabelColor
     }
-    private var rownumFont: NSFont = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+    private var rownumFont: NSFont = ResultsGridStyle.default.rowNumberFont
 
     private var settingsCancellable: AnyCancellable?
 
@@ -420,8 +474,24 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let boolTrue: String
         let boolFalse: String
         let nullStyle: NullStyle
+        /// Fonts: a size, a density or the monospaced switch changes every
+        /// realized cell, so it belongs in the reload trigger.
+        let style: ResultsGridStyle
+        let maximumCellCharacters: UInt32
+        let escapeControlCharacters: Bool
     }
     private var lastDisplaySignature: DisplaySignature?
+
+    /// The chrome half of the same snapshot. Readable so a helper built after
+    /// `loadView()` (`ResultsCopyExport`, `ResultsFindController`) can take the
+    /// current values at birth instead of waiting for the next change.
+    private(set) var gridSettings = ResultsGridSettings()
+    private var hasGridSettings = false
+
+    /// Settings ▸ Results ▸ Cells, read by `styleCell` and by the VC's width
+    /// measurer through `renderedText(...)`.
+    private(set) var maximumCellCharacters: UInt32 = 0
+    private(set) var escapeControlCharacters = true
 
     /// Apply the AppSettings snapshot to local caches. Returns true if any
     /// field that affects already-rendered cells actually changed.
@@ -431,15 +501,44 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             nullDisplay: settings.nullDisplay.rawValue,
             boolTrue: settings.boolDisplay.trueString,
             boolFalse: settings.boolDisplay.falseString,
-            nullStyle: settings.results.nullStyle
+            nullStyle: settings.results.nullStyle,
+            style: ResultsGridStyle(settings.results),
+            maximumCellCharacters: settings.results.maximumCellCharacters,
+            escapeControlCharacters: settings.results.escapeControlCharacters
         )
         nullDisplayString = next.nullDisplay
         boolTrueString = next.boolTrue
         boolFalseString = next.boolFalse
         nullStyle = next.nullStyle
+        gridStyle = next.style
+        regularFont = next.style.cellFont
+        italicFont = next.style.cellItalicFont
+        rownumFont = next.style.rowNumberFont
+        maximumCellCharacters = next.maximumCellCharacters
+        escapeControlCharacters = next.escapeControlCharacters
         let changed = next != lastDisplaySignature
         lastDisplaySignature = next
         return changed
+    }
+
+    /// The chrome half. Returns the snapshot when it moved, nil when it did
+    /// not, so the caller pushes only real changes.
+    private func applyChromeSnapshot(_ settings: AppSettings) -> ResultsGridSettings? {
+        let next = ResultsGridSettings(settings)
+        guard !hasGridSettings || next != gridSettings else { return nil }
+        hasGridSettings = true
+        gridSettings = next
+        return next
+    }
+
+    /// The display string for a value under the CURRENT cell settings. The
+    /// single entry point for both the cell and the column-width measurer —
+    /// neither may call `ResultCellText.rendered` with its own options.
+    func renderedText(value: AnyCodable, category: PGTypeCategory) -> String {
+        ResultCellText.rendered(
+            value: value, category: category,
+            boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString,
+            maximumCharacters: maximumCellCharacters, escapeControls: escapeControlCharacters)
     }
 
     // Find highlight state (pushed by VC after find operations)
@@ -478,15 +577,26 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // to future changes (deduped at the publisher so unrelated settings
         // mutations don't refire). Single sink, single source of truth.
         applySettingsSnapshot(AppStateManager.shared.settings)
+        _ = applyChromeSnapshot(AppStateManager.shared.settings)
         settingsCancellable = AppStateManager.shared.$settings
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] settings in
                 guard let self else { return }
+                // The DELIVERED value only. Re-reading the store here would
+                // make this sink answer a different question than the one it
+                // was woken for.
+                //
                 // Only reloadData when a field that affects grid rendering
                 // actually changed; editor-only settings (font, line numbers,
                 // word wrap) used to trigger full reloads of 10k-row grids.
                 let changed = self.applySettingsSnapshot(settings)
+                // Chrome first: the VC sets the row height and re-measures the
+                // columns, and both of those need the fonts this object has
+                // just taken from the same snapshot.
+                if let chrome = self.applyChromeSnapshot(settings) {
+                    self.delegate?.dataSourceGridSettingsDidChange(chrome)
+                }
                 if changed {
                     self.tableView.reloadData()
                 }
@@ -835,9 +945,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     private func styleCell(_ cell: ResultCellView, value: AnyCodable, category: PGTypeCategory) {
         guard let textField = cell.textField else { return }
-        textField.stringValue = ResultCellText.rendered(
-            value: value, category: category,
-            boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString)
+        textField.stringValue = renderedText(value: value, category: category)
 
         // Numbers line up on their last digit; everything else reads from the
         // left. Assigned on EVERY realize so a recycled cell cannot keep the

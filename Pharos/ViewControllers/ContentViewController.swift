@@ -2218,6 +2218,10 @@ class ContentViewController: NSViewController {
             // grid or the focused pane's gutter. The gutter color and grid are
             // restored from the store when the user switches back
             // (activeTabChanged → reResolveAllResultTabs).
+            if let evicted = Self.resultTabToEvict(from: session.resultStore[editorTabId].tabs,
+                                                   limit: resultTabLimit) {
+                evictResultTab(evicted, fromBackgroundEditorTab: editorTabId)
+            }
             session.resultStore[editorTabId].tabs.append(tab)
             session.resultStore[editorTabId].activeId = tab.id
             // A background tab still needs its surface refreshed. The old
@@ -2258,8 +2262,14 @@ class ContentViewController: NSViewController {
             captureChartConfig(intoTabAt: outgoingIdx)
         }
 
+        if let evicted = Self.resultTabToEvict(from: resultTabs, limit: resultTabLimit) {
+            evictResultTab(evicted, fromBackgroundEditorTab: nil)
+        }
+
         resultTabs.append(tab)
         activeResultTabId = tab.id
+        // It is on screen from here, so it is never a candidate for eviction.
+        markResultTabViewed(tab.id)
         refreshResultTabViews()
 
         // Set segment color in gutter
@@ -2321,6 +2331,7 @@ class ContentViewController: NSViewController {
         }
 
         activeResultTabId = tabId
+        markResultTabViewed(tabId)
         refreshResultTabViews()
 
         guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
@@ -2351,6 +2362,53 @@ class ContentViewController: NSViewController {
 
         // History banner follows the selected result tab.
         applyResultBanner(from: tab)
+    }
+
+    // MARK: - The result-tab limit (Settings ▸ Results)
+
+    /// Most result tabs one editor tab keeps. 0 is unlimited, which is what
+    /// the app did before the setting existed.
+    private var resultTabLimit: UInt32 {
+        AppStateManager.shared.settings.results.maximumResultTabs
+    }
+
+    /// Which tab must go to make room for one more, or nil for none.
+    ///
+    /// The OLDEST tab — the list is in arrival order — that the user has
+    /// neither viewed nor named. When every tab is one of those two, nothing
+    /// is evicted and the list is allowed past the limit: silently closing a
+    /// result somebody is using would be worse than keeping one too many.
+    ///
+    /// Static and pure so both deposit paths, foreground and background, ask
+    /// exactly the same question.
+    static func resultTabToEvict(from tabs: [ResultTab], limit: UInt32) -> String? {
+        guard limit > 0, tabs.count >= Int(limit) else { return nil }
+        return tabs.first { !$0.hasBeenViewed && $0.customLabel == nil }?.id
+    }
+
+    /// Note that the user has seen this result, so the limit will not take it.
+    private func markResultTabViewed(_ tabId: String) {
+        _ = mutateResultTab(id: tabId) { $0.hasBeenViewed = true }
+    }
+
+    /// Close an evicted tab and say so. `editorTabId` is nil for the active
+    /// editor tab, where the full close path (segment colour, selection) has
+    /// to run; a background tab's entry is only a list.
+    private func evictResultTab(_ tabId: String, fromBackgroundEditorTab editorTabId: String?) {
+        let name = resultTab(withId: tabId).map {
+            $0.customLabel ?? ResultTabName.derived(lineRange: $0.lineRange, sql: $0.sql)
+        } ?? tabId
+        if let editorTabId {
+            session.resultStore[editorTabId].tabs.removeAll { $0.id == tabId }
+            if session.resultStore[editorTabId].activeId == tabId {
+                session.resultStore[editorTabId].activeId = session.resultStore[editorTabId].tabs.last?.id
+            }
+        } else {
+            closeResultTab(tabId)
+        }
+        Toast.show(in: view,
+                   message: String(localized: "Closed “\(name)” — the result tab limit was reached."),
+                   style: .info)
     }
 
     private func closeResultTab(_ tabId: String) {

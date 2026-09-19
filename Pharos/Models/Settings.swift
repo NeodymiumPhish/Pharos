@@ -151,9 +151,164 @@ struct UpdateSettings: Codable, Equatable {
     var channel: UpdateChannel = .stable
 }
 
+/// How tall a results row is and how large its text. Sits alongside the
+/// explicit `ResultsSettings.fontSize` rather than replacing it: density is
+/// the coarse "how much room does a row get", the size is the fine one.
+enum ResultsDensity: String, Codable, CaseIterable {
+    case compact
+    case normal
+    case comfortable
+
+    var displayLabel: String {
+        switch self {
+        case .compact: return String(localized: "Compact")
+        case .normal: return String(localized: "Normal")
+        case .comfortable: return String(localized: "Comfortable")
+        }
+    }
+
+    /// Added to `ResultsSettings.fontSize` before clamping to 9...18.
+    var fontDelta: CGFloat {
+        switch self {
+        case .compact: return -1
+        case .normal: return 0
+        case .comfortable: return 1
+        }
+    }
+
+    /// Room above and below the text, in points. `normal` at size 12 gives
+    /// the 22pt row the grid used before this setting existed.
+    var rowPadding: CGFloat {
+        switch self {
+        case .compact: return 6
+        case .normal: return 10
+        case .comfortable: return 16
+        }
+    }
+}
+
+/// Which rules the results grid draws between cells.
+enum ResultsGridLines: String, Codable, CaseIterable {
+    case none
+    case horizontal
+    case both
+
+    var displayLabel: String {
+        switch self {
+        case .none: return String(localized: "None")
+        case .horizontal: return String(localized: "Horizontal")
+        case .both: return String(localized: "Both")
+        }
+    }
+}
+
+/// How a result column takes its width when the grid first builds it.
+enum ColumnWidthMode: String, Codable, CaseIterable {
+    case fitContent
+    case fixed
+
+    var displayLabel: String {
+        switch self {
+        case .fitContent: return String(localized: "Fit to content")
+        case .fixed: return String(localized: "Fixed width")
+        }
+    }
+}
+
+/// How the results Find field matches a cell.
+enum FindMode: String, Codable, CaseIterable {
+    case contains
+    case wholeWord
+    case regularExpression
+
+    var displayLabel: String {
+        switch self {
+        case .contains: return String(localized: "Contains")
+        case .wholeWord: return String(localized: "Whole word")
+        case .regularExpression: return String(localized: "Regular expression")
+        }
+    }
+}
+
+/// The format ⌘C writes. Exactly the five the grid's Copy menu offers —
+/// JSON is an Export format only, so it is deliberately absent.
+enum CopyFormat: String, Codable, CaseIterable {
+    case tsv
+    case csv
+    case markdown
+    case sqlInsert
+    case sqlWith
+
+    var displayLabel: String {
+        switch self {
+        case .tsv: return String(localized: "TSV")
+        case .csv: return String(localized: "CSV")
+        case .markdown: return String(localized: "Markdown")
+        case .sqlInsert: return String(localized: "SQL INSERT")
+        case .sqlWith: return String(localized: "SQL WITH")
+        }
+    }
+}
+
 /// The results grid's own display settings.
+///
+/// Every default here is what the grid did before the setting existed, so an
+/// existing user sees no change until they touch a control.
 struct ResultsSettings: Codable, Equatable {
     var nullStyle: NullStyle = .italic
+
+    // MARK: Grid
+
+    var density: ResultsDensity = .normal
+    var alternatingRowColors: Bool = true
+    var gridLines: ResultsGridLines = .both
+    /// Body cell font size in points. 12 is what `ResultsGridMetrics.cellFont`
+    /// was hard-coded to.
+    var fontSize: UInt32 = 12
+    var monospacedFont: Bool = true
+    var showRowNumbers: Bool = true
+    /// A type glyph beside the data type in the header's second row. Off is
+    /// today's header, which shows the type as text only.
+    var showColumnTypeIcons: Bool = false
+
+    // MARK: Columns
+
+    var columnWidthMode: ColumnWidthMode = .fitContent
+    var maximumColumnWidth: UInt32 = 1000
+    /// Used only while `columnWidthMode` is `.fixed`.
+    var fixedColumnWidth: UInt32 = 200
+
+    // MARK: Cells
+
+    /// Longest display string a cell draws, 0 for no limit. Display only —
+    /// copy, export, find and sort read the raw value.
+    var maximumCellCharacters: UInt32 = 0
+    /// Whether hostile scalars (bidi overrides, zero-width spaces, C0
+    /// controls) are shown as `<U+XXXX>` instead of being obeyed by the label.
+    var escapeControlCharacters: Bool = true
+
+    // MARK: Find
+
+    var findMode: FindMode = .contains
+    var findMatchCase: Bool = false
+
+    // MARK: Copy
+
+    var defaultCopyFormat: CopyFormat = .tsv
+    var copyIncludeHeaders: Bool = true
+    /// Whether a copy also writes the `.html` rich-text flavour.
+    var copyRichText: Bool = true
+
+    // MARK: Editing
+
+    var allowInlineEditing: Bool = true
+
+    // MARK: Result tabs
+
+    /// Most result tabs one editor tab keeps, 0 for unlimited.
+    var maximumResultTabs: UInt32 = 0
+    /// Whether a newly created editor tab opens with the result-tabs panel.
+    var showResultTabsPanelByDefault: Bool = true
 }
 
 struct AppSettings: Codable, Equatable {

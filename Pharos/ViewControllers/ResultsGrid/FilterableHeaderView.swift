@@ -80,6 +80,46 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
     private let iconSize: CGFloat = 13
     private let iconPadding: CGFloat = 6
 
+    /// Settings ▸ Results ▸ Grid. On, the type row of each header carries the
+    /// column's type glyph in front of the type name. Off — the default, and
+    /// what the header always did — the type row is text only.
+    ///
+    /// A plain `Bool` rather than the settings enum: three standalone
+    /// harnesses compile this view without the settings model behind it.
+    var showsColumnTypeIcons = false {
+        didSet {
+            guard oldValue != showsColumnTypeIcons else { return }
+            typeIconCache.removeAll()
+            needsDisplay = true
+        }
+    }
+
+    /// Tinted type glyphs, keyed by the drawn type string. The header redraws
+    /// on every hover tick, and `NSImage(systemSymbolName:)` plus a tint is
+    /// not cheap enough to do per column per tick.
+    private var typeIconCache: [String: NSImage] = [:]
+
+    /// The type row's glyph side, and the gap before the type text.
+    private static let typeIconSide: CGFloat = 9
+    private static let typeIconGap: CGFloat = 3
+
+    /// Room the glyph takes in front of the type text, or 0 when it is off.
+    /// `ResultsGridVC.measuredColumnWidth` adds the same amount, so a column
+    /// is never sized for a type row narrower than the one drawn.
+    static func typeIconSlot(enabled: Bool) -> CGFloat {
+        enabled ? typeIconSide + typeIconGap : 0
+    }
+
+    private func typeIcon(for type: String) -> NSImage? {
+        if let cached = typeIconCache[type] { return cached }
+        guard let image = Self.makeSymbol(ColumnTypeIcon.symbolName(forDataType: type),
+                                          tint: .secondaryLabelColor,
+                                          size: Self.typeIconSide, weight: .regular)
+        else { return nil }
+        typeIconCache[type] = image
+        return image
+    }
+
     /// Pre-rendered tinted filter icons. The active/hover variants are the
     /// only two tints we ever draw and they only need to change when the
     /// system appearance flips. Rebuilding the tinted NSImage per-draw used
@@ -104,6 +144,8 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         cachedSortUpIcon = Self.makeSymbol("chevron.up", tint: .secondaryLabelColor, size: sortIconSize, weight: .bold)
         cachedSortDownIcon = Self.makeSymbol("chevron.down", tint: .secondaryLabelColor, size: sortIconSize, weight: .bold)
         cachedIconAppearanceName = currentName
+        // Tinted the same way, so they go stale for the same reason.
+        typeIconCache.removeAll()
     }
 
     private func filterIcon(active: Bool) -> NSImage? {
@@ -476,7 +518,19 @@ class FilterableHeaderView: NSTableHeaderView, HeaderBandClaiming {
         let topY = headerRect.midY - totalH / 2
         let x = headerRect.minX + SortAwareHeaderCell.hInset
         (name as NSString).draw(at: NSPoint(x: x, y: topY), withAttributes: nameAttrs)
-        (type as NSString).draw(at: NSPoint(x: x, y: topY + nameSize.height + gap), withAttributes: typeAttrs)
+
+        let typeY = topY + nameSize.height + gap
+        var typeX = x
+        if showsColumnTypeIcons, !type.isEmpty, let icon = typeIcon(for: type) {
+            let side = Self.typeIconSide
+            // This view is FLIPPED, and `NSImage.draw(in:)` honours that, so
+            // the rect's origin is its TOP-left like the text's baseline point.
+            icon.draw(in: NSRect(x: typeX,
+                                 y: typeY + max(0, (typeSize.height - side) / 2),
+                                 width: side, height: side))
+            typeX += Self.typeIconSlot(enabled: true)
+        }
+        (type as NSString).draw(at: NSPoint(x: typeX, y: typeY), withAttributes: typeAttrs)
     }
 
     // MARK: - Accessibility
