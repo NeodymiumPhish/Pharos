@@ -40,6 +40,16 @@ pub struct AppState {
     /// In-memory cache of passwords (loaded once from keychain at startup)
     pub password_cache: Mutex<HashMap<String, String>>,
 
+    /// Passwords the user typed THIS RUN, keyed by connection id.
+    ///
+    /// Deliberately apart from `password_cache`: that one mirrors the Keychain
+    /// and is written back to it, this one is never written anywhere. It is
+    /// what a connection whose `remember_password` is off uses, so the user is
+    /// asked once per launch instead of once per connect. It dies with the
+    /// process, and `clear_session_passwords` empties it earlier — on sleep,
+    /// when the user has asked for that.
+    pub session_passwords: Mutex<HashMap<String, String>>,
+
     /// Tables where ANALYZE was denied due to insufficient privileges.
     /// Keyed by connection_id -> schema_name -> set of table names.
     /// Cleared on disconnect so permissions are re-checked on reconnect.
@@ -79,6 +89,7 @@ impl AppState {
             running_queries: Mutex::new(HashMap::new()),
             settings: RwLock::new(Arc::new(AppSettings::default())),
             password_cache: Mutex::new(HashMap::new()),
+            session_passwords: Mutex::new(HashMap::new()),
             analyze_denied: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
             import_progress: Mutex::new(HashMap::new()),
@@ -128,6 +139,53 @@ impl AppState {
     pub fn get_cached_password(&self, connection_id: &str) -> Option<String> {
         let cache = self.password_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.get(connection_id).cloned()
+    }
+
+    /// Hold a password the user typed for this connection, for this run only.
+    /// An EMPTY password is not held: it carries nothing, and holding it would
+    /// make `session_password` answer `Some("")`, which reads as "the user
+    /// gave one" everywhere downstream.
+    pub fn set_session_password(&self, connection_id: &str, password: &str) {
+        if password.is_empty() {
+            return;
+        }
+        let mut map = self.session_passwords.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(connection_id.to_string(), password.to_string());
+    }
+
+    /// The password the user typed this run, if any.
+    pub fn session_password(&self, connection_id: &str) -> Option<String> {
+        let map = self.session_passwords.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(connection_id).cloned()
+    }
+
+    /// Forget one connection's session password (it is being deleted, or its
+    /// record has just been given a stored password instead).
+    pub fn forget_session_password(&self, connection_id: &str) {
+        let mut map = self.session_passwords.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(connection_id);
+    }
+
+    /// Forget EVERY session password. The Keychain is untouched: this only
+    /// drops what was never written down. Returns how many were dropped, so
+    /// the caller can log a count without naming a connection.
+    pub fn clear_session_passwords(&self) -> usize {
+        let mut map = self.session_passwords.lock().unwrap_or_else(|e| e.into_inner());
+        let dropped = map.len();
+        map.clear();
+        dropped
+    }
+
+    /// The password `connect_postgres` should dial with: the one typed this
+    /// run first, then the one the Keychain gave us, then none.
+    ///
+    /// The order matters. A user who has just re-typed a password because the
+    /// stored one was stale must not be dialled with the stale one again.
+    pub fn effective_password(&self, connection_id: &str, stored: &str) -> String {
+        match self.session_password(connection_id) {
+            Some(typed) => typed,
+            None => stored.to_string(),
+        }
     }
 
     /// Get a connection pool by ID

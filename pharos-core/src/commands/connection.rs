@@ -40,9 +40,47 @@ fn sanitize_error(error: &str) -> String {
     sanitized
 }
 
+/// What a save must do with this connection's DATABASE password.
+///
+/// Pure, so the rule can be read and proved on its own, apart from the
+/// Keychain write that carries it out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordAction {
+    /// Write it to the Keychain, and to the cache that mirrors it.
+    Store,
+    /// Remove whatever the Keychain holds for this connection.
+    Forget,
+    /// Neither. Nothing was sent and nothing has to go.
+    Leave,
+}
+
+/// The rule behind `save_connection`'s handling of `remember_password`.
+///
+/// `remember_password` off means the password is NOT written down. It also
+/// means anything already written down has to go: a switch labelled "remember
+/// the password" that leaves the old one in the Keychain says the opposite of
+/// what it does, which is why the control was taken out of the form until this
+/// rule existed.
+///
+/// `sent_is_empty` is "the caller sent no password", never "clear it": the
+/// form sends the field masked unless the user revealed it, so an empty string
+/// must leave a remembered password alone.
+pub fn password_action(
+    remember: bool,
+    sent_is_empty: bool,
+    keychain_has_one: bool,
+) -> PasswordAction {
+    if !remember {
+        // A Keychain write is not free, so an already-absent secret is left
+        // alone rather than deleted again.
+        return if keychain_has_one { PasswordAction::Forget } else { PasswordAction::Leave };
+    }
+    if sent_is_empty { PasswordAction::Leave } else { PasswordAction::Store }
+}
+
 /// Save a new connection configuration
 pub async fn save_connection(
-    config: ConnectionConfig,
+    mut config: ConnectionConfig,
     state: &AppState,
 ) -> Result<(), String> {
     // Store the secrets in the OS keychain and update the cache. An EMPTY
@@ -51,9 +89,49 @@ pub async fn save_connection(
     // string must leave the stored value alone.
     {
         let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
-        if !config.password.is_empty() {
-            credentials::store_password_with_cache(&config.id, &config.password, &mut cache)?;
+        let action = password_action(
+            config.remember_password,
+            config.password.is_empty(),
+            cache.contains_key(&config.id),
+        );
+        // Read BEFORE the action: `Forget` takes the stored value out of the
+        // cache, and this session should keep working with it.
+        let carried = if config.password.is_empty() {
+            cache.get(&config.id).cloned()
+        } else {
+            Some(config.password.clone())
+        };
+        match action {
+            PasswordAction::Store => {
+                credentials::store_password_with_cache(&config.id, &config.password, &mut cache)?;
+            }
+            PasswordAction::Forget => {
+                credentials::delete_password_with_cache(&config.id, &mut cache)?;
+            }
+            PasswordAction::Leave => {}
         }
+        if config.remember_password {
+            // It is written down now, so the process-only copy has no job.
+            state.forget_session_password(&config.id);
+        } else {
+            // Not written down, so what we have goes to the map that dies with
+            // the process. Without this, turning the switch off would drop a
+            // live connection's password mid-session.
+            if let Some(password) = carried {
+                state.set_session_password(&config.id, &password);
+            }
+            // The cached CONFIG must not become the password's second home
+            // either: `load_connections` hands it back to the front end, and a
+            // record that does not remember its password has none to hand.
+            config.password.clear();
+        }
+
+        // The SSH secret does NOT follow `remember_password`. That flag names
+        // the DATABASE password, and it is the only secret the prompt sheet
+        // can ask for: the tunnel opens BEFORE the pool, so a forgotten SSH
+        // key passphrase would leave the connection unopenable with nothing on
+        // screen to fix it. Deleting it here would be half a feature. It needs
+        // a flag and a prompt of its own.
         let ssh_key = credentials::ssh_secret_key(&config.id);
         match config.ssh_tunnel.as_ref() {
             Some(tunnel) if !tunnel.secret.is_empty() => {
@@ -96,6 +174,8 @@ pub async fn delete_connection(
         let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
         credentials::delete_connection_secrets_with_cache(&connection_id, &mut cache)?;
     }
+    // And the one that was never written down.
+    state.forget_session_password(&connection_id);
 
     // Delete from SQLite
     {
@@ -187,9 +267,15 @@ pub async fn connect_postgres(
     state: &AppState,
 ) -> Result<ConnectionInfo, String> {
     // Get the connection config
-    let config = state
+    let mut config = state
         .get_config(&connection_id)
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+
+    // Which password this attempt dials with: the one typed this run, else the
+    // one the Keychain gave us at startup, else none. A record whose
+    // `remember_password` is off has nothing in the Keychain, so the session
+    // map is the only place it can come from.
+    config.password = state.effective_password(&connection_id, &config.password);
 
     // A tunnel that stopped since the last call leaves a pool that cannot
     // carry anything. Drop it BEFORE the has_pool question, or Connect would
@@ -247,6 +333,29 @@ pub async fn connect_postgres(
             Ok(info_with(&config, ConnectionStatus::Error, Some(message), None))
         }
     }
+}
+
+/// Connect with a password the user has just typed.
+///
+/// The password is put in the process-only session map FIRST, so this attempt
+/// and every later one in this run find it — including the reconnect the front
+/// end makes to refresh a connection's status. Nothing is written to the
+/// Keychain here: storing it is a separate, explicit act (a save with
+/// `remember_password` on), because this call is also what a connection that
+/// deliberately remembers nothing uses.
+pub async fn connect_postgres_with_password(
+    connection_id: String,
+    password: String,
+    state: &AppState,
+) -> Result<ConnectionInfo, String> {
+    state.set_session_password(&connection_id, &password);
+    connect_postgres(connection_id, state).await
+}
+
+/// Forget every password typed this run. The Keychain is not touched — there
+/// is nothing of this map in it. Returns how many were dropped.
+pub fn clear_session_passwords(state: &AppState) -> usize {
+    state.clear_session_passwords()
 }
 
 /// Why the pool failed, and close the tunnel it was going to use.
@@ -798,5 +907,142 @@ mod live_connect_tests {
             disconnect_postgres(id.clone(), &state).await.expect("disconnect");
             assert!(ssh_pids_on(port_now).is_empty());
         });
+    }
+}
+
+/// `remember_password` off means the password is NOT written down, and that
+/// anything already written down goes.
+///
+/// Two layers are proved here. The RULE (`password_action`) is pure and runs
+/// everywhere. The SIDE EFFECT runs against the real macOS Keychain, under an
+/// isolated service name from `PHAROS_KEYCHAIN_SERVICE`, so the user's own
+/// passwords are never read or written by a test.
+#[cfg(test)]
+mod remember_password_tests {
+    use super::{password_action, save_connection, PasswordAction};
+    use crate::db::{credentials, sqlite};
+    use crate::models::{ConnectionConfig, SslMode};
+    use crate::state::AppState;
+    use std::path::PathBuf;
+
+    // ---- the rule, all eight inputs -------------------------------------
+
+    #[test]
+    fn remembering_stores_what_was_sent_and_leaves_what_was_not() {
+        // Sent, so it is written — whether or not one is there already.
+        assert_eq!(password_action(true, false, false), PasswordAction::Store);
+        assert_eq!(password_action(true, false, true), PasswordAction::Store);
+        // Not sent. The form masks the field unless the user reveals it, so an
+        // empty string is "no password came with this save", never "clear it".
+        assert_eq!(password_action(true, true, false), PasswordAction::Leave);
+        assert_eq!(password_action(true, true, true), PasswordAction::Leave);
+    }
+
+    #[test]
+    fn not_remembering_never_stores_and_removes_what_is_there() {
+        // The case the checkbox was taken out of the form for: a password
+        // arrives with the switch OFF and must not reach the Keychain.
+        assert_eq!(password_action(false, false, false), PasswordAction::Leave);
+        assert_eq!(password_action(false, false, true), PasswordAction::Forget);
+        // And the switch going off on its own, with the field left masked.
+        assert_eq!(password_action(false, true, true), PasswordAction::Forget);
+        assert_eq!(password_action(false, true, false), PasswordAction::Leave);
+    }
+
+    // ---- the side effect, against the real Keychain ---------------------
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn config(id: &str, password: &str, remember: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "127.0.0.1".to_string(),
+            port: 5432,
+            database: "nfinn".to_string(),
+            username: "nfinn".to_string(),
+            password: password.to_string(),
+            ssl_mode: SslMode::Disable,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: false,
+            remember_password: remember,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        }
+    }
+
+    /// A save with the switch ON writes the password; the same record saved
+    /// again with the switch OFF takes it back out of the Keychain, and the
+    /// session keeps it in the map that is never written anywhere.
+    ///
+    /// Against the real Keychain, under a service name of this test's own —
+    /// `PHAROS_KEYCHAIN_SERVICE`, the same hook the re-identified test build
+    /// of the app uses. Serial: the env var is process-wide, and the suite is
+    /// run with `--test-threads=1`.
+    #[test]
+    fn clearing_the_switch_deletes_the_stored_password() {
+        let service = format!("com.pharos.test.remember.{}", uuid::Uuid::new_v4());
+        std::env::set_var("PHAROS_KEYCHAIN_SERVICE", &service);
+
+        let dir = temp_db_dir("remember");
+        let db = sqlite::init_database(&dir).expect("sqlite");
+        let state = AppState::new(db);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+
+        // 1. Remembered: the Keychain holds it.
+        rt.block_on(save_connection(config("c1", "hunter2", true), &state))
+            .expect("save with remember on");
+        let stored = credentials::load_all_passwords().expect("read keychain");
+        assert_eq!(stored.get("c1").map(String::as_str), Some("hunter2"),
+                   "a remembered password is written");
+        assert!(state.session_password("c1").is_none(),
+                "a remembered password needs no process-only copy");
+
+        // 2. The switch goes off, with the field masked (empty), which is what
+        // the form sends when the user only clicked the checkbox.
+        rt.block_on(save_connection(config("c1", "", false), &state))
+            .expect("save with remember off");
+
+        let after = credentials::load_all_passwords().expect("read keychain");
+        assert!(!after.contains_key("c1"),
+                "clearing the switch DELETES the stored password");
+        assert!(!state
+                    .password_cache
+                    .lock()
+                    .unwrap()
+                    .contains_key("c1"),
+                "and the cache that mirrors the Keychain agrees");
+        assert_eq!(state.session_password("c1").as_deref(), Some("hunter2"),
+                   "this session keeps working, from the map that is never written down");
+
+        // 3. A save that ARRIVES with a password and the switch off must not
+        // write it either.
+        rt.block_on(save_connection(config("c2", "s3cret", false), &state))
+            .expect("save a new record with remember off");
+        let after = credentials::load_all_passwords().expect("read keychain");
+        assert!(!after.contains_key("c2"), "an unremembered password is never written");
+        assert_eq!(state.session_password("c2").as_deref(), Some("s3cret"));
+        assert_eq!(state.get_config("c2").map(|c| c.password).as_deref(), Some(""),
+                   "nor does the cached config become its second home");
+
+        // 4. `connect_postgres` would dial with the session password.
+        assert_eq!(state.effective_password("c2", ""), "s3cret");
+        // 5. And sleep drops both, leaving the Keychain alone.
+        assert_eq!(state.clear_session_passwords(), 2);
+        assert!(state.session_password("c2").is_none());
+
+        // Leave nothing of this test behind.
+        let mut cache = state.password_cache.lock().unwrap();
+        let _ = credentials::delete_connection_secrets_with_cache("c1", &mut cache);
+        let _ = credentials::delete_connection_secrets_with_cache("c2", &mut cache);
+        drop(cache);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");
     }
 }

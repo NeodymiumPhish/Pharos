@@ -67,6 +67,27 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
  void pharos_connect(const char *connection_id, AsyncCallback callback, void *context);
 
 /**
+ * Connect to PostgreSQL with a password the user has just typed, rather than
+ * one the Keychain holds. Calls `callback` when done.
+ *
+ * The password is held for this process only — it is never written to the
+ * Keychain by this call, and never logged. The same shape as `pharos_connect`
+ * otherwise: the strings are copied out of the caller's memory before the
+ * task is spawned, and Rust frees what it hands back to the callback.
+ */
+
+void pharos_connect_with_password(const char *connection_id,
+                                  const char *password,
+                                  AsyncCallback callback,
+                                  void *context);
+
+/**
+ * Forget every password typed this run. The Keychain is untouched. Returns
+ * how many were dropped, so the caller can log a count and never a name.
+ */
+ uint32_t pharos_clear_session_passwords(void);
+
+/**
  * Disconnect from PostgreSQL. Calls `callback` when done.
  */
  void pharos_disconnect(const char *connection_id, AsyncCallback callback, void *context);

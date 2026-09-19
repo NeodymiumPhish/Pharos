@@ -172,6 +172,7 @@
     "showRowNumbers": true
   },
   "security": {
+    "clearPasswordCacheOnSleep": false,
     "collectPerformanceMetrics": true,
     "indexSavedQueriesInSpotlight": true
   },

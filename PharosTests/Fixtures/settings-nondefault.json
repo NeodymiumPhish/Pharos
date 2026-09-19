@@ -165,6 +165,7 @@
     "showRowNumbers": false
   },
   "security": {
+    "clearPasswordCacheOnSleep": true,
     "collectPerformanceMetrics": false,
     "indexSavedQueriesInSpotlight": false
   },

@@ -37,11 +37,9 @@ The Connections Manager is a two-pane window:
 | Password | Password for the role (stored in the Keychain) | — |
 | SSL Mode | Prefer, Require, Verify CA, Verify Full, or Disable — see [SSL Modes](#ssl-modes) | Prefer |
 | Root Certificate | The PEM root certificate that **Verify CA** and **Verify Full** check the server against. Shown only for those two modes; empty uses the system trust store | Empty |
-| Remember the password in the keychain | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | On |
 | Default Schema | Schema focused on connect. Filled from the open connection when the connection is already connected and its settings are unchanged; otherwise press **Test Connection** first | None |
 | Connect through an SSH tunnel | Reach the database through a bastion — see [SSH Tunnels](#ssh-tunnels) | Off |
 | Read-only connection | See [Read-only connections](#read-only-connections) | Off |
-| Connect when Pharos starts | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | Off |
 | Time Zone | The `TimeZone` this connection's sessions ask for. **Use the Settings default** falls back to Settings ▸ Connections ▸ Time zone, and then to the server's own | Use the Settings default |
 
 The **Session** rows at the foot of the form — read-only, connect at launch and
@@ -90,19 +88,16 @@ Two things this is not:
 
 Like the other session rows, it applies the next time the connection opens.
 
-## Fields Pharos stores but does not act on yet
-
-Two rows in the form are **stored with the connection and not yet read**:
-
-| Field | What is true today |
-|-------|--------------------|
-| Remember the password in the keychain | The password is remembered whichever way this is set. Turning it off needs a password prompt at connect time, which is not built yet. |
-| Connect when Pharos starts | Pharos does not connect anything at launch. The flag is saved and survives a restart, ready for the launch sequence that will read it. |
-
-They are in the form so the setting you choose is kept, not because anything
-acts on it. Their tooltips say the same.
-
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
+
+## Connecting at launch
+
+**Connect when Pharos starts** opens this connection as the app starts, after the saved tabs are back. A connection the restored session has already opened is left alone rather than opened twice.
+
+A connection that asks for Touch ID is opened **last, and one at a time**. Several system authentication prompts raised together stack on one another, and there is nothing on a prompt to say which connection it belongs to. Connections that ask for nothing all go at once, since there is nothing to queue behind.
+
+Nothing here holds up the launch: a connection that never answers leaves its own row spinning, and after a minute it stops holding the queue behind it.
+
 
 ## Testing a Connection
 
@@ -214,6 +209,26 @@ In the window toolbar, open the **connection pull-down**. It lists every saved c
 - **Manage Connections…** — open the Connections Manager
 
 Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection. The **schema pull-down** beside the connection in the window toolbar shows the tab's schema (or **All Schemas**) and opens a searchable list to change it or to **Set as Default** for the connection.
+
+## Remembering the password
+
+Under **Authentication**, **Remember the password in the keychain** decides where this connection's password lives.
+
+**On** (the default) the password is written to your login keychain and the connection opens without asking.
+
+**Off**, three things happen:
+
+- The password is **not** written to the keychain.
+- The one already in your keychain for this connection is **deleted** when you save. Clearing the box is a destructive save, not merely a stop: a switch that left the old password behind would say the opposite of what it does.
+- Pharos asks you for the password the first time you connect after each launch, in a small sheet showing the connection's name and address. What you type is kept **in memory only**, for as long as Pharos runs, so the rest of that session connects without asking again.
+
+The sheet has a **Remember in the Keychain** box of its own. Ticking it turns this connection's setting back on and writes what you typed, so you can change your mind without opening the Connections Manager.
+
+**Settings ▸ Security & Privacy ▸ Passwords** has one switch for this: **Forget typed passwords when this Mac sleeps**. It is off by default. Turned on, the passwords held in memory are dropped when the Mac goes to sleep, and you are asked again on waking. It never touches the keychain, so connections that remember their password are unaffected.
+
+{: .note }
+The **SSH tunnel**'s passphrase or password does **not** follow this switch. It is a different secret, and the tunnel is opened before the database connection, so there is nothing on screen to ask for it at the point it is needed. An SSH secret stays in the keychain until the connection is deleted.
+
 
 ## Touch ID
 

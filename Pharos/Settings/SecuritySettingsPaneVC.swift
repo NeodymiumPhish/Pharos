@@ -30,6 +30,14 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     icon: "magnifyingglass",
                     kind: .toggle(.settings(\.security.indexSavedQueriesInSpotlight))),
             ]),
+            SettingsSection(title: String(localized: "Passwords"), items: [
+                SettingsItem(
+                    id: "clearPasswordCacheOnSleep",
+                    title: String(localized: "Forget typed passwords when this Mac sleeps"),
+                    caption: String(localized: "A password you type into a connection that does not remember it is held until Pharos quits. This drops it when the Mac goes to sleep instead, so you are asked again on waking. Passwords kept in your keychain are not affected."),
+                    icon: "moon.zzz",
+                    kind: .toggle(.settings(\.security.clearPasswordCacheOnSleep))),
+            ]),
             SettingsSection(title: String(localized: "Diagnostics"), items: [
                 SettingsItem(
                     id: "collectPerformanceMetrics",

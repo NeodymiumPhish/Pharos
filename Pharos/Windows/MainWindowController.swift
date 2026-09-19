@@ -91,6 +91,12 @@ class MainWindowController: NSWindowController {
             self, selector: #selector(saveWindowFrame),
             name: NSWindow.didMoveNotification, object: window)
 
+        // Watch for connect attempts that had no password to dial with, so the
+        // user is asked for one instead of shown a server error about it. It
+        // needs a window to hang its sheet on, which is why it starts here and
+        // not at launch; the call is idempotent, so every window may make it.
+        PasswordPromptCoordinator.shared.start()
+
         let toolbarController = MainToolbarController(
             session: session,
             splitVC: splitViewController

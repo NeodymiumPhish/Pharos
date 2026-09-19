@@ -233,7 +233,6 @@ final class ConnectionsManagerVC: NSViewController {
     /// password, and the connection's own time zone.
     private let readOnlyCheckbox = NSButton()
     private let connectOnLaunchCheckbox = NSButton()
-    private let rememberPasswordCheckbox = NSButton()
     private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
 
@@ -254,6 +253,11 @@ final class ConnectionsManagerVC: NSViewController {
     /// The Touch ID gate for this record: ask the device owner to authenticate
     /// before connecting, and before the stored password is shown.
     private let requireAuthCheckbox = NSButton()
+
+    /// Whether this record's password is kept in the login keychain. Cleared,
+    /// the password is asked for instead — `PasswordPromptSheet` — and held in
+    /// memory until Pharos quits.
+    private let rememberPasswordCheckbox = NSButton()
 
     /// Stands beside a masked password field. Pressing it runs the gate; the
     /// real password appears only after the device owner authenticates.
@@ -589,6 +593,17 @@ final class ConnectionsManagerVC: NSViewController {
         requireAuthCheckbox.toolTip = String(localized:
             "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was.")
 
+        rememberPasswordCheckbox.setButtonType(.switch)
+        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
+        rememberPasswordCheckbox.target = self
+        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
+        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
+        // What it ACTUALLY does, both ways round. The row was out of this form
+        // until the behaviour existed, because the old one said the opposite of
+        // what happened.
+        rememberPasswordCheckbox.toolTip = String(localized:
+            "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save.")
+
         sslPopup.target = self
         sslPopup.action = #selector(sslPopupChanged)
         // Built from `SslMode.formOrder`, so a mode added to the model cannot
@@ -622,15 +637,7 @@ final class ConnectionsManagerVC: NSViewController {
         connectOnLaunchCheckbox.action = #selector(perConnectionFlagChanged)
         connectOnLaunchCheckbox.setAccessibilityIdentifier("connections.connectOnLaunch")
         connectOnLaunchCheckbox.toolTip = String(localized:
-            "Stored with the connection. Pharos does not act on it yet.")
-
-        rememberPasswordCheckbox.setButtonType(.switch)
-        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
-        rememberPasswordCheckbox.target = self
-        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
-        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
-        rememberPasswordCheckbox.toolTip = String(localized:
-            "Stored with the connection. Pharos does not act on it yet: the password is remembered either way until the prompt it needs is built.")
+            "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together.")
 
         sessionTimeZonePopup.target = self
         sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)
@@ -747,8 +754,8 @@ final class ConnectionsManagerVC: NSViewController {
             authNoteRow,
             row(label: "SSL Mode", control: sslPopup),
             sslCertRow,
-            row(label: "", control: requireAuthCheckbox),
             row(label: "", control: rememberPasswordCheckbox),
+            row(label: "", control: requireAuthCheckbox),
         ])
         // `row` linked the badge to the stack it was handed. The warning is
         // about the FIELD, so say so — a screen reader on the badge must land
@@ -1343,6 +1350,7 @@ final class ConnectionsManagerVC: NSViewController {
         // record revealed a moment ago: the gate is about walking up to the
         // window, so it has to re-arm when the form moves on.
         requireAuthCheckbox.state = config.requiresAuthentication ? .on : .off
+        rememberPasswordCheckbox.state = config.rememberPassword ? .on : .off
         // The tunnel, before the gate is applied: `applyPasswordGateState`
         // masks the secret field, so the fields must hold the record first.
         let tunnel = config.sshTunnel
@@ -1369,7 +1377,6 @@ final class ConnectionsManagerVC: NSViewController {
         applySslRowVisibility()
         readOnlyCheckbox.state = config.readOnly ? .on : .off
         connectOnLaunchCheckbox.state = config.connectOnLaunch ? .on : .off
-        rememberPasswordCheckbox.state = config.rememberPassword ? .on : .off
         // `selectValue` leaves the selection alone when there is no such row,
         // so the empty case has to pick the sentinel itself — otherwise a
         // record with no zone would show the zone of the record before it.
@@ -1624,6 +1631,11 @@ final class ConnectionsManagerVC: NSViewController {
         d.sslRootCertPath = (d.sslMode.verifiesCertificate && !certPath.isEmpty) ? certPath : nil
         d.readOnly = readOnlyCheckbox.state == .on
         d.connectOnLaunch = connectOnLaunchCheckbox.state == .on
+        // Cleared, this is a DESTRUCTIVE save: `save_connection` deletes the
+        // password already in the keychain rather than merely stopping writing
+        // new ones. That is the whole point — a switch that left the old one
+        // behind would say the opposite of what it does — and it is what the
+        // tooltip states.
         d.rememberPassword = rememberPasswordCheckbox.state == .on
         d.sessionTimeZone = PopupValueMenu.selectedValue(in: sessionTimeZonePopup)
             .map(SessionTimeZone.normalized)
