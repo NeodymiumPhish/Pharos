@@ -22,6 +22,9 @@ enum SettingsMigration {
     /// result-tabs panel.
     static let resultTabsPanelVisibleKey = "ResultTabsPanelVisibleByDefault"
 
+    /// The legacy key for the editor / results divider position.
+    static let editorSplitRatioKey = "PharosEditorSplitRatio"
+
     /// Copy the legacy values into `settings`, then remove their keys.
     ///
     /// - Returns: true when something moved, which is the caller's signal to
@@ -40,6 +43,18 @@ enum SettingsMigration {
         if let value = bool(defaults, resultTabsPanelVisibleKey) {
             settings.results.showResultTabsPanelByDefault = value
             defaults.removeObject(forKey: resultTabsPanelVisibleKey)
+            changed = true
+        }
+
+        // Clamped, because this one is a number the user never typed: it was
+        // written from a divider drag, and a stored 0 or 1 would give an
+        // editor or a grid with no height at all.
+        if let stored = defaults.object(forKey: editorSplitRatioKey) as? Double {
+            let clamped = min(max(stored, 0.1), 0.9)
+            if clamped > 0 {
+                settings.session.defaultEditorSplitRatio = (clamped * 1000).rounded() / 1000
+            }
+            defaults.removeObject(forKey: editorSplitRatioKey)
             changed = true
         }
 

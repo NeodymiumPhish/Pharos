@@ -13,6 +13,7 @@
   },
   "checkForUpdates": true,
   "diagnostics": {
+    "logLevel": "warning",
     "metadataCacheTtlMinutes": 0
   },
   "editor": {
@@ -26,6 +27,9 @@
     "completionTrigger": "afterDot",
     "fontFamily": "JetBrains Mono, Monaco, Menlo, monospace",
     "fontSize": 13,
+    "formatIndentWidth": 2,
+    "formatLinesBetweenStatements": 2,
+    "formatUppercaseKeywords": true,
     "highlightCurrentLine": true,
     "insertSpacesForTab": true,
     "lineNumbers": true,
@@ -67,6 +71,7 @@
     "objectSort": "kindThenName",
     "partitionSort": "name",
     "schemaSort": "name",
+    "showSystemSchemas": false,
     "viewContentsUsesRowLimit": true
   },
   "notifications": {
@@ -123,6 +128,11 @@
   "security": {
     "collectPerformanceMetrics": true,
     "indexSavedQueriesInSpotlight": true
+  },
+  "session": {
+    "autosaveIntervalSeconds": 30,
+    "defaultEditorSplitRatio": 0.6,
+    "restoreWindowFrames": true
   },
   "showLeafPartitions": false,
   "theme": "auto",

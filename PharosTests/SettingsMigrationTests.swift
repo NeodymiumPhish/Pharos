@@ -121,6 +121,39 @@ func runTests() {
     expectFalse(settings.results.copyIncludeHeaders, "a stored 0 reads as false")
 
     clear()
+    // MARK: the editor split ratio
+
+    clear()
+    defaults.removeObject(forKey: SettingsMigration.editorSplitRatioKey)
+    var ratio = AppSettings()
+    expectFalse(SettingsMigration.migrate(from: defaults, into: &ratio),
+                "no split-ratio key: nothing to migrate")
+    expectTrue(ratio.session.defaultEditorSplitRatio == 0.6, "and the default stands")
+
+    defaults.set(0.42, forKey: SettingsMigration.editorSplitRatioKey)
+    var moved = AppSettings()
+    expectTrue(SettingsMigration.migrate(from: defaults, into: &moved), "a stored ratio migrates")
+    expectTrue(moved.session.defaultEditorSplitRatio == 0.42, "the value comes across")
+    expectTrue(defaults.object(forKey: SettingsMigration.editorSplitRatioKey) == nil,
+               "and the key is removed, so it cannot overwrite a later choice")
+
+    // The clamp. A drag wrote these; a 0 or a 1 would leave one pane with no
+    // height at all, and the user never typed either.
+    for (stored, expected) in [(0.0, 0.1), (1.0, 0.9), (-3.0, 0.1), (99.0, 0.9)] {
+        defaults.set(stored, forKey: SettingsMigration.editorSplitRatioKey)
+        var clamped = AppSettings()
+        _ = SettingsMigration.migrate(from: defaults, into: &clamped)
+        expectTrue(clamped.session.defaultEditorSplitRatio == expected,
+                   "a stored \(stored) clamps to \(expected)")
+    }
+
+    // Rounded to three decimals, so a drag cannot republish the settings on
+    // every frame with a value that differs in the twelfth place.
+    defaults.set(0.6666666666, forKey: SettingsMigration.editorSplitRatioKey)
+    var rounded = AppSettings()
+    _ = SettingsMigration.migrate(from: defaults, into: &rounded)
+    expectTrue(rounded.session.defaultEditorSplitRatio == 0.667, "the ratio is rounded to three decimals")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     if failures > 0 { exit(1) }
 }

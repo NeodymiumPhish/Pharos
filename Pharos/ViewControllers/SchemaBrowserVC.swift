@@ -28,6 +28,9 @@ class SchemaBrowserVC: NSViewController {
     private var refreshedSchemas: Set<String> = []
     private let stateManager = AppStateManager.shared
     private var settingsCancellable: AnyCancellable?
+    /// Separate from `settingsCancellable`: this one throws the metadata
+    /// cache away, which the sort modes must never do.
+    private var systemSchemasCancellable: AnyCancellable?
 
     /// Imports currently in progress: `(connectionId, schema, table)`.
     private var activeImports: Set<ImportKey> = []
@@ -45,12 +48,14 @@ class SchemaBrowserVC: NSViewController {
     /// they are used, so changing one must not throw the tree away.
     private struct TreeShape: Equatable {
         let showLeafPartitions: Bool
+        let showSystemSchemas: Bool
         let schemaSort: SchemaSortMode
         let objectSort: ObjectSortMode
         let partitionSort: PartitionSortMode
 
         init(_ settings: AppSettings) {
             showLeafPartitions = settings.showLeafPartitions
+            showSystemSchemas = settings.navigator.showSystemSchemas
             schemaSort = settings.navigator.schemaSort
             objectSort = settings.navigator.objectSort
             partitionSort = settings.navigator.partitionSort
@@ -160,6 +165,24 @@ class SchemaBrowserVC: NSViewController {
             .sink { [weak self] _ in
                 guard let self, let cid = self.connectionId else { return }
                 self.loadSchemas(connectionId: cid, force: true)
+            }
+
+        // "Show system schemas" changes what the SERVER returns, not only how
+        // the tree is drawn, so the tree's own `force: true` above is not
+        // enough: `MetadataCache` holds a second copy of the schema list —
+        // the one the schema pull-down and the completion list read — and it
+        // would keep answering with the old answer until the connection
+        // closed. Throw it away and fetch again, exactly as the Advanced
+        // pane's "Clear Metadata Cache" button does.
+        systemSchemasCancellable = AppStateManager.shared.$settings
+            .map(\.navigator.showSystemSchemas)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MetadataCache.shared.clearAll()
+                guard let self, let cid = self.connectionId else { return }
+                MetadataCache.shared.load(connectionId: cid, force: true)
             }
     }
 

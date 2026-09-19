@@ -44,6 +44,27 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                     icon: "macwindow.on.rectangle",
                     kind: .toggle(.settings(\.query.restoreOpenTabs))),
             ]),
+            SettingsSection(title: String(localized: "Session"), items: [
+                SettingsItem(
+                    id: "restoreWindowFrames",
+                    title: String(localized: "Restore window positions"),
+                    caption: String(localized: "Puts a restored window back where it was. Off still restores the tabs, and lets macOS place the window — which is what you want after the displays change."),
+                    icon: "macwindow",
+                    kind: .toggle(.settings(\.session.restoreWindowFrames)),
+                    dependsOn: "restoreOpenTabs"),
+                SettingsItem(
+                    id: "autosaveInterval",
+                    title: String(localized: "Autosave the session"),
+                    caption: String(localized: "How often the open tabs are written down. Off still saves at quit, so turning it off does not lose the session."),
+                    icon: "arrow.clockwise.circle",
+                    kind: .popup(.values(\.session.autosaveIntervalSeconds, options: [
+                        (title: String(localized: "Every 10 seconds"), value: UInt32(10)),
+                        (title: String(localized: "Every 30 seconds"), value: UInt32(30)),
+                        (title: String(localized: "Every minute"), value: UInt32(60)),
+                        (title: String(localized: "Off"), value: UInt32(0)),
+                    ]))),
+            ]),
+
             SettingsSection(title: String(localized: "Updates"), items: [
                 SettingsItem(
                     id: "checkForUpdates",

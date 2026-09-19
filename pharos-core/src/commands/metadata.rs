@@ -9,8 +9,11 @@ pub async fn get_schemas(
     state: &AppState,
 ) -> Result<Vec<SchemaInfo>, String> {
     let pool = state.require_pool(&connection_id)?;
+    // Settings ▸ Navigator ▸ Show system schemas, from the cached blob the
+    // state holds — never a fresh read of SQLite per call.
+    let include_system = state.settings().navigator.show_system_schemas;
 
-    postgres::get_schemas(&pool)
+    postgres::get_schemas(&pool, include_system)
         .await
         .map_err(|e| e.to_string())
 }

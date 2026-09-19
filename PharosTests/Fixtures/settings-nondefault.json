@@ -8,6 +8,7 @@
   },
   "checkForUpdates": false,
   "diagnostics": {
+    "logLevel": "debug",
     "metadataCacheTtlMinutes": 1
   },
   "editor": {
@@ -21,6 +22,9 @@
     "completionTrigger": "afterDotAndIdentifiers",
     "fontFamily": "Menlo",
     "fontSize": 14,
+    "formatIndentWidth": 3,
+    "formatLinesBetweenStatements": 1,
+    "formatUppercaseKeywords": false,
     "highlightCurrentLine": false,
     "insertSpacesForTab": false,
     "lineNumbers": false,
@@ -60,6 +64,7 @@
     "objectSort": "size",
     "partitionSort": "bound",
     "schemaSort": "defaultFirst",
+    "showSystemSchemas": true,
     "viewContentsUsesRowLimit": false
   },
   "notifications": {
@@ -116,6 +121,11 @@
   "security": {
     "collectPerformanceMetrics": false,
     "indexSavedQueriesInSpotlight": false
+  },
+  "session": {
+    "autosaveIntervalSeconds": 31,
+    "defaultEditorSplitRatio": 0.45,
+    "restoreWindowFrames": false
   },
   "showLeafPartitions": true,
   "theme": "dark",

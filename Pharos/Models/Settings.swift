@@ -22,6 +22,30 @@ enum NullDisplay: String, Codable, CaseIterable {
     }
 }
 
+/// How much pharos-core writes to the system log (Settings ▸ Advanced ▸
+/// Diagnostics). Applied through `PharosCore.setLogLevel`, which the engine
+/// refuses while `RUST_LOG` is set in the environment.
+///
+/// Four levels, not `log`'s six: `trace` on a database client writes chatter
+/// nobody wants in a shared log, and `off` would hide the warning that a
+/// connection fell back to plaintext.
+enum LogLevel: String, Codable, CaseIterable {
+    case error
+    /// What the engine has always written. Warnings and errors only.
+    case warning
+    case info
+    case debug
+
+    var displayLabel: String {
+        switch self {
+        case .error: return String(localized: "Errors only")
+        case .warning: return String(localized: "Warnings and errors")
+        case .info: return String(localized: "Information")
+        case .debug: return String(localized: "Debug")
+        }
+    }
+}
+
 enum BoolDisplay: String, Codable, CaseIterable {
     case trueFalse = "trueFalse"
     case trueFalseLower = "trueFalseLower"
@@ -180,6 +204,18 @@ struct EditorSettings: Codable, Equatable {
     /// (`scripts/test-settings-decode.sh`); `SQLThemeCatalogTests` pins the
     /// two spellings together.
     var syntaxTheme: String = "system"
+
+    // MARK: Format SQL
+
+    /// Spaces per indent level in the formatter's output. 2 is what
+    /// `pharos_format_sql` passed as `Indent::Spaces(2)`.
+    var formatIndentWidth: UInt32 = 2
+    /// Whether the formatter raises reserved keywords. On is what it passed
+    /// as `uppercase: Some(true)`.
+    var formatUppercaseKeywords: Bool = true
+    /// Blank lines the formatter leaves between two statements. 2 is what it
+    /// passed as `lines_between_queries: 2`.
+    var formatLinesBetweenStatements: UInt32 = 2
 
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 }
@@ -622,6 +658,9 @@ struct DiagnosticsSettings: Codable, Equatable {
     /// is what the cache did before this existed: an entry lived until the
     /// connection was closed or the user refreshed it by hand.
     var metadataCacheTtlMinutes: UInt32 = 0
+    /// How much pharos-core writes to the system log. Warning is the level
+    /// `pharos_init` capped `env_logger` to before this existed.
+    var logLevel: LogLevel = .warning
 }
 
 /// Settings ▸ Security & Privacy. Nothing here leaves this Mac; the switches
@@ -727,6 +766,11 @@ struct NavigatorSettings: Codable, Equatable {
 
     /// The order the schemas are listed in.
     var schemaSort: SchemaSortMode = .name
+    /// Whether `pg_catalog` and `information_schema` are listed at all. Off
+    /// is what the Navigator has always shown. The storage schemas
+    /// (`pg_toast*`, `pg_temp_*`) stay hidden whichever this says — there can
+    /// be thousands of them and none is anything a person reads.
+    var showSystemSchemas: Bool = false
 
     // MARK: Objects
 
@@ -806,6 +850,19 @@ struct HistorySettings: Codable, Equatable {
     var maximumEntries: UInt32 = 200
 }
 
+/// How the app remembers a working session between launches.
+struct SessionSettings: Codable, Equatable {
+    /// Seconds between automatic session snapshots. 0 turns autosave off;
+    /// the session is still written at quit.
+    var autosaveIntervalSeconds: UInt32 = 30
+    /// Whether a restored window is put back where it was. Off restores the
+    /// tabs but lets the window manager place the window.
+    var restoreWindowFrames: Bool = true
+    /// The editor / results divider in a new tab, as a fraction of the
+    /// height given to the editor. Moved out of `UserDefaults`.
+    var defaultEditorSplitRatio: Double = 0.6
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -826,6 +883,7 @@ struct AppSettings: Codable, Equatable {
     var charts: ChartSettings = ChartSettings()
     var results: ResultsSettings = ResultsSettings()
     var updates: UpdateSettings = UpdateSettings()
+    var session: SessionSettings = SessionSettings()
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Off follows the system's scroll-bar preference (the HIG
     /// default); on is what the grid did unconditionally before this existed.

@@ -107,6 +107,16 @@ pub struct EditorSettings {
     // Colours
     #[serde(default = "default_syntax_theme")]
     pub syntax_theme: String,
+
+    // Format SQL. Every default is what `pharos_format_sql` was hard-coded
+    // to before these existed, so an existing user's Format button is
+    // byte-for-byte unchanged until they touch a control.
+    #[serde(default = "default_format_indent_width")]
+    pub format_indent_width: u32,
+    #[serde(default = "default_true")]
+    pub format_uppercase_keywords: bool,
+    #[serde(default = "default_format_lines_between_statements")]
+    pub format_lines_between_statements: u32,
 }
 
 /// When the completion list opens on its own. `AfterDot` is what the editor
@@ -148,6 +158,8 @@ fn default_minimum_lines_to_fold() -> u32 { 3 }
 fn default_completion_minimum_characters() -> u32 { 1 }
 fn default_completion_maximum_items() -> u32 { 200 }
 fn default_syntax_theme() -> String { "system".to_string() }
+fn default_format_indent_width() -> u32 { 2 }
+fn default_format_lines_between_statements() -> u32 { 2 }
 
 impl Default for EditorSettings {
     fn default() -> Self {
@@ -172,6 +184,9 @@ impl Default for EditorSettings {
             offer_sql_list_chip: true,
             sql_list_quote_style: SqlListQuoteStyle::default(),
             syntax_theme: default_syntax_theme(),
+            format_indent_width: default_format_indent_width(),
+            format_uppercase_keywords: true,
+            format_lines_between_statements: default_format_lines_between_statements(),
         }
     }
 }
@@ -594,6 +609,23 @@ pub struct DiagnosticsSettings {
     /// which is what the Swift `MetadataCache` did before this existed.
     #[serde(default)]
     pub metadata_cache_ttl_minutes: u32,
+    /// How much the engine writes to the system log. `Warning` is what
+    /// `pharos_init` capped `env_logger` to before this existed.
+    #[serde(default)]
+    pub log_level: LogLevel,
+}
+
+/// How much pharos-core writes to the log. Applied through
+/// `pharos_set_log_level`, which `RUST_LOG` overrides outright.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LogLevel {
+    Error,
+    /// What the engine has always been capped at.
+    #[default]
+    Warning,
+    Info,
+    Debug,
 }
 
 /// Settings ▸ Security & Privacy. Both default ON: the Spotlight indexer and
@@ -612,6 +644,32 @@ impl Default for SecuritySettings {
         SecuritySettings {
             index_saved_queries_in_spotlight: true,
             collect_performance_metrics: true,
+        }
+    }
+}
+
+/// How the app remembers a working session between launches.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSettings {
+    /// Seconds between automatic session snapshots. 0 turns autosave off.
+    #[serde(default = "default_autosave_interval")]
+    pub autosave_interval_seconds: u32,
+    #[serde(default = "yes")]
+    pub restore_window_frames: bool,
+    #[serde(default = "default_editor_split_ratio")]
+    pub default_editor_split_ratio: f64,
+}
+
+fn default_autosave_interval() -> u32 { 30 }
+fn default_editor_split_ratio() -> f64 { 0.6 }
+
+impl Default for SessionSettings {
+    fn default() -> Self {
+        SessionSettings {
+            autosave_interval_seconds: default_autosave_interval(),
+            restore_window_frames: true,
+            default_editor_split_ratio: default_editor_split_ratio(),
         }
     }
 }
@@ -646,6 +704,8 @@ pub struct AppSettings {
     pub results: ResultsSettings,
     #[serde(default)]
     pub updates: UpdateSettings,
+    #[serde(default)]
+    pub session: SessionSettings,
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Defaults OFF — follow the system's scroll-bar preference, as
     /// the HIG asks — so a bare `#[serde(default)]` is the right default here.
@@ -729,6 +789,11 @@ pub enum PartitionSortMode {
 pub struct NavigatorSettings {
     #[serde(default)]
     pub schema_sort: SchemaSortMode,
+    /// Whether `pg_catalog` and `information_schema` are listed at all.
+    /// Off is what the Navigator has always shown. The storage schemas
+    /// (`pg_toast*`, `pg_temp_*`) stay hidden whichever this says.
+    #[serde(default)]
+    pub show_system_schemas: bool,
     #[serde(default)]
     pub object_sort: ObjectSortMode,
     #[serde(default)]
@@ -752,6 +817,7 @@ impl Default for NavigatorSettings {
     fn default() -> Self {
         NavigatorSettings {
             schema_sort: SchemaSortMode::default(),
+            show_system_schemas: false,
             object_sort: ObjectSortMode::default(),
             partition_sort: PartitionSortMode::default(),
             auto_expand_default_schema: true,
@@ -828,6 +894,7 @@ impl Default for AppSettings {
             charts: ChartSettings::default(),
             results: ResultsSettings::default(),
             updates: UpdateSettings::default(),
+            session: SessionSettings::default(),
             always_show_scroll_bars: false,
             intelligence: IntelligenceSettings::default(),
             notifications: NotificationSettings::default(),
@@ -883,6 +950,9 @@ pub(crate) mod fixture {
                     offer_sql_list_chip: false,
                     sql_list_quote_style: SqlListQuoteStyle::Double,
                     syntax_theme: "vivid".to_string(),
+                    format_indent_width: 3,
+                    format_uppercase_keywords: false,
+                    format_lines_between_statements: 1,
                 },
                 query: QuerySettings {
                     default_limit: 1001,
@@ -940,6 +1010,11 @@ pub(crate) mod fixture {
                     check_frequency: UpdateFrequency::Weekly,
                     channel: UpdateChannel::PreRelease,
                 },
+                session: SessionSettings {
+                    autosave_interval_seconds: 31,
+                    restore_window_frames: false,
+                    default_editor_split_ratio: 0.45,
+                },
                 always_show_scroll_bars: true,
                 intelligence: IntelligenceSettings {
                     describe_query: false,
@@ -955,13 +1030,17 @@ pub(crate) mod fixture {
                     badge_dock_icon: false,
                     toast_duration: ToastDuration::Long,
                 },
-                diagnostics: DiagnosticsSettings { metadata_cache_ttl_minutes: 1 },
+                diagnostics: DiagnosticsSettings {
+                    metadata_cache_ttl_minutes: 1,
+                    log_level: LogLevel::Debug,
+                },
                 security: SecuritySettings {
                     index_saved_queries_in_spotlight: false,
                     collect_performance_metrics: false,
                 },
                 navigator: NavigatorSettings {
                     schema_sort: SchemaSortMode::DefaultFirst,
+                    show_system_schemas: true,
                     object_sort: ObjectSortMode::Size,
                     partition_sort: PartitionSortMode::Bound,
                     auto_expand_default_schema: false,

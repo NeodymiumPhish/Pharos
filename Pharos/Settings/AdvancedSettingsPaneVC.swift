@@ -151,6 +151,16 @@ final class AdvancedSettingsPaneVC: SettingsFormPaneVC {
                         },
                 ]),
             SettingsSection(
+                title: String(localized: "Diagnostics"),
+                items: [
+                    SettingsItem(
+                        id: "logLevel",
+                        title: String(localized: "Engine log level"),
+                        caption: String(localized: "How much the database engine writes to the system log. Warnings and errors is what Pharos has always written; the louder levels are for working out why a connection or a query misbehaves, and they slow nothing down when nobody is reading. Setting RUST_LOG in the shell that starts Pharos overrides this."),
+                        icon: "text.alignleft",
+                        kind: .popup(.cases(\.diagnostics.logLevel, title: { $0.displayLabel }))),
+                ]),
+            SettingsSection(
                 title: String(localized: "Logs"),
                 items: [
                     SettingsItem(

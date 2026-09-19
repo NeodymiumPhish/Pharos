@@ -156,7 +156,7 @@ class ContentViewController: NSViewController {
     /// ensure it only consumes Esc while a selection is actually staged.
     private var escKeyMonitor: Any?
     private var hasSetInitialSplit = false
-    private static let splitRatioKey = "PharosEditorSplitRatio"
+
 
     /// Query IDs that the user has cancelled. Checked in the error handler to
     /// suppress the "Query failed" notification for user-initiated cancellations.
@@ -699,8 +699,11 @@ class ContentViewController: NSViewController {
         // Restore saved split ratio once the content area has real height
         if !hasSetInitialSplit, editorResultsSplit.bounds.height > 0 {
             hasSetInitialSplit = true
-            let saved = UserDefaults.standard.double(forKey: Self.splitRatioKey)
-            savedSplitRatio = saved > 0 ? saved : 0.6
+            // Settings ▸ General ▸ Session. A stored 0 is not a ratio —
+            // it is what `UserDefaults.double` returns for an absent key —
+            // so the model's own default stands in for it.
+            let stored = stateManager.settings.session.defaultEditorSplitRatio
+            savedSplitRatio = CGFloat(stored > 0 ? stored : 0.6)
             applyExpandState()
         }
     }
@@ -1450,7 +1453,15 @@ class ContentViewController: NSViewController {
 
     private func persistSplitRatio() {
         guard expandState == .normal else { return }
-        UserDefaults.standard.set(Double(savedSplitRatio), forKey: Self.splitRatioKey)
+        // Rounded to three decimals: the divider reports a new fraction on
+        // every frame of a drag, and an unrounded value would write — and
+        // republish — the settings on each of them.
+        let rounded = (Double(savedSplitRatio) * 1000).rounded() / 1000
+        guard rounded > 0, rounded < 1 else { return }
+        var updated = stateManager.settings
+        guard updated.session.defaultEditorSplitRatio != rounded else { return }
+        updated.session.defaultEditorSplitRatio = rounded
+        stateManager.saveSettings(updated)
     }
 
     // MARK: - Rename Tab

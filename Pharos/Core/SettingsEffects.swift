@@ -31,6 +31,17 @@ final class SettingsEffects {
     func start() {
         let settings = AppStateManager.shared.$settings
 
+        // The session autosave interval. `dropFirst` because the timer is
+        // started by the launch path with the stored value already in it;
+        // this only has to follow LATER changes.
+        settings
+            .map(\.session.autosaveIntervalSeconds)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { _ in AppStateManager.shared.restartSessionAutosave() }
+            .store(in: &cancellables)
+
         // Toast duration. `Toast` never reaches for the settings itself — it
         // compiles standalone in `scripts/test-toast-click.sh` — so the value
         // is pushed at it instead.
@@ -53,6 +64,20 @@ final class SettingsEffects {
                     Task { await SavedQuerySpotlightIndexer.shared.stop() }
                 }
             }
+            .store(in: &cancellables)
+
+        // The engine's log level. `pharos_init` caps the core at "warn" —
+        // what it has always written — and this raises or lowers it from
+        // there. No `dropFirst`: the launch delivery is what applies the
+        // stored level, and the call is idempotent.
+        //
+        // The engine refuses the call outright while RUST_LOG is set in the
+        // environment, so a developer who names a level in their shell keeps
+        // it whatever this pane says.
+        settings
+            .map(\.diagnostics.logLevel)
+            .removeDuplicates()
+            .sink { PharosCore.setLogLevel($0) }
             .store(in: &cancellables)
 
         // MetricKit. Both calls are idempotent, so the launch delivery and a

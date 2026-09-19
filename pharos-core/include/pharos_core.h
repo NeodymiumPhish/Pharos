@@ -95,6 +95,15 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
  void pharos_shutdown(void);
 
 /**
+ * Set how much the engine writes to the log. Accepts `error`, `warn`
+ * (or `warning`), `info` and `debug`, in any case.
+ *
+ * Returns false, changing nothing, when the name is not one of those or when
+ * `RUST_LOG` is set in the environment.
+ */
+ bool pharos_set_log_level(const char *level);
+
+/**
  * Free a string allocated by Rust. Must be called for every non-NULL string returned by pharos_* functions.
  */
 

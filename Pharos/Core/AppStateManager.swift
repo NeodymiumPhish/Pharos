@@ -576,16 +576,33 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    /// Start the 30-second autosave. Idempotent.
+    /// Start the session autosave at the interval the user chose
+    /// (Settings ▸ General ▸ Session). Idempotent.
+    ///
+    /// An interval of 0 is "off": no timer runs, and the session is written
+    /// only at quit and on the other explicit snapshots. Turning it off does
+    /// NOT mean losing the session.
     func startSessionAutosave() {
         guard sessionAutosaveTimer == nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        restartSessionAutosave()
+    }
+
+    /// Put the timer on the current interval. Called when the interval
+    /// changes, so a new value takes effect without a relaunch.
+    func restartSessionAutosave() {
+        sessionAutosaveTimer?.invalidate()
+        sessionAutosaveTimer = nil
+        let interval = TimeInterval(settings.session.autosaveIntervalSeconds)
+        guard interval > 0 else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.sessionDirty else { return }
                 self.snapshotSession()
             }
         }
-        timer.tolerance = 5
+        // A sixth of the period, so a short interval keeps its shape and a
+        // long one still lets the system coalesce wake-ups.
+        timer.tolerance = interval / 6
         sessionAutosaveTimer = timer
     }
 
@@ -603,7 +620,11 @@ final class AppStateManager: ObservableObject {
     /// The stored window the first main window should adopt — its frame, before
     /// that window is shown. Nil when nothing is being restored.
     var pendingFirstWindowFrame: NSRect? {
-        pendingSession?.windows.min { $0.windowIndex < $1.windowIndex }?
+        // Settings ▸ General ▸ Session. Off restores the TABS but lets the
+        // window manager place the window, which is what a user with a
+        // changed display arrangement wants.
+        guard settings.session.restoreWindowFrames else { return nil }
+        return pendingSession?.windows.min { $0.windowIndex < $1.windowIndex }?
             .frame.flatMap(SessionWindow.rect(from:))
     }
 

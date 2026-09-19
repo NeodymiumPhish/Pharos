@@ -31,6 +31,8 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+| Restore window positions | On/Off | On | Puts a restored window back where it was. Off still restores the tabs and lets macOS place the window, which is what you want after your displays change. Only applies while **Restore open tabs** is on. |
+| Autosave the session | Every 10 seconds, Every 30 seconds, Every minute, Off | Every 30 seconds | How often the open tabs are written down. **Off still saves at quit**, so turning it off does not lose the session. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
 | Frequency | On launch only, Daily, Weekly | Daily | How often the background check repeats. It also sets how stale a stored answer may be before the next check asks GitHub again. |
 | Channel | Stable, Pre-release | Stable | Stable follows GitHub's own latest release. Pre-release takes the newest release marked pre-release that is not a draft. |
@@ -58,6 +60,7 @@ before the setting existed, so nothing changes until you touch a control.
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Order schemas by | Name, Default schema first | Name | Name is the order the server returns, which is what the Navigator has always shown. Default schema first lifts the schema the connection names to the top and leaves the rest by name; a connection that names none is unchanged. |
+| Show system schemas | On/Off | Off | Lists `pg_catalog` and `information_schema` in the tree and in the schema pull-down, beside your own schemas. The storage schemas stay hidden whichever way this is set: `pg_toast` holds the out-of-line halves of wide rows and the `pg_temp_` ones are a namespace per backend that has made a temporary table, so there can be thousands and none of them holds anything to read. Changing this refetches the schema list and clears the cached metadata, so the tree and completion both answer with the new list at once. |
 
 ### Objects
 
@@ -142,6 +145,16 @@ before the setting existed, so nothing changes until you touch a control.
 |---------|---------|---------|-------------|
 | Offer to format a pasted list | On/Off | On | A paste that looks like bare values offers a **Format as SQL list** button. Press Tab to take it, Esc to leave it. The paste itself is never changed on its own, and **Format as SQL list** stays in the editor's context menu whatever this says. |
 | Quote values with | Single quotes, Double quotes, No quotes | Single quotes | How that formatter wraps a value. A list that is all numbers, all booleans or all `NULL` is left bare whichever this says, because quoting it would change what it means. |
+
+### Format SQL
+
+These three are the only settings the **Format** button reads. They do not touch what you type — **Tab size** above is the Tab key, this indent is the formatter's output.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Indent width | 1–8 spaces | 2 | Spaces per level in what **Format** writes. |
+| Raise keywords to capitals | On/Off | On | `SELECT` rather than `select`. Only reserved words are touched; your table and column names keep the case you wrote, and a `{{variable}}` token is carried through whole. |
+| Blank lines between statements | 0–2 lines | 2 | How far apart two statements are left after a semicolon. |
 
 ### Colours
 
@@ -291,6 +304,7 @@ Passwords are held in the macOS Keychain and are not settings; see
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Refetch metadata after | 0–1,440 minutes | 0 | How old a connection's cached schema may be before Pharos fetches it again when you next switch to that connection. 0 means never expire, which is what the cache has always done: an entry lives until the connection closes or you refresh it by hand. |
+| Engine log level | Errors only, Warnings and errors, Information, Debug | Warnings and errors | How much the database engine writes to the system log, which **Reveal Logs in Finder** below leads to. Warnings and errors is what Pharos has always written. The louder levels are for working out why a connection or a query misbehaves; they take effect at once, with no relaunch. Setting `RUST_LOG` in the shell that starts Pharos overrides this outright, and the engine then ignores this row. |
 
 | Button | What it does |
 |--------|--------------|

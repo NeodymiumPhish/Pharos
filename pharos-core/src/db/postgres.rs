@@ -550,17 +550,44 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
     Ok(latency)
 }
 
-/// Get all schemas in the database
-pub async fn get_schemas(pool: &PgPool) -> Result<Vec<SchemaInfo>, sqlx::Error> {
-    // No parameters needed — use raw_sql for simple protocol compatibility
-    let rows = sqlx::raw_sql(
+/// The schema listing statement.
+///
+/// Pure, so the two shapes can be pinned by a unit test without a server.
+///
+/// `include_system` false is what Pharos has always sent: the three system
+/// schemas are named and excluded. True lets `pg_catalog` and
+/// `information_schema` through — they are worth browsing — but NEVER the
+/// storage schemas. `pg_toast*` holds the out-of-line halves of wide rows and
+/// `pg_temp_*` one namespace per backend that has made a temporary table:
+/// there can be thousands, none of them is anything a person reads, and a
+/// tree full of them is worse than no tree. The backslash is LIKE's default
+/// escape character, so `pg\_temp\_%` matches a real underscore rather than
+/// any character at all.
+pub(crate) fn schemas_sql(include_system: bool) -> &'static str {
+    if include_system {
+        "SELECT schema_name, schema_owner \
+         FROM information_schema.schemata \
+         WHERE schema_name NOT LIKE 'pg\\_toast%' \
+           AND schema_name NOT LIKE 'pg\\_temp\\_%' \
+         ORDER BY schema_name"
+    } else {
         "SELECT schema_name, schema_owner \
          FROM information_schema.schemata \
          WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
-         ORDER BY schema_name",
-    )
-    .fetch_all(pool)
-    .await?;
+         ORDER BY schema_name"
+    }
+}
+
+/// Get all schemas in the database. `include_system` follows
+/// Settings ▸ Navigator ▸ Show system schemas.
+pub async fn get_schemas(
+    pool: &PgPool,
+    include_system: bool,
+) -> Result<Vec<SchemaInfo>, sqlx::Error> {
+    // No parameters needed — use raw_sql for simple protocol compatibility
+    let rows = sqlx::raw_sql(schemas_sql(include_system))
+        .fetch_all(pool)
+        .await?;
 
     let schemas = rows
         .into_iter()
@@ -2084,6 +2111,107 @@ mod live_key_info_tests {
             println!("live catalogue read OK:");
             for (oid, entry) in &info {
                 println!("  {} oid={} candidates={:?}", entry.display, oid, entry.candidates);
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+mod schemas_sql_tests {
+    use super::schemas_sql;
+
+    #[test]
+    fn the_default_shape_is_the_statement_pharos_has_always_sent() {
+        let sql = schemas_sql(false);
+        assert!(
+            sql.contains("NOT IN ('pg_catalog', 'information_schema', 'pg_toast')"),
+            "the default must not change: {sql}"
+        );
+        assert!(!sql.contains("LIKE"), "the default shape uses no LIKE: {sql}");
+    }
+
+    #[test]
+    fn showing_system_schemas_drops_the_not_in_list() {
+        let sql = schemas_sql(true);
+        assert!(!sql.contains("pg_catalog"), "pg_catalog must be let through: {sql}");
+        assert!(!sql.contains("NOT IN"), "nothing is named and excluded now: {sql}");
+        // The only mention of information_schema left is the FROM clause.
+        assert_eq!(sql.matches("information_schema").count(), 1, "{sql}");
+    }
+
+    #[test]
+    fn the_storage_schemas_are_hidden_whichever_way_the_flag_points() {
+        // Off: named in the NOT IN list. On: matched by the two LIKE patterns.
+        assert!(schemas_sql(false).contains("'pg_toast'"));
+        let on = schemas_sql(true);
+        assert!(on.contains(r"NOT LIKE 'pg\_toast%'"), "{on}");
+        assert!(on.contains(r"NOT LIKE 'pg\_temp\_%'"), "{on}");
+    }
+
+    #[test]
+    fn the_like_patterns_escape_their_underscores() {
+        // An unescaped `_` is LIKE's single-character wildcard, so
+        // `pg_temp_%` would also hide a user schema called `pgXtempY`.
+        let on = schemas_sql(true);
+        assert!(!on.contains("LIKE 'pg_toast"), "unescaped underscore: {on}");
+        assert!(!on.contains("LIKE 'pg_temp"), "unescaped underscore: {on}");
+    }
+
+    #[test]
+    fn both_shapes_order_by_name() {
+        for include_system in [false, true] {
+            assert!(schemas_sql(include_system).ends_with("ORDER BY schema_name"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod live_schemas_tests {
+    use super::get_schemas;
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+
+    fn url() -> String {
+        std::env::var("PHAROS_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://nfinn@localhost:5432/nfinn".to_string())
+    }
+
+    /// What the flag does against a real server: `pg_catalog` appears only
+    /// with it on, and no `pg_toast` or `pg_temp_` schema appears either way.
+    #[test]
+    #[ignore = "needs a live PostgreSQL on localhost:5432"]
+    fn the_flag_reveals_pg_catalog_and_never_the_storage_schemas() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url())
+                .await
+                .expect("connect to the live server");
+
+            let hidden: Vec<String> =
+                get_schemas(&pool, false).await.expect("hidden").into_iter().map(|s| s.name).collect();
+            let shown: Vec<String> =
+                get_schemas(&pool, true).await.expect("shown").into_iter().map(|s| s.name).collect();
+
+            println!("include_system = false -> {hidden:?}");
+            println!("include_system = true  -> {shown:?}");
+
+            assert!(!hidden.iter().any(|n| n == "pg_catalog"), "pg_catalog leaked with the flag off");
+            assert!(!hidden.iter().any(|n| n == "information_schema"), "information_schema leaked");
+            assert!(shown.iter().any(|n| n == "pg_catalog"), "pg_catalog missing with the flag on");
+            assert!(shown.iter().any(|n| n == "information_schema"), "information_schema missing");
+
+            for list in [&hidden, &shown] {
+                assert!(
+                    !list.iter().any(|n| n.starts_with("pg_toast")),
+                    "a pg_toast schema reached the tree: {list:?}"
+                );
+                assert!(
+                    !list.iter().any(|n| n.starts_with("pg_temp_")),
+                    "a pg_temp_ schema reached the tree: {list:?}"
+                );
             }
         });
     }

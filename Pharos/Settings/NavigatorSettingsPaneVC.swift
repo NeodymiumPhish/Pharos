@@ -33,6 +33,12 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                     caption: String(localized: "Default schema first lifts the schema the connection names to the top, and leaves the rest by name. A connection that names none keeps every schema by name."),
                     icon: "list.bullet.indent",
                     kind: .popup(.cases(\.navigator.schemaSort, title: { $0.displayLabel }))),
+                SettingsItem(
+                    id: "showSystemSchemas",
+                    title: String(localized: "Show system schemas"),
+                    caption: String(localized: "Lists pg_catalog and information_schema beside your own. The storage schemas — pg_toast and the per-session pg_temp ones — stay hidden whichever way this is set: there can be thousands, and none of them holds anything to read."),
+                    icon: "gearshape.2",
+                    kind: .toggle(.settings(\.navigator.showSystemSchemas))),
             ]),
 
             SettingsSection(title: String(localized: "Objects"), items: [

@@ -14,6 +14,14 @@ final class EditorSettingsPaneVC: SettingsFormPaneVC {
 
     static let fontSizeRange = 8...36
 
+    /// The formatter's indent. 2 is today's value; the ceiling matches the
+    /// widest Tab size the pane above offers.
+    static let formatIndentRange = 1...8
+
+    /// Blank lines between two statements. 2 is today's value, and more than
+    /// that is whitespace nobody asked for.
+    static let formatBlankLinesRange = 0...2
+
     override var sections: [SettingsSection] {
         [
             SettingsSection(title: String(localized: "Font"), items: [
@@ -143,6 +151,30 @@ final class EditorSettingsPaneVC: SettingsFormPaneVC {
                     caption: String(localized: "A list that is all numbers, all booleans or all NULL is left bare whichever this says — quoting it would change what it means."),
                     icon: "quote.bubble",
                     kind: .popup(.cases(\.editor.sqlListQuoteStyle, title: { $0.displayLabel }))),
+            ]),
+
+            SettingsSection(title: String(localized: "Format SQL"), items: [
+                SettingsItem(
+                    id: "formatIndentWidth",
+                    title: String(localized: "Indent width"),
+                    caption: String(localized: "Spaces per level in what the Format button writes. Separate from Tab size above, which is what the Tab key types."),
+                    icon: "arrow.right.to.line",
+                    kind: .stepper(.settings(\.editor.formatIndentWidth), range: Self.formatIndentRange,
+                                   unit: String(localized: "spaces"))),
+                SettingsItem(
+                    id: "formatUppercaseKeywords",
+                    title: String(localized: "Raise keywords to capitals"),
+                    caption: String(localized: "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote."),
+                    icon: "textformat.abc",
+                    kind: .toggle(.settings(\.editor.formatUppercaseKeywords))),
+                SettingsItem(
+                    id: "formatLinesBetweenStatements",
+                    title: String(localized: "Blank lines between statements"),
+                    caption: String(localized: "How far apart two statements are left after a semicolon."),
+                    icon: "arrow.up.and.down.text.horizontal",
+                    kind: .stepper(.settings(\.editor.formatLinesBetweenStatements),
+                                   range: Self.formatBlankLinesRange,
+                                   unit: String(localized: "lines"))),
             ]),
 
             SettingsSection(title: String(localized: "Colours"), items: [

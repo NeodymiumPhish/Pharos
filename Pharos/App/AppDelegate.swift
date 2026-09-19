@@ -15,8 +15,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // since the crash logger was written but nothing installed it.
         CrashLogger.install()
 
-        // Cap pharos-core's env_logger to "warn" by default (0 = don't overwrite a value the user already set in their shell).
-        setenv("RUST_LOG", "warn", 0)
+        // NOTE: `setenv("RUST_LOG", "warn", 0)` used to sit here. It has gone
+        // on purpose. `pharos_init` now builds env_logger wide open and caps
+        // the level with `log::set_max_level`, so Settings ▸ Advanced ▸ Log
+        // level can raise it at run time. With RUST_LOG set — which that line
+        // did unconditionally — `pharos_set_log_level` is a no-op that
+        // returns false, and the setting would have been a dead control.
+        // A developer who exports RUST_LOG in their shell still wins: that is
+        // what the no-op is for.
 
         // Initialize the Rust backend
         let appSupportDir = Self.appSupportDirectory()
