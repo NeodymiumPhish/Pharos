@@ -48,4 +48,39 @@ extension PharosCore {
         }
         return count
     }
+
+    /// How many history entries a clear would remove, without removing them.
+    /// `olderThanDays` of 0 means everything.
+    ///
+    /// The confirmation dialog names this number before the user agrees, so a
+    /// clear can never take more than it said it would.
+    static func countQueryHistory(olderThanDays: UInt32 = 0) throws -> Int {
+        try clearHistoryCall(olderThanDays: olderThanDays, preview: true)
+    }
+
+    /// Clear Query History and return how many entries went. `olderThanDays`
+    /// of 0 clears all of it.
+    ///
+    /// Workspaces left with no entries go with them; a workspace that still
+    /// has entries is untouched, so an open tab does not lose its own.
+    @discardableResult
+    static func clearQueryHistory(olderThanDays: UInt32 = 0) throws -> Int {
+        try clearHistoryCall(olderThanDays: olderThanDays, preview: false)
+    }
+
+    private struct ClearHistoryRequest: Encodable {
+        let olderThanDays: UInt32
+        let preview: Bool
+    }
+
+    private struct ClearHistoryResponse: Decodable {
+        let deleted: Int
+    }
+
+    private static func clearHistoryCall(olderThanDays: UInt32, preview: Bool) throws -> Int {
+        let response: ClearHistoryResponse = try callSync(
+            input: ClearHistoryRequest(olderThanDays: olderThanDays, preview: preview)
+        ) { pharos_clear_query_history($0) }
+        return response.deleted
+    }
 }

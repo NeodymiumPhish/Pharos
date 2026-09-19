@@ -44,7 +44,83 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                     icon: "clock.arrow.circlepath",
                     kind: .stepper(.settings(\.history.maximumEntries), range: 10...5000,
                                    unit: String(localized: "entries"))),
+            ], footerButtons: [
+                SettingsFooterButton(id: "clearHistory",
+                                     title: String(localized: "Clear Query History…"),
+                                     destructive: true) { [weak self] in
+                    self?.confirmClearHistory()
+                },
             ]),
         ]
+    }
+
+    // MARK: - Clearing
+
+    /// Ask, then clear. The dialog names the COUNT first, read from the store
+    /// with the same scope the clear will use, so the number the user agrees
+    /// to is the number that goes. A clear cannot be undone, so it is a
+    /// `.critical` alert and the destructive button is not the default.
+    private func confirmClearHistory() {
+        let count: Int
+        do {
+            count = try PharosCore.countQueryHistory()
+        } catch {
+            presentClearFailure(error)
+            return
+        }
+
+        guard count > 0 else {
+            let empty = NSAlert()
+            empty.messageText = String(localized: "There is no query history to clear.")
+            empty.alertStyle = .informational
+            empty.addButton(withTitle: String(localized: "OK"))
+            runAlert(empty)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(localized: "Clear all query history?")
+        alert.informativeText = String(
+            localized: "\(count) entries will be deleted, with the cached results of each. Workspaces left with no entries are removed too. This cannot be undone.")
+        let clear = alert.addButton(withTitle: String(localized: "Clear History"))
+        clear.hasDestructiveAction = true
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        // Cancel is the safe answer, so Return must not fire the clear.
+        alert.buttons.last?.keyEquivalent = "\r"
+        clear.keyEquivalent = ""
+
+        guard runAlert(alert) == .alertFirstButtonReturn else { return }
+
+        do {
+            let deleted = try PharosCore.clearQueryHistory()
+            // The navigators watch this; without it a cleared history keeps
+            // showing rows that are no longer there.
+            NotificationCenter.default.post(name: .queryHistoryDidChange, object: nil)
+            NotificationCenter.default.post(name: .workspaceHistoryDidChange, object: nil)
+            Log.state.info("Cleared \(deleted, privacy: .public) query history entries")
+        } catch {
+            presentClearFailure(error)
+        }
+    }
+
+    private func presentClearFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Query history could not be cleared.")
+        alert.informativeText = DisplayEscape.escapedMultiline(error.localizedDescription)
+        alert.addButton(withTitle: String(localized: "OK"))
+        runAlert(alert)
+    }
+
+    /// As a sheet on the Settings window when there is one, modal otherwise.
+    /// A sheet keeps the dialog attached to the window it came from.
+    @discardableResult
+    private func runAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        guard let window = view.window else { return alert.runModal() }
+        var response: NSApplication.ModalResponse = .cancel
+        alert.beginSheetModal(for: window) { response = $0; NSApp.stopModal() }
+        NSApp.runModal(for: window)
+        return response
     }
 }

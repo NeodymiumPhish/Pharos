@@ -96,6 +96,9 @@ the [Results History](query-history.md) navigator.
 |---------|---------|---------|-------------|
 | Entries to load | 10–5,000 entries | 200 | How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer. |
 
+**Clear Query History…** deletes every entry and the cached results of each, and removes any workspace left with no entries. The confirmation names the exact number first, read from the store with the same rule the deletion uses, so it can never take more than it said. It cannot be undone, and Cancel is the default button.
+
+
 ## Editor Pane
 
 Everything about the SQL editor itself. Every default is what the editor did

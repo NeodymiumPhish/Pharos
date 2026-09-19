@@ -94,3 +94,37 @@ pub extern "C" fn pharos_batch_delete_query_history(json: *const c_char) -> *mut
         }
     })
 }
+
+/// Clear Query History. `json` is `{"olderThanDays": n, "preview": bool}`;
+/// `olderThanDays` of 0 (or absent) means everything, and `preview` counts
+/// without deleting. Returns `{"deleted": n}` or `{"error": "..."}`.
+/// Caller must free.
+#[no_mangle]
+pub extern "C" fn pharos_clear_query_history(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let json_str = unsafe { c_str_to_string(json) };
+
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ClearRequest {
+            #[serde(default)]
+            older_than_days: u32,
+            #[serde(default)]
+            preview: bool,
+        }
+
+        let request: ClearRequest = serde_json::from_str(&json_str)
+            .unwrap_or(ClearRequest { older_than_days: 0, preview: false });
+
+        match rt.block_on(crate::commands::clear_query_history(
+            state,
+            request.older_than_days,
+            request.preview,
+        )) {
+            Ok(deleted) => to_json_c_string(&serde_json::json!({ "deleted": deleted })),
+            Err(e) => to_c_string(&serde_json::json!({ "error": e }).to_string()),
+        }
+    })
+}

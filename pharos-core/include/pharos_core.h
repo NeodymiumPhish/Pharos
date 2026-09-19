@@ -227,6 +227,14 @@ char *pharos_load_query_history(const char *json);
  char *pharos_batch_delete_query_history(const char *json);
 
 /**
+ * Clear Query History. `json` is `{"olderThanDays": n, "preview": bool}`;
+ * `olderThanDays` of 0 (or absent) means everything, and `preview` counts
+ * without deleting. Returns `{"deleted": n}` or `{"error": "..."}`.
+ * Caller must free.
+ */
+ char *pharos_clear_query_history(const char *json);
+
+/**
  * Load every stored variable, in the user's order. Returns a JSON array.
  * Caller must free.
  */

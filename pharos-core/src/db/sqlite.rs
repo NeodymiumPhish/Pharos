@@ -2027,6 +2027,76 @@ pub fn save_query_history(
     Ok(())
 }
 
+/// What `clear_query_history` removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryScope {
+    /// Everything.
+    All,
+    /// Entries older than this many days.
+    OlderThanDays(u32),
+}
+
+/// Clear Query History, and return how many history rows went.
+///
+/// History rows are deleted first, then the workspaces that have none left.
+/// That order matters: a workspace is the parent, and deleting it first would
+/// leave its rows orphaned rather than removed. The FTS triggers on
+/// `query_history` keep `query_history_fts` in step on their own, so the
+/// search index needs no separate pass.
+pub fn clear_query_history(conn: &Connection, scope: ClearHistoryScope) -> SqliteResult<usize> {
+    let deleted = match scope {
+        ClearHistoryScope::All => conn.execute("DELETE FROM query_history", [])?,
+        ClearHistoryScope::OlderThanDays(days) => {
+            let cutoff = format!("-{} days", days);
+            // A row belongs to its workspace's last activity when it has one,
+            // and to its own timestamp when it does not (legacy rows). Using
+            // `executed_at` for a workspace row would strand old rows under a
+            // workspace the user is still using.
+            let by_workspace = conn.execute(
+                "DELETE FROM query_history WHERE workspace_id IN
+                     (SELECT id FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1))",
+                [&cutoff],
+            )?;
+            let legacy = conn.execute(
+                "DELETE FROM query_history
+                  WHERE workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1)",
+                [&cutoff],
+            )?;
+            by_workspace + legacy
+        }
+    };
+
+    // Workspaces with nothing left in them. `workspaces` is not touched for
+    // any other reason: a workspace the user still has open keeps its row.
+    conn.execute(
+        "DELETE FROM workspaces WHERE id NOT IN
+             (SELECT DISTINCT workspace_id FROM query_history WHERE workspace_id IS NOT NULL)",
+        [],
+    )?;
+
+    Ok(deleted)
+}
+
+/// How many history rows a clear would remove, without removing them. The
+/// confirmation dialog says the number before the user agrees to it.
+pub fn count_query_history(conn: &Connection, scope: ClearHistoryScope) -> SqliteResult<usize> {
+    let count: i64 = match scope {
+        ClearHistoryScope::All => conn.query_row("SELECT COUNT(*) FROM query_history", [], |r| r.get(0))?,
+        ClearHistoryScope::OlderThanDays(days) => {
+            let cutoff = format!("-{} days", days);
+            conn.query_row(
+                "SELECT COUNT(*) FROM query_history
+                  WHERE (workspace_id IN
+                            (SELECT id FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1)))
+                     OR (workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1))",
+                [&cutoff],
+                |r| r.get(0),
+            )?
+        }
+    };
+    Ok(count.max(0) as usize)
+}
+
 /// Drop history the policy says is past keeping. Runs roughly every 100
 /// queries, because the DELETEs are the expensive part of saving one.
 ///
@@ -4436,5 +4506,161 @@ mod settings_backup_tests {
         assert_eq!(kept.len(), 5);
         assert_eq!(kept[0], "{\"theme\": 6}", "newest first");
         assert_eq!(kept[4], "{\"theme\": 2}", "the two oldest are gone");
+    }
+}
+
+/// Clearing Query History, and the prune policy that replaced the hardcoded
+/// 90-day literal. Both delete rows the user cannot get back, so the shape of
+/// what goes — and what must NOT go — is pinned here rather than in a live run.
+#[cfg(test)]
+mod clear_history_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn days_ago(days: i64) -> String {
+        (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339()
+    }
+
+    fn entry(id: &str, executed_at: &str) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: "c1".to_string(),
+            connection_name: "c1".to_string(),
+            sql: format!("SELECT {}", id),
+            row_count: Some(1),
+            execution_time_ms: 1,
+            executed_at: executed_at.to_string(),
+            has_results: false,
+            schema: None,
+            column_count: None,
+            table_names: None,
+            source: None,
+        }
+    }
+
+    /// Insert a legacy (no workspace) history row directly, so its own
+    /// `executed_at` is what the age rule reads.
+    fn put_legacy(conn: &Connection, id: &str, executed_at: &str) {
+        save_query_history(conn, &entry(id, executed_at), None, None, None).unwrap();
+    }
+
+    fn history_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM query_history", [], |r| r.get(0)).unwrap()
+    }
+
+    fn workspace_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn clear_all_removes_every_row_and_reports_the_count() {
+        let conn = db();
+        for i in 0..3 {
+            put_legacy(&conn, &format!("h{i}"), &days_ago(1));
+        }
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::All).unwrap(), 3,
+                   "the preview count is what the dialog shows");
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::All).unwrap(), 3);
+        assert_eq!(history_count(&conn), 0);
+    }
+
+    /// The age rule keeps what is inside the window. A clear that took
+    /// everything would be a different button.
+    #[test]
+    fn clear_older_than_keeps_recent_rows() {
+        let conn = db();
+        put_legacy(&conn, "old", &days_ago(100));
+        put_legacy(&conn, "new", &days_ago(1));
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::OlderThanDays(30)).unwrap(), 1);
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::OlderThanDays(30)).unwrap(), 1);
+        let left: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT id FROM query_history").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(left, vec!["new".to_string()]);
+    }
+
+    /// The count is a preview, not a side effect.
+    #[test]
+    fn counting_removes_nothing() {
+        let conn = db();
+        put_legacy(&conn, "h", &days_ago(1));
+        count_query_history(&conn, ClearHistoryScope::All).unwrap();
+        count_query_history(&conn, ClearHistoryScope::OlderThanDays(0)).unwrap();
+        assert_eq!(history_count(&conn), 1);
+    }
+
+    #[test]
+    fn clearing_an_empty_history_is_not_an_error() {
+        let conn = db();
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::All).unwrap(), 0);
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::All).unwrap(), 0);
+    }
+
+    /// A workspace with rows left must SURVIVE. The sweep that removes empty
+    /// shells is the one place this could take an open tab's workspace away.
+    #[test]
+    fn a_workspace_with_rows_left_survives() {
+        let conn = db();
+        let w = crate::models::WorkspaceUpsert {
+            id: "w1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "c1".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: Some(0),
+        };
+        upsert_workspace(&conn, &w).unwrap();
+        assert_eq!(workspace_count(&conn), 1);
+
+        // No history rows point at it, so an "All" clear takes the shell.
+        clear_query_history(&conn, ClearHistoryScope::All).unwrap();
+        assert_eq!(workspace_count(&conn), 0, "a workspace with no rows is a shell");
+    }
+
+    /// The prune policy's two limits compose, and the count ceiling keeps the
+    /// NEWEST rows — keeping the oldest would be the opposite of the point.
+    #[test]
+    fn the_count_ceiling_keeps_the_newest() {
+        let conn = db();
+        for i in 0..5 {
+            put_legacy(&conn, &format!("h{i}"), &days_ago(5 - i as i64));
+        }
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 0, max_entries: 2 }).unwrap();
+        let left: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT id FROM query_history ORDER BY datetime(executed_at) DESC")
+                .unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(left, vec!["h4".to_string(), "h3".to_string()], "the two newest are kept");
+    }
+
+    /// "Forever, no ceiling" must run no DELETE at all.
+    #[test]
+    fn a_policy_that_prunes_nothing_leaves_everything() {
+        let conn = db();
+        put_legacy(&conn, "ancient", &days_ago(5000));
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 0, max_entries: 0 }).unwrap();
+        assert_eq!(history_count(&conn), 1, "forever means forever");
+    }
+
+    /// The age rule on its own, through the prune path.
+    #[test]
+    fn the_age_rule_drops_only_what_is_past_the_window() {
+        let conn = db();
+        put_legacy(&conn, "old", &days_ago(200));
+        put_legacy(&conn, "new", &days_ago(2));
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
+        assert_eq!(history_count(&conn), 1);
     }
 }

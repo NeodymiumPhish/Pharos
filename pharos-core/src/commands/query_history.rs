@@ -160,3 +160,26 @@ mod tests {
         assert!(salvaged.is_none());
     }
 }
+
+/// Clear Query History, and say how many entries went.
+///
+/// `older_than_days` of 0 (or absent) means everything. `preview` counts
+/// without deleting, so the confirmation dialog can name the number before
+/// the user agrees to it.
+pub async fn clear_query_history(
+    state: &AppState,
+    older_than_days: u32,
+    preview: bool,
+) -> Result<usize, String> {
+    let scope = if older_than_days == 0 {
+        sqlite::ClearHistoryScope::All
+    } else {
+        sqlite::ClearHistoryScope::OlderThanDays(older_than_days)
+    };
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    if preview {
+        sqlite::count_query_history(&db, scope).map_err(|e| format!("Failed to count history: {}", e))
+    } else {
+        sqlite::clear_query_history(&db, scope).map_err(|e| format!("Failed to clear history: {}", e))
+    }
+}
