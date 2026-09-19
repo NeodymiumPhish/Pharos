@@ -100,6 +100,22 @@ pub struct SshTunnelConfig {
     /// still fails, so the flag never weakens a key that is already known.
     #[serde(default)]
     pub accept_new_host_keys: bool,
+    /// Keep this tunnel's `secret` in the Keychain, under
+    /// `credentials::ssh_secret_key`. Off means it is NOT written, anything
+    /// already written is deleted, and the user is asked for it once per
+    /// launch.
+    ///
+    /// It is the TUNNEL's own switch, deliberately apart from
+    /// `ConnectionConfig::remember_password`: a user who asks Pharos to keep
+    /// the database password may still want the bastion passphrase typed, and
+    /// the other way round.
+    ///
+    /// Defaults to TRUE, because that is what every record written before this
+    /// field did: the secret was stored whatever else the record said. This
+    /// travels inside the `ssh_tunnel` JSON column, so an older row simply has
+    /// no key here and reads back as the behaviour it already had.
+    #[serde(default = "yes")]
+    pub remember_secret: bool,
 }
 
 fn default_ssh_port() -> u16 {

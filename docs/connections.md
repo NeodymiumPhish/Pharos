@@ -227,8 +227,28 @@ The sheet has a **Remember in the Keychain** box of its own. Ticking it turns th
 **Settings ▸ Security & Privacy ▸ Passwords** has one switch for this: **Forget typed passwords when this Mac sleeps**. It is off by default. Turned on, the passwords held in memory are dropped when the Mac goes to sleep, and you are asked again on waking. It never touches the keychain, so connections that remember their password are unaffected.
 
 {: .note }
-The **SSH tunnel**'s passphrase or password does **not** follow this switch. It is a different secret, and the tunnel is opened before the database connection, so there is nothing on screen to ask for it at the point it is needed. An SSH secret stays in the keychain until the connection is deleted.
+The **SSH tunnel**'s passphrase or password does **not** follow this switch. It is a different secret, with a switch of its own — see below.
 
+## Remembering the SSH tunnel secret
+
+Under **SSH Tunnel**, directly below the passphrase or password field, **Remember the SSH secret in the keychain** decides where the *tunnel's* secret lives. It is the same rule as the password's switch, applied to the other secret:
+
+**On** (the default) the passphrase or password is written to your login keychain and the tunnel opens without asking.
+
+**Off**, three things happen:
+
+- The secret is **not** written to the keychain.
+- The one already in your keychain for this tunnel is **deleted** when you save, exactly as clearing the password switch deletes the password.
+- Pharos asks you for it the first time the bastion refuses the connection after each launch. What you type is kept **in memory only**, for as long as Pharos runs, and the whole connection — tunnel and database both — is retried with it.
+
+The sheet names the **SSH host**, not the database, so you can tell it apart from the password sheet if both appear in one session. It calls the secret a *passphrase* for key-file authentication and a *password* for password authentication, matching the field in the form. It has a **Remember in the Keychain** box of its own, which turns the tunnel's setting back on and writes what you typed.
+
+The row is hidden when the tunnel's authentication is **SSH agent**: the agent holds its own keys and Pharos never has a secret to keep. It is also asked for again after a wrong secret, not only a missing one — a bastion answers both the same way, and both are fixed by typing it again.
+
+{: .important }
+The two switches are **independent**. Turning off **Remember the password in the keychain** leaves the tunnel secret alone, and turning off **Remember the SSH secret in the keychain** leaves the database password alone. To keep nothing of a connection in your keychain, clear both.
+
+**Settings ▸ Security & Privacy ▸ Passwords ▸ Forget typed passwords when this Mac sleeps** covers both kinds of typed secret. On sleep, a tunnel secret held in memory is dropped with the passwords, and you are asked for it again on waking.
 
 ## Touch ID
 
@@ -236,6 +256,9 @@ Each connection can carry its own gate. In the Connections Manager, under **Auth
 
 - **Connecting** with that connection, however the connection is started — the toolbar pull-down, **File > Connect**, or selecting the connection for a tab
 - **Showing its stored password** in the form
+- **Being asked for a password or an SSH tunnel secret**, before either sheet appears — the sheet must never become a way past the gate
+
+One proof covers a whole piece of work: the gate, the sheet you type into, and the reconnect behind it do not each raise a prompt.
 
 A gated connection shows `••••••••` in its password field instead of the stored password, and the field cannot be edited. Press **Show** beside it to authenticate; the real password then appears and the field becomes editable until you select another connection. Cancel the prompt and nothing changes — a caption under the field says so, and the password stays hidden. Saving the form while the password is hidden leaves the stored password exactly as it was.
 
@@ -248,7 +271,7 @@ The gate guards the two places Pharos *acts* on the password. It does not change
 
 Connection metadata (name, host, port, database, username, SSL mode, root certificate path, default schema, Touch ID requirement, SSH tunnel settings, read-only, remember-password, connect-at-launch and the session time zone) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
 
-A connection with an SSH tunnel has **two** Keychain entries: the database password, and the SSH passphrase or password. Deleting the connection removes both. The SSH tunnel's own settings — host, port, user, authentication mode and key path — are stored in SQLite with the secret removed, so the Keychain is the only place either secret lives.
+A connection with an SSH tunnel has up to **two** Keychain entries: the database password, and the SSH passphrase or password. Each is written only if its own remember switch is on, and deleting the connection removes both. The SSH tunnel's own settings — host, port, user, authentication mode, key path and the remember switch — are stored in SQLite with the secret removed, so the Keychain is the only place either secret lives.
 
 {: .note }
 Passwords never leave your machine — they live in the macOS Keychain and are read into memory only to open connections.

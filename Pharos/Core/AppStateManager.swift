@@ -455,8 +455,11 @@ final class AppStateManager: ObservableObject {
                 // red.
                 if info.status == .error {
                     let reason = info.error ?? String(localized: "No reason given.")
+                    // The RAW reason is kept, marker and all: `SshSecretPrompt`
+                    // reads it to tell a bastion that refused our identity from
+                    // every other failure. Display sites humanise it.
                     self.connectionErrors[id] = reason
-                    Log.state.error("Connection failed: \(reason, privacy: .public)")
+                    Log.state.error("Connection failed: \(SshTunnelAuthError.humanised(reason), privacy: .public)")
                 }
                 // Only the window that asked follows the new connection. A
                 // second window stays on whatever it was showing.

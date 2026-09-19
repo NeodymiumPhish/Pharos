@@ -40,10 +40,12 @@ fn sanitize_error(error: &str) -> String {
     sanitized
 }
 
-/// What a save must do with this connection's DATABASE password.
+/// What a save must do with one of this connection's secrets.
 ///
 /// Pure, so the rule can be read and proved on its own, apart from the
-/// Keychain write that carries it out.
+/// Keychain write that carries it out. The DATABASE password and the SSH
+/// tunnel secret take the SAME rule, under their own switches and their own
+/// Keychain keys — see `password_action`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasswordAction {
     /// Write it to the Keychain, and to the cache that mirrors it.
@@ -54,9 +56,16 @@ pub enum PasswordAction {
     Leave,
 }
 
-/// The rule behind `save_connection`'s handling of `remember_password`.
+/// The rule behind `save_connection`'s handling of a remember switch.
 ///
-/// `remember_password` off means the password is NOT written down. It also
+/// It serves BOTH switches. `ConnectionConfig::remember_password` governs the
+/// database password under the bare connection id;
+/// `SshTunnelConfig::remember_secret` governs the tunnel secret under
+/// `credentials::ssh_secret_key`. The two are independent — one may be on
+/// while the other is off — but the rule they follow is one rule, written
+/// once.
+///
+/// The switch off means the secret is NOT written down. It also
 /// means anything already written down has to go: a switch labelled "remember
 /// the password" that leaves the old one in the Keychain says the opposite of
 /// what it does, which is why the control was taken out of the form until this
@@ -126,23 +135,64 @@ pub async fn save_connection(
             config.password.clear();
         }
 
-        // The SSH secret does NOT follow `remember_password`. That flag names
-        // the DATABASE password, and it is the only secret the prompt sheet
-        // can ask for: the tunnel opens BEFORE the pool, so a forgotten SSH
-        // key passphrase would leave the connection unopenable with nothing on
-        // screen to fix it. Deleting it here would be half a feature. It needs
-        // a flag and a prompt of its own.
+        // The SSH secret has its OWN switch, `SshTunnelConfig::remember_secret`,
+        // under its own Keychain key. It follows the same rule as the database
+        // password — not written, and anything written already deleted — and
+        // the prompt sheet asks for it when a tunnel fails to authenticate.
+        // The two switches are independent: clearing one must not touch the
+        // other's secret.
         let ssh_key = credentials::ssh_secret_key(&config.id);
-        match config.ssh_tunnel.as_ref() {
-            Some(tunnel) if !tunnel.secret.is_empty() => {
-                credentials::store_password_with_cache(&ssh_key, &tunnel.secret, &mut cache)?;
-            }
-            // The tunnel is gone, so its secret must go too. Without this the
+        match config.ssh_tunnel.as_mut() {
+            // The tunnel is gone, so its secret must go too — from the
+            // Keychain AND from the process-only map. Without this the
             // Keychain keeps a secret no connection can ever use or delete.
-            None if cache.contains_key(&ssh_key) => {
-                credentials::delete_password_with_cache(&ssh_key, &mut cache)?;
+            None => {
+                if cache.contains_key(&ssh_key) {
+                    credentials::delete_password_with_cache(&ssh_key, &mut cache)?;
+                }
+                state.forget_session_password(&ssh_key);
             }
-            _ => {}
+            Some(tunnel) => {
+                let action = password_action(
+                    tunnel.remember_secret,
+                    tunnel.secret.is_empty(),
+                    cache.contains_key(&ssh_key),
+                );
+                // Read BEFORE the action, for the same reason the database
+                // password is: `Forget` takes the stored value out of the
+                // cache, and this session should keep its tunnel working.
+                let carried = if tunnel.secret.is_empty() {
+                    cache.get(&ssh_key).cloned()
+                } else {
+                    Some(tunnel.secret.clone())
+                };
+                match action {
+                    PasswordAction::Store => {
+                        credentials::store_password_with_cache(
+                            &ssh_key,
+                            &tunnel.secret,
+                            &mut cache,
+                        )?;
+                    }
+                    PasswordAction::Forget => {
+                        credentials::delete_password_with_cache(&ssh_key, &mut cache)?;
+                    }
+                    PasswordAction::Leave => {}
+                }
+                if tunnel.remember_secret {
+                    // It is written down now, so the process-only copy has no
+                    // job.
+                    state.forget_session_password(&ssh_key);
+                } else {
+                    if let Some(secret) = carried {
+                        state.set_session_password(&ssh_key, &secret);
+                    }
+                    // And the cached CONFIG must not become its second home:
+                    // `load_connections` hands the record to the front end,
+                    // and a tunnel that remembers no secret has none to hand.
+                    tunnel.secret.clear();
+                }
+            }
         }
     }
 
@@ -174,8 +224,9 @@ pub async fn delete_connection(
         let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
         credentials::delete_connection_secrets_with_cache(&connection_id, &mut cache)?;
     }
-    // And the one that was never written down.
+    // And the ones that were never written down — both of them.
     state.forget_session_password(&connection_id);
+    state.forget_session_password(&credentials::ssh_secret_key(&connection_id));
 
     // Delete from SQLite
     {
@@ -277,6 +328,14 @@ pub async fn connect_postgres(
     // map is the only place it can come from.
     config.password = state.effective_password(&connection_id, &config.password);
 
+    // And the same question for the TUNNEL's secret, under its own key. A
+    // tunnel whose `remember_secret` is off has nothing in the Keychain, so
+    // the session map is the only place its secret can come from.
+    if let Some(tunnel) = config.ssh_tunnel.as_mut() {
+        let ssh_key = credentials::ssh_secret_key(&connection_id);
+        tunnel.secret = state.effective_password(&ssh_key, &tunnel.secret);
+    }
+
     // A tunnel that stopped since the last call leaves a pool that cannot
     // carry anything. Drop it BEFORE the has_pool question, or Connect would
     // answer "already connected" with a dead socket.
@@ -302,10 +361,14 @@ pub async fn connect_postgres(
             match ssh_tunnel::open(tunnel_config, &config.host, config.port).await {
                 Ok(tunnel) => Some(tunnel),
                 Err(e) => {
+                    // TAGGED, so the front end can tell "the bastion refused
+                    // our identity" — the one failure it can answer, by
+                    // asking for the tunnel secret — from every other reason
+                    // a tunnel does not open.
                     return Ok(info_with(
                         &config,
                         ConnectionStatus::Error,
-                        Some(sanitize_error(&e.user_message())),
+                        Some(sanitize_error(&ssh_tunnel::tagged_tunnel_message(&e))),
                         None,
                     ))
                 }
@@ -349,6 +412,25 @@ pub async fn connect_postgres_with_password(
     state: &AppState,
 ) -> Result<ConnectionInfo, String> {
     state.set_session_password(&connection_id, &password);
+    connect_postgres(connection_id, state).await
+}
+
+/// Connect with an SSH tunnel secret the user has just typed.
+///
+/// The sibling of `connect_postgres_with_password`, for the other secret. It
+/// goes into the same process-only map under `credentials::ssh_secret_key`, so
+/// this attempt and every later one this run find it, and nothing is written
+/// to the Keychain here — storing it is a separate, explicit act (a save with
+/// `remember_secret` on).
+///
+/// It retries the WHOLE connect, tunnel and pool both: the tunnel opens before
+/// the pool, so there is no shorter path back.
+pub async fn connect_postgres_with_ssh_secret(
+    connection_id: String,
+    secret: String,
+    state: &AppState,
+) -> Result<ConnectionInfo, String> {
+    state.set_session_password(&credentials::ssh_secret_key(&connection_id), &secret);
     connect_postgres(connection_id, state).await
 }
 
@@ -573,6 +655,7 @@ mod tunnel_connect_tests {
             key_path: None,
             secret: String::new(),
             accept_new_host_keys: false,
+            remember_secret: true,
         }
     }
 
@@ -773,6 +856,7 @@ mod live_connect_tests {
                 key_path: None,
                 secret: String::new(),
                 accept_new_host_keys: false,
+                remember_secret: true,
             }),
             read_only: false,
             remember_password: true,
@@ -1041,6 +1125,179 @@ mod remember_password_tests {
         let mut cache = state.password_cache.lock().unwrap();
         let _ = credentials::delete_connection_secrets_with_cache("c1", &mut cache);
         let _ = credentials::delete_connection_secrets_with_cache("c2", &mut cache);
+        drop(cache);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");
+    }
+}
+
+/// The SSH tunnel's OWN remember switch: `SshTunnelConfig::remember_secret`.
+///
+/// The database password's switch and this one are independent. Before this
+/// existed the tunnel secret was written to the Keychain whatever the record
+/// said, so a user who cleared the database switch expecting nothing of theirs
+/// in the Keychain still had the bastion passphrase sitting there.
+#[cfg(test)]
+mod remember_ssh_secret_tests {
+    use super::{connect_postgres_with_ssh_secret, save_connection};
+    use crate::db::{credentials, sqlite};
+    use crate::models::{ConnectionConfig, SshAuth, SshTunnelConfig, SslMode};
+    use crate::state::AppState;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    /// A tunnel pointed at a REFUSED loopback port, so the one test below that
+    /// really attempts a connect fails at once and needs no network.
+    fn tunnel(secret: &str, remember: bool) -> SshTunnelConfig {
+        SshTunnelConfig {
+            host: "127.0.0.1".to_string(),
+            port: crate::db::ssh_tunnel::pick_local_port().expect("a closed port"),
+            user: Some("deploy".to_string()),
+            auth: SshAuth::Password,
+            key_path: None,
+            secret: secret.to_string(),
+            accept_new_host_keys: false,
+            remember_secret: remember,
+        }
+    }
+
+    /// `remember_password` is left ON throughout, so nothing below can be
+    /// explained by the DATABASE switch: the two secrets are independent, and
+    /// that is half of what this proves.
+    fn config(id: &str, tunnel: Option<SshTunnelConfig>) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "127.0.0.1".to_string(),
+            port: 5432,
+            database: "nfinn".to_string(),
+            username: "nfinn".to_string(),
+            password: "db-password".to_string(),
+            ssl_mode: SslMode::Disable,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: tunnel,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        }
+    }
+
+    /// An `ssh_tunnel` column written before this field had no `rememberSecret`
+    /// key at all. It must read back as TRUE, which is the behaviour those
+    /// records already have — the secret was always stored. No SQLite
+    /// migration is involved: the flag rides inside the tunnel JSON.
+    #[test]
+    fn an_older_tunnel_document_remembers_its_secret() {
+        let json = r#"{"host":"bastion","port":22,"auth":"agent","acceptNewHostKeys":false}"#;
+        let tunnel: SshTunnelConfig = serde_json::from_str(json).expect("an older document loads");
+        assert!(tunnel.remember_secret,
+                "the default must be TODAY's behaviour: the secret was always stored");
+
+        // And the key name on the wire is the camelCase one Swift decodes.
+        let round = serde_json::to_string(&tunnel).expect("serialize");
+        assert!(round.contains("\"rememberSecret\":true"), "got {round}");
+    }
+
+    /// With the switch off the `<id>/ssh` item is DELETED and never written,
+    /// the session keeps the secret in the map that dies with the process, and
+    /// the database password beside it is untouched.
+    ///
+    /// Against the real Keychain, under a service name of this test's own —
+    /// `PHAROS_KEYCHAIN_SERVICE`, the same hook the re-identified test build
+    /// uses. Serial: the env var is process-wide, and the suite is run with
+    /// `--test-threads=1`.
+    #[test]
+    fn clearing_the_switch_deletes_the_stored_ssh_secret() {
+        let service = format!("com.pharos.test.sshremember.{}", uuid::Uuid::new_v4());
+        std::env::set_var("PHAROS_KEYCHAIN_SERVICE", &service);
+
+        let dir = temp_db_dir("sshremember");
+        let db = sqlite::init_database(&dir).expect("sqlite");
+        let state = AppState::new(db);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let ssh_key = credentials::ssh_secret_key("t1");
+
+        // 1. Remembered: the Keychain holds it, under its own key.
+        rt.block_on(save_connection(config("t1", Some(tunnel("bastion-pass", true))), &state))
+            .expect("save with remember on");
+        let stored = credentials::load_all_passwords().expect("read keychain");
+        assert_eq!(stored.get(&ssh_key).map(String::as_str), Some("bastion-pass"),
+                   "a remembered tunnel secret is written");
+        assert!(state.session_password(&ssh_key).is_none(),
+                "a remembered secret needs no process-only copy");
+
+        // 2. The switch goes off with the field masked (empty), which is what
+        // the form sends when the user only clicked the checkbox.
+        rt.block_on(save_connection(config("t1", Some(tunnel("", false))), &state))
+            .expect("save with remember off");
+
+        let after = credentials::load_all_passwords().expect("read keychain");
+        assert!(!after.contains_key(&ssh_key),
+                "clearing the switch DELETES the stored tunnel secret");
+        assert!(!state.password_cache.lock().unwrap().contains_key(&ssh_key),
+                "and the cache that mirrors the Keychain agrees");
+        assert_eq!(state.session_password(&ssh_key).as_deref(), Some("bastion-pass"),
+                   "this session's tunnel keeps working, from the map that is never written down");
+        assert_eq!(
+            state.get_config("t1").and_then(|c| c.ssh_tunnel).map(|t| t.secret).as_deref(),
+            Some(""),
+            "nor does the cached config become the secret's second home");
+
+        // The two switches are independent: the DATABASE password is still
+        // remembered and still there.
+        assert_eq!(after.get("t1").map(String::as_str), Some("db-password"),
+                   "clearing the tunnel switch must not touch the database password");
+
+        // 3. A save that ARRIVES with a secret and the switch off must not
+        // write it either.
+        rt.block_on(save_connection(config("t2", Some(tunnel("never-written", false))), &state))
+            .expect("save a new record with remember off");
+        let t2_key = credentials::ssh_secret_key("t2");
+        let after = credentials::load_all_passwords().expect("read keychain");
+        assert!(!after.contains_key(&t2_key), "an unremembered secret is never written");
+        assert_eq!(state.session_password(&t2_key).as_deref(), Some("never-written"));
+
+        // 4. `connect_postgres` would dial the tunnel with the session secret.
+        assert_eq!(state.effective_password(&t2_key, ""), "never-written");
+
+        // 5. A secret typed into the prompt sheet reaches the same map, and
+        // nothing is written to the Keychain by that path.
+        let before = credentials::load_all_passwords().expect("read keychain");
+        // The connect itself cannot succeed here (there is no bastion), but the
+        // secret is placed BEFORE the attempt, which is the part under test.
+        let _ = rt.block_on(connect_postgres_with_ssh_secret(
+            "t2".to_string(), "typed-at-the-sheet".to_string(), &state));
+        assert_eq!(state.session_password(&t2_key).as_deref(), Some("typed-at-the-sheet"));
+        assert_eq!(credentials::load_all_passwords().expect("read keychain"), before,
+                   "typing a secret writes nothing to the Keychain");
+
+        // 6. Removing the tunnel entirely still takes its secret with it —
+        // from the Keychain and from the session map both.
+        rt.block_on(save_connection(config("t1", Some(tunnel("back-again", true))), &state))
+            .expect("re-save with a remembered secret");
+        assert!(credentials::load_all_passwords().unwrap().contains_key(&ssh_key));
+        rt.block_on(save_connection(config("t1", None), &state))
+            .expect("save with the tunnel removed");
+        assert!(!credentials::load_all_passwords().unwrap().contains_key(&ssh_key),
+                "removing the tunnel deletes its secret, as it did before this switch");
+        assert!(state.session_password(&ssh_key).is_none(),
+                "and the process-only copy goes with it");
+
+        // 7. Sleep drops the session secrets with the passwords: one map.
+        assert!(state.clear_session_passwords() >= 1);
+        assert!(state.session_password(&t2_key).is_none());
+
+        // Leave nothing of this test behind.
+        let mut cache = state.password_cache.lock().unwrap();
+        let _ = credentials::delete_connection_secrets_with_cache("t1", &mut cache);
+        let _ = credentials::delete_connection_secrets_with_cache("t2", &mut cache);
         drop(cache);
         let _ = std::fs::remove_dir_all(&dir);
         std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");

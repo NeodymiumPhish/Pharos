@@ -228,6 +228,34 @@ impl std::fmt::Display for TunnelError {
 
 impl std::error::Error for TunnelError {}
 
+/// The marker an SSH authentication failure carries across the FFI.
+///
+/// `TunnelError::AuthFailed`'s own sentence is written for a human and is the
+/// only thing the front end would otherwise have to match on — which means
+/// matching English prose, and prose that names the bastion. The marker is put
+/// in front instead and read back by `SshTunnelAuthError` on the Swift side,
+/// exactly as `commands::query::READ_ONLY_MARKER` is read back by
+/// `ReadOnlyConnectionError`.
+///
+/// It carries no secret: `AuthFailed` holds only `user@host`.
+pub const TUNNEL_AUTH_MARKER: &str = "[SSH AUTH]";
+
+/// Tag a tunnel failure when the front end needs to act on it.
+///
+/// Only `AuthFailed` is tagged — that is the one the front end answers, by
+/// asking for the tunnel secret. Every other case is `user_message()`
+/// byte-for-byte, so no existing error text changes.
+///
+/// `AuthFailed` also fires for a WRONG secret, not only a missing one, and
+/// that is correct: a wrong secret should raise the same question.
+pub fn tagged_tunnel_message(error: &TunnelError) -> String {
+    let message = error.user_message();
+    match error {
+        TunnelError::AuthFailed { .. } => format!("{} {}", TUNNEL_AUTH_MARKER, message),
+        _ => message,
+    }
+}
+
 /// `user@host`, or `host` alone when the ssh config supplies the user.
 pub fn ssh_target(cfg: &SshTunnelConfig) -> String {
     match cfg.user.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
@@ -659,6 +687,7 @@ mod ssh_tunnel_tests {
             key_path: None,
             secret: String::new(),
             accept_new_host_keys: false,
+            remember_secret: true,
         }
     }
 
@@ -981,6 +1010,59 @@ mod ssh_tunnel_tests {
         );
     }
 
+    /// Every `TunnelError` a tagged message could be built from, so the test
+    /// below cannot quietly stop covering one that is added later.
+    fn every_tunnel_error() -> Vec<TunnelError> {
+        vec![
+            TunnelError::SpawnFailed("no such file".to_string()),
+            TunnelError::LocalPortUnavailable("address in use".to_string()),
+            TunnelError::AuthFailed { target: "root@bastion".to_string() },
+            TunnelError::HostKeyRejected { target: "root@bastion".to_string() },
+            TunnelError::HostNotFound { host: "bastion".to_string() },
+            TunnelError::HostUnreachable { host: "bastion".to_string(), port: 2222 },
+            TunnelError::LocalPortInUse,
+            TunnelError::ExitedEarly { tail: "ssh: the real reason\n".to_string() },
+            TunnelError::TimedOut { tail: String::new() },
+        ]
+    }
+
+    /// ONLY an authentication failure is tagged. That is the one the front end
+    /// can answer, by asking for the tunnel secret; tagging any other would
+    /// raise a secret prompt for a fault a secret cannot fix.
+    #[test]
+    fn only_an_auth_failure_is_tagged() {
+        for error in every_tunnel_error() {
+            let tagged = tagged_tunnel_message(&error);
+            let plain = error.user_message();
+            match error {
+                TunnelError::AuthFailed { .. } => {
+                    assert_eq!(tagged, format!("{TUNNEL_AUTH_MARKER} {plain}"),
+                               "an auth failure carries the marker");
+                    assert!(tagged.starts_with(TUNNEL_AUTH_MARKER),
+                            "the marker goes IN FRONT, where the reader looks for it");
+                }
+                other => assert_eq!(
+                    tagged, plain,
+                    "{other:?} must cross the FFI byte for byte, as it did before the marker existed"
+                ),
+            }
+        }
+    }
+
+    /// The marker must never carry a secret, and the sentence behind it must
+    /// still be readable on its own — the front end strips the marker and
+    /// shows the rest.
+    #[test]
+    fn the_tagged_auth_message_keeps_the_whole_sentence_and_no_secret() {
+        let tagged = tagged_tunnel_message(&TunnelError::AuthFailed {
+            target: "root@bastion.example.com".to_string(),
+        });
+        assert_eq!(tagged, "[SSH AUTH] SSH authentication failed for root@bastion.example.com.");
+        // `AuthFailed` carries only `user@host`; there is no field a secret
+        // could reach this string through.
+        assert!(!tagged.contains("passphrase"), "got {tagged}");
+    }
+
     /// An unknown failure must still say what `ssh` said. The LAST line is the
     /// reason; the lines before it are usually debug noise.
     #[test]
@@ -1121,6 +1203,7 @@ mod askpass_tests {
             key_path: Some("/k".to_string()),
             secret: String::new(),
             accept_new_host_keys: false,
+            remember_secret: true,
         };
         let args_of = |cfg: &SshTunnelConfig| ssh_args(cfg, "db", 5432, 1);
 
@@ -1188,6 +1271,7 @@ mod ssh_tunnel_process_tests {
             key_path: None,
             secret: String::new(),
             accept_new_host_keys: false,
+            remember_secret: true,
         };
 
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -1243,6 +1327,7 @@ mod live_tunnel_tests {
             key_path: None,
             secret: String::new(),
             accept_new_host_keys: false,
+            remember_secret: true,
         }
     }
 

@@ -102,6 +102,19 @@ struct SshTunnelConfig: Codable, Equatable {
     /// still refused, so this never weakens a key that is already known.
     var acceptNewHostKeys: Bool = false
 
+    /// Keep this tunnel's `secret` in the keychain.
+    ///
+    /// The TUNNEL's own switch, separate from
+    /// `ConnectionConfig.rememberPassword`: a user may want the database
+    /// password kept and the bastion passphrase typed, or the other way round.
+    /// Off means the secret is not written, the one already stored is DELETED
+    /// on save, and Pharos asks for it the first time the tunnel fails to
+    /// authenticate after a launch.
+    ///
+    /// Defaults to TRUE, because that is what every record written before this
+    /// field did — the secret was stored whatever else the record said.
+    var rememberSecret: Bool = true
+
     // Rust skips `user`, `keyPath` and `secret` when they are empty, and a
     // record written before this feature has none of these keys at all.
     init(from decoder: Decoder) throws {
@@ -113,11 +126,15 @@ struct SshTunnelConfig: Codable, Equatable {
         keyPath = try c.decodeIfPresent(String.self, forKey: .keyPath)
         secret = try c.decodeIfPresent(String.self, forKey: .secret) ?? ""
         acceptNewHostKeys = try c.decodeIfPresent(Bool.self, forKey: .acceptNewHostKeys) ?? false
+        // A tunnel stored before this switch existed has no key here, and its
+        // secret WAS remembered. The default has to be that behaviour.
+        rememberSecret = try c.decodeIfPresent(Bool.self, forKey: .rememberSecret) ?? true
     }
 
     init(host: String, port: UInt16 = 22, user: String? = nil,
          auth: SshAuthMethod = .agent, keyPath: String? = nil,
-         secret: String = "", acceptNewHostKeys: Bool = false) {
+         secret: String = "", acceptNewHostKeys: Bool = false,
+         rememberSecret: Bool = true) {
         self.host = host
         self.port = port
         self.user = user
@@ -125,10 +142,43 @@ struct SshTunnelConfig: Codable, Equatable {
         self.keyPath = keyPath
         self.secret = secret
         self.acceptNewHostKeys = acceptNewHostKeys
+        self.rememberSecret = rememberSecret
     }
 
     private enum CodingKeys: String, CodingKey {
-        case host, port, user, auth, keyPath, secret, acceptNewHostKeys
+        case host, port, user, auth, keyPath, secret, acceptNewHostKeys, rememberSecret
+    }
+}
+
+/// A connect failure that was the SSH tunnel refusing our identity.
+///
+/// `pharos-core` tags `TunnelError::AuthFailed` before the message crosses the
+/// FFI (`db::ssh_tunnel::tagged_tunnel_message`), because its own sentence is
+/// prose written for a human and names the bastion — nothing a front end can
+/// match on. Matching the TAG is the only reading that holds.
+///
+/// It is the SSH sibling of `ReadOnlyConnectionError`, and deliberately the
+/// same shape. Pure and Foundation-only.
+enum SshTunnelAuthError {
+
+    /// The marker `pharos-core`'s `tagged_tunnel_message` puts in front.
+    static let marker = "[SSH AUTH]"
+
+    /// Was this connect failure the tunnel refusing our identity? True for a
+    /// MISSING secret and for a WRONG one alike — both raise the same
+    /// question, and both are answered by typing the secret again.
+    static func isAuthFailure(_ message: String?) -> Bool {
+        guard let message else { return false }
+        return message.contains(marker)
+    }
+
+    /// The message to SHOW. The marker is for the app, not for the user, so it
+    /// is taken off; every other message is returned byte for byte.
+    static func humanised(_ message: String) -> String {
+        guard isAuthFailure(message) else { return message }
+        return message
+            .replacingOccurrences(of: marker, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

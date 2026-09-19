@@ -40,7 +40,8 @@ private let requiredKeys = """
 /// "the key was missed and the default applied".
 private let fullTunnel = """
 {"host":"bastion.example.com","port":2222,"user":"deploy","auth":"keyFile",\
-"keyPath":"/Users/x/.ssh/id_ed25519","secret":"s3cret","acceptNewHostKeys":true}
+"keyPath":"/Users/x/.ssh/id_ed25519","secret":"s3cret","acceptNewHostKeys":true,\
+"rememberSecret":false}
 """
 
 private func sample(tunnel: SshTunnelConfig?) -> ConnectionConfig {
@@ -78,6 +79,7 @@ func runTests() {
             expect(t.keyPath == "/Users/x/.ssh/id_ed25519", "\"keyPath\" key name")
             expect(t.secret == "s3cret", "\"secret\" key name")
             expect(t.acceptNewHostKeys, "\"acceptNewHostKeys\" key name")
+            expect(!t.rememberSecret, "\"rememberSecret\" key name — read, not defaulted to true")
         } else {
             failures += 1
             print("FAIL full tunnel — sshTunnel decoded to nil")
@@ -95,6 +97,11 @@ func runTests() {
             expect(t.keyPath == nil, "an absent \"keyPath\" decodes to nil")
             expect(t.secret == "", "an absent \"secret\" decodes to empty")
             expect(!t.acceptNewHostKeys, "host keys are strict unless the key says otherwise")
+            // The ONE default that is true. Every tunnel written before this
+            // switch existed had its secret stored, so absent must mean
+            // remembered — anything else would silently stop remembering a
+            // secret the user never asked Pharos to forget.
+            expect(t.rememberSecret, "an absent \"rememberSecret\" defaults to remembering")
         } else {
             failures += 1
             print("FAIL sparse tunnel — sshTunnel decoded to nil")
@@ -142,6 +149,7 @@ func runTests() {
         expect(json.contains("\"acceptNewHostKeys\""), "the flag is written as \"acceptNewHostKeys\"")
         expect(json.contains("\"keyFile\""), "the auth mode is written as \"keyFile\"")
         expect(json.contains("\"secret\":\"s3cret\""), "the secret is sent to the core")
+        expect(json.contains("\"rememberSecret\""), "the switch is written as \"rememberSecret\"")
     }
 
     // 7. A connection with no tunnel must put no key on the wire, so the
@@ -165,6 +173,7 @@ func runTests() {
     v = base; v.keyPath = "/k"; variants.append(("keyPath", v))
     v = base; v.secret = "s"; variants.append(("secret", v))
     v = base; v.acceptNewHostKeys = true; variants.append(("acceptNewHostKeys", v))
+    v = base; v.rememberSecret = false; variants.append(("rememberSecret", v))
 
     for (field, changed) in variants {
         expect(sample(tunnel: base) != sample(tunnel: changed),
