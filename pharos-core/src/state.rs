@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
 
 use crate::db::ssh_tunnel::SshTunnel;
-use crate::models::{ConnectionConfig, TableKeyInfo};
+use crate::models::{AppSettings, ConnectionConfig, TableKeyInfo};
 
 /// Represents a running query that can be cancelled
 pub struct RunningQuery {
@@ -29,6 +29,13 @@ pub struct AppState {
 
     /// Currently running queries, keyed by query ID
     pub running_queries: Mutex<HashMap<String, RunningQuery>>,
+
+    /// The app settings as last loaded or saved. One read at `pharos_init`,
+    /// refreshed by `save_settings`; every engine-side reader (the statement
+    /// timeout, pool tuning, history retention…) takes a snapshot from here
+    /// instead of re-reading SQLite per call. Starts at the default so the
+    /// test helpers that build an `AppState` from a bare connection compile.
+    settings: RwLock<Arc<AppSettings>>,
 
     /// In-memory cache of passwords (loaded once from keychain at startup)
     pub password_cache: Mutex<HashMap<String, String>>,
@@ -65,6 +72,7 @@ impl AppState {
             connection_configs: Mutex::new(HashMap::new()),
             metadata_db: Mutex::new(metadata_db),
             running_queries: Mutex::new(HashMap::new()),
+            settings: RwLock::new(Arc::new(AppSettings::default())),
             password_cache: Mutex::new(HashMap::new()),
             analyze_denied: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
@@ -72,6 +80,17 @@ impl AppState {
             tunnels: Mutex::new(HashMap::new()),
             tunnel_failures: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// A snapshot of the current settings. Cheap: one `Arc` clone.
+    pub fn settings(&self) -> Arc<AppSettings> {
+        self.settings.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Replace the cached settings. Readers that already hold a snapshot keep
+    /// the old one until they next ask.
+    pub fn replace_settings(&self, settings: AppSettings) {
+        *self.settings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(settings);
     }
 
     /// Register a new in-progress import. Returns a shared counter to increment per row.
@@ -580,5 +599,35 @@ mod tunnel_state_tests {
         assert!(!state.has_tunnel("a"));
         assert!(!state.has_tunnel("b"));
         assert!(state.take_all_tunnels().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod settings_cache_tests {
+    use super::*;
+
+    fn state() -> AppState {
+        AppState::new(SqliteConnection::open_in_memory().unwrap())
+    }
+
+    /// A fresh state answers with the default, so nothing that reads settings
+    /// needs `pharos_init` to have run.
+    #[test]
+    fn starts_at_default() {
+        assert_eq!(*state().settings(), AppSettings::default());
+    }
+
+    /// `replace_settings` is what every reader then sees; a snapshot taken
+    /// before the replace is unchanged, so a query mid-flight keeps the
+    /// timeout it started with.
+    #[test]
+    fn replace_is_seen_by_the_next_read_not_by_an_old_snapshot() {
+        let state = state();
+        let before = state.settings();
+        let mut changed = AppSettings::default();
+        changed.query.timeout_seconds = 7;
+        state.replace_settings(changed.clone());
+        assert_eq!(*state.settings(), changed);
+        assert_eq!(before.query.timeout_seconds, AppSettings::default().query.timeout_seconds);
     }
 }

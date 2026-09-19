@@ -390,6 +390,16 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- A settings blob that failed to parse is copied here before the app
+        -- falls back to defaults, so the user's values are never overwritten
+        -- silently by the next save. Newest first; `load_settings` keeps five.
+        CREATE TABLE IF NOT EXISTS app_settings_backup (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            settings_json TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Query history
         CREATE TABLE IF NOT EXISTS query_history (
             id TEXT PRIMARY KEY,
@@ -1577,7 +1587,16 @@ pub fn delete_tag_tuples(conn: &Connection, tuple_ids: &[String]) -> SqliteResul
 
 // ==================== App Settings ====================
 
-/// Load app settings from the database, returns default if none exist
+/// How many unreadable blobs `load_settings` keeps in `app_settings_backup`.
+const SETTINGS_BACKUP_KEEP: i64 = 5;
+
+/// Load app settings from the database. Returns the default when there is no
+/// row.
+///
+/// A row that does not parse ALSO returns the default — the app must start —
+/// but the raw blob is copied into `app_settings_backup` first and an error
+/// is logged, so the next save (which overwrites the row) does not destroy
+/// the user's values without a trace.
 pub fn load_settings(conn: &Connection) -> SqliteResult<AppSettings> {
     let mut stmt = conn.prepare("SELECT settings_json FROM app_settings WHERE id = 1")?;
     let mut rows = stmt.query([])?;
@@ -1586,11 +1605,34 @@ pub fn load_settings(conn: &Connection) -> SqliteResult<AppSettings> {
         let json: String = row.get(0)?;
         match serde_json::from_str(&json) {
             Ok(settings) => Ok(settings),
-            Err(_) => Ok(AppSettings::default()),
+            Err(e) => {
+                log::error!("Settings blob does not parse ({}); backing it up and using defaults", e);
+                backup_unreadable_settings(conn, &json, &e.to_string())?;
+                Ok(AppSettings::default())
+            }
         }
     } else {
         Ok(AppSettings::default())
     }
+}
+
+/// Copy an unreadable blob into `app_settings_backup`, then trim the table
+/// to the newest `SETTINGS_BACKUP_KEEP` rows.
+fn backup_unreadable_settings(conn: &Connection, json: &str, reason: &str) -> SqliteResult<()> {
+    conn.execute(
+        "INSERT INTO app_settings_backup (settings_json, reason) VALUES (?1, ?2)",
+        rusqlite::params![json, reason],
+    )?;
+    conn.execute(
+        r#"
+        DELETE FROM app_settings_backup
+        WHERE id NOT IN (
+            SELECT id FROM app_settings_backup ORDER BY id DESC LIMIT ?1
+        )
+        "#,
+        [SETTINGS_BACKUP_KEEP],
+    )?;
+    Ok(())
 }
 
 /// Save app settings to the database
@@ -4214,5 +4256,71 @@ mod session_roundtrip_tests {
 
         drop(conn);
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod settings_backup_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn put_raw(conn: &Connection, json: &str) {
+        conn.execute(
+            "INSERT INTO app_settings (id, settings_json) VALUES (1, ?1)
+             ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json",
+            [json],
+        )
+        .unwrap();
+    }
+
+    fn backups(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT settings_json FROM app_settings_backup ORDER BY id DESC")
+            .unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    /// The point of the table: a blob that does not parse comes back as the
+    /// default AND is kept, byte for byte, with the parser's reason.
+    #[test]
+    fn unreadable_blob_is_backed_up_and_defaults_returned() {
+        let conn = db();
+        put_raw(&conn, "{\"theme\": 42}");
+        let loaded = load_settings(&conn).unwrap();
+        assert_eq!(loaded, AppSettings::default());
+        assert_eq!(backups(&conn), vec!["{\"theme\": 42}".to_string()]);
+        let reason: String = conn
+            .query_row("SELECT reason FROM app_settings_backup", [], |r| r.get(0))
+            .unwrap();
+        assert!(!reason.is_empty(), "the parse error is recorded");
+    }
+
+    /// A blob that parses leaves the backup table alone.
+    #[test]
+    fn readable_blob_is_not_backed_up() {
+        let conn = db();
+        save_settings(&conn, &AppSettings::default()).unwrap();
+        load_settings(&conn).unwrap();
+        assert!(backups(&conn).is_empty());
+    }
+
+    /// Only the newest five are kept, so a blob that is broken at every launch
+    /// does not grow the database without bound.
+    #[test]
+    fn keeps_the_newest_five_backups() {
+        let conn = db();
+        for i in 0..7 {
+            put_raw(&conn, &format!("{{\"theme\": {}}}", i));
+            load_settings(&conn).unwrap();
+        }
+        let kept = backups(&conn);
+        assert_eq!(kept.len(), 5);
+        assert_eq!(kept[0], "{\"theme\": 6}", "newest first");
+        assert_eq!(kept[4], "{\"theme\": 2}", "the two oldest are gone");
     }
 }

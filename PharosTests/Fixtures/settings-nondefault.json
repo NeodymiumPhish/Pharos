@@ -1,0 +1,32 @@
+{
+  "alwaysShowScrollBars": true,
+  "boolDisplay": "yesNo",
+  "charts": {
+    "palette": [
+      "#000000"
+    ]
+  },
+  "checkForUpdates": false,
+  "editor": {
+    "fontFamily": "Menlo",
+    "fontSize": 14,
+    "lineNumbers": false,
+    "tabSize": 3,
+    "wordWrap": true
+  },
+  "nullDisplay": "null",
+  "query": {
+    "confirmDestructive": false,
+    "defaultLimit": 1001,
+    "notifyMinDurationSeconds": 6,
+    "notifyWhenAppInactive": false,
+    "notifyWhenBackgroundTab": false,
+    "restoreOpenTabs": false,
+    "showCancelledQueryDialog": false,
+    "timeoutSeconds": 301
+  },
+  "showLeafPartitions": true,
+  "theme": "dark",
+  "useAppleIntelligence": false,
+  "verticalResultTabs": false
+}

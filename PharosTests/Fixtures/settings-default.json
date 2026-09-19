@@ -1,0 +1,37 @@
+{
+  "alwaysShowScrollBars": false,
+  "boolDisplay": "trueFalse",
+  "charts": {
+    "palette": [
+      "#E12D48",
+      "#3E7CC4",
+      "#C9820E",
+      "#2A9C81",
+      "#9B57C9",
+      "#E05525"
+    ]
+  },
+  "checkForUpdates": true,
+  "editor": {
+    "fontFamily": "JetBrains Mono, Monaco, Menlo, monospace",
+    "fontSize": 13,
+    "lineNumbers": true,
+    "tabSize": 2,
+    "wordWrap": false
+  },
+  "nullDisplay": "NULL",
+  "query": {
+    "confirmDestructive": true,
+    "defaultLimit": 1000,
+    "notifyMinDurationSeconds": 5,
+    "notifyWhenAppInactive": true,
+    "notifyWhenBackgroundTab": true,
+    "restoreOpenTabs": true,
+    "showCancelledQueryDialog": true,
+    "timeoutSeconds": 300
+  },
+  "showLeafPartitions": false,
+  "theme": "auto",
+  "useAppleIntelligence": true,
+  "verticalResultTabs": true
+}

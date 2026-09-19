@@ -78,6 +78,16 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
         }
     }
 
+    // Load the settings blob once. Every engine-side reader takes a snapshot
+    // from `state.settings()`; `save_settings` refreshes it.
+    {
+        let db = state.metadata_db.lock().unwrap_or_else(|e| e.into_inner());
+        match crate::db::sqlite::load_settings(&db) {
+            Ok(settings) => state.replace_settings(settings),
+            Err(e) => log::error!("Failed to load settings: {}", e),
+        }
+    }
+
     let _ = APP_STATE.set(state);
     true
 }

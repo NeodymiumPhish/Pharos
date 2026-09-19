@@ -56,7 +56,7 @@ impl Default for BoolDisplay {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorSettings {
     #[serde(default = "default_font_size")]
@@ -88,7 +88,7 @@ impl Default for EditorSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuerySettings {
     #[serde(default = "default_default_limit")]
@@ -137,7 +137,7 @@ impl Default for QuerySettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChartSettings {
     #[serde(default = "default_palette")]
@@ -157,7 +157,7 @@ impl Default for ChartSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     #[serde(default)]
@@ -166,8 +166,6 @@ pub struct AppSettings {
     pub editor: EditorSettings,
     #[serde(default)]
     pub query: QuerySettings,
-    #[serde(default)]
-    pub empty_folders: Vec<String>,
     #[serde(default)]
     pub null_display: NullDisplay,
     #[serde(default)]
@@ -202,7 +200,6 @@ impl Default for AppSettings {
             theme: ThemeMode::default(),
             editor: EditorSettings::default(),
             query: QuerySettings::default(),
-            empty_folders: Vec::new(),
             null_display: NullDisplay::default(),
             bool_display: BoolDisplay::default(),
             check_for_updates: default_check_for_updates(),
@@ -211,6 +208,161 @@ impl Default for AppSettings {
             use_apple_intelligence: default_use_apple_intelligence(),
             charts: ChartSettings::default(),
             always_show_scroll_bars: false,
+        }
+    }
+}
+
+/// Fixtures shared with the Swift side.
+///
+/// `scripts/test-settings-decode.sh` feeds `PharosTests/Fixtures/settings-default.json`
+/// and `settings-nondefault.json` to Swift's synthesized decoder. The two files
+/// are GENERATED from this module (`scripts/gen-settings-fixture.sh`) and the
+/// tests below fail when the struct and the committed files drift apart, so a
+/// field added on one side of the FFI without the other is caught in `cargo
+/// test`, not at the user's next launch.
+#[cfg(test)]
+pub(crate) mod fixture {
+    use super::*;
+    use serde_json::Value;
+
+    const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../PharosTests/Fixtures");
+
+    impl AppSettings {
+        /// Every bool flipped, every enum moved off its default, every number
+        /// +1, every string changed. Exercises the value path of each field,
+        /// where the default fixture only exercises the key.
+        pub fn sample_non_default() -> AppSettings {
+            AppSettings {
+                theme: ThemeMode::Dark,
+                editor: EditorSettings {
+                    font_size: 14,
+                    font_family: "Menlo".to_string(),
+                    tab_size: 3,
+                    word_wrap: true,
+                    line_numbers: false,
+                },
+                query: QuerySettings {
+                    default_limit: 1001,
+                    timeout_seconds: 301,
+                    confirm_destructive: false,
+                    notify_when_app_inactive: false,
+                    notify_when_background_tab: false,
+                    notify_min_duration_seconds: 6,
+                    show_cancelled_query_dialog: false,
+                    restore_open_tabs: false,
+                },
+                null_display: NullDisplay::Lowercase,
+                bool_display: BoolDisplay::YesNo,
+                check_for_updates: false,
+                show_leaf_partitions: true,
+                vertical_result_tabs: false,
+                use_apple_intelligence: false,
+                charts: ChartSettings { palette: vec!["#000000".to_string()] },
+                always_show_scroll_bars: true,
+            }
+        }
+    }
+
+    fn to_value(settings: &AppSettings) -> Value {
+        serde_json::to_value(settings).expect("AppSettings serializes")
+    }
+
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(FIXTURE_DIR).join(name)
+    }
+
+    fn read_fixture(name: &str) -> Value {
+        let path = fixture_path(name);
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!("cannot read {}: {} — run scripts/gen-settings-fixture.sh", path.display(), e)
+        });
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{} is not JSON: {}", path.display(), e))
+    }
+
+    fn pretty(value: &Value) -> String {
+        let mut text = serde_json::to_string_pretty(value).expect("pretty JSON");
+        text.push('\n');
+        text
+    }
+
+    /// The committed default fixture is what `AppSettings::default()` writes today.
+    #[test]
+    fn default_fixture_is_current() {
+        assert_eq!(
+            read_fixture("settings-default.json"),
+            to_value(&AppSettings::default()),
+            "settings-default.json has drifted — run scripts/gen-settings-fixture.sh"
+        );
+    }
+
+    /// The committed non-default fixture is what `sample_non_default()` writes today.
+    #[test]
+    fn nondefault_fixture_is_current() {
+        assert_eq!(
+            read_fixture("settings-nondefault.json"),
+            to_value(&AppSettings::sample_non_default()),
+            "settings-nondefault.json has drifted — run scripts/gen-settings-fixture.sh"
+        );
+    }
+
+    /// Every top-level and second-level key carries `#[serde(default)]`: a blob
+    /// written before the key existed must decode to the default value for it.
+    #[test]
+    fn every_key_can_be_absent() {
+        let full = to_value(&AppSettings::default());
+        let top = full.as_object().expect("object");
+        assert!(!top.is_empty());
+        for (key, value) in top {
+            let mut without = full.clone();
+            without.as_object_mut().unwrap().remove(key);
+            let parsed: AppSettings = serde_json::from_value(without)
+                .unwrap_or_else(|e| panic!("blob without top-level `{}` must parse: {}", key, e));
+            assert_eq!(parsed, AppSettings::default(), "absent `{}` must give the default", key);
+
+            if let Some(nested) = value.as_object() {
+                for inner in nested.keys() {
+                    let mut without_inner = full.clone();
+                    without_inner[key].as_object_mut().unwrap().remove(inner);
+                    let parsed: AppSettings = serde_json::from_value(without_inner)
+                        .unwrap_or_else(|e| panic!("blob without `{}.{}` must parse: {}", key, inner, e));
+                    assert_eq!(parsed, AppSettings::default(), "absent `{}.{}` must give the default", key, inner);
+                }
+            }
+        }
+    }
+
+    /// The non-default sample survives serialize → deserialize unchanged, and
+    /// really differs from the default in every top-level key (so the Swift
+    /// re-encode test exercises every value, not only every key).
+    #[test]
+    fn non_default_sample_round_trips() {
+        let sample = AppSettings::sample_non_default();
+        let text = serde_json::to_string(&sample).expect("serializes");
+        let back: AppSettings = serde_json::from_str(&text).expect("parses");
+        assert_eq!(back, sample);
+
+        let default = to_value(&AppSettings::default());
+        let non_default = to_value(&sample);
+        for (key, value) in non_default.as_object().unwrap() {
+            assert_ne!(value, &default[key], "sample_non_default leaves `{}` at its default", key);
+        }
+    }
+
+    /// Writes both fixture files. A no-op unless `PHAROS_PRINT_FIXTURE=1`, so
+    /// a plain `cargo test` never touches the repository.
+    #[test]
+    fn print_fixtures() {
+        if std::env::var("PHAROS_PRINT_FIXTURE").map(|v| v == "1").unwrap_or(false) == false {
+            return;
+        }
+        std::fs::create_dir_all(FIXTURE_DIR).expect("fixture dir");
+        for (name, settings) in [
+            ("settings-default.json", AppSettings::default()),
+            ("settings-nondefault.json", AppSettings::sample_non_default()),
+        ] {
+            let path = fixture_path(name);
+            std::fs::write(&path, pretty(&to_value(&settings))).expect("write fixture");
+            println!("wrote {}", path.display());
         }
     }
 }
@@ -367,7 +519,6 @@ mod tests {
         assert_eq!(parsed.vertical_result_tabs, d.vertical_result_tabs);
         assert_eq!(parsed.use_apple_intelligence, d.use_apple_intelligence);
         assert_eq!(parsed.always_show_scroll_bars, d.always_show_scroll_bars);
-        assert!(parsed.empty_folders.is_empty());
         // The nested structs must also come back at their defaults.
         assert_eq!(parsed.editor.font_size, d.editor.font_size);
         assert_eq!(parsed.query.default_limit, d.query.default_limit);
@@ -399,7 +550,7 @@ mod tests {
     }
 
     /// Settings written by a build that still had `keyboard`, `ui`,
-    /// `editor.minimap` and `query.autoCommit` must still parse after those
+    /// `editor.minimap`, `query.autoCommit` and `emptyFolders` must still parse after those
     /// fields were removed (serde ignores unknown keys by default), the live
     /// keys in the same blob must survive, and re-serializing must not bring
     /// the removed keys back.
@@ -409,6 +560,7 @@ mod tests {
             "theme": "dark",
             "editor": {"fontSize": 18, "fontFamily": "Menlo", "minimap": true},
             "query": {"defaultLimit": 42, "autoCommit": false},
+            "emptyFolders": ["a/b"],
             "ui": {"navigatorWidth": 400, "savedQueriesWidth": 200, "resultsPanelHeight": 320, "editorSplitPosition": 60},
             "keyboard": {"shortcuts": [{"id": "run-query", "label": "Run Query", "description": "Runs the current query", "key": "Return", "modifiers": ["cmd"]}]}
         }"#;
@@ -427,5 +579,6 @@ mod tests {
         assert!(!re_serialized.contains("keyboard"), "removed `keyboard` key must not reappear");
         assert!(!re_serialized.contains("minimap"), "removed `minimap` key must not reappear");
         assert!(!re_serialized.contains("autoCommit"), "removed `autoCommit` key must not reappear");
+        assert!(!re_serialized.contains("emptyFolders"), "removed `emptyFolders` key must not reappear");
     }
 }

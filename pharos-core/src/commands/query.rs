@@ -28,15 +28,9 @@ pub(crate) async fn set_search_path(
     Ok(())
 }
 
-/// Read the user's query timeout (seconds) from settings, falling back to the default.
+/// The user's statement timeout, in seconds, from the settings cache.
 fn query_timeout_seconds(state: &AppState) -> u32 {
-    state
-        .metadata_db
-        .lock()
-        .ok()
-        .and_then(|db| sqlite::load_settings(&db).ok())
-        .map(|s| s.query.timeout_seconds)
-        .unwrap_or_else(|| crate::models::QuerySettings::default().timeout_seconds)
+    state.settings().query.timeout_seconds
 }
 
 /// Apply the user's statement timeout on this connection. PostgreSQL-specific —

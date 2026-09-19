@@ -8,8 +8,7 @@ import AppKit
 ///
 ///  - `apply` reads the CURRENT published settings, mutates the one field the
 ///    control owns and saves. It never writes a whole snapshot taken when the
-///    pane was built, so two panes — or a pane and the schema browser's
-///    `emptyFolders` — cannot overwrite each other's fields.
+///    pane was built, so two panes cannot overwrite each other's fields.
 ///  - Buttons, popups, radios and steppers commit on their action.
 ///  - Text fields commit after a short typing pause, and immediately when
 ///    editing ends (Tab, Return, or the field losing focus). Without the pause

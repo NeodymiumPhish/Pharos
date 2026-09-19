@@ -88,7 +88,6 @@ struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
     var query: QuerySettings = QuerySettings()
-    var emptyFolders: [String] = []
     var nullDisplay: NullDisplay = .uppercase
     var boolDisplay: BoolDisplay = .trueFalse
     var checkForUpdates: Bool = true

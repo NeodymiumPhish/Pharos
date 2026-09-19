@@ -420,15 +420,35 @@ final class AppStateManager: ObservableObject {
 
     // MARK: - Settings
 
+    /// Set when the settings the core sent could not be decoded at launch.
+    /// While it is set `saveSettings` refuses to write: `settings` holds the
+    /// Swift default, not the user's values, and saving it would overwrite the
+    /// stored blob with defaults. The core keeps its own copy of an unreadable
+    /// blob (`app_settings_backup`); this guards the OTHER failure, a Swift
+    /// field with no Rust mirror, which the core cannot see.
+    private(set) var settingsLoadFailed = false
+
+    /// The message shown when a save is refused. One string so the pane and
+    /// the log say the same thing.
+    static let settingsNotSavedMessage = String(
+        localized: "Settings could not be read at launch; changes are not saved so the stored settings are kept.")
+
     func loadSettings() {
         do {
             settings = try PharosCore.loadSettings()
+            settingsLoadFailed = false
         } catch {
+            settingsLoadFailed = true
             Log.state.error("Failed to load settings: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     func saveSettings(_ newSettings: AppSettings) {
+        guard !settingsLoadFailed else {
+            Log.state.error("Refusing to save settings: \(Self.settingsNotSavedMessage, privacy: .public)")
+            lastError = Self.settingsNotSavedMessage
+            return
+        }
         do {
             try PharosCore.saveSettings(newSettings)
             settings = newSettings
