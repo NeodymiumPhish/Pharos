@@ -24,7 +24,7 @@ Connections are managed in the **Connections Manager** sheet (**Cmd+Shift+N** or
 
 The Connections Manager is a two-pane window:
 
-- **Left** — the list of saved connections. Each row shows a status dot (green = connected, yellow = connecting, red = error, gray = disconnected), the connection name, and `host:port · database`. Drag rows to reorder. Use **+** to add a connection and **−** to delete the selected one.
+- **Left** — the list of saved connections. Each row shows a status dot (green = connected, yellow = connecting, red = error, gray = disconnected), the connection name, and `host:port · database`, followed by `· via <bastion>` when the connection uses an SSH tunnel. Drag rows to reorder. Use **+** to add a connection and **−** to delete the selected one.
 - **Right** — the detail form for the selected connection.
 
 | Field | Description | Default |
@@ -37,6 +37,7 @@ The Connections Manager is a two-pane window:
 | Password | Password for the role (stored in the Keychain) | — |
 | SSL Mode | Prefer, Require, or Disable | Prefer |
 | Default Schema | Schema focused on connect. Filled from the open connection when the connection is already connected and its settings are unchanged; otherwise press **Test Connection** first | None |
+| Connect through an SSH tunnel | Reach the database through a bastion — see [SSH Tunnels](#ssh-tunnels) | Off |
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 
@@ -48,6 +49,77 @@ Click **Test Connection** to verify the settings:
 
 **Test Connection is only needed when Pharos cannot already answer.** If the connection is connected and you have not changed its host, port, database, username, SSL mode or Touch ID setting, the **Default Schema** menu fills itself from the open connection as soon as you select the record. Editing any of those fields takes the menu back to "Test connection first", because the open connection no longer describes what the form says.
 - **Failure** — shows the PostgreSQL error message in red
+
+**Test Connection opens the tunnel too.** A connection with an SSH tunnel takes the same path as Connect, so the button cannot pass settings that Connect would refuse. A tunnel failure is reported in place of the PostgreSQL error.
+
+## SSH Tunnels
+
+A connection can reach its PostgreSQL server through an SSH tunnel, for a database that is only reachable from a bastion host. Tick **Connect through an SSH tunnel** in the **SSH Tunnel** section of the connection's form.
+
+Pharos runs the system `ssh` (`/usr/bin/ssh`) as a child process:
+
+```
+ssh -N -L 127.0.0.1:<local port>:<database host>:<database port> <user>@<ssh host>
+```
+
+The tunnel opens before the connection pool and closes when you disconnect, when you delete the connection, or when you quit Pharos. The local port is chosen for you and is bound to the loopback address only, so the tunnel is never reachable from the network. **Host** and **Port** in the form stay the DATABASE's — they are what the SSH server connects on your behalf to, not what Pharos connects to.
+
+### Fields
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| SSH Host | The bastion, or a `Host` alias from `~/.ssh/config` | — |
+| SSH Port | The SSH server's port | 22 |
+| SSH User | Leave empty to let `~/.ssh/config` choose | — |
+| Authentication | SSH agent, Private key file, or Password | SSH agent |
+| Key File | The private key, for **Private key file** | — |
+| Passphrase / Password | The key's passphrase, or the SSH password | — |
+| Accept new host keys | See **Host keys** below | Off |
+
+### `~/.ssh/config` applies
+
+Because Pharos runs the system `ssh`, your own configuration is used with no extra setting in Pharos: `Host` aliases, `ProxyJump`, `IdentityFile`, `IdentityAgent`, `Port` and `User` all work. Put an alias in **SSH Host** and Pharos will resolve it the way your terminal does.
+
+This is how a 1Password SSH key works. 1Password sets `IdentityAgent` in `~/.ssh/config`, and the tunnel signs with it — 1Password may ask you to approve the key the first time. Leave **Authentication** on **SSH agent**.
+
+{: .note }
+A GUI app inherits `SSH_AUTH_SOCK` from launchd, not from your shell. An agent started only in a shell startup file is invisible to Pharos. `IdentityAgent` in `~/.ssh/config` — the 1Password way — always works.
+
+### Authentication modes
+
+- **SSH agent** — the default and the safest. Pharos stores no SSH secret at all and `ssh` runs in batch mode, so it can never stop waiting for a prompt.
+- **Private key file** — choose the key with **Choose…**. Leave **Passphrase** empty for a key with no passphrase; `ssh` is then given only this key, so a crowded agent cannot use up the server's attempts before yours is tried.
+- **Password** — the SSH password for the account. Pharos answers the prompt for `ssh` through a helper it writes at startup. In this mode public key authentication is turned OFF, so a wrong password fails instead of silently succeeding with an agent key.
+
+{: .warning }
+In **Password** mode, and for a key with a passphrase, the secret is placed in the `ssh` process's environment for as long as the tunnel is open. Anyone logged in as you on this Mac can read it with `ps -E`. Use **SSH agent** or an unencrypted key file where you can.
+
+### Host keys
+
+Pharos never weakens host key checking. By default the SSH server's key must already be in your `~/.ssh/known_hosts`; an unknown key fails with:
+
+> Pharos does not accept new host keys for this connection. Turn on Accept new host keys, or connect once from Terminal: ssh user@host
+
+Two ways forward:
+
+- Connect once from Terminal with the command in the message and answer the prompt yourself. This is the safest route, because you see the fingerprint.
+- Tick **Accept new host keys** on this connection. The first connection then records an **unknown** key. A **changed** key still fails, so this never weakens a key that is already known.
+
+### Messages
+
+| What you see | What it means |
+|---|---|
+| SSH authentication failed for `user@host`. | The SSH server refused your key or password. |
+| SSH host `host` not found. | The SSH host name does not resolve on this Mac. |
+| SSH host `host:port` did not answer. | Nothing is listening, or the connection timed out. |
+| The SSH server could not reach `dbhost:dbport`. | The tunnel opened, but the bastion cannot reach the database. Check the database host and port, and that the bastion can resolve the name. |
+| SSH tunnel closed: `reason` | The tunnel stopped during the session. Connect again. |
+
+### Limits
+
+- Two connections through the same bastion start two `ssh` processes.
+- Pharos always runs `/usr/bin/ssh`. A Homebrew `ssh` is not used.
+- A dead tunnel is noticed at the next query or metadata request, not the moment it dies.
 
 ## Connection Links
 
@@ -96,7 +168,9 @@ The gate guards the two places Pharos *acts* on the password. It does not change
 
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, default schema, Touch ID requirement) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+Connection metadata (name, host, port, database, username, SSL mode, default schema, Touch ID requirement, SSH tunnel settings) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+
+A connection with an SSH tunnel has **two** Keychain entries: the database password, and the SSH passphrase or password. Deleting the connection removes both. The SSH tunnel's own settings — host, port, user, authentication mode and key path — are stored in SQLite with the secret removed, so the Keychain is the only place either secret lives.
 
 {: .note }
 Passwords never leave your machine — they live in the macOS Keychain and are read into memory only to open connections.

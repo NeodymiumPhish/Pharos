@@ -329,9 +329,7 @@ pub async fn apply_row_updates(
 ) -> Result<RowUpdateResult, String> {
     validate_request(&request)?;
 
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
 

@@ -162,9 +162,7 @@ pub async fn clone_table(
     options: CloneTableOptions,
     state: &AppState,
 ) -> Result<CloneTableResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Validate identifiers to prevent SQL injection
     validate_identifier(&options.source_schema)?;
@@ -220,9 +218,7 @@ pub async fn generate_table_ddl(
     table_name: String,
     state: &AppState,
 ) -> Result<crate::commands::ddl::TableDdl, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // No identifier validation here: this is a read-only path, like the sibling
     // metadata reads (get_columns / get_table_constraints), which also skip it.
@@ -264,9 +260,7 @@ pub async fn validate_csv_for_import(
     has_headers: bool,
     state: &AppState,
 ) -> Result<CsvValidationResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
     validate_file_path(&file_path)?;
@@ -379,9 +373,7 @@ pub async fn import_csv(
     options: ImportCsvOptions,
     state: &AppState,
 ) -> Result<ImportCsvResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
     validate_file_path(&options.file_path)?;
@@ -528,9 +520,7 @@ pub async fn export_table(
     options: ExportTableOptions,
     state: &AppState,
 ) -> Result<ExportTableResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
     validate_file_path(&options.file_path)?;
@@ -685,9 +675,7 @@ pub async fn export_query(
 ) -> Result<ExportTableResult, String> {
     validate_file_path(&options.file_path)?;
 
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 

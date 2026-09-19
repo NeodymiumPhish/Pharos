@@ -50,6 +50,13 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
         }
     };
 
+    // The SSH askpass helper (D3). A failure here is not fatal: every tunnel
+    // that uses the agent or a key with no passphrase works without it, and
+    // the ones that need it report a clear reason when they are tried.
+    if let Err(e) = crate::db::ssh_tunnel::install_askpass_helper(&path) {
+        log::warn!("Could not write the SSH password helper: {}", e);
+    }
+
     let state = AppState::new(metadata_db);
 
     // Load connections and initialize password cache
@@ -102,6 +109,11 @@ pub extern "C" fn pharos_shutdown() {
         conns.drain().map(|(_, p)| p).collect()
     };
 
+    // Drain the tunnels too. Draining is what makes the timeout safe: a tunnel
+    // that is not closed in time is DROPPED inside the runtime, and
+    // `kill_on_drop` stops its `ssh` anyway, so no child can outlive the app.
+    let tunnels = state.take_all_tunnels();
+
     let _ = runtime.block_on(async {
         tokio::time::timeout(SHUTDOWN_TOTAL_BUDGET, async {
             let closes = pools.into_iter().map(|pool| async move {
@@ -109,6 +121,10 @@ pub extern "C" fn pharos_shutdown() {
                 // On timeout `pool` drops here — non-blocking.
             });
             futures::future::join_all(closes).await;
+
+            // The tunnels last: a pool still closing needs its road open.
+            // `close` caps its own wait at 2 s, and they all run together.
+            futures::future::join_all(tunnels.into_iter().map(|t| t.close())).await;
         })
         .await
     });

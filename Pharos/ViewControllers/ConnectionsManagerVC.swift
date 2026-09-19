@@ -132,9 +132,13 @@ private struct ConnectionListRow: View {
     }
 
     private var subtitle: String {
-        isStub
-            ? "Not saved"
-            : "\(DisplayEscape.escaped(connection.host)):\(connection.port) · \(DisplayEscape.escaped(connection.database))"
+        guard !isStub else { return "Not saved" }
+        let base = "\(DisplayEscape.escaped(connection.host)):\(connection.port) · \(DisplayEscape.escaped(connection.database))"
+        // The tunnel is part of WHERE this connection goes, and a bastion's
+        // name is the one thing that tells two otherwise identical records
+        // apart. Escaped like every other stored string shown as a label.
+        return base + SshTunnelForm.viaSuffix(connection.sshTunnel,
+                                              escape: DisplayEscape.escaped)
     }
 
     private var statusColor: Color {
@@ -264,12 +268,46 @@ final class ConnectionsManagerVC: NSViewController {
     /// carries no hint of the stored password's length.
     private static let passwordMask = "••••••••"
 
+    // MARK: SSH tunnel controls
+    //
+    // Every row below the checkbox is hidden while the checkbox is off, and
+    // the key-file and secret rows follow the authentication pop-up. A hidden
+    // row keeps its constraints, so the form's width never moves.
+
+    private let sshEnabledCheckbox = NSButton()
+    private let sshHostField = NSTextField()
+    private let sshPortField = NSTextField()
+    private let sshUserField = NSTextField()
+    private let sshAuthPopup = NSPopUpButton()
+    private let sshKeyPathField = NSTextField()
+    private let sshChooseKeyButton = NSButton()
+    private let sshSecretField = NSSecureTextField()
+    private let sshShowSecretButton = NSButton()
+    private let sshAcceptNewHostKeysCheckbox = NSButton()
+    private let sshHostBadge = HostileTextBadge()
+    private let sshUserBadge = HostileTextBadge()
+
+    /// The rows that appear only when the tunnel is on, in form order.
+    private var sshRows: [NSView] = []
+    /// The key-file row, shown only for `.keyFile`.
+    private var sshKeyPathRow: NSView?
+    /// The secret row and its label, shown for `.keyFile` and `.password`.
+    /// The label follows the pop-up: a key file takes a PASSPHRASE, a password
+    /// mode takes a PASSWORD, and calling both the same thing would be wrong
+    /// in one of the two.
+    private var sshSecretRow: NSView?
+    private let sshSecretLabel = NSTextField(labelWithString: "")
+
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
     private let testSpinner = NSProgressIndicator()
 
     private let revertButton = NSButton()
     private let saveButton = NSButton()
+
+    /// The form's scroll view. Held so turning the tunnel on can take the user
+    /// to the section it just revealed.
+    private var detailScrollView: NSScrollView?
 
     private enum L {
         static let listWidth: CGFloat = 240
@@ -283,6 +321,9 @@ final class ConnectionsManagerVC: NSViewController {
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 10
         static let badgeGap: CGFloat = 6
+        /// The gap under the pinned action bar, and above its separator.
+        static let actionBarInsetBottom: CGFloat = 16
+        static let actionBarInsetTop: CGFloat = 14
     }
 
     /// Slightly darker than the right pane's content background, so the left
@@ -298,9 +339,18 @@ final class ConnectionsManagerVC: NSViewController {
 
     override func loadView() {
         // A sheet takes its size from this frame, the way every other sheet in
-        // Pharos/Sheets does. 860x560 is what the free-floating window used and
-        // what TagManagerSheet uses.
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 860, height: 560))
+        // Pharos/Sheets does. It used to be 860x560, matching TagManagerSheet —
+        // but MEASURED against this form that was always too short: with no SSH
+        // section at all the form wants 633 pt against a 508 pt viewport, so
+        // Test Connection, Revert and Save sat below the fold on a fresh
+        // connection and the user had to scroll to reach Save.
+        //
+        // 720 gives a 668 pt viewport, which holds the whole form with the SSH
+        // section closed — the common case — with room to spare. With the
+        // section open the form wants 848 pt and still scrolls; that is the
+        // right trade, because an advanced section should not make every
+        // connection's window taller.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 880, height: 720))
         self.view = root
 
         let split = NSSplitView()
@@ -554,10 +604,6 @@ final class ConnectionsManagerVC: NSViewController {
         testStatusLabel.lineBreakMode = .byTruncatingTail
         testStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let testRow = NSStackView(views: [testButton, testSpinner, testStatusLabel])
-        testRow.orientation = .horizontal
-        testRow.alignment = .centerY
-        testRow.spacing = 10
 
         revertButton.title = "Revert"
         revertButton.bezelStyle = .rounded
@@ -570,12 +616,27 @@ final class ConnectionsManagerVC: NSViewController {
         saveButton.target = self
         saveButton.action = #selector(saveChanges)
 
-        let footerSpacer = NSView()
-        footerSpacer.translatesAutoresizingMaskIntoConstraints = false
-        let footer = NSStackView(views: [footerSpacer, revertButton, saveButton])
-        footer.orientation = .horizontal
-        footer.spacing = 10
-        footer.alignment = .centerY
+        // Test Connection, Revert and Save live in a bar pinned to the bottom
+        // of the pane, OUTSIDE the scroll view — the same place, and the same
+        // reason, as the sheet's own Done button.
+        //
+        // Measured: with no SSH section at all this form wants 633 pt of a
+        // 508 pt viewport, so inside the scroll view Save sat below the fold on
+        // a fresh connection. An action the user must reach to finish the task
+        // must never be something they have to find by scrolling.
+        let actionSpacer = NSView()
+        actionSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let actionBar = NSStackView(views: [testButton, testSpinner, testStatusLabel,
+                                            actionSpacer, revertButton, saveButton])
+        actionBar.orientation = .horizontal
+        actionBar.alignment = .centerY
+        actionBar.spacing = 10
+        actionBar.translatesAutoresizingMaskIntoConstraints = false
+        // The status text yields first: the three buttons keep their size and
+        // the message truncates, with the whole of it in the tooltip.
+        actionBar.setHuggingPriority(.defaultLow, for: .horizontal)
+        let actionSeparator = NSBox.separator()
+        actionSeparator.translatesAutoresizingMaskIntoConstraints = false
 
         let serverSection = section(title: "Server", rows: [
             row(label: "Name", field: nameField),
@@ -620,32 +681,273 @@ final class ConnectionsManagerVC: NSViewController {
         // about the FIELD, so say so — a screen reader on the badge must land
         // on the password field, not on its container.
         passwordBadge.link(to: passwordField)
+        let sshSection = buildSshSection()
+
         let dbSection = section(title: "Database", rows: [
             row(label: "Database", field: databaseField, badge: databaseBadge),
             row(label: "Default Schema", control: defaultSchemaPopup),
         ])
 
-        let main = NSStackView(views: [header, serverSection, authSection, dbSection, testRow, footer])
+        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection])
         main.orientation = .vertical
         main.alignment = .leading
         main.spacing = L.sectionSpacing
         main.translatesAutoresizingMaskIntoConstraints = false
         main.edgeInsets = NSEdgeInsets(top: L.formInsetTop, left: L.formInsetH,
                                        bottom: L.formInsetBottom, right: L.formInsetH)
+        // Nothing below the form now competes for the pane's height, so the
+        // stack keeps its content height and the scroll view supplies the rest.
+        main.setHuggingPriority(.required, for: .vertical)
 
-        container.addSubview(main)
+        // The form scrolls.
+        //
+        // With the SSH Tunnel section open the form is taller than the sheet,
+        // and the section's height changes with its checkbox — so a taller
+        // window would be wrong for the common case (no tunnel) and a fixed
+        // one would squash the rows. A scroll view is the only answer that is
+        // right in both states. The document view is FLIPPED, or a form
+        // shorter than the sheet would sit against its bottom edge.
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        let document = ConnectionsFormDocumentView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(main)
+        scroll.documentView = document
+        container.addSubview(scroll)
+        container.addSubview(actionSeparator)
+        container.addSubview(actionBar)
+        detailScrollView = scroll
+
         NSLayoutConstraint.activate([
-            main.topAnchor.constraint(equalTo: container.topAnchor),
-            main.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            main.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            main.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            actionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: L.formInsetH),
+            actionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -L.formInsetH),
+            actionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -L.actionBarInsetBottom),
+
+            actionSeparator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            actionSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            actionSeparator.bottomAnchor.constraint(equalTo: actionBar.topAnchor,
+                                                    constant: -L.actionBarInsetTop),
+
+            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: actionSeparator.topAnchor),
+            // The document takes the clip's width, so nothing ever scrolls
+            // sideways and the rows keep the width they had before.
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+
+            main.topAnchor.constraint(equalTo: document.topAnchor),
+            main.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            main.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            main.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             header.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            footer.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            testRow.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             serverSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             authSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
+            sshSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             dbSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
         ])
+    }
+
+    // MARK: - SSH tunnel section
+
+    /// The SSH Tunnel section, between Authentication and Database.
+    ///
+    /// D6 puts it there because a tunnel is part of HOW the app reaches the
+    /// server, like the credentials above it, and before the database it
+    /// finally opens.
+    private func buildSshSection() -> NSView {
+        sshEnabledCheckbox.setButtonType(.switch)
+        sshEnabledCheckbox.title = String(localized: "Connect through an SSH tunnel")
+        sshEnabledCheckbox.target = self
+        sshEnabledCheckbox.action = #selector(sshEnabledChanged)
+        sshEnabledCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        sshEnabledCheckbox.setAccessibilityIdentifier("connections.ssh.enabled")
+
+        for field in [sshHostField, sshPortField, sshUserField, sshKeyPathField] {
+            configureField(field)
+        }
+        configureField(sshSecretField)
+        sshHostField.placeholderString = String(localized: "bastion.example.com or a Host from ~/.ssh/config")
+        sshHostField.setAccessibilityIdentifier("connections.ssh.host")
+        sshPortField.placeholderString = "22"
+        sshPortField.setAccessibilityIdentifier("connections.ssh.port")
+        sshUserField.placeholderString = String(localized: "From ~/.ssh/config")
+        sshUserField.setAccessibilityIdentifier("connections.ssh.user")
+        sshKeyPathField.placeholderString = "~/.ssh/id_ed25519"
+        sshKeyPathField.setAccessibilityIdentifier("connections.ssh.keyPath")
+        sshSecretField.setAccessibilityIdentifier("connections.ssh.secret")
+
+        sshAuthPopup.removeAllItems()
+        sshAuthPopup.addItems(withTitles: [
+            String(localized: "SSH agent"),
+            String(localized: "Private key file"),
+            String(localized: "Password"),
+        ])
+        sshAuthPopup.target = self
+        sshAuthPopup.action = #selector(sshAuthChanged)
+        sshAuthPopup.translatesAutoresizingMaskIntoConstraints = false
+        sshAuthPopup.setAccessibilityIdentifier("connections.ssh.auth")
+
+        sshChooseKeyButton.title = String(localized: "Choose…")
+        sshChooseKeyButton.bezelStyle = .rounded
+        sshChooseKeyButton.controlSize = .regular
+        sshChooseKeyButton.target = self
+        sshChooseKeyButton.action = #selector(chooseSshKeyFile)
+        sshChooseKeyButton.setAccessibilityIdentifier("connections.ssh.chooseKey")
+        sshChooseKeyButton.setContentHuggingPriority(.required, for: .horizontal)
+        sshChooseKeyButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        // The same gate as the database password (D6): one authentication
+        // reveals both of a record's secrets, so this button runs the same
+        // action rather than a second prompt of its own.
+        sshShowSecretButton.title = String(localized: "Show")
+        sshShowSecretButton.bezelStyle = .rounded
+        sshShowSecretButton.controlSize = .regular
+        sshShowSecretButton.target = self
+        sshShowSecretButton.action = #selector(revealPassword)
+        sshShowSecretButton.toolTip = String(localized: "Authenticate to show the stored secret.")
+        sshShowSecretButton.setAccessibilityIdentifier("connections.ssh.showSecret")
+        sshShowSecretButton.setContentHuggingPriority(.required, for: .horizontal)
+        sshShowSecretButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        sshShowSecretButton.isHidden = true
+
+        sshAcceptNewHostKeysCheckbox.setButtonType(.switch)
+        sshAcceptNewHostKeysCheckbox.title = String(localized: "Accept new host keys")
+        sshAcceptNewHostKeysCheckbox.target = self
+        sshAcceptNewHostKeysCheckbox.action = #selector(fieldEdited)
+        sshAcceptNewHostKeysCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        sshAcceptNewHostKeysCheckbox.setAccessibilityIdentifier("connections.ssh.acceptNewHostKeys")
+
+        let keyControls = NSStackView(views: [sshKeyPathField, sshChooseKeyButton])
+        keyControls.orientation = .horizontal
+        keyControls.alignment = .centerY
+        keyControls.distribution = .fill
+        keyControls.spacing = 8
+        keyControls.translatesAutoresizingMaskIntoConstraints = false
+        sshKeyPathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let secretControls = NSStackView(views: [sshSecretField, sshShowSecretButton])
+        secretControls.orientation = .horizontal
+        secretControls.alignment = .centerY
+        secretControls.distribution = .fill
+        secretControls.spacing = 8
+        secretControls.translatesAutoresizingMaskIntoConstraints = false
+        sshSecretField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let hostRow = row(label: String(localized: "SSH Host"), field: sshHostField, badge: sshHostBadge)
+        let portRow = row(label: String(localized: "SSH Port"), field: sshPortField,
+                          fieldFixedWidth: L.portWidth)
+        let userRow = row(label: String(localized: "SSH User"), field: sshUserField, badge: sshUserBadge)
+        let authRow = row(label: String(localized: "Authentication"), control: sshAuthPopup)
+        let keyRow = row(label: String(localized: "Key File"), field: keyControls)
+        sshSecretLabel.alignment = .right
+        sshSecretLabel.font = .systemFont(ofSize: 13)
+        sshSecretLabel.textColor = .labelColor
+        let secretRow = row(labelView: sshSecretLabel, field: secretControls)
+        let acceptRow = row(label: "", control: sshAcceptNewHostKeysCheckbox)
+        let acceptNote = noteRow(caption(String(localized:
+            "Records an unknown server key on the first connection. A changed key is still refused.")))
+        let configNote = noteRow(caption(String(localized:
+            "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply.")))
+
+        sshKeyPathRow = keyRow
+        sshSecretRow = secretRow
+        sshRows = [hostRow, portRow, userRow, authRow, keyRow, secretRow,
+                   acceptRow, acceptNote, configNote]
+
+        let enabledRow = row(label: "", control: sshEnabledCheckbox)
+        return section(title: String(localized: "SSH Tunnel"), rows: [enabledRow] + sshRows)
+    }
+
+    private func caption(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        return label
+    }
+
+    /// Show or hide every SSH row for the current checkbox and pop-up.
+    ///
+    /// One function, called from `populate`, from the checkbox and from the
+    /// pop-up, so the three routes into this state cannot disagree.
+    private func applySshRowVisibility() {
+        let rules = SshTunnelForm.visibility(enabled: sshEnabledCheckbox.state == .on,
+                                             auth: sshAuthMethodForPopup())
+        for view in sshRows { view.isHidden = !rules.tunnelRows }
+        sshKeyPathRow?.isHidden = !rules.keyFileRow
+        sshSecretRow?.isHidden = !rules.secretRow
+        sshSecretLabel.stringValue = rules.secretLabel
+    }
+
+    private func sshAuthMethodForPopup() -> SshAuthMethod {
+        switch sshAuthPopup.indexOfSelectedItem {
+        case 1: return .keyFile
+        case 2: return .password
+        default: return .agent
+        }
+    }
+
+    private func selectSshAuthPopup(_ method: SshAuthMethod) {
+        switch method {
+        case .agent:    sshAuthPopup.selectItem(at: 0)
+        case .keyFile:  sshAuthPopup.selectItem(at: 1)
+        case .password: sshAuthPopup.selectItem(at: 2)
+        }
+    }
+
+    @objc private func sshEnabledChanged() {
+        applySshRowVisibility()
+        syncFormIntoDraft()
+        applyPasswordGateState(storedPassword: draft?.password ?? "")
+    }
+
+    @objc private func sshAuthChanged() {
+        applySshRowVisibility()
+        syncFormIntoDraft()
+        applyPasswordGateState(storedPassword: draft?.password ?? "")
+    }
+
+    @objc private func chooseSshKeyFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // Private keys have no extension and start in a hidden folder, so the
+        // panel has to show hidden files or ~/.ssh cannot be reached at all.
+        panel.showsHiddenFiles = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ssh", isDirectory: true)
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose the private key file for this tunnel.")
+        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            self.sshKeyPathField.stringValue = url.path
+            self.syncFormIntoDraft()
+        }
+    }
+
+    /// The tunnel the form currently describes, or `nil` when the checkbox is
+    /// off.
+    ///
+    /// The secret follows the same rule as the password: a MASKED field holds
+    /// the mask, not a secret, so the draft's stored value is kept instead.
+    private func sshTunnelFromForm(existing: SshTunnelConfig?) -> SshTunnelConfig? {
+        SshTunnelForm.tunnel(
+            from: SshTunnelForm.Fields(
+                enabled: sshEnabledCheckbox.state == .on,
+                host: sshHostField.stringValue,
+                port: sshPortField.stringValue,
+                user: sshUserField.stringValue,
+                auth: sshAuthMethodForPopup(),
+                keyPath: sshKeyPathField.stringValue,
+                secret: sshSecretField.stringValue,
+                acceptNewHostKeys: sshAcceptNewHostKeysCheckbox.state == .on,
+                secretRevealed: passwordRevealed),
+            existing: existing)
     }
 
     private func configureField(_ field: NSTextField) {
@@ -668,11 +970,21 @@ final class ConnectionsManagerVC: NSViewController {
         labelView.alignment = .right
         labelView.font = .systemFont(ofSize: 13)
         labelView.textColor = .labelColor
+        return row(labelView: labelView, field: field,
+                   fieldFixedWidth: fieldFixedWidth, badge: badge)
+    }
+
+    /// The same row, for a caller that OWNS its label and needs to change the
+    /// text later — the SSH secret row, whose label follows the authentication
+    /// pop-up.
+    private func row(labelView: NSTextField, field: NSView, fieldFixedWidth: CGFloat? = nil,
+                     badge: HostileTextBadge? = nil) -> NSView {
         labelView.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(labelView)
+        field.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(field)
         // The badge announces the field it warns about, and the field the badge.
         badge?.link(to: field)
@@ -733,6 +1045,13 @@ final class ConnectionsManagerVC: NSViewController {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(labelView)
+        // Here, not at the call site. A control that still translates its
+        // autoresizing mask brings constraints from its ZERO frame, which
+        // outrank the ones below: the control renders as a tiny square at the
+        // container's origin with its title clipped away, and it cannot be
+        // clicked. Every earlier caller happened to set this itself, so the
+        // helper's dependence on them was invisible until one did not.
+        control.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(control)
 
         NSLayoutConstraint.activate([
@@ -941,12 +1260,26 @@ final class ConnectionsManagerVC: NSViewController {
         // record revealed a moment ago: the gate is about walking up to the
         // window, so it has to re-arm when the form moves on.
         requireAuthCheckbox.state = config.requiresAuthentication ? .on : .off
+        // The tunnel, before the gate is applied: `applyPasswordGateState`
+        // masks the secret field, so the fields must hold the record first.
+        let tunnel = config.sshTunnel
+        sshEnabledCheckbox.state = tunnel != nil ? .on : .off
+        sshHostField.stringValue = tunnel?.host ?? ""
+        sshPortField.stringValue = String(tunnel?.port ?? 22)
+        sshUserField.stringValue = tunnel?.user ?? ""
+        selectSshAuthPopup(tunnel?.auth ?? .agent)
+        sshKeyPathField.stringValue = tunnel?.keyPath ?? ""
+        sshAcceptNewHostKeysCheckbox.state = (tunnel?.acceptNewHostKeys ?? false) ? .on : .off
+        applySshRowVisibility()
         passwordRevealed = !config.requiresAuthentication
         showPasswordAuthNote("")
         // The field is reloaded here whatever state it was in — the guard inside
         // `applyPasswordGateState` protects TYPED edits, and a selection change
         // has none to protect.
-        if passwordRevealed { passwordField.stringValue = config.password }
+        if passwordRevealed {
+            passwordField.stringValue = config.password
+            sshSecretField.stringValue = tunnel?.secret ?? ""
+        }
         applyPasswordGateState(storedPassword: config.password)
         switch config.sslMode {
         case .prefer:  sslPopup.selectItem(at: 0)
@@ -978,7 +1311,7 @@ final class ConnectionsManagerVC: NSViewController {
             defaultSchemaPopup.toolTip = nil
         }
 
-        testStatusLabel.stringValue = ""
+        setTestStatus("")
         testSpinner.isHidden = true
         testSpinner.stopAnimation(nil)
 
@@ -1023,6 +1356,17 @@ final class ConnectionsManagerVC: NSViewController {
         saveButton.contentTintColor = canSave ? .alternateSelectedControlTextColor : nil
         revertButton.isEnabled = isDirty
         listModel.dirtyConnectionId = isDirty ? draft?.id : nil
+    }
+
+    /// The Test Connection result line.
+    ///
+    /// The label shares one row with three buttons now, so a long message —
+    /// and the SSH ones are long by design, because they tell the user what to
+    /// do next — truncates. The tooltip carries the whole of it, so nothing is
+    /// lost; without this the host-key sentence would end at "Turn on".
+    private func setTestStatus(_ text: String) {
+        testStatusLabel.stringValue = text
+        testStatusLabel.toolTip = text.isEmpty ? nil : text
     }
 
     private func isDraftValid() -> Bool {
@@ -1096,7 +1440,28 @@ final class ConnectionsManagerVC: NSViewController {
             passwordField.isSelectable = false
             showPasswordButton.isHidden = false
         }
+        // D6: the gate covers EVERY secret the record owns, so the SSH secret
+        // is masked by the same flag and revealed by the same authentication.
+        // Leaving it readable would make the gate worthless for a tunnel whose
+        // password opens a shell on the bastion.
+        applySshSecretGateState(storedSecret: draft?.sshTunnel?.secret ?? "")
         refreshHostileTextBadges()
+    }
+
+    private func applySshSecretGateState(storedSecret: String) {
+        if passwordRevealed {
+            if !sshSecretField.isEditable {
+                sshSecretField.stringValue = storedSecret
+            }
+            sshSecretField.isEditable = true
+            sshSecretField.isSelectable = true
+            sshShowSecretButton.isHidden = true
+        } else {
+            sshSecretField.stringValue = Self.passwordMask
+            sshSecretField.isEditable = false
+            sshSecretField.isSelectable = false
+            sshShowSecretButton.isHidden = false
+        }
     }
 
     private func showPasswordAuthNote(_ text: String) {
@@ -1119,6 +1484,7 @@ final class ConnectionsManagerVC: NSViewController {
             d.password = passwordField.stringValue
         }
         d.requiresAuthentication = requireAuthCheckbox.state == .on
+        d.sshTunnel = sshTunnelFromForm(existing: d.sshTunnel)
         switch sslPopup.indexOfSelectedItem {
         case 1: d.sslMode = .require
         case 2: d.sslMode = .disable
@@ -1214,7 +1580,7 @@ final class ConnectionsManagerVC: NSViewController {
         testButton.isEnabled = false
         testSpinner.isHidden = false
         testSpinner.startAnimation(nil)
-        testStatusLabel.stringValue = "Testing…"
+        setTestStatus(String(localized: "Testing…"))
         testStatusLabel.textColor = .secondaryLabelColor
 
         Task { [weak self] in
@@ -1227,11 +1593,11 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testButton.isEnabled = true
                     if result.success {
                         let ms = result.latencyMs.map { " \($0)ms" } ?? ""
-                        self.testStatusLabel.stringValue = "Connected\(ms)"
+                        self.setTestStatus("Connected\(ms)")
                         self.testStatusLabel.textColor = .systemGreen
                         self.populateDefaultSchemas(using: d)
                     } else {
-                        self.testStatusLabel.stringValue = DisplayEscape.escaped(result.error ?? "Failed")
+                        self.setTestStatus(DisplayEscape.escaped(result.error ?? "Failed"))
                         self.testStatusLabel.textColor = .systemRed
                     }
                 }
@@ -1241,7 +1607,7 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    self.testStatusLabel.stringValue = DisplayEscape.escaped(error.localizedDescription)
+                    self.setTestStatus(DisplayEscape.escaped(error.localizedDescription))
                     self.testStatusLabel.textColor = .systemRed
                 }
             }
@@ -1252,7 +1618,18 @@ final class ConnectionsManagerVC: NSViewController {
     /// name, the colour and the default schema itself are deliberately absent:
     /// changing those does not make a fetched schema list wrong.
     private static func connectionFingerprint(_ c: ConnectionConfig) -> String {
-        "\(c.host):\(c.port)/\(c.database)@\(c.username)#\(c.sslMode.rawValue)#\(c.requiresAuthentication)"
+        "\(c.host):\(c.port)/\(c.database)@\(c.username)#\(c.sslMode.rawValue)#\(c.requiresAuthentication)#\(tunnelFingerprint(c.sshTunnel))"
+    }
+
+    /// The tunnel's part of the fingerprint. Everything here changes WHICH
+    /// server the connection reaches, so a fetched schema list made before the
+    /// change describes a different machine.
+    ///
+    /// The secret is deliberately absent: a new passphrase for the same key
+    /// reaches the same server, and this string is used as a dictionary key,
+    /// which is no place for a secret.
+    private static func tunnelFingerprint(_ t: SshTunnelConfig?) -> String {
+        SshTunnelForm.fingerprint(t)
     }
 
     /// Whether the picker can be filled from the connection Pharos already has
@@ -1460,6 +1837,8 @@ extension ConnectionsManagerVC: NSTextFieldDelegate {
         hostBadge.update(for: hostField.stringValue)
         databaseBadge.update(for: databaseField.stringValue)
         usernameBadge.update(for: usernameField.stringValue)
+        sshHostBadge.update(for: sshHostField.stringValue)
+        sshUserBadge.update(for: sshUserField.stringValue)
         // A masked field shows the mask, which carries no invisible character
         // and would silence a warning the STORED password has earned. Read the
         // draft instead, so the badge tells the truth in both states.
@@ -1624,4 +2003,15 @@ final class AppearanceBackgroundView: NSView {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
+}
+
+/// The connections form's document view, whose origin is the TOP left.
+///
+/// An `NSScrollView` puts an unflipped document view against the BOTTOM of the
+/// clip when the content is shorter than the clip, so a short form — a
+/// connection with no tunnel — would sit at the foot of the sheet with empty
+/// space above it. Declared here rather than shared, because two other files
+/// already declare a private `FlippedView` of their own.
+private final class ConnectionsFormDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

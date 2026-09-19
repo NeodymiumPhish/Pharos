@@ -1128,6 +1128,7 @@ mod ssl_fallback_tests {
             color: None,
             default_schema: None,
             requires_authentication: false,
+            ssh_tunnel: None,
         }
     }
 
@@ -1257,6 +1258,7 @@ mod live_prefer_tests {
             color: None,
             default_schema: None,
             requires_authentication: false,
+            ssh_tunnel: None,
         }
     }
 

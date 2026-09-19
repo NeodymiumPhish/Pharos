@@ -103,6 +103,7 @@
 		4DBF8F6F44E2BFEBB112BCCE /* RuleKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F536C895497044AF79E8C /* RuleKey.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
 		4F6377284291936E9144ED28 /* SidebarNavigatorPrefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2240C5A2BF2FB990EA1C5BF /* SidebarNavigatorPrefs.swift */; };
+		50795CF12B0CCB092BB81A6B /* SshTunnelForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */; };
 		513C80516AEB2404C48261A1 /* ResultTabRowCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A5256AA5FF55087B89C5B04 /* ResultTabRowCell.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C25DF8F9813C90CA3567012 /* ChartConfig.swift */; };
@@ -363,6 +364,7 @@
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Tags.swift"; sourceTree = "<group>"; };
 		3BC9A8F09A70BB85C6B4969E /* SQLLexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexer.swift; sourceTree = "<group>"; };
+		3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshTunnelForm.swift; sourceTree = "<group>"; };
 		3F1ACA16C38A777BDCF7104A /* VariableListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableListView.swift; sourceTree = "<group>"; };
 		42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFileWriter.swift; sourceTree = "<group>"; };
 		455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerChartDataBuilder.swift; sourceTree = "<group>"; };
@@ -889,6 +891,7 @@
 				FD49CDC956B8E19D8B96A86C /* SchemaButtonState.swift */,
 				D2240C5A2BF2FB990EA1C5BF /* SidebarNavigatorPrefs.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
+				3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */,
 				34B18675CC8E31A7FF367C89 /* TagCapture.swift */,
 				0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */,
 				29FA968BC03B4970F0A0D1ED /* TagConditionEditor.swift */,
@@ -1356,6 +1359,7 @@
 				ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */,
 				FBD8A06F677E3473D376A411 /* SqlIdentifierQuoting.swift in Sources */,
 				C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */,
+				50795CF12B0CCB092BB81A6B /* SshTunnelForm.swift in Sources */,
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,

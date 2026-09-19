@@ -8,9 +8,7 @@ pub async fn get_schemas(
     connection_id: String,
     state: &AppState,
 ) -> Result<Vec<SchemaInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schemas(&pool)
         .await
@@ -23,9 +21,7 @@ pub async fn get_tables(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_tables(&pool, &schema_name)
         .await
@@ -39,9 +35,7 @@ pub async fn get_partitions(
     parent_table: String,
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
     postgres::get_partitions(&pool, &schema_name, &parent_table)
         .await
         .map_err(|e| e.to_string())
@@ -53,9 +47,7 @@ pub async fn get_partition_map(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<PartitionRef>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
     postgres::get_partition_map(&pool, &schema_name)
         .await
         .map_err(|e| e.to_string())
@@ -69,9 +61,7 @@ pub async fn analyze_schema(
     schema_name: String,
     state: &AppState,
 ) -> Result<AnalyzeResult, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     let cached_denied = state.get_analyze_denied(&connection_id, &schema_name);
 
@@ -92,9 +82,7 @@ pub async fn get_columns(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<ColumnInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_columns(&pool, &schema_name, &table_name)
         .await
@@ -107,9 +95,7 @@ pub async fn get_schema_columns(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<SchemaColumnInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schema_columns(&pool, &schema_name)
         .await
@@ -123,9 +109,7 @@ pub async fn get_table_indexes(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<IndexInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_table_indexes(&pool, &schema_name, &table_name)
         .await
@@ -139,9 +123,7 @@ pub async fn get_table_constraints(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<ConstraintInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_table_constraints(&pool, &schema_name, &table_name)
         .await
@@ -154,9 +136,7 @@ pub async fn get_schema_functions(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<FunctionInfo>, String> {
-    let pool = state
-        .get_pool(&connection_id)
-        .ok_or_else(|| format!("Not connected to: {}", connection_id))?;
+    let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schema_functions(&pool, &schema_name)
         .await
