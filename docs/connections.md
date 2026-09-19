@@ -37,11 +37,9 @@ The Connections Manager is a two-pane window:
 | Password | Password for the role (stored in the Keychain) | — |
 | SSL Mode | Prefer, Require, Verify CA, Verify Full, or Disable — see [SSL Modes](#ssl-modes) | Prefer |
 | Root Certificate | The PEM root certificate that **Verify CA** and **Verify Full** check the server against. Shown only for those two modes; empty uses the system trust store | Empty |
-| Remember the password in the keychain | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | On |
 | Default Schema | Schema focused on connect. Filled from the open connection when the connection is already connected and its settings are unchanged; otherwise press **Test Connection** first | None |
 | Connect through an SSH tunnel | Reach the database through a bastion — see [SSH Tunnels](#ssh-tunnels) | Off |
 | Read-only connection | See [Read-only connections](#read-only-connections) | Off |
-| Connect when Pharos starts | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | Off |
 | Time Zone | The `TimeZone` this connection's sessions ask for. **Use the Settings default** falls back to Settings ▸ Connections ▸ Time zone, and then to the server's own | Use the Settings default |
 
 The **Session** rows at the foot of the form — read-only, connect at launch and
@@ -89,18 +87,6 @@ Two things this is not:
 - It does **not** stop a read that is expensive. It stops writes, nothing else.
 
 Like the other session rows, it applies the next time the connection opens.
-
-## Fields Pharos stores but does not act on yet
-
-Two rows in the form are **stored with the connection and not yet read**:
-
-| Field | What is true today |
-|-------|--------------------|
-| Remember the password in the keychain | The password is remembered whichever way this is set. Turning it off needs a password prompt at connect time, which is not built yet. |
-| Connect when Pharos starts | Pharos does not connect anything at launch. The flag is saved and survives a restart, ready for the launch sequence that will read it. |
-
-They are in the form so the setting you choose is kept, not because anything
-acts on it. Their tooltips say the same.
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 

@@ -232,8 +232,6 @@ final class ConnectionsManagerVC: NSViewController {
     /// Session ▸ per-connection: read-only, connect at launch, remember the
     /// password, and the connection's own time zone.
     private let readOnlyCheckbox = NSButton()
-    private let connectOnLaunchCheckbox = NSButton()
-    private let rememberPasswordCheckbox = NSButton()
     private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
 
@@ -616,22 +614,6 @@ final class ConnectionsManagerVC: NSViewController {
         readOnlyCheckbox.toolTip = String(localized:
             "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens.")
 
-        connectOnLaunchCheckbox.setButtonType(.switch)
-        connectOnLaunchCheckbox.title = String(localized: "Connect when Pharos starts")
-        connectOnLaunchCheckbox.target = self
-        connectOnLaunchCheckbox.action = #selector(perConnectionFlagChanged)
-        connectOnLaunchCheckbox.setAccessibilityIdentifier("connections.connectOnLaunch")
-        connectOnLaunchCheckbox.toolTip = String(localized:
-            "Stored with the connection. Pharos does not act on it yet.")
-
-        rememberPasswordCheckbox.setButtonType(.switch)
-        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
-        rememberPasswordCheckbox.target = self
-        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
-        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
-        rememberPasswordCheckbox.toolTip = String(localized:
-            "Stored with the connection. Pharos does not act on it yet: the password is remembered either way until the prompt it needs is built.")
-
         sessionTimeZonePopup.target = self
         sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)
         sessionTimeZonePopup.setAccessibilityIdentifier("connections.sessionTimeZone")
@@ -748,7 +730,6 @@ final class ConnectionsManagerVC: NSViewController {
             row(label: "SSL Mode", control: sslPopup),
             sslCertRow,
             row(label: "", control: requireAuthCheckbox),
-            row(label: "", control: rememberPasswordCheckbox),
         ])
         // `row` linked the badge to the stack it was handed. The warning is
         // about the FIELD, so say so — a screen reader on the badge must land
@@ -764,7 +745,6 @@ final class ConnectionsManagerVC: NSViewController {
         // The per-connection session rules, after the database they apply to.
         let sessionSection = section(title: String(localized: "Session"), rows: [
             row(label: "", control: readOnlyCheckbox),
-            row(label: "", control: connectOnLaunchCheckbox),
             row(label: String(localized: "Time Zone"), control: sessionTimeZonePopup),
             noteRow(caption(String(localized: "Applies to connections opened after this change."))),
         ])
@@ -1368,8 +1348,6 @@ final class ConnectionsManagerVC: NSViewController {
         sslRootCertField.stringValue = config.sslRootCertPath ?? ""
         applySslRowVisibility()
         readOnlyCheckbox.state = config.readOnly ? .on : .off
-        connectOnLaunchCheckbox.state = config.connectOnLaunch ? .on : .off
-        rememberPasswordCheckbox.state = config.rememberPassword ? .on : .off
         // `selectValue` leaves the selection alone when there is no such row,
         // so the empty case has to pick the sentinel itself — otherwise a
         // record with no zone would show the zone of the record before it.
@@ -1623,8 +1601,12 @@ final class ConnectionsManagerVC: NSViewController {
         let certPath = sslRootCertField.stringValue.trimmingCharacters(in: .whitespaces)
         d.sslRootCertPath = (d.sslMode.verifiesCertificate && !certPath.isEmpty) ? certPath : nil
         d.readOnly = readOnlyCheckbox.state == .on
-        d.connectOnLaunch = connectOnLaunchCheckbox.state == .on
-        d.rememberPassword = rememberPasswordCheckbox.state == .on
+        // `connectOnLaunch` and `rememberPassword` have no control in this
+        // form, so `d` keeps whatever was loaded into it. Both are stored and
+        // migrated; neither changes what the app does yet, and a checkbox
+        // that claims to govern where a password lives while the password is
+        // written either way is worse than no checkbox at all. The rows come
+        // back with the behaviour.
         d.sessionTimeZone = PopupValueMenu.selectedValue(in: sessionTimeZonePopup)
             .map(SessionTimeZone.normalized)
             .flatMap { $0.isEmpty ? nil : $0 }
