@@ -19,6 +19,7 @@ swiftc -o /tmp/result-tab-bar-accessibility-tests \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/ResultTabName.swift \
   Pharos/Core/ResultTabRowText.swift \
+  Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Core/HistoryRowText.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/ResultTabsPanelPrefs.swift \

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::export_import::{CsvDialect, ExportFormat, ImportErrorPolicy};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
@@ -782,6 +784,76 @@ impl ConnectionSettings {
     }
 }
 
+// MARK: - Export & Import
+
+/// Settings ▸ Export & Import, the export half.
+///
+/// Every default is what the app did before the setting existed:
+///   default_format     `Csv`  — `ExportDataSheet.swift` filled its popup from
+///                               `ExportFormat.allCases` and selected none, so
+///                               the first case, CSV, was the one that ran.
+///   remember_last_choices `false` — the sheet remembered nothing at all.
+///   dialect            default — see `models/export_import.rs`.
+///   include_header_row `true`  — `includeHeadersCheckbox.state = .on`.
+///   default_folder     empty   — the save panel was given no `directoryURL`.
+///   batch_size         `5000`  — `let batch_size: i64 = 5000;` in
+///                                `commands/table.rs::stream_export`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DataExportSettings {
+    #[serde(default)]
+    pub default_format: ExportFormat,
+    /// Whether the export sheet's choices are written back here when the user
+    /// exports, so the next export opens where the last one left off.
+    #[serde(default)]
+    pub remember_last_choices: bool,
+    #[serde(default)]
+    pub dialect: CsvDialect,
+    #[serde(default = "default_true_export")]
+    pub include_header_row: bool,
+    /// Where the save panel opens. Empty means wherever macOS last put it.
+    /// A plain path: the app is not sandboxed.
+    #[serde(default)]
+    pub default_folder: String,
+    /// Rows fetched per round trip while streaming an export. Clamped to at
+    /// least 1 by the engine, so 0 cannot wedge the loop.
+    #[serde(default = "default_export_batch_size")]
+    pub batch_size: u32,
+}
+
+fn default_true_export() -> bool { true }
+fn default_export_batch_size() -> u32 { 5000 }
+
+impl Default for DataExportSettings {
+    fn default() -> Self {
+        DataExportSettings {
+            default_format: ExportFormat::default(),
+            remember_last_choices: false,
+            dialect: CsvDialect::default(),
+            include_header_row: default_true_export(),
+            default_folder: String::new(),
+            batch_size: default_export_batch_size(),
+        }
+    }
+}
+
+/// Settings ▸ Export & Import, the import half.
+///
+/// `on_error` defaults to `Abort` and `commit_every` to 0 (one transaction),
+/// which together are exactly what `commands/table.rs::import_csv` did before
+/// either setting existed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DataImportSettings {
+    #[serde(default)]
+    pub dialect: CsvDialect,
+    #[serde(default)]
+    pub on_error: ImportErrorPolicy,
+    /// Rows per transaction. 0 is one transaction for the whole file.
+    #[serde(default)]
+    pub commit_every: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -842,6 +914,13 @@ pub struct AppSettings {
     /// session tuning every connect uses.
     #[serde(default)]
     pub connections: ConnectionSettings,
+    /// Settings ▸ Export & Import, the export half. `data_` because `import`
+    /// is a Swift keyword and the two names stay a pair.
+    #[serde(default)]
+    pub data_export: DataExportSettings,
+    /// Settings ▸ Export & Import, the import half.
+    #[serde(default)]
+    pub data_import: DataImportSettings,
 }
 
 fn default_check_for_updates() -> bool { true }
@@ -989,6 +1068,16 @@ pub struct HistorySettings {
     /// the store did before this was a setting.
     #[serde(default)]
     pub maximum_stored_entries: u32,
+    /// Whether a query that FAILED leaves a row in Query History.
+    ///
+    /// ON, and this one default is NOT what the app did before: until this
+    /// slice a failure left no trace at all. Recording it is the feature, so
+    /// a user who never opens Settings gets it. Only a failure the SERVER
+    /// answered is recorded — a client-side refusal ("connect to a database
+    /// first") is dropped by `HistoryFailureFilter` on the Swift side, which
+    /// is where the decision is made.
+    #[serde(default = "default_true")]
+    pub record_failed_queries: bool,
 }
 
 fn default_maximum_history_entries() -> u32 { 200 }
@@ -1000,6 +1089,7 @@ impl Default for HistorySettings {
             maximum_entries: default_maximum_history_entries(),
             retention_days: default_history_retention_days(),
             maximum_stored_entries: 0,
+            record_failed_queries: true,
         }
     }
 }
@@ -1029,6 +1119,8 @@ impl Default for AppSettings {
             library: LibrarySettings::default(),
             history: HistorySettings::default(),
             connections: ConnectionSettings::default(),
+            data_export: DataExportSettings::default(),
+            data_import: DataImportSettings::default(),
         }
     }
 }
@@ -1044,6 +1136,7 @@ impl Default for AppSettings {
 #[cfg(test)]
 pub(crate) mod fixture {
     use super::*;
+    use crate::models::export_import::{CsvDelimiter, CsvEncoding, CsvQuoteStyle};
     use serde_json::Value;
 
     const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../PharosTests/Fixtures");
@@ -1180,10 +1273,11 @@ pub(crate) mod fixture {
                     sort_mode: SavedQuerySortMode::RecentlyUpdated,
                     double_click_action: SavedQueryDoubleClickAction::OpenAndRun,
                 },
-history: HistorySettings {
+                history: HistorySettings {
                     maximum_entries: 201,
                     retention_days: 91,
                     maximum_stored_entries: 1,
+                    record_failed_queries: false,
                 },
                 connections: ConnectionSettings {
                     default_port: 5433,
@@ -1198,6 +1292,33 @@ history: HistorySettings {
                     keepalive_interval_seconds: 10,
                     keepalive_count: 6,
                     default_time_zone: "Asia/Tokyo".to_string(),
+                },
+                data_export: DataExportSettings {
+                    default_format: ExportFormat::Tsv,
+                    remember_last_choices: true,
+                    dialect: CsvDialect {
+                        delimiter: CsvDelimiter::Semicolon,
+                        custom_delimiter: "~".to_string(),
+                        quote_char: "'".to_string(),
+                        quote_style: CsvQuoteStyle::Always,
+                        null_literal: "\\N".to_string(),
+                        encoding: CsvEncoding::Utf8Bom,
+                    },
+                    include_header_row: false,
+                    default_folder: "/tmp/exports".to_string(),
+                    batch_size: 5001,
+                },
+                data_import: DataImportSettings {
+                    dialect: CsvDialect {
+                        delimiter: CsvDelimiter::Pipe,
+                        custom_delimiter: "^".to_string(),
+                        quote_char: "`".to_string(),
+                        quote_style: CsvQuoteStyle::Never,
+                        null_literal: "(null)".to_string(),
+                        encoding: CsvEncoding::Latin1,
+                    },
+                    on_error: ImportErrorPolicy::SkipRow,
+                    commit_every: 500,
                 },
             }
         }

@@ -70,7 +70,7 @@ pub(crate) async fn set_search_path(
 
 /// How much history to keep, from the settings cache (Settings ▸ Library &
 /// History). Both limits compose: whichever removes a row first wins.
-fn history_prune_policy(state: &AppState) -> sqlite::HistoryPrunePolicy {
+pub(crate) fn history_prune_policy(state: &AppState) -> sqlite::HistoryPrunePolicy {
     let history = &state.settings().history;
     sqlite::HistoryPrunePolicy {
         retention_days: history.retention_days,
@@ -436,6 +436,8 @@ pub async fn execute_query(
             column_count: Some(columns.len() as i64),
             table_names,
             source: source.clone(),
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         };
 
         // Serialize results for caching (skip if too large)
@@ -861,6 +863,8 @@ pub async fn execute_statement(
             column_count: None,
             table_names,
             source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         };
         if let Ok(db) = state.metadata_db.lock() {
             if let Err(e) = sqlite::save_query_history_with_policy(

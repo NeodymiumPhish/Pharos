@@ -12,6 +12,20 @@ struct QueryHistoryEntry: Codable, Identifiable {
     let schema: String?
     let columnCount: Int64?
     let tableNames: String?
+    /// How the run ENDED: `ok`, `error` or `cancelled`. Never optional here —
+    /// a row with no status on the wire is an old row, and every old row was a
+    /// success, because a failure was not recorded at all before this column
+    /// existed.
+    let status: String
+    /// What the server (or the client) said, on a row whose `status` is not
+    /// `ok`. Nil on a successful row.
+    let errorMessage: String?
+
+    /// True when this row has a result behind it. Mirrors
+    /// `QueryHistoryEntry::is_ok_status` in
+    /// `pharos-core/src/models/query_history.rs`, where the three spellings
+    /// are written down.
+    var isSucceeded: Bool { status == QueryHistoryStatus.ok }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -26,6 +40,8 @@ struct QueryHistoryEntry: Codable, Identifiable {
         schema = try c.decodeIfPresent(String.self, forKey: .schema)
         columnCount = try c.decodeIfPresent(Int64.self, forKey: .columnCount)
         tableNames = try c.decodeIfPresent(String.self, forKey: .tableNames)
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? QueryHistoryStatus.ok
+        errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
     }
 }
 
@@ -35,6 +51,9 @@ struct QueryHistoryFilter: Codable {
     var limit: Int?
     var offset: Int?
     var onlyLegacy: Bool = false
+    /// Defaults to `.all`, which is what every caller asked for before the
+    /// scope control existed.
+    var status: QueryHistoryStatusScope = .all
 }
 
 /// The cached result of a history entry, so a reopened workspace restores its grid.

@@ -56,6 +56,21 @@ struct WorkspaceResultMeta: Codable {
     /// off the result tab's name.
     let lineStart: Int?
     let lineEnd: Int?
+    /// How the run ended: `ok`, `error` or `cancelled`. A workspace holds the
+    /// failures its tab produced beside its results, so the reopen rebuild
+    /// asks this before it builds a result tab — a failed run has no result to
+    /// restore.
+    ///
+    /// `var` with a default so the memberwise initialiser stays callable from
+    /// the harnesses that build this by hand. The core always sends the key,
+    /// and the synthesized decoder requires it.
+    var status: String = QueryHistoryStatus.ok
+    /// What the server said, on a row whose `status` is not `ok`.
+    var errorMessage: String?
+
+    /// True when this row has a result behind it — the only rows the reopen
+    /// rebuild and the workspace preview list.
+    var isSucceeded: Bool { status == QueryHistoryStatus.ok }
 }
 
 /// Full workspace payload for reopen.

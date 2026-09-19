@@ -18,12 +18,20 @@ class ExportDataSheet: NSViewController {
     private let schema: String
     private let table: String
     private let columns: [ColumnInfo]
+    /// Settings ▸ Export & Import, the export half. Passed IN rather than
+    /// read from `AppStateManager`, so this sheet stays host-agnostic and
+    /// `scripts/test-export-data-sheet.sh` can build it standalone. The
+    /// caller supplies the real settings; nothing here defaults them.
+    private let settings: DataExportSettings
     private var onExport: ((ExportTableOptions) -> Void)?
 
-    init(schema: String, table: String, columns: [ColumnInfo], onExport: @escaping (ExportTableOptions) -> Void) {
+    init(schema: String, table: String, columns: [ColumnInfo],
+         settings: DataExportSettings,
+         onExport: @escaping (ExportTableOptions) -> Void) {
         self.schema = schema
         self.table = table
         self.columns = columns
+        self.settings = settings
         self.onExport = onExport
         super.init(nibName: nil, bundle: nil)
     }
@@ -53,20 +61,35 @@ class ExportDataSheet: NSViewController {
         titleStack.alignment = .centerX
         titleStack.spacing = 2
 
-        // Format popup
+        // Format popup, opening on the format Settings names.
         for format in ExportFormat.allCases {
             formatPopup.addItem(withTitle: format.displayLabel)
             formatPopup.lastItem?.representedObject = format
+            if format == settings.defaultFormat {
+                formatPopup.select(formatPopup.lastItem)
+            }
         }
 
         // Include headers
-        includeHeadersCheckbox.state = .on
+        includeHeadersCheckbox.state = settings.includeHeaderRow ? .on : .off
 
-        // NULL display
+        // NULL display. The two historical choices, plus whatever third
+        // literal Settings holds — a dialect can say `\\N`, and a popup that
+        // could not show it would silently overwrite it on every export.
         nullDisplayPopup.addItem(withTitle: String(localized: "Empty string"))
-        nullDisplayPopup.lastItem?.tag = 0
+        nullDisplayPopup.lastItem?.representedObject = ""
         nullDisplayPopup.addItem(withTitle: String(localized: "NULL"))
-        nullDisplayPopup.lastItem?.tag = 1
+        nullDisplayPopup.lastItem?.representedObject = "NULL"
+        let storedLiteral = settings.dialect.nullLiteral
+        if storedLiteral != "" && storedLiteral != "NULL" {
+            nullDisplayPopup.addItem(withTitle: DisplayEscape.escaped(storedLiteral))
+            nullDisplayPopup.lastItem?.representedObject = storedLiteral
+        }
+        if let match = nullDisplayPopup.itemArray.first(where: {
+            ($0.representedObject as? String) == storedLiteral
+        }) {
+            nullDisplayPopup.select(match)
+        }
 
         // Column checkboxes in a scrollable area
         let columnStack = NSStackView()
@@ -262,7 +285,12 @@ class ExportDataSheet: NSViewController {
             return
         }
 
-        let nullAsEmpty = nullDisplayPopup.indexOfSelectedItem == 0
+        // The NULL text drives both: the dialect for CSV/TSV, and the older
+        // `nullAsEmpty` flag, which is still what Markdown and XLSX read.
+        let nullLiteral = (nullDisplayPopup.selectedItem?.representedObject as? String) ?? ""
+        let nullAsEmpty = nullLiteral.isEmpty
+        var dialect = settings.dialect
+        dialect.nullLiteral = nullLiteral
 
         // Show save panel
         let panel = NSSavePanel()
@@ -275,6 +303,17 @@ class ExportDataSheet: NSViewController {
         if let contentType = UTType(filenameExtension: format.fileExtension) {
             panel.allowedContentTypes = [contentType]
         }
+        // A folder the user named in Settings. Not sandboxed, so a plain path
+        // is enough; a path that is no longer there is ignored rather than
+        // opening the panel on nothing.
+        let folder = settings.defaultFolder.trimmingCharacters(in: .whitespaces)
+        if !folder.isEmpty {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                panel.directoryURL = URL(fileURLWithPath: folder, isDirectory: true)
+            }
+        }
 
         dismiss(nil)
 
@@ -286,7 +325,8 @@ class ExportDataSheet: NSViewController {
                     includeHeaders: includeHeadersCheckbox.state == .on,
                     nullAsEmpty: nullAsEmpty,
                     filePath: url.path,
-                    format: format
+                    format: format,
+                    csv: dialect
                 )
                 onExport?(options)
             }
@@ -301,7 +341,8 @@ class ExportDataSheet: NSViewController {
                 includeHeaders: self.includeHeadersCheckbox.state == .on,
                 nullAsEmpty: nullAsEmpty,
                 filePath: url.path,
-                format: format
+                format: format,
+                csv: dialect
             )
             self.onExport?(options)
         }

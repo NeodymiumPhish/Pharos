@@ -59,3 +59,29 @@ Right-click a table, view, or partition in the [Schema Browser](schema-browser.m
 
 {: .tip }
 JSON Lines and Excel (XLSX) are only available in the table export sheet — use it from the schema browser when you need those formats.
+
+The sheet opens on what [Settings ▸ Export & Import](settings.md#export--import-pane) says: the default format, the header row, the NULL text and the folder the save panel starts in. Turn on **Remember last choices** there and the sheet writes your choices back after each export, so the next one opens where the last left off.
+
+## The CSV Dialect
+
+Everything about the shape of a CSV file — the delimiter, the quote character, when fields are quoted, the NULL text and the encoding — is one set of settings in [Settings ▸ Export & Import](settings.md#export--import-pane), shared by writing a file and reading one back. A file Pharos exported imports again without a second set of choices.
+
+Leave the pane alone and an exported CSV is byte for byte the file earlier versions of Pharos wrote: comma-separated, `"`-quoted only where a field holds the delimiter, a quote or a line break, NULLs as empty fields, and plain UTF-8 with no byte-order mark.
+
+Two encodings are worth knowing about:
+
+- **UTF-8 with BOM** is what Excel on Windows expects. Without it, Excel reads accented characters as mojibake.
+- **Latin-1** cannot carry every character. Anything above U+00FF is written as `?`, and the alert after the export says how many characters that happened to — so a lossy export tells you it was lossy instead of looking clean.
+
+A TSV export always uses a tab, whatever the delimiter setting says.
+
+## Import a Table
+
+Right-click a table in the [Schema Browser](schema-browser.md) and choose **Import Data…**, or drop a `.csv` file straight onto the table. The sheet asks for the file and whether it has a header row; the delimiter, quote character and NULL text come from the CSV dialect above.
+
+An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever the setting says — so a UTF-16 LE export goes straight back in.
+
+Two settings decide what happens when the server refuses a row:
+
+- **When a row fails** — *Stop and undo everything* is the long-standing behaviour: one bad row and the whole file is rolled back. *Skip the row and carry on* runs every row inside its own savepoint, so a bad row is undone on its own and the rest of the file still lands. The alert afterwards names how many rows were skipped and why, listing at most twenty reasons.
+- **Commit every** — 0 is one transaction for the whole file. A number commits as the file is read, so the batches that finished stay on the server even if a later row stops the import.

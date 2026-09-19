@@ -852,6 +852,18 @@ struct HistorySettings: Codable, Equatable {
     var retentionDays: UInt32 = 90
     /// Most entries to keep, newest first. 0 is no ceiling.
     var maximumStoredEntries: UInt32 = 0
+    /// Whether a query that FAILED leaves a row in Query History.
+    ///
+    /// ON, and this one default is NOT what the app did before: until this
+    /// setting existed a failure left no trace at all. Recording it is the
+    /// feature, so a user who never opens Settings gets it.
+    ///
+    /// Only a failure the SERVER answered is recorded. A client-side refusal
+    /// ("connect to a database first") is dropped by `HistoryFailureFilter`
+    /// before this flag is even consulted — see
+    /// `ContentViewController.recordFailedQueryInHistory`, which is this
+    /// field's one reader.
+    var recordFailedQueries: Bool = true
 }
 
 /// How the app remembers a working session between launches.
@@ -959,6 +971,169 @@ enum SessionTimeZone {
     }
 }
 
+// MARK: - Export & Import
+
+/// The file formats "Export Data…" offers, in the order the popup lists them.
+///
+/// Declared HERE, not in `Schema.swift`, because `AppSettings` names it —
+/// `dataExport.defaultFormat` is the format the sheet opens on — and a type
+/// `AppSettings` names must compile with `Settings.swift` alone.
+///
+/// Mirrors `ExportFormat` in `pharos-core/src/models/export_import.rs`.
+enum ExportFormat: String, Codable, CaseIterable {
+    case csv = "csv"
+    case tsv = "tsv"
+    case json = "json"
+    case jsonLines = "jsonLines"
+    case sqlInsert = "sqlInsert"
+    case markdown = "markdown"
+    case xlsx = "xlsx"
+
+    var displayLabel: String {
+        switch self {
+        case .csv: return "CSV"
+        case .tsv: return "TSV"
+        case .json: return "JSON"
+        case .jsonLines: return "JSON Lines"
+        case .sqlInsert: return "SQL INSERT"
+        case .markdown: return "Markdown"
+        case .xlsx: return "Excel (XLSX)"
+        }
+    }
+
+    var fileExtension: String {
+        switch self {
+        case .csv: return "csv"
+        case .tsv: return "tsv"
+        case .json: return "json"
+        case .jsonLines: return "jsonl"
+        case .sqlInsert: return "sql"
+        case .markdown: return "md"
+        case .xlsx: return "xlsx"
+        }
+    }
+}
+
+/// The field separator. `custom` reads `CsvDialect.customDelimiter`.
+enum CsvDelimiter: String, Codable, CaseIterable {
+    case comma
+    case semicolon
+    case tab
+    case pipe
+    case custom
+
+    var displayLabel: String {
+        switch self {
+        case .comma: return String(localized: "Comma  ,")
+        case .semicolon: return String(localized: "Semicolon  ;")
+        case .tab: return String(localized: "Tab")
+        case .pipe: return String(localized: "Pipe  |")
+        case .custom: return String(localized: "Custom\u{2026}")
+        }
+    }
+}
+
+/// When a field is wrapped in the quote character.
+enum CsvQuoteStyle: String, Codable, CaseIterable {
+    case minimal
+    case always
+    case never
+
+    var displayLabel: String {
+        switch self {
+        case .minimal: return String(localized: "Only when needed")
+        case .always: return String(localized: "Always")
+        case .never: return String(localized: "Never")
+        }
+    }
+}
+
+/// How the bytes of the file are encoded.
+enum CsvEncoding: String, Codable, CaseIterable {
+    case utf8
+    case utf8Bom
+    case utf16le
+    case latin1
+
+    var displayLabel: String {
+        switch self {
+        case .utf8: return String(localized: "UTF-8")
+        case .utf8Bom: return String(localized: "UTF-8 with BOM")
+        case .utf16le: return String(localized: "UTF-16 LE")
+        case .latin1: return String(localized: "Latin-1 (ISO-8859-1)")
+        }
+    }
+}
+
+/// What a failing row does to the rest of a CSV import.
+enum ImportErrorPolicy: String, Codable, CaseIterable {
+    case abort
+    case skipRow
+
+    var displayLabel: String {
+        switch self {
+        case .abort: return String(localized: "Stop and undo everything")
+        case .skipRow: return String(localized: "Skip the row and carry on")
+        }
+    }
+}
+
+/// The shape of a CSV file, shared by export and import.
+///
+/// Every default is what the app did BEFORE this struct existed, so a user
+/// who never opens Settings ▸ Export & Import gets byte-identical files. The
+/// Rust doc comment in `pharos-core/src/models/export_import.rs` names the
+/// line each one was read from.
+///
+/// Mirrors `CsvDialect` in that file, field for field.
+struct CsvDialect: Codable, Equatable {
+    var delimiter: CsvDelimiter = .comma
+    /// The separator when `delimiter` is `.custom`. Only its first byte is
+    /// used; the core falls back to a comma for anything else.
+    var customDelimiter: String = ","
+    /// The quote character. Only its first byte is used.
+    var quoteChar: String = "\""
+    var quoteStyle: CsvQuoteStyle = .minimal
+    /// What a NULL is written as, and what an imported field must equal to
+    /// become a real NULL. Empty is the historical behaviour.
+    var nullLiteral: String = ""
+    var encoding: CsvEncoding = .utf8
+}
+
+/// Settings ▸ Export & Import, the export half. `dataExport`/`dataImport`
+/// rather than `export`/`import` because `import` is a Swift keyword.
+struct DataExportSettings: Codable, Equatable {
+    /// The format the export sheet opens on. CSV is what the popup selected
+    /// before this existed: it was filled from `ExportFormat.allCases` and
+    /// nothing was selected, so the first case won.
+    var defaultFormat: ExportFormat = .csv
+    /// Whether the sheet's choices are written back here on export, so the
+    /// next export opens where the last one left off. The sheet remembered
+    /// nothing before this existed, so it is off.
+    var rememberLastChoices: Bool = false
+    var dialect: CsvDialect = CsvDialect()
+    /// `includeHeadersCheckbox.state = .on` in `ExportDataSheet.swift`.
+    var includeHeaderRow: Bool = true
+    /// Where the save panel opens. Empty means wherever macOS last put it,
+    /// which is what the panel did with no `directoryURL`. A plain path: the
+    /// app is not sandboxed.
+    var defaultFolder: String = ""
+    /// Rows fetched per round trip while streaming an export. 5000 is the
+    /// literal `stream_export` paginated by.
+    var batchSize: UInt32 = 5000
+}
+
+/// Settings ▸ Export & Import, the import half.
+struct DataImportSettings: Codable, Equatable {
+    var dialect: CsvDialect = CsvDialect()
+    /// `.abort` is what the importer did before the setting existed: one
+    /// failing row rolled the whole file back.
+    var onError: ImportErrorPolicy = .abort
+    /// Rows per transaction. 0 is one transaction for the whole file, which
+    /// is what the importer did before this existed.
+    var commitEvery: UInt32 = 0
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -1004,4 +1179,8 @@ struct AppSettings: Codable, Equatable {
     /// Settings ▸ Connections: the new-connection defaults, and the pool and
     /// session tuning every connect uses.
     var connections: ConnectionSettings = ConnectionSettings()
+    /// Settings ▸ Export & Import, the export half.
+    var dataExport: DataExportSettings = DataExportSettings()
+    /// Settings ▸ Export & Import, the import half.
+    var dataImport: DataImportSettings = DataImportSettings()
 }

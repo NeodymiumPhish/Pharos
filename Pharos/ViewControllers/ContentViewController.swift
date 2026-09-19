@@ -1963,7 +1963,12 @@ class ContentViewController: NSViewController {
                         tabId: tabId,
                         tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
-                        timestamp: Date()
+                        timestamp: Date(),
+                        // The two things only this run knows, and the reason
+                        // the Query History record is driven from here rather
+                        // than from the core's failure site.
+                        rawSQL: rawSQL,
+                        lineRange: lineRange.lowerBound > 0 ? lineRange : nil
                     )
                     self.recordFailure(failure, connectionId: connectionId)
                 }
@@ -2108,7 +2113,9 @@ class ContentViewController: NSViewController {
                         tabId: tabId,
                         tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
-                        timestamp: Date()
+                        timestamp: Date(),
+                        rawSQL: rawSQL,
+                        lineRange: lineRange.lowerBound > 0 ? lineRange : nil
                     )
                     self.recordFailure(failure, connectionId: connectionId)
                 }
@@ -2917,6 +2924,11 @@ class ContentViewController: NSViewController {
             stateManager.markConnectionLost(id: connectionId, reason: failure.message)
         }
 
+        // Query History, before anything is shown. This is the single funnel
+        // every failure crosses, which is why the record is made here and not
+        // at the half-dozen sites that build a QueryFailure.
+        recordFailedQueryInHistory(failure, connectionId: connectionId)
+
         // Read BEFORE the append: the presenter's banner rule asks how many
         // unread failures the tab had before this one, and the append would
         // have already counted it.
@@ -2939,6 +2951,62 @@ class ContentViewController: NSViewController {
         announceFailure(failure)
 
         refreshErrorBadge(forTabId: failure.tabId)
+    }
+
+    /// Put a failed run in Query History, when it is one worth keeping.
+    ///
+    /// Two gates, and they are not the same gate:
+    ///
+    /// 1. Settings ▸ Library & History ▸ **Record failed queries** — the
+    ///    user's answer to whether they want failures at all.
+    /// 2. `HistoryFailureFilter.shouldRecord` — whether THIS failure is one a
+    ///    history can be asked about. A server's answer is; a refusal that
+    ///    never left this Mac ("connect to a database first") is not, and a
+    ///    history full of those buries the real failures.
+    ///
+    /// The connection is needed to name the row, so a failure with no
+    /// connection in scope — and none on its tab either — is not recorded.
+    /// That is the same class of failure gate 2 already drops.
+    private func recordFailedQueryInHistory(_ failure: QueryFailure, connectionId: String?) {
+        guard stateManager.settings.history.recordFailedQueries else { return }
+        guard HistoryFailureFilter.shouldRecord(failure.message) else { return }
+
+        let tab = session.tabs.first { $0.id == failure.tabId }
+        guard let connectionId = connectionId ?? tab?.connectionId else { return }
+
+        let record = PharosCore.FailedQueryRecord(
+            connectionId: connectionId,
+            sql: failure.sql,
+            rawSql: failure.rawSQL,
+            message: failure.message,
+            status: failure.kind == .cancelled
+                ? QueryHistoryStatus.cancelled
+                : QueryHistoryStatus.error,
+            schema: tab?.schemaName,
+            // The workspace and the line range are the two things the core
+            // cannot know; both are nil for a run that has neither, and the
+            // row is still recorded.
+            workspaceId: tab?.workspaceId,
+            lineStart: failure.lineRange?.lowerBound,
+            lineEnd: failure.lineRange?.upperBound,
+            executionTimeMs: 0
+        )
+
+        // Off the main thread: this is SQLite IO on the way out of a failure,
+        // and the user is already looking at a sheet.
+        Task.detached(priority: .utility) {
+            do {
+                _ = try PharosCore.recordFailedQuery(record)
+                await MainActor.run {
+                    NotificationCoalescer.post(.queryHistoryDidChange)
+                    NotificationCoalescer.post(.workspaceHistoryDidChange)
+                }
+            } catch {
+                // A history row is never worth a second error on top of the
+                // one the user is already reading.
+                Log.query.error("Failed to record a failed query in history: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Inline Error Banner
@@ -3376,6 +3444,11 @@ extension ContentViewController {
         let tabName = entry.tableNames ?? "History"
         let tab = session.createTab(sql: entry.sql, name: tabName)
 
+        // A failed entry has no result to restore. Its SQL is now in the tab,
+        // which is the useful thing: read the message in the navigator, fix
+        // the statement, run it again.
+        guard entry.isSucceeded else { return }
+
         do {
             guard let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) else { return }
             let result = QueryResult.fromHistory(
@@ -3452,6 +3525,12 @@ extension ContentViewController {
             // results that have them, leave "SQL only" ones as re-runnable stubs.
             var restored: [ResultTab] = []
             for meta in detail.results {
+                // A workspace holds the failures its tab produced as well as
+                // its results. A failed run has no result to restore — no
+                // rows, no columns, no cached blob — so it gets no result tab.
+                // Its record stays in the Results History navigator, which is
+                // where the user goes to read it.
+                guard meta.isSucceeded else { continue }
                 let color = ResultTab.palette[(meta.colorIndex ?? 0) % ResultTab.palette.count]
                 var rt = ResultTab(
                     id: UUID().uuidString,

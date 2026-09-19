@@ -754,6 +754,30 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         conn.execute_batch("ALTER TABLE query_history ADD COLUMN result_row_identity TEXT;")?;
     }
 
+    // Migration: a query that FAILED now leaves a row too, so every row says
+    // how its run ended.
+    //
+    // `DEFAULT 'ok'` is not a taste: every row already in this table is a
+    // success, because a failure was never recorded before this column
+    // existed. So the default is the truth about the old rows, and they read
+    // back unchanged. The index is on `status` because the Results History
+    // navigator's scope control filters on it, and a failure list must not
+    // scan the whole history.
+    let has_status_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'status'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_status_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN status TEXT NOT NULL DEFAULT 'ok';
+             ALTER TABLE query_history ADD COLUMN error_message TEXT;
+             CREATE INDEX IF NOT EXISTS idx_query_history_status
+                 ON query_history(status);"
+        )?;
+    }
+
     // Migration: one main window became many, so every session row now names
     // the window it belongs to. The old table's primary key was `tab_index`
     // alone, and SQLite cannot change a primary key in place, so the table is
@@ -2069,8 +2093,8 @@ pub fn save_query_history_with_policy(
 
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source, result_row_identity)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source, result_row_identity, status, error_message)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
         "#,
         (
             &entry.id,
@@ -2087,6 +2111,8 @@ pub fn save_query_history_with_policy(
             &entry.table_names,
             &entry.source,
             &compressed_identity.as_deref(),
+            &entry.status,
+            &entry.error_message,
         ),
     )?;
 
@@ -2489,7 +2515,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
                 execution_time_ms, executed_at, chart_view_state_json, raw_sql,
-                line_start, line_end
+                line_start, line_end, status, error_message
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -2512,6 +2538,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 raw_sql: row.get(13)?,
                 line_start: row.get(14)?,
                 line_end: row.get(15)?,
+                status: row.get(16)?,
+                error_message: row.get(17)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2621,7 +2649,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
         "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                 result_columns, result_rows, schema, column_count, table_names,
                 result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                line_start, line_end
+                line_start, line_end, status, error_message
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -2634,6 +2662,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<i64>>(11)?, r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?,
                 r.get::<_, Option<String>>(14)?, r.get::<_, Option<String>>(15)?,
                 r.get::<_, Option<i64>>(16)?, r.get::<_, Option<i64>>(17)?,
+                r.get::<_, String>(18)?, r.get::<_, Option<String>>(19)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2644,13 +2673,13 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                  result_columns, result_rows, schema, column_count, table_names,
                  workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                 line_start, line_end)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                 line_start, line_end, status, error_message)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
             rusqlite::params![
                 child_id, row.0, row.1, row.2, row.3, row.4, row.5,
                 row.6, row.7, row.8, row.9, row.10,
                 new_id, row.11, row.12, row.13, row.14, row.15,
-                row.16, row.17,
+                row.16, row.17, row.18, row.19,
             ],
         )?;
     }
@@ -2665,15 +2694,22 @@ pub fn load_query_history(
     limit: i64,
     offset: i64,
     only_legacy: bool,
+    status_scope: crate::models::HistoryStatusScope,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source, status, error_message FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
 
     if only_legacy {
         sql.push_str(" AND workspace_id IS NULL");
+    }
+
+    // No bound parameter: the only value in the fragment is this crate's own
+    // `HISTORY_STATUS_OK`. See `HistoryStatusScope::sql_predicate`.
+    if let Some(predicate) = status_scope.sql_predicate() {
+        sql.push_str(predicate);
     }
 
     if let Some(cid) = connection_id {
@@ -2720,6 +2756,8 @@ pub fn load_query_history(
             column_count: row.get(9)?,
             table_names: row.get(10)?,
             source: row.get(11)?,
+            status: row.get(12)?,
+            error_message: row.get(13)?,
         })
     })?;
 
@@ -2872,6 +2910,8 @@ mod workspace_roundtrip_tests {
             column_count: Some(2),
             table_names: Some("t".to_string()),
             source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         }
     }
 
@@ -2931,10 +2971,194 @@ mod workspace_roundtrip_tests {
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, None, None, None).expect("save h1");
 
-        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false)
+        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false, crate::models::HistoryStatusScope::All)
             .expect("a whitespace-only filter must not error");
         assert_eq!(entries.len(), 1, "the filter must be ignored, not applied");
         assert_eq!(entries[0].id, "h1");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---------------------------------------------------------------------
+    // Failed queries in history (plan §5.2 D)
+    // ---------------------------------------------------------------------
+
+    /// The migration's whole promise: a database written before the `status`
+    /// column existed opens, and the rows already in it are UNCHANGED and read
+    /// back as successes.
+    ///
+    /// The old database is built by hand, with the `query_history` shape this
+    /// file created before any of the later migrations, so the test exercises
+    /// the real ALTER path rather than a fresh `CREATE TABLE`.
+    #[test]
+    fn an_old_database_migrates_and_its_rows_are_unchanged() {
+        let dir = temp_db_dir("history_status_migration");
+        std::fs::create_dir_all(&dir).expect("create dir");
+
+        {
+            let old = Connection::open(dir.join("pharos.db")).expect("open old db");
+            old.execute_batch(
+                "CREATE TABLE query_history (
+                     id TEXT PRIMARY KEY,
+                     connection_id TEXT NOT NULL,
+                     connection_name TEXT NOT NULL,
+                     sql TEXT NOT NULL,
+                     row_count INTEGER,
+                     execution_time_ms INTEGER NOT NULL,
+                     executed_at TEXT NOT NULL
+                 );",
+            )
+            .expect("old schema");
+            old.execute(
+                "INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
+                 VALUES ('legacy', 'c1', 'prod-db', 'SELECT 1', 7, 42, ?1)",
+                [now_offset(0)],
+            )
+            .expect("old row");
+        }
+
+        let conn = init_database(&dir).expect("init_database migrates the old file");
+
+        let has_status: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'status'", [], |r| r.get(0))
+            .expect("pragma");
+        assert_eq!(has_status, 1, "the migration must add `status`");
+        let has_error: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'error_message'", [], |r| r.get(0))
+            .expect("pragma");
+        assert_eq!(has_error, 1, "the migration must add `error_message`");
+        let has_index: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_query_history_status'", [], |r| r.get(0))
+            .expect("sqlite_master");
+        assert_eq!(has_index, 1, "the migration must index `status`");
+
+        let loaded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("load after migration");
+        assert_eq!(loaded.len(), 1);
+        let row = &loaded[0];
+        assert_eq!(row.id, "legacy");
+        assert_eq!(row.status, crate::models::HISTORY_STATUS_OK, "an existing row is a success");
+        assert_eq!(row.error_message, None);
+        // Unchanged, field by field: a migration that rewrote a row would be
+        // the failure this test exists to catch.
+        assert_eq!(row.sql, "SELECT 1");
+        assert_eq!(row.row_count, Some(7));
+        assert_eq!(row.execution_time_ms, 42);
+        assert_eq!(row.connection_name, "prod-db");
+
+        // …and it is still there under "Succeeded", which is what the scope
+        // control will ask for.
+        let succeeded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Succeeded)
+            .expect("load succeeded");
+        assert_eq!(succeeded.len(), 1);
+        let failed = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Failed)
+            .expect("load failed");
+        assert!(failed.is_empty(), "a migrated row must never read as a failure");
+
+        // Running the migration a second time must not fail or duplicate.
+        drop(conn);
+        let conn = init_database(&dir).expect("init_database is idempotent");
+        assert_eq!(
+            load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+                .expect("reload").len(),
+            1
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A failed row round-trips its status and its message, and each scope
+    /// answers with exactly its own rows.
+    #[test]
+    fn status_scope_splits_successes_from_failures() {
+        let dir = temp_db_dir("history_status_scope");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ok = history_entry("h_ok", "c1", "prod-db", &now_offset(0));
+        let mut boom = history_entry("h_error", "c1", "prod-db", &now_offset(1));
+        boom.status = crate::models::HISTORY_STATUS_ERROR.to_string();
+        boom.error_message = Some("relation \"nope\" does not exist".to_string());
+        boom.row_count = None;
+        let mut stopped = history_entry("h_cancelled", "c1", "prod-db", &now_offset(2));
+        stopped.status = crate::models::HISTORY_STATUS_CANCELLED.to_string();
+        stopped.error_message = Some("cancelled".to_string());
+
+        save_query_history(&conn, &ok, None, None, None).expect("save ok");
+        save_query_history(&conn, &boom, None, None, None).expect("save error");
+        save_query_history(&conn, &stopped, None, None, None).expect("save cancelled");
+
+        let all = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("all");
+        assert_eq!(all.len(), 3);
+
+        let succeeded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Succeeded)
+            .expect("succeeded");
+        assert_eq!(succeeded.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["h_ok"]);
+
+        let failed = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Failed)
+            .expect("failed");
+        let mut ids: Vec<&str> = failed.iter().map(|e| e.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["h_cancelled", "h_error"], "cancelled is a failure, not a success");
+
+        let decoded = failed.iter().find(|e| e.id == "h_error").expect("the error row");
+        assert_eq!(decoded.status, crate::models::HISTORY_STATUS_ERROR);
+        assert_eq!(decoded.error_message.as_deref(), Some("relation \"nope\" does not exist"));
+        assert_eq!(decoded.row_count, None, "a failed run produced no rows, which is not zero rows");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A workspace holds the failures its tab produced beside its results, and
+    /// `load_workspace` says which is which — the rebuild in
+    /// `ContentViewController` reads exactly this field to skip them.
+    #[test]
+    fn load_workspace_marks_a_failed_child() {
+        let dir = temp_db_dir("workspace_failed_child");
+        let conn = init_database(&dir).expect("init_database");
+
+        upsert_workspace(&conn, &WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: Some(0),
+        })
+        .expect("upsert_workspace");
+
+        let ok = history_entry("h_ok", "c1", "prod-db", &now_offset(0));
+        let mut boom = history_entry("h_error", "c1", "prod-db", &now_offset(1));
+        boom.status = crate::models::HISTORY_STATUS_ERROR.to_string();
+        boom.error_message = Some("syntax error at or near \"SELCT\"".to_string());
+        save_query_history(&conn, &ok, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save ok");
+        save_query_history(&conn, &boom, None, None, None).expect("save error");
+        associate_result_to_workspace(&conn, &assoc("h_ok", "ws1", 0, 0, None)).expect("associate ok");
+        // -1 is the order `record_failed_query` uses: a failure takes no
+        // result-tab slot.
+        associate_result_to_workspace(&conn, &assoc("h_error", "ws1", -1, 0, None)).expect("associate error");
+
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        assert_eq!(detail.results.len(), 2, "the failure is a child of the workspace too");
+        let failed = detail.results.iter().find(|r| r.id == "h_error").expect("failed child present");
+        assert_eq!(failed.status, crate::models::HISTORY_STATUS_ERROR);
+        assert_eq!(failed.error_message.as_deref(), Some("syntax error at or near \"SELCT\""));
+        assert!(!failed.has_results, "a failed run cached nothing");
+        let good = detail.results.iter().find(|r| r.id == "h_ok").expect("ok child present");
+        assert_eq!(good.status, crate::models::HISTORY_STATUS_OK);
+
+        // A duplicate keeps each child's status — a copied failure must not
+        // become a copied success.
+        let copy_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("duplicated");
+        let copy = load_workspace(&conn, &copy_id).expect("load copy").expect("copy exists");
+        let mut statuses: Vec<&str> = copy.results.iter().map(|r| r.status.as_str()).collect();
+        statuses.sort();
+        assert_eq!(statuses, vec!["error", "ok"]);
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
@@ -3732,6 +3956,8 @@ mod history_source_tests {
             column_count: Some(2),
             table_names: None,
             source: source.map(|s| s.to_string()),
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         }
     }
 
@@ -3745,7 +3971,7 @@ mod history_source_tests {
         save_query_history(&conn, &tagged, None, None, None).expect("save tagged");
         save_query_history(&conn, &untagged, None, None, None).expect("save untagged");
 
-        let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false).expect("load_query_history");
+        let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false, crate::models::HistoryStatusScope::All).expect("load_query_history");
         let loaded_tagged = loaded.iter().find(|e| e.id == "h_tagged").expect("tagged entry present");
         let loaded_untagged = loaded.iter().find(|e| e.id == "h_untagged").expect("untagged entry present");
 
@@ -4608,6 +4834,8 @@ mod clear_history_tests {
             column_count: None,
             table_names: None,
             source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         }
     }
 

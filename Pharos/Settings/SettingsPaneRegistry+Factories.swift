@@ -16,7 +16,7 @@ extension SettingsPaneRegistry {
         case .library: return LibrarySettingsPaneVC()
         case .connections: return ConnectionsSettingsPaneVC()
         case .security: return SecuritySettingsPaneVC()
-        case .exportImport: return SettingsPlaceholderPaneVC(paneId: id)
+        case .exportImport: return ExportImportSettingsPaneVC()
         case .charts: return ChartsSettingsPaneVC()
         case .tags: return SettingsPlaceholderPaneVC(paneId: id)
         case .intelligence: return IntelligenceSettingsPaneVC()

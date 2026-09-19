@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 use crate::db::sqlite;
-use crate::models::QueryHistoryEntry;
+use crate::models::{FailedQueryRecord, HistoryStatusScope, QueryHistoryEntry};
 use crate::state::AppState;
 
 /// Cached query result data returned when loading a specific history entry's results
@@ -28,24 +28,103 @@ pub async fn load_query_history(
     limit: Option<i64>,
     offset: Option<i64>,
     only_legacy: bool,
+    status_scope: HistoryStatusScope,
     state: &AppState,
 ) -> Result<Vec<QueryHistoryEntry>, String> {
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
     let limit = limit.unwrap_or(100);
     let offset = offset.unwrap_or(0);
 
-    // Try FTS5 search first; fall back to no search on FTS errors (e.g., corrupted index)
-    let entries = match sqlite::load_query_history(&db, connection_id.as_deref(), search.as_deref(), limit, offset, only_legacy) {
+    // Try FTS5 search first; fall back to no search on FTS errors (e.g., corrupted index).
+    // The status scope survives that fallback: it is the user's choice of WHICH
+    // rows, not a search, and dropping it would answer a "Failed" scope with
+    // successes.
+    let entries = match sqlite::load_query_history(&db, connection_id.as_deref(), search.as_deref(), limit, offset, only_legacy, status_scope) {
         Ok(entries) => entries,
         Err(e) if search.is_some() => {
             log::warn!("FTS5 search failed, falling back to unfiltered: {}", e);
-            sqlite::load_query_history(&db, connection_id.as_deref(), None, limit, offset, only_legacy)
+            sqlite::load_query_history(&db, connection_id.as_deref(), None, limit, offset, only_legacy, status_scope)
                 .map_err(|e| format!("Failed to load query history: {}", e))?
         }
         Err(e) => return Err(format!("Failed to load query history: {}", e)),
     };
 
     Ok(entries)
+}
+
+/// Record a query that FAILED, and return the new entry's id.
+///
+/// The core knows a query failed inside `commands::query`, but not the
+/// workspace the editor tab belongs to nor the editor lines the statement came
+/// from. Both live in the Swift session, so the save is driven from there.
+///
+/// Whether a failure is worth recording at all is decided in Swift too, by
+/// `HistoryFailureFilter` and by Settings ▸ Library & History ▸ Record failed
+/// queries. This function records what it is given.
+pub async fn record_failed_query(
+    record: FailedQueryRecord,
+    state: &AppState,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let connection_name = state
+        .get_config(&record.connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|| record.connection_id.clone());
+
+    let entry = QueryHistoryEntry {
+        id: id.clone(),
+        connection_id: record.connection_id.clone(),
+        connection_name,
+        sql: record.sql.clone(),
+        // Not 0: a failed run produced no rows and no columns, which is a
+        // different thing from producing none. The row's own `status` says
+        // why, and the navigator's row shows "Failed" rather than "0 Rows".
+        row_count: None,
+        execution_time_ms: record.execution_time_ms,
+        executed_at: chrono::Utc::now().to_rfc3339(),
+        has_results: false,
+        schema: record.schema.clone(),
+        column_count: None,
+        table_names: record.table_names.clone(),
+        source: None,
+        status: record.status.clone(),
+        error_message: Some(record.message.clone()),
+    };
+
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    sqlite::save_query_history_with_policy(
+        &db, &entry, None, None, None,
+        crate::commands::query::history_prune_policy(state),
+    )
+    .map_err(|e| format!("Failed to record failed query: {}", e))?;
+
+    // The workspace association is a second statement, exactly as it is for a
+    // successful run: `save_query_history_with_policy` writes the run, and
+    // `associate_result_to_workspace` writes what the SESSION knows about it.
+    //
+    // `result_order` is -1 and `color_index` 0 because a failure takes no
+    // result-tab slot — the rebuild skips it. -1 sorts it ahead of every real
+    // result, and leaves the `MAX(result_order) + 1` seed that the rebuild
+    // uses for the next result untouched.
+    if let Some(workspace_id) = record.workspace_id.as_deref() {
+        if let Err(e) = sqlite::associate_result_to_workspace(&db, &crate::models::ResultAssociation {
+            history_id: id.clone(),
+            workspace_id: workspace_id.to_string(),
+            result_order: -1,
+            color_index: 0,
+            raw_sql: record.raw_sql.clone(),
+            line_start: record.line_start,
+            line_end: record.line_end,
+            custom_label: None,
+        }) {
+            // Non-fatal: the failure IS recorded, it is simply not tied to the
+            // workspace. Losing the whole row over a lost association would be
+            // the larger failure.
+            log::warn!("Failed query recorded but not associated with its workspace: {}", e);
+        }
+    }
+
+    Ok(id)
 }
 
 /// Delete a single query history entry

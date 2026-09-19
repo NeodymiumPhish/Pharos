@@ -21,6 +21,33 @@
     "maxLifetimeSeconds": 1801,
     "searchPathSuffix": "public, extensions"
   },
+  "dataExport": {
+    "batchSize": 5001,
+    "defaultFolder": "/tmp/exports",
+    "defaultFormat": "tsv",
+    "dialect": {
+      "customDelimiter": "~",
+      "delimiter": "semicolon",
+      "encoding": "utf8Bom",
+      "nullLiteral": "\\N",
+      "quoteChar": "'",
+      "quoteStyle": "always"
+    },
+    "includeHeaderRow": false,
+    "rememberLastChoices": true
+  },
+  "dataImport": {
+    "commitEvery": 500,
+    "dialect": {
+      "customDelimiter": "^",
+      "delimiter": "pipe",
+      "encoding": "latin1",
+      "nullLiteral": "(null)",
+      "quoteChar": "`",
+      "quoteStyle": "never"
+    },
+    "onError": "skipRow"
+  },
   "diagnostics": {
     "logLevel": "debug",
     "metadataCacheTtlMinutes": 1
@@ -53,6 +80,7 @@
   "history": {
     "maximumEntries": 201,
     "maximumStoredEntries": 1,
+    "recordFailedQueries": false,
     "retentionDays": 91
   },
   "intelligence": {

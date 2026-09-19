@@ -20,6 +20,24 @@ struct QueryFailure: Identifiable, Equatable {
     let connectionName: String?
     let timestamp: Date
 
+    /// The pre-substitution `{{var}}` form of `sql`, when the run had one.
+    ///
+    /// Carried so a recorded failure holds the same editor text a recorded
+    /// SUCCESS does — the two rows sit in the same list, and one of them
+    /// answering "which statement was that?" while the other cannot would be
+    /// the difference the user noticed.
+    var rawSQL: String? = nil
+
+    /// The editor line range the failed statement came from, 1-based and
+    /// inclusive. Nil when the run came from no editor segment — a browse
+    /// action, a whole-editor run, a drill.
+    ///
+    /// Only the run itself knows this, which is half the reason the Query
+    /// History record is driven from Swift rather than from the core's own
+    /// failure site. Set it at every site that HAS a range; a nil here is
+    /// recorded as "no range", exactly as it is for a successful run.
+    var lineRange: ClosedRange<Int>? = nil
+
     /// False until the sheet shows this entry. Drives the pulse on the tab button.
     var isRead: Bool = false
 

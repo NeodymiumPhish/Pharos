@@ -220,6 +220,22 @@ void pharos_validate_sql(const char *connection_id,
 char *pharos_load_query_history(const char *json);
 
 /**
+ * Record a query that FAILED. `json` is a `FailedQueryRecord`:
+ * `{connectionId, sql, rawSql?, message, status?, schema?, tableNames?,
+ *   workspaceId?, lineStart?, lineEnd?, executionTimeMs?}`.
+ *
+ * Returns the new entry's id as a bare string, or `{"error": "..."}`.
+ * Caller must free.
+ *
+ * Swift drives this rather than the failure site in `commands::query`,
+ * because the workspace id and the editor line range live in the Swift
+ * session. Whether a failure is recorded at all is decided there too — see
+ * `HistoryFailureFilter` and Settings ▸ Library & History ▸ Record failed
+ * queries.
+ */
+ char *pharos_record_failed_query(const char *json);
+
+/**
  * Delete a query history entry. Returns "true"/"false".
  */
  char *pharos_delete_query_history_entry(const char *entry_id);

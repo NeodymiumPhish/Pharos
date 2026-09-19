@@ -57,6 +57,12 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                         (title: String(localized: "Forever"), value: UInt32(0)),
                     ]))),
                 SettingsItem(
+                    id: "recordFailedQueries",
+                    title: String(localized: "Record failed queries"),
+                    caption: String(localized: "A query that fails leaves a row in the history, with the server's message, beside the ones that worked. The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded."),
+                    icon: "exclamationmark.triangle",
+                    kind: .toggle(.settings(\.history.recordFailedQueries))),
+                SettingsItem(
                     id: "maximumStoredEntries",
                     title: String(localized: "Entries to keep"),
                     caption: String(localized: "A ceiling on the whole history, newest kept. 0 is no ceiling. Both limits apply: whichever removes an entry first wins."),

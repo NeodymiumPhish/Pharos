@@ -10,6 +10,50 @@ extension PharosCore {
         try callSync(input: filter) { pharos_load_query_history($0) }
     }
 
+    /// Everything about a failed run that only the Swift session knows.
+    ///
+    /// The core learns a query failed inside `commands::query`, but not which
+    /// workspace the editor tab belongs to nor which editor lines the
+    /// statement came from — both live here — so the record is driven from
+    /// Swift rather than from the failure site.
+    struct FailedQueryRecord: Codable {
+        /// The connection the run was made on.
+        let connectionId: String
+        /// The substituted SQL that actually ran.
+        let sql: String
+        /// The pre-substitution `{{var}}` form, when the run had one.
+        var rawSql: String? = nil
+        /// What the server (or the client) said.
+        let message: String
+        /// `QueryHistoryStatus.error` or `.cancelled`.
+        var status: String = QueryHistoryStatus.error
+        var schema: String? = nil
+        var tableNames: String? = nil
+        /// The editor tab's workspace, when it has one.
+        var workspaceId: String? = nil
+        /// 1-based and inclusive; both nil when the run came from no editor
+        /// segment.
+        var lineStart: Int? = nil
+        var lineEnd: Int? = nil
+        /// How long the run took before it failed.
+        var executionTimeMs: Int = 0
+    }
+
+    /// Record a query that FAILED, and return the new entry's id.
+    ///
+    /// Whether a failure is worth recording at all is NOT decided here: the
+    /// caller asks `HistoryFailureFilter.shouldRecord` and reads
+    /// Settings ▸ Library & History ▸ Record failed queries first. This
+    /// records what it is given.
+    ///
+    /// The success return is the new id — a scalar, not JSON — which is the
+    /// single-channel convention the workspace calls use, so it goes through
+    /// `scalarResult` rather than `callSync`.
+    @discardableResult
+    static func recordFailedQuery(_ record: FailedQueryRecord) throws -> String {
+        try scalarResult(input: record) { pharos_record_failed_query($0) }
+    }
+
     /// Delete a query history entry. Returns true when a row was removed, false
     /// when no entry had that id.
     ///

@@ -98,6 +98,7 @@ the [Results History](query-history.md) navigator.
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Entries to load | 10–5,000 entries | 200 | How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer. |
+| Record failed queries | On, Off | On | A query that fails leaves a row in the history, with the server's message, beside the ones that worked. The Results History navigator's **Failed** scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection or with a variable still unset, is never recorded. Turning this off stops new failures being recorded; rows already there stay until you clear them. See [History & Workspaces](query-history.md#failed-queries). |
 
 **Clear Query History…** deletes every entry and the cached results of each, and removes any workspace left with no entries. The confirmation names the exact number first, read from the store with the same rule the deletion uses, so it can never take more than it said. It cannot be undone, and Cancel is the default button.
 
@@ -280,6 +281,53 @@ many of each you have given. There is no button to clear them yet.
 A read-only list of every key Pharos answers: the command, the menu it lives in, and the shortcut. The search field filters on all three, so `⌘T`, `tab` and `File` each narrow the list. The menu entries are read from the live menu bar when the pane opens, so a command added to a menu appears here with nothing else to update; the keys that belong to a view and never appear in a menu — Escape in the completion list, Return in the results grid — are listed beside them.
 
 Nothing here can be rebound, and that is on purpose: macOS already does it. **System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ App Shortcuts** takes a menu command's exact title for Pharos and gives it whatever key you like, and a second rebinding mechanism inside the app would fight it.
+
+## Export & Import Pane
+
+One CSV dialect, shared by writing a file and reading one back, plus what the
+Export Data sheet opens on and what an import does with a row the server
+refuses.
+
+Every default below is what Pharos did before the setting existed. With the
+pane untouched, an exported CSV is byte for byte the file earlier versions
+wrote — a test in `pharos-core` pins those exact bytes.
+
+### Export
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default format | CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, Excel (XLSX) | CSV | The format the **Export Data…** sheet opens on. Any single export can still pick another. |
+| Include a header row | On/Off | On | Writes the column names as the first row. CSV, TSV and Excel only — the other formats name every column on every row. |
+| Default folder | A folder | Empty | Where the save panel opens. Empty opens wherever you saved last. A folder that is no longer there is ignored. |
+| Remember last choices | On/Off | Off | Writes the format, the header row, the NULL text and the folder you chose back into these settings when an export runs, so the next one opens where the last left off. |
+| Rows per batch | 100–100,000 | 5,000 | How many rows an export fetches per round trip. Larger is fewer round trips and more memory at once. |
+
+### CSV format
+
+These apply to writing a CSV file **and** to reading one back, so a file
+Pharos exported imports again without a second set of choices. A TSV export
+always uses a tab, whatever the delimiter says.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Delimiter | Comma, Semicolon, Tab, Pipe, Custom | Comma | What separates fields. |
+| Custom delimiter | One ASCII character | `,` | Used when the delimiter is **Custom**. Anything else falls back to a comma. |
+| Quote character | One ASCII character | `"` | A quote inside a quoted field is written twice, which is what every CSV reader expects. |
+| Quote fields | Only when needed, Always, Never | Only when needed | **Only when needed** quotes a field that holds the delimiter, a quote or a line break. **Never** writes nothing around a field, so it suits only data that cannot hold any of those. |
+| NULL is written as | Any text | Empty | What a NULL becomes in an exported file, and what a field must equal in an imported one to become a real NULL. |
+| Encoding | UTF-8, UTF-8 with BOM, UTF-16 LE, Latin-1 | UTF-8 | **UTF-8 with BOM** is what Excel on Windows expects. **Latin-1** cannot carry every character: the alert after an export says how many it replaced with `?`. |
+
+{: .note }
+An imported file that starts with a byte-order mark is read in the encoding
+that mark names, whatever the setting says. That is what lets a UTF-16 LE
+export go straight back in.
+
+### Import
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| When a row fails | Stop and undo everything, Skip the row and carry on | Stop and undo everything | **Stop** is what Pharos has always done: one refused row and the whole file is rolled back. **Skip the row** runs every row inside its own savepoint, so a bad row is undone on its own and the import carries on. The alert afterwards names how many rows were skipped and why, listing at most twenty reasons. |
+| Commit every | 0–1,000,000 rows | 0 | Rows per transaction. 0 is one transaction for the whole file: nothing lands until everything does. A number commits as it goes, so the batches that finished stay on the server even if a later row stops the import. |
 
 ## Charts Pane
 

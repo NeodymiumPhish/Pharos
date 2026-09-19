@@ -26,6 +26,33 @@
     "maxLifetimeSeconds": 1800,
     "searchPathSuffix": "public"
   },
+  "dataExport": {
+    "batchSize": 5000,
+    "defaultFolder": "",
+    "defaultFormat": "csv",
+    "dialect": {
+      "customDelimiter": ",",
+      "delimiter": "comma",
+      "encoding": "utf8",
+      "nullLiteral": "",
+      "quoteChar": "\"",
+      "quoteStyle": "minimal"
+    },
+    "includeHeaderRow": true,
+    "rememberLastChoices": false
+  },
+  "dataImport": {
+    "commitEvery": 0,
+    "dialect": {
+      "customDelimiter": ",",
+      "delimiter": "comma",
+      "encoding": "utf8",
+      "nullLiteral": "",
+      "quoteChar": "\"",
+      "quoteStyle": "minimal"
+    },
+    "onError": "abort"
+  },
   "diagnostics": {
     "logLevel": "warning",
     "metadataCacheTtlMinutes": 0
@@ -58,6 +85,7 @@
   "history": {
     "maximumEntries": 200,
     "maximumStoredEntries": 0,
+    "recordFailedQueries": true,
     "retentionDays": 90
   },
   "intelligence": {

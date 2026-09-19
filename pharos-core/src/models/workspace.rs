@@ -91,6 +91,12 @@ pub struct WorkspaceResultMeta {
     /// `ResultAssociation`.
     pub line_start: Option<i64>,
     pub line_end: Option<i64>,
+    /// How the run ended: `ok`, `error` or `cancelled`. A workspace holds the
+    /// failures its tab produced as well as its results, so the rebuild has to
+    /// be told which rows are results — see `HISTORY_STATUS_OK`.
+    pub status: String,
+    /// What the server said, for a row whose `status` is not `ok`.
+    pub error_message: Option<String>,
 }
 
 /// Full workspace payload returned on reopen.
@@ -171,9 +177,15 @@ mod tests {
             raw_sql: None,
             line_start: Some(4),
             line_end: Some(6),
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         };
         let json = serde_json::to_string(&meta).expect("encode");
         assert!(json.contains(r#""lineStart":4"#), "got {}", json);
         assert!(json.contains(r#""lineEnd":6"#), "got {}", json);
+        // The rebuild reads this key to decide whether a row is a result at
+        // all; a snake_case spelling would decode as absent in Swift.
+        assert!(json.contains(r#""status":"ok""#), "got {}", json);
+        assert!(json.contains(r#""errorMessage":null"#), "got {}", json);
     }
 }

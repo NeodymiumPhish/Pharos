@@ -221,7 +221,8 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let tableName = tableNameFromNode(node) else { return }
 
         let sheet = ImportDataSheet(schema: schemaName, table: tableName,
-                                    preselectedFileURL: preselectedFileURL) { [weak self] filePath, hasHeaders in
+                                    preselectedFileURL: preselectedFileURL,
+                                    settings: AppStateManager.shared.settings.dataImport) { [weak self] options in
             Task { @MainActor in
                 self?.delegate?.contextMenuDidStartImport(
                     connectionId: connectionId, schema: schemaName, table: tableName
@@ -232,12 +233,9 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     )
                 }
                 do {
-                    let options = ImportCsvOptions(
-                        schemaName: schemaName, tableName: tableName,
-                        filePath: filePath, hasHeaders: hasHeaders
-                    )
                     let result = try await PharosCore.importCsv(connectionId: connectionId, options: options)
-                    self?.showInfoAlert(title: "Import Successful", message: "\(result.rowsImported) rows imported.")
+                    self?.showInfoAlert(title: "Import Successful",
+                                        message: ImportOutcomeText.message(for: result))
                     self?.delegate?.contextMenuDidRequestReload()
                 } catch {
                     self?.showErrorAlert(title: "Import Failed", message: error.localizedDescription)
@@ -257,12 +255,15 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             do {
                 let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
                 await MainActor.run {
-                    let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns) { [weak self] options in
+                    let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
+                                                settings: AppStateManager.shared.settings.dataExport) { [weak self] options in
+                        DataExportSettings.rememberIfAsked(options)
                         Task {
                             do {
                                 let result = try await PharosCore.exportTable(connectionId: connectionId, options: options)
                                 await MainActor.run {
-                                    self?.showInfoAlert(title: "Export Successful", message: "\(result.rowsExported) rows exported.")
+                                    self?.showInfoAlert(title: "Export Successful",
+                                                        message: ExportOutcomeText.message(for: result))
                                 }
                             } catch {
                                 await MainActor.run {
