@@ -21,6 +21,11 @@ final class SettingsEffects {
 
     private var cancellables: Set<AnyCancellable> = []
 
+    /// The sleep observer, held only while the setting behind it is on. It is
+    /// on `NSWorkspace.shared.notificationCenter`, not the default one — the
+    /// workspace notifications are not posted to the default centre.
+    private var sleepObserver: NSObjectProtocol?
+
     private init() {}
 
     /// Apply every effect now, and on every change from here on.
@@ -89,5 +94,47 @@ final class SettingsEffects {
                 if collecting { Diagnostics.start() } else { Diagnostics.stop() }
             }
             .store(in: &cancellables)
+
+        // Forget typed passwords on sleep. The observer exists only while the
+        // switch is on, so the off state costs nothing and cannot fire.
+        settings
+            .map(\.security.clearPasswordCacheOnSleep)
+            .removeDuplicates()
+            .sink { [weak self] clearing in
+                self?.observeSleep(clearing)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Start or stop listening for sleep.
+    ///
+    /// The handler clears the core's PROCESS-ONLY password map and nothing
+    /// else: the Keychain is untouched, so a connection that remembers its
+    /// password is unaffected and wakes up able to connect. Only the count is
+    /// logged — a password, or the name of the connection it belongs to, never
+    /// reaches the log.
+    private func observeSleep(_ clearing: Bool) {
+        let centre = NSWorkspace.shared.notificationCenter
+        if let observer = sleepObserver {
+            centre.removeObserver(observer)
+            sleepObserver = nil
+        }
+        guard clearing else { return }
+        sleepObserver = centre.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { _ in
+            let dropped = PharosCore.clearSessionPasswords()
+            // The front end's own record of which connections have one, in the
+            // same breath. If the two drifted apart, the next failure would be
+            // read as "it has a password" and dial straight back into it
+            // instead of asking.
+            PasswordPromptCoordinator.shared.forgetSessionPasswords()
+            guard dropped > 0 else { return }
+            // The proof that the owner was present goes with the passwords:
+            // keeping it would let the next connect skip the gate on a Mac
+            // that has just been asleep.
+            AppStateManager.shared.forgetGatePasses()
+            Log.state.info("Sleep: forgot \(dropped, privacy: .public) typed password(s)")
+        }
     }
 }

@@ -254,6 +254,11 @@ final class ConnectionsManagerVC: NSViewController {
     /// before connecting, and before the stored password is shown.
     private let requireAuthCheckbox = NSButton()
 
+    /// Whether this record's password is kept in the login keychain. Cleared,
+    /// the password is asked for instead — `PasswordPromptSheet` — and held in
+    /// memory until Pharos quits.
+    private let rememberPasswordCheckbox = NSButton()
+
     /// Stands beside a masked password field. Pressing it runs the gate; the
     /// real password appears only after the device owner authenticates.
     private let showPasswordButton = NSButton()
@@ -588,6 +593,17 @@ final class ConnectionsManagerVC: NSViewController {
         requireAuthCheckbox.toolTip = String(localized:
             "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was.")
 
+        rememberPasswordCheckbox.setButtonType(.switch)
+        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
+        rememberPasswordCheckbox.target = self
+        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
+        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
+        // What it ACTUALLY does, both ways round. The row was out of this form
+        // until the behaviour existed, because the old one said the opposite of
+        // what happened.
+        rememberPasswordCheckbox.toolTip = String(localized:
+            "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save.")
+
         sslPopup.target = self
         sslPopup.action = #selector(sslPopupChanged)
         // Built from `SslMode.formOrder`, so a mode added to the model cannot
@@ -738,6 +754,7 @@ final class ConnectionsManagerVC: NSViewController {
             authNoteRow,
             row(label: "SSL Mode", control: sslPopup),
             sslCertRow,
+            row(label: "", control: rememberPasswordCheckbox),
             row(label: "", control: requireAuthCheckbox),
         ])
         // `row` linked the badge to the stack it was handed. The warning is
@@ -1333,6 +1350,7 @@ final class ConnectionsManagerVC: NSViewController {
         // record revealed a moment ago: the gate is about walking up to the
         // window, so it has to re-arm when the form moves on.
         requireAuthCheckbox.state = config.requiresAuthentication ? .on : .off
+        rememberPasswordCheckbox.state = config.rememberPassword ? .on : .off
         // The tunnel, before the gate is applied: `applyPasswordGateState`
         // masks the secret field, so the fields must hold the record first.
         let tunnel = config.sshTunnel
@@ -1613,11 +1631,12 @@ final class ConnectionsManagerVC: NSViewController {
         d.sslRootCertPath = (d.sslMode.verifiesCertificate && !certPath.isEmpty) ? certPath : nil
         d.readOnly = readOnlyCheckbox.state == .on
         d.connectOnLaunch = connectOnLaunchCheckbox.state == .on
-        // `rememberPassword` has no control in this form yet. It is stored and
-        // migrated, and nothing reads it: a checkbox claiming to govern where
-        // a password lives, while the password is written either way, is
-        // worse than no checkbox. `d` keeps the loaded value, and the row
-        // comes back with the behaviour.
+        // Cleared, this is a DESTRUCTIVE save: `save_connection` deletes the
+        // password already in the keychain rather than merely stopping writing
+        // new ones. That is the whole point — a switch that left the old one
+        // behind would say the opposite of what it does — and it is what the
+        // tooltip states.
+        d.rememberPassword = rememberPasswordCheckbox.state == .on
         d.sessionTimeZone = PopupValueMenu.selectedValue(in: sessionTimeZonePopup)
             .map(SessionTimeZone.normalized)
             .flatMap { $0.isEmpty ? nil : $0 }

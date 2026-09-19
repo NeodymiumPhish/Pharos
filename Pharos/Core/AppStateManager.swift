@@ -326,7 +326,14 @@ final class AppStateManager: ObservableObject {
     func connect(id: String, in session: WindowSession? = nil) {
         let target = session ?? keySession
         guard let config = connections.first(where: { $0.id == id }),
-              config.requiresAuthentication else {
+              config.requiresAuthentication,
+              // A gate this connection passed moments ago still counts. One
+              // connect can reach here three times in a few seconds — the
+              // first attempt, the password prompt behind it, and the status
+              // refresh after the password is typed — and gating each would
+              // show three system prompts for one action while proving
+              // nothing the first did not. See `DeviceOwnerGateRecency`.
+              !gateIsFresh(for: id) else {
             performConnect(id: id, in: target)
             return
         }
@@ -341,6 +348,7 @@ final class AppStateManager: ObservableObject {
                 reason: String(localized: "connect to \(name)")
             ) {
             case .authenticated:
+                self.noteGatePassed(for: id)
                 self.performConnect(id: id, in: target)
             case .cancelled:
                 self.connectionStatuses[id] = .disconnected
@@ -406,6 +414,31 @@ final class AppStateManager: ObservableObject {
         while connectionStatuses[id] == .connecting, Date() < deadline {
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
+    }
+
+    /// When the device-owner gate last passed, per connection. Not persisted
+    /// and never written down: it dies with the process, which is the point.
+    private var gatePassedAt: [String: Date] = [:]
+
+    /// Record that the gate passed for this connection. Called by the connect
+    /// path and by the password prompt, so one proof covers the whole piece
+    /// of work rather than each step of it.
+    func noteGatePassed(for id: String) {
+        gatePassedAt[id] = Date()
+    }
+
+    /// Whether this connection's gate passed recently enough to stand in for
+    /// another. A later, separate attempt is gated again.
+    func gateIsFresh(for id: String) -> Bool {
+        guard let passedAt = gatePassedAt[id] else { return false }
+        return DeviceOwnerGateRecency.isFresh(passedAt: passedAt)
+    }
+
+    /// Forget every remembered gate pass. Called beside the session-password
+    /// clearing on sleep: if the typed passwords go, the proof that the owner
+    /// was present must go with them.
+    func forgetGatePasses() {
+        gatePassedAt.removeAll()
     }
 
     private func performConnect(id: String, in session: WindowSession?) {

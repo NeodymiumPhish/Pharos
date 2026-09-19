@@ -93,6 +93,7 @@
 		3FAFEF0673917F40EF05C04D /* SchemaButtonState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD49CDC956B8E19D8B96A86C /* SchemaButtonState.swift */; };
 		3FC16746624A7CF9568E3E88 /* FailurePresentationRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B35EC2009F073EB57DC62C5 /* FailurePresentationRule.swift */; };
 		4048DB404CB9E8B2FEC98C0C /* TagMatchDisclosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2012DA5C4BDE052549A92704 /* TagMatchDisclosure.swift */; };
+		40EAB0C81916303F6FFF742A /* PasswordPromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C11DB65E7D78FB72B82A43 /* PasswordPromptSheet.swift */; };
 		419548440610B3FAF2841187 /* TagPredicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4DF712BE5E256C3E932817 /* TagPredicate.swift */; };
 		43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */; };
 		440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */; };
@@ -157,6 +158,7 @@
 		7164A803D0AD86BA86C620D0 /* FindMatchDecoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */; };
 		71C89D3BC7CB5B56923C4DBB /* ResultTabsPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADF5D89720A5AA09490F63F /* ResultTabsPanelVC.swift */; };
 		71D042D2FCF7D53B783E22A0 /* ScrollBarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645CC515733651A8555D0BC9 /* ScrollBarPolicy.swift */; };
+		7227A20AB7D7BB48DFF9F6E0 /* PasswordPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */; };
 		7239759E59DBFE2FC197D380 /* ResultTabName.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB64B2BF2E18E915B3D81878 /* ResultTabName.swift */; };
 		724BB32883E5C34365C10CB6 /* TagFamilyLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A846DAE04C447D3AE1792991 /* TagFamilyLabel.swift */; };
 		724DC8432A26E9E057FF1FC5 /* ChartSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17824410397936339CDC552 /* ChartSuggestion.swift */; };
@@ -238,6 +240,7 @@
 		A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F97502732CB469B07431E71 /* QueryPlan.swift */; };
 		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
+		A756B0221308FD68F1517648 /* DeviceOwnerGateRecency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */; };
 		A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
@@ -280,6 +283,7 @@
 		C35835C7F2F3155BB74617C5 /* WorkspacePreviewRowCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */; };
 		C43EFD93254ABEDB9D31C289 /* ResultsGridStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD16963EE6123B34131F7C1B /* ResultsGridStyle.swift */; };
 		C54502573EF12DE805DD8E45 /* ExportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */; };
+		C5835074953ACE8BB9316C04 /* PasswordAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */; };
 		C5CF0E62478AE7D33B30D606 /* QueryFailureChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B924DFE2722E648667C6764E /* QueryFailureChannel.swift */; };
 		C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */; };
 		CA2E0A77C92D92036F966213 /* FilterValueCount.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC4F8A28C3069363F3EFDD21 /* FilterValueCount.swift */; };
@@ -399,6 +403,7 @@
 		20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDataSheet.swift; sourceTree = "<group>"; };
 		20F3DD4F4CC33C47BF5D7DBB /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataCache.swift; sourceTree = "<group>"; };
+		21C11DB65E7D78FB72B82A43 /* PasswordPromptSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordPromptSheet.swift; sourceTree = "<group>"; };
 		21D2B2CA603B406A57B7D207 /* TagCaptureListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCaptureListView.swift; sourceTree = "<group>"; };
 		22235FED412A763052DA524B /* NavigatorSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigatorSettingsPaneVC.swift; sourceTree = "<group>"; };
 		233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariable.swift; sourceTree = "<group>"; };
@@ -439,6 +444,7 @@
 		3F1ACA16C38A777BDCF7104A /* VariableListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableListView.swift; sourceTree = "<group>"; };
 		42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFileWriter.swift; sourceTree = "<group>"; };
 		43A05BEB9E63BF8F7876B08E /* SettingsControlFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControlFactory.swift; sourceTree = "<group>"; };
+		43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordAvailability.swift; sourceTree = "<group>"; };
 		455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerChartDataBuilder.swift; sourceTree = "<group>"; };
 		45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+QueryHistory.swift"; sourceTree = "<group>"; };
 		46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnTypeIcon.swift; sourceTree = "<group>"; };
@@ -448,8 +454,10 @@
 		4B5ECAA757C7692770A532EA /* FoldState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldState.swift; sourceTree = "<group>"; };
 		4C25DF8F9813C90CA3567012 /* ChartConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartConfig.swift; sourceTree = "<group>"; };
 		4EE224A37E3FEC0F67F65D19 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceOwnerGateRecency.swift; sourceTree = "<group>"; };
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
 		52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMatchDecoration.swift; sourceTree = "<group>"; };
+		55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordPromptCoordinator.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		5757A383E8948F38AB9B6545 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
@@ -933,6 +941,7 @@
 				FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */,
 				20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */,
 				080E74E651B82BE21F196DDC /* ImportDataSheet.swift */,
+				21C11DB65E7D78FB72B82A43 /* PasswordPromptSheet.swift */,
 				724A3BE8DC21FEA9E70F7356 /* QueryDetailSheet.swift */,
 				1FF46A86728427E2E94E47B8 /* QueryErrorSheet.swift */,
 				8F86E15E1706580700E0E7E8 /* ReviewRowChangesSheet.swift */,
@@ -966,6 +975,7 @@
 				F64ECD492568816876D0E808 /* ContentPaneLayout.swift */,
 				CFE4964E6E0EFB8FE685BE32 /* CountedNounText.swift */,
 				F0BCCCCFD4E9B5194DCA6176 /* DestructiveConfirmationText.swift */,
+				4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */,
 				5757A383E8948F38AB9B6545 /* Diagnostics.swift */,
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
@@ -979,6 +989,8 @@
 				E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */,
 				15F15F6D530ED4B08BF8F19F /* Log.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
+				43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */,
+				55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */,
 				EBB204A7203DFE7F75AE059A /* PharosCore.swift */,
 				03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */,
 				C0545483DE63C69CAFE2604F /* PharosCore+ModelFeedback.swift */,
@@ -1349,6 +1361,7 @@
 				2C0ED764FC791B6EA6A28A48 /* DescribeQueryPopoverVC.swift in Sources */,
 				8BD5C948806AAF45D1D1821F /* DestructiveConfirmationText.swift in Sources */,
 				26B04812BFD5A8814F0B729A /* DestructiveSQLScanner.swift in Sources */,
+				A756B0221308FD68F1517648 /* DeviceOwnerGateRecency.swift in Sources */,
 				4A4E55EE3CFDA2FD4FAFA624 /* Diagnostics.swift in Sources */,
 				54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */,
 				1AC6571636390DDAA41BEEDB /* DisplayRowPipeline.swift in Sources */,
@@ -1426,6 +1439,9 @@
 				017F1D6AD3F86E95B43774EF /* PaneTabBar.swift in Sources */,
 				EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */,
 				171DB2DA90741CA6961CE0D7 /* PartitionOrdering.swift in Sources */,
+				C5835074953ACE8BB9316C04 /* PasswordAvailability.swift in Sources */,
+				7227A20AB7D7BB48DFF9F6E0 /* PasswordPromptCoordinator.swift in Sources */,
+				40EAB0C81916303F6FFF742A /* PasswordPromptSheet.swift in Sources */,
 				4918202983DF92FB8533CF90 /* PendingCellEdits.swift in Sources */,
 				F18E0DA8C46408A22F7149ED /* PendingEditsBar.swift in Sources */,
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,

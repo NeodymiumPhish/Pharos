@@ -728,6 +728,14 @@ struct SecuritySettings: Codable, Equatable {
     /// `~/Library/Logs/Pharos`. On, because `AppDelegate` called
     /// `Diagnostics.start()` at launch before this existed.
     var collectPerformanceMetrics: Bool = true
+    /// Whether the passwords typed this run are forgotten when the Mac sleeps.
+    ///
+    /// OFF, unlike its two neighbours: nothing was cleared on sleep before this
+    /// existed, and a default that shut the user out of their own connections
+    /// on every lid close would be a new behaviour nobody asked for. It never
+    /// touches the Keychain — only the core's process-only map, which holds
+    /// what a password prompt was answered with.
+    var clearPasswordCacheOnSleep: Bool = false
 }
 
 // MARK: - Database Navigator

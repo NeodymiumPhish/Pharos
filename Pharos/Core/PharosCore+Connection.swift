@@ -35,6 +35,31 @@ extension PharosCore {
         }
     }
 
+    /// Connect with a password the user has just typed.
+    ///
+    /// The core holds it for this process only — it is never written to the
+    /// Keychain by this call, and never logged. Storing it is a separate,
+    /// deliberate act: a save with `rememberPassword` on.
+    ///
+    /// Two `withCString` calls nest, so both buffers are alive for the whole of
+    /// `pharos_connect_with_password`, which copies them before it spawns.
+    static func connect(connectionId: String, password: String) async throws -> ConnectionInfo {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cId in
+                password.withCString { cPassword in
+                    pharos_connect_with_password(cId, cPassword, callback, context)
+                }
+            }
+        }
+    }
+
+    /// Forget every password typed this run. The Keychain is untouched.
+    /// Returns how many were dropped, so a caller can log a count, never a name.
+    @discardableResult
+    static func clearSessionPasswords() -> Int {
+        Int(pharos_clear_session_passwords())
+    }
+
     /// Disconnect from a PostgreSQL database.
     static func disconnect(connectionId: String) async throws {
         let _: EmptyResult = try await withAsyncCallback { callback, context in

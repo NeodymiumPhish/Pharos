@@ -669,6 +669,15 @@ pub struct SecuritySettings {
     pub index_saved_queries_in_spotlight: bool,
     #[serde(default = "default_true")]
     pub collect_performance_metrics: bool,
+    /// Forget the passwords typed this run when the Mac goes to sleep.
+    ///
+    /// OFF, unlike its two neighbours: nothing was cleared on sleep before
+    /// this existed, and a default that logged the user out of their own
+    /// connections on every lid close would be a new behaviour shipped
+    /// without being asked for. It never touches the Keychain — only the
+    /// process-only map a password prompt fills.
+    #[serde(default)]
+    pub clear_password_cache_on_sleep: bool,
 }
 
 impl Default for SecuritySettings {
@@ -676,6 +685,7 @@ impl Default for SecuritySettings {
         SecuritySettings {
             index_saved_queries_in_spotlight: true,
             collect_performance_metrics: true,
+            clear_password_cache_on_sleep: false,
         }
     }
 }
@@ -1329,6 +1339,7 @@ pub(crate) mod fixture {
                 security: SecuritySettings {
                     index_saved_queries_in_spotlight: false,
                     collect_performance_metrics: false,
+                    clear_password_cache_on_sleep: true,
                 },
                 navigator: NavigatorSettings {
                     schema_sort: SchemaSortMode::DefaultFirst,

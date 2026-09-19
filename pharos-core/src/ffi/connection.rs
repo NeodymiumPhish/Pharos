@@ -93,6 +93,48 @@ pub extern "C" fn pharos_connect(
     });
 }
 
+/// Connect to PostgreSQL with a password the user has just typed, rather than
+/// one the Keychain holds. Calls `callback` when done.
+///
+/// The password is held for this process only — it is never written to the
+/// Keychain by this call, and never logged. The same shape as `pharos_connect`
+/// otherwise: the strings are copied out of the caller's memory before the
+/// task is spawned, and Rust frees what it hands back to the callback.
+#[no_mangle]
+pub extern "C" fn pharos_connect_with_password(
+    connection_id: *const c_char,
+    password: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let id = unsafe { c_str_to_string(connection_id) };
+    let password = unsafe { c_str_to_string(password) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::connect_postgres_with_password(id, password, state).await {
+            Ok(info) => {
+                let json = serde_json::to_string(&info).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// Forget every password typed this run. The Keychain is untouched. Returns
+/// how many were dropped, so the caller can log a count and never a name.
+#[no_mangle]
+pub extern "C" fn pharos_clear_session_passwords() -> u32 {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        crate::commands::clear_session_passwords(app_state()) as u32
+    })) {
+        Ok(dropped) => dropped,
+        Err(_) => 0,
+    }
+}
+
 /// Disconnect from PostgreSQL. Calls `callback` when done.
 #[no_mangle]
 pub extern "C" fn pharos_disconnect(

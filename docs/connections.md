@@ -210,6 +210,26 @@ In the window toolbar, open the **connection pull-down**. It lists every saved c
 
 Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection. The **schema pull-down** beside the connection in the window toolbar shows the tab's schema (or **All Schemas**) and opens a searchable list to change it or to **Set as Default** for the connection.
 
+## Remembering the password
+
+Under **Authentication**, **Remember the password in the keychain** decides where this connection's password lives.
+
+**On** (the default) the password is written to your login keychain and the connection opens without asking.
+
+**Off**, three things happen:
+
+- The password is **not** written to the keychain.
+- The one already in your keychain for this connection is **deleted** when you save. Clearing the box is a destructive save, not merely a stop: a switch that left the old password behind would say the opposite of what it does.
+- Pharos asks you for the password the first time you connect after each launch, in a small sheet showing the connection's name and address. What you type is kept **in memory only**, for as long as Pharos runs, so the rest of that session connects without asking again.
+
+The sheet has a **Remember in the Keychain** box of its own. Ticking it turns this connection's setting back on and writes what you typed, so you can change your mind without opening the Connections Manager.
+
+**Settings ▸ Security & Privacy ▸ Passwords** has one switch for this: **Forget typed passwords when this Mac sleeps**. It is off by default. Turned on, the passwords held in memory are dropped when the Mac goes to sleep, and you are asked again on waking. It never touches the keychain, so connections that remember their password are unaffected.
+
+{: .note }
+The **SSH tunnel**'s passphrase or password does **not** follow this switch. It is a different secret, and the tunnel is opened before the database connection, so there is nothing on screen to ask for it at the point it is needed. An SSH secret stays in the keychain until the connection is deleted.
+
+
 ## Touch ID
 
 Each connection can carry its own gate. In the Connections Manager, under **Authentication**, tick **Require Touch ID to connect and to show the password**. Two things then ask you to authenticate first — with Touch ID, an unlocked Apple Watch, or your login password, whichever your Mac offers:
