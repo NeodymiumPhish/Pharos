@@ -4839,10 +4839,25 @@ mod clear_history_tests {
         }
     }
 
+    /// A policy that removes nothing, so an insert is only an insert.
+    const FOREVER: HistoryPrunePolicy = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+
     /// Insert a legacy (no workspace) history row directly, so its own
     /// `executed_at` is what the age rule reads.
+    ///
+    /// The insert carries a FOREVER policy, and must. The rows here are
+    /// deliberately old — that is what the age rule is read against — and
+    /// `save_query_history` would prune them on the way in: it samples a
+    /// counter that is global to the PROCESS, one in a hundred saves, and
+    /// then prunes by the 90-day default. Which of these inserts landed on a
+    /// sample depended on how many history rows the other test modules had
+    /// written first, so under the default test threads this module failed
+    /// about one run in three. These tests drive `clear_query_history` and
+    /// `prune_query_history_now` themselves, so removing the incidental
+    /// prune takes nothing away from what they assert.
     fn put_legacy(conn: &Connection, id: &str, executed_at: &str) {
-        save_query_history(conn, &entry(id, executed_at), None, None, None).unwrap();
+        save_query_history_with_policy(conn, &entry(id, executed_at), None, None, None, FOREVER)
+            .unwrap();
     }
 
     fn history_count(conn: &Connection) -> i64 {
@@ -4942,7 +4957,6 @@ mod clear_history_tests {
     }
 
     /// "Forever, no ceiling" must run no DELETE at all.
-    /// "Forever, no ceiling" must run no DELETE at all.
     ///
     /// The row is inserted with a FOREVER policy, not the default one. This
     /// test failed until that was so: `save_query_history` prunes on a
@@ -4955,10 +4969,9 @@ mod clear_history_tests {
     #[test]
     fn a_policy_that_prunes_nothing_leaves_everything() {
         let conn = db();
-        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
-        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, FOREVER)
             .unwrap();
-        prune_query_history_now(&conn, forever).unwrap();
+        prune_query_history_now(&conn, FOREVER).unwrap();
         assert_eq!(history_count(&conn), 1, "forever means forever");
     }
 
@@ -4969,8 +4982,7 @@ mod clear_history_tests {
     #[test]
     fn the_save_path_uses_the_policy_it_is_given() {
         let conn = db();
-        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
-        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, FOREVER)
             .unwrap();
         assert_eq!(history_count(&conn), 1, "a forever policy kept it");
         prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
