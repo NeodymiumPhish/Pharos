@@ -1965,7 +1965,7 @@ class ContentViewController: NSViewController {
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
                         timestamp: Date()
                     )
-                    self.recordFailure(failure)
+                    self.recordFailure(failure, connectionId: connectionId)
                 }
             }
         }
@@ -2110,7 +2110,7 @@ class ContentViewController: NSViewController {
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
                         timestamp: Date()
                     )
-                    self.recordFailure(failure)
+                    self.recordFailure(failure, connectionId: connectionId)
                 }
             }
         }
@@ -2906,7 +2906,17 @@ class ContentViewController: NSViewController {
     /// Record a failure on its tab, then decide what the user sees. The sheet and
     /// the editor marker are for the active tab only; a background tab gets the
     /// pulsing button.
-    private func recordFailure(_ failure: QueryFailure) {
+    /// - Parameter connectionId: the connection the query ran on, when the
+    ///   caller knows it. Passing it lets a failure that means the CONNECTION
+    ///   is gone move that connection to Error — see
+    ///   `AppStateManager.markConnectionLost`. Every failure path that has a
+    ///   connection in scope should pass it; the classifier ignores the ones
+    ///   that are merely a bad query.
+    private func recordFailure(_ failure: QueryFailure, connectionId: String? = nil) {
+        if let connectionId, failure.kind == .error {
+            stateManager.markConnectionLost(id: connectionId, reason: failure.message)
+        }
+
         // Read BEFORE the append: the presenter's banner rule asks how many
         // unread failures the tab had before this one, and the append would
         // have already counted it.

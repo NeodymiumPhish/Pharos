@@ -735,6 +735,34 @@ final class AppStateManager: ObservableObject {
         connectionStatuses[connectionId] ?? .disconnected
     }
 
+    /// A query failed in a way that means the CONNECTION is gone, not that
+    /// the SQL was wrong. Move it to Error so the toolbar glyph tells the
+    /// truth and Connect becomes available again.
+    ///
+    /// This closes a gap recorded during the SSH tunnel work: nothing in the
+    /// app ever moved a connection to Error because of a failed QUERY — only
+    /// the connect path did — so a dead tunnel showed a green glyph, and
+    /// Connect then did nothing because `canConnect` treats `.connected` as
+    /// busy and the user had to press Disconnect first.
+    ///
+    /// Deliberately narrow: `ConnectionLossClassifier` refuses to call a
+    /// statement timeout or a cancellation a loss, because dropping the pool
+    /// on the single most common failure in this app would disconnect the
+    /// user every time a query ran long.
+    func markConnectionLost(id: String, reason: String) {
+        guard ConnectionLossClassifier.isConnectionLoss(reason) else { return }
+        guard connectionStatuses[id] != .error else { return }
+        connectionStatuses[id] = .error
+        connectionErrors[id] = reason
+        // The pool on the Rust side is already unusable; drop ours so a
+        // reconnect builds a new one rather than handing back the dead pool.
+        for session in sessions where session.activeConnectionId == id {
+            session.activeConnectionId = nil
+        }
+        postStatusChange(id)
+        Log.state.error("Connection \(id, privacy: .public) marked lost: \(reason, privacy: .public)")
+    }
+
     private func postStatusChange(_ connectionId: String) {
         NotificationCenter.default.post(
             name: Self.connectionStatusDidChange,
