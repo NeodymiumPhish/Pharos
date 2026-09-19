@@ -1,6 +1,7 @@
 import AppKit
 
-/// Asks for a password when a connect attempt had none to dial with.
+/// Asks for a password when a connect attempt had none to dial with, and for
+/// the SSH tunnel secret when a bastion refused the identity it was given.
 ///
 /// It sits on `AppStateManager.connectionStatusDidChange` — the notification
 /// every connect outcome posts — rather than inside the connect path itself.
@@ -68,6 +69,25 @@ final class PasswordPromptCoordinator {
               let config = state.connections.first(where: { $0.id == id })
         else { return }
 
+        // The TUNNEL is asked about FIRST, and it answers the whole failure
+        // when it answers at all. The tunnel opens before the pool, so a
+        // bastion that refused us means the database was never reached — and
+        // a password sheet for a database nothing has spoken to yet would be
+        // the wrong question.
+        switch SshSecretPrompt.decide(failure: state.connectionError(for: id),
+                                      auth: config.sshTunnel?.auth,
+                                      requiresAuthentication: config.requiresAuthentication,
+                                      gateIsFresh: state.gateIsFresh(for: id)) {
+        case .prompt:
+            presentSshSecret(config)
+            return
+        case .authenticateThenPrompt:
+            gateThen(config) { [weak self] in self?.presentSshSecret(config) }
+            return
+        case .ignore:
+            break
+        }
+
         // `config.password` is what the core handed over, and the core fills it
         // from the Keychain cache at startup. A record that remembers nothing
         // arrives with it empty, which is exactly the question being asked.
@@ -92,22 +112,33 @@ final class PasswordPromptCoordinator {
         case .prompt:
             present(config)
         case .authenticateThenPrompt:
-            let name = DisplayEscape.escapedTrimmed(config.name)
-            prompting.insert(id)
-            Task { @MainActor in
-                let outcome = await DeviceOwnerGate.authenticate(
-                    reason: String(localized: "connect to \(name)"))
-                self.prompting.remove(id)
-                switch outcome {
-                case .authenticated:
-                    // One proof covers the sheet and the reconnect behind it.
-                    AppStateManager.shared.noteGatePassed(for: config.id)
-                    self.present(config)
-                case .cancelled:
-                    break
-                case .failed(let reason):
-                    Log.state.error("Password prompt gate refused: \(reason, privacy: .public)")
-                }
+            gateThen(config) { [weak self] in self?.present(config) }
+        }
+    }
+
+    /// Put the record's Touch ID gate in front of `sheet`.
+    ///
+    /// The id is held in `prompting` for the length of the gate, so a second
+    /// failure arriving while the system prompt is up cannot raise a second
+    /// one behind it. A pass is recorded with `noteGatePassed`, so the ONE
+    /// proof covers the sheet and the reconnect behind it instead of raising
+    /// a fresh prompt for each — see `DeviceOwnerGateRecency`.
+    private func gateThen(_ config: ConnectionConfig, sheet: @escaping () -> Void) {
+        let id = config.id
+        let name = DisplayEscape.escapedTrimmed(config.name)
+        prompting.insert(id)
+        Task { @MainActor in
+            let outcome = await DeviceOwnerGate.authenticate(
+                reason: String(localized: "connect to \(name)"))
+            self.prompting.remove(id)
+            switch outcome {
+            case .authenticated:
+                AppStateManager.shared.noteGatePassed(for: id)
+                sheet()
+            case .cancelled:
+                break
+            case .failed(let reason):
+                Log.state.error("Password prompt gate refused: \(reason, privacy: .public)")
             }
         }
     }
@@ -133,6 +164,70 @@ final class PasswordPromptCoordinator {
             self.use(password, remember: remember, for: id)
         }
         host.presentAsSheet(sheet)
+    }
+
+    /// Ask for the SSH tunnel's secret.
+    ///
+    /// The sheet names the BASTION, not the database: a user who has both
+    /// prompts in one session must be able to tell them apart, and the secret
+    /// being asked for belongs to the SSH server.
+    private func presentSshSecret(_ config: ConnectionConfig) {
+        guard !prompting.contains(config.id),
+              let tunnel = config.sshTunnel,
+              let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              let host = window.contentViewController
+        else { return }
+
+        prompting.insert(config.id)
+        let id = config.id
+        let target = [tunnel.user.map { "\($0)@" } ?? "", tunnel.host, ":\(tunnel.port)"].joined()
+        let sheet = PasswordPromptSheet(
+            purpose: .sshSecret(auth: tunnel.auth, sshTarget: target),
+            name: config.name,
+            address: target,
+            remembersAlready: tunnel.rememberSecret
+        ) { [weak self] outcome in
+            guard let self else { return }
+            self.prompting.remove(id)
+            guard case .connect(let secret, let remember) = outcome else { return }
+            self.useSshSecret(secret, remember: remember, for: id)
+        }
+        host.presentAsSheet(sheet)
+    }
+
+    /// Put the typed tunnel secret to work.
+    ///
+    /// With "Remember in the Keychain" ticked the record is saved first, which
+    /// is what writes the secret under `<id>/ssh` and turns the tunnel's own
+    /// `rememberSecret` on. Without it, nothing is written anywhere: the core
+    /// keeps it in the map that dies with the process.
+    ///
+    /// The retry is the WHOLE connect. The tunnel opens before the pool, so
+    /// there is no shorter path back.
+    private func useSshSecret(_ secret: String, remember: Bool, for id: String) {
+        let state = AppStateManager.shared
+
+        if remember, var config = state.connections.first(where: { $0.id == id }),
+           var tunnel = config.sshTunnel {
+            tunnel.secret = secret
+            tunnel.rememberSecret = true
+            config.sshTunnel = tunnel
+            state.saveConnection(config)
+        }
+
+        Task { @MainActor in
+            do {
+                // This is what puts the secret in the core's session map, so
+                // every later attempt this run finds it too.
+                _ = try await PharosCore.connect(connectionId: id, sshSecret: secret)
+            } catch {
+                // The reason belongs to the connect below, which records it in
+                // the state the UI reads. Nothing is logged here that could
+                // carry the secret.
+                Log.state.error("Connect with a typed SSH secret failed")
+            }
+            state.connect(id: id)
+        }
     }
 
     /// Put the typed password to work.

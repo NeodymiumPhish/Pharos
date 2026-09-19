@@ -299,6 +299,7 @@ final class ConnectionsManagerVC: NSViewController {
     private let sshSecretField = NSSecureTextField()
     private let sshShowSecretButton = NSButton()
     private let sshAcceptNewHostKeysCheckbox = NSButton()
+    private let sshRememberSecretCheckbox = NSButton()
     private let sshHostBadge = HostileTextBadge()
     private let sshUserBadge = HostileTextBadge()
 
@@ -311,6 +312,7 @@ final class ConnectionsManagerVC: NSViewController {
     /// mode takes a PASSWORD, and calling both the same thing would be wrong
     /// in one of the two.
     private var sshSecretRow: NSView?
+    private var sshRememberSecretRow: NSView?
     private let sshSecretLabel = NSTextField(labelWithString: "")
 
     private let testButton = NSButton()
@@ -912,6 +914,17 @@ final class ConnectionsManagerVC: NSViewController {
         sshAcceptNewHostKeysCheckbox.translatesAutoresizingMaskIntoConstraints = false
         sshAcceptNewHostKeysCheckbox.setAccessibilityIdentifier("connections.ssh.acceptNewHostKeys")
 
+        sshRememberSecretCheckbox.setButtonType(.switch)
+        sshRememberSecretCheckbox.title = String(localized: "Remember the SSH secret in the keychain")
+        sshRememberSecretCheckbox.target = self
+        sshRememberSecretCheckbox.action = #selector(fieldEdited)
+        sshRememberSecretCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        sshRememberSecretCheckbox.setAccessibilityIdentifier("connections.ssh.rememberSecret")
+        // What it ACTUALLY does, both ways round, and that it is the TUNNEL's
+        // switch — the database password has its own, higher up this form.
+        sshRememberSecretCheckbox.toolTip = String(localized:
+            "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch.")
+
         let keyControls = NSStackView(views: [sshKeyPathField, sshChooseKeyButton])
         keyControls.orientation = .horizontal
         keyControls.alignment = .centerY
@@ -938,6 +951,7 @@ final class ConnectionsManagerVC: NSViewController {
         sshSecretLabel.font = .systemFont(ofSize: 13)
         sshSecretLabel.textColor = .labelColor
         let secretRow = row(labelView: sshSecretLabel, field: secretControls)
+        let rememberSecretRow = row(label: "", control: sshRememberSecretCheckbox)
         let acceptRow = row(label: "", control: sshAcceptNewHostKeysCheckbox)
         let acceptNote = noteRow(caption(String(localized:
             "Records an unknown server key on the first connection. A changed key is still refused.")))
@@ -946,8 +960,10 @@ final class ConnectionsManagerVC: NSViewController {
 
         sshKeyPathRow = keyRow
         sshSecretRow = secretRow
+        sshRememberSecretRow = rememberSecretRow
+        // The remember switch sits directly under the secret it governs.
         sshRows = [hostRow, portRow, userRow, authRow, keyRow, secretRow,
-                   acceptRow, acceptNote, configNote]
+                   rememberSecretRow, acceptRow, acceptNote, configNote]
 
         let enabledRow = row(label: "", control: sshEnabledCheckbox)
         return section(title: String(localized: "SSH Tunnel"), rows: [enabledRow] + sshRows)
@@ -970,6 +986,7 @@ final class ConnectionsManagerVC: NSViewController {
         for view in sshRows { view.isHidden = !rules.tunnelRows }
         sshKeyPathRow?.isHidden = !rules.keyFileRow
         sshSecretRow?.isHidden = !rules.secretRow
+        sshRememberSecretRow?.isHidden = !rules.rememberSecretRow
         sshSecretLabel.stringValue = rules.secretLabel
     }
 
@@ -1036,6 +1053,11 @@ final class ConnectionsManagerVC: NSViewController {
                 keyPath: sshKeyPathField.stringValue,
                 secret: sshSecretField.stringValue,
                 acceptNewHostKeys: sshAcceptNewHostKeysCheckbox.state == .on,
+                // Cleared, this is a DESTRUCTIVE save: `save_connection`
+                // deletes the `<id>/ssh` item already in the keychain rather
+                // than merely stopping writing new ones. That is the point of
+                // the switch, and it is what the tooltip states.
+                rememberSecret: sshRememberSecretCheckbox.state == .on,
                 secretRevealed: passwordRevealed),
             existing: existing)
     }
@@ -1361,6 +1383,9 @@ final class ConnectionsManagerVC: NSViewController {
         selectSshAuthPopup(tunnel?.auth ?? .agent)
         sshKeyPathField.stringValue = tunnel?.keyPath ?? ""
         sshAcceptNewHostKeysCheckbox.state = (tunnel?.acceptNewHostKeys ?? false) ? .on : .off
+        // A record with no tunnel yet starts ON, which is what a tunnel added
+        // to it would have done before this switch existed.
+        sshRememberSecretCheckbox.state = (tunnel?.rememberSecret ?? true) ? .on : .off
         applySshRowVisibility()
         passwordRevealed = !config.requiresAuthentication
         showPasswordAuthNote("")
@@ -1437,7 +1462,11 @@ final class ConnectionsManagerVC: NSViewController {
         // The badge says THAT the last attempt failed; the tooltip says why —
         // including a refused Touch ID gate, which otherwise leaves the user
         // with a red badge and no sentence.
+        // `humanised` takes off the `[SSH AUTH]` marker the core puts in front
+        // of a tunnel authentication failure. The marker is for the app —
+        // `SshSecretPrompt` reads it — never for the reader.
         statusBadge.toolTip = stateManager.connectionError(for: id)
+            .map(SshTunnelAuthError.humanised)
         switch listModel.status(for: id) {
         case .connected:   statusBadge.apply(state: .connected)
         case .connecting:  statusBadge.apply(state: .connecting)

@@ -123,8 +123,40 @@ pub extern "C" fn pharos_connect_with_password(
     });
 }
 
-/// Forget every password typed this run. The Keychain is untouched. Returns
-/// how many were dropped, so the caller can log a count and never a name.
+/// Connect with an SSH tunnel secret the user has just typed, rather than one
+/// the Keychain holds. Calls `callback` when done.
+///
+/// The sibling of `pharos_connect_with_password`, for the other secret, and
+/// the same contract: held for this process only, never written to the
+/// Keychain by this call, never logged. It retries the whole connect, tunnel
+/// included.
+#[no_mangle]
+pub extern "C" fn pharos_connect_with_ssh_secret(
+    connection_id: *const c_char,
+    secret: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let id = unsafe { c_str_to_string(connection_id) };
+    let secret = unsafe { c_str_to_string(secret) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::connect_postgres_with_ssh_secret(id, secret, state).await {
+            Ok(info) => {
+                let json = serde_json::to_string(&info).unwrap_or_default();
+                callback_ok(callback, ctx, &json);
+            }
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// Forget every password typed this run — database passwords and SSH tunnel
+/// secrets alike, because both live in the one process-only map, under keys
+/// that cannot collide. The Keychain is untouched. Returns how many were
+/// dropped, so the caller can log a count and never a name.
 #[no_mangle]
 pub extern "C" fn pharos_clear_session_passwords() -> u32 {
     match std::panic::catch_unwind(AssertUnwindSafe(|| {

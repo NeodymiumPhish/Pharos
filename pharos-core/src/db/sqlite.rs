@@ -1101,6 +1101,7 @@ mod connection_ssh_tunnel_tests {
             key_path: Some("/Users/x/.ssh/id_ed25519".to_string()),
             secret: SECRET.to_string(),
             accept_new_host_keys: true,
+            remember_secret: true,
         }
     }
 

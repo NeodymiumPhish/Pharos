@@ -53,7 +53,28 @@ extension PharosCore {
         }
     }
 
-    /// Forget every password typed this run. The Keychain is untouched.
+    /// Connect with an SSH tunnel secret the user has just typed.
+    ///
+    /// The sibling of `connect(connectionId:password:)`, for the other secret,
+    /// and the same contract: the core holds it for this process only, never
+    /// writes it to the Keychain here, and never logs it. Storing it is a
+    /// separate, deliberate act — a save with the tunnel's `rememberSecret` on.
+    ///
+    /// It retries the WHOLE connect, tunnel included. The tunnel opens before
+    /// the pool, so there is no shorter path back.
+    static func connect(connectionId: String, sshSecret: String) async throws -> ConnectionInfo {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cId in
+                sshSecret.withCString { cSecret in
+                    pharos_connect_with_ssh_secret(cId, cSecret, callback, context)
+                }
+            }
+        }
+    }
+
+    /// Forget every password typed this run — database passwords and SSH
+    /// tunnel secrets alike, because the core keeps both in one process-only
+    /// map. The Keychain is untouched.
     /// Returns how many were dropped, so a caller can log a count, never a name.
     @discardableResult
     static func clearSessionPasswords() -> Int {

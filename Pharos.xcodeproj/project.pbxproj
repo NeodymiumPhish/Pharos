@@ -279,6 +279,7 @@
 		C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */; };
 		C09D4BB119BB9E4BAE7941C1 /* ServerChartDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */; };
 		C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */; };
+		C0ED1A596AC2A882A5EA1943 /* SshSecretPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */; };
 		C15E7F3DE79893F32AB4E3B7 /* TagConditionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3100894A7037A0DB0C24E782 /* TagConditionKind.swift */; };
 		C35835C7F2F3155BB74617C5 /* WorkspacePreviewRowCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361B610F3C6455B4014519C /* WorkspacePreviewRowCell.swift */; };
 		C43EFD93254ABEDB9D31C289 /* ResultsGridStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD16963EE6123B34131F7C1B /* ResultsGridStyle.swift */; };
@@ -381,6 +382,7 @@
 		1181620F4973B4674683C030 /* PlanSummaryPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanSummaryPrompt.swift; sourceTree = "<group>"; };
 		1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariableStore.swift; sourceTree = "<group>"; };
 		13897D85C05525947FD11603 /* ColumnIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnIdentifier.swift; sourceTree = "<group>"; };
+		144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshSecretPrompt.swift; sourceTree = "<group>"; };
 		14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsavedWorkPolicy.swift; sourceTree = "<group>"; };
 		153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSuggestionPolicy.swift; sourceTree = "<group>"; };
 		15F15F6D530ED4B08BF8F19F /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
@@ -1026,6 +1028,7 @@
 				7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */,
 				D2240C5A2BF2FB990EA1C5BF /* SidebarNavigatorPrefs.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
+				144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */,
 				3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */,
 				34B18675CC8E31A7FF367C89 /* TagCapture.swift */,
 				0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */,
@@ -1600,6 +1603,7 @@
 				ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */,
 				FBD8A06F677E3473D376A411 /* SqlIdentifierQuoting.swift in Sources */,
 				C707C30495E4C2E63CAF2CAF /* SqlPushdownGenerator.swift in Sources */,
+				C0ED1A596AC2A882A5EA1943 /* SshSecretPrompt.swift in Sources */,
 				50795CF12B0CCB092BB81A6B /* SshTunnelForm.swift in Sources */,
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,

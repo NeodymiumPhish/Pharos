@@ -279,8 +279,12 @@ final class MainToolbarController: NSObject {
             titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
             // A failed connect carries its reason; "Connection error" alone
             // sent the user to the Connections window to find out why.
+            // `humanised` takes off the `[SSH AUTH]` marker the core puts in
+            // front of a tunnel authentication failure. The marker is for the
+            // app — `SshSecretPrompt` reads it — never for the reader.
             let reason = status == .error
-                ? stateManager.connectionError(for: config.id).map { DisplayEscape.escaped($0) }
+                ? stateManager.connectionError(for: config.id)
+                    .map { DisplayEscape.escaped(SshTunnelAuthError.humanised($0)) }
                 : nil
             // The bastion, when there is one: the tooltip is the only place
             // in the main window that says a query is travelling through an

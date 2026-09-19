@@ -26,6 +26,8 @@ func runTests() {
         expect(!v.tunnelRows, "tunnel off hides the rows (auth \(auth.rawValue))")
         expect(!v.keyFileRow, "tunnel off hides the key-file row (auth \(auth.rawValue))")
         expect(!v.secretRow, "tunnel off hides the secret row (auth \(auth.rawValue))")
+        expect(!v.rememberSecretRow,
+               "tunnel off hides the remember-secret row (auth \(auth.rawValue))")
     }
 
     // 2. The agent needs neither a key file nor a secret. Showing a secret
@@ -34,6 +36,10 @@ func runTests() {
     expect(agent.tunnelRows, "the tunnel's rows show when it is on")
     expect(!agent.keyFileRow, "the agent needs no key file")
     expect(!agent.secretRow, "the agent needs no secret")
+    // HIDDEN, not disabled. There is no secret for the agent, so a checkbox
+    // left on screen would show a state — ticked — that claims Pharos keeps
+    // something it does not have.
+    expect(!agent.rememberSecretRow, "the agent has no secret to remember")
 
     // 3. A key file shows BOTH rows: the path, and the passphrase the key may
     // carry. A key with no passphrase leaves the field empty, which is exactly
@@ -42,6 +48,7 @@ func runTests() {
     expect(keyFile.keyFileRow, "a key file shows the path row")
     expect(keyFile.secretRow, "a key file shows the passphrase row")
     expectEqual(keyFile.secretLabel, "Passphrase", "a key file's secret is a passphrase")
+    expect(keyFile.rememberSecretRow, "a key file's passphrase can be remembered")
 
     // 4. Password auth shows the secret and NOT the key path — a path here
     // would be offered to ssh with no key to go with it.
@@ -49,6 +56,14 @@ func runTests() {
     expect(!password.keyFileRow, "password auth shows no key-file row")
     expect(password.secretRow, "password auth shows the secret row")
     expectEqual(password.secretLabel, "Password", "password auth's secret is a password")
+    expect(password.rememberSecretRow, "password auth's secret can be remembered")
+    // The switch follows the secret it governs, exactly. A row that could
+    // appear without the field above it would govern nothing on screen.
+    for auth in [SshAuthMethod.agent, .keyFile, .password] {
+        let v = SshTunnelForm.visibility(enabled: true, auth: auth)
+        expectEqual(v.rememberSecretRow, v.secretRow,
+                    "the remember switch shows exactly when the secret does (\(auth.rawValue))")
+    }
 
     // MARK: Form to model
 
@@ -154,6 +169,31 @@ func runTests() {
     secretOnly.secret = "a-new-passphrase"
     expectEqual(SshTunnelForm.fingerprint(secretOnly), baseline,
                 "a changed secret reaches the same server, so the fingerprint holds")
+    // Nor does WHERE the secret is kept change which machine is reached.
+    var rememberOnly = base
+    rememberOnly.rememberSecret = false
+    expectEqual(SshTunnelForm.fingerprint(rememberOnly), baseline,
+                "the remember switch reaches the same server, so the fingerprint holds")
+
+    // MARK: The remember switch, form to model
+
+    // 10b. The switch defaults to ON — today's behaviour, where the secret was
+    // stored whatever the record said — and the form carries it through in
+    // both positions.
+    expectEqual(SshTunnelForm.Fields(enabled: true, host: "b").rememberSecret, true,
+                "a fresh form remembers, which is what every tunnel did before this switch")
+    let remembering = SshTunnelForm.Fields(enabled: true, host: "b", rememberSecret: true)
+    expectEqual(SshTunnelForm.tunnel(from: remembering, existing: nil)?.rememberSecret, true,
+                "the switch on reaches the model on")
+    let forgetting = SshTunnelForm.Fields(enabled: true, host: "b", rememberSecret: false)
+    expectEqual(SshTunnelForm.tunnel(from: forgetting, existing: nil)?.rememberSecret, false,
+                "the switch off reaches the model off — this is the destructive save")
+    // It is carried for the AGENT too, whose row is hidden rather than reset,
+    // so moving to the agent and back does not silently change the answer.
+    let agentFields = SshTunnelForm.Fields(enabled: true, host: "b", auth: .agent,
+                                           rememberSecret: false)
+    expectEqual(SshTunnelForm.tunnel(from: agentFields, existing: nil)?.rememberSecret, false,
+                "a hidden row keeps the user's answer rather than resetting it")
 
     // MARK: Derived text
 

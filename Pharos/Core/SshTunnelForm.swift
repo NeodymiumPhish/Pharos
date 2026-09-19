@@ -20,6 +20,16 @@ enum SshTunnelForm {
         var keyFileRow: Bool
         /// The passphrase or password row. The agent needs no secret.
         var secretRow: Bool
+        /// The "Remember the SSH secret in the keychain" row.
+        ///
+        /// It follows the secret row exactly, and is HIDDEN rather than
+        /// disabled for the agent. Two reasons. The section already hides the
+        /// rows that do not apply — the key file for a password tunnel, the
+        /// secret for the agent — so a lone disabled row would be the odd one
+        /// out. And a disabled checkbox still SHOWS a state: ticked, it would
+        /// tell an agent user that Pharos is keeping a secret it does not
+        /// have.
+        var rememberSecretRow: Bool
         /// The secret row's label. A key file takes a PASSPHRASE and a
         /// password mode takes a PASSWORD; one word for both would be wrong
         /// in one of the two.
@@ -29,12 +39,15 @@ enum SshTunnelForm {
     static func visibility(enabled: Bool, auth: SshAuthMethod) -> Visibility {
         guard enabled else {
             return Visibility(tunnelRows: false, keyFileRow: false,
-                              secretRow: false, secretLabel: secretLabel(for: auth))
+                              secretRow: false, rememberSecretRow: false,
+                              secretLabel: secretLabel(for: auth))
         }
+        let needsSecret = auth != .agent
         return Visibility(
             tunnelRows: true,
             keyFileRow: auth == .keyFile,
-            secretRow: auth != .agent,
+            secretRow: needsSecret,
+            rememberSecretRow: needsSecret,
             secretLabel: secretLabel(for: auth))
     }
 
@@ -56,6 +69,9 @@ enum SshTunnelForm {
         var keyPath: String
         var secret: String
         var acceptNewHostKeys: Bool
+        /// The "Remember the SSH secret in the keychain" checkbox. It starts
+        /// ON, which is what every tunnel written before it did.
+        var rememberSecret: Bool
         /// False while the secret field shows the mask rather than the stored
         /// secret. The mask is not a secret, so it must never be written back.
         var secretRevealed: Bool
@@ -63,6 +79,7 @@ enum SshTunnelForm {
         init(enabled: Bool = false, host: String = "", port: String = "22",
              user: String = "", auth: SshAuthMethod = .agent, keyPath: String = "",
              secret: String = "", acceptNewHostKeys: Bool = false,
+             rememberSecret: Bool = true,
              secretRevealed: Bool = true) {
             self.enabled = enabled
             self.host = host
@@ -72,6 +89,7 @@ enum SshTunnelForm {
             self.keyPath = keyPath
             self.secret = secret
             self.acceptNewHostKeys = acceptNewHostKeys
+            self.rememberSecret = rememberSecret
             self.secretRevealed = secretRevealed
         }
     }
@@ -94,7 +112,11 @@ enum SshTunnelForm {
             auth: fields.auth,
             keyPath: keyPath.isEmpty ? nil : keyPath,
             secret: fields.secretRevealed ? fields.secret : (existing?.secret ?? ""),
-            acceptNewHostKeys: fields.acceptNewHostKeys)
+            acceptNewHostKeys: fields.acceptNewHostKeys,
+            // Carried whatever the mode is. The agent hides this row rather
+            // than resetting it, so a user who moves to the agent and back
+            // finds the answer they gave.
+            rememberSecret: fields.rememberSecret)
     }
 
     // MARK: Derived text

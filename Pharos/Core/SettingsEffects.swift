@@ -108,11 +108,14 @@ final class SettingsEffects {
 
     /// Start or stop listening for sleep.
     ///
-    /// The handler clears the core's PROCESS-ONLY password map and nothing
-    /// else: the Keychain is untouched, so a connection that remembers its
-    /// password is unaffected and wakes up able to connect. Only the count is
-    /// logged — a password, or the name of the connection it belongs to, never
-    /// reaches the log.
+    /// The handler clears the core's PROCESS-ONLY secret map and nothing else:
+    /// the Keychain is untouched, so a connection that remembers its password
+    /// is unaffected and wakes up able to connect. That one map holds BOTH
+    /// kinds of typed secret — database passwords under the connection id, SSH
+    /// tunnel secrets under `<id>/ssh` — so a tunnel that remembers nothing is
+    /// asked for its secret again after sleep, exactly as the password is.
+    /// Only the count is logged — a secret, or the name of the connection it
+    /// belongs to, never reaches the log.
     private func observeSleep(_ clearing: Bool) {
         let centre = NSWorkspace.shared.notificationCenter
         if let observer = sleepObserver {
@@ -134,7 +137,7 @@ final class SettingsEffects {
             // keeping it would let the next connect skip the gate on a Mac
             // that has just been asleep.
             AppStateManager.shared.forgetGatePasses()
-            Log.state.info("Sleep: forgot \(dropped, privacy: .public) typed password(s)")
+            Log.state.info("Sleep: forgot \(dropped, privacy: .public) typed secret(s)")
         }
     }
 }
