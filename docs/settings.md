@@ -49,9 +49,52 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 
 ## Navigator Pane
 
+The [Database Navigator](schema-browser.md): what it shows, in what order, and
+what a double-click on a row does. Every default is what the Navigator did
+before the setting existed, so nothing changes until you touch a control.
+
+### Schemas
+
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
+| Order schemas by | Name, Default schema first | Name | Name is the order the server returns, which is what the Navigator has always shown. Default schema first lifts the schema the connection names to the top and leaves the rest by name; a connection that names none is unchanged. |
+
+### Objects
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Order objects by | Kind, then name; Name; Size; Row estimate | Kind, then name | Kind, then name lists the tables by name, then the views by name. Name mixes views in among the tables. Size and Row estimate put the largest first; an object that has not been measured yet goes to the END, by name, never to the front — an unmeasured table is not a small one, and sorting it as zero would reshuffle the list as the measurements arrived. |
 | Show leaf partitions | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
+| Order partitions by | Partition bound, Name, Size | Name | The order inside that Partitions folder. Partition bound reads each partition's own FROM or IN value, so a range-partitioned table reads in date order; MINVALUE comes first, MAXVALUE after the real keys, and DEFAULT last. |
+| Open the default schema | On/Off | On | Expands the schema the connection names — or `public`, when it names none — as soon as the tree is built. |
+| Only below | 0–100,000 objects | 500 | The ceiling for the row above. Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle. |
+
+### Actions
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| On double-click | Expand or collapse, View contents, Describe, Insert the name in the editor | Expand or collapse | Every action but Expand runs exactly what the row's own context menu runs. A row the action means nothing for — a schema, a column — still expands. Describe opens the table's DDL sheet, and only a plain table has one. |
+| Limit the rows View contents fetches | On/Off | On | Uses Query ▸ **Default row limit**. Off selects every row, as the context menu's **View All Contents** does. Read only while the double-click action is View contents. |
+| Row counts in the Limit menu | 10 / 100 / 1,000 / 10,000 · 10 / 50 / 100 / 500 · 100 / 1,000 / 10,000 / 100,000 · 1,000 only | 10 / 100 / 1,000 / 10,000 | The rows the Navigator's **View Contents (Limit…)** submenu offers on a table, a view or a partition. A whole set at a time, not a list you edit. |
+
+## Library & History Pane
+
+The [Query Library](saved-queries.md) navigator and the Save Query sheet, then
+the [Results History](query-history.md) navigator.
+
+### Query Library
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default folder | Any folder name, or empty | *(empty)* | The folder the Save Query sheet opens on. Empty opens on **No Folder**, which is what the sheet has always done. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and **New Folder…** still makes one. |
+| Order queries by | Folder, then name; Name; Recently updated | Folder, then name | Folder, then name is the grouped tree with a row per folder, then the unfiled queries. Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden. Recently updated puts the newest first and breaks a tie by name. |
+| On double-click | Open in a tab, Open in a tab and run it | Open in a tab | Open in a tab and run it runs the query as soon as its tab is there. A tab with no connection opens the query and stops. The context menu's **Open in Tab** always just opens, whichever this says. |
+
+### History
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Entries to load | 10–5,000 entries | 200 | How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer. |
 
 ## Editor Pane
 
@@ -182,12 +225,39 @@ Everything about the [results grid](results-grid.md). NULL display, boolean disp
 | Notify when the app is in the background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
 | Notify for a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
 | Minimum duration | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
+| Play a sound | On/Off | On | Whether a posted notification carries the system's default notification sound. Off posts the same notification silently. Notification Centre can silence Pharos entirely, whatever this says. |
+| Badge the Dock icon | On/Off | On | Counts the queries that finished while you were in another app and shows the count on the Dock tile, whatever the three gates above say — a fast query that never reaches the duration threshold is still counted. The count clears the moment you come back to Pharos. Off counts nothing. |
+
+### In the window
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Message duration | Short (1 second), Normal (2 seconds), Long (5 seconds) | Normal | How long a message at the foot of the window stays before it fades. Normal is the 2 seconds these messages have always used. A few messages ask for longer on their own — a rejected edit, a sanitised label — and keep the time they ask for whatever this says. |
 
 ## Intelligence Pane
+
+The on-device model, and the seven features that use it. The master switch is
+first; each feature below it is indented and takes effect only while the
+master is on. Every default is On — all seven ran whenever Apple Intelligence
+was allowed before the switches existed — so nothing changes until you clear
+one. Nothing here sends anything anywhere.
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Use Apple Intelligence features | On/Off | On | Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac. The row is dimmed, with the reason in its place, on a Mac that cannot run the model. |
+| Describe the query | On/Off | On | The editor toolbar's **Describe the query…** button, which drafts SQL from a sentence. Off takes the button away. |
+| Allow drafts that write | On/Off | On | Off drafts reads only: a draft that is not a plain `SELECT` — or that contains `DELETE`, `DROP`, `UPDATE` and the rest — is refused with a sentence saying so, instead of being offered behind its confirmation. Pharos never runs a draft either way. |
+| Explain query errors | On/Off | On | The explanation block on the [query-error sheet](query-errors.md). Off leaves the error's own text, which is unchanged. |
+| Summarise query plans | On/Off | On | The generated sentence above an `EXPLAIN` result. The plan tree itself is not generated and is always shown. |
+| Suggest charts | On/Off | On | Whether **Suggest chart** asks the model. Off, the button stays and applies the chart Pharos recommends for these columns from the column shapes alone. |
+| Suggest names | On/Off | On | Fills the name field in the **Save Query** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
+| Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs. A tab you have named yourself is never touched. |
+
+### Feedback
+
+The thumbs under a generated answer are recorded on this Mac, with a digest of
+the prompt rather than the prompt itself. The Intelligence pane reports how
+many of each you have given. There is no button to clear them yet.
 
 ## Shortcuts Pane
 
@@ -198,6 +268,32 @@ Nothing here can be rebound, and that is on purpose: macOS already does it. **Sy
 ## Charts Pane
 
 The default series palette used by every chart: one color well per slot, **Add color** and the minus button to change how many slots there are, and **Reset to defaults** for the built-in set. See [Charts](charts.md#colors) for how a chart chooses between this palette and its own override.
+
+## Security & Privacy Pane
+
+Nothing leaves this Mac. Pharos has no account, no telemetry and no analytics;
+everything below is written to your own disk and read by your own Mac. Both
+switches take effect at once — neither needs a relaunch.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Find saved queries in Spotlight | On/Off | On | Puts each saved query's name, folder and SQL in the system index, so Spotlight finds it and opens it in Pharos. Turning this off does not merely stop indexing: it removes everything Pharos has already put in Spotlight. |
+| Collect performance reports | On/Off | On | Subscribes to the system's daily MetricKit payloads and writes them to `~/Library/Logs/Pharos` as `metrickit-*.json`, for you to read or attach to a bug report. Nothing is uploaded. Off unsubscribes at once. |
+
+Passwords are held in the macOS Keychain and are not settings; see
+[Connections](connections.md).
+
+## Advanced Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Refetch metadata after | 0–1,440 minutes | 0 | How old a connection's cached schema may be before Pharos fetches it again when you next switch to that connection. 0 means never expire, which is what the cache has always done: an entry lives until the connection closes or you refresh it by hand. |
+
+| Button | What it does |
+|--------|--------------|
+| Clear Metadata Cache | Drops every connection's cached schemas, tables and columns. The next use of a connection fetches them again. Completion has nothing to offer until it does. |
+| Reveal Logs in Finder | Opens `~/Library/Logs/Pharos` in the Finder — the crash logs, and the performance reports if they are being collected. |
+| Reset All Settings… | Asks once, then puts every preference in this window back to its default and forgets where the windows, panels and split views were left. Your connections, saved queries, history, variables and tags are not touched. |
 
 ## Update Checks
 

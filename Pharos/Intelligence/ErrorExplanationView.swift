@@ -46,8 +46,7 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
         build()
         // The setting can be cleared in another window while this sheet is open.
         // Losing availability takes the block away with everything it holds.
-        availability = ModelAvailability.shared.$isAvailable
-            .removeDuplicates()
+        availability = ModelAvailability.shared.publisher(for: .explainErrors)
             .sink { [weak self] available in
                 guard let self, !available else { return }
                 self.explain(nil)
@@ -152,7 +151,8 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
         self.failure = failure
         clear()
 
-        guard let failure, failure.kind == .error, ModelAvailability.shared.isAvailable else {
+        guard let failure, failure.kind == .error,
+              ModelAvailability.shared.isAvailable(for: .explainErrors) else {
             isHidden = true
             return
         }

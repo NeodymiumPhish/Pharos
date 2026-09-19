@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 
 extension Notification.Name {
@@ -130,6 +131,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private static let previewSplitAutosave = "PharosHistoryPreviewSplit"
 
     private var connectionFilter: String?
+
+    /// Re-fetches when Settings ▸ Library & History changes how many entries
+    /// the list loads. Mapped and de-duplicated so no other settings change
+    /// reaches it.
+    private var settingsCancellable: AnyCancellable?
     private var filterText: String?
 
     /// Result IDs whose SQL matched the active filter, keyed by workspace.
@@ -287,6 +293,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     func reload(connectionId: String? = nil) {
         self.connectionFilter = connectionId
+        if settingsCancellable == nil {
+            settingsCancellable = AppStateManager.shared.$settings
+                .map(\.history.maximumEntries)
+                .removeDuplicates()
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.requery() }
+        }
         requery()
     }
 
@@ -349,6 +363,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let generation = requeryGeneration
         let search = (filterText?.isEmpty ?? true) ? nil : filterText
         let connectionId = connectionFilter
+        // Settings ▸ Library & History ▸ Entries to load. There is no paging
+        // here — the list is this one fetch — and 200, the default, is the
+        // number both calls were hard-coded to. Read on the main actor before
+        // the detached task, which cannot touch the store.
+        let entryLimit = Int(AppStateManager.shared.settings.history.maximumEntries)
         // Hop the FFI roundtrip (SQLite IO + JSON decode) off the main thread
         // so typing in the sidebar filter — which can fire this several times
         // a second — never stalls the UI.
@@ -356,9 +375,9 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             let ws: [WorkspaceSummary]
             let legacy: [QueryHistoryEntry]
             do {
-                ws = try PharosCore.loadWorkspaces(filter: .init(search: search, limit: 200, offset: 0))
+                ws = try PharosCore.loadWorkspaces(filter: .init(search: search, limit: entryLimit, offset: 0))
                 legacy = try PharosCore.loadQueryHistory(
-                    filter: QueryHistoryFilter(connectionId: connectionId, search: search, limit: 200, onlyLegacy: true)
+                    filter: QueryHistoryFilter(connectionId: connectionId, search: search, limit: entryLimit, onlyLegacy: true)
                 )
             } catch {
                 Log.ui.error("Failed to load workspace history: \(error.localizedDescription, privacy: .public)")

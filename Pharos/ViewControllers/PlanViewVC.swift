@@ -132,8 +132,7 @@ final class PlanViewVC: NSViewController {
 
         // The feature can be switched off while a plan is on screen, so the
         // block follows availability rather than being decided once.
-        availabilityCancellable = ModelAvailability.shared.$isAvailable
-            .removeDuplicates()
+        availabilityCancellable = ModelAvailability.shared.publisher(for: .summarisePlans)
             .sink { [weak self] available in
                 MainActor.assumeIsolated { self?.availabilityChanged(to: available) }
             }
@@ -204,7 +203,7 @@ final class PlanViewVC: NSViewController {
     /// Settings left the plan with no summary until the next plan arrived,
     /// because this guard still saw `false`.
     private func startSummaryIfNeeded(for plan: QueryPlan, available: Bool? = nil) {
-        guard available ?? ModelAvailability.shared.isAvailable else {
+        guard available ?? ModelAvailability.shared.isAvailable(for: .summarisePlans) else {
             setSummaryVisible(false)
             return
         }
@@ -217,7 +216,7 @@ final class PlanViewVC: NSViewController {
 
     /// Ask again for the plan on screen — the Retry button.
     private func regenerateSummary() {
-        guard let plan, ModelAvailability.shared.isAvailable else { return }
+        guard let plan, ModelAvailability.shared.isAvailable(for: .summarisePlans) else { return }
         generateSummary(prompt: PlanSummaryPrompt.build(plan: plan))
     }
 

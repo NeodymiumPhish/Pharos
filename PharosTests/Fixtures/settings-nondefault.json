@@ -7,6 +7,9 @@
     ]
   },
   "checkForUpdates": false,
+  "diagnostics": {
+    "metadataCacheTtlMinutes": 1
+  },
   "editor": {
     "autoIndent": false,
     "autoPairBrackets": false,
@@ -28,6 +31,41 @@
     "syntaxTheme": "vivid",
     "tabSize": 3,
     "wordWrap": true
+  },
+  "history": {
+    "maximumEntries": 201
+  },
+  "intelligence": {
+    "allowDraftingWriteStatements": false,
+    "describeQuery": false,
+    "explainErrors": false,
+    "nameTabsAutomatically": false,
+    "suggestCharts": false,
+    "suggestSavedQueryNames": false,
+    "summarisePlans": false
+  },
+  "library": {
+    "defaultFolder": "Reports",
+    "doubleClickAction": "openAndRun",
+    "sortMode": "recentlyUpdated"
+  },
+  "navigator": {
+    "autoExpandDefaultSchema": false,
+    "autoExpandThreshold": 501,
+    "doubleClickAction": "viewContents",
+    "limitPresets": [
+      5,
+      50
+    ],
+    "objectSort": "size",
+    "partitionSort": "bound",
+    "schemaSort": "defaultFirst",
+    "viewContentsUsesRowLimit": false
+  },
+  "notifications": {
+    "badgeDockIcon": false,
+    "playSound": false,
+    "toastDuration": "long"
   },
   "nullDisplay": "null",
   "query": {
@@ -74,6 +112,10 @@
     "showColumnTypeIcons": true,
     "showResultTabsPanelByDefault": false,
     "showRowNumbers": false
+  },
+  "security": {
+    "collectPerformanceMetrics": false,
+    "indexSavedQueriesInSpotlight": false
   },
   "showLeafPartitions": true,
   "theme": "dark",

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UniformTypeIdentifiers
 import os
 
@@ -148,6 +149,13 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         ])
 
         updateEmptyState()
+
+        settingsCancellable = AppStateManager.shared.$settings
+            .map(\.library.sortMode)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyTreeChange() }
     }
 
     /// Show the "no saved queries" state only when the LIBRARY is empty. A
@@ -172,6 +180,11 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     /// hash inside `treeFingerprint()`. Used to skip reloadData when a filter
     /// keystroke produces the same tree we already show.
     private var lastTreeFingerprint: [String] = []
+
+    /// Rebuilds the tree when Settings ▸ Library & History changes the order.
+    /// Mapped and de-duplicated so no other settings change reaches it, and
+    /// `applyTreeChange` still skips the reload when the order did not move.
+    private var settingsCancellable: AnyCancellable?
 
     func reload() {
         do {
@@ -343,7 +356,31 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             queries = allQueries
         }
 
-        // Group by folder -- flat list of folders + unfiled queries at root
+        // Settings ▸ Library & History ▸ Order queries by. `folder` is the
+        // default, and is the grouped tree the Query Library has always
+        // shown; the other two are one flat list, with no folder rows.
+        switch AppStateManager.shared.settings.library.sortMode {
+        case .folder:
+            rootNodes = foldered(queries)
+        case .name:
+            rootNodes = queries
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                .map { SavedQueryNode(.query($0)) }
+        case .recentlyUpdated:
+            // Newest first. A tie breaks by name so two queries saved in the
+            // same second cannot swap places between rebuilds.
+            rootNodes = queries
+                .sorted {
+                    if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                .map { SavedQueryNode(.query($0)) }
+        }
+    }
+
+    /// Folders by name, each holding its queries, then the unfiled queries by
+    /// name. What the Query Library showed before the setting existed.
+    private func foldered(_ queries: [SavedQuery]) -> [SavedQueryNode] {
         var folders: [String: SavedQueryNode] = [:]
         var unfiled: [SavedQueryNode] = []
 
@@ -359,10 +396,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             }
         }
 
-        // Sort folders alphabetically, then unfiled queries by name
         let sortedFolders = folders.keys.sorted().compactMap { folders[$0] }
         unfiled.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        rootNodes = sortedFolders + unfiled
+        return sortedFolders + unfiled
     }
 
     private func expandAll() {
@@ -379,15 +415,20 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         let row = outlineView.clickedRow
         guard row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode else { return }
         if case .query(let q) = node.kind {
-            openQueryInTab(q)
+            // Settings ▸ Library & History ▸ On double-click. The context
+            // menu's "Open in Tab" always just opens, whichever this says.
+            let run = AppStateManager.shared.settings.library.doubleClickAction == .openAndRun
+            openQueryInTab(q, run: run)
         }
     }
 
-    private func openQueryInTab(_ query: SavedQuery) {
+    /// Open `query` in a tab. `run` also runs it once the tab is there — the
+    /// receiving window decides, because it owns the tab and its connection.
+    private func openQueryInTab(_ query: SavedQuery, run: Bool = false) {
         NotificationCenter.default.post(
             name: .openSavedQuery,
             object: nil,
-            userInfo: ["query": query]
+            userInfo: ["query": query, "run": run]
         )
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UserNotifications
 
 /// Shared service that posts macOS native notifications on query completion,
@@ -44,9 +45,36 @@ final class QueryNotifier: NSObject {
     /// becomes active again.
     private var backgroundCompletionCount = 0
 
+    // MARK: - The sound
+
+    /// "Play a sound with notifications", as last published.
+    ///
+    /// Cached rather than read where it is used. `postUpdateAvailableNotification`
+    /// is deliberately NOT `@MainActor` — `UpdateChecker` calls it from a
+    /// URLSession completion — and `AppStateManager` is, so reaching for the
+    /// live settings on that path would not compile without a hop the
+    /// notification cannot wait for. The sink below keeps this in step.
+    nonisolated(unsafe) private static var playSound = true
+
+    /// The sound a posted notification carries. `.default` is what all three
+    /// notifications set unconditionally before the setting existed.
+    private static func notificationSound() -> UNNotificationSound? {
+        playSound ? .default : nil
+    }
+
+    private var settingsCancellable: AnyCancellable?
+
     /// Register the notification categories / actions and set the center delegate.
     /// Call once from `AppDelegate.applicationDidFinishLaunching`.
+    @MainActor
     func registerCategories() {
+        // Seeded on subscribe and followed from there, so a change in Settings
+        // reaches the next notification with nothing else to press.
+        settingsCancellable = AppStateManager.shared.$settings
+            .map(\.notifications.playSound)
+            .removeDuplicates()
+            .sink { Self.playSound = $0 }
+
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleDidBecomeActive),
             name: NSApplication.didBecomeActiveNotification, object: nil
@@ -93,8 +121,11 @@ final class QueryNotifier: NSObject {
         // Dock badge: any completion while inactive counts, independent of the
         // notification gates below — a fast query that would never clear the
         // duration threshold should still nudge the Dock tile, since it's the
-        // only thing the user sees if they never come back to check.
-        if !NSApp.isActive {
+        // only thing the user sees if they never come back to check. Unless
+        // the user has turned the badge off (Settings ▸ Notifications), in
+        // which case nothing is counted either: a counter that ran on with
+        // nothing showing it would jump the moment the badge came back.
+        if !NSApp.isActive, AppStateManager.shared.settings.notifications.badgeDockIcon {
             backgroundCompletionCount += 1
             NSApp.dockTile.badgeLabel = "\(backgroundCompletionCount)"
         }
@@ -168,7 +199,7 @@ final class QueryNotifier: NSObject {
         content.title = "\(DisplayEscape.escaped(connectionName?.nonEmpty ?? "Pharos")) · Query failed"
         let truncated = message.count > 200 ? String(message.prefix(200)) + "…" : message
         content.body = "\(DisplayEscape.escaped(subheader))\n\(DisplayEscape.escapedMultiline(truncated))"
-        content.sound = .default
+        content.sound = Self.notificationSound()
         content.categoryIdentifier = Self.categoryIdentifier
         content.threadIdentifier = tabId
         content.interruptionLevel = .active
@@ -200,7 +231,7 @@ final class QueryNotifier: NSObject {
         let content = UNMutableNotificationContent()
         content.title = "Pharos · Update available"
         content.body = "Version \(newVersion) is available. Current: \(currentVersion)."
-        content.sound = .default
+        content.sound = Self.notificationSound()
         content.categoryIdentifier = Self.updateCategoryIdentifier
         content.threadIdentifier = "pharos-update"
         content.interruptionLevel = .active
@@ -252,7 +283,7 @@ final class QueryNotifier: NSObject {
         let content = UNMutableNotificationContent()
         content.title = Self.titleText(connectionName: connectionName, outcome: outcome)
         content.body = Self.bodyText(tabName: tabName, outcome: outcome, durationMs: durationMs)
-        content.sound = .default
+        content.sound = Self.notificationSound()
         content.categoryIdentifier = Self.categoryIdentifier
         content.threadIdentifier = tabId
         content.interruptionLevel = .active

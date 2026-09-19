@@ -173,6 +173,9 @@ struct ChartRootView: View {
     /// Whether "Suggest chart" may ask the on-device model. Read from the view,
     /// never re-read inside a sink (tasks/lessons.md, @Published willSet).
     @ObservedObject private var availability = ModelAvailability.shared
+    /// The composed answer for THIS feature: the model is offered here and the
+    /// user has not cleared "Suggest charts" in Settings ▸ Intelligence.
+    private var canAskTheModel: Bool { availability.isAvailable(for: .suggestCharts) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -340,14 +343,14 @@ struct ChartRootView: View {
         let canSuggest = !model.recommendations.isEmpty
         HStack(spacing: 6) {
             Button {
-                if availability.isAvailable { model.onSuggest?() }
+                if canAskTheModel { model.onSuggest?() }
                 else if let top = model.recommendations.first { model.applyRecommendation(top) }
             } label: {
-                Label("Suggest chart", systemImage: availability.isAvailable ? "sparkles" : "wand.and.stars")
+                Label("Suggest chart", systemImage: canAskTheModel ? "sparkles" : "wand.and.stars")
                     .font(.caption)
             }
             .disabled(working || !canSuggest)
-            .help(availability.isAvailable
+            .help(canAskTheModel
                   ? "Ask the on-device model which chart fits this result."
                   : "Apply the chart Pharos recommends for these columns.")
             .accessibilityIdentifier("chart.suggest")

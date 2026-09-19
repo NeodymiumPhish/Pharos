@@ -37,6 +37,22 @@ private func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: Strin
 
 struct AppSettings {
     var useAppleIntelligence: Bool = true
+    /// `ModelAvailability` now follows the per-feature switches too. The real
+    /// struct lives in `Pharos/Models/Settings.swift`; this is the same shape
+    /// with the same defaults, so the object under test links. The rule those
+    /// flags feed is covered on its own, against the REAL struct, in
+    /// `scripts/test-model-availability-features.sh`.
+    var intelligence = IntelligenceSettings()
+}
+
+struct IntelligenceSettings: Equatable {
+    var describeQuery = true
+    var explainErrors = true
+    var suggestSavedQueryNames = true
+    var nameTabsAutomatically = true
+    var summarisePlans = true
+    var suggestCharts = true
+    var allowDraftingWriteStatements = true
 }
 
 @MainActor

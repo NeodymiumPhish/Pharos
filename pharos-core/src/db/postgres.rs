@@ -65,6 +65,38 @@ fn build_connection_string(config: &ConnectionConfig, ssl_mode: SslMode) -> Stri
     )
 }
 
+/// The connect options for one attempt: the URL as before, plus the session
+/// values in the STARTUP packet.
+///
+/// `PgConnectOptions::from_str` keeps `build_connection_string` as the single
+/// place that URL-encodes the user's fields, so the escaping cannot drift
+/// between the two paths. The GUCs are added afterwards because `options` has
+/// no place in a URL that sqlx would parse.
+///
+/// A malformed URL is returned as `sqlx::Error::Configuration`, which the
+/// callers already surface as a connection error.
+fn connect_options(
+    config: &ConnectionConfig,
+    ssl_mode: SslMode,
+    session: &SessionOptions,
+) -> Result<sqlx::postgres::PgConnectOptions, sqlx::Error> {
+    use std::str::FromStr;
+    let mut options = sqlx::postgres::PgConnectOptions::from_str(
+        &build_connection_string(config, ssl_mode),
+    )?;
+    // The PAIRS, not a pre-rendered string. `PgConnectOptions::options`
+    // builds `-c name=value` itself; handing it one string under an empty key
+    // produced `-c =…`, and the server answered
+    // `unrecognized configuration parameter ""` — caught by the live test,
+    // invisible to every unit test, because only a real server parses this.
+    let gucs = startup_gucs(session);
+    if !gucs.is_empty() {
+        options = options.options(gucs.iter().map(|(name, value)| (*name, value.as_str())));
+    }
+
+    Ok(options)
+}
+
 /// True when a first attempt made with `mode` failed in a way that libpq's
 /// `prefer` answers by retrying without TLS.
 ///
@@ -101,6 +133,283 @@ fn should_retry_without_tls(mode: SslMode, err: &sqlx::Error) -> bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Session options (plan §5.1): the values every pooled connection must carry
+// ---------------------------------------------------------------------------
+
+/// The per-connection session values Pharos asks PostgreSQL for.
+///
+/// These go in the STARTUP packet (`options=-c name=value`), not in a `SET`
+/// after the connect. Three reasons, and each of them was a defect:
+///
+///  * A `SET` on one acquired connection reaches ONE of the five in the pool.
+///    The existing idle-in-transaction guard below does exactly that, so four
+///    connections out of five never had it.
+///  * A startup value becomes the session's RESET value, so `RESET ALL` — or
+///    a `DISCARD ALL` from a pooler — returns to what the user asked for
+///    rather than to the server's default.
+///  * A bad value fails the CONNECT with the server's own message, which the
+///    caller already turns into `ConnectionStatus::Error`. A failed `SET`
+///    can leave the connection unusable and reports nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionOptions {
+    /// `default_transaction_read_only`.
+    pub read_only: bool,
+    /// `TimeZone`, e.g. "Asia/Tokyo". None leaves the server's own.
+    pub time_zone: Option<String>,
+    /// `DateStyle`, e.g. "ISO, MDY".
+    pub date_style: Option<String>,
+    /// `IntervalStyle`, e.g. "postgres".
+    pub interval_style: Option<String>,
+    /// `idle_in_transaction_session_timeout`, in milliseconds. 0 = off.
+    pub idle_in_transaction_ms: u32,
+    /// `tcp_keepalives_idle` / `_interval` / `_count`, in seconds and count.
+    /// sqlx 0.8 has no CLIENT-side keepalive, so these are the server-side
+    /// probes instead; they keep a NAT or an SSH tunnel from going quiet.
+    pub keepalive: Option<(u32, u32, u32)>,
+}
+
+/// The GUCs Pharos can put in the STARTUP packet, as `(name, value)` pairs.
+///
+/// `TimeZone` and `DateStyle` are NOT here, and that is a fact about sqlx,
+/// not a choice. `sqlx-postgres 0.8.6` writes its own startup parameters
+/// before ours (`connection/establish.rs:26-45`):
+///
+/// ```text
+/// ("DateStyle", "ISO, MDY"), ("client_encoding", "UTF8"), ("TimeZone", "UTC")
+/// ```
+///
+/// and appends our `options` after them, where the server lets the explicit
+/// parameters win. A live test proved it: the connection succeeded and then
+/// answered `SHOW TimeZone` with `UTC`. There is no `timezone()` setter on
+/// `PgConnectOptions` in 0.8, so those two are applied per connection by
+/// `session_setup_sql` instead. Everything else really does travel in the
+/// startup packet.
+
+///
+/// Values are escaped the way libpq's `options` parameter needs: a space is
+/// the separator between options, so a space INSIDE a value must be
+/// backslash-escaped — `DateStyle=ISO, MDY` has to be sent as `ISO,\ MDY`.
+/// Getting this wrong does not fail loudly; the server sees a truncated
+/// value and a stray option, and the connection is refused with a message
+/// about the wrong thing.
+pub fn startup_gucs(options: &SessionOptions) -> Vec<(&'static str, String)> {
+    let mut out: Vec<(&'static str, String)> = Vec::new();
+    if options.read_only {
+        out.push(("default_transaction_read_only", "on".to_string()));
+    }
+    // TimeZone and DateStyle are deliberately absent — see the note above.
+    if let Some(style) = &options.interval_style {
+        out.push(("IntervalStyle", style.clone()));
+    }
+    if options.idle_in_transaction_ms > 0 {
+        out.push((
+            "idle_in_transaction_session_timeout",
+            options.idle_in_transaction_ms.to_string(),
+        ));
+    }
+    if let Some((idle, interval, count)) = options.keepalive {
+        out.push(("tcp_keepalives_idle", idle.to_string()));
+        out.push(("tcp_keepalives_interval", interval.to_string()));
+        out.push(("tcp_keepalives_count", count.to_string()));
+    }
+    out
+}
+
+/// The `SET` statements that must run on every connection the pool opens,
+/// because sqlx claims these two names in its own startup packet and we
+/// cannot outbid it (see `startup_gucs`).
+///
+/// This runs from `PgPoolOptions::after_connect`, which fires for EVERY
+/// connection the pool creates — unlike the acquire-one-and-SET pattern this
+/// replaces, which reached one connection of five. The one property it
+/// cannot have is the startup packet's: `RESET TimeZone` returns to sqlx's
+/// `UTC`, not to the user's value, because the reset value is whatever the
+/// startup packet carried. Nothing in Pharos issues `RESET ALL` or
+/// `DISCARD ALL`, and the live tests pin both halves of this.
+///
+/// Values are single-quoted with `''` doubling, so a value can never end the
+/// literal and start a statement.
+pub fn session_setup_sql(options: &SessionOptions) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(tz) = &options.time_zone {
+        out.push(format!("SET TimeZone = '{}'", tz.replace('\'', "''")));
+    }
+    if let Some(style) = &options.date_style {
+        out.push(format!("SET DateStyle = '{}'", style.replace('\'', "''")));
+    }
+    out
+}
+
+/// Render the GUCs as the libpq `options` string, or None when there is
+/// nothing to say. Emitting an empty `options` would be harmless but noisy in
+/// `pg_stat_activity`, and None keeps the unchanged case byte-identical to
+/// what the app sent before this existed.
+pub fn options_string(options: &SessionOptions) -> Option<String> {
+    let gucs = startup_gucs(options);
+    if gucs.is_empty() {
+        return None;
+    }
+    Some(
+        gucs.iter()
+            .map(|(name, value)| format!("-c {}={}", name, escape_option_value(value)))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+/// Backslash-escape the characters libpq's `options` parser treats specially:
+/// a space (the separator) and a backslash (the escape itself).
+fn escape_option_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch == '\\' || ch == ' ' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+#[cfg(test)]
+mod session_options_tests {
+    use super::*;
+
+    /// The default asks for nothing at all, so a connection made with no
+    /// settings changed is byte-identical to what the app sent before.
+    #[test]
+    fn default_emits_no_options() {
+        let options = SessionOptions::default();
+        assert!(startup_gucs(&options).is_empty());
+        assert_eq!(options_string(&options), None);
+    }
+
+    #[test]
+    fn read_only_is_on_not_true() {
+        let options = SessionOptions { read_only: true, ..Default::default() };
+        assert_eq!(startup_gucs(&options), vec![("default_transaction_read_only", "on".to_string())]);
+        assert_eq!(options_string(&options).as_deref(), Some("-c default_transaction_read_only=on"));
+    }
+
+    /// The escaping this function exists for. A value with a space in it must
+    /// not end the option early — libpq reads a space as the separator.
+    #[test]
+    fn a_space_inside_a_value_is_escaped() {
+        let options = SessionOptions {
+            interval_style: Some("postgres verbose".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(startup_gucs(&options), vec![("IntervalStyle", "postgres verbose".to_string())],
+                   "the pair keeps the real value; only the rendered string escapes");
+        assert_eq!(options_string(&options).as_deref(), Some("-c IntervalStyle=postgres\\ verbose"));
+    }
+
+    #[test]
+    fn a_backslash_is_escaped_too() {
+        let options = SessionOptions {
+            interval_style: Some("a\\b".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(options_string(&options).as_deref(), Some("-c IntervalStyle=a\\\\b"));
+    }
+
+    /// The finding that reshaped this primitive: sqlx writes `TimeZone` and
+    /// `DateStyle` into its OWN startup parameters and appends ours after
+    /// them, where the server lets its win. So those two must never appear in
+    /// the startup GUCs — they go through `session_setup_sql` — and an edit
+    /// that "helpfully" puts them back fails here.
+    #[test]
+    fn time_zone_and_date_style_are_not_startup_gucs() {
+        let options = SessionOptions {
+            time_zone: Some("Asia/Tokyo".to_string()),
+            date_style: Some("ISO, DMY".to_string()),
+            ..Default::default()
+        };
+        assert!(startup_gucs(&options).is_empty(), "sqlx claims both names; see startup_gucs");
+        assert_eq!(options_string(&options), None);
+        assert_eq!(
+            session_setup_sql(&options),
+            vec![
+                "SET TimeZone = 'Asia/Tokyo'".to_string(),
+                "SET DateStyle = 'ISO, DMY'".to_string(),
+            ]
+        );
+    }
+
+    /// A quote in a value cannot end the literal and start a statement.
+    #[test]
+    fn a_quote_in_a_session_value_is_doubled() {
+        let options = SessionOptions {
+            time_zone: Some("a'; DROP TABLE t; --".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            session_setup_sql(&options),
+            vec!["SET TimeZone = 'a''; DROP TABLE t; --'".to_string()]
+        );
+    }
+
+    /// Nothing asked for means no per-connection SQL at all, so a default
+    /// pool makes exactly the calls it made before this existed.
+    #[test]
+    fn default_session_runs_no_setup_sql() {
+        assert!(session_setup_sql(&SessionOptions::default()).is_empty());
+    }
+
+    #[test]
+    fn zero_idle_in_transaction_is_off_not_zero_milliseconds() {
+        let off = SessionOptions { idle_in_transaction_ms: 0, ..Default::default() };
+        assert!(startup_gucs(&off).is_empty(), "0 means leave it alone");
+        let on = SessionOptions { idle_in_transaction_ms: 30_000, ..Default::default() };
+        assert_eq!(
+            startup_gucs(&on),
+            vec![("idle_in_transaction_session_timeout", "30000".to_string())]
+        );
+    }
+
+    #[test]
+    fn keepalive_emits_all_three_gucs() {
+        let options = SessionOptions { keepalive: Some((60, 10, 6)), ..Default::default() };
+        assert_eq!(
+            startup_gucs(&options),
+            vec![
+                ("tcp_keepalives_idle", "60".to_string()),
+                ("tcp_keepalives_interval", "10".to_string()),
+                ("tcp_keepalives_count", "6".to_string()),
+            ]
+        );
+    }
+
+    /// Everything at once, in a stable order, so a connection string can be
+    /// compared byte for byte in a live test.
+    #[test]
+    fn full_options_render_in_a_stable_order() {
+        let options = SessionOptions {
+            read_only: true,
+            time_zone: Some("Asia/Tokyo".to_string()),
+            date_style: Some("ISO, DMY".to_string()),
+            interval_style: Some("postgres".to_string()),
+            idle_in_transaction_ms: 15_000,
+            keepalive: Some((60, 10, 6)),
+        };
+        assert_eq!(
+            options_string(&options).as_deref(),
+            Some(
+                "-c default_transaction_read_only=on \
+                 -c IntervalStyle=postgres \
+                 -c idle_in_transaction_session_timeout=15000 \
+                 -c tcp_keepalives_idle=60 \
+                 -c tcp_keepalives_interval=10 \
+                 -c tcp_keepalives_count=6"
+                    .replace("                 ", "")
+                    .as_str()
+            )
+        );
+        assert_eq!(session_setup_sql(&options).len(), 2,
+                   "and both sqlx-claimed values go through the per-connection SQL");
+    }
+}
+
 /// The pool settings shared by every connect attempt. Only the connection
 /// ceiling and the acquire budget differ between the app pool and the
 /// short-lived pool the Test button uses.
@@ -112,6 +421,30 @@ fn pool_options(max_connections: u32, budget: Duration) -> PgPoolOptions {
         .max_lifetime(Duration::from_secs(1800))
 }
 
+/// `pool_options`, plus the per-connection `SET`s sqlx forces on us. A
+/// failure here fails the ACQUIRE with the server's message, which is the
+/// same place a bad startup value would surface.
+fn pool_options_with_session(
+    max_connections: u32,
+    budget: Duration,
+    session: &SessionOptions,
+) -> PgPoolOptions {
+    let statements = session_setup_sql(session);
+    let base = pool_options(max_connections, budget);
+    if statements.is_empty() {
+        return base;
+    }
+    base.after_connect(move |conn, _meta| {
+        let statements = statements.clone();
+        Box::pin(async move {
+            for sql in statements {
+                conn.execute(sqlx::raw_sql(&sql)).await?;
+            }
+            Ok(())
+        })
+    })
+}
+
 /// Connect, giving `prefer` the meaning libpq gives it: one TLS probe, then
 /// one plaintext retry. Returns the pool and the SSL mode that actually
 /// carried it, which is the configured mode unless the fallback fired.
@@ -121,6 +454,7 @@ fn pool_options(max_connections: u32, budget: Duration) -> PgPoolOptions {
 async fn connect_with_prefer_fallback(
     config: &ConnectionConfig,
     max_connections: u32,
+    session: &SessionOptions,
 ) -> Result<(PgPool, SslMode), sqlx::Error> {
     let mode = config.ssl_mode;
     let first_budget = if mode == SslMode::Prefer {
@@ -129,8 +463,8 @@ async fn connect_with_prefer_fallback(
         CONNECT_BUDGET
     };
 
-    let first = pool_options(max_connections, first_budget)
-        .connect(&build_connection_string(config, mode))
+    let first = pool_options_with_session(max_connections, first_budget, session)
+        .connect_with(connect_options(config, mode, session)?)
         .await;
 
     match first {
@@ -143,8 +477,9 @@ async fn connect_with_prefer_fallback(
                 config.port,
                 e
             );
-            let pool = pool_options(max_connections, CONNECT_BUDGET - PREFER_PROBE_BUDGET)
-                .connect(&build_connection_string(config, SslMode::Disable))
+            let pool = pool_options_with_session(
+                max_connections, CONNECT_BUDGET - PREFER_PROBE_BUDGET, session)
+                .connect_with(connect_options(config, SslMode::Disable, session)?)
                 .await?;
             log::warn!(
                 "Connected to {}:{} WITHOUT TLS (sslmode=prefer fell back).",
@@ -159,7 +494,16 @@ async fn connect_with_prefer_fallback(
 
 /// Create a PostgreSQL connection pool for the given configuration
 pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Error> {
-    let (pool, _mode_used) = connect_with_prefer_fallback(config, 5).await?;
+    create_pool_with_session(config, &SessionOptions::default()).await
+}
+
+/// Create the pool, asking the server for `session` on every connection it
+/// opens. `create_pool` is this with nothing asked for.
+pub async fn create_pool_with_session(
+    config: &ConnectionConfig,
+    session: &SessionOptions,
+) -> Result<PgPool, sqlx::Error> {
+    let (pool, _mode_used) = connect_with_prefer_fallback(config, 5, session).await?;
 
     // Try to set a session-level idle-in-transaction guard. This is
     // PostgreSQL-specific and will fail (and may kill the connection) on
@@ -167,12 +511,18 @@ pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Erro
     // separate connection rather than in after_connect where a failure
     // poisons every connection. The query timeout is applied per query on
     // the executing connection (see commands/query.rs), not here.
-    if let Ok(mut conn) = pool.acquire().await {
-        let _ = (&mut *conn)
-            .execute(sqlx::raw_sql(
-                "SET idle_in_transaction_session_timeout = '30s'",
-            ))
-            .await;
+    // Only when the startup packet carried nothing. With `options` set, the
+    // guard is a startup GUC on EVERY connection in the pool; this `SET`
+    // reaches exactly one of the five, which is why it is a fallback and not
+    // the mechanism.
+    if session.idle_in_transaction_ms == 0 {
+        if let Ok(mut conn) = pool.acquire().await {
+            let _ = (&mut *conn)
+                .execute(sqlx::raw_sql(
+                    "SET idle_in_transaction_session_timeout = '30s'",
+                ))
+                .await;
+        }
     }
 
     Ok(pool)
@@ -184,7 +534,8 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
 
     // The same prefer fallback as create_pool, so the Test button cannot
     // report a failure for a configuration that Connect would accept.
-    let (pool, _mode_used) = connect_with_prefer_fallback(config, 1).await?;
+    let (pool, _mode_used) =
+        connect_with_prefer_fallback(config, 1, &SessionOptions::default()).await?;
 
     // Use raw_sql (simple query protocol) for compatibility with
     // non-PostgreSQL servers (e.g. ClickHouse) that don't support
@@ -1225,6 +1576,175 @@ mod ssl_fallback_tests {
             "the probe must leave time for the plaintext retry"
         );
         assert!((CONNECT_BUDGET - PREFER_PROBE_BUDGET).as_secs() >= 2);
+    }
+}
+
+/// Opt-in live tests of the session-options primitive (plan §5.1). `cargo
+/// test` skips them; run them against a real server with
+///
+///   cargo test --release live_session -- --ignored --nocapture
+///
+/// They exist because the thing being claimed — that a startup GUC reaches
+/// EVERY connection of the pool, where the old per-query `SET` reached one of
+/// five — cannot be observed without a pool and a server.
+#[cfg(test)]
+mod live_session_options_tests {
+    use super::{create_pool_with_session, SessionOptions};
+    use crate::models::{ConnectionConfig, SslMode};
+
+    fn env_or(key: &str, fallback: &str) -> String {
+        std::env::var(key).unwrap_or_else(|_| fallback.to_string())
+    }
+
+    fn live_config() -> ConnectionConfig {
+        ConnectionConfig {
+            id: "live-session".to_string(),
+            name: "live-session".to_string(),
+            host: env_or("PHAROS_TEST_PG_HOST", "localhost"),
+            port: env_or("PHAROS_TEST_PG_PORT", "5432").parse().unwrap_or(5432),
+            database: env_or("PHAROS_TEST_PG_DB", "nfinn"),
+            username: env_or("PHAROS_TEST_PG_USER", "nfinn"),
+            password: std::env::var("PHAROS_TEST_PG_PASSWORD").unwrap_or_default(),
+            ssl_mode: SslMode::Prefer,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+        }
+    }
+
+    /// The claim that matters: the time zone is on EVERY connection, not on
+    /// whichever one a `SET` happened to reach. Three are acquired at once so
+    /// the pool cannot hand back the same one three times.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_session_time_zone_reaches_every_pooled_connection() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let session = SessionOptions {
+                time_zone: Some("Asia/Tokyo".to_string()),
+                ..Default::default()
+            };
+            let pool = create_pool_with_session(&live_config(), &session)
+                .await
+                .expect("connect with a time zone");
+
+            let mut held = Vec::new();
+            for _ in 0..3 {
+                held.push(pool.acquire().await.expect("acquire"));
+            }
+            for (i, conn) in held.iter_mut().enumerate() {
+                let row: (String,) = sqlx::query_as("SHOW TimeZone")
+                    .fetch_one(&mut **conn)
+                    .await
+                    .expect("SHOW TimeZone");
+                assert_eq!(row.0, "Asia/Tokyo", "connection {i} did not get the time zone");
+            }
+            drop(held);
+            pool.close().await;
+        });
+    }
+
+    /// The two halves of the split, measured rather than assumed.
+    ///
+    /// `IntervalStyle` travels in the STARTUP packet, so it is the session's
+    /// reset value and `RESET` returns to it. `TimeZone` is applied by
+    /// `after_connect`, so its reset value is still sqlx's `UTC` — the one
+    /// property the startup packet has that a `SET` cannot. Nothing in
+    /// Pharos issues `RESET ALL` or `DISCARD ALL`, which is why this is a
+    /// documented caveat and not a defect.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_reset_behaviour_differs_for_the_two_paths() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let session = SessionOptions {
+                time_zone: Some("Asia/Tokyo".to_string()),
+                interval_style: Some("iso_8601".to_string()),
+                ..Default::default()
+            };
+            let pool = create_pool_with_session(&live_config(), &session)
+                .await
+                .expect("connect with a session");
+            let mut conn = pool.acquire().await.expect("acquire");
+
+            // The startup GUC: RESET goes back to OUR value.
+            let before: (String,) = sqlx::query_as("SHOW IntervalStyle").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(before.0, "iso_8601", "the startup GUC did not take");
+            sqlx::raw_sql("SET IntervalStyle = 'postgres'").execute(&mut *conn).await.unwrap();
+            sqlx::raw_sql("RESET IntervalStyle").execute(&mut *conn).await.unwrap();
+            let after: (String,) = sqlx::query_as("SHOW IntervalStyle").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(after.0, "iso_8601", "RESET must return to the startup value");
+
+            // The after_connect SET: RESET goes back to sqlx's UTC.
+            let tz: (String,) = sqlx::query_as("SHOW TimeZone").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(tz.0, "Asia/Tokyo", "the per-connection SET did not take");
+            sqlx::raw_sql("RESET TimeZone").execute(&mut *conn).await.unwrap();
+            let reset: (String,) = sqlx::query_as("SHOW TimeZone").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(reset.0, "UTC", "documented caveat: TimeZone resets to sqlx's startup value");
+
+            drop(conn);
+            pool.close().await;
+        });
+    }
+
+    /// A read-only pool refuses a write with SQLSTATE 25006, which is the
+    /// error the Swift side maps to "This connection is read-only."
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_read_only_refuses_a_write() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let session = SessionOptions { read_only: true, ..Default::default() };
+            let pool = create_pool_with_session(&live_config(), &session)
+                .await
+                .expect("connect read-only");
+
+            let result = sqlx::raw_sql("CREATE TEMP TABLE pharos_ro_probe (x int)")
+                .execute(&pool)
+                .await;
+            let err = result.expect_err("a write must be refused on a read-only connection");
+            let code = err
+                .as_database_error()
+                .and_then(|e| e.code())
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            assert_eq!(code, "25006", "expected read_only_sql_transaction, got: {err}");
+            pool.close().await;
+        });
+    }
+
+    /// A value the server will not accept fails the CONNECT, with the
+    /// server's own message. That is the whole reason these go in the startup
+    /// packet: a bad `SET` after the fact can leave a connection unusable and
+    /// report nothing.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_a_bad_time_zone_fails_the_connect() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let session = SessionOptions {
+                time_zone: Some("Not/AZone".to_string()),
+                ..Default::default()
+            };
+            let result = create_pool_with_session(&live_config(), &session).await;
+            assert!(result.is_err(), "an invalid time zone must fail the connect");
+        });
+    }
+
+    /// Nothing asked for must behave exactly as before this primitive existed.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_default_session_connects_as_before() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = create_pool_with_session(&live_config(), &SessionOptions::default())
+                .await
+                .expect("a default session connects");
+            let row: (i32,) = sqlx::query_as("SELECT 1").fetch_one(&pool).await.unwrap();
+            assert_eq!(row.0, 1);
+            pool.close().await;
+        });
     }
 }
 

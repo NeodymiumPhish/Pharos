@@ -40,14 +40,28 @@ enum ToastStyle {
 /// toasts stack upward from the bottom-center of the host.
 enum Toast {
 
+    /// How long a toast raised with no explicit duration stays on screen.
+    ///
+    /// A settable value rather than a read of `AppStateManager`: this file
+    /// compiles on its own in `scripts/test-toast-click.sh`, and the settings
+    /// store does not. `SettingsEffects` points it at
+    /// `NotificationSettings.toastDuration` at launch and follows every later
+    /// change. 2 seconds is what this parameter defaulted to before the
+    /// setting existed, so a toast raised before the settings load — and the
+    /// harness — behave exactly as they always did.
+    nonisolated(unsafe) static var defaultDuration: TimeInterval = 2.0
+
+    /// - Parameter duration: how long it stays. Omitted, the user's
+    ///   Settings ▸ Notifications preference decides.
     /// - Parameter onClick: run when the user clicks the toast. A toast with a
     ///   handler fades out at once on the click; a toast without one ignores
     ///   clicks. Used by the query-failure banner to open the error sheet.
     static func show(in host: NSView,
                      message: String,
                      style: ToastStyle = .info,
-                     duration: TimeInterval = 2.0,
+                     duration: TimeInterval? = nil,
                      onClick: (() -> Void)? = nil) {
+        let duration = duration ?? defaultDuration
         let toast = ToastView(message: message, style: style)
         toast.onClick = onClick
         toast.updateAccessibilityHelp()

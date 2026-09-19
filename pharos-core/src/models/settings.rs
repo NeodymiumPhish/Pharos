@@ -517,6 +517,105 @@ impl Default for ResultsSettings {
     }
 }
 
+/// The per-feature switches under Settings ▸ Intelligence. All default ON:
+/// every one of these ran whenever `use_apple_intelligence` allowed it before
+/// the switches existed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceSettings {
+    #[serde(default = "default_true")]
+    pub describe_query: bool,
+    #[serde(default = "default_true")]
+    pub explain_errors: bool,
+    #[serde(default = "default_true")]
+    pub suggest_saved_query_names: bool,
+    #[serde(default = "default_true")]
+    pub name_tabs_automatically: bool,
+    #[serde(default = "default_true")]
+    pub summarise_plans: bool,
+    #[serde(default = "default_true")]
+    pub suggest_charts: bool,
+    #[serde(default = "default_true")]
+    pub allow_drafting_write_statements: bool,
+}
+
+impl Default for IntelligenceSettings {
+    fn default() -> Self {
+        IntelligenceSettings {
+            describe_query: true,
+            explain_errors: true,
+            suggest_saved_query_names: true,
+            name_tabs_automatically: true,
+            summarise_plans: true,
+            suggest_charts: true,
+            allow_drafting_write_statements: true,
+        }
+    }
+}
+
+/// How long a toast stays on screen.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ToastDuration {
+    Short,
+    #[default]
+    Normal,
+    Long,
+}
+
+/// Sound, Dock badge and toast duration. Both bools default ON: that is what
+/// Pharos did unconditionally before the settings existed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettings {
+    #[serde(default = "default_true")]
+    pub play_sound: bool,
+    #[serde(default = "default_true")]
+    pub badge_dock_icon: bool,
+    #[serde(default)]
+    pub toast_duration: ToastDuration,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        NotificationSettings {
+            play_sound: true,
+            badge_dock_icon: true,
+            toast_duration: ToastDuration::default(),
+        }
+    }
+}
+
+/// Settings ▸ Advanced.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticsSettings {
+    /// Minutes before cached schema metadata is refetched. 0 = never expire,
+    /// which is what the Swift `MetadataCache` did before this existed.
+    #[serde(default)]
+    pub metadata_cache_ttl_minutes: u32,
+}
+
+/// Settings ▸ Security & Privacy. Both default ON: the Spotlight indexer and
+/// the MetricKit subscriber both started at launch before these existed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SecuritySettings {
+    #[serde(default = "default_true")]
+    pub index_saved_queries_in_spotlight: bool,
+    #[serde(default = "default_true")]
+    pub collect_performance_metrics: bool,
+}
+
+impl Default for SecuritySettings {
+    fn default() -> Self {
+        SecuritySettings {
+            index_saved_queries_in_spotlight: true,
+            collect_performance_metrics: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -552,11 +651,167 @@ pub struct AppSettings {
     /// the HIG asks — so a bare `#[serde(default)]` is the right default here.
     #[serde(default)]
     pub always_show_scroll_bars: bool,
+    /// The per-feature Apple Intelligence switches, under the master above.
+    #[serde(default)]
+    pub intelligence: IntelligenceSettings,
+    #[serde(default)]
+    pub notifications: NotificationSettings,
+    #[serde(default)]
+    pub diagnostics: DiagnosticsSettings,
+    #[serde(default)]
+    pub security: SecuritySettings,
+    /// The Database Navigator. `show_leaf_partitions` stays above, top-level:
+    /// moving it here would rename its key on the wire.
+    #[serde(default)]
+    pub navigator: NavigatorSettings,
+    /// The Query Library navigator, and the Save Query sheet.
+    #[serde(default)]
+    pub library: LibrarySettings,
+    /// The Results History navigator.
+    #[serde(default)]
+    pub history: HistorySettings,
 }
 
 fn default_check_for_updates() -> bool { true }
 fn default_vertical_result_tabs() -> bool { true }
 fn default_use_apple_intelligence() -> bool { true }
+
+// MARK: - Database Navigator
+
+/// How the Database Navigator orders the objects inside a schema.
+/// `KindThenName` is what it did before the setting existed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectSortMode {
+    #[default]
+    KindThenName,
+    Name,
+    Size,
+    RowEstimate,
+}
+
+/// How the schemas themselves are ordered. `Name` is the order the server
+/// returns them in, which is what the Navigator showed before this existed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SchemaSortMode {
+    #[default]
+    Name,
+    DefaultFirst,
+}
+
+/// What a double-click on a Navigator row does. `Expand` is today's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NavigatorDoubleClickAction {
+    #[default]
+    Expand,
+    ViewContents,
+    Describe,
+    InsertName,
+}
+
+/// How the Partitions group orders a table's partitions. `Name` is what the
+/// Navigator asked for before the setting existed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PartitionSortMode {
+    Bound,
+    #[default]
+    Name,
+    Size,
+}
+
+/// The Database Navigator's own settings. `show_leaf_partitions` is NOT here:
+/// it is a top-level field and moving it would rename its key on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigatorSettings {
+    #[serde(default)]
+    pub schema_sort: SchemaSortMode,
+    #[serde(default)]
+    pub object_sort: ObjectSortMode,
+    #[serde(default)]
+    pub partition_sort: PartitionSortMode,
+    #[serde(default = "yes")]
+    pub auto_expand_default_schema: bool,
+    #[serde(default = "default_auto_expand_threshold")]
+    pub auto_expand_threshold: u32,
+    #[serde(default)]
+    pub double_click_action: NavigatorDoubleClickAction,
+    #[serde(default = "yes")]
+    pub view_contents_uses_row_limit: bool,
+    #[serde(default = "default_limit_presets")]
+    pub limit_presets: Vec<u32>,
+}
+
+fn default_auto_expand_threshold() -> u32 { 500 }
+fn default_limit_presets() -> Vec<u32> { vec![10, 100, 1000, 10000] }
+
+impl Default for NavigatorSettings {
+    fn default() -> Self {
+        NavigatorSettings {
+            schema_sort: SchemaSortMode::default(),
+            object_sort: ObjectSortMode::default(),
+            partition_sort: PartitionSortMode::default(),
+            auto_expand_default_schema: true,
+            auto_expand_threshold: default_auto_expand_threshold(),
+            double_click_action: NavigatorDoubleClickAction::default(),
+            view_contents_uses_row_limit: true,
+            limit_presets: default_limit_presets(),
+        }
+    }
+}
+
+// MARK: - Query Library and History
+
+/// How the Query Library navigator orders what it shows. `Folder` is today's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedQuerySortMode {
+    #[default]
+    Folder,
+    Name,
+    RecentlyUpdated,
+}
+
+/// What a double-click on a saved query does. `Open` is today's.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedQueryDoubleClickAction {
+    #[default]
+    Open,
+    OpenAndRun,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrarySettings {
+    /// Empty means unfiled, which is what the Save Query sheet opens on.
+    #[serde(default)]
+    pub default_folder: String,
+    #[serde(default)]
+    pub sort_mode: SavedQuerySortMode,
+    #[serde(default)]
+    pub double_click_action: SavedQueryDoubleClickAction,
+}
+
+/// The Results History navigator. There is no paging: the list is one fetch,
+/// and 200 is the number it was hard-coded to.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorySettings {
+    #[serde(default = "default_maximum_history_entries")]
+    pub maximum_entries: u32,
+}
+
+fn default_maximum_history_entries() -> u32 { 200 }
+
+impl Default for HistorySettings {
+    fn default() -> Self {
+        HistorySettings { maximum_entries: default_maximum_history_entries() }
+    }
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -574,6 +829,13 @@ impl Default for AppSettings {
             results: ResultsSettings::default(),
             updates: UpdateSettings::default(),
             always_show_scroll_bars: false,
+            intelligence: IntelligenceSettings::default(),
+            notifications: NotificationSettings::default(),
+            diagnostics: DiagnosticsSettings::default(),
+            security: SecuritySettings::default(),
+            navigator: NavigatorSettings::default(),
+            library: LibrarySettings::default(),
+            history: HistorySettings::default(),
         }
     }
 }
@@ -679,6 +941,41 @@ pub(crate) mod fixture {
                     channel: UpdateChannel::PreRelease,
                 },
                 always_show_scroll_bars: true,
+                intelligence: IntelligenceSettings {
+                    describe_query: false,
+                    explain_errors: false,
+                    suggest_saved_query_names: false,
+                    name_tabs_automatically: false,
+                    summarise_plans: false,
+                    suggest_charts: false,
+                    allow_drafting_write_statements: false,
+                },
+                notifications: NotificationSettings {
+                    play_sound: false,
+                    badge_dock_icon: false,
+                    toast_duration: ToastDuration::Long,
+                },
+                diagnostics: DiagnosticsSettings { metadata_cache_ttl_minutes: 1 },
+                security: SecuritySettings {
+                    index_saved_queries_in_spotlight: false,
+                    collect_performance_metrics: false,
+                },
+                navigator: NavigatorSettings {
+                    schema_sort: SchemaSortMode::DefaultFirst,
+                    object_sort: ObjectSortMode::Size,
+                    partition_sort: PartitionSortMode::Bound,
+                    auto_expand_default_schema: false,
+                    auto_expand_threshold: 501,
+                    double_click_action: NavigatorDoubleClickAction::ViewContents,
+                    view_contents_uses_row_limit: false,
+                    limit_presets: vec![5, 50],
+                },
+                library: LibrarySettings {
+                    default_folder: "Reports".to_string(),
+                    sort_mode: SavedQuerySortMode::RecentlyUpdated,
+                    double_click_action: SavedQueryDoubleClickAction::OpenAndRun,
+                },
+                history: HistorySettings { maximum_entries: 201 },
             }
         }
     }

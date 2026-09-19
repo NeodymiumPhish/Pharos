@@ -1,11 +1,10 @@
 import Foundation
 
-/// Ordering modes for the partitions group in the schema browser.
-enum PartitionSortMode: String {
-    case bound   // default — by partition boundary
-    case name
-    case size
-}
+// `PartitionSortMode` used to be declared here. It is named by
+// `NavigatorSettings.partitionSort`, so it now lives in
+// `Pharos/Models/Settings.swift` with every other type `AppSettings` names —
+// a settings enum declared anywhere else breaks the standalone harnesses
+// that compile `Settings.swift` alone. Only the sorting logic stays here.
 
 /// Pure sorting logic for a partitioned table's child partitions.
 /// Depends only on TableInfo (Foundation) so it is unit-testable standalone.

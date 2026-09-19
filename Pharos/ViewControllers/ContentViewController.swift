@@ -1499,7 +1499,9 @@ class ContentViewController: NSViewController {
         sql: String,
         kind: NameSuggestion.Kind
     ) {
-        guard ModelAvailability.shared.isAvailable else { return }
+        // The same switch as the Save Query sheet: both fill a name field the
+        // user is looking at and about to accept or overwrite.
+        guard ModelAvailability.shared.isAvailable(for: .suggestSavedQueryNames) else { return }
         guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // The text on screen now. A suggestion only replaces THIS — anything
@@ -1535,7 +1537,7 @@ class ContentViewController: NSViewController {
     /// a session arrives with the name it was saved under, which is not
     /// "Query <n>" once it has been suggested, so restoring never re-names.
     private func suggestEditorTabNameIfAutomatic(forEditorTab tabId: String, sql: String) {
-        guard ModelAvailability.shared.isAvailable else { return }
+        guard ModelAvailability.shared.isAvailable(for: .nameTabsAutomatically) else { return }
         guard let tab = session.tabs.first(where: { $0.id == tabId }),
               !AppStateManager.isCustomTabName(tab.name),
               !nameSuggestionAsked.contains(tabId) else { return }
@@ -3316,13 +3318,33 @@ extension ContentViewController {
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
         guard ownsBroadcast(notification) else { return }
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
+        // Settings ▸ Library & History ▸ On double-click, decided by the
+        // sender. Absent means "just open", which every other sender wants.
+        let run = notification.userInfo?["run"] as? Bool ?? false
         if let existingTab = session.tabs.first(where: { $0.savedQueryId == query.id }) {
             session.selectTab(id: existingTab.id)
+            if run { runSavedQuery(query) }
             return
         }
         let tab = session.createTab(sql: query.sql, name: query.name)
         session.updateTab(id: tab.id) {
             $0.savedQueryId = query.id
+        }
+        if run { runSavedQuery(query) }
+    }
+
+    /// Run a saved query in the tab that has just been opened for it.
+    ///
+    /// Deferred one turn of the run loop: `createTab`/`selectTab` publish the
+    /// new active tab, and `performQuery` reads `session.activeTab` and its
+    /// connection. Running inside the same turn would read the tab the user
+    /// was on before. The query still has to reach a CONNECTED tab —
+    /// `performQuery` returns quietly when it does not — so a double-click
+    /// on a query whose tab has no connection opens it and stops there,
+    /// which is what the plain Open action does anyway.
+    private func runSavedQuery(_ query: SavedQuery) {
+        DispatchQueue.main.async { [weak self] in
+            self?.performQuery(query.sql, segmentIndex: -1, lineRange: 0...0, customLabel: query.name)
         }
     }
 

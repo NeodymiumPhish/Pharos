@@ -13,16 +13,16 @@ extension SettingsPaneRegistry {
         case .query: return QuerySettingsPaneVC()
         case .results: return ResultsSettingsPaneVC()
         case .navigator: return NavigatorSettingsPaneVC()
-        case .library: return SettingsPlaceholderPaneVC(paneId: id)
+        case .library: return LibrarySettingsPaneVC()
         case .connections: return SettingsPlaceholderPaneVC(paneId: id)
-        case .security: return SettingsPlaceholderPaneVC(paneId: id)
+        case .security: return SecuritySettingsPaneVC()
         case .exportImport: return SettingsPlaceholderPaneVC(paneId: id)
         case .charts: return ChartsSettingsPaneVC()
         case .tags: return SettingsPlaceholderPaneVC(paneId: id)
         case .intelligence: return IntelligenceSettingsPaneVC()
         case .notifications: return NotificationsSettingsPaneVC()
         case .shortcuts: return ShortcutsSettingsPaneVC()
-        case .advanced: return SettingsPlaceholderPaneVC(paneId: id)
+        case .advanced: return AdvancedSettingsPaneVC()
         }
     }
 }

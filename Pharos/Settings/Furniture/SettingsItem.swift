@@ -103,6 +103,10 @@ enum SettingsItemKind {
     case path(SettingsBinding<String>, directories: Bool)
     /// A button in the trailing slot.
     case action(title: String, destructive: Bool, handler: () -> Void)
+    /// Title and caption only, with nothing in the trailing slot. For a row
+    /// that reports rather than asks — a count, a status. Pair it with a
+    /// `dynamicCaption` so the report is recomputed on every refresh.
+    case display
     /// Any view, placed BELOW the text column at full width.
     case custom(() -> NSView)
     /// The "No Items" placeholder row.

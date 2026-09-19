@@ -300,10 +300,11 @@ class EditorPaneVC: NSViewController {
         // "Describe the query…" appears and disappears with Apple
         // Intelligence, and takes its enabled state from whether the tab has
         // a connection whose schema the model could read.
-        ModelAvailability.shared.$isAvailable
-            .removeDuplicates()
+        ModelAvailability.shared.publisher(for: .describeQuery)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateDescribeQueryButton() }
+            .sink { [weak self] available in
+                self?.updateDescribeQueryButton(available: available)
+            }
             .store(in: &cancellables)
 
         // The status, not the tab's `connectionId`: a tab can name a
@@ -784,8 +785,12 @@ class EditorPaneVC: NSViewController {
 
     /// Show the button only where the feature can run, and enable it only
     /// where it has a schema to read.
-    private func updateDescribeQueryButton() {
-        let available = ModelAvailability.shared.isAvailable
+    ///
+    /// `available` is passed in by the availability sink and read from
+    /// `ModelAvailability` by everyone else, for the `@Published` `willSet`
+    /// reason spelled out in `ModelAvailability.publisher(for:)`.
+    private func updateDescribeQueryButton(available: Bool? = nil) {
+        let available = available ?? ModelAvailability.shared.isAvailable(for: .describeQuery)
         describeQueryButton.isHidden = !available
         guard available else {
             // A popover left open while the feature is switched off would
@@ -802,7 +807,8 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func describeQueryTapped() {
-        guard ModelAvailability.shared.isAvailable, describeQueryButton.isEnabled else { return }
+        guard ModelAvailability.shared.isAvailable(for: .describeQuery),
+              describeQueryButton.isEnabled else { return }
         if describeQueryPopover != nil {
             closeDescribeQueryPopover()
             return

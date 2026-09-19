@@ -92,6 +92,16 @@ class SaveQuerySheet: NSViewController {
         newFolderItem.tag = Self.newFolderTag
         folderPopup.menu?.addItem(newFolderItem)
 
+        // Settings ▸ Library & History ▸ Default folder. Empty is the
+        // default and leaves the sentinel row selected — unfiled, which is
+        // what this sheet has always opened on. A name no folder carries is
+        // left alone too, rather than inventing the folder here: the folder
+        // list is built from the queries that exist.
+        let defaultFolder = AppStateManager.shared.settings.library.defaultFolder
+        if !defaultFolder.isEmpty, existingFolders.contains(defaultFolder) {
+            PopupValueMenu.selectValue(defaultFolder, in: folderPopup)
+        }
+
         // Grid
         let grid = NSGridView(views: [
             [nameLabel, nameField],
@@ -191,7 +201,8 @@ class SaveQuerySheet: NSViewController {
     /// starting point that the user reads and edits inside a form they are
     /// about to press Save on, not a generated answer they are asked to trust.
     private func startNameSuggestion() {
-        guard suggestionTask == nil, ModelAvailability.shared.isAvailable else { return }
+        guard suggestionTask == nil,
+              ModelAvailability.shared.isAvailable(for: .suggestSavedQueryNames) else { return }
         guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         nameChangeObserver = NotificationCenter.default.addObserver(

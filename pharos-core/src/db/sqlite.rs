@@ -1909,7 +1909,82 @@ pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
 
 // ==================== Query History ====================
 
-const HISTORY_RETENTION_DAYS: i64 = 90;
+/// How long Query History is kept, and how many entries at most.
+///
+/// Replaces the hardcoded `HISTORY_RETENTION_DAYS: i64 = 90` at
+/// `sqlite.rs`. Both limits apply: whichever removes a row first wins, so a
+/// user who asks for "forever, at most 500 entries" gets exactly that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryPrunePolicy {
+    /// Days to keep. 0 means forever.
+    pub retention_days: u32,
+    /// Most entries to keep, newest first. 0 means no ceiling.
+    pub max_entries: u32,
+}
+
+impl Default for HistoryPrunePolicy {
+    /// The values the app had before this was a setting, so an existing
+    /// installation prunes exactly as it did.
+    fn default() -> Self {
+        HistoryPrunePolicy { retention_days: 90, max_entries: 0 }
+    }
+}
+
+impl HistoryPrunePolicy {
+    /// Whether anything at all would be removed. A policy that removes
+    /// nothing must not run the DELETEs: they are the expensive part of
+    /// `save_query_history`, and running them to delete nothing is the
+    /// whole cost with none of the benefit.
+    pub fn prunes_anything(&self) -> bool {
+        self.retention_days > 0 || self.max_entries > 0
+    }
+
+    /// The SQLite modifier for the age cut-off, or None when forever.
+    pub fn cutoff_modifier(&self) -> Option<String> {
+        if self.retention_days == 0 {
+            None
+        } else {
+            Some(format!("-{} days", self.retention_days))
+        }
+    }
+}
+
+#[cfg(test)]
+mod history_prune_tests {
+    use super::*;
+
+    /// The default must be the literal the code had before the setting
+    /// existed, or an upgrade silently changes how much history a user keeps.
+    #[test]
+    fn default_matches_the_old_hardcoded_value() {
+        let policy = HistoryPrunePolicy::default();
+        assert_eq!(policy.retention_days, 90, "90 days is what sqlite.rs had");
+        assert_eq!(policy.max_entries, 0, "there was no count ceiling before");
+        assert_eq!(policy.cutoff_modifier().as_deref(), Some("-90 days"));
+        assert!(policy.prunes_anything());
+    }
+
+    #[test]
+    fn forever_with_no_ceiling_prunes_nothing() {
+        let policy = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        assert!(!policy.prunes_anything());
+        assert_eq!(policy.cutoff_modifier(), None);
+    }
+
+    #[test]
+    fn a_count_ceiling_alone_still_prunes() {
+        let policy = HistoryPrunePolicy { retention_days: 0, max_entries: 500 };
+        assert!(policy.prunes_anything(), "forever, but at most 500 entries");
+        assert_eq!(policy.cutoff_modifier(), None, "and no age cut-off");
+    }
+
+    #[test]
+    fn cutoff_modifier_is_the_sqlite_form() {
+        let policy = HistoryPrunePolicy { retention_days: 7, max_entries: 0 };
+        assert_eq!(policy.cutoff_modifier().as_deref(), Some("-7 days"));
+    }
+}
+
 
 /// Save a query history entry with optional cached results (and prune entries older than 90 days)
 pub fn save_query_history(
@@ -1947,11 +2022,32 @@ pub fn save_query_history(
         ),
     )?;
 
-    // Prune old entries roughly every 100 queries to reduce write overhead
+    prune_query_history(conn, HistoryPrunePolicy::default())?;
+
+    Ok(())
+}
+
+/// Drop history the policy says is past keeping. Runs roughly every 100
+/// queries, because the DELETEs are the expensive part of saving one.
+///
+/// Separate from `save_query_history` so a test can drive it directly rather
+/// than saving a hundred rows to make the counter come round.
+fn prune_query_history(conn: &Connection, policy: HistoryPrunePolicy) -> SqliteResult<()> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static PRUNE_COUNTER: AtomicU32 = AtomicU32::new(0);
-    if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 == 0 {
-        let cutoff = format!("-{} days", HISTORY_RETENTION_DAYS);
+    if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 != 0 {
+        return Ok(());
+    }
+    prune_query_history_now(conn, policy)
+}
+
+/// The prune itself, with no sampling. `prune_query_history` is this behind
+/// the counter.
+pub fn prune_query_history_now(conn: &Connection, policy: HistoryPrunePolicy) -> SqliteResult<()> {
+    if !policy.prunes_anything() {
+        return Ok(());
+    }
+    if let Some(cutoff) = policy.cutoff_modifier() {
         // Drop stale workspaces (by last activity) and their children.
         conn.execute(
             "DELETE FROM query_history WHERE workspace_id IN
@@ -1966,6 +2062,24 @@ pub fn save_query_history(
         conn.execute(
             "DELETE FROM query_history WHERE workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1)",
             [&cutoff],
+        )?;
+    }
+
+    // The count ceiling, newest kept. Applied after the age cut-off so the
+    // two compose: "90 days, and at most 500 of those".
+    if policy.max_entries > 0 {
+        conn.execute(
+            "DELETE FROM query_history WHERE id NOT IN (
+                 SELECT id FROM query_history ORDER BY datetime(executed_at) DESC LIMIT ?1
+             )",
+            [policy.max_entries as i64],
+        )?;
+        // A workspace with no history rows left is an empty shell.
+        conn.execute(
+            "DELETE FROM workspaces WHERE id NOT IN (
+                 SELECT DISTINCT workspace_id FROM query_history WHERE workspace_id IS NOT NULL
+             )",
+            [],
         )?;
     }
 

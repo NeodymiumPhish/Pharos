@@ -221,6 +221,51 @@ private func testSingleStatement() {
 
 // MARK: - Review
 
+/// Settings ▸ Intelligence ▸ "Allow drafts that write", cleared.
+///
+/// The switch changes the VERDICT, not the reading: the same statement is
+/// still recognised the same way, and only the question "may this be offered"
+/// answers differently. `allowWriteStatements` defaults to true, which is what
+/// the popover did before the switch existed, so every other test in this file
+/// keeps pinning today's behaviour.
+private func testWriteDraftsRefusedWhenNotAllowed() {
+    for sql in [
+        "DELETE FROM orders WHERE id = 1",
+        "UPDATE orders SET total = 0",
+        "CREATE TABLE t (id int)",
+        "WITH gone AS (DELETE FROM orders RETURNING *) SELECT * FROM gone",
+    ] {
+        let allowed = SQLDraftPolicy.review(sql, allowWriteStatements: true)
+        let refused = SQLDraftPolicy.review(sql, allowWriteStatements: false)
+
+        expect(allowed.needsConfirmation, "allowed, it is offered behind a confirmation: \(sql.prefix(24))")
+        expect(!allowed.isRefused, "allowed, it is not refused: \(sql.prefix(24))")
+
+        expect(refused.isRefused, "refused when writes are not allowed: \(sql.prefix(24))")
+        expect(!refused.needsConfirmation,
+               "a refused draft is never offered to confirm: \(sql.prefix(24))")
+        expect(refused.warning?.contains("Settings") == true,
+               "the refusal says where to change it: \(sql.prefix(24))")
+        expectEqual(refused.sql, allowed.sql, "the cleaning is unchanged: \(sql.prefix(24))")
+        expectEqual(refused.leadingKeyword, allowed.leadingKeyword,
+                    "the reading is unchanged: \(sql.prefix(24))")
+    }
+
+    // A read is a read whichever way the switch is set.
+    for sql in ["SELECT * FROM orders", "EXPLAIN SELECT 1"] {
+        let refused = SQLDraftPolicy.review(sql, allowWriteStatements: false)
+        expect(!refused.isRefused, "a plain read is never refused: \(sql.prefix(24))")
+        expect(refused.warning == nil, "and carries no warning: \(sql.prefix(24))")
+    }
+
+    // An empty draft is empty, not a refused write: the popover has its own
+    // sentence for it, and must not be told to blame the setting.
+    let empty = SQLDraftPolicy.review("", allowWriteStatements: false)
+    expect(empty.isEmpty, "an empty draft is still empty")
+    expect(!empty.isRefused, "an empty draft is not a refused write")
+    expect(empty.warning == nil, "and has no warning")
+}
+
 private func testEmptyDraftRejected() {
     for raw in ["", "   \n  ", "```\n```"] {
         let review = SQLDraftPolicy.review(raw)
@@ -324,6 +369,7 @@ func runTests() {
     testDestructiveDrafts()
     testNotASelect()
     testReadingStatementsAccepted()
+    testWriteDraftsRefusedWhenNotAllowed()
 
     if failures == 0 {
         print("\nAll SQL draft policy tests passed.")

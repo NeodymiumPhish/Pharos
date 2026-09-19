@@ -12,6 +12,9 @@
     ]
   },
   "checkForUpdates": true,
+  "diagnostics": {
+    "metadataCacheTtlMinutes": 0
+  },
   "editor": {
     "autoIndent": true,
     "autoPairBrackets": true,
@@ -33,6 +36,43 @@
     "syntaxTheme": "system",
     "tabSize": 2,
     "wordWrap": false
+  },
+  "history": {
+    "maximumEntries": 200
+  },
+  "intelligence": {
+    "allowDraftingWriteStatements": true,
+    "describeQuery": true,
+    "explainErrors": true,
+    "nameTabsAutomatically": true,
+    "suggestCharts": true,
+    "suggestSavedQueryNames": true,
+    "summarisePlans": true
+  },
+  "library": {
+    "defaultFolder": "",
+    "doubleClickAction": "open",
+    "sortMode": "folder"
+  },
+  "navigator": {
+    "autoExpandDefaultSchema": true,
+    "autoExpandThreshold": 500,
+    "doubleClickAction": "expand",
+    "limitPresets": [
+      10,
+      100,
+      1000,
+      10000
+    ],
+    "objectSort": "kindThenName",
+    "partitionSort": "name",
+    "schemaSort": "name",
+    "viewContentsUsesRowLimit": true
+  },
+  "notifications": {
+    "badgeDockIcon": true,
+    "playSound": true,
+    "toastDuration": "normal"
   },
   "nullDisplay": "NULL",
   "query": {
@@ -79,6 +119,10 @@
     "showColumnTypeIcons": false,
     "showResultTabsPanelByDefault": true,
     "showRowNumbers": true
+  },
+  "security": {
+    "collectPerformanceMetrics": true,
+    "indexSavedQueriesInSpotlight": true
   },
   "showLeafPartitions": false,
   "theme": "auto",

@@ -41,8 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Apply the saved theme, and follow it from here on: the Settings
         // window applies a new theme by saving it, with nothing to press.
         ThemeApplier.shared.start()
-        // MetricKit hang and crash diagnostics land in ~/Library/Logs/Pharos/.
-        Diagnostics.start()
 
         // Build the main menu
         NSApp.mainMenu = MainMenu.build()
@@ -66,9 +64,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // `checkForUpdates` setting, so no conditional is needed here.
         UpdateChecker.shared.start()
 
-        // Put the saved queries in Spotlight, and follow every later change.
-        // This has to come after `pharos_init`: it reads them from the core.
-        SavedQuerySpotlightIndexer.shared.start()
+        // The settings that start and stop something: the Spotlight indexer,
+        // the MetricKit subscriber and the toast duration. Each follows the
+        // stored value, so Settings needs no relaunch. After `pharos_init` and
+        // `loadSettings()`: the Spotlight effect reads the saved queries out of
+        // the core.
+        SettingsEffects.shared.start()
 
         // Read the app-wide query variables before any window exists, so each
         // sidebar can seed its Variables navigator directly from the store. A

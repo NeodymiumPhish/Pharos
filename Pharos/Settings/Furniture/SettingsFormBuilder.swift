@@ -231,7 +231,7 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
             view.translatesAutoresizingMaskIntoConstraints = false
             return view
 
-        case .empty:
+        case .display, .empty:
             return nil
         }
     }

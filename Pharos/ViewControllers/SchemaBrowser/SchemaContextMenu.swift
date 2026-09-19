@@ -90,21 +90,35 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     // MARK: - Query Actions
 
-    @objc private func contextViewAllContents(_: Any?) {
-        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
-        guard let tableName = tableNameFromNode(node) else { return }
-        let sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName))"
+    /// SELECT everything `node` holds, `limit` rows of it when a limit is
+    /// given, into a named result tab.
+    ///
+    /// Node-taking and internal so the double-click action of Settings ▸
+    /// Navigator runs the SAME query the context menu runs. `false` means the
+    /// row is not something you can select from — a schema or a column — so
+    /// the caller can fall back to expanding it.
+    @discardableResult
+    func viewContents(node: SchemaTreeNode, limit: Int?) -> Bool {
+        guard let schemaName = node.schemaName, let tableName = tableNameFromNode(node) else { return false }
+        var sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName))"
+        var resultName = tableName
+        if let limit {
+            sql += " LIMIT \(limit)"
+            resultName = "\(tableName) (\(formatLimit(limit)))"
+        }
         NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
-            userInfo: ["sql": sql, "resultName": tableName])
+            userInfo: ["sql": sql, "resultName": resultName])
+        return true
+    }
+
+    @objc private func contextViewAllContents(_: Any?) {
+        guard let node = clickedNode() else { return }
+        viewContents(node: node, limit: nil)
     }
 
     @objc private func contextViewContentsWithLimit(_ sender: NSMenuItem) {
-        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
-        guard let tableName = tableNameFromNode(node) else { return }
-        let limit = sender.tag
-        let sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName)) LIMIT \(limit)"
-        NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
-            userInfo: ["sql": sql, "resultName": "\(tableName) (\(formatLimit(limit)))"])
+        guard let node = clickedNode() else { return }
+        viewContents(node: node, limit: sender.tag)
     }
 
     // MARK: - Clipboard Actions
@@ -115,18 +129,42 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         NSPasteboard.general.setString(node.title, forType: .string)
     }
 
-    @objc private func contextPasteToEditor(_: Any?) {
-        guard let node = clickedNode(), let schemaName = node.schemaName else { return }
-        guard let tableName = tableNameFromNode(node) else { return }
+    /// Put `node`'s qualified name into the editor at the cursor. Node-taking
+    /// and internal for the same reason as `viewContents`.
+    @discardableResult
+    func insertName(node: SchemaTreeNode) -> Bool {
+        guard let schemaName = node.schemaName, let tableName = tableNameFromNode(node) else { return false }
         let qualifiedName = quotedQualifiedName(schema: schemaName, table: tableName)
         NotificationCenter.default.post(name: .insertTextInEditor, object: nil, userInfo: ["text": qualifiedName])
+        return true
+    }
+
+    @objc private func contextPasteToEditor(_: Any?) {
+        guard let node = clickedNode() else { return }
+        insertName(node: node)
     }
 
     // MARK: - Clone / Import / Export
 
+    /// Open `node`'s DDL sheet — how this app describes an object's
+    /// structure, and what Settings ▸ Navigator's "Describe" double-click
+    /// runs. Only a plain table has DDL to show, exactly as the context menu
+    /// has always had it, so anything else gives `false` and the caller falls
+    /// back to expanding the row.
+    @discardableResult
+    func describe(node: SchemaTreeNode) -> Bool {
+        guard case .table = node.kind else { return false }
+        presentTableDDLSheet(for: node)
+        return true
+    }
+
     @objc private func contextViewTableDDL(_: Any?) {
-        guard let node = clickedNode(),
-              let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
+        guard let node = clickedNode() else { return }
+        presentTableDDLSheet(for: node)
+    }
+
+    private func presentTableDDLSheet(for node: SchemaTreeNode) {
+        guard let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
 
         Task { [weak self] in
@@ -392,16 +430,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             viewAll.target = self
             menu.addItem(viewAll)
 
-            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
-            let limitSubmenu = NSMenu()
-            for limit in [10, 100, 1_000, 10_000] {
-                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = limit
-                limitSubmenu.addItem(item)
-            }
-            limitItem.submenu = limitSubmenu
-            menu.addItem(limitItem)
+            menu.addItem(limitSubmenuItem())
 
             let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
             copyName.target = self
@@ -454,16 +483,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             viewAll.target = self
             menu.addItem(viewAll)
 
-            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
-            let limitSubmenu = NSMenu()
-            for limit in [10, 100, 1_000, 10_000] {
-                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = limit
-                limitSubmenu.addItem(item)
-            }
-            limitItem.submenu = limitSubmenu
-            menu.addItem(limitItem)
+            menu.addItem(limitSubmenuItem())
 
             let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
             copyName.target = self
@@ -504,16 +524,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             viewAll.target = self
             menu.addItem(viewAll)
 
-            let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
-            let limitSubmenu = NSMenu()
-            for limit in [10, 100, 1_000, 10_000] {
-                let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = limit
-                limitSubmenu.addItem(item)
-            }
-            limitItem.submenu = limitSubmenu
-            menu.addItem(limitItem)
+            menu.addItem(limitSubmenuItem())
 
             let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
             copyName.target = self
@@ -560,6 +571,24 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         default:
             break
         }
+    }
+
+    /// The "View Contents (Limit\u{2026})" item, with one row per preset from
+    /// Settings ▸ Navigator. The presets used to be the literal
+    /// `[10, 100, 1_000, 10_000]` written out at each of the three places
+    /// this item was built, which is still the default set.
+    private func limitSubmenuItem() -> NSMenuItem {
+        let limitItem = NSMenuItem(title: "View Contents (Limit\u{2026})", action: nil, keyEquivalent: "")
+        let limitSubmenu = NSMenu()
+        for preset in stateManager.settings.navigator.limitPresets {
+            let limit = Int(preset)
+            let item = NSMenuItem(title: formatLimit(limit), action: #selector(contextViewContentsWithLimit(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = limit
+            limitSubmenu.addItem(item)
+        }
+        limitItem.submenu = limitSubmenu
+        return limitItem
     }
 
     private func formatLimit(_ limit: Int) -> String {

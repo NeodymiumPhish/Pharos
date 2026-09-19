@@ -12,6 +12,12 @@ protocol SchemaDataSourceDelegate: AnyObject {
     /// A CSV/TSV file was dropped on `node` (always a `.table`). The receiver
     /// opens the import sheet with the file already chosen.
     func schemaDataSourceDidDropFile(_ url: URL, onTable node: SchemaTreeNode)
+    /// `node` was double-clicked. The receiver owns Settings ▸ Navigator ▸
+    /// On double-click and returns `true` when it ran the chosen action.
+    /// `false` — the setting is "Expand or collapse", or the row is not an
+    /// object that action can be run against — leaves the disclosure
+    /// behaviour to the data source.
+    func schemaDataSourceDidDoubleClick(_ node: SchemaTreeNode) -> Bool
 }
 
 // MARK: - SchemaDataSource
@@ -146,6 +152,10 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
     @objc private func outlineDoubleClicked(_: Any?) {
         let row = outlineView.clickedRow
         guard row >= 0, let item = outlineView.item(atRow: row) as? SchemaTreeNode else { return }
+        // Settings ▸ Navigator ▸ On double-click. Expanding is the default
+        // and the fallback: a schema row has no contents to view and no name
+        // worth inserting, so it still opens.
+        if delegate?.schemaDataSourceDidDoubleClick(item) == true { return }
         if outlineView.isItemExpanded(item) {
             outlineView.collapseItem(item)
         } else if outlineView.isExpandable(item) {

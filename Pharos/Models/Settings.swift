@@ -543,6 +543,269 @@ struct ResultsSettings: Codable, Equatable {
     var showResultTabsPanelByDefault: Bool = true
 }
 
+/// The per-feature switches under Settings ▸ Intelligence.
+///
+/// Each one is read through `ModelAvailability.isAvailable(for:)`, never on
+/// its own: a feature is offered when the Mac can run the model, the master
+/// switch is on, AND its own flag is on. Every default below is what Pharos
+/// did before these switches existed — all seven features ran whenever
+/// `useAppleIntelligence` allowed them — so an existing user sees no change
+/// until they clear one.
+struct IntelligenceSettings: Codable, Equatable {
+    /// The editor toolbar's "Describe the query…" button.
+    var describeQuery: Bool = true
+    /// The explanation block on the query-error sheet.
+    var explainErrors: Bool = true
+    /// A suggested name in the Save Query sheet and the two rename dialogs.
+    var suggestSavedQueryNames: Bool = true
+    /// Renaming an unnamed editor tab from its SQL the first time it runs.
+    /// On, because that is what the tab did before this switch existed.
+    var nameTabsAutomatically: Bool = true
+    /// The plan summary above an EXPLAIN result.
+    var summarisePlans: Bool = true
+    /// "Suggest chart" asking the model rather than the deterministic
+    /// recommender. The button stays, and falls back to the recommender.
+    var suggestCharts: Bool = true
+    /// Whether a draft that is not a plain read may be offered at all. Off
+    /// refuses it outright; on offers it behind the existing confirmation,
+    /// which is what the popover did before this switch existed.
+    var allowDraftingWriteStatements: Bool = true
+}
+
+/// How long a toast stays on screen (Settings ▸ Notifications).
+///
+/// The three cases are the durations `Toast.show` is already called with:
+/// `normal` is its 2-second default, `long` the 5 seconds the two explicit
+/// call sites pass. A caller that passes its own duration keeps it.
+enum ToastDuration: String, Codable, CaseIterable {
+    case short
+    case normal
+    case long
+
+    var seconds: TimeInterval {
+        switch self {
+        case .short: return 1.0
+        case .normal: return 2.0
+        case .long: return 5.0
+        }
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .short: return String(localized: "Short (1 second)")
+        case .normal: return String(localized: "Normal (2 seconds)")
+        case .long: return String(localized: "Long (5 seconds)")
+        }
+    }
+}
+
+/// How a finished query, and the app's own in-window messages, sound and look
+/// (Settings ▸ Notifications). Every default is what Pharos did before the
+/// setting existed.
+struct NotificationSettings: Codable, Equatable {
+    /// Whether a posted notification carries the default sound. Every
+    /// `UNMutableNotificationContent` Pharos builds set `.default` before this
+    /// existed.
+    var playSound: Bool = true
+    /// Whether a query finishing while Pharos is not frontmost counts up on
+    /// the Dock tile. Unconditional before this existed.
+    var badgeDockIcon: Bool = true
+    /// How long a toast raised with no explicit duration stays.
+    var toastDuration: ToastDuration = .normal
+}
+
+/// Settings ▸ Advanced. The knobs that are about Pharos rather than about
+/// the database.
+struct DiagnosticsSettings: Codable, Equatable {
+    /// How long a connection's cached schema metadata may be reused before
+    /// `MetadataCache` refetches it, in minutes. 0 means never expire, which
+    /// is what the cache did before this existed: an entry lived until the
+    /// connection was closed or the user refreshed it by hand.
+    var metadataCacheTtlMinutes: UInt32 = 0
+}
+
+/// Settings ▸ Security & Privacy. Nothing here leaves this Mac; the switches
+/// decide what Pharos does with it locally.
+struct SecuritySettings: Codable, Equatable {
+    /// Whether the saved queries are put in Spotlight. On, because
+    /// `AppDelegate` started the indexer at launch before this existed.
+    var indexSavedQueriesInSpotlight: Bool = true
+    /// Whether MetricKit hang and performance payloads are written to
+    /// `~/Library/Logs/Pharos`. On, because `AppDelegate` called
+    /// `Diagnostics.start()` at launch before this existed.
+    var collectPerformanceMetrics: Bool = true
+}
+
+// MARK: - Database Navigator
+
+/// How the Database Navigator orders the objects inside a schema
+/// (Settings ▸ Navigator). The ordering rules themselves are
+/// `NavigatorOrdering`, which is tested on its own.
+enum ObjectSortMode: String, Codable, CaseIterable {
+    /// Tables, then views, each by name. What the Navigator has always done.
+    case kindThenName
+    /// By name, whatever the object is.
+    case name
+    /// Largest first. Objects with no size fall to the end, by name.
+    case size
+    /// Most rows first, by the planner's estimate. Same tail rule.
+    case rowEstimate
+
+    var displayLabel: String {
+        switch self {
+        case .kindThenName: return String(localized: "Kind, then name")
+        case .name: return String(localized: "Name")
+        case .size: return String(localized: "Size")
+        case .rowEstimate: return String(localized: "Row estimate")
+        }
+    }
+}
+
+/// How the schemas themselves are ordered.
+enum SchemaSortMode: String, Codable, CaseIterable {
+    /// By name, which is the order the server returns them in.
+    case name
+    /// The default schema first, then the rest by name.
+    case defaultFirst
+
+    var displayLabel: String {
+        switch self {
+        case .name: return String(localized: "Name")
+        case .defaultFirst: return String(localized: "Default schema first")
+        }
+    }
+}
+
+/// What a double-click on a Navigator row does.
+enum NavigatorDoubleClickAction: String, Codable, CaseIterable {
+    /// Expand or collapse the row. What it has always done.
+    case expand
+    /// Run a SELECT against the object.
+    case viewContents
+    /// Open the object's DDL — the "View Table DDL…" sheet the context menu
+    /// offers, which is how this app describes an object's structure.
+    case describe
+    /// Put the object's qualified name into the editor at the cursor.
+    case insertName
+
+    var displayLabel: String {
+        switch self {
+        case .expand: return String(localized: "Expand or collapse")
+        case .viewContents: return String(localized: "View contents")
+        case .describe: return String(localized: "Describe")
+        case .insertName: return String(localized: "Insert the name in the editor")
+        }
+    }
+}
+
+/// Ordering modes for the Partitions group under a partitioned table. The
+/// sorting itself is `PartitionOrdering`, in `PartitionOrdering.swift`.
+enum PartitionSortMode: String, Codable, CaseIterable {
+    /// By partition boundary — MINVALUE first, DEFAULT last.
+    case bound
+    /// By name. What the Navigator has always done.
+    case name
+    /// Largest first.
+    case size
+
+    var displayLabel: String {
+        switch self {
+        case .bound: return String(localized: "Partition bound")
+        case .name: return String(localized: "Name")
+        case .size: return String(localized: "Size")
+        }
+    }
+}
+
+/// The Database Navigator's own settings.
+///
+/// Every default here is what the Navigator did before the setting existed.
+/// `showLeafPartitions` is NOT here: it is a top-level `AppSettings` field
+/// and moving it would rename its key on the wire.
+struct NavigatorSettings: Codable, Equatable {
+    // MARK: Schemas
+
+    /// The order the schemas are listed in.
+    var schemaSort: SchemaSortMode = .name
+
+    // MARK: Objects
+
+    /// The order the tables and views inside a schema are listed in.
+    var objectSort: ObjectSortMode = .kindThenName
+    /// The order the Partitions group lists a table's partitions in.
+    var partitionSort: PartitionSortMode = .name
+    /// Whether the default schema is opened for you when the tree is built.
+    var autoExpandDefaultSchema: Bool = true
+    /// Most children that schema may have and still be opened. Above it,
+    /// expanding one outline item blocks the main thread for seconds.
+    var autoExpandThreshold: UInt32 = 500
+
+    // MARK: Actions
+
+    /// What a double-click on a row does.
+    var doubleClickAction: NavigatorDoubleClickAction = .expand
+    /// Whether the `viewContents` action adds a `LIMIT`, taking the number
+    /// from Settings ▸ Query ▸ Default row limit. Off selects every row.
+    var viewContentsUsesRowLimit: Bool = true
+    /// The row counts the Navigator's "View Contents (Limit…)" submenu
+    /// offers. A short fixed list, chosen in Settings as a whole set.
+    var limitPresets: [UInt32] = [10, 100, 1000, 10000]
+}
+
+// MARK: - Query Library and History
+
+/// How the Query Library navigator orders what it shows.
+enum SavedQuerySortMode: String, Codable, CaseIterable {
+    /// Folders by name, then the unfiled queries by name. What the Query
+    /// Library has always done.
+    case folder
+    /// One flat list, by name, with no folder rows.
+    case name
+    /// One flat list, most recently changed first.
+    case recentlyUpdated
+
+    var displayLabel: String {
+        switch self {
+        case .folder: return String(localized: "Folder, then name")
+        case .name: return String(localized: "Name")
+        case .recentlyUpdated: return String(localized: "Recently updated")
+        }
+    }
+}
+
+/// What a double-click on a saved query does.
+enum SavedQueryDoubleClickAction: String, Codable, CaseIterable {
+    /// Open it in a tab. What it has always done.
+    case open
+    /// Open it in a tab and run it at once.
+    case openAndRun
+
+    var displayLabel: String {
+        switch self {
+        case .open: return String(localized: "Open in a tab")
+        case .openAndRun: return String(localized: "Open in a tab and run it")
+        }
+    }
+}
+
+/// The Query Library's own settings.
+struct LibrarySettings: Codable, Equatable {
+    /// The folder the Save Query sheet opens on. Empty means unfiled, which
+    /// is what the sheet has always opened on.
+    var defaultFolder: String = ""
+    /// The order the Query Library navigator lists queries in.
+    var sortMode: SavedQuerySortMode = .folder
+    /// What a double-click on a query does.
+    var doubleClickAction: SavedQueryDoubleClickAction = .open
+}
+
+/// The Results History navigator's own settings.
+struct HistorySettings: Codable, Equatable {
+    /// How many history entries the navigator loads. There is no paging: the
+    /// list is one fetch, and 200 is the number it was hard-coded to.
+    var maximumEntries: UInt32 = 200
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -569,4 +832,19 @@ struct AppSettings: Codable, Equatable {
     /// Same belt-and-braces default as above: the key is always on the wire
     /// because the core carries `#[serde(default)]`.
     var alwaysShowScrollBars: Bool = false
+    /// The per-feature Apple Intelligence switches, under the master above.
+    var intelligence: IntelligenceSettings = IntelligenceSettings()
+    /// Sound, Dock badge and toast duration.
+    var notifications: NotificationSettings = NotificationSettings()
+    /// Settings ▸ Advanced.
+    var diagnostics: DiagnosticsSettings = DiagnosticsSettings()
+    /// Settings ▸ Security & Privacy.
+    var security: SecuritySettings = SecuritySettings()
+    /// The Database Navigator. `showLeafPartitions` stays above, top-level:
+    /// moving it here would rename its key on the wire.
+    var navigator: NavigatorSettings = NavigatorSettings()
+    /// The Query Library navigator, and the Save Query sheet.
+    var library: LibrarySettings = LibrarySettings()
+    /// The Results History navigator.
+    var history: HistorySettings = HistorySettings()
 }
