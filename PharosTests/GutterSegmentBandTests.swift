@@ -68,17 +68,65 @@ private func makeGutter(_ text: String, height: CGFloat = 400)
     return (window, gutter, textView)
 }
 
+/// One offscreen render, with the scale that turns a POINT coordinate into the
+/// PIXEL coordinate `colorAt` counts in.
+///
+/// `bitmapImageRepForCachingDisplay` follows the main display's backing scale
+/// even for a view in no window, so on a Retina Mac the rep is 2x. A point read
+/// straight through therefore lands at HALF the intended x: the band starts at
+/// point 16, and x = 18 read as a pixel is point 9 — the plain gutter left of
+/// the band. That is why both appearances measured a delta of exactly 0.000
+/// while the band was being painted correctly all along.
+private struct Rendered {
+    /// Retained on purpose: the pixels belong to the rep.
+    let rep: NSBitmapImageRep
+    /// Pixels per point.
+    let scale: Int
+
+    /// The pixel at a POINT coordinate. Top-left origin, as `colorAt` counts —
+    /// the gutter is flipped, so its own y already runs the same way.
+    func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
+        rep.colorAt(x: Int(x) * scale, y: Int(y) * scale)?.usingColorSpace(.deviceRGB)
+    }
+
+    /// The rep's width back in points, so a sampling loop can be clamped in the
+    /// same units the band rect is in.
+    var pointsWide: CGFloat { CGFloat(rep.pixelsWide) / CGFloat(scale) }
+
+    /// Every PIXEL across a horizontal span given in points, left to right.
+    ///
+    /// Counting ink one point at a time is not enough on a 2x rep: a line
+    /// number's stroke is about a point wide, so a point-by-point walk steps
+    /// over half of it and the digit count reads far lower than the digit is.
+    func row(y: CGFloat, fromX: CGFloat, toX: CGFloat) -> [(x: Int, color: NSColor)] {
+        let yPixel = Int(y) * scale
+        let lo = max(0, Int(fromX * CGFloat(scale)))
+        let hi = min(rep.pixelsWide, Int(toX * CGFloat(scale)))
+        guard lo < hi, yPixel >= 0, yPixel < rep.pixelsHigh else { return [] }
+        return (lo..<hi).compactMap { x in
+            rep.colorAt(x: x, y: yPixel)?.usingColorSpace(.deviceRGB).map { (x, $0) }
+        }
+    }
+}
+
 /// Draw the gutter for real. A draw is what fills `paintedBands`, and nothing
 /// else does — but `draw(_:)` cannot be called directly with no focused
 /// graphics context (it traps in the first fill). `cacheDisplay` supplies one.
+///
+/// `view.appearance` is set, not just made current: `cacheDisplay` walks the
+/// hierarchy and restores each view's own `effectiveAppearance` as it draws, so
+/// `performAsCurrentDrawingAppearance` alone left the "dark" pass rendering the
+/// light gutter. Both passes then measured the same pixels.
 @discardableResult
-private func paint(_ view: NSView, appearance name: NSAppearance.Name? = nil) -> NSBitmapImageRep? {
-    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+private func paint(_ view: NSView, appearance name: NSAppearance.Name? = nil) -> Rendered? {
     let appearance = name.flatMap(NSAppearance.init(named:)) ?? view.effectiveAppearance
+    if name != nil { view.appearance = appearance }
+    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
     appearance.performAsCurrentDrawingAppearance {
         view.cacheDisplay(in: view.bounds, to: rep)
     }
-    return rep
+    let scale = max(1, Int((CGFloat(rep.pixelsWide) / view.bounds.width).rounded()))
+    return Rendered(rep: rep, scale: scale)
 }
 
 /// Tick the cross-fade until it settles. Real time must pass: the fade is
@@ -234,6 +282,7 @@ private func testReduceMotionSnaps() {
 private func testNumbersStayReadableOverTheBand() {
     // The band is a wash behind text. If its alpha creeps up, the numbers stop
     // being readable and no compiler notices — so count real pixels.
+    var grounds: [String: CGFloat] = [:]
     for (label, name) in [("light", NSAppearance.Name.aqua),
                           ("dark", NSAppearance.Name.darkAqua)] {
         let (window, gutter, _) = makeGutter(twoStatements)
@@ -241,7 +290,7 @@ private func testNumbersStayReadableOverTheBand() {
         // A result tab's colour, so this measures the level a statement with
         // results actually shows — the one the screenshots were taken of.
         gutter.setSegmentColor(.systemPink, forSegmentIndex: 0)
-        guard let rep = paint(gutter, appearance: name) else {
+        guard let rendered = paint(gutter, appearance: name) else {
             print("FAIL could not render the gutter in \(label)"); failures += 1; continue
         }
         guard let band = gutter.paintedBands.first else {
@@ -250,21 +299,31 @@ private func testNumbersStayReadableOverTheBand() {
 
         // Sample a row through the middle of the band's first line and count
         // how many pixels differ from the band's own flat colour: the digits.
-        var distinct = 0
-        var sampled = 0
-        let y = Int(band.rect.minY + 6)
-        let bandColor = rep.colorAt(x: Int(band.rect.minX) + 1, y: y)
-        for x in Int(band.rect.minX)..<Int(min(band.rect.maxX, CGFloat(rep.pixelsWide))) {
-            guard let c = rep.colorAt(x: x, y: y), let b = bandColor else { continue }
-            sampled += 1
-            let dr = abs(c.redComponent - b.redComponent)
-            let dg = abs(c.greenComponent - b.greenComponent)
-            let db = abs(c.blueComponent - b.blueComponent)
-            if dr + dg + db > 0.12 { distinct += 1 }
+        // Start INSIDE the band's rounded corner, not on it, or the corner's
+        // own antialiasing counts as ink and the row passes with no digit in it.
+        let y = band.rect.minY + 6
+        let row = rendered.row(y: y, fromX: band.rect.minX + 4,
+                               toX: min(band.rect.maxX, rendered.pointsWide))
+        var distinct: [Int] = []
+        if let b = row.first?.color {
+            for (x, c) in row {
+                let dr = abs(c.redComponent - b.redComponent)
+                let dg = abs(c.greenComponent - b.greenComponent)
+                let db = abs(c.blueComponent - b.blueComponent)
+                if dr + dg + db > 0.12 { distinct.append(x) }
+            }
         }
-        expectTrue(sampled > 0, "\(label): the band row was sampled")
-        expectTrue(distinct > 0,
-                   "\(label): the line number is still drawn over the band (\(distinct) px)")
+        expectTrue(!row.isEmpty, "\(label): the band row was sampled")
+        expectTrue(!distinct.isEmpty,
+                   "\(label): the line number is still drawn over the band "
+                       + "(\(distinct.count) px)")
+        // And it is the NUMBER's ink, not the band's own right edge: the digits
+        // are right-aligned against `numberTrailingPadding`, so every differing
+        // pixel has to sit inside the band, clear of its boundary.
+        if let rightmost = distinct.max() {
+            expectTrue(CGFloat(rightmost) / CGFloat(rendered.scale) < band.rect.maxX - 2,
+                       "\(label): the ink is the line number, not the band's edge")
+        }
 
         // And the band is actually VISIBLE. It was shipped at half this
         // strength once and read as "very dim" in both appearances, so the
@@ -274,15 +333,31 @@ private func testNumbersStayReadableOverTheBand() {
         // The comparison point is the LEADING column at the same y — the fold
         // chevron's strip, which no band ever covers. Sampling below the band
         // instead lands inside the next statement's band and reads zero.
-        if let inside = rep.colorAt(x: Int(band.rect.minX) + 2, y: Int(band.rect.minY) + 4),
-           let outside = rep.colorAt(x: 1, y: Int(band.rect.minY) + 4) {
+        if let inside = rendered.pixel(band.rect.minX + 4, band.rect.minY + 4),
+           let outside = rendered.pixel(1, band.rect.minY + 4) {
             let delta = abs(inside.redComponent - outside.redComponent)
                 + abs(inside.greenComponent - outside.greenComponent)
                 + abs(inside.blueComponent - outside.blueComponent)
             expectTrue(delta > 0.08,
                        "\(label): the band is visible against the gutter background "
                            + "(delta \(String(format: "%.3f", delta)))")
+            grounds[label] = 0.2126 * outside.redComponent
+                + 0.7152 * outside.greenComponent
+                + 0.0722 * outside.blueComponent
         }
+    }
+
+    // Non-vacuity: the two passes really did render in different appearances.
+    // They did not once — `performAsCurrentDrawingAppearance` does not survive
+    // `cacheDisplay`, so "dark" drew the light gutter and both passes measured
+    // the same white pixels. A colour check that cannot tell light from dark
+    // is not measuring anything.
+    if let light = grounds["light"], let dark = grounds["dark"] {
+        expectTrue(light - dark > 0.5,
+                   "the light and dark gutter grounds really differ "
+                       + "(\(String(format: "%.2f", light)) vs \(String(format: "%.2f", dark)))")
+    } else {
+        print("FAIL both appearances were not measured"); failures += 1
     }
 }
 
