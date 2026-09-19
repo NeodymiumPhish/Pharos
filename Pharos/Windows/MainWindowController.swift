@@ -17,6 +17,10 @@ class MainWindowController: NSWindowController {
     /// rather than landing exactly on top.
     private static var lastCascadePoint: NSPoint?
 
+    /// Set once the user has answered the unsaved-work warning for this
+    /// window, so a close made from that answer is not asked about again.
+    private var isCloseConfirmed = false
+
     /// How many main windows have been built this run. It only numbers the AX
     /// identifiers, so it counts up and never down: two windows must never
     /// share `window.main.1`, even after the first is closed.
@@ -157,6 +161,32 @@ class MainWindowController: NSWindowController {
 // MARK: - NSWindowDelegate
 
 extension MainWindowController: NSWindowDelegate {
+
+    /// Plan §5.2 L: a window close takes every one of its tabs with it, so it
+    /// asks about all of them at once, in the same words a single tab close
+    /// uses.
+    ///
+    /// The answer arrives later, so the close is refused now and made again
+    /// from the completion. `window.close()` does not consult this delegate,
+    /// but `performClose(_:)` does, and `isCloseConfirmed` is what stops the
+    /// second pass asking the same question again.
+    ///
+    /// Quitting does NOT come through here — AppKit closes the windows itself
+    /// once `applicationShouldTerminate` has answered, and that method does its
+    /// own asking. The `isTerminating` guard is what keeps the two from
+    /// stacking a second dialog on top of the quit's.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if isCloseConfirmed || stateManager.isTerminating { return true }
+        let contentVC = splitViewController.contentVC
+        let unsaved = contentVC.unsavedWorkTabs
+        guard !unsaved.isEmpty else { return true }
+        contentVC.confirmClosing(unsaved) { [weak self] proceed in
+            guard let self, proceed else { return }
+            self.isCloseConfirmed = true
+            self.window?.close()
+        }
+        return false
+    }
 
     /// A closed window takes its session with it: its tabs are gone, and the
     /// queries it started are cancelled — a query belongs to the window that

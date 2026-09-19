@@ -30,6 +30,12 @@ class SaveQuerySheet: NSViewController {
     private var existingQueries: [SavedQuery] = []
     private var onSave: ((SaveQueryAction) -> Void)?
 
+    /// Called once when the sheet goes away, however it ended — Save, Cancel
+    /// or Escape. `onSave` fires FIRST on the save path, so a caller that sets
+    /// both can tell a save from a cancel. The unsaved-work warning needs
+    /// that: a cancelled sheet must cancel the close it was asked for.
+    var onDismiss: (() -> Void)?
+
     // MARK: - Suggested name
 
     /// The folders offered in the popup, in the popup's own spelling. Also the
@@ -186,6 +192,12 @@ class SaveQuerySheet: NSViewController {
             NotificationCenter.default.removeObserver(nameChangeObserver)
             self.nameChangeObserver = nil
         }
+        // Report the sheet's end LAST, and only once: the handler is nilled
+        // before it runs, so a second disappearance — the window closing
+        // behind the sheet, say — cannot answer a waiting caller twice.
+        let handler = onDismiss
+        onDismiss = nil
+        handler?()
     }
 
     // MARK: - Suggested name

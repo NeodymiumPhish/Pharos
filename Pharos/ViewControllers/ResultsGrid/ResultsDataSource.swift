@@ -254,11 +254,21 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // Data state (pushed by VC)
     var columns: [ColumnDef] = [] {
-        didSet { rebuildColumnIndex() }
+        didSet {
+            rebuildColumnIndex()
+            // Derived here rather than pushed beside `columnCategories`: the
+            // kind comes from `ColumnDef.dataType` and nothing else, so the
+            // array cannot go out of step with the columns it describes.
+            columnValueKinds = columns.map { ResultValueKind(dataType: $0.dataType) }
+        }
     }
     var rows: [[AnyCodable]] = []
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
+
+    /// One per data column, derived from `columns` — see its `didSet`. Feeds
+    /// `ResultValueFormatter` through `renderedText`, and nothing else.
+    private(set) var columnValueKinds: [ResultValueKind] = []
 
     // MARK: - Baked Tag Render State
     //
@@ -306,7 +316,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // The three display strings used to be exposed one by one so the
     // column-width measurer could assemble a cell's text itself. It calls
-    // `renderedText(value:category:)` now — one renderer, one set of options —
+    // `renderedText(value:category:columnIndex:)` now — one renderer, one set
     // so there is nothing left to expose.
     /// The one style value the fonts come from. The column-width measurer in
     /// `ResultsGridVC` reads the SAME value (through `gridSettings`), so what
@@ -478,6 +488,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let style: ResultsGridStyle
         let maximumCellCharacters: UInt32
         let escapeControlCharacters: Bool
+        /// Settings ▸ Results ▸ Formatting. Both rewrite the TEXT of every
+        /// temporal or numeric cell on screen, so a change to either has to
+        /// reload the grid exactly as a font change does.
+        let dateStyle: ResultDateStyle
+        let numberStyle: ResultNumberStyle
     }
     private var lastDisplaySignature: DisplaySignature?
 
@@ -492,6 +507,10 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private(set) var maximumCellCharacters: UInt32 = 0
     private(set) var escapeControlCharacters = true
 
+    /// Settings ▸ Results ▸ Formatting, read by `renderedText` only.
+    private var dateStyle: ResultDateStyle = .asReturned
+    private var numberStyle: ResultNumberStyle = .asReturned
+
     /// Apply the AppSettings snapshot to local caches. Returns true if any
     /// field that affects already-rendered cells actually changed.
     @discardableResult
@@ -503,7 +522,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             nullStyle: settings.results.nullStyle,
             style: ResultsGridStyle(settings.results),
             maximumCellCharacters: settings.results.maximumCellCharacters,
-            escapeControlCharacters: settings.results.escapeControlCharacters
+            escapeControlCharacters: settings.results.escapeControlCharacters,
+            dateStyle: settings.results.dateStyle,
+            numberStyle: settings.results.numberStyle
         )
         nullDisplayString = next.nullDisplay
         boolTrueString = next.boolTrue
@@ -515,6 +536,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         rownumFont = next.style.rowNumberFont
         maximumCellCharacters = next.maximumCellCharacters
         escapeControlCharacters = next.escapeControlCharacters
+        dateStyle = next.dateStyle
+        numberStyle = next.numberStyle
         let changed = next != lastDisplaySignature
         lastDisplaySignature = next
         return changed
@@ -533,11 +556,19 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The display string for a value under the CURRENT cell settings. The
     /// single entry point for both the cell and the column-width measurer —
     /// neither may call `ResultCellText.rendered` with its own options.
-    func renderedText(value: AnyCodable, category: PGTypeCategory) -> String {
-        ResultCellText.rendered(
+    ///
+    /// `columnIndex` is the DATA column, and it is not optional on purpose:
+    /// the formatting styles need the column's declared type, and a caller
+    /// that could omit it would silently measure an unformatted cell and draw
+    /// a formatted one. Out of range takes `.other`, which formats nothing.
+    func renderedText(value: AnyCodable, category: PGTypeCategory, columnIndex: Int) -> String {
+        let kind = columnIndex >= 0 && columnIndex < columnValueKinds.count
+            ? columnValueKinds[columnIndex] : .other
+        return ResultCellText.rendered(
             value: value, category: category,
             boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString,
-            maximumCharacters: maximumCellCharacters, escapeControls: escapeControlCharacters)
+            maximumCharacters: maximumCellCharacters, escapeControls: escapeControlCharacters,
+            kind: kind, dateStyle: dateStyle, numberStyle: numberStyle)
     }
 
     // Find highlight state (pushed by VC after find operations)
@@ -681,7 +712,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             if let idx = colIdToDataIndex[colIdRaw], idx < rowData.count {
                 let category = idx < columnCategories.count ? columnCategories[idx] : .string
                 let value = rowData[idx]
-                styleCell(cell, value: value, category: category)
+                styleCell(cell, value: value, category: category, columnIndex: idx)
                 // A pending edit repaints what `styleCell` just drew: the text
                 // becomes the value that WILL be written, not the one that was
                 // loaded. Applied after, not instead of, so the type colour and
@@ -942,9 +973,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Cell Styling
 
-    private func styleCell(_ cell: ResultCellView, value: AnyCodable, category: PGTypeCategory) {
+    private func styleCell(_ cell: ResultCellView, value: AnyCodable,
+                           category: PGTypeCategory, columnIndex: Int) {
         guard let textField = cell.textField else { return }
-        textField.stringValue = renderedText(value: value, category: category)
+        textField.stringValue = renderedText(value: value, category: category,
+                                             columnIndex: columnIndex)
 
         // Numbers line up on their last digit; everything else reads from the
         // left. Assigned on EVERY realize so a recycled cell cannot keep the

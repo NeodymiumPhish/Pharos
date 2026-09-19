@@ -31,9 +31,18 @@ enum ResultCellText {
     ///     `<U+XXXX>` substitution — the newline flattening stays, because a
     ///     single-line label that silently becomes two is a layout fault, not
     ///     a fidelity one.
+    ///   - kind: The column's declared type, finer than `category`, so a
+    ///     `date` can be told from a `timestamptz` and an `interval` from
+    ///     either. `.other` — the default — is never reformatted.
+    ///   - dateStyle: Settings ▸ Results ▸ Formatting. `.asReturned`, the
+    ///     default, leaves PostgreSQL's own text alone.
+    ///   - numberStyle: Settings ▸ Results ▸ Formatting, same terms.
     static func rendered(value: AnyCodable, category: PGTypeCategory,
                          boolTrue: String, boolFalse: String, nullString: String,
-                         maximumCharacters: UInt32 = 0, escapeControls: Bool = true) -> String {
+                         maximumCharacters: UInt32 = 0, escapeControls: Bool = true,
+                         kind: ResultValueKind = .other,
+                         dateStyle: ResultDateStyle = .asReturned,
+                         numberStyle: ResultNumberStyle = .asReturned) -> String {
         // `nullString`, `boolTrue` and `boolFalse` come from AppSettings enums,
         // never from the result set, so they are neither escaped nor truncated
         // — a "NUL…" in place of "NULL" would be the app misreporting itself.
@@ -53,9 +62,30 @@ enum ResultCellText {
             // the C0 branch of `DisplayEscape` to turn into `<U+000A>`.
             return finish(raw.flattenedForCell, escapeControls, maximumCharacters)
         case .numeric, .temporal:
-            // Escaped too. A "numeric" category is inferred from the column's
-            // declared type, and every cell value crosses the FFI as a string —
-            // so neither category is a guarantee about the bytes.
+            // Settings ▸ Results ▸ Formatting. `ResultValueFormatter` parses
+            // PostgreSQL's text and writes it out again; anything it does not
+            // fully recognise comes back byte for byte, which is also what
+            // every style returns while both settings sit at `.asReturned` —
+            // the default, so an existing user sees no change.
+            let shown = ResultValueFormatter.formatted(
+                raw, kind: kind, dateStyle: dateStyle, numberStyle: numberStyle)
+            if shown != raw {
+                // Truncated, but NOT escaped. This string is the app's own
+                // output, built from a value the formatter validated as ASCII
+                // digits and separators, so no hostile scalar from the data
+                // can have survived into it — while the locale's own grouping
+                // separator very much can (U+202F in fr, U+00A0 in ru, and in
+                // recent ICU before `AM`/`PM` in en_US). All three are in
+                // `DisplayEscape.mustEscape`, so escaping here would render
+                // every grouped number as `1<U+202F>234`. Same reasoning as
+                // `nullString` and the two boolean words above: app text is
+                // not data.
+                return truncated(shown, to: maximumCharacters)
+            }
+            // Escaped, like any other data. A "numeric" category is inferred
+            // from the column's declared type, and every cell value crosses
+            // the FFI as a string — so neither category is a guarantee about
+            // the bytes.
             return finish(raw, escapeControls, maximumCharacters)
         }
     }

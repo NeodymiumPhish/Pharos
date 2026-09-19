@@ -145,6 +145,7 @@
     "columnWidthMode": "fixed",
     "copyIncludeHeaders": false,
     "copyRichText": false,
+    "dateStyle": "medium",
     "defaultCopyFormat": "markdown",
     "density": "comfortable",
     "escapeControlCharacters": false,
@@ -158,6 +159,7 @@
     "maximumResultTabs": 1,
     "monospacedFont": false,
     "nullStyle": "dimmed",
+    "numberStyle": "grouped",
     "showColumnTypeIcons": true,
     "showResultTabsPanelByDefault": false,
     "showRowNumbers": false
@@ -169,7 +171,8 @@
   "session": {
     "autosaveIntervalSeconds": 31,
     "defaultEditorSplitRatio": 0.45,
-    "restoreWindowFrames": false
+    "restoreWindowFrames": false,
+    "warnBeforeClosingUnsavedTabs": false
   },
   "showLeafPartitions": true,
   "tags": {

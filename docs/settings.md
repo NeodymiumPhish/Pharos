@@ -33,6 +33,7 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 | Restore window positions | On/Off | On | Puts a restored window back where it was. Off still restores the tabs and lets macOS place the window, which is what you want after your displays change. Only applies while **Restore open tabs** is on. |
 | Autosave the session | Every 10 seconds, Every 30 seconds, Every minute, Off | Every 30 seconds | How often the open tabs are written down. **Off still saves at quit**, so turning it off does not lose the session. |
+| Warn before closing unsaved tabs | On/Off | On | Asks before closing a tab, closing a window or quitting Pharos when a tab has edits that have not been written back. **Save** writes each one back to its saved query or its file and then closes; **Don't Save** closes and loses the edits; **Cancel** leaves everything as it was. A tab bound to a [saved query](saved-queries.md) or to a file always counts. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text. An empty tab never counts. Off is exactly what Pharos did before this setting existed: no warning at all. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
 | Frequency | On launch only, Daily, Weekly | Daily | How often the background check repeats. It also sets how stale a stored answer may be before the next check asks GitHub again. |
 | Channel | Stable, Pre-release | Stable | Stable follows GitHub's own latest release. Pre-release takes the newest release marked pre-release that is not a draft. |
@@ -206,6 +207,26 @@ Everything about the [results grid](results-grid.md). NULL display, boolean disp
 |---------|---------|---------|-------------|
 | Maximum characters per cell | 0–10,000 | 0 | Longer values are drawn cut short with an ellipsis; 0 draws all of them. Counted in characters, so an accented letter or an emoji is one. Display only — copy, export, find, filter and sort always use the whole value. |
 | Escape control characters | On/Off | On | Shows invisible and direction-changing characters as `<U+XXXX>`. Turning it off lets a value **display as something it is not**: a right-to-left override can make a filename ending `gpj.exe` read as one ending `.jpg`. Leave it on unless you are reading text you trust. Display only, whichever this says. |
+
+### Formatting
+
+Every value arrives from PostgreSQL as text, so these two settings work by
+**parsing** that text and writing it out again. Anything Pharos cannot read
+with certainty is drawn exactly as it arrived — an `interval`, a `BC` date,
+`infinity`, `NaN`, a number written in exponent form, or any value in a column
+whose declared type is not one of those listed below.
+
+Both are **display only**, and in two senses. Copy, find, filter and sort all
+read the value the server sent, never the drawn one. And an **export is never
+reformatted**. The grid's own CSV, TSV, JSON, Markdown and SQL exports write
+the value the server sent, and an XLSX export decodes the values again in the
+engine — a separate path these settings do not reach at all. So a grid showing
+`1,234.50` exports `1234.50`.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Dates and times | As returned, ISO 8601, Short, Medium | As returned | Applies to `date`, `time`, `timetz`, `timestamp` and `timestamptz` columns. As returned draws the server's own text. ISO 8601 puts a `T` between the date and the time and writes a zero offset as `Z`; a value with only a date or only a time is unchanged, because there is no `T` to insert. Short and Medium use your region's format, keep the wall clock the server sent, and leave the time-zone offset off — choose ISO 8601 or As returned when you need the offset. |
+| Numbers | As returned, Grouped | As returned | Applies to `int2`, `int4`, `int8`, `numeric`, `float4` and `float8` columns. Grouped adds your region's thousands separators and keeps the exact number of decimal places the server sent, so a `numeric(12,4)` money value still reads `1,234.5000` and is never rounded. `money` columns are left alone: the server has already formatted those itself. |
 
 ### Find
 

@@ -164,6 +164,66 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Plan §5.2 L: ask about unsaved work FIRST, before a single thing is
+        // torn down. `beginTerminating()` stops every later window close from
+        // writing to the session store, and the answer here may be "don't
+        // quit" — a session already declared over cannot be put back.
+        //
+        // Every branch below ends in exactly one
+        // `NSApp.reply(toApplicationShouldTerminate:)`: Cancel replies false
+        // at once, and both of the other answers go on to
+        // `proceedWithTermination()`, whose watchdog replies true even if the
+        // core wedges. That is what keeps `.terminateLater` from hanging.
+        let pending = windowControllers.filter {
+            !$0.splitViewController.contentVC.unsavedWorkTabs.isEmpty
+        }
+        if !pending.isEmpty {
+            confirmUnsavedWork(in: pending) { proceed in
+                if proceed {
+                    self.proceedWithTermination()
+                } else {
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                }
+            }
+            return .terminateLater
+        }
+
+        proceedWithTermination()
+        return .terminateLater
+    }
+
+    /// Ask each window in turn about its own unsaved tabs, stopping at the
+    /// first Cancel. One window's worth at a time, in that window's own
+    /// dialog, because Save has to write into that window's tabs.
+    ///
+    /// Recursive rather than a loop: each answer arrives in a completion, so
+    /// there is nothing to loop over synchronously. The recursion always
+    /// shortens its list, so it always reaches the empty case and calls
+    /// `then` exactly once.
+    @MainActor
+    private func confirmUnsavedWork(in controllers: [MainWindowController], then: @escaping (Bool) -> Void) {
+        guard let controller = controllers.first else { then(true); return }
+        let rest = Array(controllers.dropFirst())
+        let contentVC = controller.splitViewController.contentVC
+        let unsaved = contentVC.unsavedWorkTabs
+        guard !unsaved.isEmpty else {
+            confirmUnsavedWork(in: rest, then: then)
+            return
+        }
+        // Show the window the question is about: a sheet on a window behind
+        // the others names tabs the user cannot see.
+        controller.window?.makeKeyAndOrderFront(nil)
+        contentVC.confirmClosing(unsaved) { [weak self] proceed in
+            guard let self, proceed else { then(false); return }
+            self.confirmUnsavedWork(in: rest, then: then)
+        }
+    }
+
+    /// The shutdown itself, once nothing is left to ask. Ends in
+    /// `NSApp.reply(toApplicationShouldTerminate: true)` by one of two routes:
+    /// the core's own shutdown, or the watchdog if it wedges.
+    @MainActor
+    private func proceedWithTermination() {
         // Record the open tabs first: the session rows name the workspaces, and
         // the workspace snapshot below then refreshes what each one holds.
         // From here on, the windows AppKit closes on the way out must not
@@ -187,7 +247,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.reply(toApplicationShouldTerminate: true)
             }
         }
-        return .terminateLater
     }
 
     /// Quick Look previews a cell by writing it to a temporary file. Closing

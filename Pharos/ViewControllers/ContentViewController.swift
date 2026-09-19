@@ -2892,6 +2892,22 @@ class ContentViewController: NSViewController {
     /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
     /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
+        // Plan §5.2 L: ask before the tab takes an unsaved edit with it.
+        // Nothing below runs until the answer is in — Cancel leaves the tab
+        // exactly as it was.
+        let unsaved = unsavedWorkTabs(forTabId: id)
+        guard unsaved.isEmpty else {
+            confirmClosing(unsaved) { [weak self] proceed in
+                guard let self, proceed else { return }
+                self.performCloseTab(id: id)
+            }
+            return
+        }
+        performCloseTab(id: id)
+    }
+
+    /// The close itself, once there is nothing left to ask about.
+    private func performCloseTab(id: String) {
         // Flush a final editor snapshot for the closing tab's workspace.
         if let tab = session.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
             _ = ensureWorkspace(forEditorTabId: id)
@@ -4480,41 +4496,83 @@ extension ContentViewController {
     @objc func menuSaveQuery(_: Any?) {
         guard let tab = session.activeTab else { return }
 
-        // File-backed tab: write back to the source URL.
-        if let url = tab.sourceURL {
-            let currentSQL = editorPane.getSQL()
-            do {
-                try SQLFileWriter.write(currentSQL, to: url)
-                session.updateTab(id: tab.id) {
-                    $0.sql = currentSQL
-                    $0.isDirty = false
-                }
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "Couldn't save \(url.lastPathComponent)"
-                alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
-            return
-        }
-
-        // Saved-query-backed tab: update the saved query in place.
-        if let savedId = tab.savedQueryId {
-            let currentSQL = editorPane.getSQL()
-            do {
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: nil)
-                _ = try PharosCore.updateSavedQuery(update)
-                session.updateTab(id: tab.id) { $0.sql = currentSQL }
-                NotificationCoalescer.post(.savedQueriesDidChange)
-            } catch {
-                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
-            }
+        // A bound tab writes back where it came from. A scratch tab has
+        // nowhere to write to, so it asks.
+        if UnsavedWorkPolicy.canSaveInPlace(unsavedWorkTab(tab)) {
+            saveTabInPlace(id: tab.id)
             return
         }
 
         // New tab: prompt to save into the saved-queries store.
         presentSaveQuerySheet(tab: tab)
+    }
+
+    /// Write one tab's edits back to whatever binds it — its file, or its saved
+    /// query — and mark it clean. Returns false when the tab is bound to
+    /// nothing (the caller must present the Save Query sheet instead) or the
+    /// write failed.
+    ///
+    /// Works for ANY tab, not only the one on screen: the SQL comes from the
+    /// editor for the visible tab and from the tab's own `sql` otherwise, and
+    /// `QueryEditorVC.textDidChange` writes every keystroke into the tab, so a
+    /// background tab's `sql` is current. That is what lets the close and quit
+    /// warnings save tabs the user is not looking at.
+    ///
+    /// Clearing `isDirty` is the point of the "in place" in the name: before
+    /// this existed, only the FILE branch cleared it, so a tab bound to a
+    /// saved query stayed dirty for the rest of its life after one edit.
+    @discardableResult
+    func saveTabInPlace(id: String, reportErrors: Bool = true) -> Bool {
+        guard let tab = session.tabs.first(where: { $0.id == id }) else { return false }
+        let currentSQL = editorPane.showsTab(id) ? editorPane.getSQL() : tab.sql
+
+        if let url = tab.sourceURL {
+            do {
+                try SQLFileWriter.write(currentSQL, to: url)
+                session.updateTab(id: id) {
+                    $0.sql = currentSQL
+                    $0.isDirty = false
+                }
+                return true
+            } catch {
+                Log.query.error("Failed to save \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                if reportErrors {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't save \(url.lastPathComponent)"
+                    alert.informativeText = error.localizedDescription
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                return false
+            }
+        }
+
+        if let savedId = tab.savedQueryId {
+            do {
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: nil)
+                _ = try PharosCore.updateSavedQuery(update)
+                session.updateTab(id: id) {
+                    $0.sql = currentSQL
+                    // The bug this line fixes: the saved query HAS been
+                    // written, so the tab is no longer dirty.
+                    $0.isDirty = false
+                }
+                NotificationCoalescer.post(.savedQueriesDidChange)
+                return true
+            } catch {
+                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
+                if reportErrors {
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "Couldn't save “\(tab.name)”")
+                    alert.informativeText = error.localizedDescription
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                return false
+            }
+        }
+
+        return false
     }
 
     @objc func menuSaveQueryAs(_: Any?) {
@@ -4549,20 +4607,40 @@ extension ContentViewController {
         }
     }
 
-    private func presentSaveQuerySheet(tab: QueryTab) {
+    /// Ask for a name and a folder, then put this tab's SQL in the library.
+    ///
+    /// `onFinish` reports whether the tab came out of the sheet SAVED. The
+    /// close/quit warning needs that answer: a cancelled sheet has to cancel
+    /// the close rather than drop the tab the user just declined to save. The
+    /// SQL is taken from the editor for the visible tab and from the tab's own
+    /// `sql` otherwise, so the sheet can serve a background tab too.
+    func presentSaveQuerySheet(tab: QueryTab, onFinish: ((Bool) -> Void)? = nil) {
+        var didSave = false
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: editorPane.getSQL()
+            sql: editorPane.showsTab(tab.id) ? editorPane.getSQL() : tab.sql
         ) { [weak self] action in
+            didSave = true
             guard let self else { return }
             let savedQuery: SavedQuery
             switch action {
             case .created(let q): savedQuery = q
             case .replaced(let q): savedQuery = q
             }
-            self.session.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
+            self.session.updateTab(id: tab.id) {
+                $0.savedQueryId = savedQuery.id
+                // The sheet wrote this tab's SQL into the store, so the tab
+                // matches what is saved: it is no longer dirty. Recording the
+                // SQL as well keeps `tab.sql` and the store in step for the
+                // next comparison.
+                $0.sql = savedQuery.sql
+                $0.isDirty = false
+            }
             NotificationCoalescer.post(.savedQueriesDidChange)
         }
+        // Fires however the sheet ends — Save, Cancel or Escape — and after
+        // the save callback above, so `didSave` is settled by now.
+        sheet.onDismiss = { onFinish?(didSave) }
         presentAsSheet(sheet)
     }
 }

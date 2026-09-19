@@ -1515,7 +1515,7 @@ class ResultsGridVC: NSViewController {
             let cat = idx < columnCategories.count ? columnCategories[idx] : .string
             // The data source's OWN renderer, options and all, so a truncated
             // cell is measured truncated.
-            let text = dataSource.renderedText(value: rows[d][idx], category: cat)
+            let text = dataSource.renderedText(value: rows[d][idx], category: cat, columnIndex: idx)
             maxW = max(maxW, ceil((text as NSString).size(withAttributes: attrs).width) + pad)
         }
         return min(max(maxW, column.minWidth), max(column.minWidth, gridSettings.maximumColumnWidth))

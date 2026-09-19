@@ -425,6 +425,28 @@ pub enum FindMode {
     RegularExpression,
 }
 
+/// How a date, time or timestamp cell is drawn in the results grid.
+/// Mirrors `ResultDateStyle` in `Pharos/Models/Settings.swift`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultDateStyle {
+    #[default]
+    AsReturned,
+    Iso8601T,
+    Short,
+    Medium,
+}
+
+/// How a numeric cell is drawn in the results grid.
+/// Mirrors `ResultNumberStyle` in `Pharos/Models/Settings.swift`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultNumberStyle {
+    #[default]
+    AsReturned,
+    Grouped,
+}
+
 /// The format ⌘C writes in the results grid.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -476,6 +498,12 @@ pub struct ResultsSettings {
     #[serde(default = "default_true")]
     pub escape_control_characters: bool,
 
+    // Formatting
+    #[serde(default)]
+    pub date_style: ResultDateStyle,
+    #[serde(default)]
+    pub number_style: ResultNumberStyle,
+
     // Find
     #[serde(default)]
     pub find_mode: FindMode,
@@ -522,6 +550,8 @@ impl Default for ResultsSettings {
             fixed_column_width: default_fixed_column_width(),
             maximum_cell_characters: 0,
             escape_control_characters: true,
+            date_style: ResultDateStyle::default(),
+            number_style: ResultNumberStyle::default(),
             find_mode: FindMode::default(),
             find_match_case: false,
             default_copy_format: CopyFormat::default(),
@@ -661,6 +691,16 @@ pub struct SessionSettings {
     pub restore_window_frames: bool,
     #[serde(default = "default_editor_split_ratio")]
     pub default_editor_split_ratio: f64,
+    /// Whether closing a tab, closing a window or quitting asks before it
+    /// loses an edit that has not been written back.
+    ///
+    /// The one default here that is NOT what the app did before: there was no
+    /// warning at all, and shipping it off would ship the feature disabled.
+    /// The Swift mirror says the same. A blob written before this field
+    /// existed therefore decodes as "warn", which is the intended new
+    /// behaviour.
+    #[serde(default = "yes")]
+    pub warn_before_closing_unsaved_tabs: bool,
 }
 
 fn default_autosave_interval() -> u32 { 30 }
@@ -672,6 +712,7 @@ impl Default for SessionSettings {
             autosave_interval_seconds: default_autosave_interval(),
             restore_window_frames: true,
             default_editor_split_ratio: default_editor_split_ratio(),
+            warn_before_closing_unsaved_tabs: true,
         }
     }
 }
@@ -1241,6 +1282,8 @@ pub(crate) mod fixture {
                     fixed_column_width: 201,
                     maximum_cell_characters: 1,
                     escape_control_characters: false,
+                    date_style: ResultDateStyle::Medium,
+                    number_style: ResultNumberStyle::Grouped,
                     find_mode: FindMode::RegularExpression,
                     find_match_case: true,
                     default_copy_format: CopyFormat::Markdown,
@@ -1262,6 +1305,7 @@ pub(crate) mod fixture {
                     autosave_interval_seconds: 31,
                     restore_window_frames: false,
                     default_editor_split_ratio: 0.45,
+                    warn_before_closing_unsaved_tabs: false,
                 },
                 always_show_scroll_bars: true,
                 intelligence: IntelligenceSettings {

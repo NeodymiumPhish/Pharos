@@ -112,5 +112,49 @@ func runTests() {
     // layout fault, so `↵` stays whatever the setting says.
     expect(rRaw(AnyCodable("a\nb"), .string) == "a↵b", "escaping off still flattens newlines")
 
+    // MARK: - Settings ▸ Results ▸ Formatting reaches the render boundary
+
+    // The parser itself is tested in ResultValueFormatterTests. What is pinned
+    // here is the wiring: that the boundary passes the kind and the styles
+    // through, that the DEFAULT changes nothing, and the one rule that is this
+    // file's own — formatted text is the app's output, so it is truncated but
+    // never escaped.
+    func rFmt(_ v: AnyCodable, _ c: PGTypeCategory, kind: ResultValueKind,
+              date: ResultDateStyle = .asReturned, number: ResultNumberStyle = .asReturned,
+              max: UInt32 = 0) -> String {
+        ResultCellText.rendered(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
+                                nullString: "NULL", maximumCharacters: max,
+                                kind: kind, dateStyle: date, numberStyle: number)
+    }
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .temporal, kind: .timestamp)
+           == "2026-01-31 14:05:09",
+           "formatting: the default leaves a timestamp exactly as it arrived")
+    expect(rFmt(AnyCodable("1234567"), .numeric, kind: .integer) == "1234567",
+           "formatting: the default leaves a number exactly as it arrived")
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .temporal, kind: .timestamp, date: .iso8601T)
+           == "2026-01-31T14:05:09",
+           "formatting: the date style reaches the renderer")
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .string, kind: .other, date: .iso8601T)
+           == "2026-01-31 14:05:09",
+           "formatting: a text column holding date-shaped text is never restyled")
+    expect(rFmt(AnyCodable("not a timestamp"), .temporal, kind: .timestamp, date: .medium)
+           == "not a timestamp",
+           "formatting: a value the parser refuses is still drawn, unchanged")
+    // A locale's own grouping separator is U+202F in fr and U+00A0 in ru, and
+    // both are in `DisplayEscape.mustEscape`. Escaping the formatter's output
+    // would draw every grouped number as `1<U+202F>234`, so it must not be
+    // escaped — the same rule the NULL string and the boolean words follow.
+    let localeGroup = { () -> String in
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.groupingSeparator ?? ","
+    }()
+    let groupedCell = rFmt(AnyCodable("1234567"), .numeric, kind: .integer, number: .grouped)
+    expect(groupedCell.contains(localeGroup), "formatting: the number style reaches the renderer")
+    expect(!groupedCell.contains("<U+"),
+           "formatting: the formatter's own separator is never escaped as <U+XXXX>")
+    // Truncation still applies: the limit is a limit on what is DRAWN.
+    expect(rFmt(AnyCodable("1234567"), .numeric, kind: .integer, number: .grouped, max: 4).count == 5,
+           "formatting: a formatted value is still cut at the limit, plus the ellipsis")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

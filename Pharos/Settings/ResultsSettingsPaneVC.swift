@@ -104,6 +104,23 @@ final class ResultsSettingsPaneVC: SettingsFormPaneVC {
                     kind: .toggle(.settings(\.results.escapeControlCharacters))),
             ]),
 
+            SettingsSection(title: String(localized: "Formatting"), items: [
+                SettingsItem(
+                    id: "dateStyle",
+                    title: String(localized: "Dates and times"),
+                    caption: String(localized: "As returned draws exactly what the server sent. Short and Medium use your region's format and leave off the time-zone offset, so choose ISO 8601 or As returned to keep it."),
+                    icon: "calendar",
+                    help: String(localized: "Display only. Copy, find, filter and sort always read the value the server sent, and an export is never reformatted. A value this app cannot read — an interval, a BC date, infinity — is always drawn exactly as it arrived."),
+                    kind: .popup(.cases(\.results.dateStyle, title: { $0.displayLabel }))),
+                SettingsItem(
+                    id: "numberStyle",
+                    title: String(localized: "Numbers"),
+                    caption: String(localized: "Grouped adds your region's thousands separators. The number of decimal places the server sent is kept exactly, so a money column is never rounded."),
+                    icon: "number.square",
+                    help: String(localized: "Display only, on the same terms as dates. NaN, Infinity and a value written in exponent form are drawn exactly as they arrived."),
+                    kind: .popup(.cases(\.results.numberStyle, title: { $0.displayLabel }))),
+            ]),
+
             SettingsSection(title: String(localized: "Find"), items: [
                 SettingsItem(
                     id: "findMode",

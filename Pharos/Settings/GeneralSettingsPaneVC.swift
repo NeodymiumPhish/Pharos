@@ -63,6 +63,18 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                         (title: String(localized: "Every minute"), value: UInt32(60)),
                         (title: String(localized: "Off"), value: UInt32(0)),
                     ]))),
+                // Deliberately NOT `dependsOn: "restoreOpenTabs"`. The warning
+                // is worth MORE when restore is off, not less: that is the
+                // setting under which a dirty scratch tab is gone for good.
+                // Dimming it there would hide the control in exactly the case
+                // it matters most. See `UnsavedWorkPolicy`, which is where the
+                // two settings actually meet.
+                SettingsItem(
+                    id: "warnBeforeClosingUnsavedTabs",
+                    title: String(localized: "Warn before closing unsaved tabs"),
+                    caption: String(localized: "Asks before closing a tab, a window or Pharos itself when a tab has edits that have not been written back to its saved query or its file. A tab that has never been saved is only mentioned while Restore open tabs is off."),
+                    icon: "exclamationmark.triangle",
+                    kind: .toggle(.settings(\.session.warnBeforeClosingUnsavedTabs))),
             ]),
 
             SettingsSection(title: String(localized: "Updates"), items: [

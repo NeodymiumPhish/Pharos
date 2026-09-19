@@ -518,6 +518,54 @@ enum CopyFormat: String, Codable, CaseIterable {
     }
 }
 
+/// How a date, time or timestamp cell is drawn in the results grid.
+///
+/// Every value crosses the FFI as PostgreSQL's own text, so every case other
+/// than `asReturned` means PARSING that text and writing it out again —
+/// `ResultValueFormatter` owns the rule, and anything it does not recognise is
+/// drawn byte for byte. Display only: copy, export, find, filter and sort all
+/// read the raw value.
+enum ResultDateStyle: String, Codable, CaseIterable {
+    /// PostgreSQL's own text, untouched. The default, and what the grid did
+    /// before this setting existed.
+    case asReturned
+    /// `2026-01-31T14:05:09Z` — a `T` between the date and the time, and `Z`
+    /// for a zero offset. A value with only a date or only a time is
+    /// unchanged, because there is no `T` to insert.
+    case iso8601T
+    /// The short localised form, e.g. `31/01/2026, 14:05`.
+    case short
+    /// The medium localised form, e.g. `31 Jan 2026 at 14:05:09`.
+    case medium
+
+    var displayLabel: String {
+        switch self {
+        case .asReturned: return String(localized: "As returned")
+        case .iso8601T: return String(localized: "ISO 8601")
+        case .short: return String(localized: "Short")
+        case .medium: return String(localized: "Medium")
+        }
+    }
+}
+
+/// How a numeric cell is drawn in the results grid. Display only, on the same
+/// terms as `ResultDateStyle`.
+enum ResultNumberStyle: String, Codable, CaseIterable {
+    /// PostgreSQL's own text, untouched. The default.
+    case asReturned
+    /// Thousands separators, in the reader's locale. The scale PostgreSQL sent
+    /// is kept exactly, so a `numeric(12,4)` money value keeps all four
+    /// decimal places.
+    case grouped
+
+    var displayLabel: String {
+        switch self {
+        case .asReturned: return String(localized: "As returned")
+        case .grouped: return String(localized: "Grouped")
+        }
+    }
+}
+
 /// The results grid's own display settings.
 ///
 /// Every default here is what the grid did before the setting existed, so an
@@ -554,6 +602,13 @@ struct ResultsSettings: Codable, Equatable {
     /// Whether hostile scalars (bidi overrides, zero-width spaces, C0
     /// controls) are shown as `<U+XXXX>` instead of being obeyed by the label.
     var escapeControlCharacters: Bool = true
+
+    // MARK: Formatting
+
+    /// How a `date`, `time` or `timestamp` cell is drawn. Display only.
+    var dateStyle: ResultDateStyle = .asReturned
+    /// How an integer, `numeric` or floating-point cell is drawn. Display only.
+    var numberStyle: ResultNumberStyle = .asReturned
 
     // MARK: Find
 
@@ -877,6 +932,19 @@ struct SessionSettings: Codable, Equatable {
     /// The editor / results divider in a new tab, as a fraction of the
     /// height given to the editor. Moved out of `UserDefaults`.
     var defaultEditorSplitRatio: Double = 0.6
+    /// Whether closing a tab, closing a window or quitting asks before it
+    /// loses an edit that has not been written back.
+    ///
+    /// **This default is NOT today's behaviour, deliberately.** There is no
+    /// warning at all today, so shipping it off would ship the feature
+    /// disabled; the plan (§5.2 L) chose to warn, which is what every other
+    /// document-shaped Mac app does. Turning it off restores exactly what the
+    /// app did before.
+    ///
+    /// What counts as unsaved is `UnsavedWorkPolicy`, not this flag: a dirty
+    /// scratch tab is only at risk while `query.restoreOpenTabs` is off. Read
+    /// by `ContentViewController.unsavedWorkTabs`.
+    var warnBeforeClosingUnsavedTabs: Bool = true
 }
 
 // MARK: - Connections
