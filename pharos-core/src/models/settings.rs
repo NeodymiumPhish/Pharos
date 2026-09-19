@@ -69,12 +69,85 @@ pub struct EditorSettings {
     pub word_wrap: bool,
     #[serde(default = "default_line_numbers")]
     pub line_numbers: bool,
+
+    // Text
+    #[serde(default = "default_true")]
+    pub insert_spaces_for_tab: bool,
+    #[serde(default = "default_true")]
+    pub auto_indent: bool,
+    #[serde(default = "default_true")]
+    pub auto_pair_brackets: bool,
+    #[serde(default = "default_true")]
+    pub auto_pair_quotes: bool,
+    #[serde(default = "default_true")]
+    pub highlight_current_line: bool,
+    #[serde(default = "default_true")]
+    pub show_run_buttons_in_gutter: bool,
+    #[serde(default = "default_true")]
+    pub code_folding: bool,
+    #[serde(default = "default_minimum_lines_to_fold")]
+    pub minimum_lines_to_fold: u32,
+
+    // Completion
+    #[serde(default)]
+    pub completion_trigger: CompletionTrigger,
+    #[serde(default = "default_completion_minimum_characters")]
+    pub completion_minimum_characters: u32,
+    #[serde(default = "default_completion_maximum_items")]
+    pub completion_maximum_items: u32,
+    #[serde(default)]
+    pub completion_keyword_case: KeywordCase,
+
+    // Paste
+    #[serde(default = "default_true")]
+    pub offer_sql_list_chip: bool,
+    #[serde(default)]
+    pub sql_list_quote_style: SqlListQuoteStyle,
+
+    // Colours
+    #[serde(default = "default_syntax_theme")]
+    pub syntax_theme: String,
+}
+
+/// When the completion list opens on its own. `AfterDot` is what the editor
+/// did before the setting existed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CompletionTrigger {
+    Off,
+    #[default]
+    AfterDot,
+    AfterDotAndIdentifiers,
+}
+
+/// The case a keyword takes as the completion list inserts it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum KeywordCase {
+    #[default]
+    Upper,
+    Lower,
+    MatchTyping,
+}
+
+/// How "Format as SQL list" wraps a value it quotes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SqlListQuoteStyle {
+    #[default]
+    Single,
+    Double,
+    None,
 }
 
 fn default_font_size() -> u32 { 13 }
 fn default_font_family() -> String { "JetBrains Mono, Monaco, Menlo, monospace".to_string() }
 fn default_tab_size() -> u32 { 2 }
 fn default_line_numbers() -> bool { true }
+fn default_minimum_lines_to_fold() -> u32 { 3 }
+fn default_completion_minimum_characters() -> u32 { 1 }
+fn default_completion_maximum_items() -> u32 { 200 }
+fn default_syntax_theme() -> String { "system".to_string() }
 
 impl Default for EditorSettings {
     fn default() -> Self {
@@ -84,6 +157,93 @@ impl Default for EditorSettings {
             tab_size: default_tab_size(),
             word_wrap: false,
             line_numbers: default_line_numbers(),
+            insert_spaces_for_tab: true,
+            auto_indent: true,
+            auto_pair_brackets: true,
+            auto_pair_quotes: true,
+            highlight_current_line: true,
+            show_run_buttons_in_gutter: true,
+            code_folding: true,
+            minimum_lines_to_fold: default_minimum_lines_to_fold(),
+            completion_trigger: CompletionTrigger::default(),
+            completion_minimum_characters: default_completion_minimum_characters(),
+            completion_maximum_items: default_completion_maximum_items(),
+            completion_keyword_case: KeywordCase::default(),
+            offer_sql_list_chip: true,
+            sql_list_quote_style: SqlListQuoteStyle::default(),
+            syntax_theme: default_syntax_theme(),
+        }
+    }
+}
+
+/// What Cmd+Return runs (Settings ▸ Query ▸ Run).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RunScope {
+    #[default]
+    StatementAtCursor,
+    SelectionElseStatement,
+    WholeBuffer,
+}
+
+/// How loudly a failed query interrupts (Settings ▸ Query ▸ Errors).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FailureAlertStyle {
+    #[default]
+    Sheet,
+    Banner,
+    Notification,
+    Silent,
+}
+
+/// When the error sheet opens by itself (Settings ▸ Query ▸ Errors).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorSheetTrigger {
+    FirstFailure,
+    /// Today's behaviour: the first unread failure gets the inline banner.
+    #[default]
+    SecondFailure,
+    Never,
+}
+
+/// Which kinds of database-changing statement ask for confirmation.
+///
+/// A struct of named bools, not a set: a Swift `Set` encodes in hash order,
+/// so the stored JSON would differ between launches and the settings blob
+/// would look changed when nothing had changed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DestructiveConfirmations {
+    #[serde(default = "yes")]
+    pub drop_object: bool,
+    #[serde(default = "yes")]
+    pub alter: bool,
+    #[serde(default = "yes")]
+    pub truncate: bool,
+    #[serde(default = "yes")]
+    pub delete: bool,
+    #[serde(default = "yes")]
+    pub update: bool,
+    #[serde(default = "yes")]
+    pub insert: bool,
+    #[serde(default = "yes")]
+    pub grant: bool,
+}
+
+fn yes() -> bool { true }
+
+impl Default for DestructiveConfirmations {
+    fn default() -> Self {
+        DestructiveConfirmations {
+            drop_object: true,
+            alter: true,
+            truncate: true,
+            delete: true,
+            update: true,
+            insert: true,
+            grant: true,
         }
     }
 }
@@ -111,6 +271,14 @@ pub struct QuerySettings {
     /// Whether the tabs open at quit are put back at the next launch.
     #[serde(default = "default_restore_open_tabs")]
     pub restore_open_tabs: bool,
+    #[serde(default)]
+    pub run_scope: RunScope,
+    #[serde(default)]
+    pub destructive_confirmations: DestructiveConfirmations,
+    #[serde(default)]
+    pub failure_alert_style: FailureAlertStyle,
+    #[serde(default)]
+    pub error_sheet_trigger: ErrorSheetTrigger,
 }
 
 fn default_default_limit() -> u32 { 1000 }
@@ -133,6 +301,10 @@ impl Default for QuerySettings {
             notify_min_duration_seconds: default_notify_min_duration_seconds(),
             show_cancelled_query_dialog: default_show_cancelled_query_dialog(),
             restore_open_tabs: default_restore_open_tabs(),
+            run_scope: RunScope::default(),
+            destructive_confirmations: DestructiveConfirmations::default(),
+            failure_alert_style: FailureAlertStyle::default(),
+            error_sheet_trigger: ErrorSheetTrigger::default(),
         }
     }
 }
@@ -434,6 +606,21 @@ pub(crate) mod fixture {
                     tab_size: 3,
                     word_wrap: true,
                     line_numbers: false,
+                    insert_spaces_for_tab: false,
+                    auto_indent: false,
+                    auto_pair_brackets: false,
+                    auto_pair_quotes: false,
+                    highlight_current_line: false,
+                    show_run_buttons_in_gutter: false,
+                    code_folding: false,
+                    minimum_lines_to_fold: 4,
+                    completion_trigger: CompletionTrigger::AfterDotAndIdentifiers,
+                    completion_minimum_characters: 2,
+                    completion_maximum_items: 201,
+                    completion_keyword_case: KeywordCase::Lower,
+                    offer_sql_list_chip: false,
+                    sql_list_quote_style: SqlListQuoteStyle::Double,
+                    syntax_theme: "vivid".to_string(),
                 },
                 query: QuerySettings {
                     default_limit: 1001,
@@ -444,6 +631,18 @@ pub(crate) mod fixture {
                     notify_min_duration_seconds: 6,
                     show_cancelled_query_dialog: false,
                     restore_open_tabs: false,
+                    run_scope: RunScope::WholeBuffer,
+                    destructive_confirmations: DestructiveConfirmations {
+                        drop_object: false,
+                        alter: false,
+                        truncate: false,
+                        delete: false,
+                        update: false,
+                        insert: false,
+                        grant: false,
+                    },
+                    failure_alert_style: FailureAlertStyle::Silent,
+                    error_sheet_trigger: ErrorSheetTrigger::Never,
                 },
                 null_display: NullDisplay::Lowercase,
                 bool_display: BoolDisplay::YesNo,

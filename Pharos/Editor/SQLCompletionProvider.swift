@@ -323,17 +323,25 @@ class SQLCompletionProvider: NSObject {
     /// Hard cap on the result count. The popover only renders a handful of
     /// rows at once; producing thousands of matches just to sort and dedupe
     /// is wasted work on databases with very large schemas.
-    private static let maxFilteredMatches = 200
+    ///
+    /// Settings ▸ Editor ▸ Completion ▸ Maximum suggestions. 200 is the
+    /// figure this was hard-coded to before the setting existed.
+    var maximumItems: Int = 200
+
+    /// The case a KEYWORD takes as it is inserted. Settings ▸ Editor.
+    /// `.upper` is what the keyword list has always produced.
+    var keywordCase: KeywordCase = .upper
 
     private func filterCompletions() {
+        let cap = max(1, maximumItems)
         var seen = Set<String>()
         var out: [Completion] = []
-        out.reserveCapacity(Self.maxFilteredMatches)
+        out.reserveCapacity(min(cap, 200))
 
         if currentWord.isEmpty {
             for c in completions where seen.insert(c.label).inserted {
                 out.append(c)
-                if out.count >= Self.maxFilteredMatches { break }
+                if out.count >= cap { break }
             }
         } else {
             let lower = currentWord.lowercased()
@@ -341,17 +349,17 @@ class SQLCompletionProvider: NSObject {
             for c in completions where c.label.lowercased().hasPrefix(lower) {
                 if seen.insert(c.label).inserted {
                     out.append(c)
-                    if out.count >= Self.maxFilteredMatches { break }
+                    if out.count >= cap { break }
                 }
             }
             // Pass 2: contains matches (fill remaining capacity).
-            if out.count < Self.maxFilteredMatches {
+            if out.count < cap {
                 for c in completions {
                     let lc = c.label.lowercased()
                     guard !lc.hasPrefix(lower), lc.contains(lower) else { continue }
                     if seen.insert(c.label).inserted {
                         out.append(c)
-                        if out.count >= Self.maxFilteredMatches { break }
+                        if out.count >= cap { break }
                     }
                 }
             }
@@ -411,8 +419,15 @@ class SQLCompletionProvider: NSObject {
         guard row >= 0, row < filteredCompletions.count, let textView else { return }
         let completion = filteredCompletions[row]
 
+        // A KEYWORD takes the case the user asked for; everything else — a
+        // schema, a table, a column, a function — keeps the name the database
+        // gave it, because that name is not ours to re-case.
+        let insertText = completion.kind == .keyword
+            ? KeywordCasing.applied(completion.insertText, case: keywordCase, typed: currentWord)
+            : completion.insertText
+
         // Replace the current word with the completion
-        textView.insertText(completion.insertText, replacementRange: wordRange)
+        textView.insertText(insertText, replacementRange: wordRange)
         dismiss()
     }
 

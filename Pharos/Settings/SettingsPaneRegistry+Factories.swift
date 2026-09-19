@@ -21,7 +21,7 @@ extension SettingsPaneRegistry {
         case .tags: return SettingsPlaceholderPaneVC(paneId: id)
         case .intelligence: return IntelligenceSettingsPaneVC()
         case .notifications: return NotificationsSettingsPaneVC()
-        case .shortcuts: return SettingsPlaceholderPaneVC(paneId: id)
+        case .shortcuts: return ShortcutsSettingsPaneVC()
         case .advanced: return SettingsPlaceholderPaneVC(paneId: id)
         }
     }

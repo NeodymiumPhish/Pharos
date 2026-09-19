@@ -33,9 +33,17 @@ struct SQLFoldRegion {
 /// Parses SQL text to find foldable regions for code folding.
 struct SQLFoldingParser {
 
-    /// Parse SQL text and return foldable regions (each spanning 3+ lines).
-    static func parse(_ text: String) -> [SQLFoldRegion] {
+    /// Shortest foldable region, in lines, that every fold rule here was
+    /// hard-coded to before Settings ▸ Editor ▸ Minimum lines to fold existed.
+    static let defaultMinimumLines = 3
+
+    /// Parse SQL text and return foldable regions.
+    ///
+    /// `minimumLines` is the shortest region worth a chevron. It is held at 2
+    /// or more: a one-line region has nothing to hide.
+    static func parse(_ text: String, minimumLines: Int = defaultMinimumLines) -> [SQLFoldRegion] {
         guard !text.isEmpty else { return [] }
+        let minimumLines = max(2, minimumLines)
 
         // Shared with the segment parser and the highlighter — one lex per edit.
         let snapshot = SQLLexSnapshot.shared(for: text)
@@ -108,7 +116,7 @@ struct SQLFoldingParser {
                 if let open = parenStack.popLast() {
                     let openLine = open.line
                     let closeLine = lineFor(i)
-                    if closeLine - openLine + 1 >= 3 {
+                    if closeLine - openLine + 1 >= minimumLines {
                         // Determine kind: check if SELECT follows the open paren
                         let kind: FoldKind
                         let afterOpen = SQLLexer.skipWhitespace(chars: chars, from: open.charIndex + 1, length: length)
@@ -197,7 +205,7 @@ struct SQLFoldingParser {
                                                     let foldEndCharIdx = min(endPos + tagLen - 1, length - 1)
                                                     let startLine = lineFor(createPos)
                                                     let endLine = lineFor(foldEndCharIdx)
-                                                    if endLine - startLine + 1 >= 3 {
+                                                    if endLine - startLine + 1 >= minimumLines {
                                                         let startCharIdx: Int
                                                         if startLine < totalLines {
                                                             startCharIdx = lineStarts[startLine]
@@ -248,7 +256,7 @@ struct SQLFoldingParser {
                     // Try CASE first (innermost)
                     if let caseStart = caseStack.popLast() {
                         let startLine = lineFor(caseStart)
-                        if endLine - startLine + 1 >= 3 {
+                        if endLine - startLine + 1 >= minimumLines {
                             let startCharIdx: Int
                             if startLine < totalLines {
                                 startCharIdx = lineStarts[startLine]
@@ -266,7 +274,7 @@ struct SQLFoldingParser {
                         }
                     } else if let beginStart = beginStack.popLast() {
                         let startLine = lineFor(beginStart)
-                        if endLine - startLine + 1 >= 3 {
+                        if endLine - startLine + 1 >= minimumLines {
                             let startCharIdx: Int
                             if startLine < totalLines {
                                 startCharIdx = lineStarts[startLine]

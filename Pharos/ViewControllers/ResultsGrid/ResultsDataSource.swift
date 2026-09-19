@@ -304,11 +304,10 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var boolTrueString: String = BoolDisplay.trueFalse.trueString
     private var boolFalseString: String = BoolDisplay.trueFalse.falseString
 
-    // Read-only accessors so column-width measurement in ResultsGridVC uses the
-    // SAME strings styleCell renders (single source of truth).
-    var boolDisplayTrue: String { boolTrueString }
-    var boolDisplayFalse: String { boolFalseString }
-    var nullDisplay: String { nullDisplayString }
+    // The three display strings used to be exposed one by one so the
+    // column-width measurer could assemble a cell's text itself. It calls
+    // `renderedText(value:category:)` now — one renderer, one set of options —
+    // so there is nothing left to expose.
     /// The one style value the fonts come from. The column-width measurer in
     /// `ResultsGridVC` reads the SAME value (through `gridSettings`), so what
     /// is measured is drawn in the font it was measured in.

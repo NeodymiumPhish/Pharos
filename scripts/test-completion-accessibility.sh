@@ -12,6 +12,11 @@ swiftc -o /tmp/completion-accessibility-tests \
   Pharos/Editor/SQLTextView.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
   Pharos/Editor/SQLListFormatter.swift \
+  Pharos/Editor/CompletionTriggerPolicy.swift \
+  Pharos/Editor/KeywordCasing.swift \
+  Pharos/Editor/SQLThemeCatalog.swift \
+  Pharos/Models/Settings.swift \
+  Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/FoldState.swift \

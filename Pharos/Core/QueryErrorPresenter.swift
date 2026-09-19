@@ -19,6 +19,16 @@ final class QueryErrorPresenter {
     /// reads global state.
     var showCancelledDialog: () -> Bool = { true }
 
+    /// How loudly a failure interrupts, and when the sheet opens by itself.
+    /// Closures for the same reason as above: the presenter is tested without
+    /// a settings store behind it.
+    var failureAlertStyle: () -> FailureAlertStyle = { .sheet }
+    var errorSheetTrigger: () -> ErrorSheetTrigger = { .secondFailure }
+
+    /// Post a system notification for one failure. The owner fills this with
+    /// its `QueryNotifier`.
+    var postNotification: (QueryFailure) -> Void = { _ in }
+
     /// Put the sheet on screen. The owner fills this with `presentAsSheet`.
     var showSheet: (QueryErrorSheet) -> Void = { _ in }
 
@@ -71,18 +81,28 @@ final class QueryErrorPresenter {
             return
         }
 
-        // The setting only holds back the automatic sheet for a cancellation. The
-        // entry is in the log either way, so the tab button still shows it.
-        if failure.kind == .cancelled, !showCancelledDialog() { return }
-
-        // A cancellation is never a banner: the user asked for it, and the
-        // dialog — when the setting wants one — is the acknowledgement.
-        if failure.kind == .error, unreadBefore == 0 {
-            showBanner(failure)
+        // The whole of the rule now lives in one pure decision (Settings ▸
+        // Query ▸ Errors). It used to be spread through this method, where it
+        // could not be changed without touching the sheet bookkeeping above.
+        // The defaults reproduce exactly what this method did before:
+        // banner for the first unread error, sheet for the second, nothing
+        // for a cancellation the user asked not to hear about.
+        switch FailurePresentationRule.decide(
+            style: failureAlertStyle(),
+            trigger: errorSheetTrigger(),
+            kind: failure.kind == .cancelled ? .cancelled : .error,
+            unreadBefore: unreadBefore,
+            showCancelledDialog: showCancelledDialog()
+        ) {
+        case .nothing:
             return
+        case .banner:
+            showBanner(failure)
+        case .notification:
+            postNotification(failure)
+        case .sheet:
+            open(entries: entries, index: 0, tabId: failure.tabId, delegate: delegate)
         }
-
-        open(entries: entries, index: 0, tabId: failure.tabId, delegate: delegate)
     }
 
     /// Open the sheet from the toolbar button or from a banner click.

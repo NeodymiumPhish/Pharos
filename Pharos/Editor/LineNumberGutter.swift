@@ -169,7 +169,27 @@ class LineNumberGutter: NSView {
     /// alone would have made error markers unhoverable with no test failing.
     static let errorHitWidth: CGFloat = errorMarkerSize + 6
 
-    private let metrics: Metrics
+    /// A `var`, not a `let`: `drawsSegmentBands` is a user setting
+    /// (Settings ▸ Editor ▸ Show run buttons in the gutter), so the static
+    /// `Metrics.sqlEditor` is only the STARTING point — the host tells this
+    /// gutter what to draw through `setDrawsSegmentBands`.
+    private var metrics: Metrics
+
+    /// Turn the statement bands, and the run glyph they carry, on or off.
+    ///
+    /// Hit-testing, the cursor rects and the run action all read
+    /// `paintedBands`, which stays empty while this is off, so nothing is left
+    /// clickable once the bands stop being drawn.
+    func setDrawsSegmentBands(_ draws: Bool) {
+        guard metrics.drawsSegmentBands != draws else { return }
+        metrics.drawsSegmentBands = draws
+        if !draws {
+            paintedBands = []
+            armedSegmentIndex = nil
+        }
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
+    }
 
     // MARK: - Pulse State
 

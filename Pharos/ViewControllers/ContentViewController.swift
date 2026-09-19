@@ -656,6 +656,24 @@ class ContentViewController: NSViewController {
         errorPresenter.showCancelledDialog = { [weak self] in
             self?.stateManager.settings.query.showCancelledQueryDialog ?? true
         }
+        errorPresenter.failureAlertStyle = { [weak self] in
+            self?.stateManager.settings.query.failureAlertStyle ?? .sheet
+        }
+        errorPresenter.errorSheetTrigger = { [weak self] in
+            self?.stateManager.settings.query.errorSheetTrigger ?? .secondFailure
+        }
+        // The Notification style of Settings ▸ Query ▸ Errors. The same
+        // system banner `announceFailure` posts for a background tab, asked
+        // for here because the user chose it instead of the sheet.
+        errorPresenter.postNotification = { failure in
+            QueryNotifier.shared.notifyQueryFailed(
+                failureId: failure.id,
+                tabId: failure.tabId,
+                subheader: failure.subheader,
+                message: failure.message,
+                connectionName: failure.connectionName
+            )
+        }
         errorPresenter.showSheet = { [weak self] sheet in self?.presentAsSheet(sheet) }
         errorPresenter.closeSheet = { [weak self] sheet in self?.dismiss(sheet) }
         errorPresenter.showBanner = { [weak self] failure in self?.showErrorBanner(failure) }
@@ -1597,12 +1615,28 @@ class ContentViewController: NSViewController {
             // Explicit SQL passed (e.g., from context menu, saved query) — use direct execution
             executeDirectSQL(sql)
         } else {
-            // Cmd+Return — execute the segment at the cursor
-            if let segment = editorPane.editorVC.getSegmentSQLAtCursor() {
-                executeSegment(segment)
-            } else {
-                // Fallback: no segments parsed, execute full editor text
-                executeDirectSQL(editorPane.getSQL())
+            // Cmd+Return — what it runs is Settings ▸ Query ▸ Run. The default
+            // is the statement at the cursor, which is what it has always done.
+            let segment = editorPane.editorVC.getSegmentSQLAtCursor()
+            let resolution = RunScopeResolver.resolve(
+                mode: stateManager.settings.query.runScope,
+                selectedText: editorPane.editorVC.selectedSQL(),
+                segmentAtCursor: segment.map {
+                    RunScopeResolver.Segment(index: $0.index, sql: $0.sql,
+                                             lineRange: $0.startLine...$0.endLine)
+                },
+                fullText: editorPane.getSQL()
+            )
+            switch resolution {
+            case .segment:
+                // The resolver only returns `.segment` for the one it was
+                // given, so the real `SQLSegment` — with its editor range for
+                // the gutter bar — is the one to run.
+                if let segment { executeSegment(segment) }
+            case .direct(let sql):
+                executeDirectSQL(sql)
+            case .nothing:
+                break
             }
         }
     }
@@ -1724,7 +1758,11 @@ class ContentViewController: NSViewController {
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
         if stateManager.settings.query.confirmDestructive {
-            let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
+            // Which KINDS still ask is Settings ▸ Query ▸ Safety. Every kind
+            // is on by default, so this filter changes nothing until the user
+            // turns one off.
+            let keywords = stateManager.settings.query.destructiveConfirmations
+                .filtered(DestructiveSQLScanner.destructiveKeywords(in: sql))
             if !keywords.isEmpty {
                 // On confirm, run the exact SQL the sheet displayed against the
                 // captured tab/connection — never re-derive from the active tab,
@@ -2014,6 +2052,9 @@ class ContentViewController: NSViewController {
         // session, nor the work a TRUNCATE did while the lock was held. So a
         // destructive statement is refused outright rather than confirmed.
         if analyze {
+            // NOT filtered by Settings ▸ Query ▸ Safety. That setting chooses
+            // which kinds raise a CONFIRMATION; this is a refusal, and a
+            // refusal the user can switch off is not a safety rule.
             let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
             if !keywords.isEmpty {
                 presentExplainAnalyzeRefusal(keywords: keywords)

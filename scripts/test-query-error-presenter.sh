@@ -13,6 +13,9 @@ swiftc -o /tmp/query-error-presenter-tests \
   Pharos/Editor/FoldState.swift \
   Pharos/Editor/FoldingLayoutManager.swift \
   Pharos/Sheets/QueryErrorSheet.swift \
+  Pharos/Core/FailurePresentationRule.swift \
+  Pharos/Models/Settings.swift \
+  Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Core/QueryErrorPresenter.swift \
   PharosTests/QueryErrorPresenterTests.swift \
   PharosTests/main.swift
