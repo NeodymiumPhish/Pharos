@@ -329,6 +329,9 @@ pub async fn apply_row_updates(
 ) -> Result<RowUpdateResult, String> {
     validate_request(&request)?;
 
+    // The grid's own write path. Refused before the transaction opens.
+    state.require_writable(&connection_id)?;
+
     let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();

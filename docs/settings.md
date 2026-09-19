@@ -285,6 +285,55 @@ Nothing here can be rebound, and that is on purpose: macOS already does it. **Sy
 
 The default series palette used by every chart: one color well per slot, **Add color** and the minus button to change how many slots there are, and **Reset to defaults** for the built-in set. See [Charts](charts.md#colors) for how a chart chooses between this palette and its own override.
 
+## Connections Pane
+
+What a **new** connection starts as, and how every connection pool Pharos
+opens is tuned. Nothing here changes a connection you already have on screen:
+a pool is built when a connection opens, so a change reaches a connection the
+next time you connect it. Both the pool and the keepalive groups say so.
+
+Per-connection settings — read-only, the connection's own time zone, the root
+certificate — live in the [Connections Manager](connections.md), not here.
+
+### New connections
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default port | 1–65535 | 5432 | The port the Connections Manager fills in when you press **+**. Connections you have already saved keep their own port. |
+
+### Session
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Application name | Free text | Empty | What Pharos calls itself to the server — the `application_name` column of `pg_stat_activity`, and the name in the server log. Empty sends `Pharos` and the version number. |
+| Time zone | Server default, or any time zone this Mac knows | Server default | The `TimeZone` every session asks for, which is what a `timestamp with time zone` is displayed in. **Server default** leaves the server's own alone, which is what Pharos did before this setting existed. A connection can override it in the Connections Manager. |
+| Search path after the schema | Free text, comma separated | `public` | What follows the chosen schema in `search_path`, so an unqualified name can still find an object outside that schema. Empty means the chosen schema and nothing else. Every element is quoted, so `$user` works the way PostgreSQL writes it. |
+| Idle transaction timeout | 0–86,400 seconds | 30 | `idle_in_transaction_session_timeout`: how long the server lets a transaction of yours sit open and idle before it ends the session, so a forgotten transaction cannot hold locks. 0 turns it off. |
+
+### Connection pool
+
+Applies to connections opened after the change.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Connections per database | 1–50 | 5 | How many server connections one open database may use at once. More lets queries, metadata and exports run side by side; fewer is kinder to a server with a low `max_connections`. |
+| Connect timeout | 1–120 seconds | 10 | How long a connect attempt may take before it is reported as a failure. An `sslmode=prefer` connection spends three fifths of this trying TLS and the rest retrying without it, so the two together never exceed the budget. |
+| Close idle connections after | 0–86,400 seconds | 600 | How long an unused pooled connection is kept before it is closed. |
+| Retire connections after | 0–86,400 seconds | 1800 | The longest a pooled connection lives before it is replaced, however busy it is. |
+
+### Keepalive
+
+Applies to connections opened after the change. These ask the **server** to
+probe an idle connection, which stops a firewall, a NAT or an SSH tunnel
+dropping it silently. They are the `tcp_keepalives_*` settings; 0 in all three
+leaves the server's own values alone, which is the default.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Probe after idle for | 0–7,200 seconds | 0 | `tcp_keepalives_idle`: how long a connection may be quiet before the first probe. |
+| Between probes | 0–600 seconds | 0 | `tcp_keepalives_interval`: how long the server waits between probes that go unanswered. |
+| Probes before giving up | 0–20 | 0 | `tcp_keepalives_count`: how many unanswered probes end the connection. |
+
 ## Security & Privacy Pane
 
 Nothing leaves this Mac. Pharos has no account, no telemetry and no analytics;

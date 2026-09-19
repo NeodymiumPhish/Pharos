@@ -44,6 +44,25 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                     icon: "clock.arrow.circlepath",
                     kind: .stepper(.settings(\.history.maximumEntries), range: 10...5000,
                                    unit: String(localized: "entries"))),
+                SettingsItem(
+                    id: "retentionDays",
+                    title: String(localized: "Keep history for"),
+                    caption: String(localized: "Older entries and their cached results are removed as new queries are recorded. Forever keeps everything."),
+                    icon: "calendar.badge.clock",
+                    kind: .popup(.values(\.history.retentionDays, options: [
+                        (title: String(localized: "7 days"), value: UInt32(7)),
+                        (title: String(localized: "30 days"), value: UInt32(30)),
+                        (title: String(localized: "90 days"), value: UInt32(90)),
+                        (title: String(localized: "A year"), value: UInt32(365)),
+                        (title: String(localized: "Forever"), value: UInt32(0)),
+                    ]))),
+                SettingsItem(
+                    id: "maximumStoredEntries",
+                    title: String(localized: "Entries to keep"),
+                    caption: String(localized: "A ceiling on the whole history, newest kept. 0 is no ceiling. Both limits apply: whichever removes an entry first wins."),
+                    icon: "tray.full",
+                    kind: .stepper(.settings(\.history.maximumStoredEntries), range: 0...100_000,
+                                   unit: String(localized: "entries"))),
             ], footerButtons: [
                 SettingsFooterButton(id: "clearHistory",
                                      title: String(localized: "Clear Query History…"),

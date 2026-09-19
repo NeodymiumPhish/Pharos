@@ -7,6 +7,20 @@
     ]
   },
   "checkForUpdates": false,
+  "connections": {
+    "applicationName": "Pharos (staging)",
+    "connectTimeoutSeconds": 11,
+    "defaultPort": 5433,
+    "defaultTimeZone": "Asia/Tokyo",
+    "idleInTransactionSeconds": 31,
+    "idleTimeoutSeconds": 601,
+    "keepaliveCount": 6,
+    "keepaliveIdleSeconds": 60,
+    "keepaliveIntervalSeconds": 10,
+    "maxConnections": 6,
+    "maxLifetimeSeconds": 1801,
+    "searchPathSuffix": "public, extensions"
+  },
   "diagnostics": {
     "logLevel": "debug",
     "metadataCacheTtlMinutes": 1
@@ -37,7 +51,9 @@
     "wordWrap": true
   },
   "history": {
-    "maximumEntries": 201
+    "maximumEntries": 201,
+    "maximumStoredEntries": 1,
+    "retentionDays": 91
   },
   "intelligence": {
     "allowDraftingWriteStatements": false,

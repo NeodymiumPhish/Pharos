@@ -233,6 +233,7 @@
 		A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F97502732CB469B07431E71 /* QueryPlan.swift */; };
 		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
+		A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
 		AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */; };
@@ -597,6 +598,7 @@
 		D14B40F475E3FEB12C3F9B9F /* InsetScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsetScrollView.swift; sourceTree = "<group>"; };
 		D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueListView.swift; sourceTree = "<group>"; };
 		D2240C5A2BF2FB990EA1C5BF /* SidebarNavigatorPrefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNavigatorPrefs.swift; sourceTree = "<group>"; };
+		D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsSettingsPaneVC.swift; sourceTree = "<group>"; };
 		D662512D7219078869005EED /* ResultsDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsDataSource.swift; sourceTree = "<group>"; };
 		D712C9854028F854DE9E6E46 /* ResultCellText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultCellText.swift; sourceTree = "<group>"; };
 		D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaListFilter.swift; sourceTree = "<group>"; };
@@ -1046,6 +1048,7 @@
 				1B95AB36D3C9B29C6F5EDAA2 /* AdvancedSettingsPaneVC.swift */,
 				ECAAA38815EB77E7D80DE74B /* AppearanceSettingsPaneVC.swift */,
 				77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */,
+				D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */,
 				DC744AA3D43B41D6331BDEC7 /* EditorSettingsPaneVC.swift */,
 				F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */,
 				A09286CAFDBE3E37132C6C4E /* IntelligenceSettingsPaneVC.swift */,
@@ -1313,6 +1316,7 @@
 				37032AE66A9B2B0D4E5F3E9F /* ConnectionURLParser.swift in Sources */,
 				A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */,
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
+				A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */,
 				712555DCFC7E130CD10415C1 /* ContentPaneLayout.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				F940C916FDF93F9D48DE2BBB /* CountedNounText.swift in Sources */,

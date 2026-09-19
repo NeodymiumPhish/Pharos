@@ -330,6 +330,28 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
+    // Migration: the five per-connection fields of the Connections slice, in
+    // ONE block. Each default is what every existing record already does:
+    // writes allowed, password remembered, no connect at launch, the server's
+    // own time zone, the system trust store. Guarded by `pragma_table_info`
+    // like every migration above, so a second launch is a no-op.
+    for (column, ddl) in [
+        ("read_only", "ALTER TABLE connections ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0"),
+        ("remember_password", "ALTER TABLE connections ADD COLUMN remember_password INTEGER NOT NULL DEFAULT 1"),
+        ("connect_on_launch", "ALTER TABLE connections ADD COLUMN connect_on_launch INTEGER NOT NULL DEFAULT 0"),
+        ("session_time_zone", "ALTER TABLE connections ADD COLUMN session_time_zone TEXT"),
+        ("ssl_root_cert_path", "ALTER TABLE connections ADD COLUMN ssl_root_cert_path TEXT"),
+    ] {
+        let present: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = ?1")?
+            .query_row([column], |row| row.get::<_, i64>(0))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !present {
+            conn.execute(ddl, [])?;
+        }
+    }
+
     conn.execute_batch(
         r#"
 
@@ -817,8 +839,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -830,9 +852,14 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             default_schema = excluded.default_schema,
             requires_authentication = excluded.requires_authentication,
             ssh_tunnel = excluded.ssh_tunnel,
+            read_only = excluded.read_only,
+            remember_password = excluded.remember_password,
+            connect_on_launch = excluded.connect_on_launch,
+            session_time_zone = excluded.session_time_zone,
+            ssl_root_cert_path = excluded.ssl_root_cert_path,
             updated_at = CURRENT_TIMESTAMP
         "#,
-        (
+        rusqlite::params![
             &config.id,
             &config.name,
             &config.host,
@@ -845,7 +872,14 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.default_schema,
             config.requires_authentication,
             ssh_tunnel_column(config.ssh_tunnel.as_ref()),
-        ),
+            config.read_only,
+            config.remember_password,
+            config.connect_on_launch,
+            // An empty string is not a time zone; store SQL NULL for it, so
+            // "" and absent read back the same way.
+            config.session_time_zone.as_deref().filter(|s| !s.trim().is_empty()),
+            config.ssl_root_cert_path.as_deref().filter(|s| !s.trim().is_empty()),
+        ],
     )?;
     Ok(())
 }
@@ -877,16 +911,14 @@ fn parse_ssh_tunnel_column(raw: Option<String>, connection_id: &str) -> Option<S
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel FROM connections ORDER BY sort_order, name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
+         COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path \
+         FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
         let ssl_mode_str: String = row.get(6)?;
-        let ssl_mode = match ssl_mode_str.as_str() {
-            "disable" => SslMode::Disable,
-            "require" => SslMode::Require,
-            _ => SslMode::Prefer,
-        };
+        let ssl_mode = SslMode::from_wire(&ssl_mode_str);
         let id: String = row.get(0)?;
         Ok(ConnectionConfig {
             id: id.clone(),
@@ -901,6 +933,11 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             default_schema: row.get(8)?,
             requires_authentication: row.get(9)?,
             ssh_tunnel: parse_ssh_tunnel_column(row.get::<_, Option<String>>(10)?, &id),
+            read_only: row.get(11)?,
+            remember_password: row.get(12)?,
+            connect_on_launch: row.get(13)?,
+            session_time_zone: row.get(14)?,
+            ssl_root_cert_path: row.get(15)?,
         })
     })?;
 
@@ -951,6 +988,11 @@ mod connection_auth_flag_tests {
             default_schema: None,
             requires_authentication,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1052,6 +1094,11 @@ mod connection_ssh_tunnel_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1994,6 +2041,27 @@ pub fn save_query_history(
     result_rows_json: Option<&str>,
     result_row_identity_json: Option<&str>,
 ) -> SqliteResult<()> {
+    save_query_history_with_policy(
+        conn, entry, result_columns_json, result_rows_json, result_row_identity_json,
+        HistoryPrunePolicy::default(),
+    )
+}
+
+/// `save_query_history`, pruning by the USER's policy rather than the
+/// built-in default.
+///
+/// The default overload exists for the dozens of tests that do not care, but
+/// production must call THIS one: passing `HistoryPrunePolicy::default()`
+/// from the call site is the hardcoded 90-day literal wearing a struct, which
+/// is the thing the policy was written to remove.
+pub fn save_query_history_with_policy(
+    conn: &Connection,
+    entry: &QueryHistoryEntry,
+    result_columns_json: Option<&str>,
+    result_rows_json: Option<&str>,
+    result_row_identity_json: Option<&str>,
+    policy: HistoryPrunePolicy,
+) -> SqliteResult<()> {
     // Compress result data if present
     let compressed_columns = result_columns_json.and_then(|s| compress_data(s).ok());
     let compressed_rows = result_rows_json.and_then(|s| compress_data(s).ok());
@@ -2022,7 +2090,7 @@ pub fn save_query_history(
         ),
     )?;
 
-    prune_query_history(conn, HistoryPrunePolicy::default())?;
+    prune_query_history(conn, policy)?;
 
     Ok(())
 }
@@ -4646,12 +4714,39 @@ mod clear_history_tests {
     }
 
     /// "Forever, no ceiling" must run no DELETE at all.
+    /// "Forever, no ceiling" must run no DELETE at all.
+    ///
+    /// The row is inserted with a FOREVER policy, not the default one. This
+    /// test failed until that was so: `save_query_history` prunes on a
+    /// sampled counter that is global to the process, so whether the insert
+    /// itself deleted the 5000-day-old row depended on how many history rows
+    /// other tests had written first. The defect it exposed was real and is
+    /// fixed — the production call site now passes the user's policy, and
+    /// `HistoryPrunePolicy::default()` at a call site is the 90-day literal
+    /// wearing a struct.
     #[test]
     fn a_policy_that_prunes_nothing_leaves_everything() {
         let conn = db();
-        put_legacy(&conn, "ancient", &days_ago(5000));
-        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 0, max_entries: 0 }).unwrap();
+        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+            .unwrap();
+        prune_query_history_now(&conn, forever).unwrap();
         assert_eq!(history_count(&conn), 1, "forever means forever");
+    }
+
+    /// The other half of the same defect: a policy handed to the SAVE must be
+    /// the one that runs, not the default. Sampling makes the age rule fire
+    /// only sometimes, so this drives the prune directly after an insert that
+    /// used a forever policy.
+    #[test]
+    fn the_save_path_uses_the_policy_it_is_given() {
+        let conn = db();
+        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+            .unwrap();
+        assert_eq!(history_count(&conn), 1, "a forever policy kept it");
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
+        assert_eq!(history_count(&conn), 0, "and a 90-day policy takes it");
     }
 
     /// The age rule on its own, through the prune path.
@@ -4662,5 +4757,165 @@ mod clear_history_tests {
         put_legacy(&conn, "new", &days_ago(2));
         prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
         assert_eq!(history_count(&conn), 1);
+    }
+}
+
+/// The five per-connection columns of the Connections slice: the migration,
+/// the round trip, and the rule that an untouched record keeps doing exactly
+/// what it did before the columns existed.
+///
+/// Same shape as `connection_ssh_tunnel_tests` above: a real database in a
+/// temp directory, `init_database` twice to prove the guard, and a `config`
+/// helper in which no field takes its default value, so a column dropped from
+/// the upsert or the SELECT fails.
+#[cfg(test)]
+mod connection_slice_column_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    /// Every new field moved off its default.
+    fn config(id: &str) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "db.internal".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::VerifyFull,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: true,
+            remember_password: false,
+            connect_on_launch: true,
+            session_time_zone: Some("Asia/Tokyo".to_string()),
+            ssl_root_cert_path: Some("/etc/ssl/root.crt".to_string()),
+        }
+    }
+
+    fn loaded(conn: &Connection, id: &str) -> ConnectionConfig {
+        load_connections(conn)
+            .expect("load_connections")
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    #[test]
+    fn every_new_field_round_trips() {
+        let dir = temp_db_dir("conn_slice_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &config("c1")).expect("save");
+
+        let back = loaded(&conn, "c1");
+        assert!(back.read_only, "read_only");
+        assert!(!back.remember_password, "remember_password");
+        assert!(back.connect_on_launch, "connect_on_launch");
+        assert_eq!(back.session_time_zone.as_deref(), Some("Asia/Tokyo"));
+        assert_eq!(back.ssl_root_cert_path.as_deref(), Some("/etc/ssl/root.crt"));
+        assert_eq!(back.ssl_mode, SslMode::VerifyFull, "verify-full survives the column");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The conflict branch of the upsert updates all five. A save that
+    /// inserted them and then never wrote them again would look right on the
+    /// first save and silently keep the old values on every later one.
+    #[test]
+    fn a_second_save_updates_every_new_field() {
+        let dir = temp_db_dir("conn_slice_update");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &config("c1")).expect("save 1");
+
+        let mut changed = config("c1");
+        changed.read_only = false;
+        changed.remember_password = true;
+        changed.connect_on_launch = false;
+        changed.session_time_zone = None;
+        changed.ssl_root_cert_path = None;
+        changed.ssl_mode = SslMode::VerifyCa;
+        save_connection(&conn, &changed).expect("save 2");
+
+        let back = loaded(&conn, "c1");
+        assert!(!back.read_only);
+        assert!(back.remember_password);
+        assert!(!back.connect_on_launch);
+        assert_eq!(back.session_time_zone, None);
+        assert_eq!(back.ssl_root_cert_path, None);
+        assert_eq!(back.ssl_mode, SslMode::VerifyCa);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An empty string is not a time zone and not a path: both store SQL NULL,
+    /// so "" and absent read back identically and the session builder has one
+    /// case to handle instead of two.
+    #[test]
+    fn empty_strings_are_stored_as_null() {
+        let dir = temp_db_dir("conn_slice_empty");
+        let conn = init_database(&dir).expect("init_database");
+        let mut c = config("c1");
+        c.session_time_zone = Some("   ".to_string());
+        c.ssl_root_cert_path = Some(String::new());
+        save_connection(&conn, &c).expect("save");
+
+        let back = loaded(&conn, "c1");
+        assert_eq!(back.session_time_zone, None, "a blank time zone is no time zone");
+        assert_eq!(back.ssl_root_cert_path, None, "a blank path is no path");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The migration runs once, and a record written before it keeps today's
+    /// behaviour: writes allowed, password remembered, no connect at launch.
+    #[test]
+    fn the_migration_is_idempotent_and_leaves_old_records_unchanged() {
+        let dir = temp_db_dir("conn_slice_migration");
+        let conn = init_database(&dir).expect("init 1");
+        // Write the row the way a build before this slice did: the five new
+        // columns are left to their SQL defaults.
+        conn.execute(
+            "INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order) \
+             VALUES ('legacy', 'legacy', 'db', 5432, 'nbt', 'app', 'prefer', 0)",
+            [],
+        )
+        .expect("insert a legacy row");
+        drop(conn);
+
+        let conn = init_database(&dir).expect("init 2 idempotent");
+        for column in [
+            "read_only",
+            "remember_password",
+            "connect_on_launch",
+            "session_time_zone",
+            "ssl_root_cert_path",
+        ] {
+            let count: i64 = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = ?1")
+                .expect("prepare")
+                .query_row([column], |r| r.get(0))
+                .expect("query_row");
+            assert_eq!(count, 1, "{} present exactly once after two inits", column);
+        }
+
+        let back = loaded(&conn, "legacy");
+        assert!(!back.read_only, "an untouched record still writes");
+        assert!(back.remember_password, "an untouched record still remembers its password");
+        assert!(!back.connect_on_launch, "an untouched record does not connect at launch");
+        assert_eq!(back.session_time_zone, None);
+        assert_eq!(back.ssl_root_cert_path, None);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

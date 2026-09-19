@@ -65,6 +65,11 @@ pub struct AppState {
     pub tunnel_failures: Mutex<HashMap<String, String>>,
 }
 
+/// What a refused write says. The same sentence the front end shows for the
+/// server's own SQLSTATE 25006, so the two paths read alike whichever one
+/// catches the write.
+pub const READ_ONLY_MESSAGE: &str = "This connection is read-only.";
+
 impl AppState {
     pub fn new(metadata_db: SqliteConnection) -> Self {
         Self {
@@ -244,6 +249,26 @@ impl AppState {
         match self.tunnel_failure(connection_id) {
             Some(reason) => Err(format!("SSH tunnel closed: {}", reason)),
             None => Err(format!("Not connected to: {}", connection_id)),
+        }
+    }
+
+    /// Refuse the call when this connection is marked read-only.
+    ///
+    /// The SERVER already refuses every write: a read-only connection's pool
+    /// is opened with `default_transaction_read_only=on`, and PostgreSQL
+    /// answers SQLSTATE 25006. This is for the commands that are a BUTTON
+    /// rather than a statement the user typed — Import CSV, Clone Table, the
+    /// row editor — where "This connection is read-only." said before anything
+    /// runs is a better answer than a server error said after a file has been
+    /// read and half a transaction has been built.
+    ///
+    /// A connection with no config (a pool opened for a record since deleted)
+    /// is NOT refused: there is no flag to read, and refusing would break a
+    /// path that works today.
+    pub fn require_writable(&self, connection_id: &str) -> Result<(), String> {
+        match self.get_config(connection_id) {
+            Some(config) if config.read_only => Err(READ_ONLY_MESSAGE.to_string()),
+            _ => Ok(()),
         }
     }
 
@@ -615,6 +640,47 @@ mod settings_cache_tests {
     #[test]
     fn starts_at_default() {
         assert_eq!(*state().settings(), AppSettings::default());
+    }
+
+    /// A connection with no read-only flag is writable, and so is one the
+    /// state has never heard of — refusing the unknown case would break a
+    /// pool opened for a record that has since been deleted.
+    #[test]
+    fn require_writable_refuses_only_a_read_only_connection() {
+        use crate::models::{ConnectionConfig, SslMode};
+        let state = state();
+
+        assert!(state.require_writable("nobody").is_ok(), "an unknown id is not refused");
+
+        let mut config = ConnectionConfig {
+            id: "c1".to_string(),
+            name: "c1".to_string(),
+            host: "db".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Prefer,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        };
+        state.set_config(config.clone());
+        assert!(state.require_writable("c1").is_ok(), "a writable connection is not refused");
+
+        config.read_only = true;
+        state.set_config(config);
+        assert_eq!(
+            state.require_writable("c1").unwrap_err(),
+            super::READ_ONLY_MESSAGE,
+            "the refusal says the same words the front end shows for SQLSTATE 25006"
+        );
     }
 
     /// `replace_settings` is what every reader then sees; a snapshot taken

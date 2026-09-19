@@ -35,9 +35,72 @@ The Connections Manager is a two-pane window:
 | Database | Database name to connect to | postgres |
 | Username | PostgreSQL role for authentication | — |
 | Password | Password for the role (stored in the Keychain) | — |
-| SSL Mode | Prefer, Require, or Disable | Prefer |
+| SSL Mode | Prefer, Require, Verify CA, Verify Full, or Disable — see [SSL Modes](#ssl-modes) | Prefer |
+| Root Certificate | The PEM root certificate that **Verify CA** and **Verify Full** check the server against. Shown only for those two modes; empty uses the system trust store | Empty |
+| Remember the password in the keychain | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | On |
 | Default Schema | Schema focused on connect. Filled from the open connection when the connection is already connected and its settings are unchanged; otherwise press **Test Connection** first | None |
 | Connect through an SSH tunnel | Reach the database through a bastion — see [SSH Tunnels](#ssh-tunnels) | Off |
+| Read-only connection | See [Read-only connections](#read-only-connections) | Off |
+| Connect when Pharos starts | See [Fields Pharos stores but does not act on yet](#fields-pharos-stores-but-does-not-act-on-yet) | Off |
+| Time Zone | The `TimeZone` this connection's sessions ask for. **Use the Settings default** falls back to Settings ▸ Connections ▸ Time zone, and then to the server's own | Use the Settings default |
+
+The **Session** rows at the foot of the form — read-only, connect at launch and
+the time zone — apply to connections opened after the change, because a
+connection's session values are set when its pool is built.
+
+App-wide connection settings — the default port for a new connection, the pool
+size, the connect timeout, keepalives — are in
+[Settings ▸ Connections](settings.md#connections-pane).
+
+## SSL Modes
+
+| Mode | What it does |
+|------|--------------|
+| Prefer | Tries TLS, then falls back to an unencrypted connection if TLS does not complete. This is the default, and what libpq's own `prefer` means. |
+| Require | Insists on TLS, but does not check the server's certificate. |
+| Verify CA | Insists on TLS and checks that a trusted certificate authority signed the server's certificate. |
+| Verify Full | Verify CA, and also checks that the certificate's host name matches the host you connected to. |
+| Disable | No TLS at all. |
+
+**Verify CA** and **Verify Full** read the **Root Certificate** field. Leave it
+empty to use the system trust store; point it at a PEM file to trust a private
+CA. A certificate the server does not match fails the connect with the
+server's own message. Only **Prefer** ever falls back to an unencrypted
+connection.
+
+## Read-only connections
+
+Tick **Read-only connection** to open every session for that connection with
+`default_transaction_read_only` on. The **server** then refuses every write —
+`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `DROP` — with SQLSTATE
+25006, and Pharos shows **"This connection is read-only."** in front of the
+server's own message.
+
+The buttons that write — **Import CSV…**, **Clone Table…** and the results
+grid's inline editing — are refused before they start, with the same sentence,
+so nothing is half-done before the refusal arrives.
+
+Two things this is not:
+
+- It is **not** a permission. A read-only connection is a client-side session
+  setting, and anything else on your Mac can still connect to that server as
+  that role and write. For a real guarantee, use a PostgreSQL role that has no
+  write privileges.
+- It does **not** stop a read that is expensive. It stops writes, nothing else.
+
+Like the other session rows, it applies the next time the connection opens.
+
+## Fields Pharos stores but does not act on yet
+
+Two rows in the form are **stored with the connection and not yet read**:
+
+| Field | What is true today |
+|-------|--------------------|
+| Remember the password in the keychain | The password is remembered whichever way this is set. Turning it off needs a password prompt at connect time, which is not built yet. |
+| Connect when Pharos starts | Pharos does not connect anything at launch. The flag is saved and survives a restart, ready for the launch sequence that will read it. |
+
+They are in the form so the setting you choose is kept, not because anything
+acts on it. Their tooltips say the same.
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 
@@ -168,7 +231,7 @@ The gate guards the two places Pharos *acts* on the password. It does not change
 
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, default schema, Touch ID requirement, SSH tunnel settings) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+Connection metadata (name, host, port, database, username, SSL mode, root certificate path, default schema, Touch ID requirement, SSH tunnel settings, read-only, remember-password, connect-at-launch and the session time zone) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
 
 A connection with an SSH tunnel has **two** Keychain entries: the database password, and the SSH passphrase or password. Deleting the connection removes both. The SSH tunnel's own settings — host, port, user, authentication mode and key path — are stored in SQLite with the secret removed, so the Keychain is the only place either secret lives.
 

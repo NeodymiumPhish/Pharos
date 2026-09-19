@@ -12,6 +12,20 @@
     ]
   },
   "checkForUpdates": true,
+  "connections": {
+    "applicationName": "",
+    "connectTimeoutSeconds": 10,
+    "defaultPort": 5432,
+    "defaultTimeZone": "",
+    "idleInTransactionSeconds": 30,
+    "idleTimeoutSeconds": 600,
+    "keepaliveCount": 0,
+    "keepaliveIdleSeconds": 0,
+    "keepaliveIntervalSeconds": 0,
+    "maxConnections": 5,
+    "maxLifetimeSeconds": 1800,
+    "searchPathSuffix": "public"
+  },
   "diagnostics": {
     "logLevel": "warning",
     "metadataCacheTtlMinutes": 0
@@ -42,7 +56,9 @@
     "wordWrap": false
   },
   "history": {
-    "maximumEntries": 200
+    "maximumEntries": 200,
+    "maximumStoredEntries": 0,
+    "retentionDays": 90
   },
   "intelligence": {
     "allowDraftingWriteStatements": true,

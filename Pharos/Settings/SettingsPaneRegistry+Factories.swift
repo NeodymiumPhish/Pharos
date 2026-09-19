@@ -14,7 +14,7 @@ extension SettingsPaneRegistry {
         case .results: return ResultsSettingsPaneVC()
         case .navigator: return NavigatorSettingsPaneVC()
         case .library: return LibrarySettingsPaneVC()
-        case .connections: return SettingsPlaceholderPaneVC(paneId: id)
+        case .connections: return ConnectionsSettingsPaneVC()
         case .security: return SecuritySettingsPaneVC()
         case .exportImport: return SettingsPlaceholderPaneVC(paneId: id)
         case .charts: return ChartsSettingsPaneVC()

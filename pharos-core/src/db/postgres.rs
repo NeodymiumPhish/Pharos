@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
+use crate::models::ConnectionSettings;
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
 /// Escape a string for safe use as a SQL string literal (防 SQL injection).
@@ -34,12 +35,16 @@ fn raw_str(row: &sqlx::postgres::PgRow, col: &str) -> Option<String> {
 /// Disable connection still gets all of it in one attempt.
 const CONNECT_BUDGET: Duration = Duration::from_secs(10);
 
-/// How long the FIRST attempt of an `sslmode=prefer` connection may take.
+/// How long the FIRST attempt of an `sslmode=prefer` connection may take, at
+/// the default budget.
 ///
 /// libpq's `prefer` means "try TLS, then fall back to plaintext", and the
 /// fallback has to happen while the user is still waiting. So the TLS probe
-/// gets the larger part of `CONNECT_BUDGET` and the plaintext retry gets the
-/// rest; the two together never exceed the budget a single attempt had before.
+/// gets the larger part of the budget and the plaintext retry gets the rest;
+/// the two together never exceed the budget a single attempt had before.
+/// `PoolTuning::prefer_probe_budget` is the rule that produces this number
+/// from any budget, and a test pins the two together.
+#[cfg(test)]
 const PREFER_PROBE_BUDGET: Duration = Duration::from_secs(6);
 
 /// Build a connection string with proper URL encoding, using `ssl_mode` in
@@ -92,6 +97,19 @@ fn connect_options(
     let gucs = startup_gucs(session);
     if !gucs.is_empty() {
         options = options.options(gucs.iter().map(|(name, value)| (*name, value.as_str())));
+    }
+    // `application_name` is a startup parameter of its own, not a `-c` option:
+    // sqlx has a setter for it and does NOT claim the name itself, so unlike
+    // `TimeZone` this one reaches the server exactly as asked. It is what
+    // `pg_stat_activity.application_name` shows.
+    if let Some(name) = &session.application_name {
+        options = options.application_name(name);
+    }
+    // The root certificate for `verify-ca` and `verify-full`. Nothing is
+    // checked here: a path that does not exist, or is not a certificate, fails
+    // the CONNECT with sqlx's own message, which is already reported.
+    if let Some(path) = &session.ssl_root_cert {
+        options = options.ssl_root_cert(path);
     }
 
     Ok(options)
@@ -167,6 +185,120 @@ pub struct SessionOptions {
     /// sqlx 0.8 has no CLIENT-side keepalive, so these are the server-side
     /// probes instead; they keep a NAT or an SSH tunnel from going quiet.
     pub keepalive: Option<(u32, u32, u32)>,
+    /// `application_name`. NOT a startup GUC: sqlx has a setter for it, so it
+    /// is applied in `connect_options` rather than in `startup_gucs`. None
+    /// sends no parameter at all, which is what the app did before.
+    pub application_name: Option<String>,
+    /// A PEM root certificate for `verify-ca` / `verify-full`. None uses the
+    /// system trust store.
+    pub ssl_root_cert: Option<String>,
+}
+
+impl SessionOptions {
+    /// The session one connect asks for: the app-wide Connections settings,
+    /// with the per-connection fields on top.
+    ///
+    /// The only per-connection overrides are the two that belong to one
+    /// database rather than to the app: `read_only` and `session_time_zone`.
+    /// Everything else is the same for every connection, because it tunes the
+    /// client and not the server.
+    pub fn from_settings(settings: &ConnectionSettings, config: &ConnectionConfig) -> SessionOptions {
+        let per_connection_zone = config
+            .session_time_zone
+            .as_deref()
+            .map(str::trim)
+            .filter(|z| !z.is_empty());
+        let app_zone = {
+            let z = settings.default_time_zone.trim();
+            if z.is_empty() { None } else { Some(z) }
+        };
+        // Any one of the three set means "ask the server for keepalives"; a
+        // zero among them is PostgreSQL's own "use the system default", so it
+        // is sent as written rather than guessed at.
+        let keepalive = if settings.keepalive_idle_seconds > 0
+            || settings.keepalive_interval_seconds > 0
+            || settings.keepalive_count > 0
+        {
+            Some((
+                settings.keepalive_idle_seconds,
+                settings.keepalive_interval_seconds,
+                settings.keepalive_count,
+            ))
+        } else {
+            None
+        };
+
+        SessionOptions {
+            read_only: config.read_only,
+            time_zone: per_connection_zone.or(app_zone).map(str::to_string),
+            date_style: None,
+            interval_style: None,
+            idle_in_transaction_ms: settings
+                .idle_in_transaction_seconds
+                .saturating_mul(1000),
+            keepalive,
+            application_name: Some(settings.effective_application_name()),
+            ssl_root_cert: config
+                .ssl_root_cert_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(str::to_string),
+        }
+    }
+}
+
+/// How the pool itself is tuned. `Default` is what `pool_options` and
+/// `CONNECT_BUDGET` hard-coded before Settings ▸ Connections existed, and
+/// `pool_tuning_defaults_match_todays_literals` pins that.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PoolTuning {
+    pub max_connections: u32,
+    /// The whole budget for one connect attempt.
+    pub connect_timeout: Duration,
+    pub idle_timeout: Duration,
+    pub max_lifetime: Duration,
+}
+
+impl Default for PoolTuning {
+    fn default() -> Self {
+        PoolTuning {
+            max_connections: 5,
+            connect_timeout: CONNECT_BUDGET,
+            idle_timeout: Duration::from_secs(600),
+            max_lifetime: Duration::from_secs(1800),
+        }
+    }
+}
+
+impl From<&ConnectionSettings> for PoolTuning {
+    fn from(settings: &ConnectionSettings) -> Self {
+        let fallback = PoolTuning::default();
+        PoolTuning {
+            // A pool of zero can never hand out a connection, so one is the
+            // floor. The Settings stepper has the same floor; this is the
+            // guard for a blob that came from somewhere else.
+            max_connections: settings.max_connections.max(1),
+            connect_timeout: if settings.connect_timeout_seconds == 0 {
+                fallback.connect_timeout
+            } else {
+                Duration::from_secs(settings.connect_timeout_seconds as u64)
+            },
+            idle_timeout: Duration::from_secs(settings.idle_timeout_seconds as u64),
+            max_lifetime: Duration::from_secs(settings.max_lifetime_seconds as u64),
+        }
+    }
+}
+
+impl PoolTuning {
+    /// How much of the budget the TLS probe of an `sslmode=prefer` connect
+    /// may take, leaving the rest for the plaintext retry.
+    ///
+    /// Three fifths, which is exactly the 6 seconds of 10 the two constants
+    /// hard-coded before the budget could be changed.
+    fn prefer_probe_budget(&self) -> Duration {
+        self.connect_timeout * 3 / 5
+    }
 }
 
 /// The GUCs Pharos can put in the STARTUP packet, as `(name, value)` pairs.
@@ -391,6 +523,9 @@ mod session_options_tests {
             interval_style: Some("postgres".to_string()),
             idle_in_transaction_ms: 15_000,
             keepalive: Some((60, 10, 6)),
+            // Neither is a startup GUC, so neither may appear in the string.
+            application_name: Some("Pharos".to_string()),
+            ssl_root_cert: Some("/etc/ssl/root.crt".to_string()),
         };
         assert_eq!(
             options_string(&options).as_deref(),
@@ -413,24 +548,24 @@ mod session_options_tests {
 /// The pool settings shared by every connect attempt. Only the connection
 /// ceiling and the acquire budget differ between the app pool and the
 /// short-lived pool the Test button uses.
-fn pool_options(max_connections: u32, budget: Duration) -> PgPoolOptions {
+fn pool_options(tuning: &PoolTuning, budget: Duration) -> PgPoolOptions {
     PgPoolOptions::new()
-        .max_connections(max_connections)
+        .max_connections(tuning.max_connections)
         .acquire_timeout(budget)
-        .idle_timeout(Duration::from_secs(600))
-        .max_lifetime(Duration::from_secs(1800))
+        .idle_timeout(tuning.idle_timeout)
+        .max_lifetime(tuning.max_lifetime)
 }
 
 /// `pool_options`, plus the per-connection `SET`s sqlx forces on us. A
 /// failure here fails the ACQUIRE with the server's message, which is the
 /// same place a bad startup value would surface.
 fn pool_options_with_session(
-    max_connections: u32,
+    tuning: &PoolTuning,
     budget: Duration,
     session: &SessionOptions,
 ) -> PgPoolOptions {
     let statements = session_setup_sql(session);
-    let base = pool_options(max_connections, budget);
+    let base = pool_options(tuning, budget);
     if statements.is_empty() {
         return base;
     }
@@ -453,17 +588,17 @@ fn pool_options_with_session(
 /// behaviour is unchanged.
 async fn connect_with_prefer_fallback(
     config: &ConnectionConfig,
-    max_connections: u32,
+    tuning: &PoolTuning,
     session: &SessionOptions,
 ) -> Result<(PgPool, SslMode), sqlx::Error> {
     let mode = config.ssl_mode;
     let first_budget = if mode == SslMode::Prefer {
-        PREFER_PROBE_BUDGET
+        tuning.prefer_probe_budget()
     } else {
-        CONNECT_BUDGET
+        tuning.connect_timeout
     };
 
-    let first = pool_options_with_session(max_connections, first_budget, session)
+    let first = pool_options_with_session(tuning, first_budget, session)
         .connect_with(connect_options(config, mode, session)?)
         .await;
 
@@ -478,7 +613,7 @@ async fn connect_with_prefer_fallback(
                 e
             );
             let pool = pool_options_with_session(
-                max_connections, CONNECT_BUDGET - PREFER_PROBE_BUDGET, session)
+                tuning, tuning.connect_timeout - first_budget, session)
                 .connect_with(connect_options(config, SslMode::Disable, session)?)
                 .await?;
             log::warn!(
@@ -492,18 +627,32 @@ async fn connect_with_prefer_fallback(
     }
 }
 
-/// Create a PostgreSQL connection pool for the given configuration
+/// Create a PostgreSQL connection pool for the given configuration, asking
+/// for nothing in particular and tuned the way the app was tuned before
+/// Settings ▸ Connections existed.
 pub async fn create_pool(config: &ConnectionConfig) -> Result<PgPool, sqlx::Error> {
     create_pool_with_session(config, &SessionOptions::default()).await
 }
 
-/// Create the pool, asking the server for `session` on every connection it
-/// opens. `create_pool` is this with nothing asked for.
+/// `create_pool_with`, with the default pool tuning.
 pub async fn create_pool_with_session(
     config: &ConnectionConfig,
     session: &SessionOptions,
 ) -> Result<PgPool, sqlx::Error> {
-    let (pool, _mode_used) = connect_with_prefer_fallback(config, 5, session).await?;
+    create_pool_with(config, session, &PoolTuning::default()).await
+}
+
+/// Create the pool, asking the server for `session` on every connection it
+/// opens and tuning the pool itself with `tuning`.
+///
+/// This is the one `connect_postgres` calls, with both built from the user's
+/// settings and the connection record.
+pub async fn create_pool_with(
+    config: &ConnectionConfig,
+    session: &SessionOptions,
+    tuning: &PoolTuning,
+) -> Result<PgPool, sqlx::Error> {
+    let (pool, _mode_used) = connect_with_prefer_fallback(config, tuning, session).await?;
 
     // Try to set a session-level idle-in-transaction guard. This is
     // PostgreSQL-specific and will fail (and may kill the connection) on
@@ -534,8 +683,9 @@ pub async fn test_connection(config: &ConnectionConfig) -> Result<u64, sqlx::Err
 
     // The same prefer fallback as create_pool, so the Test button cannot
     // report a failure for a configuration that Connect would accept.
+    let probe_tuning = PoolTuning { max_connections: 1, ..PoolTuning::default() };
     let (pool, _mode_used) =
-        connect_with_prefer_fallback(config, 1, &SessionOptions::default()).await?;
+        connect_with_prefer_fallback(config, &probe_tuning, &SessionOptions::default()).await?;
 
     // Use raw_sql (simple query protocol) for compatibility with
     // non-PostgreSQL servers (e.g. ClickHouse) that don't support
@@ -1489,7 +1639,8 @@ pub async fn get_table_key_info(
 #[cfg(test)]
 mod ssl_fallback_tests {
     use super::{
-        build_connection_string, should_retry_without_tls, CONNECT_BUDGET, PREFER_PROBE_BUDGET,
+        build_connection_string, should_retry_without_tls, Duration, PoolTuning, CONNECT_BUDGET,
+        PREFER_PROBE_BUDGET,
     };
     use crate::models::{ConnectionConfig, SslMode};
 
@@ -1507,6 +1658,11 @@ mod ssl_fallback_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1593,16 +1749,284 @@ mod ssl_fallback_tests {
         assert!(build_connection_string(&cfg, SslMode::Disable).ends_with("sslmode=disable"));
     }
 
-    // `CONNECT_BUDGET - PREFER_PROBE_BUDGET` is a Duration subtraction, which
-    // PANICS on underflow. Shrinking the total below the probe would take the
-    // app down on every fallback.
+    // `connect_timeout - probe` is a Duration subtraction, which PANICS on
+    // underflow. Shrinking the total below the probe would take the app down
+    // on every fallback.
     #[test]
     fn the_retry_keeps_a_share_of_the_budget() {
+        let tuning = PoolTuning::default();
         assert!(
-            PREFER_PROBE_BUDGET < CONNECT_BUDGET,
+            tuning.prefer_probe_budget() < tuning.connect_timeout,
             "the probe must leave time for the plaintext retry"
         );
-        assert!((CONNECT_BUDGET - PREFER_PROBE_BUDGET).as_secs() >= 2);
+        assert!((tuning.connect_timeout - tuning.prefer_probe_budget()).as_secs() >= 2);
+    }
+
+    /// The share rule reproduces the two constants it replaced: 6 seconds of
+    /// 10. Without this, "three fifths" is a number nobody checked.
+    #[test]
+    fn the_probe_share_is_the_old_six_of_ten() {
+        let tuning = PoolTuning::default();
+        assert_eq!(tuning.connect_timeout, CONNECT_BUDGET);
+        assert_eq!(tuning.prefer_probe_budget(), PREFER_PROBE_BUDGET);
+    }
+
+    /// The share never underflows, whatever the user sets the budget to. A
+    /// one-second budget is the smallest the Settings stepper allows.
+    #[test]
+    fn the_share_never_underflows_at_any_budget() {
+        for seconds in 1..=120u64 {
+            let tuning = PoolTuning {
+                connect_timeout: Duration::from_secs(seconds),
+                ..PoolTuning::default()
+            };
+            assert!(
+                tuning.prefer_probe_budget() <= tuning.connect_timeout,
+                "budget {seconds}s: the probe must not exceed the whole budget"
+            );
+        }
+    }
+}
+
+/// The Connections settings, turned into the two structs a connect needs
+/// (plan §2.8). Pure: no server, no pool.
+#[cfg(test)]
+mod connection_settings_tests {
+    use super::*;
+    use crate::models::{ConnectionSettings, SshTunnelConfig};
+
+    fn config() -> ConnectionConfig {
+        ConnectionConfig {
+            id: "c1".to_string(),
+            name: "c1".to_string(),
+            host: "db".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Prefer,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None::<SshTunnelConfig>,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        }
+    }
+
+    /// The whole point of the defaults: at `ConnectionSettings::default()` the
+    /// pool is tuned EXACTLY as `pool_options` and `CONNECT_BUDGET` tuned it
+    /// before the settings existed, so an existing user sees no change.
+    #[test]
+    fn pool_tuning_defaults_match_todays_literals() {
+        let from_settings = PoolTuning::from(&ConnectionSettings::default());
+        assert_eq!(from_settings, PoolTuning::default());
+        assert_eq!(from_settings.max_connections, 5, "create_pool's literal 5");
+        assert_eq!(from_settings.connect_timeout, Duration::from_secs(10), "CONNECT_BUDGET");
+        assert_eq!(from_settings.idle_timeout, Duration::from_secs(600), "pool_options");
+        assert_eq!(from_settings.max_lifetime, Duration::from_secs(1800), "pool_options");
+    }
+
+    #[test]
+    fn pool_tuning_follows_the_settings() {
+        let settings = ConnectionSettings {
+            max_connections: 12,
+            connect_timeout_seconds: 25,
+            idle_timeout_seconds: 60,
+            max_lifetime_seconds: 120,
+            ..Default::default()
+        };
+        let tuning = PoolTuning::from(&settings);
+        assert_eq!(tuning.max_connections, 12);
+        assert_eq!(tuning.connect_timeout, Duration::from_secs(25));
+        assert_eq!(tuning.idle_timeout, Duration::from_secs(60));
+        assert_eq!(tuning.max_lifetime, Duration::from_secs(120));
+    }
+
+    /// A pool of zero could never hand out a connection, and a zero budget
+    /// would fail every connect at once. Both take the floor rather than the
+    /// user's number.
+    #[test]
+    fn zero_max_connections_and_zero_budget_take_a_floor() {
+        let settings = ConnectionSettings {
+            max_connections: 0,
+            connect_timeout_seconds: 0,
+            ..Default::default()
+        };
+        let tuning = PoolTuning::from(&settings);
+        assert_eq!(tuning.max_connections, 1);
+        assert_eq!(tuning.connect_timeout, CONNECT_BUDGET);
+    }
+
+    /// The default session asks the server for the one thing the app already
+    /// asked for — the 30-second idle-in-transaction guard — and for nothing
+    /// else, except the application name, which is new and which no server
+    /// can refuse.
+    #[test]
+    fn the_default_session_is_todays_behaviour() {
+        let session = SessionOptions::from_settings(&ConnectionSettings::default(), &config());
+        assert!(!session.read_only);
+        assert_eq!(session.time_zone, None, "the server's own time zone");
+        assert_eq!(session.idle_in_transaction_ms, 30_000, "the old SET '30s'");
+        assert_eq!(session.keepalive, None, "the server's own keepalives");
+        assert_eq!(session.ssl_root_cert, None);
+        assert_eq!(
+            session.application_name.as_deref(),
+            Some(concat!("Pharos ", env!("CARGO_PKG_VERSION")))
+        );
+        assert_eq!(
+            startup_gucs(&session),
+            vec![("idle_in_transaction_session_timeout", "30000".to_string())],
+            "nothing but the guard travels in the startup packet by default"
+        );
+    }
+
+    #[test]
+    fn zero_idle_in_transaction_seconds_turns_the_guard_off() {
+        let settings = ConnectionSettings { idle_in_transaction_seconds: 0, ..Default::default() };
+        let session = SessionOptions::from_settings(&settings, &config());
+        assert_eq!(session.idle_in_transaction_ms, 0);
+        assert!(startup_gucs(&session).is_empty(), "0 asks the server for nothing");
+    }
+
+    /// The per-connection time zone wins; with none, the app-wide one; with
+    /// neither, the server's own. A blank string is not a value.
+    #[test]
+    fn the_connection_time_zone_overrides_the_app_wide_one() {
+        let settings = ConnectionSettings {
+            default_time_zone: "Europe/London".to_string(),
+            ..Default::default()
+        };
+        let mut c = config();
+        assert_eq!(
+            SessionOptions::from_settings(&settings, &c).time_zone.as_deref(),
+            Some("Europe/London")
+        );
+
+        c.session_time_zone = Some("Asia/Tokyo".to_string());
+        assert_eq!(
+            SessionOptions::from_settings(&settings, &c).time_zone.as_deref(),
+            Some("Asia/Tokyo")
+        );
+
+        c.session_time_zone = Some("   ".to_string());
+        assert_eq!(
+            SessionOptions::from_settings(&settings, &c).time_zone.as_deref(),
+            Some("Europe/London"),
+            "a blank per-connection zone falls back rather than blanking the app's"
+        );
+
+        let bare = ConnectionSettings { default_time_zone: " ".to_string(), ..Default::default() };
+        c.session_time_zone = None;
+        assert_eq!(SessionOptions::from_settings(&bare, &c).time_zone, None);
+    }
+
+    /// Any one of the three keepalive numbers asks the server for keepalives;
+    /// all three at zero leaves the server's own, which is the default.
+    #[test]
+    fn keepalives_are_asked_for_when_any_one_is_set() {
+        let off = ConnectionSettings::default();
+        assert_eq!(SessionOptions::from_settings(&off, &config()).keepalive, None);
+
+        let on = ConnectionSettings {
+            keepalive_idle_seconds: 60,
+            keepalive_interval_seconds: 10,
+            keepalive_count: 6,
+            ..Default::default()
+        };
+        let session = SessionOptions::from_settings(&on, &config());
+        assert_eq!(session.keepalive, Some((60, 10, 6)));
+
+        let partial = ConnectionSettings { keepalive_idle_seconds: 60, ..Default::default() };
+        assert_eq!(
+            SessionOptions::from_settings(&partial, &config()).keepalive,
+            Some((60, 0, 0)),
+            "a zero among them is PostgreSQL's own default, sent as written"
+        );
+    }
+
+    #[test]
+    fn read_only_and_the_root_certificate_come_from_the_connection() {
+        let mut c = config();
+        c.read_only = true;
+        c.ssl_root_cert_path = Some("/etc/ssl/root.crt".to_string());
+        let session = SessionOptions::from_settings(&ConnectionSettings::default(), &c);
+        assert!(session.read_only);
+        assert_eq!(session.ssl_root_cert.as_deref(), Some("/etc/ssl/root.crt"));
+        assert!(
+            startup_gucs(&session).contains(&("default_transaction_read_only", "on".to_string())),
+            "read-only must travel in the startup packet"
+        );
+
+        c.ssl_root_cert_path = Some("  ".to_string());
+        assert_eq!(
+            SessionOptions::from_settings(&ConnectionSettings::default(), &c).ssl_root_cert,
+            None,
+            "a blank path is no path"
+        );
+    }
+
+    /// An empty `applicationName` means `Pharos <version>`; a typed one is
+    /// sent trimmed, and one typed as spaces is the same as empty.
+    #[test]
+    fn the_application_name_falls_back_to_pharos_and_the_version() {
+        assert_eq!(
+            ConnectionSettings::default().effective_application_name(),
+            concat!("Pharos ", env!("CARGO_PKG_VERSION"))
+        );
+        let typed = ConnectionSettings {
+            application_name: "  Pharos (staging)  ".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(typed.effective_application_name(), "Pharos (staging)");
+        let blank = ConnectionSettings { application_name: "   ".to_string(), ..Default::default() };
+        assert_eq!(
+            blank.effective_application_name(),
+            concat!("Pharos ", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    /// The application name is NOT a startup GUC — sqlx sets it as a
+    /// parameter of its own — so it must never appear in the `-c` options.
+    /// Putting it there would send `-c application_name=Pharos\ 0.1.0` as well
+    /// as the parameter.
+    #[test]
+    fn the_application_name_is_not_a_startup_guc() {
+        let session = SessionOptions::from_settings(&ConnectionSettings::default(), &config());
+        assert!(
+            !startup_gucs(&session)
+                .iter()
+                .any(|(name, _)| *name == "application_name"),
+            "application_name has its own setter in sqlx"
+        );
+    }
+
+    /// The two verifying modes render as the hyphenated names libpq parses.
+    /// `rename_all = "lowercase"` alone would give `verifyca`, which sqlx
+    /// rejects as an unknown sslmode.
+    #[test]
+    fn the_verifying_ssl_modes_render_the_way_libpq_reads_them() {
+        let mut c = config();
+        c.ssl_mode = SslMode::VerifyCa;
+        assert!(build_connection_string(&c, c.ssl_mode).ends_with("sslmode=verify-ca"));
+        c.ssl_mode = SslMode::VerifyFull;
+        assert!(build_connection_string(&c, c.ssl_mode).ends_with("sslmode=verify-full"));
+    }
+
+    /// A verifying mode never falls back to plaintext. Only `prefer` does,
+    /// and that is unchanged.
+    #[test]
+    fn a_verifying_mode_never_retries_without_tls() {
+        for mode in [SslMode::VerifyCa, SslMode::VerifyFull, SslMode::Require] {
+            assert!(
+                !should_retry_without_tls(mode, &sqlx::Error::PoolTimedOut),
+                "{mode} must not fall back to plaintext"
+            );
+        }
+        assert!(should_retry_without_tls(SslMode::Prefer, &sqlx::Error::PoolTimedOut));
     }
 }
 
@@ -1637,6 +2061,11 @@ mod live_session_options_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1759,6 +2188,158 @@ mod live_session_options_tests {
         });
     }
 
+    /// The application name the Connections settings ask for is the one
+    /// `pg_stat_activity` reports. This is the only way to know: sqlx writes
+    /// its own startup parameters, and a name it claimed for itself would be
+    /// invisible to every unit test.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_application_name_reaches_pg_stat_activity() {
+        use crate::models::ConnectionSettings;
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let settings = ConnectionSettings {
+                application_name: "Pharos live probe".to_string(),
+                ..Default::default()
+            };
+            let session = super::SessionOptions::from_settings(&settings, &live_config());
+            let pool = create_pool_with_session(&live_config(), &session)
+                .await
+                .expect("connect with an application name");
+
+            let row: (String,) = sqlx::query_as(
+                "SELECT application_name FROM pg_stat_activity WHERE pid = pg_backend_pid()",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("read pg_stat_activity");
+            assert_eq!(row.0, "Pharos live probe");
+            pool.close().await;
+        });
+    }
+
+    /// The default `application_name` — `Pharos <version>` — also arrives.
+    /// A space in it is the interesting part: a value that travelled in the
+    /// `options` string would be cut at the space.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_the_default_application_name_survives_its_space() {
+        use crate::models::ConnectionSettings;
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let settings = ConnectionSettings::default();
+            let session = super::SessionOptions::from_settings(&settings, &live_config());
+            let pool = create_pool_with_session(&live_config(), &session)
+                .await
+                .expect("connect with the default application name");
+
+            let row: (String,) = sqlx::query_as(
+                "SELECT application_name FROM pg_stat_activity WHERE pid = pg_backend_pid()",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("read pg_stat_activity");
+            assert_eq!(row.0, settings.effective_application_name());
+            assert!(row.0.contains(' '), "the probe is worthless without a space: {}", row.0);
+            pool.close().await;
+        });
+    }
+
+    /// The quoted `search_path` statement the suffix setting builds is one
+    /// the server accepts, and it lands in the order it was written.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_search_path_suffix_is_accepted_by_the_server() {
+        use crate::commands::query::search_path_sql;
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = create_pool_with_session(&live_config(), &SessionOptions::default())
+                .await
+                .expect("connect");
+            let mut conn = pool.acquire().await.expect("acquire");
+
+            let sql = search_path_sql("public", "pg_catalog").expect("pure builder");
+            sqlx::raw_sql(&sql).execute(&mut *conn).await.expect("the server accepts it");
+            let row: (String,) = sqlx::query_as("SHOW search_path").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(row.0, "public, pg_catalog", "got {}", row.0);
+
+            // No suffix means the schema alone.
+            let bare = search_path_sql("public", "").expect("pure builder");
+            sqlx::raw_sql(&bare).execute(&mut *conn).await.expect("the server accepts it");
+            let row: (String,) = sqlx::query_as("SHOW search_path").fetch_one(&mut *conn).await.unwrap();
+            assert_eq!(row.0, "public", "got {}", row.0);
+
+            drop(conn);
+            pool.close().await;
+        });
+    }
+
+    /// The pool really is the size the settings asked for: N connections can
+    /// be held at once, and they are N different backends.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_tuning_sets_the_connection_ceiling() {
+        use crate::models::ConnectionSettings;
+        use std::collections::HashSet;
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let settings = ConnectionSettings { max_connections: 3, ..Default::default() };
+            let tuning = super::PoolTuning::from(&settings);
+            assert_eq!(tuning.max_connections, 3);
+            let pool = super::create_pool_with(&live_config(), &SessionOptions::default(), &tuning)
+                .await
+                .expect("connect with a tuned pool");
+
+            let mut held = Vec::new();
+            let mut pids = HashSet::new();
+            for _ in 0..3 {
+                let mut conn = pool.acquire().await.expect("acquire");
+                let row: (i32,) = sqlx::query_as("SELECT pg_backend_pid()")
+                    .fetch_one(&mut *conn)
+                    .await
+                    .expect("pid");
+                pids.insert(row.0);
+                held.push(conn);
+            }
+            assert_eq!(pids.len(), 3, "three held connections must be three backends");
+            drop(held);
+            pool.close().await;
+        });
+    }
+
+    /// The whole read-only chain, end to end: a connection marked read-only
+    /// gets SQLSTATE 25006, the core tags it, and the Swift side's marker is
+    /// in the text that crosses the FFI.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_a_read_only_connection_tags_its_refusal_for_the_front_end() {
+        use crate::commands::query::{format_db_error, READ_ONLY_MARKER};
+        use crate::models::ConnectionSettings;
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let mut config = live_config();
+            config.read_only = true;
+            let session =
+                super::SessionOptions::from_settings(&ConnectionSettings::default(), &config);
+            assert!(session.read_only, "the connection's flag must reach the session");
+
+            let pool = create_pool_with_session(&config, &session)
+                .await
+                .expect("connect read-only");
+            let err = sqlx::raw_sql("CREATE TEMP TABLE pharos_ro_chain (x int)")
+                .execute(&pool)
+                .await
+                .expect_err("a write must be refused");
+
+            let message = format_db_error(&err);
+            assert!(
+                message.starts_with(READ_ONLY_MARKER),
+                "the front end reads this marker; got: {message}"
+            );
+            pool.close().await;
+        });
+    }
+
     /// Nothing asked for must behave exactly as before this primitive existed.
     #[test]
     #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
@@ -1806,6 +2387,11 @@ mod live_prefer_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 

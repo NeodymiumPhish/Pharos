@@ -674,6 +674,114 @@ impl Default for SessionSettings {
     }
 }
 
+// MARK: - Connections
+
+/// Settings ▸ Connections. What a NEW connection starts as, and what every
+/// pool the app opens is tuned to.
+///
+/// Every default here is what the app did before this struct existed, read
+/// from the code that hard-coded it:
+///
+///  * `default_port` — `ConnectionsManagerVC.addStub`'s `port: 5432`.
+///  * `search_path_suffix` — the `, public` in `commands::query::set_search_path`.
+///  * `max_connections`, `connect_timeout_seconds`, `idle_timeout_seconds`,
+///    `max_lifetime_seconds` — `db::postgres::pool_options` and `CONNECT_BUDGET`.
+///  * `idle_in_transaction_seconds` — the `SET idle_in_transaction_session_timeout
+///    = '30s'` that `create_pool_with_session` ran on one connection of the pool.
+///
+/// `application_name` and `default_time_zone` are empty by default, and empty
+/// means "what the app sent before": no `application_name` parameter at all
+/// (libpq then reports the process name) and the server's own `TimeZone`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSettings {
+    /// The port the Connections Manager fills in for a NEW connection.
+    #[serde(default = "default_connection_port")]
+    pub default_port: u32,
+    /// `application_name`, which is what `pg_stat_activity` shows. Empty means
+    /// `Pharos <version>` — see `ConnectionSettings::effective_application_name`.
+    #[serde(default)]
+    pub application_name: String,
+    /// What follows the chosen schema in `search_path`. Empty means the schema
+    /// alone. Commas separate several, and each element is quoted.
+    #[serde(default = "default_search_path_suffix")]
+    pub search_path_suffix: String,
+    /// Connections in one pool.
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+    /// The whole budget for one connect attempt, in seconds.
+    #[serde(default = "default_connect_timeout_seconds")]
+    pub connect_timeout_seconds: u32,
+    /// How long an unused pooled connection is kept, in seconds.
+    #[serde(default = "default_idle_timeout_seconds")]
+    pub idle_timeout_seconds: u32,
+    /// The longest a pooled connection lives, in seconds.
+    #[serde(default = "default_max_lifetime_seconds")]
+    pub max_lifetime_seconds: u32,
+    /// `idle_in_transaction_session_timeout`, in seconds. 0 turns it off.
+    #[serde(default = "default_idle_in_transaction_seconds")]
+    pub idle_in_transaction_seconds: u32,
+    /// `tcp_keepalives_idle`, in seconds. 0 leaves the server's own.
+    #[serde(default)]
+    pub keepalive_idle_seconds: u32,
+    /// `tcp_keepalives_interval`, in seconds. 0 leaves the server's own.
+    #[serde(default)]
+    pub keepalive_interval_seconds: u32,
+    /// `tcp_keepalives_count`. 0 leaves the server's own.
+    #[serde(default)]
+    pub keepalive_count: u32,
+    /// `TimeZone` for every session. Empty leaves the server's own.
+    #[serde(default)]
+    pub default_time_zone: String,
+}
+
+fn default_connection_port() -> u32 { 5432 }
+fn default_search_path_suffix() -> String { "public".to_string() }
+fn default_max_connections() -> u32 { 5 }
+fn default_connect_timeout_seconds() -> u32 { 10 }
+fn default_idle_timeout_seconds() -> u32 { 600 }
+fn default_max_lifetime_seconds() -> u32 { 1800 }
+fn default_idle_in_transaction_seconds() -> u32 { 30 }
+
+impl Default for ConnectionSettings {
+    fn default() -> Self {
+        ConnectionSettings {
+            default_port: default_connection_port(),
+            application_name: String::new(),
+            search_path_suffix: default_search_path_suffix(),
+            max_connections: default_max_connections(),
+            connect_timeout_seconds: default_connect_timeout_seconds(),
+            idle_timeout_seconds: default_idle_timeout_seconds(),
+            max_lifetime_seconds: default_max_lifetime_seconds(),
+            idle_in_transaction_seconds: default_idle_in_transaction_seconds(),
+            keepalive_idle_seconds: 0,
+            keepalive_interval_seconds: 0,
+            keepalive_count: 0,
+            default_time_zone: String::new(),
+        }
+    }
+}
+
+impl ConnectionSettings {
+    /// The `application_name` to send, or None to send none.
+    ///
+    /// An empty setting means `Pharos <version>`. The version is the crate's
+    /// own: `.github/workflows/release.yml` stamps `CFBundleShortVersionString`
+    /// and `pharos-core/Cargo.toml` from the SAME tag, so this string is the
+    /// bundle's short version string, without a second FFI call to fetch it.
+    ///
+    /// A name the user typed is sent trimmed. Trimmed to nothing is the same
+    /// as empty.
+    pub fn effective_application_name(&self) -> String {
+        let typed = self.application_name.trim();
+        if typed.is_empty() {
+            concat!("Pharos ", env!("CARGO_PKG_VERSION")).to_string()
+        } else {
+            typed.to_string()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -730,6 +838,10 @@ pub struct AppSettings {
     /// The Results History navigator.
     #[serde(default)]
     pub history: HistorySettings,
+    /// Settings ▸ Connections: the new-connection defaults and the pool and
+    /// session tuning every connect uses.
+    #[serde(default)]
+    pub connections: ConnectionSettings,
 }
 
 fn default_check_for_updates() -> bool { true }
@@ -869,13 +981,26 @@ pub struct LibrarySettings {
 pub struct HistorySettings {
     #[serde(default = "default_maximum_history_entries")]
     pub maximum_entries: u32,
+    /// Days of history to keep. 0 keeps it forever. 90 is the literal the
+    /// store pruned by before this was a setting.
+    #[serde(default = "default_history_retention_days")]
+    pub retention_days: u32,
+    /// Most entries to keep, newest first. 0 is no ceiling, which is what
+    /// the store did before this was a setting.
+    #[serde(default)]
+    pub maximum_stored_entries: u32,
 }
 
 fn default_maximum_history_entries() -> u32 { 200 }
+fn default_history_retention_days() -> u32 { 90 }
 
 impl Default for HistorySettings {
     fn default() -> Self {
-        HistorySettings { maximum_entries: default_maximum_history_entries() }
+        HistorySettings {
+            maximum_entries: default_maximum_history_entries(),
+            retention_days: default_history_retention_days(),
+            maximum_stored_entries: 0,
+        }
     }
 }
 
@@ -903,6 +1028,7 @@ impl Default for AppSettings {
             navigator: NavigatorSettings::default(),
             library: LibrarySettings::default(),
             history: HistorySettings::default(),
+            connections: ConnectionSettings::default(),
         }
     }
 }
@@ -1054,7 +1180,25 @@ pub(crate) mod fixture {
                     sort_mode: SavedQuerySortMode::RecentlyUpdated,
                     double_click_action: SavedQueryDoubleClickAction::OpenAndRun,
                 },
-                history: HistorySettings { maximum_entries: 201 },
+history: HistorySettings {
+                    maximum_entries: 201,
+                    retention_days: 91,
+                    maximum_stored_entries: 1,
+                },
+                connections: ConnectionSettings {
+                    default_port: 5433,
+                    application_name: "Pharos (staging)".to_string(),
+                    search_path_suffix: "public, extensions".to_string(),
+                    max_connections: 6,
+                    connect_timeout_seconds: 11,
+                    idle_timeout_seconds: 601,
+                    max_lifetime_seconds: 1801,
+                    idle_in_transaction_seconds: 31,
+                    keepalive_idle_seconds: 60,
+                    keepalive_interval_seconds: 10,
+                    keepalive_count: 6,
+                    default_time_zone: "Asia/Tokyo".to_string(),
+                },
             }
         }
     }

@@ -162,6 +162,9 @@ pub async fn clone_table(
     options: CloneTableOptions,
     state: &AppState,
 ) -> Result<CloneTableResult, String> {
+    // A read-only connection cannot be the TARGET of a clone. Refused here,
+    // before the DDL is built, rather than by the server after it.
+    state.require_writable(&connection_id)?;
     let pool = state.require_pool(&connection_id)?;
 
     // Validate identifiers to prevent SQL injection
@@ -373,6 +376,9 @@ pub async fn import_csv(
     options: ImportCsvOptions,
     state: &AppState,
 ) -> Result<ImportCsvResult, String> {
+    // Refused before the file is opened, so a read-only connection cannot
+    // spend the user's time parsing a CSV it can never insert.
+    state.require_writable(&connection_id)?;
     let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
@@ -681,7 +687,7 @@ pub async fn export_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = options.schema {
-        set_search_path(&mut conn, schema_name).await?;
+        set_search_path(&mut conn, schema_name, &state.settings().connections.search_path_suffix).await?;
     }
 
     let trimmed_sql = options.sql.trim().trim_end_matches(';').to_string();

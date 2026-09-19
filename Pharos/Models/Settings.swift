@@ -845,9 +845,13 @@ struct LibrarySettings: Codable, Equatable {
 
 /// The Results History navigator's own settings.
 struct HistorySettings: Codable, Equatable {
-    /// How many history entries the navigator loads. There is no paging: the
-    /// list is one fetch, and 200 is the number it was hard-coded to.
+    /// How many of the newest entries the Results History navigator fetches.
     var maximumEntries: UInt32 = 200
+    /// Days of history to keep. 0 keeps it forever. 90 is what the store
+    /// pruned by before this was a setting.
+    var retentionDays: UInt32 = 90
+    /// Most entries to keep, newest first. 0 is no ceiling.
+    var maximumStoredEntries: UInt32 = 0
 }
 
 /// How the app remembers a working session between launches.
@@ -861,6 +865,98 @@ struct SessionSettings: Codable, Equatable {
     /// The editor / results divider in a new tab, as a fraction of the
     /// height given to the editor. Moved out of `UserDefaults`.
     var defaultEditorSplitRatio: Double = 0.6
+}
+
+// MARK: - Connections
+
+/// Settings ▸ Connections. What a NEW connection starts as, and how every pool
+/// the app opens is tuned.
+///
+/// Mirrors `ConnectionSettings` in `pharos-core/src/models/settings.rs`, where
+/// every field carries `#[serde(default = …)]`, so a blob written before this
+/// struct existed still decodes. Every default below is what the app did
+/// before the setting existed — see the Rust doc comment for the line each one
+/// was read from.
+///
+/// Declared HERE, beside `NullDisplay`, because `AppSettings` names it: eight
+/// standalone `swiftc` harnesses compile `Settings.swift` alone, and a type in
+/// another file breaks every one of them.
+struct ConnectionSettings: Codable, Equatable {
+    /// The port the Connections Manager fills in for a new connection.
+    var defaultPort: UInt32 = 5432
+    /// `application_name`, which is what `pg_stat_activity` shows. Empty means
+    /// `Pharos <CFBundleShortVersionString>`; the core builds that string from
+    /// its own crate version, which the release workflow stamps from the same
+    /// tag as the bundle's.
+    var applicationName: String = ""
+    /// What follows the chosen schema in `search_path`. Empty means the schema
+    /// alone; commas separate several.
+    var searchPathSuffix: String = "public"
+    /// Connections in one pool.
+    var maxConnections: UInt32 = 5
+    /// The whole budget for one connect attempt, in seconds.
+    var connectTimeoutSeconds: UInt32 = 10
+    /// How long an unused pooled connection is kept, in seconds.
+    var idleTimeoutSeconds: UInt32 = 600
+    /// The longest a pooled connection lives, in seconds.
+    var maxLifetimeSeconds: UInt32 = 1800
+    /// `idle_in_transaction_session_timeout`, in seconds. 0 turns it off.
+    var idleInTransactionSeconds: UInt32 = 30
+    /// `tcp_keepalives_idle`, in seconds. 0 leaves the server's own.
+    var keepaliveIdleSeconds: UInt32 = 0
+    /// `tcp_keepalives_interval`, in seconds. 0 leaves the server's own.
+    var keepaliveIntervalSeconds: UInt32 = 0
+    /// `tcp_keepalives_count`. 0 leaves the server's own.
+    var keepaliveCount: UInt32 = 0
+    /// `TimeZone` for every session. Empty leaves the server's own. A
+    /// connection's own `sessionTimeZone` overrides it.
+    var defaultTimeZone: String = ""
+}
+
+/// The time zones a session may be asked for: the ones this Mac knows, plus
+/// `UTC`, which `knownTimeZoneIdentifiers` leaves out because it is an alias.
+///
+/// PostgreSQL accepts far more spellings than these, but a name it does not
+/// know fails the CONNECT — so the app offers only names it can vouch for, and
+/// the empty string, which means "leave the server's own alone".
+///
+/// Foundation only, and pure, so the Settings pane and the Connections Manager
+/// form share one list and one rule.
+enum SessionTimeZone {
+
+    /// What "leave the server alone" looks like on the wire.
+    static let serverDefault = ""
+
+    /// Every offered identifier, `UTC` first and the rest sorted. Computed
+    /// once: `knownTimeZoneIdentifiers` is around 600 strings.
+    static let identifiers: [String] = {
+        var known = Set(TimeZone.knownTimeZoneIdentifiers)
+        known.insert("UTC")
+        var sorted = known.sorted()
+        // UTC is the one people reach for, so it does not belong buried
+        // between Europe/Uzhgorod and Europe/Vaduz.
+        sorted.removeAll { $0 == "UTC" }
+        return ["UTC"] + sorted
+    }()
+
+    /// Whether this is a name the app will send. The empty string is valid and
+    /// means the server's own zone.
+    static func isValid(_ identifier: String) -> Bool {
+        let trimmed = identifier.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        return TimeZone(identifier: trimmed) != nil
+    }
+
+    /// The value to store for what the user chose or typed. A name this Mac
+    /// does not know becomes `serverDefault` rather than a value that would
+    /// fail every connect with a message about the wrong thing.
+    static func normalized(_ identifier: String) -> String {
+        let trimmed = identifier.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, TimeZone(identifier: trimmed) != nil else {
+            return serverDefault
+        }
+        return trimmed
+    }
 }
 
 struct AppSettings: Codable, Equatable {
@@ -905,4 +1001,7 @@ struct AppSettings: Codable, Equatable {
     var library: LibrarySettings = LibrarySettings()
     /// The Results History navigator.
     var history: HistorySettings = HistorySettings()
+    /// Settings ▸ Connections: the new-connection defaults, and the pool and
+    /// session tuning every connect uses.
+    var connections: ConnectionSettings = ConnectionSettings()
 }
