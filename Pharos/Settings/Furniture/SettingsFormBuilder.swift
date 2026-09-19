@@ -350,7 +350,7 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
     private func refreshState(of itemId: String) {
         guard let item = items[itemId], let row = rows[itemId] else { return }
         var enabled = true
-        var caption = item.caption
+        var caption = item.dynamicCaption?() ?? item.caption
         switch item.availability() {
         case .available:
             break

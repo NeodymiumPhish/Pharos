@@ -25,8 +25,15 @@
     "showCancelledQueryDialog": false,
     "timeoutSeconds": 301
   },
+  "results": {
+    "nullStyle": "dimmed"
+  },
   "showLeafPartitions": true,
   "theme": "dark",
+  "updates": {
+    "channel": "preRelease",
+    "checkFrequency": "weekly"
+  },
   "useAppleIntelligence": false,
   "verticalResultTabs": false
 }

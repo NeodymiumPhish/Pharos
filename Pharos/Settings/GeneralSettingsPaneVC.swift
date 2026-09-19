@@ -7,6 +7,33 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
+    /// What the last check said, shown under Check Now. Nil until the user
+    /// presses it in this session; the caption then falls back to the stored
+    /// timestamp.
+    private var lastOutcomeMessage: String?
+
+    /// "Last checked: …", or the outcome of a check made from this pane.
+    private func updateStatusCaption() -> String {
+        if let lastOutcomeMessage { return lastOutcomeMessage }
+        guard let date = UpdateChecker.shared.lastCheckedAt else {
+            return String(localized: "Not checked yet.")
+        }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return String(localized: "Last checked: \(formatter.string(from: date))")
+    }
+
+    private func checkNow() {
+        lastOutcomeMessage = String(localized: "Checking…")
+        reloadFromSettings()
+        Task { @MainActor in
+            let outcome = await UpdateChecker.shared.checkNow(force: true)
+            self.lastOutcomeMessage = outcome.message
+            self.reloadFromSettings()
+        }
+    }
+
     override var sections: [SettingsSection] {
         [
             SettingsSection(title: String(localized: "Startup"), items: [
@@ -24,6 +51,27 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                     caption: String(localized: "Checks GitHub Releases after launch and posts one notification per new version. Nothing is downloaded or installed."),
                     icon: "arrow.down.circle",
                     kind: .toggle(.settings(\.checkForUpdates))),
+                SettingsItem(
+                    id: "updateFrequency",
+                    title: String(localized: "Frequency"),
+                    icon: "calendar",
+                    kind: .popup(.cases(\.updates.checkFrequency, title: { $0.displayLabel })),
+                    dependsOn: "checkForUpdates"),
+                SettingsItem(
+                    id: "updateChannel",
+                    title: String(localized: "Channel"),
+                    caption: String(localized: "Pre-release offers beta builds as soon as they are published."),
+                    icon: "shippingbox",
+                    kind: .popup(.cases(\.updates.channel, title: { $0.displayLabel })),
+                    dependsOn: "checkForUpdates"),
+                SettingsItem(
+                    id: "checkNow",
+                    title: String(localized: "Check now"),
+                    dynamicCaption: { [weak self] in self?.updateStatusCaption() ?? "" },
+                    icon: "arrow.clockwise",
+                    kind: .action(title: String(localized: "Check Now"), destructive: false) { [weak self] in
+                        self?.checkNow()
+                    }),
             ]),
         ]
     }

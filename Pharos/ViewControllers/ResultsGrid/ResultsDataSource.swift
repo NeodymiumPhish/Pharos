@@ -261,6 +261,25 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var nullDisplay: String { nullDisplayString }
     private var regularFont: NSFont = ResultsGridMetrics.cellFont
     private var italicFont: NSFont = ResultsGridMetrics.cellItalicFont
+
+    /// How a NULL is set apart from a real value (Settings ▸ Appearance).
+    private var nullStyle: NullStyle = .italic
+
+    /// The font a NULL cell takes.
+    ///
+    /// Differentiate Without Color forces the italic face whatever the
+    /// setting says: with that accessibility option on, a colour-only
+    /// difference is no difference at all, and the slant is the only cue
+    /// left. The same rule already governs a pending edit below.
+    private var nullFont: NSFont {
+        if AccessibilityDisplay.shared.differentiateWithoutColor { return italicFont }
+        return nullStyle == .italic ? italicFont : regularFont
+    }
+
+    /// The colour a NULL cell takes. Plain reads like any other value.
+    private var nullTextColor: NSColor {
+        nullStyle == .plain ? .labelColor : .tertiaryLabelColor
+    }
     private var rownumFont: NSFont = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 
     private var settingsCancellable: AnyCancellable?
@@ -400,6 +419,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let nullDisplay: String
         let boolTrue: String
         let boolFalse: String
+        let nullStyle: NullStyle
     }
     private var lastDisplaySignature: DisplaySignature?
 
@@ -410,11 +430,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let next = DisplaySignature(
             nullDisplay: settings.nullDisplay.rawValue,
             boolTrue: settings.boolDisplay.trueString,
-            boolFalse: settings.boolDisplay.falseString
+            boolFalse: settings.boolDisplay.falseString,
+            nullStyle: settings.results.nullStyle
         )
         nullDisplayString = next.nullDisplay
         boolTrueString = next.boolTrue
         boolFalseString = next.boolFalse
+        nullStyle = next.nullStyle
         let changed = next != lastDisplaySignature
         lastDisplaySignature = next
         return changed
@@ -647,8 +669,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let isNull = edit.newText == nil
         cell.textField?.stringValue = isNull ? nullDisplayString : (edit.newText ?? "")
         if isNull {
-            cell.textField?.font = italicFont
-            cell.normalTextColor = .tertiaryLabelColor
+            cell.textField?.font = nullFont
+            cell.normalTextColor = nullTextColor
         } else {
             cell.textField?.font = AccessibilityDisplay.shared.differentiateWithoutColor
                 ? italicFont : regularFont
@@ -823,8 +845,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         textField.alignment = category == .numeric ? .right : .left
 
         if value.isNull {
-            textField.font = italicFont
-            cell.normalTextColor = .tertiaryLabelColor
+            textField.font = nullFont
+            cell.normalTextColor = nullTextColor
             return
         }
         textField.font = regularFont

@@ -84,6 +84,78 @@ struct ChartSettings: Codable, Equatable {
     var palette: [String] = ChartPalette.defaultHex
 }
 
+/// How a NULL is set apart from a real value in the results grid.
+enum NullStyle: String, Codable, CaseIterable {
+    case italic
+    case dimmed
+    case plain
+
+    var displayLabel: String {
+        switch self {
+        case .italic: return String(localized: "Italic")
+        case .dimmed: return String(localized: "Dimmed")
+        case .plain: return String(localized: "Plain")
+        }
+    }
+}
+
+/// How often the background update check runs. "Never" is the
+/// `checkForUpdates` master switch, not a case here.
+enum UpdateFrequency: String, Codable, CaseIterable {
+    case onLaunch
+    case daily
+    case weekly
+
+    var displayLabel: String {
+        switch self {
+        case .onLaunch: return String(localized: "On launch only")
+        case .daily: return String(localized: "Daily")
+        case .weekly: return String(localized: "Weekly")
+        }
+    }
+
+    /// The repeating timer's period. `onLaunch` never repeats.
+    var repeatInterval: TimeInterval? {
+        switch self {
+        case .onLaunch: return nil
+        case .daily: return 24 * 3600
+        case .weekly: return 7 * 24 * 3600
+        }
+    }
+
+    /// How stale a stored result may be before a non-forced check refetches.
+    var cacheSeconds: TimeInterval {
+        switch self {
+        case .onLaunch: return 24 * 3600
+        case .daily: return 24 * 3600
+        case .weekly: return 7 * 24 * 3600
+        }
+    }
+}
+
+/// Which releases the update check looks at.
+enum UpdateChannel: String, Codable, CaseIterable {
+    case stable
+    case preRelease
+
+    var displayLabel: String {
+        switch self {
+        case .stable: return String(localized: "Stable")
+        case .preRelease: return String(localized: "Pre-release")
+        }
+    }
+}
+
+struct UpdateSettings: Codable, Equatable {
+    var checkFrequency: UpdateFrequency = .daily
+    var channel: UpdateChannel = .stable
+}
+
+/// The results grid's own display settings.
+struct ResultsSettings: Codable, Equatable {
+    var nullStyle: NullStyle = .italic
+}
+
 struct AppSettings: Codable, Equatable {
     var theme: ThemeMode = .auto
     var editor: EditorSettings = EditorSettings()
@@ -102,6 +174,8 @@ struct AppSettings: Codable, Equatable {
     /// carries `#[serde(default = "default_use_apple_intelligence")]`.
     var useAppleIntelligence: Bool = true
     var charts: ChartSettings = ChartSettings()
+    var results: ResultsSettings = ResultsSettings()
+    var updates: UpdateSettings = UpdateSettings()
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Off follows the system's scroll-bar preference (the HIG
     /// default); on is what the grid did unconditionally before this existed.

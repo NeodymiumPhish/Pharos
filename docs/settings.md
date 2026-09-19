@@ -32,6 +32,9 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 |---------|---------|---------|-------------|
 | Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
+| Frequency | On launch only, Daily, Weekly | Daily | How often the background check repeats. It also sets how stale a stored answer may be before the next check asks GitHub again. |
+| Channel | Stable, Pre-release | Stable | Stable follows GitHub's own latest release. Pre-release takes the newest release marked pre-release that is not a draft. |
+| Check Now | Button | — | Checks at once, whatever the frequency says, and puts the answer under the button. The caption otherwise shows when the last check ran. |
 
 ## Appearance Pane
 
@@ -40,6 +43,7 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | Appearance | Auto, Light, Dark | Auto | Application color scheme; Auto follows the system. |
 | NULL display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
 | Boolean display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
+| NULL style | Italic, Dimmed, Plain | Italic | How a NULL is set apart from a real value in the grid. **Differentiate Without Color** (System Settings ▸ Accessibility ▸ Display) keeps the italic face whatever this says, because a colour-only difference is no difference with that option on. |
 | Show result tabs in a vertical panel | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
 | Always show scroll bars | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
 
@@ -88,4 +92,4 @@ The default series palette used by every chart: one color well per slot, **Add c
 
 ## Update Checks
 
-With background update checks enabled, Pharos checks the GitHub Releases feed shortly after launch and periodically afterwards. When a newer stable version is found you get a single notification per version — clicking it opens the release page, and a "Copy brew command" button copies the Homebrew upgrade command. Pharos never downloads or installs updates on its own.
+With background update checks enabled, Pharos checks the GitHub Releases feed shortly after launch and then at the **Frequency** you chose. When a newer stable version is found you get a single notification per version — clicking it opens the release page, and a "Copy brew command" button copies the Homebrew upgrade command. Pharos never downloads or installs updates on its own.

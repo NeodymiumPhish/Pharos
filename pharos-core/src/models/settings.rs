@@ -157,6 +157,53 @@ impl Default for ChartSettings {
     }
 }
 
+/// How a NULL is set apart from a real value in the results grid.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NullStyle {
+    #[default]
+    Italic,
+    Dimmed,
+    Plain,
+}
+
+/// How often the background update check runs. "Never" is the
+/// `check_for_updates` master switch, not a variant here.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateFrequency {
+    OnLaunch,
+    #[default]
+    Daily,
+    Weekly,
+}
+
+/// Which releases the update check looks at.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    PreRelease,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSettings {
+    #[serde(default)]
+    pub check_frequency: UpdateFrequency,
+    #[serde(default)]
+    pub channel: UpdateChannel,
+}
+
+/// The results grid's own display settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultsSettings {
+    #[serde(default)]
+    pub null_style: NullStyle,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -183,6 +230,10 @@ pub struct AppSettings {
     pub use_apple_intelligence: bool,
     #[serde(default)]
     pub charts: ChartSettings,
+    #[serde(default)]
+    pub results: ResultsSettings,
+    #[serde(default)]
+    pub updates: UpdateSettings,
     /// Whether the editor and the results grid pin legacy scroll bars on
     /// screen. Defaults OFF — follow the system's scroll-bar preference, as
     /// the HIG asks — so a bare `#[serde(default)]` is the right default here.
@@ -207,6 +258,8 @@ impl Default for AppSettings {
             vertical_result_tabs: default_vertical_result_tabs(),
             use_apple_intelligence: default_use_apple_intelligence(),
             charts: ChartSettings::default(),
+            results: ResultsSettings::default(),
+            updates: UpdateSettings::default(),
             always_show_scroll_bars: false,
         }
     }
@@ -258,6 +311,11 @@ pub(crate) mod fixture {
                 vertical_result_tabs: false,
                 use_apple_intelligence: false,
                 charts: ChartSettings { palette: vec!["#000000".to_string()] },
+                results: ResultsSettings { null_style: NullStyle::Dimmed },
+                updates: UpdateSettings {
+                    check_frequency: UpdateFrequency::Weekly,
+                    channel: UpdateChannel::PreRelease,
+                },
                 always_show_scroll_bars: true,
             }
         }

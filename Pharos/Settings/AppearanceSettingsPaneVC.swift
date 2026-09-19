@@ -34,6 +34,12 @@ final class AppearanceSettingsPaneVC: SettingsFormPaneVC {
                     title: String(localized: "Boolean display"),
                     icon: "checkmark.square",
                     kind: .popup(.cases(\.boolDisplay, title: { $0.displayLabel }))),
+                SettingsItem(
+                    id: "nullStyle",
+                    title: String(localized: "NULL style"),
+                    caption: String(localized: "How a NULL is set apart from a real value. Differentiate Without Color keeps the italic face whatever this says."),
+                    icon: "textformat.abc.dottedunderline",
+                    kind: .popup(.cases(\.results.nullStyle, title: { $0.displayLabel }))),
             ]),
             SettingsSection(title: String(localized: "Layout"), items: [
                 SettingsItem(

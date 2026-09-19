@@ -30,8 +30,15 @@
     "showCancelledQueryDialog": true,
     "timeoutSeconds": 300
   },
+  "results": {
+    "nullStyle": "italic"
+  },
   "showLeafPartitions": false,
   "theme": "auto",
+  "updates": {
+    "channel": "stable",
+    "checkFrequency": "daily"
+  },
   "useAppleIntelligence": true,
   "verticalResultTabs": true
 }

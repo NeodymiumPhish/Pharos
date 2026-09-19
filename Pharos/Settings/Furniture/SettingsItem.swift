@@ -116,6 +116,12 @@ struct SettingsItem {
     let id: String
     let title: String
     let caption: String?
+    /// A caption that is recomputed on every refresh — a "Last checked: …"
+    /// line, a count of stored items. It replaces `caption` when present.
+    /// A static `caption` cannot do this: the builder writes it back on
+    /// every refresh, so a value captured when the pane was built would be
+    /// restored over anything set later.
+    let dynamicCaption: (() -> String)?
     /// SF Symbol name for the leading badge, or nil for a plain row.
     let icon: String?
     /// Longer help behind an ⓘ button.
@@ -128,12 +134,14 @@ struct SettingsItem {
     /// enabled only while that toggle is on.
     let dependsOn: String?
 
-    init(id: String, title: String, caption: String? = nil, icon: String? = nil, help: String? = nil,
+    init(id: String, title: String, caption: String? = nil, dynamicCaption: (() -> String)? = nil,
+         icon: String? = nil, help: String? = nil,
          kind: SettingsItemKind, availability: @escaping () -> SettingsAvailability = { .available },
          dependsOn: String? = nil) {
         self.id = id
         self.title = title
         self.caption = caption
+        self.dynamicCaption = dynamicCaption
         self.icon = icon
         self.help = help
         self.kind = kind
