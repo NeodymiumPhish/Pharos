@@ -98,6 +98,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the content controller alive and observing, so it runs after the
         // first window is on screen.
         state.restoreSession()
+
+        // Last, because `LaunchConnectPolicy` skips a connection the restore
+        // has already opened, and it can only know that once the restore has
+        // run.
+        state.connectFlaggedConnectionsAtLaunch()
     }
 
     // MARK: - Windows

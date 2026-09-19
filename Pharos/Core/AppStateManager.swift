@@ -354,6 +354,60 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Open the connections whose "Connect when Pharos starts" is set.
+    ///
+    /// Call AFTER `restoreSession()`: a restored tab may already have brought
+    /// its connection up, and `LaunchConnectPolicy` skips those rather than
+    /// asking twice.
+    ///
+    /// Connections that will put a Touch ID prompt on screen are opened ONE
+    /// AT A TIME, and last. Several `DeviceOwnerGate` prompts raised together
+    /// stack on one another, and the user cannot tell which connection each
+    /// belongs to. With no gated connection in the list, they all go at once,
+    /// because there is nothing to queue behind.
+    ///
+    /// Nothing here blocks the launch: every connect is already a `Task`, and
+    /// a connection that never answers leaves its own row spinning rather
+    /// than holding up the window.
+    func connectFlaggedConnectionsAtLaunch() {
+        let candidates = connections.map { config in
+            LaunchConnectPolicy.Candidate(
+                id: config.id,
+                name: config.name,
+                connectOnLaunch: config.connectOnLaunch,
+                isAlreadyConnected: connectionStatuses[config.id] == .connected,
+                requiresAuthentication: config.requiresAuthentication)
+        }
+        let toOpen = LaunchConnectPolicy.connectionsToOpen(candidates)
+        guard !toOpen.isEmpty else { return }
+
+        Log.state.info("Opening \(toOpen.count, privacy: .public) connection(s) marked connect-on-launch")
+
+        guard LaunchConnectPolicy.needsSerialPrompts(toOpen) else {
+            for candidate in toOpen { connect(id: candidate.id, in: keySession) }
+            return
+        }
+
+        // One at a time, each waiting for the one before to leave `.connecting`
+        // — which is what keeps two Touch ID prompts off the screen together.
+        Task { @MainActor in
+            for candidate in toOpen {
+                connect(id: candidate.id, in: keySession)
+                await waitWhileConnecting(id: candidate.id)
+            }
+        }
+    }
+
+    /// Wait until `id` is no longer `.connecting`, or until the budget runs
+    /// out. The budget matters: a connection that never answers must not
+    /// strand the connections queued behind it for the life of the session.
+    private func waitWhileConnecting(id: String, budget: TimeInterval = 60) async {
+        let deadline = Date().addingTimeInterval(budget)
+        while connectionStatuses[id] == .connecting, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
     private func performConnect(id: String, in session: WindowSession?) {
         connectionStatuses[id] = .connecting
         connectionErrors.removeValue(forKey: id)
