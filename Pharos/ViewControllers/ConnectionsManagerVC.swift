@@ -224,6 +224,17 @@ final class ConnectionsManagerVC: NSViewController {
     private let usernameField = NSTextField()
     private let passwordField = NSSecureTextField()
     private let sslPopup = NSPopUpButton()
+    /// The PEM root certificate for verify-ca / verify-full, with its own
+    /// Choose… button. The row is hidden for every other SSL mode.
+    private let sslRootCertField = NSTextField()
+    private let sslChooseCertButton = NSButton()
+    private var sslRootCertRow: NSView?
+    /// Session ▸ per-connection: read-only, connect at launch, remember the
+    /// password, and the connection's own time zone.
+    private let readOnlyCheckbox = NSButton()
+    private let connectOnLaunchCheckbox = NSButton()
+    private let rememberPasswordCheckbox = NSButton()
+    private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
 
     // One badge per round-trip field. `nameField` has none — it is an authored
@@ -580,8 +591,54 @@ final class ConnectionsManagerVC: NSViewController {
 
         sslPopup.target = self
         sslPopup.action = #selector(sslPopupChanged)
-        sslPopup.addItems(withTitles: ["Prefer", "Require", "Disable"])
+        // Built from `SslMode.formOrder`, so a mode added to the model cannot
+        // be missing from the form — the old literal list of three titles
+        // could, and the index switch below it silently mapped the rest to
+        // Prefer.
+        sslPopup.addItems(withTitles: SslMode.formOrder.map(\.displayLabel))
         sslPopup.translatesAutoresizingMaskIntoConstraints = false
+
+        configureField(sslRootCertField)
+        sslRootCertField.placeholderString = String(localized: "System trust store")
+        sslRootCertField.setAccessibilityIdentifier("connections.sslRootCert")
+        sslChooseCertButton.title = String(localized: "Choose…")
+        sslChooseCertButton.bezelStyle = .rounded
+        sslChooseCertButton.target = self
+        sslChooseCertButton.action = #selector(chooseSslRootCert)
+        sslChooseCertButton.setContentHuggingPriority(.required, for: .horizontal)
+        sslChooseCertButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        readOnlyCheckbox.setButtonType(.switch)
+        readOnlyCheckbox.title = String(localized: "Read-only connection")
+        readOnlyCheckbox.target = self
+        readOnlyCheckbox.action = #selector(perConnectionFlagChanged)
+        readOnlyCheckbox.setAccessibilityIdentifier("connections.readOnly")
+        readOnlyCheckbox.toolTip = String(localized:
+            "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens.")
+
+        connectOnLaunchCheckbox.setButtonType(.switch)
+        connectOnLaunchCheckbox.title = String(localized: "Connect when Pharos starts")
+        connectOnLaunchCheckbox.target = self
+        connectOnLaunchCheckbox.action = #selector(perConnectionFlagChanged)
+        connectOnLaunchCheckbox.setAccessibilityIdentifier("connections.connectOnLaunch")
+        connectOnLaunchCheckbox.toolTip = String(localized:
+            "Stored with the connection. Pharos does not act on it yet.")
+
+        rememberPasswordCheckbox.setButtonType(.switch)
+        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
+        rememberPasswordCheckbox.target = self
+        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
+        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
+        rememberPasswordCheckbox.toolTip = String(localized:
+            "Stored with the connection. Pharos does not act on it yet: the password is remembered either way until the prompt it needs is built.")
+
+        sessionTimeZonePopup.target = self
+        sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)
+        sessionTimeZonePopup.setAccessibilityIdentifier("connections.sessionTimeZone")
+        PopupValueMenu.populate(sessionTimeZonePopup,
+                                sentinel: String(localized: "Use the Settings default"),
+                                values: SessionTimeZone.identifiers)
+        sessionTimeZonePopup.translatesAutoresizingMaskIntoConstraints = false
 
         defaultSchemaPopup.target = self
         defaultSchemaPopup.action = #selector(defaultSchemaChanged)
@@ -661,6 +718,20 @@ final class ConnectionsManagerVC: NSViewController {
         // The field and its Show button travel together, so the badge still owns
         // the row's trailing edge and the row keeps ONE width whichever state
         // the gate is in.
+        let certControls = NSStackView(views: [sslRootCertField, sslChooseCertButton])
+        certControls.orientation = .horizontal
+        certControls.alignment = .centerY
+        certControls.distribution = .fill
+        certControls.spacing = 8
+        certControls.translatesAutoresizingMaskIntoConstraints = false
+        sslRootCertField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let sslCertRow = row(label: String(localized: "Root Certificate"), field: certControls)
+        // Hidden until a selection loads: the default mode is Prefer, which
+        // uses no certificate, and a row that flashed into view on every open
+        // would be the only row in the form that did.
+        sslCertRow.isHidden = true
+        sslRootCertRow = sslCertRow
+
         let passwordControls = NSStackView(views: [passwordField, showPasswordButton])
         passwordControls.orientation = .horizontal
         passwordControls.alignment = .centerY
@@ -675,7 +746,9 @@ final class ConnectionsManagerVC: NSViewController {
             passwordNoteRow,
             authNoteRow,
             row(label: "SSL Mode", control: sslPopup),
+            sslCertRow,
             row(label: "", control: requireAuthCheckbox),
+            row(label: "", control: rememberPasswordCheckbox),
         ])
         // `row` linked the badge to the stack it was handed. The warning is
         // about the FIELD, so say so — a screen reader on the badge must land
@@ -688,7 +761,16 @@ final class ConnectionsManagerVC: NSViewController {
             row(label: "Default Schema", control: defaultSchemaPopup),
         ])
 
-        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection])
+        // The per-connection session rules, after the database they apply to.
+        let sessionSection = section(title: String(localized: "Session"), rows: [
+            row(label: "", control: readOnlyCheckbox),
+            row(label: "", control: connectOnLaunchCheckbox),
+            row(label: String(localized: "Time Zone"), control: sessionTimeZonePopup),
+            noteRow(caption(String(localized: "Applies to connections opened after this change."))),
+        ])
+
+        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection,
+                                       sessionSection])
         main.orientation = .vertical
         main.alignment = .leading
         main.spacing = L.sectionSpacing
@@ -749,6 +831,7 @@ final class ConnectionsManagerVC: NSViewController {
             authSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             sshSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             dbSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
+            sessionSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
         ])
     }
 
@@ -1281,10 +1364,20 @@ final class ConnectionsManagerVC: NSViewController {
             sshSecretField.stringValue = tunnel?.secret ?? ""
         }
         applyPasswordGateState(storedPassword: config.password)
-        switch config.sslMode {
-        case .prefer:  sslPopup.selectItem(at: 0)
-        case .require: sslPopup.selectItem(at: 1)
-        case .disable: sslPopup.selectItem(at: 2)
+        sslPopup.selectItem(at: SslMode.formOrder.firstIndex(of: config.sslMode) ?? 0)
+        sslRootCertField.stringValue = config.sslRootCertPath ?? ""
+        applySslRowVisibility()
+        readOnlyCheckbox.state = config.readOnly ? .on : .off
+        connectOnLaunchCheckbox.state = config.connectOnLaunch ? .on : .off
+        rememberPasswordCheckbox.state = config.rememberPassword ? .on : .off
+        // `selectValue` leaves the selection alone when there is no such row,
+        // so the empty case has to pick the sentinel itself — otherwise a
+        // record with no zone would show the zone of the record before it.
+        let storedZone = SessionTimeZone.normalized(config.sessionTimeZone ?? "")
+        if storedZone.isEmpty {
+            sessionTimeZonePopup.selectItem(at: 0)
+        } else {
+            PopupValueMenu.selectValue(storedZone, in: sessionTimeZonePopup)
         }
         if let fetched = liveOrFetchedSchemas(for: config) {
             // Already read this session, for these settings: keep the real list
@@ -1380,7 +1473,41 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Editing
 
     @objc private func fieldEdited() { syncFormIntoDraft() }
-    @objc private func sslPopupChanged() { syncFormIntoDraft() }
+    @objc private func sslPopupChanged() {
+        applySslRowVisibility()
+        syncFormIntoDraft()
+    }
+
+    /// One handler for the three per-connection switches and the time-zone
+    /// pop-up: each only has to reach the draft.
+    @objc private func perConnectionFlagChanged() { syncFormIntoDraft() }
+
+    /// The root-certificate row belongs to verify-ca and verify-full alone.
+    /// Called from `loadSelectionIntoForm` and from the pop-up, so the two
+    /// routes into this state cannot disagree — the same rule the SSH rows
+    /// follow.
+    private func applySslRowVisibility() {
+        let index = sslPopup.indexOfSelectedItem
+        let mode = SslMode.formOrder.indices.contains(index) ? SslMode.formOrder[index] : .prefer
+        sslRootCertRow?.isHidden = !mode.verifiesCertificate
+    }
+
+    @objc private func chooseSslRootCert() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // A PEM bundle often lives in a hidden folder (~/.postgresql/), so the
+        // panel has to show hidden files to be usable at all.
+        panel.showsHiddenFiles = true
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose the PEM root certificate for this connection.")
+        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            self.sslRootCertField.stringValue = url.path
+            self.syncFormIntoDraft()
+        }
+    }
 
     /// Ticking the box gates the record from the next save on. Unticking it does
     /// NOT reveal a password the gate is currently holding — that still needs
@@ -1485,11 +1612,22 @@ final class ConnectionsManagerVC: NSViewController {
         }
         d.requiresAuthentication = requireAuthCheckbox.state == .on
         d.sshTunnel = sshTunnelFromForm(existing: d.sshTunnel)
-        switch sslPopup.indexOfSelectedItem {
-        case 1: d.sslMode = .require
-        case 2: d.sslMode = .disable
-        default: d.sslMode = .prefer
-        }
+        let modeIndex = sslPopup.indexOfSelectedItem
+        d.sslMode = SslMode.formOrder.indices.contains(modeIndex)
+            ? SslMode.formOrder[modeIndex]
+            : .prefer
+        // Only the two verifying modes use a root certificate. A path left
+        // behind by a mode the user moved away from is kept in the FIELD but
+        // not written, so switching back restores it without ever sending a
+        // certificate the mode ignores.
+        let certPath = sslRootCertField.stringValue.trimmingCharacters(in: .whitespaces)
+        d.sslRootCertPath = (d.sslMode.verifiesCertificate && !certPath.isEmpty) ? certPath : nil
+        d.readOnly = readOnlyCheckbox.state == .on
+        d.connectOnLaunch = connectOnLaunchCheckbox.state == .on
+        d.rememberPassword = rememberPasswordCheckbox.state == .on
+        d.sessionTimeZone = PopupValueMenu.selectedValue(in: sessionTimeZonePopup)
+            .map(SessionTimeZone.normalized)
+            .flatMap { $0.isEmpty ? nil : $0 }
         // Only once a list has actually been fetched — until then the popup
         // holds a placeholder, not a choice, and must not write over the saved
         // value. `selectedValue` returns nil for the "None" sentinel, and nil
@@ -1729,7 +1867,9 @@ final class ConnectionsManagerVC: NSViewController {
                 id: UUID().uuidString,
                 name: "Untitled",
                 host: "localhost",
-                port: 5432,
+                // Settings ▸ Connections ▸ Default port. A NEW connection
+                // only; nothing already saved is touched.
+                port: UInt16(clamping: AppStateManager.shared.settings.connections.defaultPort),
                 database: "postgres",
                 username: "postgres"
             ),

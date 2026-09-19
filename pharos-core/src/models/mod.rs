@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod export_import;
 pub mod model_feedback;
 pub mod query_history;
 pub mod query_variable;
@@ -11,6 +12,7 @@ pub mod tag;
 pub mod workspace;
 
 pub use connection::*;
+pub use export_import::*;
 pub use model_feedback::*;
 pub use query_history::*;
 pub use query_variable::*;

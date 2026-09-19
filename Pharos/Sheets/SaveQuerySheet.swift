@@ -30,6 +30,12 @@ class SaveQuerySheet: NSViewController {
     private var existingQueries: [SavedQuery] = []
     private var onSave: ((SaveQueryAction) -> Void)?
 
+    /// Called once when the sheet goes away, however it ended — Save, Cancel
+    /// or Escape. `onSave` fires FIRST on the save path, so a caller that sets
+    /// both can tell a save from a cancel. The unsaved-work warning needs
+    /// that: a cancelled sheet must cancel the close it was asked for.
+    var onDismiss: (() -> Void)?
+
     // MARK: - Suggested name
 
     /// The folders offered in the popup, in the popup's own spelling. Also the
@@ -91,6 +97,16 @@ class SaveQuerySheet: NSViewController {
         let newFolderItem = NSMenuItem(title: String(localized: "New Folder..."), action: nil, keyEquivalent: "")
         newFolderItem.tag = Self.newFolderTag
         folderPopup.menu?.addItem(newFolderItem)
+
+        // Settings ▸ Library & History ▸ Default folder. Empty is the
+        // default and leaves the sentinel row selected — unfiled, which is
+        // what this sheet has always opened on. A name no folder carries is
+        // left alone too, rather than inventing the folder here: the folder
+        // list is built from the queries that exist.
+        let defaultFolder = AppStateManager.shared.settings.library.defaultFolder
+        if !defaultFolder.isEmpty, existingFolders.contains(defaultFolder) {
+            PopupValueMenu.selectValue(defaultFolder, in: folderPopup)
+        }
 
         // Grid
         let grid = NSGridView(views: [
@@ -176,6 +192,12 @@ class SaveQuerySheet: NSViewController {
             NotificationCenter.default.removeObserver(nameChangeObserver)
             self.nameChangeObserver = nil
         }
+        // Report the sheet's end LAST, and only once: the handler is nilled
+        // before it runs, so a second disappearance — the window closing
+        // behind the sheet, say — cannot answer a waiting caller twice.
+        let handler = onDismiss
+        onDismiss = nil
+        handler?()
     }
 
     // MARK: - Suggested name
@@ -191,7 +213,8 @@ class SaveQuerySheet: NSViewController {
     /// starting point that the user reads and edits inside a form they are
     /// about to press Save on, not a generated answer they are asked to trust.
     private func startNameSuggestion() {
-        guard suggestionTask == nil, ModelAvailability.shared.isAvailable else { return }
+        guard suggestionTask == nil,
+              ModelAvailability.shared.isAvailable(for: .suggestSavedQueryNames) else { return }
         guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         nameChangeObserver = NotificationCenter.default.addObserver(

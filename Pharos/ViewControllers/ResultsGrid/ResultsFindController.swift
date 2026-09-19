@@ -46,6 +46,25 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
     private let findNextButton: NSButton
     private let findCloseButton: NSButton
 
+    /// How a cell is matched (Settings ▸ Results ▸ Find). Pushed by
+    /// `ResultsGridVC` from the grid's one settings snapshot.
+    private(set) var findMode: FindMode = .contains
+    private(set) var findMatchCase = false
+
+    /// Set `mode` and `matchCase` and re-run the current search, so a change
+    /// in Settings is visible on the result already on screen.
+    func setMatching(mode: FindMode, matchCase: Bool) {
+        guard mode != findMode || matchCase != findMatchCase else { return }
+        findMode = mode
+        findMatchCase = matchCase
+        guard isFindVisible, !findField.stringValue.isEmpty else { return }
+        findFieldChanged(findField)
+    }
+
+    /// Whether the field currently holds a pattern that cannot be compiled.
+    /// Only a regular expression can be invalid.
+    private(set) var hasInvalidPattern = false
+
     // Find state
     private(set) var isFindVisible = false
     private var isFilterMode = false
@@ -127,6 +146,7 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
         currentMatchIndex = -1
         findCountLabel.stringValue = ""
         findClearButton.isHidden = true
+        applyPatternValidity(true)
 
         // Restore unfiltered display
         let displayRows = delegate?.findUnfilteredDisplayRows ?? []
@@ -161,12 +181,35 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
 
     @objc func findFieldChanged(_ sender: NSSearchField) {
         guard let delegate = delegate else { return }
-        let query = sender.stringValue.lowercased()
+        // The RAW field text. `CellMatcher` owns case folding now — lowering
+        // it here would have made "Match case" impossible and would break a
+        // regular expression's own character classes.
+        let query = sender.stringValue
         findClearButton.isHidden = query.isEmpty
+
+        let matcher = CellMatcher(pattern: query, mode: findMode, matchCase: findMatchCase)
+        applyPatternValidity(matcher.isValid)
 
         let rows = delegate.findRows
         let columns = delegate.findColumns
         var displayRows = delegate.findUnfilteredDisplayRows
+
+        // A half-typed regular expression is the normal state of the field
+        // while the user types one. It must not crash, and it must not match
+        // everything — the field goes red and the result is left alone.
+        guard matcher.isValid else {
+            findMatches = []
+            findMatchSet = Set()
+            currentMatchIndex = -1
+            findCountLabel.stringValue = String(localized: "Invalid pattern")
+            delegate.findControllerDidUpdateResults(
+                displayRows: displayRows,
+                matchSet: Set(),
+                currentMatchRow: -1,
+                currentMatchColId: nil
+            )
+            return
+        }
 
         guard !query.isEmpty else {
             findMatches = []
@@ -194,7 +237,7 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
                 let colId = "col_\(colIdx)"
                 guard colIdx < rowData.count else { continue }
                 let value = rowData[colIdx]
-                if !value.isNull, value.displayString.lowercased().contains(query) {
+                if !value.isNull, matcher.matches(value.displayString) {
                     findMatches.append((row: displayIdx, colId: colId))
                     findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     matchingRowIndices.insert(rowIdx)
@@ -214,7 +257,7 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
                     let colId = "col_\(colIdx)"
                     guard colIdx < rowData.count else { continue }
                     let value = rowData[colIdx]
-                    if !value.isNull, value.displayString.lowercased().contains(query) {
+                    if !value.isNull, matcher.matches(value.displayString) {
                         findMatches.append((row: displayIdx, colId: colId))
                         findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     }
@@ -238,6 +281,16 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
             currentMatchRow: matchRow,
             currentMatchColId: matchColId
         )
+    }
+
+    /// Red text in the field while the pattern cannot be compiled. The field
+    /// itself carries the state, not a separate badge — the pattern is what is
+    /// wrong, and that is where the user is looking.
+    private func applyPatternValidity(_ valid: Bool) {
+        guard valid != !hasInvalidPattern else { return }
+        hasInvalidPattern = !valid
+        findField.textColor = valid ? .labelColor : .systemRed
+        findField.setAccessibilityHelp(valid ? nil : String(localized: "The pattern is not a valid regular expression."))
     }
 
     // MARK: - Navigation

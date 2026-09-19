@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Row};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Cursor, Read, Write};
 use std::path::Path;
 
 use crate::commands::query::set_search_path;
 use crate::db::postgres;
+use crate::models::{
+    decode_csv_bytes, encode_csv_chunk, encoding_bom, CsvDialect, CsvEncoding, CsvQuoteStyle,
+    ExportFormat, ImportErrorPolicy,
+};
 use crate::state::AppState;
 
 /// Validate that a file path is safe (not attempting path traversal).
@@ -162,6 +166,9 @@ pub async fn clone_table(
     options: CloneTableOptions,
     state: &AppState,
 ) -> Result<CloneTableResult, String> {
+    // A read-only connection cannot be the TARGET of a clone. Refused here,
+    // before the DDL is built, rather than by the server after it.
+    state.require_writable(&connection_id)?;
     let pool = state.require_pool(&connection_id)?;
 
     // Validate identifiers to prevent SQL injection
@@ -358,6 +365,17 @@ pub struct ImportCsvOptions {
     pub table_name: String,
     pub file_path: String,
     pub has_headers: bool,
+    /// The CSV shape to read. Swift fills it from
+    /// `AppSettings.dataImport.dialect`.
+    #[serde(default)]
+    pub csv: CsvDialect,
+    /// What a failing row does to the rest of the file.
+    #[serde(default)]
+    pub on_error: ImportErrorPolicy,
+    /// Rows per transaction. 0 is one transaction for the whole file, which
+    /// is what the importer did before this existed.
+    #[serde(default)]
+    pub commit_every: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,7 +383,23 @@ pub struct ImportCsvOptions {
 pub struct ImportCsvResult {
     pub success: bool,
     pub rows_imported: u64,
+    /// Rows rolled back to their savepoint and passed over. Always 0 under
+    /// `ImportErrorPolicy::Abort`, which has no way to reach the next row.
+    #[serde(default)]
+    pub rows_skipped: u64,
+    /// The first `MAX_REPORTED_IMPORT_ERRORS` failures, one line each. A file
+    /// where everything fails must not return a message per row.
+    #[serde(default)]
+    pub errors: Vec<String>,
+    /// Transactions committed before the end of the file. 0 when
+    /// `commit_every` is 0, because then the only commit is the last one.
+    #[serde(default)]
+    pub committed_batches: u64,
 }
+
+/// How many row failures `ImportCsvResult::errors` carries. The count in
+/// `rows_skipped` is complete; the messages are a sample.
+const MAX_REPORTED_IMPORT_ERRORS: usize = 20;
 
 /// Import CSV data into a table using parameterized queries
 pub async fn import_csv(
@@ -373,6 +407,9 @@ pub async fn import_csv(
     options: ImportCsvOptions,
     state: &AppState,
 ) -> Result<ImportCsvResult, String> {
+    // Refused before the file is opened, so a read-only connection cannot
+    // spend the user's time parsing a CSV it can never insert.
+    state.require_writable(&connection_id)?;
     let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
@@ -423,51 +460,129 @@ pub async fn import_csv(
         placeholder_list
     );
 
-    // Open and read the CSV file
-    let file = File::open(&options.file_path)
-        .map_err(|e| format!("Failed to open file: {}", e))?;
+    // Open the CSV file, past its byte-order mark and in its encoding.
+    let source = open_csv_source(&options.file_path, &options.csv)?;
 
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(options.has_headers)
-        .from_reader(file);
+        .delimiter(options.csv.delimiter_byte())
+        .quote(options.csv.quote_byte())
+        .from_reader(source);
+
+    let skipping = options.on_error == ImportErrorPolicy::SkipRow;
+    let commit_every = options.commit_every;
 
     // Begin a transaction
     let mut tx = pool.begin().await.map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
     let mut rows_imported: u64 = 0;
+    let mut rows_skipped: u64 = 0;
+    let mut committed_batches: u64 = 0;
+    let mut rows_since_commit: u32 = 0;
+    let mut errors: Vec<String> = Vec::new();
+    let mut row_number: u64 = 0;
+
+    /// Keeps `errors` a sample rather than a transcript.
+    macro_rules! record_error {
+        ($errors:expr, $message:expr) => {
+            if $errors.len() < MAX_REPORTED_IMPORT_ERRORS {
+                $errors.push($message);
+            }
+        };
+    }
 
     for result in reader.records() {
-        let record = result.map_err(|e| format!("Failed to read CSV row: {}", e))?;
+        row_number += 1;
+
+        let record = match result {
+            Ok(record) => record,
+            Err(e) => {
+                let message = format!("Row {}: {}", row_number, e);
+                if !skipping {
+                    tx.rollback().await.ok();
+                    return Err(format!("Failed to read CSV row: {}", e));
+                }
+                rows_skipped += 1;
+                record_error!(errors, message);
+                continue;
+            }
+        };
 
         // Verify column count matches
         if record.len() != num_columns {
-            tx.rollback().await.ok();
-            return Err(format!(
-                "CSV row has {} columns but table has {} columns",
+            let message = format!(
+                "Row {}: CSV row has {} columns but table has {} columns",
+                row_number,
                 record.len(),
                 num_columns
-            ));
+            );
+            if !skipping {
+                tx.rollback().await.ok();
+                return Err(format!(
+                    "CSV row has {} columns but table has {} columns",
+                    record.len(),
+                    num_columns
+                ));
+            }
+            rows_skipped += 1;
+            record_error!(errors, message);
+            continue;
+        }
+
+        // Under skipRow every row runs inside its own savepoint, so a failure
+        // rolls back that row alone and leaves the transaction usable. Under
+        // abort there is nothing to roll back to, and no savepoint is taken.
+        if skipping {
+            sqlx::query("SAVEPOINT pharos_import_row")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to set savepoint: {}", e))?;
         }
 
         // Build query with bound parameters
         let mut query = sqlx::query(&insert_sql);
 
         for value in record.iter() {
-            if value.is_empty() {
+            if value == options.csv.null_literal {
                 query = query.bind(None::<String>);
             } else {
                 query = query.bind(value);
             }
         }
 
-        query.execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                format!("Failed to insert row {}: {}", rows_imported + 1, e)
-            })?;
+        match query.execute(&mut *tx).await {
+            Ok(_) => {
+                if skipping {
+                    sqlx::query("RELEASE SAVEPOINT pharos_import_row")
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| format!("Failed to release savepoint: {}", e))?;
+                }
+                rows_imported += 1;
+                rows_since_commit += 1;
+                progress.store(rows_imported, std::sync::atomic::Ordering::Relaxed);
+            }
+            Err(e) => {
+                if !skipping {
+                    return Err(format!("Failed to insert row {}: {}", rows_imported + 1, e));
+                }
+                sqlx::query("ROLLBACK TO SAVEPOINT pharos_import_row")
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| format!("Failed to roll back to savepoint: {}", e))?;
+                rows_skipped += 1;
+                record_error!(errors, format!("Row {}: {}", row_number, e));
+            }
+        }
 
-        rows_imported += 1;
-        progress.store(rows_imported, std::sync::atomic::Ordering::Relaxed);
+        // A batch ceiling means the rows before a later failure are already
+        // on the server, which is the whole point of asking for one.
+        if commit_every > 0 && rows_since_commit >= commit_every {
+            tx.commit().await.map_err(|e| format!("Failed to commit transaction: {}", e))?;
+            committed_batches += 1;
+            rows_since_commit = 0;
+            tx = pool.begin().await.map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        }
     }
 
     // Commit transaction
@@ -476,24 +591,56 @@ pub async fn import_csv(
     Ok(ImportCsvResult {
         success: true,
         rows_imported,
+        rows_skipped,
+        errors,
+        committed_batches,
     })
+}
+
+/// The CSV file as a reader of UTF-8 bytes, past any byte-order mark.
+///
+/// A mark WINS over the setting, so a file exported as UTF-16LE imports back
+/// without the user changing the setting a second time. UTF-8 (with or
+/// without a mark) streams straight off the file; UTF-16LE and Latin-1 are
+/// transcoded whole, because neither can be decoded a buffer at a time
+/// without carrying a partial code unit across the boundary.
+fn open_csv_source(path: &str, dialect: &CsvDialect) -> Result<Box<dyn Read + Send>, String> {
+    let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+
+    let mut head = [0u8; 3];
+    let mut filled = 0;
+    while filled < head.len() {
+        match file.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) => return Err(format!("Failed to read file: {}", e)),
+        }
+    }
+    let head = &head[..filled];
+
+    let utf16_mark = head.starts_with(&[0xFF, 0xFE]);
+    let needs_transcode = utf16_mark
+        || matches!(dialect.encoding, CsvEncoding::Utf16Le | CsvEncoding::Latin1);
+
+    if needs_transcode {
+        let mut all = head.to_vec();
+        file.read_to_end(&mut all).map_err(|e| format!("Failed to read file: {}", e))?;
+        let text = decode_csv_bytes(&all, dialect.encoding)?;
+        return Ok(Box::new(Cursor::new(text.into_bytes())));
+    }
+
+    if head == [0xEF, 0xBB, 0xBF] {
+        // The mark is consumed; the rest of the file is plain UTF-8.
+        return Ok(Box::new(file));
+    }
+
+    Ok(Box::new(Cursor::new(head.to_vec()).chain(file)))
 }
 
 // ============================================================================
 // Table Export (multi-format)
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ExportFormat {
-    Csv,
-    Tsv,
-    Json,
-    JsonLines,
-    SqlInsert,
-    Markdown,
-    Xlsx,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -505,6 +652,11 @@ pub struct ExportTableOptions {
     pub null_as_empty: bool,
     pub file_path: String,
     pub format: ExportFormat,
+    /// The CSV shape this export asks for. Swift fills it from
+    /// `AppSettings.dataExport.dialect`; `#[serde(default)]` keeps an older
+    /// client's JSON decoding, at today's behaviour.
+    #[serde(default)]
+    pub csv: CsvDialect,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -512,6 +664,10 @@ pub struct ExportTableOptions {
 pub struct ExportTableResult {
     pub success: bool,
     pub rows_exported: u64,
+    /// Characters the chosen encoding could not carry and wrote as `?`.
+    /// Always 0 for UTF-8 and UTF-16LE, which can carry anything.
+    #[serde(default)]
+    pub characters_substituted: u64,
 }
 
 /// Export table data in the specified format (streams via pagination)
@@ -566,6 +722,8 @@ pub async fn export_table(
         &sql_insert_target,
         options.null_as_empty,
         options.include_headers,
+        &options.csv,
+        state.settings().data_export.batch_size as i64,
         None,
     )
     .await
@@ -642,6 +800,7 @@ pub async fn export_results(
     Ok(ExportTableResult {
         success: true,
         rows_exported,
+        characters_substituted: 0,
     })
 }
 
@@ -656,6 +815,8 @@ pub struct ExportQueryOptions {
     pub schema: Option<String>,
     pub file_path: String,
     pub format: ExportFormat,
+    #[serde(default)]
+    pub csv: CsvDialect,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -681,7 +842,7 @@ pub async fn export_query(
 
     // Set search_path if schema is specified
     if let Some(ref schema_name) = options.schema {
-        set_search_path(&mut conn, schema_name).await?;
+        set_search_path(&mut conn, schema_name, &state.settings().connections.search_path_suffix).await?;
     }
 
     let trimmed_sql = options.sql.trim().trim_end_matches(';').to_string();
@@ -694,6 +855,8 @@ pub async fn export_query(
         "\"_query_results\"",
         true,  // null_as_empty
         true,  // include_headers
+        &options.csv,
+        state.settings().data_export.batch_size as i64,
         progress_callback,
     )
     .await
@@ -709,6 +872,9 @@ pub async fn export_query(
 /// `base_sql` is the bare SELECT (no trailing semicolon).
 /// `sql_insert_target` is the quoted table name used for SQL INSERT format output.
 /// `null_as_empty` and `include_headers` control formatting behavior.
+/// `dialect` shapes the CSV/TSV branch only; `batch_size` is the caller's, so
+/// there is no 5000 hidden in here for a setting to disagree with.
+#[allow(clippy::too_many_arguments)]
 async fn stream_export(
     conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
     base_sql: &str,
@@ -717,14 +883,19 @@ async fn stream_export(
     sql_insert_target: &str,
     null_as_empty: bool,
     include_headers: bool,
+    dialect: &CsvDialect,
+    batch_size: i64,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
 ) -> Result<ExportTableResult, String> {
     use futures::StreamExt;
 
-    let batch_size: i64 = 5000;
+    // 0 would wedge the LIMIT/OFFSET loop on an empty batch forever.
+    let batch_size: i64 = batch_size.max(1);
     let mut total_exported: u64 = 0;
     let mut offset: i64 = 0;
     let mut headers_written = false;
+    let mut bom_written = false;
+    let mut characters_substituted: u64 = 0;
 
     // Column metadata (populated from first batch)
     let mut col_names: Vec<String> = Vec::new();
@@ -780,30 +951,37 @@ async fn stream_export(
         // Write batch based on format
         match format {
             ExportFormat::Csv | ExportFormat::Tsv => {
+                // A .tsv file is tab-separated by definition, so the
+                // delimiter is not the dialect's to change there. Quoting,
+                // the NULL literal and the encoding still are.
                 let delimiter = match format {
                     ExportFormat::Tsv => b'\t',
-                    _ => b',',
+                    _ => dialect.delimiter_byte(),
                 };
+                if !bom_written {
+                    writer.write_all(encoding_bom(dialect.encoding))
+                        .map_err(|e| format!("Failed to write: {}", e))?;
+                    bom_written = true;
+                }
+                // Header and rows go through ONE pure function, so the bytes
+                // a test asserts on are the bytes the file gets.
+                let mut records: Vec<Vec<String>> = Vec::with_capacity(batch.len() + 1);
                 if !headers_written && include_headers {
-                    let header_line: Vec<String> = col_names.iter()
-                        .map(|n| escape_csv_field(n, delimiter))
-                        .collect();
-                    let sep = if delimiter == b'\t' { "\t" } else { "," };
-                    writeln!(writer, "{}", header_line.join(sep))
-                        .map_err(|e| format!("Failed to write headers: {}", e))?;
+                    records.push(col_names.clone());
                     headers_written = true;
                 }
-                let sep = if delimiter == b'\t' { "\t" } else { "," };
                 for row in &batch {
-                    let record: Vec<String> = row.columns().iter().enumerate()
+                    records.push(row.columns().iter().enumerate()
                         .map(|(i, col)| {
-                            let text = extract_text_value(row, i, &col.type_info().to_string(), null_as_empty);
-                            escape_csv_field(&text, delimiter)
+                            extract_text_value(row, i, &col.type_info().to_string(),
+                                               &dialect.null_literal)
                         })
-                        .collect();
-                    writeln!(writer, "{}", record.join(sep))
-                        .map_err(|e| format!("Failed to write row: {}", e))?;
+                        .collect());
                 }
+                let encoded = csv_chunk_bytes(&records, delimiter, dialect,
+                                              &mut characters_substituted)?;
+                writer.write_all(&encoded)
+                    .map_err(|e| format!("Failed to write row: {}", e))?;
             }
             ExportFormat::Json => {
                 for (i, row) in batch.iter().enumerate() {
@@ -837,7 +1015,7 @@ async fn stream_export(
                     let values: Vec<String> = row.columns().iter().enumerate()
                         .map(|(i, col)| {
                             let type_name = col.type_info().to_string();
-                            let text = extract_text_value(row, i, &type_name, false);
+                            let text = extract_text_value(row, i, &type_name, "NULL");
                             if text == "NULL" {
                                 "NULL".to_string()
                             } else {
@@ -862,7 +1040,7 @@ async fn stream_export(
                 for row in &batch {
                     let values: Vec<String> = row.columns().iter().enumerate()
                         .map(|(i, col)| {
-                            let text = extract_text_value(row, i, &col.type_info().to_string(), null_as_empty);
+                            let text = extract_text_value(row, i, &col.type_info().to_string(), null_text(null_as_empty));
                             text.replace('|', "\\|")
                         })
                         .collect();
@@ -935,17 +1113,48 @@ async fn stream_export(
     Ok(ExportTableResult {
         success: true,
         rows_exported: total_exported,
+        characters_substituted,
     })
 }
 
-/// Escape a field for CSV/TSV output
-fn escape_csv_field(value: &str, delimiter: u8) -> String {
-    let delim_char = delimiter as char;
-    if value.contains(delim_char) || value.contains('"') || value.contains('\n') || value.contains('\r') {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
+/// The bytes one batch of CSV records becomes: written by `csv::Writer` in
+/// the dialect's shape, then re-encoded for the dialect's encoding.
+///
+/// Pure, and per batch rather than per file, because a batch always ends on a
+/// record boundary — so a document may be split here for any encoding. The
+/// byte-order mark is the caller's, written once.
+fn csv_chunk_bytes(
+    records: &[Vec<String>],
+    delimiter: u8,
+    dialect: &CsvDialect,
+    substitutions: &mut u64,
+) -> Result<Vec<u8>, String> {
+    let mut csv_writer = csv::WriterBuilder::new()
+        .delimiter(delimiter)
+        .quote(dialect.quote_byte())
+        .quote_style(match dialect.quote_style {
+            CsvQuoteStyle::Minimal => csv::QuoteStyle::Necessary,
+            CsvQuoteStyle::Always => csv::QuoteStyle::Always,
+            CsvQuoteStyle::Never => csv::QuoteStyle::Never,
+        })
+        .terminator(csv::Terminator::Any(b'\n'))
+        .from_writer(Vec::new());
+    for record in records {
+        csv_writer.write_record(record)
+            .map_err(|e| format!("Failed to write row: {}", e))?;
     }
+    let bytes = csv_writer.into_inner()
+        .map_err(|e| format!("Failed to write row: {}", e))?;
+    let text = String::from_utf8(bytes)
+        .map_err(|e| format!("Failed to write row: {}", e))?;
+    Ok(encode_csv_chunk(&text, dialect.encoding, substitutions))
+}
+
+/// What a NULL is written as outside the CSV branch, where the dialect's own
+/// `null_literal` decides instead. Keeps the old two-way flag honest now that
+/// `extract_text_value` takes the text itself.
+fn null_text(null_as_empty: bool) -> &'static str {
+    if null_as_empty { "" } else { "NULL" }
 }
 
 // ============================================================================
@@ -986,11 +1195,11 @@ pub(crate) fn escape_identifier(name: &str) -> String {
 }
 
 /// Extract a value from a row as a text string (used by all text-based export formats)
-fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str, null_as_empty: bool) -> String {
+fn extract_text_value(row: &sqlx::postgres::PgRow, index: usize, type_name: &str, null_text: &str) -> String {
     let upper_type = type_name.to_uppercase();
 
     // Helper for NULL handling
-    let null_string = || if null_as_empty { String::new() } else { "NULL".to_string() };
+    let null_string = || null_text.to_string();
 
     // Try to extract based on type (simplified version of query.rs extract_value)
     match upper_type.as_str() {
@@ -1112,7 +1321,7 @@ fn row_to_json_object(
     let mut obj = serde_json::Map::new();
     for (i, col) in row.columns().iter().enumerate() {
         let type_name = col.type_info().to_string();
-        let text = extract_text_value(row, i, &type_name, null_as_empty);
+        let text = extract_text_value(row, i, &type_name, null_text(null_as_empty));
         let val = text_to_json_value(&text, &type_name);
         obj.insert(col.name().to_string(), val);
     }
@@ -1230,7 +1439,7 @@ fn write_xlsx_cell(
     }
 
     // Fallback: write as text
-    let text = extract_text_value(pg_row, index, type_name, null_as_empty);
+    let text = extract_text_value(pg_row, index, type_name, null_text(null_as_empty));
     if text == "NULL" && !null_as_empty {
         // Leave cell empty for NULL values in XLSX
         return Ok(());
@@ -1268,5 +1477,304 @@ fn write_xlsx_json_cell(
         Some(v) => {
             worksheet.write_string(row, col, &v.to_string()).map(|_| ()).map_err(|e| e.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod csv_bytes_tests {
+    use super::*;
+    use crate::models::{CsvDelimiter, CsvEncoding};
+
+    /// A representative table, already extracted to text: an ordinary row, a
+    /// quote, an embedded delimiter, an embedded newline, a carriage return,
+    /// a padded field, an empty field and non-ASCII text.
+    fn representative() -> Vec<Vec<String>> {
+        vec![
+            vec!["id".into(), "name, full".into(), "note".into(), "amount".into(), "flag".into()],
+            vec!["1".into(), "Ada".into(), "plain".into(), "3.50".into(), "t".into()],
+            vec!["2".into(), "O\"Hara".into(), "has, comma".into(), "".into(), "f".into()],
+            vec!["3".into(), "Bob".into(), "line1\nline2".into(), "NULL".into(), "t".into()],
+            vec!["4".into(), " padded ".into(), "tab\there".into(), "-1".into(), "".into()],
+            vec!["5".into(), "Ünïcodé".into(), "cr\rhere".into(), "0".into(), "t".into()],
+        ]
+    }
+
+    fn bytes(records: &[Vec<String>], dialect: &CsvDialect) -> Vec<u8> {
+        let mut subs = 0;
+        let mut out = encoding_bom(dialect.encoding).to_vec();
+        out.extend(csv_chunk_bytes(records, dialect.delimiter_byte(), dialect, &mut subs).unwrap());
+        out
+    }
+
+    /// THE test that protects every existing user.
+    ///
+    /// The expected value was captured from the hand-rolled writer this
+    /// branch replaced — `escape_csv_field` plus `writeln!`, run over
+    /// `representative()` — BEFORE a line of it was changed. 158 bytes. If
+    /// `csv::Writer` ever disagrees with what Pharos shipped, this fails.
+    #[test]
+    fn default_dialect_is_byte_identical_to_the_old_writer() {
+        const CAPTURED: &[u8] = b"id,\"name, full\",note,amount,flag\n\
+                                  1,Ada,plain,3.50,t\n\
+                                  2,\"O\"\"Hara\",\"has, comma\",,f\n\
+                                  3,Bob,\"line1\nline2\",NULL,t\n\
+                                  4, padded ,tab\there,-1,\n\
+                                  5,\xc3\x9cn\xc3\xafcod\xc3\xa9,\"cr\rhere\",0,t\n";
+        assert_eq!(CAPTURED.len(), 158, "the captured reference is 158 bytes");
+        assert_eq!(bytes(&representative(), &CsvDialect::default()), CAPTURED);
+    }
+
+    #[test]
+    fn utf8_bom_prefixes_the_file() {
+        let dialect = CsvDialect { encoding: CsvEncoding::Utf8Bom, ..CsvDialect::default() };
+        let out = bytes(&[vec!["a".into(), "b".into()]], &dialect);
+        assert_eq!(out, b"\xEF\xBB\xBFa,b\n");
+    }
+
+    #[test]
+    fn semicolon_delimiter_separates_and_quotes_on_itself() {
+        let dialect = CsvDialect { delimiter: CsvDelimiter::Semicolon, ..CsvDialect::default() };
+        let out = bytes(&[vec!["a;b".into(), "c,d".into()]], &dialect);
+        // The comma is now ordinary; the semicolon is what forces a quote.
+        assert_eq!(out, b"\"a;b\";c,d\n");
+    }
+
+    #[test]
+    fn always_quotes_every_field_including_the_header() {
+        let dialect = CsvDialect { quote_style: CsvQuoteStyle::Always, ..CsvDialect::default() };
+        let out = bytes(&[vec!["id".into(), "name".into()], vec!["1".into(), "".into()]], &dialect);
+        assert_eq!(out, b"\"id\",\"name\"\n\"1\",\"\"\n");
+    }
+
+    #[test]
+    fn custom_null_literal_is_written_for_a_null() {
+        let dialect = CsvDialect { null_literal: "\\N".to_string(), ..CsvDialect::default() };
+        // `extract_text_value` hands the literal straight through, so the
+        // record here is what a NULL column produces.
+        let out = bytes(&[vec!["1".into(), dialect.null_literal.clone()]], &dialect);
+        assert_eq!(out, b"1,\\N\n");
+    }
+
+    #[test]
+    fn a_value_holding_the_delimiter_a_quote_and_a_newline_survives() {
+        let out = bytes(&[vec!["a,b\"c\nd".into(), "plain".into()]], &CsvDialect::default());
+        assert_eq!(out, b"\"a,b\"\"c\nd\",plain\n");
+        // And reading it back gives the value that went in.
+        let mut reader = csv::ReaderBuilder::new().has_headers(false).from_reader(&out[..]);
+        let record = reader.records().next().unwrap().unwrap();
+        assert_eq!(&record[0], "a,b\"c\nd");
+        assert_eq!(&record[1], "plain");
+    }
+
+    #[test]
+    fn custom_quote_character_is_used_and_doubled() {
+        let dialect = CsvDialect { quote_char: "'".to_string(), ..CsvDialect::default() };
+        let out = bytes(&[vec!["it's, here".into()]], &dialect);
+        assert_eq!(out, b"'it''s, here'\n");
+    }
+
+    #[test]
+    fn utf16le_writes_a_mark_and_two_bytes_per_unit() {
+        let dialect = CsvDialect { encoding: CsvEncoding::Utf16Le, ..CsvDialect::default() };
+        let out = bytes(&[vec!["a".into(), "b".into()]], &dialect);
+        assert_eq!(out, vec![0xFF, 0xFE, 0x61, 0x00, 0x2C, 0x00, 0x62, 0x00, 0x0A, 0x00]);
+    }
+
+    #[test]
+    fn latin1_maps_bytes_and_counts_what_it_cannot_carry() {
+        let dialect = CsvDialect { encoding: CsvEncoding::Latin1, ..CsvDialect::default() };
+        let mut subs = 0;
+        let out = csv_chunk_bytes(&[vec!["café".into(), "€".into()]],
+                                  dialect.delimiter_byte(), &dialect, &mut subs).unwrap();
+        assert_eq!(out, vec![b'c', b'a', b'f', 0xE9, b',', b'?', b'\n']);
+        assert_eq!(subs, 1);
+    }
+
+    /// Export, then import: the rows that come back are the rows that went
+    /// in, for the default dialect and for an awkward one.
+    #[test]
+    fn export_import_round_trip_returns_the_same_rows() {
+        let rows = vec![
+            vec!["a,b".to_string(), "c\"d".to_string(), "e\nf".to_string()],
+            vec![" g ".to_string(), "".to_string(), "Ünïcodé".to_string()],
+        ];
+        for dialect in [
+            CsvDialect::default(),
+            CsvDialect { delimiter: CsvDelimiter::Semicolon, encoding: CsvEncoding::Utf8Bom,
+                         ..CsvDialect::default() },
+            CsvDialect { delimiter: CsvDelimiter::Pipe, quote_char: "'".to_string(),
+                         quote_style: CsvQuoteStyle::Always, encoding: CsvEncoding::Utf16Le,
+                         ..CsvDialect::default() },
+        ] {
+            let mut written = encoding_bom(dialect.encoding).to_vec();
+            let mut subs = 0;
+            written.extend(csv_chunk_bytes(&rows, dialect.delimiter_byte(), &dialect, &mut subs).unwrap());
+
+            let text = decode_csv_bytes(&written, dialect.encoding).unwrap();
+            let mut reader = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .delimiter(dialect.delimiter_byte())
+                .quote(dialect.quote_byte())
+                .from_reader(text.as_bytes());
+            let back: Vec<Vec<String>> = reader.records()
+                .map(|r| r.unwrap().iter().map(|f| f.to_string()).collect())
+                .collect();
+            assert_eq!(back, rows, "round trip failed for {:?}", dialect);
+        }
+    }
+}
+
+/// Live CSV-import tests. They need a real PostgreSQL, so they are
+/// `#[ignore]`d: `cargo test --lib live_import_tests -- --ignored --nocapture`.
+///
+/// The default URL is a local Postgres.app; `PHAROS_TEST_DATABASE_URL`
+/// overrides it. Each test makes and drops its OWN table, so nothing has to
+/// be loaded first.
+#[cfg(test)]
+mod live_import_tests {
+    use super::*;
+    use crate::models::ImportErrorPolicy;
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::Row;
+    use std::time::Duration;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+
+    /// A file under $HOME, which is one of the three prefixes
+    /// `validate_file_path` allows. `std::env::temp_dir()` is NOT: it
+    /// canonicalizes to `/private/var/folders/…`, and the allowed prefix is
+    /// `/var/folders/`.
+    fn write_csv(name: &str, body: &str) -> String {
+        let home = std::env::var("HOME").expect("HOME");
+        let path = std::path::Path::new(&home).join(name);
+        std::fs::write(&path, body).expect("write csv");
+        path.to_string_lossy().to_string()
+    }
+
+    fn remove_csv(name: &str) {
+        if let Ok(home) = std::env::var("HOME") {
+            std::fs::remove_file(std::path::Path::new(&home).join(name)).ok();
+        }
+    }
+
+    async fn live_pool(url: &str) -> sqlx::PgPool {
+        PgPoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(url)
+            .await
+            .unwrap_or_else(|e| panic!("cannot connect to {}: {}. Set PHAROS_TEST_DATABASE_URL.", url, e))
+    }
+
+    async fn reset_table(pool: &sqlx::PgPool, table: &str) {
+        let drop_sql = format!("DROP TABLE IF EXISTS public.{}", table);
+        sqlx::raw_sql(&drop_sql).execute(pool).await.expect("drop");
+        let create_sql = format!(
+            "CREATE TABLE public.{} (id integer PRIMARY KEY, label text NOT NULL)",
+            table
+        );
+        sqlx::raw_sql(&create_sql).execute(pool).await.expect("create");
+    }
+
+    async fn count(pool: &sqlx::PgPool, table: &str) -> i64 {
+        let sql = format!("SELECT count(*) AS n FROM public.{}", table);
+        sqlx::raw_sql(&sql).fetch_one(pool).await.expect("count").try_get("n").expect("n")
+    }
+
+    fn url() -> String {
+        std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
+    }
+
+    /// skipRow leaves n−1 rows: one duplicate key is rolled back to its
+    /// savepoint and the rows after it still land.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn skip_row_leaves_every_row_but_the_bad_one() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool(&url()).await;
+            reset_table(&pool, "pharos_import_skip").await;
+
+            // Row 3 repeats id 1, so the primary key refuses it.
+            let path = write_csv(
+                "pharos_import_skip.csv",
+                "id,label\n1,one\n2,two\n1,duplicate\n4,four\n5,five\n",
+            );
+
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool("live-import".to_string(), pool.clone());
+
+            let result = import_csv(
+                "live-import".to_string(),
+                ImportCsvOptions {
+                    schema_name: "public".to_string(),
+                    table_name: "pharos_import_skip".to_string(),
+                    file_path: path,
+                    has_headers: true,
+                    csv: CsvDialect::default(),
+                    on_error: ImportErrorPolicy::SkipRow,
+                    commit_every: 0,
+                },
+                &state,
+            )
+            .await
+            .expect("import should succeed under skipRow");
+
+            println!("skipRow result: {:?}", result);
+            assert_eq!(result.rows_imported, 4, "four good rows");
+            assert_eq!(result.rows_skipped, 1, "one duplicate skipped");
+            assert_eq!(result.errors.len(), 1, "one reported error");
+            assert_eq!(count(&pool, "pharos_import_skip").await, 4, "four rows on the server");
+
+            sqlx::raw_sql("DROP TABLE public.pharos_import_skip").execute(&pool).await.ok();
+            remove_csv("pharos_import_skip.csv");
+        });
+    }
+
+    /// `commit_every` persists the batches that finished, even though the
+    /// import as a whole fails part way down the file.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn commit_every_keeps_completed_batches_after_a_mid_file_failure() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool(&url()).await;
+            reset_table(&pool, "pharos_import_batch").await;
+
+            // Two clean batches of two, then a NULL into a NOT NULL column.
+            let path = write_csv(
+                "pharos_import_batch.csv",
+                "id,label\n1,one\n2,two\n3,three\n4,four\n5,\n6,six\n",
+            );
+
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool("live-import".to_string(), pool.clone());
+
+            let error = import_csv(
+                "live-import".to_string(),
+                ImportCsvOptions {
+                    schema_name: "public".to_string(),
+                    table_name: "pharos_import_batch".to_string(),
+                    file_path: path,
+                    has_headers: true,
+                    csv: CsvDialect::default(),
+                    on_error: ImportErrorPolicy::Abort,
+                    commit_every: 2,
+                },
+                &state,
+            )
+            .await
+            .expect_err("row 5 violates NOT NULL, so the import aborts");
+
+            println!("commit_every abort message: {}", error);
+            let landed = count(&pool, "pharos_import_batch").await;
+            println!("rows still on the server: {}", landed);
+            assert_eq!(landed, 4, "the two committed batches survive the abort");
+
+            sqlx::raw_sql("DROP TABLE public.pharos_import_batch").execute(&pool).await.ok();
+            remove_csv("pharos_import_batch.csv");
+        });
     }
 }

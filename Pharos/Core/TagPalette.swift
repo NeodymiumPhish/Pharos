@@ -56,6 +56,12 @@ enum TagPalette {
 
     /// The bar caps at three bands (spec, Rendering); the tooltip and the
     /// Inspector carry the full list.
+    ///
+    /// The DEFAULT, not the rule: Settings ▸ Tags can move it, and `bake`
+    /// takes the number as an argument. It stays a `static let` because
+    /// every test and every caller that does not care about the setting
+    /// still wants today's answer, and a default argument spelled here is
+    /// one place to change rather than a literal in each of them.
     static let maxSegments = 3
 
     /// Matched-cell tint alpha. Above the 0.15 row wash so a matched cell
@@ -131,7 +137,8 @@ enum TagPalette {
     /// A tag id missing from `tagColors` (a delete landing mid-repaint) is
     /// filtered out BEFORE the cap, so a colourless tag never steals a slot
     /// from a coloured one behind it.
-    static func segments(matches: [TagRowMatch], tagColors: [String: NSColor]) -> [Segment] {
+    static func segments(matches: [TagRowMatch], tagColors: [String: NSColor],
+                         maxSegments: Int = TagPalette.maxSegments) -> [Segment] {
         Array(
             matches
                 .compactMap { match in
@@ -139,7 +146,10 @@ enum TagPalette {
                         Segment(color: $0, isPartial: match.state == .dashed)
                     }
                 }
-                .prefix(maxSegments)
+                // `max(1, …)`: a cap of zero would silently remove the bar
+                // for every row, which is what the "show the bar" switch is
+                // for — not a number nobody can read as "off".
+                .prefix(max(1, maxSegments))
         )
     }
 
@@ -247,7 +257,14 @@ enum TagPalette {
     /// `tags` is dropped before any output is built, so a tag deleted while
     /// its result is on screen loses its band, its tooltip line and its cell
     /// tint in the same repaint.
-    static func bake(tags: [Tag], matchesByRow: [Int: [TagRowMatch]]) -> RenderState {
+    /// - Parameters:
+    ///   - maxSegments: bands the leading bar may draw (Settings ▸ Tags).
+    ///   - tintAlpha: how strongly a matched cell is washed (Settings ▸ Tags).
+    ///     Both default to today's constants, so a caller that does not care
+    ///     about the settings gets exactly the old behaviour.
+    static func bake(tags: [Tag], matchesByRow: [Int: [TagRowMatch]],
+                     maxSegments: Int = TagPalette.maxSegments,
+                     tintAlpha: CGFloat = TagPalette.cellTintAlpha) -> RenderState {
         // `uniquingKeysWith`, not `uniqueKeysWithValues`: a duplicate tag id
         // would TRAP the app, and these ids come from the database.
         let colors = Dictionary(
@@ -266,7 +283,7 @@ enum TagPalette {
             let surviving = rowMatches.filter { live.contains($0.tagId) }
             guard !surviving.isEmpty else { continue }
 
-            let bands = segments(matches: surviving, tagColors: colors)
+            let bands = segments(matches: surviving, tagColors: colors, maxSegments: maxSegments)
             if !bands.isEmpty {
                 segmentsByRow[dataRow] = bands.map { (color: $0.color, isPartial: $0.isPartial) }
             }
@@ -283,6 +300,11 @@ enum TagPalette {
             segmentsByRow: segmentsByRow,
             tooltipByRow: tooltipByRow,
             tintByRow: tintByRow,
-            tints: colors.mapValues { $0.withAlphaComponent(cellTintAlpha).cgColor })
+            // Clamped: a 0 tint is invisible and a 1 tint hides the text
+            // under it, and neither is a thing the slider should be able to
+            // ask for however a stored value got there.
+            tints: colors.mapValues {
+                $0.withAlphaComponent(min(max(tintAlpha, 0.05), 0.6)).cgColor
+            })
     }
 }

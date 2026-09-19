@@ -28,6 +28,9 @@ class SchemaBrowserVC: NSViewController {
     private var refreshedSchemas: Set<String> = []
     private let stateManager = AppStateManager.shared
     private var settingsCancellable: AnyCancellable?
+    /// Separate from `settingsCancellable`: this one throws the metadata
+    /// cache away, which the sort modes must never do.
+    private var systemSchemasCancellable: AnyCancellable?
 
     /// Imports currently in progress: `(connectionId, schema, table)`.
     private var activeImports: Set<ImportKey> = []
@@ -37,6 +40,26 @@ class SchemaBrowserVC: NSViewController {
         let connectionId: String
         let schema: String
         let table: String
+    }
+
+    /// The settings that change the SHAPE of the tree, and so need it built
+    /// again. Nothing else in `AppSettings` belongs here: the double-click
+    /// action, the limit presets and the auto-expand pair are all read where
+    /// they are used, so changing one must not throw the tree away.
+    private struct TreeShape: Equatable {
+        let showLeafPartitions: Bool
+        let showSystemSchemas: Bool
+        let schemaSort: SchemaSortMode
+        let objectSort: ObjectSortMode
+        let partitionSort: PartitionSortMode
+
+        init(_ settings: AppSettings) {
+            showLeafPartitions = settings.showLeafPartitions
+            showSystemSchemas = settings.navigator.showSystemSchemas
+            schemaSort = settings.navigator.schemaSort
+            objectSort = settings.navigator.objectSort
+            partitionSort = settings.navigator.partitionSort
+        }
     }
 
     /// Per-connection tree state cache for instant tab switching
@@ -127,19 +150,39 @@ class SchemaBrowserVC: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Refresh the tree when "Show Leaf Partitions" toggles so the
-        // Partitions group is added/removed immediately. `.map` +
-        // `.removeDuplicates()` ensures unrelated settings changes (theme,
-        // editor font, etc.) don't trigger a reload; `.dropFirst()` skips
-        // the initial value delivered on subscribe.
+        // Refresh the tree when a setting that changes its SHAPE changes:
+        // "Show Leaf Partitions" adds or removes the Partitions group, and
+        // the three Settings ▸ Navigator sort modes change the order rows
+        // are built in. `.map` + `.removeDuplicates()` keeps unrelated
+        // settings changes (theme, editor font, the Navigator's own
+        // double-click action — read at click time) from reloading;
+        // `.dropFirst()` skips the initial value delivered on subscribe.
         settingsCancellable = AppStateManager.shared.$settings
-            .map(\.showLeafPartitions)
+            .map(TreeShape.init)
             .removeDuplicates()
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self, let cid = self.connectionId else { return }
                 self.loadSchemas(connectionId: cid, force: true)
+            }
+
+        // "Show system schemas" changes what the SERVER returns, not only how
+        // the tree is drawn, so the tree's own `force: true` above is not
+        // enough: `MetadataCache` holds a second copy of the schema list —
+        // the one the schema pull-down and the completion list read — and it
+        // would keep answering with the old answer until the connection
+        // closed. Throw it away and fetch again, exactly as the Advanced
+        // pane's "Clear Metadata Cache" button does.
+        systemSchemasCancellable = AppStateManager.shared.$settings
+            .map(\.navigator.showSystemSchemas)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MetadataCache.shared.clearAll()
+                guard let self, let cid = self.connectionId else { return }
+                MetadataCache.shared.load(connectionId: cid, force: true)
             }
     }
 
@@ -180,7 +223,19 @@ class SchemaBrowserVC: NSViewController {
 
         Task {
             do {
-                let schemas = try await PharosCore.getSchemas(connectionId: connectionId)
+                let fetched = try await PharosCore.getSchemas(connectionId: connectionId)
+                // Settings ▸ Navigator ▸ Order schemas by. The server already
+                // returns them by name (`ORDER BY schema_name`), so the
+                // default mode re-states that order rather than changing it.
+                let schemas = await MainActor.run { () -> [SchemaInfo] in
+                    let byName = Dictionary(fetched.map { ($0.name, $0) },
+                                            uniquingKeysWith: { first, _ in first })
+                    let order = NavigatorOrdering.sortedSchemas(
+                        fetched.map(\.name),
+                        by: self.stateManager.settings.navigator.schemaSort,
+                        defaultSchema: self.defaultSchemaName(for: connectionId))
+                    return order.compactMap { byName[$0] }
+                }
 
                 var schemaNodes: [SchemaTreeNode] = []
                 for info in schemas {
@@ -255,14 +310,39 @@ class SchemaBrowserVC: NSViewController {
                 schemaNode.removeAllChildren()
                 schemaNode.isLoaded = true
 
-                let tableItems = tables
-                    .filter { $0.tableType == .table || $0.tableType == .foreignTable || $0.tableType == .partitionedTable }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                let viewItems = tables
-                    .filter { $0.tableType == .view }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                // Settings ▸ Navigator ▸ Order objects by. `NavigatorOrdering`
+                // holds the rules and is tested on its own; the default mode,
+                // `kindThenName`, is the tables-then-views-each-by-name order
+                // the two separate sorted filters used to produce here.
+                let objects = tables.filter {
+                    $0.tableType == .table || $0.tableType == .foreignTable
+                        || $0.tableType == .partitionedTable || $0.tableType == .view
+                }
+                // A name is unique across tables and views in one Postgres
+                // schema — they share a namespace — so the name is a safe key.
+                let byName = Dictionary(objects.map { ($0.name, $0) },
+                                        uniquingKeysWith: { first, _ in first })
+                let ordered = NavigatorOrdering.sorted(
+                    objects.map {
+                        NavigatorOrdering.Object(
+                            name: $0.name,
+                            kindRank: $0.tableType == .view ? 1 : 0,
+                            sizeBytes: $0.totalSizeBytes,
+                            rowEstimate: $0.rowCountEstimate)
+                    },
+                    by: self.stateManager.settings.navigator.objectSort
+                ).compactMap { byName[$0.name] }
 
-                for t in tableItems {
+                for t in ordered {
+                    if t.tableType == .view {
+                        let viewNode = SchemaTreeNode(.view(t), parent: schemaNode)
+                        viewNode.addChild(SchemaTreeNode(.loading, parent: viewNode))
+                        if t.rowCountEstimate != nil {
+                            viewNode.hasRowCount = true
+                        }
+                        schemaNode.addChild(viewNode)
+                        continue
+                    }
                     let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
                     if showLeaf {
                         tableNode.knownPartitionNames = namesByParent[t.name] ?? []
@@ -279,14 +359,6 @@ class SchemaBrowserVC: NSViewController {
                         tableNode.hasRowCount = true
                     }
                     schemaNode.addChild(tableNode)
-                }
-                for v in viewItems {
-                    let viewNode = SchemaTreeNode(.view(v), parent: schemaNode)
-                    viewNode.addChild(SchemaTreeNode(.loading, parent: viewNode))
-                    if v.rowCountEstimate != nil {
-                        viewNode.hasRowCount = true
-                    }
-                    schemaNode.addChild(viewNode)
                 }
 
                 // Only refresh display if this connection is still active.
@@ -549,22 +621,34 @@ class SchemaBrowserVC: NSViewController {
             for node in toExpand {
                 outlineView.expandItem(node)
             }
-        } else if let pub = rootNodes.first(where: { $0.schemaName == "public" }),
-                  !outlineView.isItemExpanded(pub),
-                  pub.children.count <= Self.autoExpandTableThreshold {
-            // Auto-expand `public` as a convenience for typical sized
+        } else if let target = rootNodes.first(where: { $0.schemaName == autoExpandSchemaName }),
+                  !outlineView.isItemExpanded(target),
+                  NavigatorOrdering.shouldAutoExpand(
+                      childCount: target.children.count,
+                      enabled: stateManager.settings.navigator.autoExpandDefaultSchema,
+                      threshold: stateManager.settings.navigator.autoExpandThreshold) {
+            // Open the default schema as a convenience for typical sized
             // schemas — but skip it for huge ones where expandItem itself
             // would block the main thread for seconds. The user can still
             // expand explicitly by clicking the disclosure triangle.
-            outlineView.expandItem(pub)
+            // Settings ▸ Navigator holds both the switch and the ceiling; the
+            // ceiling's default, 500, is the constant that used to live here.
+            outlineView.expandItem(target)
         }
     }
 
-    /// Maximum direct children a schema may have for `rebuildDisplayTree` to
-    /// auto-expand it. Above this threshold, expanding a single NSOutlineView
-    /// item becomes a multi-second main-thread operation; users opt in by
-    /// clicking the disclosure triangle explicitly.
-    private static let autoExpandTableThreshold = 500
+    /// The schema `rebuildDisplayTree` opens for the user: the connection's
+    /// own default schema, or `public`. The same fallback the rest of the app
+    /// uses for a connection that names none (`AppStateManager`).
+    private var autoExpandSchemaName: String {
+        defaultSchemaName(for: connectionId) ?? "public"
+    }
+
+    /// The `defaultSchema` recorded on a connection, or nil.
+    private func defaultSchemaName(for connectionId: String?) -> String? {
+        guard let connectionId else { return nil }
+        return stateManager.connections.first { $0.id == connectionId }?.defaultSchema
+    }
 
     /// Recursively filter tree. Returns a filtered copy of the node if it or
     /// any descendant matches. Appends schemas/tables/views that have visible
@@ -763,7 +847,10 @@ class SchemaBrowserVC: NSViewController {
                     connectionId: connectionId, schema: parent.schemaName, parent: parent.name)
                 await MainActor.run {
                     let showLeaf = self.stateManager.settings.showLeafPartitions
-                    let sorted = PartitionOrdering.sorted(partitions, by: .name)
+                    // Settings ▸ Navigator ▸ Order partitions by. `.name` was
+                    // hard-coded here, and is the default.
+                    let sorted = PartitionOrdering.sorted(
+                        partitions, by: self.stateManager.settings.navigator.partitionSort)
                     group.removeAllChildren()
                     for p in sorted {
                         let node = SchemaTreeNode(.partition(p), parent: group)
@@ -799,6 +886,29 @@ class SchemaBrowserVC: NSViewController {
 extension SchemaBrowserVC: SchemaDataSourceDelegate {
     func schemaDataSourceItemWillExpand(_ node: SchemaTreeNode) {
         lazyLoadColumnsIfNeeded(for: node)
+    }
+
+    /// Settings ▸ Navigator ▸ On double-click. Every action but `expand` is
+    /// run by `SchemaContextMenu`, so a double-click and the matching menu
+    /// item cannot drift apart. A `false` here — the action is `expand`, or
+    /// the row is a schema or a column the action means nothing for — leaves
+    /// the disclosure behaviour to the outline view.
+    func schemaDataSourceDidDoubleClick(_ node: SchemaTreeNode) -> Bool {
+        let navigator = stateManager.settings.navigator
+        switch navigator.doubleClickAction {
+        case .expand:
+            return false
+        case .viewContents:
+            // The row limit is Settings ▸ Query's, so one number governs the
+            // limit wherever the app applies one.
+            let limit = navigator.viewContentsUsesRowLimit
+                ? Int(stateManager.settings.query.defaultLimit) : nil
+            return contextMenuHandler.viewContents(node: node, limit: limit)
+        case .describe:
+            return contextMenuHandler.describe(node: node)
+        case .insertName:
+            return contextMenuHandler.insertName(node: node)
+        }
     }
 
     /// Forward every schema browser selection to the Inspector, rendering

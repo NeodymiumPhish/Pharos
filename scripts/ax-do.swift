@@ -5,6 +5,8 @@
 //   /tmp/ax-do <pid> set   <role> <match> <value>   [<window-title-substring>]
 //   /tmp/ax-do <pid> press <role> <match>           [<window-title-substring>]
 //   /tmp/ax-do <pid> focus <role> <match>           [<window-title-substring>]
+//   /tmp/ax-do <pid> select-row <table-id> <index>  [<window-title-substring>]
+//   /tmp/ax-do <pid> menu  <item-title>
 //
 // <role> is an AX role such as AXTextField, AXSecureTextField, AXButton,
 // AXPopUpButton, AXCheckBox. <match> is a case-insensitive substring tested
@@ -54,7 +56,8 @@ let app = AXUIElementCreateApplication(pid)
 let windowFilter: String? = {
     switch command {
     case "list": return args.count > 2 ? args[2] : nil
-    case "set": return args.count > 5 ? args[5] : nil
+    case "set", "select-row": return args.count > 5 ? args[5] : nil
+    case "menu": return nil
     default: return args.count > 4 ? args[4] : nil
     }
 }()
@@ -95,6 +98,41 @@ case "press":
     let err = AXUIElementPerformAction(el, kAXPressAction as CFString)
     if err != .success { FileHandle.standardError.write("press failed: \(err.rawValue)\n".data(using: .utf8)!); exit(6) }
     print("press ok")
+case "select-row":
+    // Select one row of a table by its accessibility identifier and index —
+    // the sidebar of the Settings window, where a press has no meaning and a
+    // click would need a screen coordinate.
+    guard args.count >= 4, let index = Int(args[3]) else { exit(2) }
+    guard let table = findElement(role: "AXTable", match: args[2])
+        ?? findElement(role: "AXOutline", match: args[2]) else {
+        FileHandle.standardError.write("no table matches \(args[2])\n".data(using: .utf8)!); exit(5)
+    }
+    let rows = (attr(table, kAXRowsAttribute) as? [AXUIElement]) ?? children(table).filter { str($0, kAXRoleAttribute) == "AXRow" }
+    guard index >= 0, index < rows.count else {
+        FileHandle.standardError.write("row \(index) of \(rows.count)\n".data(using: .utf8)!); exit(5)
+    }
+    let err = AXUIElementSetAttributeValue(table, kAXSelectedRowsAttribute as CFString, [rows[index]] as CFArray)
+    if err != .success { FileHandle.standardError.write("select failed: \(err.rawValue)\n".data(using: .utf8)!); exit(6) }
+    print("select ok: row \(index) of \(rows.count)")
+case "menu":
+    // Menu items hang off the app element, not off a window, so this verb
+    // walks the menu bar rather than the window roots.
+    guard args.count >= 3 else { exit(2) }
+    var items: [AXUIElement] = []
+    if let barValue = attr(app, kAXMenuBarAttribute) {
+        let bar = barValue as! AXUIElement
+        collect(bar, role: "AXMenuItem", into: &items)
+    }
+    // An EXACT title wins over a substring: the app has both "Settings…" and
+    // "System Settings…", and a substring match finds whichever comes first.
+    let wanted = args[2].lowercased()
+    let exact = items.first { str($0, kAXTitleAttribute).lowercased() == wanted }
+    guard let item = exact ?? items.first(where: { matchable($0).contains { $0.lowercased().contains(wanted) } }) else {
+        FileHandle.standardError.write("no menu item matches \(args[2])\n".data(using: .utf8)!); exit(5)
+    }
+    let err = AXUIElementPerformAction(item, kAXPressAction as CFString)
+    if err != .success { FileHandle.standardError.write("menu press failed: \(err.rawValue)\n".data(using: .utf8)!); exit(6) }
+    print("menu ok: \(str(item, kAXTitleAttribute))")
 case "focus":
     guard args.count >= 4 else { exit(2) }
     guard let el = findElement(role: args[2], match: args[3]) else { FileHandle.standardError.write("no match\n".data(using: .utf8)!); exit(5) }

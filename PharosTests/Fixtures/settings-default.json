@@ -1,0 +1,196 @@
+{
+  "alwaysShowScrollBars": false,
+  "boolDisplay": "trueFalse",
+  "charts": {
+    "palette": [
+      "#E12D48",
+      "#3E7CC4",
+      "#C9820E",
+      "#2A9C81",
+      "#9B57C9",
+      "#E05525"
+    ]
+  },
+  "checkForUpdates": true,
+  "connections": {
+    "applicationName": "",
+    "connectTimeoutSeconds": 10,
+    "defaultPort": 5432,
+    "defaultTimeZone": "",
+    "idleInTransactionSeconds": 30,
+    "idleTimeoutSeconds": 600,
+    "keepaliveCount": 0,
+    "keepaliveIdleSeconds": 0,
+    "keepaliveIntervalSeconds": 0,
+    "maxConnections": 5,
+    "maxLifetimeSeconds": 1800,
+    "searchPathSuffix": "public"
+  },
+  "dataExport": {
+    "batchSize": 5000,
+    "defaultFolder": "",
+    "defaultFormat": "csv",
+    "dialect": {
+      "customDelimiter": ",",
+      "delimiter": "comma",
+      "encoding": "utf8",
+      "nullLiteral": "",
+      "quoteChar": "\"",
+      "quoteStyle": "minimal"
+    },
+    "includeHeaderRow": true,
+    "rememberLastChoices": false
+  },
+  "dataImport": {
+    "commitEvery": 0,
+    "dialect": {
+      "customDelimiter": ",",
+      "delimiter": "comma",
+      "encoding": "utf8",
+      "nullLiteral": "",
+      "quoteChar": "\"",
+      "quoteStyle": "minimal"
+    },
+    "onError": "abort"
+  },
+  "diagnostics": {
+    "logLevel": "warning",
+    "metadataCacheTtlMinutes": 0
+  },
+  "editor": {
+    "autoIndent": true,
+    "autoPairBrackets": true,
+    "autoPairQuotes": true,
+    "codeFolding": true,
+    "completionKeywordCase": "upper",
+    "completionMaximumItems": 200,
+    "completionMinimumCharacters": 1,
+    "completionTrigger": "afterDot",
+    "fontFamily": "JetBrains Mono, Monaco, Menlo, monospace",
+    "fontSize": 13,
+    "formatIndentWidth": 2,
+    "formatLinesBetweenStatements": 2,
+    "formatUppercaseKeywords": true,
+    "highlightCurrentLine": true,
+    "insertSpacesForTab": true,
+    "lineNumbers": true,
+    "minimumLinesToFold": 3,
+    "offerSqlListChip": true,
+    "showRunButtonsInGutter": true,
+    "sqlListQuoteStyle": "single",
+    "syntaxTheme": "system",
+    "tabSize": 2,
+    "wordWrap": false
+  },
+  "history": {
+    "maximumEntries": 200,
+    "maximumStoredEntries": 0,
+    "recordFailedQueries": true,
+    "retentionDays": 90
+  },
+  "intelligence": {
+    "allowDraftingWriteStatements": true,
+    "describeQuery": true,
+    "explainErrors": true,
+    "nameTabsAutomatically": true,
+    "suggestCharts": true,
+    "suggestSavedQueryNames": true,
+    "summarisePlans": true
+  },
+  "library": {
+    "defaultFolder": "",
+    "doubleClickAction": "open",
+    "sortMode": "folder"
+  },
+  "navigator": {
+    "autoExpandDefaultSchema": true,
+    "autoExpandThreshold": 500,
+    "doubleClickAction": "expand",
+    "limitPresets": [
+      10,
+      100,
+      1000,
+      10000
+    ],
+    "objectSort": "kindThenName",
+    "partitionSort": "name",
+    "schemaSort": "name",
+    "showSystemSchemas": false,
+    "viewContentsUsesRowLimit": true
+  },
+  "notifications": {
+    "badgeDockIcon": true,
+    "playSound": true,
+    "toastDuration": "normal"
+  },
+  "nullDisplay": "NULL",
+  "query": {
+    "confirmDestructive": true,
+    "defaultLimit": 1000,
+    "destructiveConfirmations": {
+      "alter": true,
+      "delete": true,
+      "dropObject": true,
+      "grant": true,
+      "insert": true,
+      "truncate": true,
+      "update": true
+    },
+    "errorSheetTrigger": "secondFailure",
+    "failureAlertStyle": "sheet",
+    "notifyMinDurationSeconds": 5,
+    "notifyWhenAppInactive": true,
+    "notifyWhenBackgroundTab": true,
+    "restoreOpenTabs": true,
+    "runScope": "statementAtCursor",
+    "showCancelledQueryDialog": true,
+    "timeoutSeconds": 300
+  },
+  "results": {
+    "allowInlineEditing": true,
+    "alternatingRowColors": true,
+    "columnWidthMode": "fitContent",
+    "copyIncludeHeaders": true,
+    "copyRichText": true,
+    "dateStyle": "asReturned",
+    "defaultCopyFormat": "tsv",
+    "density": "normal",
+    "escapeControlCharacters": true,
+    "findMatchCase": false,
+    "findMode": "contains",
+    "fixedColumnWidth": 200,
+    "fontSize": 12,
+    "gridLines": "both",
+    "maximumCellCharacters": 0,
+    "maximumColumnWidth": 1000,
+    "maximumResultTabs": 0,
+    "monospacedFont": true,
+    "nullStyle": "italic",
+    "numberStyle": "asReturned",
+    "showColumnTypeIcons": false,
+    "showResultTabsPanelByDefault": true,
+    "showRowNumbers": true
+  },
+  "security": {
+    "collectPerformanceMetrics": true,
+    "indexSavedQueriesInSpotlight": true
+  },
+  "session": {
+    "autosaveIntervalSeconds": 30,
+    "defaultEditorSplitRatio": 0.6,
+    "restoreWindowFrames": true,
+    "warnBeforeClosingUnsavedTabs": true
+  },
+  "showLeafPartitions": false,
+  "tags": {
+    "cellTintOpacity": 0.2,
+    "maximumColourSegments": 3
+  },
+  "theme": "auto",
+  "updates": {
+    "channel": "stable",
+    "checkFrequency": "daily"
+  },
+  "useAppleIntelligence": true,
+  "verticalResultTabs": true
+}

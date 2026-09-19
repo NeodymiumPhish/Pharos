@@ -10,33 +10,77 @@ use crate::state::AppState;
 
 /// Validate and set the search_path on a connection for a given schema.
 /// Validates: non-empty, 1-63 chars, no null bytes. Escapes `"` as `""`.
+/// The `SET search_path` statement for one schema, with the user's suffix
+/// after it (Settings ▸ Connections ▸ `searchPathSuffix`).
+///
+/// Pure, so the quoting can be pinned without a server. It returns a Result
+/// rather than the bare String the plan sketched, because the validation it
+/// replaces is the only thing standing between a schema name and the
+/// statement: dropping it to keep the signature tidy would weaken today's
+/// behaviour.
+///
+/// Every element is double-quoted with `"` doubled, which is stricter than the
+/// bare `, public` this replaces and identical in meaning for an ordinary
+/// lower-case name. Quoting also makes `$user` work the way PostgreSQL itself
+/// writes it (`"$user", public`).
+///
+/// An empty suffix means the schema alone. Commas separate several; blank
+/// elements are dropped, so `"public,"` and `"public"` are the same suffix.
+pub(crate) fn search_path_sql(schema_name: &str, suffix: &str) -> Result<String, String> {
+    let mut parts = vec![quoted_search_path_element(schema_name)?];
+    for element in suffix.split(',') {
+        let element = element.trim();
+        if element.is_empty() {
+            continue;
+        }
+        parts.push(quoted_search_path_element(element)?);
+    }
+    Ok(format!("SET search_path TO {}", parts.join(", ")))
+}
+
+/// One `search_path` element, validated then quoted. The two rules are the
+/// ones `set_search_path` has always applied to the schema name: 1–63
+/// characters (PostgreSQL's `NAMEDATALEN - 1`) and no NUL.
+fn quoted_search_path_element(name: &str) -> Result<String, String> {
+    if name.is_empty() || name.len() > 63 {
+        return Err("Invalid schema name: must be 1-63 characters".to_string());
+    }
+    if name.contains('\0') {
+        return Err("Invalid schema name: must not contain null bytes".to_string());
+    }
+    Ok(format!("\"{}\"", name.replace('"', "\"\"")))
+}
+
+/// The user's `search_path` suffix, from the settings cache.
+fn search_path_suffix(state: &AppState) -> String {
+    state.settings().connections.search_path_suffix.clone()
+}
+
 pub(crate) async fn set_search_path(
     conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
     schema_name: &str,
+    suffix: &str,
 ) -> Result<(), String> {
-    if schema_name.is_empty() || schema_name.len() > 63 {
-        return Err("Invalid schema name: must be 1-63 characters".to_string());
-    }
-    if schema_name.contains('\0') {
-        return Err("Invalid schema name: must not contain null bytes".to_string());
-    }
-    let escaped = schema_name.replace('"', "\"\"");
-    let set_sql = format!("SET search_path TO \"{}\", public", escaped);
+    let set_sql = search_path_sql(schema_name, suffix)?;
     (&mut **conn).execute(sqlx::raw_sql(&set_sql))
         .await
         .map_err(|e| format!("Failed to set schema: {}", e))?;
     Ok(())
 }
 
-/// Read the user's query timeout (seconds) from settings, falling back to the default.
+/// How much history to keep, from the settings cache (Settings ▸ Library &
+/// History). Both limits compose: whichever removes a row first wins.
+pub(crate) fn history_prune_policy(state: &AppState) -> sqlite::HistoryPrunePolicy {
+    let history = &state.settings().history;
+    sqlite::HistoryPrunePolicy {
+        retention_days: history.retention_days,
+        max_entries: history.maximum_stored_entries,
+    }
+}
+
+/// The user's statement timeout, in seconds, from the settings cache.
 fn query_timeout_seconds(state: &AppState) -> u32 {
-    state
-        .metadata_db
-        .lock()
-        .ok()
-        .and_then(|db| sqlite::load_settings(&db).ok())
-        .map(|s| s.query.timeout_seconds)
-        .unwrap_or_else(|| crate::models::QuerySettings::default().timeout_seconds)
+    state.settings().query.timeout_seconds
 }
 
 /// Apply the user's statement timeout on this connection. PostgreSQL-specific —
@@ -64,14 +108,39 @@ async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Pos
 /// Format a database error, preserving PostgreSQL's character position if available.
 /// sqlx's `.to_string()` drops the position field; this re-extracts it from PgDatabaseError.
 pub(crate) fn format_db_error(e: &sqlx::Error) -> String {
+    let code = e.as_database_error().and_then(|db| db.code());
     if let sqlx::Error::Database(db_err) = e {
         if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
             if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {
-                return format!("{} at character {}", e, pos);
+                return tagged_db_message(code.as_deref(), &format!("{} at character {}", e, pos));
             }
         }
     }
-    e.to_string()
+    tagged_db_message(code.as_deref(), &e.to_string())
+}
+
+/// The SQLSTATE a session opened with `default_transaction_read_only=on`
+/// answers every write with: `read_only_sql_transaction`.
+pub(crate) const READ_ONLY_SQLSTATE: &str = "25006";
+
+/// The marker a read-only refusal carries across the FFI.
+///
+/// The server's own wording — "cannot execute INSERT in a read-only
+/// transaction" — never mentions Pharos's per-connection Read-only switch,
+/// and it is localized by the server, so the front end cannot match on it.
+/// The SQLSTATE can be matched, but sqlx's `Display` leaves it out, so it is
+/// put in front of the message here and read back by
+/// `ReadOnlyConnectionError` on the Swift side.
+pub(crate) const READ_ONLY_MARKER: &str = "[SQLSTATE 25006]";
+
+/// Tag a database error with its SQLSTATE when the front end needs to act on
+/// it. Only 25006 is tagged today: every other message is passed through
+/// byte-for-byte, so no existing error text changes.
+pub(crate) fn tagged_db_message(code: Option<&str>, message: &str) -> String {
+    match code {
+        Some(READ_ONLY_SQLSTATE) => format!("{} {}", READ_ONLY_MARKER, message),
+        _ => message.to_string(),
+    }
 }
 
 // ColumnDef, KeySet and RowIdentity live in `row_identity`, beside the pure
@@ -247,7 +316,7 @@ pub async fn execute_query(
     // Set search_path if schema is specified. Non-PG servers like ClickHouse
     // don't support this — silently skip on failure rather than blocking the query.
     if let Some(ref schema_name) = schema {
-        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
             // Connection may be dead — re-acquire
             drop(conn);
             conn = pool.acquire().await.map_err(|e| e.to_string())?;
@@ -367,6 +436,8 @@ pub async fn execute_query(
             column_count: Some(columns.len() as i64),
             table_names,
             source: source.clone(),
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         };
 
         // Serialize results for caching (skip if too large)
@@ -387,12 +458,13 @@ pub async fn execute_query(
         };
 
         if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history(
+            if let Err(e) = sqlite::save_query_history_with_policy(
                 &db,
                 &entry,
                 result_data.as_ref().map(|(c, _, _)| c.as_str()),
                 result_data.as_ref().map(|(_, r, _)| r.as_str()),
                 result_data.as_ref().and_then(|(_, _, i)| i.as_deref()),
+                history_prune_policy(state),
             ) {
                 log::warn!("Failed to save query history: {}", e);
             }
@@ -451,7 +523,7 @@ pub async fn fetch_more_rows(
 
     // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
             drop(conn);
             conn = pool.acquire().await.map_err(|e| e.to_string())?;
         }
@@ -598,7 +670,7 @@ pub async fn fetch_all_rows_snapshot(
     // The per-statement timeout applies to the DECLARE and to each FETCH.
     let _ = apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await;
     if let Some(ref schema_name) = schema {
-        let _ = set_search_path(&mut conn, schema_name).await;
+        let _ = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await;
     }
 
     // One name per query id: two snapshots on the pool never share a
@@ -756,7 +828,7 @@ pub async fn execute_statement(
 
     // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
             drop(conn);
             conn = pool.acquire().await.map_err(|e| e.to_string())?;
         }
@@ -791,9 +863,13 @@ pub async fn execute_statement(
             column_count: None,
             table_names,
             source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         };
         if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history(&db, &entry, None, None, None) {
+            if let Err(e) = sqlite::save_query_history_with_policy(
+                &db, &entry, None, None, None, history_prune_policy(state),
+            ) {
                 log::warn!("Failed to save query history: {}", e);
             }
         }
@@ -896,7 +972,7 @@ pub async fn validate_sql(
 
     // Set search_path if schema is specified (non-fatal for non-PG servers)
     if let Some(ref schema_name) = schema {
-        if let Err(_) = set_search_path(&mut conn, schema_name).await {
+        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
             drop(conn);
             conn = pool.acquire().await.map_err(|e| e.to_string())?;
         }
@@ -2063,5 +2139,128 @@ mod live_explain_tests {
                 "Explain one statement at a time"
             );
         });
+    }
+}
+
+/// `search_path_sql`: the quoting, the suffix, and the validation it must not
+/// weaken (plan §2.8).
+#[cfg(test)]
+mod search_path_sql_tests {
+    use super::search_path_sql;
+
+    /// The default suffix reproduces what `set_search_path` has always sent,
+    /// with the elements quoted. `"public"` and a bare `public` select the
+    /// same schema, so this is the same statement in a stricter spelling.
+    #[test]
+    fn the_default_suffix_is_todays_statement() {
+        assert_eq!(
+            search_path_sql("analytics", "public").unwrap(),
+            r#"SET search_path TO "analytics", "public""#
+        );
+    }
+
+    /// An empty suffix means the schema alone — no `public` behind it, which
+    /// is the whole reason the setting exists.
+    #[test]
+    fn an_empty_suffix_adds_nothing() {
+        assert_eq!(
+            search_path_sql("analytics", "").unwrap(),
+            r#"SET search_path TO "analytics""#
+        );
+        assert_eq!(
+            search_path_sql("analytics", "   ").unwrap(),
+            r#"SET search_path TO "analytics""#,
+            "spaces are not an element"
+        );
+        assert_eq!(
+            search_path_sql("analytics", ",,").unwrap(),
+            r#"SET search_path TO "analytics""#,
+            "empty elements are dropped"
+        );
+    }
+
+    #[test]
+    fn a_multi_element_suffix_keeps_its_order() {
+        assert_eq!(
+            search_path_sql("app", "public, extensions,  pg_catalog").unwrap(),
+            r#"SET search_path TO "app", "public", "extensions", "pg_catalog""#
+        );
+    }
+
+    /// A double quote inside a name is doubled, in the schema and in every
+    /// suffix element. Without this a crafted name could close the identifier
+    /// and start a statement.
+    #[test]
+    fn a_double_quote_is_doubled_everywhere() {
+        assert_eq!(
+            search_path_sql(r#"we"ird"#, r#"pu"blic"#).unwrap(),
+            r#"SET search_path TO "we""ird", "pu""blic""#
+        );
+    }
+
+    /// `$user` is quoted, which is how PostgreSQL itself writes it.
+    #[test]
+    fn the_user_placeholder_is_quoted_the_way_postgres_writes_it() {
+        assert_eq!(
+            search_path_sql("app", "$user, public").unwrap(),
+            r#"SET search_path TO "app", "$user", "public""#
+        );
+    }
+
+    /// Today's validation, unchanged: 1–63 characters and no NUL. These are
+    /// the assertions that would catch a refactor loosening the check.
+    #[test]
+    fn an_over_long_or_empty_schema_is_refused() {
+        assert!(search_path_sql("", "public").is_err(), "empty");
+        assert!(search_path_sql(&"a".repeat(63), "public").is_ok(), "63 is allowed");
+        assert!(search_path_sql(&"a".repeat(64), "public").is_err(), "64 is refused");
+    }
+
+    #[test]
+    fn a_null_byte_is_refused() {
+        assert!(search_path_sql("we\0ird", "public").is_err(), "in the schema");
+        assert!(search_path_sql("app", "pub\0lic").is_err(), "in the suffix too");
+    }
+
+    /// The suffix is held to the same rules as the schema, so a setting
+    /// nobody validated cannot smuggle a name past the schema's check.
+    #[test]
+    fn an_over_long_suffix_element_is_refused() {
+        assert!(search_path_sql("app", &"a".repeat(64)).is_err());
+    }
+}
+
+/// The SQLSTATE tag a read-only refusal carries to the front end.
+#[cfg(test)]
+mod read_only_tag_tests {
+    use super::{tagged_db_message, READ_ONLY_MARKER};
+
+    /// 25006 is tagged, so Swift can say "This connection is read-only."
+    /// without matching on a server message it cannot rely on.
+    #[test]
+    fn a_read_only_refusal_is_tagged() {
+        let tagged = tagged_db_message(
+            Some("25006"),
+            "cannot execute INSERT in a read-only transaction",
+        );
+        assert!(tagged.starts_with(READ_ONLY_MARKER), "got {tagged}");
+        assert!(
+            tagged.contains("cannot execute INSERT in a read-only transaction"),
+            "the server's own words must survive: {tagged}"
+        );
+    }
+
+    /// Every other error is passed through unchanged. This is the assertion
+    /// that keeps the change invisible to the error banner, the error sheet
+    /// and the "at character N" location parser.
+    #[test]
+    fn every_other_error_is_unchanged() {
+        for code in [None, Some("42601"), Some("23505"), Some("25P02")] {
+            assert_eq!(
+                tagged_db_message(code, "syntax error at or near \"slect\" at character 1"),
+                "syntax error at or near \"slect\" at character 1",
+                "code {code:?} must not be tagged"
+            );
+        }
     }
 }

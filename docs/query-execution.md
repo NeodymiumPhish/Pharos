@@ -38,6 +38,13 @@ Queries run concurrently — starting a second statement doesn't wait for the fi
 - Each running statement's gutter bar **pulses** until its query completes.
 - Re-running SQL that is already in flight is skipped, with a toast pointing at the running query.
 
+
+## A lost connection
+
+When a query fails because the **connection** is gone — the server closed it, the SSH tunnel stopped, the socket broke — the connection moves to **Error** in the toolbar and the Database Navigator, and **Connect** becomes available again. Before this, a failed query never changed a connection's status, so a dead tunnel kept a green glyph and Connect appeared to do nothing until you pressed Disconnect first.
+
+A statement timeout and a query you cancelled are **not** a lost connection. Those kill the statement, not the session, and the pool is still good, so the connection stays connected.
+
 ## Cancelling
 
 Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side.

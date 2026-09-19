@@ -52,5 +52,109 @@ func runTests() {
     expect(r(AnyCodable("t"), .boolean) == "✓", "the bool keywords still short-circuit")
     expect(r(AnyCodable(nil), .string) == "NULL", "the NULL string is app-owned and unescaped")
 
+    // MARK: - Maximum characters per cell (Settings ▸ Results ▸ Cells)
+
+    // Display only, like everything else here: copy, export, find and sort
+    // read the raw value and never come through this type.
+    func rMax(_ v: AnyCodable, _ c: PGTypeCategory, _ limit: UInt32) -> String {
+        ResultCellText.rendered(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
+                                nullString: "NULL", maximumCharacters: limit)
+    }
+
+    expect(rMax(AnyCodable("abcdefghij"), .string, 0) == "abcdefghij",
+           "limit 0 is no limit")
+    expect(rMax(AnyCodable("abcde"), .string, 5) == "abcde",
+           "a value exactly at the limit is untouched — no ellipsis for nothing removed")
+    expect(rMax(AnyCodable("abc"), .string, 5) == "abc",
+           "a value shorter than the limit is untouched")
+    expect(rMax(AnyCodable("abcdefghij"), .string, 5) == "abcde…",
+           "a longer value is cut at the limit and gains an ellipsis")
+    expect(rMax(AnyCodable("abcdefghij"), .string, 1) == "a…", "a limit of 1 still works")
+    expect(rMax(AnyCodable("123456789"), .numeric, 4) == "1234…", "numeric is truncated too")
+    expect(rMax(AnyCodable("2026-01-01 00:00:00"), .temporal, 10) == "2026-01-01…",
+           "temporal is truncated too")
+    expect(rMax(AnyCodable("maybe not"), .boolean, 5) == "maybe…",
+           "a non-keyword value in a bool column is truncated")
+
+    // The limit counts Characters, not UTF-8 bytes and not UTF-16 units. Four
+    // accented letters are four characters (7 UTF-8 bytes), and four emoji are
+    // four characters (16 UTF-8 bytes, 8 UTF-16 units).
+    expect(rMax(AnyCodable("éàüñ!"), .string, 4) == "éàüñ…",
+           "the limit counts Characters, not UTF-8 bytes (accents)")
+    expect(rMax(AnyCodable("日本語です!"), .string, 3) == "日本語…",
+           "the limit counts Characters, not UTF-8 bytes (CJK)")
+    expect(rMax(AnyCodable("☕☕☕☕☕"), .string, 4) == "☕☕☕☕…",
+           "the limit counts Characters, not UTF-16 units (emoji)")
+    // A flag is one Character made of two scalars; cutting it in half would
+    // produce a different glyph, which is exactly what `prefix` prevents.
+    expect(rMax(AnyCodable("🇬🇧🇬🇧🇬🇧"), .string, 2) == "🇬🇧🇬🇧…",
+           "a multi-scalar grapheme is one Character and is never split")
+
+    // The app's OWN display tokens are not data and are never cut: a "NUL…"
+    // where a NULL was would be the app misreporting itself.
+    expect(rMax(AnyCodable(nil), .string, 2) == "NULL", "the NULL string is never truncated")
+    expect(rMax(AnyCodable("true"), .boolean, 0) == "✓", "the bool keywords are never truncated")
+
+    // Escaping runs BEFORE truncation, because the limit is a limit on what is
+    // DRAWN and `<U+202E>` is eight drawn characters where the scalar was one.
+    expect(rMax(AnyCodable("\u{202E}abcdefgh"), .string, 4) == "<U+2…",
+           "the limit applies to the escaped text, which is the text on screen")
+
+    // MARK: - Escaping can be turned off (Settings ▸ Results ▸ Cells)
+
+    func rRaw(_ v: AnyCodable, _ c: PGTypeCategory) -> String {
+        ResultCellText.rendered(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
+                                nullString: "NULL", escapeControls: false)
+    }
+    expect(rRaw(AnyCodable("safe\u{202E}gpj.exe"), .string) == "safe\u{202E}gpj.exe",
+           "escaping off passes the scalar through")
+    // Flattening is NOT escaping: a label that silently becomes two lines is a
+    // layout fault, so `↵` stays whatever the setting says.
+    expect(rRaw(AnyCodable("a\nb"), .string) == "a↵b", "escaping off still flattens newlines")
+
+    // MARK: - Settings ▸ Results ▸ Formatting reaches the render boundary
+
+    // The parser itself is tested in ResultValueFormatterTests. What is pinned
+    // here is the wiring: that the boundary passes the kind and the styles
+    // through, that the DEFAULT changes nothing, and the one rule that is this
+    // file's own — formatted text is the app's output, so it is truncated but
+    // never escaped.
+    func rFmt(_ v: AnyCodable, _ c: PGTypeCategory, kind: ResultValueKind,
+              date: ResultDateStyle = .asReturned, number: ResultNumberStyle = .asReturned,
+              max: UInt32 = 0) -> String {
+        ResultCellText.rendered(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
+                                nullString: "NULL", maximumCharacters: max,
+                                kind: kind, dateStyle: date, numberStyle: number)
+    }
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .temporal, kind: .timestamp)
+           == "2026-01-31 14:05:09",
+           "formatting: the default leaves a timestamp exactly as it arrived")
+    expect(rFmt(AnyCodable("1234567"), .numeric, kind: .integer) == "1234567",
+           "formatting: the default leaves a number exactly as it arrived")
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .temporal, kind: .timestamp, date: .iso8601T)
+           == "2026-01-31T14:05:09",
+           "formatting: the date style reaches the renderer")
+    expect(rFmt(AnyCodable("2026-01-31 14:05:09"), .string, kind: .other, date: .iso8601T)
+           == "2026-01-31 14:05:09",
+           "formatting: a text column holding date-shaped text is never restyled")
+    expect(rFmt(AnyCodable("not a timestamp"), .temporal, kind: .timestamp, date: .medium)
+           == "not a timestamp",
+           "formatting: a value the parser refuses is still drawn, unchanged")
+    // A locale's own grouping separator is U+202F in fr and U+00A0 in ru, and
+    // both are in `DisplayEscape.mustEscape`. Escaping the formatter's output
+    // would draw every grouped number as `1<U+202F>234`, so it must not be
+    // escaped — the same rule the NULL string and the boolean words follow.
+    let localeGroup = { () -> String in
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        return f.groupingSeparator ?? ","
+    }()
+    let groupedCell = rFmt(AnyCodable("1234567"), .numeric, kind: .integer, number: .grouped)
+    expect(groupedCell.contains(localeGroup), "formatting: the number style reaches the renderer")
+    expect(!groupedCell.contains("<U+"),
+           "formatting: the formatter's own separator is never escaped as <U+XXXX>")
+    // Truncation still applies: the limit is a limit on what is DRAWN.
+    expect(rFmt(AnyCodable("1234567"), .numeric, kind: .integer, number: .grouped, max: 4).count == 5,
+           "formatting: a formatted value is still cut at the limit, plus the ellipsis")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

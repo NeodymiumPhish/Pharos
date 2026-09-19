@@ -281,7 +281,9 @@ struct ExportTableIntent: AppIntent {
             // The same sheet, built the same way, as the schema browser's
             // "Export Data…" — format, columns and destination are the user's to
             // choose. An intent must not write a file on its own behalf.
-            let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns) { options in
+            let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
+                                        settings: AppStateManager.shared.settings.dataExport) { options in
+                DataExportSettings.rememberIfAsked(options)
                 Task {
                     do {
                         let result = try await PharosCore.exportTable(connectionId: connectionId, options: options)

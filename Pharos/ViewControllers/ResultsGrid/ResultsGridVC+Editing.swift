@@ -27,6 +27,10 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
     /// grid: `ContentViewController` puts the plan view over the same region,
     /// so there is no cell to ask about.
     func canEditCell(at position: CellPosition) -> Bool {
+        // Settings ▸ Results ▸ Editing. Off means this grid is read-only, so
+        // it is asked FIRST — before the per-cell rules, which are about
+        // whether a writable grid could write THIS cell.
+        guard gridSettings.allowInlineEditing else { return false }
         guard let dataColumn = dataColumnIndex(forTableColumn: position.column),
               let dataRow = dataRowIndex(forDisplayRow: position.row)
         else { return false }
@@ -98,7 +102,7 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
             dataSource.editingCell = nil
             return
         }
-        cell.beginEditing(text: seed, font: ResultsGridMetrics.cellFont, delegate: self)
+        cell.beginEditing(text: seed, font: dataSource.gridStyle.cellFont, delegate: self)
         if let field = cell.editorField {
             view.window?.makeFirstResponder(field)
             field.currentEditor()?.selectAll(nil)

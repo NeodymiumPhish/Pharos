@@ -18,6 +18,7 @@ swiftc -o /tmp/window-session-tests \
   Pharos/Core/ResultTabsPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Core/CountedNounText.swift \
+  Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Core/HistoryRowText.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/ResultTabName.swift \

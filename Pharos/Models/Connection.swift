@@ -2,10 +2,69 @@ import Foundation
 
 // MARK: - Connection Config
 
-enum SslMode: String, Codable {
+/// The `sslmode` the connection asks for.
+///
+/// The raw values are what libpq reads and what the core's `SslMode` writes,
+/// hyphens and all. `verifyCa` / `verifyFull` are the two modes that CHECK the
+/// server's certificate, against `sslRootCertPath` or the system trust store.
+enum SslMode: String, Codable, CaseIterable {
     case disable
     case prefer
     case require
+    case verifyCa = "verify-ca"
+    case verifyFull = "verify-full"
+
+    var displayLabel: String {
+        switch self {
+        case .prefer: return String(localized: "Prefer")
+        case .require: return String(localized: "Require")
+        case .verifyCa: return String(localized: "Verify CA")
+        case .verifyFull: return String(localized: "Verify Full")
+        case .disable: return String(localized: "Disable")
+        }
+    }
+
+    /// The order the Connections Manager's popup shows, weakest guarantee
+    /// last, with the two verifying modes beside Require.
+    static let formOrder: [SslMode] = [.prefer, .require, .verifyCa, .verifyFull, .disable]
+
+    /// True for the two modes that verify the certificate, so the form can
+    /// show the root-certificate row only when it is used.
+    var verifiesCertificate: Bool { self == .verifyCa || self == .verifyFull }
+}
+
+/// A refusal that came from a read-only connection.
+///
+/// The core tags SQLSTATE 25006 (`read_only_sql_transaction`) before the
+/// message crosses the FFI, because sqlx's own text leaves the code out and
+/// the server's wording is localized. Matching the TAG rather than the words
+/// is the only reading that holds on a non-English server.
+///
+/// Pure and Foundation-only, so it can be read by the one funnel every core
+/// error passes through (`PharosCoreError.errorDescription`).
+enum ReadOnlyConnectionError {
+
+    /// The marker `pharos-core`'s `tagged_db_message` puts in front.
+    static let marker = "[SQLSTATE 25006]"
+
+    /// The sentence shown instead. The core's own `require_writable` answers
+    /// with the same words, so the two paths read alike.
+    static let sentence = String(localized: "This connection is read-only.")
+
+    static func isReadOnly(_ message: String) -> Bool {
+        message.contains(marker)
+    }
+
+    /// The message to show. A read-only refusal gets the sentence first and
+    /// the server's own words after it, so nothing is hidden. Every other
+    /// message is returned byte-for-byte.
+    static func humanised(_ message: String) -> String {
+        guard isReadOnly(message) else { return message }
+        let detail = message
+            .replacingOccurrences(of: marker, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return detail.isEmpty ? sentence : "\(sentence) \(detail)"
+    }
 }
 
 // MARK: - SSH Tunnel
@@ -102,6 +161,32 @@ struct ConnectionConfig: Codable, Identifiable {
     /// which is every record written before this feature.
     var sshTunnel: SshTunnelConfig?
 
+    /// Open this connection's pool with `default_transaction_read_only=on`.
+    /// The server then refuses every write with SQLSTATE 25006, and the core
+    /// refuses its own write commands before they start.
+    var readOnly: Bool = false
+
+    /// Keep this connection's password in the keychain.
+    ///
+    /// STORED ONLY as of this slice: nothing reads it yet. Turning it off
+    /// needs a password prompt at connect time, which is its own piece of
+    /// work; until that lands the password is remembered whatever this says.
+    var rememberPassword: Bool = true
+
+    /// Connect to this database when Pharos starts.
+    ///
+    /// STORED ONLY as of this slice: nothing reads it yet. It needs a launch
+    /// sequence that knows about the Touch ID gate and about tunnels.
+    var connectOnLaunch: Bool = false
+
+    /// `TimeZone` for this connection's sessions. `nil` or empty falls back to
+    /// Settings ▸ Connections ▸ Default time zone, and then to the server's.
+    var sessionTimeZone: String?
+
+    /// A PEM root certificate for `verify-ca` and `verify-full`. `nil` uses
+    /// the system trust store.
+    var sslRootCertPath: String?
+
     // Custom decoder: Rust skips "password" when empty and "color" when nil,
     // so these keys may be absent in the JSON.
     init(from decoder: Decoder) throws {
@@ -122,12 +207,24 @@ struct ConnectionConfig: Codable, Identifiable {
         // Rust omits the key entirely when there is no tunnel, so absent must
         // mean "direct connection" and not a decode failure.
         sshTunnel = try c.decodeIfPresent(SshTunnelConfig.self, forKey: .sshTunnel)
+        // Each `decodeIfPresent ?? default`, so a record written before these
+        // columns existed reads back doing exactly what it did: writes
+        // allowed, password remembered, no connect at launch, no per-
+        // connection time zone, the system trust store.
+        readOnly = try c.decodeIfPresent(Bool.self, forKey: .readOnly) ?? false
+        rememberPassword = try c.decodeIfPresent(Bool.self, forKey: .rememberPassword) ?? true
+        connectOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .connectOnLaunch) ?? false
+        sessionTimeZone = try c.decodeIfPresent(String.self, forKey: .sessionTimeZone)
+        sslRootCertPath = try c.decodeIfPresent(String.self, forKey: .sslRootCertPath)
     }
 
     init(id: String, name: String, host: String, port: UInt16, database: String,
          username: String, password: String = "", sslMode: SslMode = .prefer,
          color: String? = nil, defaultSchema: String? = nil,
-         requiresAuthentication: Bool = false, sshTunnel: SshTunnelConfig? = nil) {
+         requiresAuthentication: Bool = false, sshTunnel: SshTunnelConfig? = nil,
+         readOnly: Bool = false, rememberPassword: Bool = true,
+         connectOnLaunch: Bool = false, sessionTimeZone: String? = nil,
+         sslRootCertPath: String? = nil) {
         self.id = id
         self.name = name
         self.host = host
@@ -140,11 +237,17 @@ struct ConnectionConfig: Codable, Identifiable {
         self.defaultSchema = defaultSchema
         self.requiresAuthentication = requiresAuthentication
         self.sshTunnel = sshTunnel
+        self.readOnly = readOnly
+        self.rememberPassword = rememberPassword
+        self.connectOnLaunch = connectOnLaunch
+        self.sessionTimeZone = sessionTimeZone
+        self.sslRootCertPath = sslRootCertPath
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, host, port, database, username, password, sslMode, color, defaultSchema
         case requiresAuthentication, sshTunnel
+        case readOnly, rememberPassword, connectOnLaunch, sessionTimeZone, sslRootCertPath
     }
 }
 
@@ -158,6 +261,11 @@ extension ConnectionConfig: Equatable {
             && a.color == b.color && a.defaultSchema == b.defaultSchema
             && a.requiresAuthentication == b.requiresAuthentication
             && a.sshTunnel == b.sshTunnel
+            && a.readOnly == b.readOnly
+            && a.rememberPassword == b.rememberPassword
+            && a.connectOnLaunch == b.connectOnLaunch
+            && a.sessionTimeZone == b.sessionTimeZone
+            && a.sslRootCertPath == b.sslRootCertPath
     }
 }
 

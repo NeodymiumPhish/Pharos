@@ -1270,6 +1270,11 @@ mod live_tunnel_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 

@@ -95,6 +95,15 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
  void pharos_shutdown(void);
 
 /**
+ * Set how much the engine writes to the log. Accepts `error`, `warn`
+ * (or `warning`), `info` and `debug`, in any case.
+ *
+ * Returns false, changing nothing, when the name is not one of those or when
+ * `RUST_LOG` is set in the environment.
+ */
+ bool pharos_set_log_level(const char *level);
+
+/**
  * Free a string allocated by Rust. Must be called for every non-NULL string returned by pharos_* functions.
  */
 
@@ -211,6 +220,22 @@ void pharos_validate_sql(const char *connection_id,
 char *pharos_load_query_history(const char *json);
 
 /**
+ * Record a query that FAILED. `json` is a `FailedQueryRecord`:
+ * `{connectionId, sql, rawSql?, message, status?, schema?, tableNames?,
+ *   workspaceId?, lineStart?, lineEnd?, executionTimeMs?}`.
+ *
+ * Returns the new entry's id as a bare string, or `{"error": "..."}`.
+ * Caller must free.
+ *
+ * Swift drives this rather than the failure site in `commands::query`,
+ * because the workspace id and the editor line range live in the Swift
+ * session. Whether a failure is recorded at all is decided there too — see
+ * `HistoryFailureFilter` and Settings ▸ Library & History ▸ Record failed
+ * queries.
+ */
+ char *pharos_record_failed_query(const char *json);
+
+/**
  * Delete a query history entry. Returns "true"/"false".
  */
  char *pharos_delete_query_history_entry(const char *entry_id);
@@ -225,6 +250,14 @@ char *pharos_load_query_history(const char *json);
  * Returns the count of deleted entries as a string, or error JSON.
  */
  char *pharos_batch_delete_query_history(const char *json);
+
+/**
+ * Clear Query History. `json` is `{"olderThanDays": n, "preview": bool}`;
+ * `olderThanDays` of 0 (or absent) means everything, and `preview` counts
+ * without deleting. Returns `{"deleted": n}` or `{"error": "..."}`.
+ * Caller must free.
+ */
+ char *pharos_clear_query_history(const char *json);
 
 /**
  * Load every stored variable, in the user's order. Returns a JSON array.

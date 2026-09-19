@@ -39,6 +39,11 @@ enum SQLDraftPolicy {
         /// draft or one that is nothing but comments.
         let leadingKeyword: String
 
+        /// Whether the user allows a draft that is not a plain read
+        /// (Settings ▸ Intelligence ▸ "Allow drafts that write"). On is what
+        /// the popover did before the switch existed.
+        let allowsWriteStatements: Bool
+
         /// The model returned nothing usable.
         var isEmpty: Bool { sql.isEmpty }
 
@@ -47,30 +52,53 @@ enum SQLDraftPolicy {
         /// Whether the statement reads rather than writes.
         var isSelect: Bool { SQLDraftPolicy.readingKeywords.contains(leadingKeyword) }
 
+        /// Whether this draft writes, or could. The shared condition behind
+        /// the refusal and the confirmation below.
+        var writes: Bool { !isEmpty && (isDestructive || !isSelect) }
+
+        /// Whether the draft may not be offered at all. The user has said
+        /// Pharos must not draft anything but a read, and this is not one.
+        var isRefused: Bool { writes && !allowsWriteStatements }
+
         /// Whether the analyst is asked to confirm before the draft is
-        /// inserted. An empty draft is refused outright, not confirmed.
-        var needsConfirmation: Bool { !isEmpty && (isDestructive || !isSelect) }
+        /// inserted. An empty draft is refused outright, not confirmed, and a
+        /// refused one is never offered to confirm.
+        var needsConfirmation: Bool { writes && allowsWriteStatements }
 
         /// One sentence naming what is wrong, or nil when nothing is.
+        ///
+        /// A refusal says so — the analyst is told why nothing was offered,
+        /// and where to change it, rather than watching the popover do
+        /// nothing.
         var warning: String? {
-            guard needsConfirmation else { return nil }
+            guard writes else { return nil }
+            let what: String
             if isDestructive {
                 let keywords = destructiveKeywords.joined(separator: ", ")
-                return String(
+                what = String(
                     localized: "This draft is not a plain SELECT: it contains \(keywords).")
+            } else {
+                what = String(
+                    localized: "This draft is not a plain SELECT: it starts with \(leadingKeyword).")
             }
-            return String(
-                localized: "This draft is not a plain SELECT: it starts with \(leadingKeyword).")
+            guard isRefused else { return what }
+            return what + " " + String(
+                localized: "Pharos is set to draft reads only — see Settings ▸ Intelligence.")
         }
     }
 
     /// Clean `raw` and report on the result.
-    static func review(_ raw: String) -> Review {
+    ///
+    /// `allowWriteStatements` defaults to what the popover did before the
+    /// setting existed, so a caller that has no user preference to hand keeps
+    /// today's behaviour rather than silently tightening it.
+    static func review(_ raw: String, allowWriteStatements: Bool = true) -> Review {
         let sql = clean(raw)
         return Review(
             sql: sql,
             destructiveKeywords: DestructiveSQLScanner.destructiveKeywords(in: sql),
-            leadingKeyword: leadingKeyword(of: sql))
+            leadingKeyword: leadingKeyword(of: sql),
+            allowsWriteStatements: allowWriteStatements)
     }
 
     /// Convenience for a caller that only wants the verdict.

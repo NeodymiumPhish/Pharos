@@ -12,6 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/grid-column-visibility-tests \
   Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift \
+  Pharos/Models/ColumnTypeIcon.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsGridColumnState.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsGridMetrics.swift \
   Pharos/ViewControllers/ResultsGrid/InsetScrollView.swift \

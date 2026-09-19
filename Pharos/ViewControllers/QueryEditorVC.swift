@@ -56,7 +56,7 @@ class QueryEditorVC: NSViewController {
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
-        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ Appearance.
         scrollBarPolicy = ScrollBarPolicy(
             scrollView: scrollView,
             alwaysVisible: stateManager.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())
@@ -136,15 +136,22 @@ class QueryEditorVC: NSViewController {
             name: NSTextView.didChangeSelectionNotification, object: textView
         )
 
-        applySettings()
+        applySettings(stateManager.settings.editor)
 
-        // Re-apply settings when they change. Dedup the publisher so unrelated
-        // republishes (the AppSettings struct is shared across UI surfaces) do
-        // not trigger a full editor rebuild + rehighlight pass.
+        // Re-apply settings when they change. The publisher is narrowed to
+        // `\.editor` and deduped, so a republish of an unrelated field (the
+        // `AppSettings` struct is shared across every UI surface) does not
+        // reach the editor at all — no rebuild, no rehighlight pass.
+        //
+        // The sink uses the DELIVERED value. Re-reading `stateManager.settings`
+        // inside it would race: two saves in flight would both apply whichever
+        // value happened to be published last, so the first one's work could
+        // be done twice and the second's not at all.
         stateManager.$settings
+            .map(\.editor)
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.applySettings() }
+            .sink { [weak self] editor in self?.applySettings(editor) }
             .store(in: &cancellables)
     }
 
@@ -328,24 +335,15 @@ class QueryEditorVC: NSViewController {
 
     // MARK: - Settings
 
-    /// Signature of the settings fields that actually affect the editor's
-    /// visible glyph layout. We only rehighlight when this changes — toggling
-    /// unrelated settings (nullDisplay, boolDisplay, etc.) leaves the
-    /// glyph-level layout untouched and shouldn't pay for a full document
-    /// repaint × tab count.
-    private struct EditorSignature: Equatable {
-        let fontFamily: String
-        // `var`, not `let`: the pinch/⌘+/⌘− paths apply a font size straight
-        // to the view and update just this field, so when the save they
-        // trigger republishes settings, applySettings() finds the signature
-        // already matches and skips a redundant rehighlight (no flicker).
-        var fontSize: UInt32
-        let tabSize: UInt32
-        let wordWrap: Bool
-        let lineNumbers: Bool
-    }
-
-    private var lastAppliedSignature: EditorSignature?
+    /// The `EditorSettings` this view is currently showing.
+    ///
+    /// It doubles as the change signature the rehighlight decision reads: the
+    /// whole struct is `Equatable`, so nothing has to be listed twice. `var`,
+    /// not `let`, inside: the pinch/⌘+/⌘− paths apply a font size straight to
+    /// the view and update just `fontSize` here, so when the save they trigger
+    /// republishes settings, `applySettings(_:)` finds it already matching and
+    /// skips a redundant rehighlight (no flicker).
+    private var lastApplied: EditorSettings?
 
     /// The font size currently showing in the editor. Normally equal to
     /// `stateManager.settings.editor.fontSize`, but can briefly lead it while
@@ -354,29 +352,59 @@ class QueryEditorVC: NSViewController {
     /// View menu's Increase/Decrease Editor Font items can validate against
     /// the 9...24 clamp.
     var currentFontSize: Int {
-        Int(lastAppliedSignature?.fontSize ?? stateManager.settings.editor.fontSize)
+        Int(lastApplied?.fontSize ?? stateManager.settings.editor.fontSize)
     }
 
-    private func applySettings() {
-        let editor = stateManager.settings.editor
-        let signature = EditorSignature(
-            fontFamily: editor.fontFamily,
-            fontSize: editor.fontSize,
-            tabSize: editor.tabSize,
-            wordWrap: editor.wordWrap,
-            lineNumbers: editor.lineNumbers
-        )
-        guard signature != lastAppliedSignature else { return }
-        let needsRehighlight = signature.fontFamily != lastAppliedSignature?.fontFamily
-            || signature.fontSize != lastAppliedSignature?.fontSize
-            || signature.tabSize != lastAppliedSignature?.tabSize
-            || signature.wordWrap != lastAppliedSignature?.wordWrap
-        lastAppliedSignature = signature
+    /// Apply one delivered `EditorSettings` snapshot to every part of the
+    /// editor that reads it. The argument is the source of truth here —
+    /// nothing in this method re-reads the settings store.
+    private func applySettings(_ editor: EditorSettings) {
+        guard editor != lastApplied else { return }
+        let previous = lastApplied
+        let needsRehighlight = editor.fontFamily != previous?.fontFamily
+            || editor.fontSize != previous?.fontSize
+            || editor.tabSize != previous?.tabSize
+            || editor.wordWrap != previous?.wordWrap
+        lastApplied = editor
 
         applyFontSize(Int(editor.fontSize))
 
-        // Tab size
+        // Tab size, and what a Tab actually writes
         textView.tabSize = Int(editor.tabSize)
+        textView.insertSpacesForTab = editor.insertSpacesForTab
+        textView.autoIndentEnabled = editor.autoIndent
+        textView.autoPairBrackets = editor.autoPairBrackets
+        textView.autoPairQuotes = editor.autoPairQuotes
+        textView.highlightCurrentLine = editor.highlightCurrentLine
+
+        // Completion
+        textView.completionTrigger = editor.completionTrigger
+        textView.completionMinimumCharacters = Int(editor.completionMinimumCharacters)
+        completionProvider.maximumItems = Int(editor.completionMaximumItems)
+        completionProvider.keywordCase = editor.completionKeywordCase
+
+        // Paste
+        textView.offersSqlListChip = editor.offerSqlListChip
+        textView.sqlListQuoteStyle = editor.sqlListQuoteStyle
+
+        // Colours. The theme's own `didSet` re-highlights, so this is not part
+        // of `needsRehighlight`.
+        let theme = SQLTheme.named(editor.syntaxTheme)
+        if editor.syntaxTheme != previous?.syntaxTheme {
+            textView.theme = theme
+        }
+
+        // Folding. Switching it off unfolds everything (SQLTextView's own
+        // `didSet`) and then empties the gutter, which is what takes the
+        // chevrons away.
+        textView.codeFoldingEnabled = editor.codeFolding
+        if editor.codeFolding != previous?.codeFolding
+            || editor.minimumLinesToFold != previous?.minimumLinesToFold {
+            recalculateFoldRegions()
+        }
+
+        // The gutter's statement bands and their run glyphs
+        gutter?.setDrawsSegmentBands(editor.showRunButtonsInGutter)
 
         // Line numbers — toggle gutter visibility and re-layout
         gutter?.isHidden = !editor.lineNumbers
@@ -411,8 +439,11 @@ class QueryEditorVC: NSViewController {
     /// out of `applySettings()` so the live pinch/⌘+/⌘− path and the full
     /// settings apply build the exact same font from the exact same rules.
     private func applyFontSize(_ size: Int) {
-        let editor = stateManager.settings.editor
-        let fontName = editor.fontFamily.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
+        // The family from the snapshot this view last applied, so a pinch
+        // mid-flight cannot pick up a family from a save that has not reached
+        // `applySettings(_:)` yet.
+        let family = lastApplied?.fontFamily ?? stateManager.settings.editor.fontFamily
+        let fontName = family.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
         let fontSize = CGFloat(size)
 
         let editorFont: NSFont
@@ -441,7 +472,7 @@ class QueryEditorVC: NSViewController {
             let newSize = FontSizeStepper.size(start: pinchStartFontSize, magnification: recognizer.magnification)
             guard newSize != currentFontSize else { return }
             applyFontSize(newSize)
-            lastAppliedSignature?.fontSize = UInt32(newSize)
+            lastApplied?.fontSize = UInt32(newSize)
             // The gutter's width derives from the font, so it must re-layout
             // alongside the view-only font change, not just on the next
             // settings-driven applySettings() pass.
@@ -459,7 +490,7 @@ class QueryEditorVC: NSViewController {
         let newSize = FontSizeStepper.stepped(currentFontSize, by: delta)
         guard newSize != currentFontSize else { return }
         applyFontSize(newSize)
-        lastAppliedSignature?.fontSize = UInt32(newSize)
+        lastApplied?.fontSize = UInt32(newSize)
         layoutGutterAndScrollView()
         persistCurrentFontSize()
     }
@@ -478,6 +509,17 @@ class QueryEditorVC: NSViewController {
     }
 
     // MARK: - Segment API
+
+    /// The editor's selection, or nil when nothing is selected.
+    ///
+    /// Used by the run scope (Settings ▸ Query ▸ Run). The text is returned
+    /// as typed; the resolver decides whether a whitespace-only selection
+    /// counts as one.
+    func selectedSQL() -> String? {
+        let range = textView.selectedRange()
+        guard range.length > 0 else { return nil }
+        return (textView.string as NSString).substring(with: range)
+    }
 
     /// Returns the SQL segment at the current cursor position, or nil if none.
     func getSegmentSQLAtCursor() -> SQLSegment? {
@@ -606,7 +648,12 @@ class QueryEditorVC: NSViewController {
     /// Re-parse fold regions from the full text and sync collapsed state from FoldState.
     /// Text storage is never modified for folding, so the parser always sees the full SQL.
     private func rebuildFoldRegions() -> [SQLFoldRegion] {
-        var newRegions = SQLFoldingParser.parse(textView.string)
+        // Folding off means no regions at all, which is what takes the
+        // chevrons out of the gutter. `SQLTextView` has already unfolded
+        // whatever was collapsed.
+        guard let editor = lastApplied, editor.codeFolding else { return [] }
+        var newRegions = SQLFoldingParser.parse(
+            textView.string, minimumLines: Int(editor.minimumLinesToFold))
         let foldEntries = textView.foldState.entries
 
         // Mark regions as collapsed if FoldState has a matching entry

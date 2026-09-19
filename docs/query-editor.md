@@ -86,6 +86,16 @@ Double-click a tab to rename it. Each tab keeps its own SQL text, connection, an
 
 **Cmd+W** closes the tab, **Cmd+Shift+W** closes the window. Closing a window cancels the queries that window started.
 
+### Unsaved changes
+
+Closing a tab, closing a window or quitting Pharos asks first when a tab holds edits that have not been written back:
+
+- **Save** writes each tab back to its [saved query](saved-queries.md) or to its file, then closes. A tab that has never been saved gets the Save Query sheet; cancelling that sheet cancels the close.
+- **Don't Save** closes and loses the edits.
+- **Cancel** leaves every tab open, exactly as it was.
+
+A tab bound to a saved query or to a file always counts as unsaved once you edit it. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text, so there is nothing to warn about. An empty tab never counts. Turn the whole warning off with **Warn before closing unsaved tabs** in [Settings > General](settings.md#general-pane).
+
 Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
 
 Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs and the same tab selected. Turn this off in [Settings > Query](settings.md) with **Restore open tabs**.

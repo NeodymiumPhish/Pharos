@@ -26,6 +26,79 @@ class SQLTextView: NSTextView {
         didSet { highlightSyntax() }
     }
 
+    // MARK: - Settings ▸ Editor
+    //
+    // Every one of these defaults to what this view did before the setting
+    // existed, so a host that never sets them behaves exactly as before.
+    // `QueryEditorVC.applySettings(_:)` pushes the stored values in.
+
+    /// Tab writes `tabSize` spaces. Off writes one tab character.
+    var insertSpacesForTab: Bool = true
+
+    /// Return copies the current line's leading whitespace.
+    var autoIndentEnabled: Bool = true
+
+    /// Typing `(` or `[` also writes the closer (and Backspace over the pair
+    /// takes both out).
+    var autoPairBrackets: Bool = true
+
+    /// The same for `'`.
+    var autoPairQuotes: Bool = true
+
+    /// A wash behind the line holding the caret.
+    var highlightCurrentLine: Bool = true {
+        didSet { if highlightCurrentLine != oldValue { needsDisplay = true } }
+    }
+
+    /// Folding at all. Turning it off unfolds everything that is folded —
+    /// text hidden by a setting the user has just switched off would be text
+    /// they cannot reach.
+    var codeFoldingEnabled: Bool = true {
+        didSet {
+            guard !codeFoldingEnabled, codeFoldingEnabled != oldValue else { return }
+            unfoldAll()
+        }
+    }
+
+    /// When the completion list opens on its own. Ctrl+Space ignores this.
+    var completionTrigger: CompletionTrigger = .afterDot
+
+    /// Identifier characters needed before the identifier trigger fires.
+    var completionMinimumCharacters: Int = 1
+
+    /// Whether a paste that looks like a bare value list offers the
+    /// "Format as SQL list" chip.
+    var offersSqlListChip: Bool = true
+
+    /// How that formatter quotes a value.
+    var sqlListQuoteStyle: SqlListQuoteStyle = .single
+
+    /// One indent level, as the text Tab actually writes.
+    private var indentUnit: String {
+        insertSpacesForTab ? String(repeating: " ", count: tabSize) : "\t"
+    }
+
+    /// The opener → closer pairs auto-pairing is ON for right now. Empty when
+    /// both switches are off, which turns every auto-pair path into the plain
+    /// insert `NSTextView` would have done.
+    private var activeAutoClosePairs: [String: String] {
+        var pairs: [String: String] = [:]
+        if autoPairBrackets {
+            pairs["("] = ")"
+            pairs["["] = "]"
+        }
+        if autoPairQuotes {
+            pairs["'"] = "'"
+        }
+        return pairs
+    }
+
+    /// The closers skip-over applies to — the same set, seen from the other
+    /// end.
+    private var activeCloseChars: Set<String> {
+        Set(activeAutoClosePairs.values)
+    }
+
     /// Names (without braces) of variables defined for the active tab. Drives
     /// defined-vs-undefined coloring of `{{name}}` tokens. Re-highlights on change.
     var variableNames: Set<String> = [] {
@@ -236,6 +309,7 @@ class SQLTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        cancelPendingCompletionOffer()
         completionDelegate?.dismissCompletion()
 
         // Check if click lands on a fold pill — if so, unfold it
@@ -318,14 +392,91 @@ class SQLTextView: NSTextView {
         if completionDelegate?.isCompletionShown == true {
             completionDelegate?.updateCompletion()
         } else {
-            // Auto-trigger on dot
-            let cursor = selectedRange().location
-            if cursor > 0 {
-                let ch = (string as NSString).character(at: cursor - 1)
-                if ch == UInt16(UnicodeScalar(".").value) {
-                    completionDelegate?.triggerCompletion()
-                }
-            }
+            offerCompletionIfAppropriate()
+        }
+    }
+
+    // MARK: - Completion Offer
+
+    /// Pending debounced identifier-trigger offer, replaced on each keystroke.
+    private var completionOfferTask: Task<Void, Never>?
+
+    /// How long typing must stop before the IDENTIFIER trigger opens the list.
+    /// The dot trigger is not debounced: it is unambiguous, and the analyst is
+    /// waiting on it.
+    private static let completionDebounceNanoseconds: UInt64 = 120_000_000  // 120 ms
+
+    /// Drop any offer that has not fired yet.
+    func cancelPendingCompletionOffer() {
+        completionOfferTask?.cancel()
+        completionOfferTask = nil
+    }
+
+    /// Ask `CompletionTriggerPolicy` whether the caret earns a completion
+    /// list, and open one if it does.
+    private func offerCompletionIfAppropriate() {
+        cancelPendingCompletionOffer()
+
+        let text = string as NSString
+        let cursor = min(selectedRange().location, text.length)
+        var preceding: Character?
+        if cursor > 0, let scalar = UnicodeScalar(text.character(at: cursor - 1)) {
+            preceding = Character(scalar)
+        }
+
+        guard CompletionTriggerPolicy.shouldOffer(
+            trigger: completionTrigger,
+            minimumCharacters: completionMinimumCharacters,
+            prefix: identifierPrefix(before: cursor, in: text),
+            precedingCharacter: preceding,
+            isInStringOrComment: isInStringOrComment(atCaret: cursor)
+        ) else { return }
+
+        if preceding == "." {
+            completionDelegate?.triggerCompletion()
+            return
+        }
+
+        completionOfferTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.completionDebounceNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            self.completionOfferTask = nil
+            self.completionDelegate?.triggerCompletion()
+        }
+    }
+
+    /// The identifier characters already typed immediately before `cursor`.
+    private func identifierPrefix(before cursor: Int, in text: NSString) -> String {
+        var start = cursor
+        while start > 0 {
+            guard let scalar = UnicodeScalar(text.character(at: start - 1)) else { break }
+            guard CharacterSet.alphanumerics.contains(scalar) || scalar == UnicodeScalar("_") else { break }
+            start -= 1
+        }
+        guard start < cursor else { return "" }
+        return text.substring(with: NSRange(location: start, length: cursor - start))
+    }
+
+    /// Whether a caret at `cursor` sits inside a string literal or a comment.
+    ///
+    /// Read from the shared `SQLLexSnapshot` state map — the same lex the
+    /// highlighter and both parsers use — rather than from the temporary
+    /// colour attributes, which lag the text by the 150 ms highlight debounce
+    /// and would therefore answer for the PREVIOUS keystroke.
+    ///
+    /// The caret sits between two characters; the state that governs it is the
+    /// one of the character to its left.
+    private func isInStringOrComment(atCaret cursor: Int) -> Bool {
+        let snapshot = SQLLexSnapshot.shared(for: string)
+        guard snapshot.length > 0, cursor > 0 else { return false }
+        let index = min(cursor - 1, snapshot.length - 1)
+        switch snapshot.stateMap[index] {
+        case .singleQuote, .dollarQuote, .lineComment, .blockComment:
+            return true
+        case .normal, .doubleQuote:
+            // A double-quoted token is an IDENTIFIER in Postgres, not a
+            // string: completing a column name inside one is exactly right.
+            return false
         }
     }
 
@@ -353,6 +504,7 @@ class SQLTextView: NSTextView {
 
         // Escape → dismiss completion if shown, else a pending list-paste offer
         if event.keyCode == 53 {
+            cancelPendingCompletionOffer()
             if completionDelegate?.isCompletionShown == true {
                 completionDelegate?.dismissCompletion()
                 return
@@ -399,9 +551,6 @@ class SQLTextView: NSTextView {
 
     // MARK: - Auto-Close Brackets
 
-    private static let autoClosePairs: [String: String] = ["(": ")", "[": "]", "'": "'"]
-    private static let closeChars: Set<String> = [")", "]", "'"]
-
     /// Auto-close only fires when the character following the insertion point
     /// is end-of-document, whitespace, or a closing delimiter. Typing `(`
     /// directly before existing text inserts just the `(`.
@@ -422,19 +571,20 @@ class SQLTextView: NSTextView {
 
         let cursor = selectedRange().location
         let text = self.string as NSString
+        let autoClosePairs = activeAutoClosePairs
 
         // Wrap selection: typing an opener with a non-empty selection wraps
         // it instead of replacing it, with the caret placed after the closing
         // character so typing can continue (e.g. a comma after 'value').
         let sel = selectedRange()
-        if sel.length > 0, let closeChar = Self.autoClosePairs[str] {
+        if sel.length > 0, let closeChar = autoClosePairs[str] {
             let selected = text.substring(with: sel)
             super.insertText(str + selected + closeChar, replacementRange: sel)
             return
         }
 
         // Skip-over: typing a closing char that's already the next character
-        if Self.closeChars.contains(str), cursor < text.length {
+        if activeCloseChars.contains(str), cursor < text.length {
             guard let nextScalar = UnicodeScalar(text.character(at: cursor)) else {
                 super.insertText(string, replacementRange: replacementRange)
                 return
@@ -459,7 +609,7 @@ class SQLTextView: NSTextView {
         }
 
         // Auto-close: insert matching pair
-        if let closeChar = Self.autoClosePairs[str] {
+        if let closeChar = autoClosePairs[str] {
             // For quotes, don't auto-close if previous char is alphanumeric (e.g., it's an apostrophe)
             if str == "'" && cursor > 0 {
                 let prevScalar = UnicodeScalar(text.character(at: cursor - 1))
@@ -533,7 +683,7 @@ class SQLTextView: NSTextView {
         // Offer SQL-list formatting AFTER the verbatim paste lands. Setting
         // the pending range after insertText keeps the paste's own
         // didChangeText/selection updates from invalidating the fresh offer.
-        if SQLListFormatter.looksLikeBareList(result) {
+        if offersSqlListChip, SQLListFormatter.looksLikeBareList(result) {
             pendingListPasteRange = NSRange(location: insertionStart, length: (result as NSString).length)
             onListPasteDetected?()
         }
@@ -551,7 +701,7 @@ class SQLTextView: NSTextView {
             invalidateListPasteOffer()
             return
         }
-        let formatted = SQLListFormatter.sqlize(text.substring(with: range))
+        let formatted = SQLListFormatter.sqlize(text.substring(with: range), quoteStyle: sqlListQuoteStyle)
         isApplyingSQLize = true
         if shouldChangeText(in: range, replacementString: formatted) {
             insertText(formatted, replacementRange: range)
@@ -580,7 +730,7 @@ class SQLTextView: NSTextView {
             if last == 0x0A || last == 0x0D { range.length -= 1 } else { break }
         }
         guard range.length > 0 else { return }
-        let formatted = SQLListFormatter.sqlize(text.substring(with: range))
+        let formatted = SQLListFormatter.sqlize(text.substring(with: range), quoteStyle: sqlListQuoteStyle)
         if shouldChangeText(in: range, replacementString: formatted) {
             insertText(formatted, replacementRange: range)
         }
@@ -596,7 +746,7 @@ class SQLTextView: NSTextView {
            let prevScalar = UnicodeScalar(text.character(at: cursor - 1)),
            let nextScalar = UnicodeScalar(text.character(at: cursor)) {
             let prevChar = String(Character(prevScalar))
-            if let closeChar = Self.autoClosePairs[prevChar] {
+            if let closeChar = activeAutoClosePairs[prevChar] {
                 let nextChar = String(Character(nextScalar))
                 if nextChar == closeChar {
                     setSelectedRange(NSRange(location: cursor - 1, length: 2))
@@ -608,7 +758,9 @@ class SQLTextView: NSTextView {
 
         // Indent-level-aware backspace: if the cursor sits at an indent boundary
         // (only spaces to its left on the current line), delete one full indent level.
-        if cursor >= tabSize, selectedRange().length == 0 {
+        // Only meaningful while Tab writes spaces — with real tabs, one
+        // Backspace already removes one whole indent level.
+        if insertSpacesForTab, cursor >= tabSize, selectedRange().length == 0 {
             let lineRange = text.lineRange(for: NSRange(location: cursor, length: 0))
             let offsetInLine = cursor - lineRange.location
             if offsetInLine >= tabSize, offsetInLine % tabSize == 0 {
@@ -636,7 +788,7 @@ class SQLTextView: NSTextView {
                 // Multi-line indent: prepend tabSize spaces to each selected line
                 let blockRange = text.lineRange(for: sel)
                 let block = text.substring(with: blockRange)
-                let indent = String(repeating: " ", count: tabSize)
+                let indent = indentUnit
                 let lines = block.components(separatedBy: "\n")
 
                 // Don't indent trailing empty component from a trailing newline
@@ -654,15 +806,14 @@ class SQLTextView: NSTextView {
 
                 // Re-select the indented block (adjust for added spaces)
                 let nonEmptyCount = lines.count - (lines.last?.isEmpty == true ? 1 : 0)
-                let newLength = blockRange.length + nonEmptyCount * tabSize
+                let newLength = blockRange.length + nonEmptyCount * (indent as NSString).length
                 setSelectedRange(NSRange(location: blockRange.location, length: newLength))
                 return
             }
         }
 
-        // Single-line / no selection: insert spaces
-        let spaces = String(repeating: " ", count: tabSize)
-        super.insertText(spaces, replacementRange: sel)
+        // Single-line / no selection: insert one indent level
+        super.insertText(indentUnit, replacementRange: sel)
     }
 
     override func insertBacktab(_ sender: Any?) {
@@ -678,8 +829,11 @@ class SQLTextView: NSTextView {
             if i == lines.count - 1 && line.isEmpty {
                 dedented.append(line)
             } else {
-                let leading = line.prefix(while: { $0 == " " })
-                let removeCount = min(tabSize, leading.count)
+                // One tab character IS one indent level; otherwise take back
+                // up to one level's worth of spaces.
+                let removeCount = line.hasPrefix("\t")
+                    ? 1
+                    : min(tabSize, line.prefix(while: { $0 == " " }).count)
                 dedented.append(String(line.dropFirst(removeCount)))
                 totalRemoved += removeCount
             }
@@ -694,6 +848,10 @@ class SQLTextView: NSTextView {
     }
 
     override func insertNewline(_ sender: Any?) {
+        guard autoIndentEnabled else {
+            super.insertNewline(sender)
+            return
+        }
         // Auto-indent: match leading whitespace of current line
         let text = string as NSString
         let cursorLocation = selectedRange().location
@@ -710,8 +868,10 @@ class SQLTextView: NSTextView {
 
     /// Fold a character range. Text storage is NOT modified — the FoldingLayoutManager
     /// hides the glyphs and draws a placeholder pill.
+    /// Returns nil, folding nothing, while `codeFoldingEnabled` is off.
     @discardableResult
-    func fold(range: NSRange, placeholder: String) -> FoldEntry {
+    func fold(range: NSRange, placeholder: String) -> FoldEntry? {
+        guard codeFoldingEnabled else { return nil }
         let entry = foldState.add(range: range, placeholder: placeholder)
         invalidateFoldLayout()
         return entry
@@ -1060,7 +1220,7 @@ class SQLTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let layoutManager, let textContainer else { return }
+        guard highlightCurrentLine, let layoutManager, let textContainer else { return }
 
         // Highlight current line
         let cursorRange = selectedRange()
@@ -1087,7 +1247,13 @@ class SQLTextView: NSTextView {
             lineRect.origin.y += textContainerInset.height
             lineRect.origin.x += textContainerOrigin.x
 
-            let highlightColor = NSColor.labelColor.withAlphaComponent(0.04)
+            // `quaternaryLabelColor` already carries the system's own "barely
+            // there" alpha; 0.35 of it lands within 0.005 of the
+            // `labelColor` × 0.04 this line used before the setting existed,
+            // so an existing user sees the same wash. The rect comes from the
+            // LAYOUT MANAGER, never from the font metrics, so a collapsed fold
+            // above the caret cannot put the band on the wrong line.
+            let highlightColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.35)
             highlightColor.setFill()
             lineRect.fill()
         }

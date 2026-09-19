@@ -73,9 +73,38 @@ private func allLabelStrings(in view: NSView) -> [String] {
     return found
 }
 
+/// Every NSPopUpButton in the tree, in subview order.
+private func allPopups(in view: NSView) -> [NSPopUpButton] {
+    var found: [NSPopUpButton] = []
+    func walk(_ v: NSView) {
+        for sub in v.subviews {
+            if let popup = sub as? NSPopUpButton { found.append(popup) }
+            walk(sub)
+        }
+    }
+    walk(view)
+    return found
+}
+
+/// Every checkbox in the tree.
+private func allCheckboxes(in view: NSView) -> [NSButton] {
+    var found: [NSButton] = []
+    func walk(_ v: NSView) {
+        for sub in v.subviews {
+            if let button = sub as? NSButton, button.allowsMixedState || button.state != .off || !button.title.isEmpty {
+                found.append(button)
+            }
+            walk(sub)
+        }
+    }
+    walk(view)
+    return found
+}
+
 func runTests() {
     let sheet = ExportDataSheet(schema: "public", table: "users",
-                                columns: columns(4), onExport: { _ in })
+                                columns: columns(4),
+                                settings: DataExportSettings(), onExport: { _ in })
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 440),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = sheet.view
@@ -136,7 +165,8 @@ func runTests() {
                        isPrimaryKey: false, ordinalPosition: 1, columnDefault: nil)
         ]
         let sheet2 = ExportDataSheet(schema: "pub\u{202E}lic", table: "users",
-                                     columns: hostileColumns, onExport: { _ in })
+                                     columns: hostileColumns,
+                                     settings: DataExportSettings(), onExport: { _ in })
         let window2 = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 440),
                                styleMask: [.borderless], backing: .buffered, defer: false)
         window2.contentView = sheet2.view
@@ -147,6 +177,48 @@ func runTests() {
         expectTrue(allLabelStrings(in: sheet2.view).contains { $0.contains("<U+202E>") },
                    "the sheet subtitle discloses a bidi override in the schema name")
     }
+
+    // MARK: The sheet opens on what Settings says (§2.10)
+    //
+    // Not a geometry test: this is the wiring the Export & Import pane exists
+    // for. A sheet that ignored these would look right and export the wrong
+    // file.
+    var chosen = DataExportSettings()
+    chosen.defaultFormat = .markdown
+    chosen.includeHeaderRow = false
+    chosen.dialect.nullLiteral = "\\N"
+    let prefilled = ExportDataSheet(schema: "public", table: "users",
+                                    columns: columns(2),
+                                    settings: chosen, onExport: { _ in })
+    let prefilledWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 440),
+                                   styleMask: [.borderless], backing: .buffered, defer: false)
+    prefilledWindow.contentView = prefilled.view
+    prefilled.view.layoutSubtreeIfNeeded()
+
+    let popups = allPopups(in: prefilled.view)
+    expectTrue(popups.first?.titleOfSelectedItem == ExportFormat.markdown.displayLabel,
+               "the format popup opens on the format Settings names")
+    expectTrue(allCheckboxes(in: prefilled.view).contains { $0.title == "Include headers" && $0.state == .off },
+               "the headers checkbox follows Settings")
+    expectTrue(popups.contains { $0.itemArray.contains { ($0.representedObject as? String) == "\\N" } },
+               "a NULL literal Settings holds is offered rather than overwritten")
+
+    // MARK: The outcome sentences
+    expectTrue(ExportOutcomeText.message(for: ExportTableResult(
+        success: true, rowsExported: 3, charactersSubstituted: 0)) == "3 rows exported.",
+               "an export that lost nothing says only the row count")
+    expectTrue(ExportOutcomeText.message(for: ExportTableResult(
+        success: true, rowsExported: 3, charactersSubstituted: 2)).contains("2 characters"),
+               "an export that replaced characters says how many")
+    let skipped = ImportCsvResult(success: true, rowsImported: 4, rowsSkipped: 3,
+                                  errors: ["Row 3: duplicate key"], committedBatches: 2)
+    let importMessage = ImportOutcomeText.message(for: skipped)
+    expectTrue(importMessage.contains("4 rows imported."), "the import sentence leads with the rows in")
+    expectTrue(importMessage.contains("3 rows were skipped."), "and names the rows skipped")
+    expectTrue(importMessage.contains("2 batches were committed"), "and the batches committed")
+    expectTrue(importMessage.contains("Row 3: duplicate key"), "and the reason it was given")
+    expectTrue(importMessage.contains("2 further failures are not listed."),
+               "and that the listed reasons are a sample")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

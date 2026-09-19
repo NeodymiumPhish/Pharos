@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
 
 use crate::db::ssh_tunnel::SshTunnel;
-use crate::models::{ConnectionConfig, TableKeyInfo};
+use crate::models::{AppSettings, ConnectionConfig, TableKeyInfo};
 
 /// Represents a running query that can be cancelled
 pub struct RunningQuery {
@@ -29,6 +29,13 @@ pub struct AppState {
 
     /// Currently running queries, keyed by query ID
     pub running_queries: Mutex<HashMap<String, RunningQuery>>,
+
+    /// The app settings as last loaded or saved. One read at `pharos_init`,
+    /// refreshed by `save_settings`; every engine-side reader (the statement
+    /// timeout, pool tuning, history retention…) takes a snapshot from here
+    /// instead of re-reading SQLite per call. Starts at the default so the
+    /// test helpers that build an `AppState` from a bare connection compile.
+    settings: RwLock<Arc<AppSettings>>,
 
     /// In-memory cache of passwords (loaded once from keychain at startup)
     pub password_cache: Mutex<HashMap<String, String>>,
@@ -58,6 +65,11 @@ pub struct AppState {
     pub tunnel_failures: Mutex<HashMap<String, String>>,
 }
 
+/// What a refused write says. The same sentence the front end shows for the
+/// server's own SQLSTATE 25006, so the two paths read alike whichever one
+/// catches the write.
+pub const READ_ONLY_MESSAGE: &str = "This connection is read-only.";
+
 impl AppState {
     pub fn new(metadata_db: SqliteConnection) -> Self {
         Self {
@@ -65,6 +77,7 @@ impl AppState {
             connection_configs: Mutex::new(HashMap::new()),
             metadata_db: Mutex::new(metadata_db),
             running_queries: Mutex::new(HashMap::new()),
+            settings: RwLock::new(Arc::new(AppSettings::default())),
             password_cache: Mutex::new(HashMap::new()),
             analyze_denied: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
@@ -72,6 +85,17 @@ impl AppState {
             tunnels: Mutex::new(HashMap::new()),
             tunnel_failures: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// A snapshot of the current settings. Cheap: one `Arc` clone.
+    pub fn settings(&self) -> Arc<AppSettings> {
+        self.settings.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Replace the cached settings. Readers that already hold a snapshot keep
+    /// the old one until they next ask.
+    pub fn replace_settings(&self, settings: AppSettings) {
+        *self.settings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(settings);
     }
 
     /// Register a new in-progress import. Returns a shared counter to increment per row.
@@ -225,6 +249,26 @@ impl AppState {
         match self.tunnel_failure(connection_id) {
             Some(reason) => Err(format!("SSH tunnel closed: {}", reason)),
             None => Err(format!("Not connected to: {}", connection_id)),
+        }
+    }
+
+    /// Refuse the call when this connection is marked read-only.
+    ///
+    /// The SERVER already refuses every write: a read-only connection's pool
+    /// is opened with `default_transaction_read_only=on`, and PostgreSQL
+    /// answers SQLSTATE 25006. This is for the commands that are a BUTTON
+    /// rather than a statement the user typed — Import CSV, Clone Table, the
+    /// row editor — where "This connection is read-only." said before anything
+    /// runs is a better answer than a server error said after a file has been
+    /// read and half a transaction has been built.
+    ///
+    /// A connection with no config (a pool opened for a record since deleted)
+    /// is NOT refused: there is no flag to read, and refusing would break a
+    /// path that works today.
+    pub fn require_writable(&self, connection_id: &str) -> Result<(), String> {
+        match self.get_config(connection_id) {
+            Some(config) if config.read_only => Err(READ_ONLY_MESSAGE.to_string()),
+            _ => Ok(()),
         }
     }
 
@@ -580,5 +624,76 @@ mod tunnel_state_tests {
         assert!(!state.has_tunnel("a"));
         assert!(!state.has_tunnel("b"));
         assert!(state.take_all_tunnels().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod settings_cache_tests {
+    use super::*;
+
+    fn state() -> AppState {
+        AppState::new(SqliteConnection::open_in_memory().unwrap())
+    }
+
+    /// A fresh state answers with the default, so nothing that reads settings
+    /// needs `pharos_init` to have run.
+    #[test]
+    fn starts_at_default() {
+        assert_eq!(*state().settings(), AppSettings::default());
+    }
+
+    /// A connection with no read-only flag is writable, and so is one the
+    /// state has never heard of — refusing the unknown case would break a
+    /// pool opened for a record that has since been deleted.
+    #[test]
+    fn require_writable_refuses_only_a_read_only_connection() {
+        use crate::models::{ConnectionConfig, SslMode};
+        let state = state();
+
+        assert!(state.require_writable("nobody").is_ok(), "an unknown id is not refused");
+
+        let mut config = ConnectionConfig {
+            id: "c1".to_string(),
+            name: "c1".to_string(),
+            host: "db".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::Prefer,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        };
+        state.set_config(config.clone());
+        assert!(state.require_writable("c1").is_ok(), "a writable connection is not refused");
+
+        config.read_only = true;
+        state.set_config(config);
+        assert_eq!(
+            state.require_writable("c1").unwrap_err(),
+            super::READ_ONLY_MESSAGE,
+            "the refusal says the same words the front end shows for SQLSTATE 25006"
+        );
+    }
+
+    /// `replace_settings` is what every reader then sees; a snapshot taken
+    /// before the replace is unchanged, so a query mid-flight keeps the
+    /// timeout it started with.
+    #[test]
+    fn replace_is_seen_by_the_next_read_not_by_an_old_snapshot() {
+        let state = state();
+        let before = state.settings();
+        let mut changed = AppSettings::default();
+        changed.query.timeout_seconds = 7;
+        state.replace_settings(changed.clone());
+        assert_eq!(*state.settings(), changed);
+        assert_eq!(before.query.timeout_seconds, AppSettings::default().query.timeout_seconds);
     }
 }

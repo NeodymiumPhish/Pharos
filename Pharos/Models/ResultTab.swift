@@ -15,6 +15,14 @@ struct ResultTab: Identifiable {
     let timestamp: Date
 
     var customLabel: String?
+
+    /// Whether the user has ever had this result on screen.
+    ///
+    /// Only read by the result-tab limit (Settings ▸ Results ▸ Result tabs),
+    /// which closes the OLDEST tab nobody has looked at and nobody has named
+    /// — a tab the user has seen, or has renamed, is theirs and is never
+    /// taken away to make room.
+    var hasBeenViewed: Bool = false
     var queryResult: QueryResult?
     var executeResult: ExecuteResult?
     var executionTimeMs: UInt64 = 0

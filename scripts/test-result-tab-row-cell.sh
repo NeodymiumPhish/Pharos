@@ -11,6 +11,7 @@ swiftc -o /tmp/result-tab-row-cell-tests \
   Pharos/Core/CountedNounText.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \
+  Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Core/HistoryRowText.swift \
   PharosTests/ResultTabRowCellTests.swift \
   PharosTests/main.swift

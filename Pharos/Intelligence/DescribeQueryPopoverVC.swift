@@ -304,8 +304,22 @@ final class DescribeQueryPopoverVC: NSViewController {
         draftButton.isEnabled = true
         promptField.isEnabled = true
 
-        let reviewed = SQLDraftPolicy.review(draft.sql)
+        let reviewed = SQLDraftPolicy.review(
+            draft.sql,
+            allowWriteStatements: ModelAvailability.shared.isAvailable(for: .draftWriteStatements))
         review = reviewed
+
+        guard !reviewed.isRefused else {
+            // The user has said Pharos must draft reads only. The statement is
+            // not put on screen at all — showing it and refusing to insert it
+            // would be the same disclosure with extra steps.
+            review = nil
+            show(message: reviewed.warning ?? "", isFailure: true)
+            insertButton.isHidden = true
+            draftButton.isHidden = true
+            retryButton.isHidden = false
+            return
+        }
 
         guard !reviewed.isEmpty else {
             // An answer with no statement in it is a failure with a nicer

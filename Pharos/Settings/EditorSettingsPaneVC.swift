@@ -1,141 +1,193 @@
 import AppKit
 
-/// Settings ▸ Editor. The SQL editor's font, its tab width, and the two
-/// display switches.
-final class EditorSettingsPaneVC: SettingsPaneVC {
+/// Settings ▸ Editor. Everything about the SQL editor itself: its font, what
+/// Tab and Return write, what the gutter carries, when the completion list
+/// opens, what a paste offers, and which colours the syntax takes.
+///
+/// Every default is what the editor did before the setting existed, so an
+/// existing user sees no change until they touch a control.
+final class EditorSettingsPaneVC: SettingsFormPaneVC {
 
-    private let fontPopup = NSPopUpButton()
-    private let fontSizeField = NSTextField()
-    private let fontSizeStepper = NSStepper()
-    private let tabSizePopup = NSPopUpButton()
-    private let lineNumbersCheck = NSButton(checkboxWithTitle: String(localized: "Show line numbers"), target: nil, action: nil)
-    private let wordWrapCheck = NSButton(checkboxWithTitle: String(localized: "Wrap long lines"), target: nil, action: nil)
+    init() { super.init(paneId: .editor) }
 
-    private static let fontSizeRange = (min: 9, max: 24)
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    override func loadView() {
-        populateFontPopup()
-        fontPopup.target = self
-        fontPopup.action = #selector(fontChanged)
-        fontPopup.setAccessibilityIdentifier("settings.editor.font")
+    static let fontSizeRange = 8...36
 
-        fontSizeField.formatter = SettingsForm.numberFormatter(
-            min: Self.fontSizeRange.min, max: Self.fontSizeRange.max)
-        fontSizeField.alignment = .right
-        fontSizeField.delegate = self
-        fontSizeField.widthAnchor.constraint(equalToConstant: 50).isActive = true
-        fontSizeField.setAccessibilityIdentifier("settings.editor.fontSize")
+    /// The formatter's indent. 2 is today's value; the ceiling matches the
+    /// widest Tab size the pane above offers.
+    static let formatIndentRange = 1...8
 
-        fontSizeStepper.minValue = Double(Self.fontSizeRange.min)
-        fontSizeStepper.maxValue = Double(Self.fontSizeRange.max)
-        fontSizeStepper.target = self
-        fontSizeStepper.action = #selector(stepperChanged)
-        fontSizeStepper.setAccessibilityIdentifier("settings.editor.fontSizeStepper")
+    /// Blank lines between two statements. 2 is today's value, and more than
+    /// that is whitespace nobody asked for.
+    static let formatBlankLinesRange = 0...2
 
-        let sizeRow = NSStackView(views: [fontSizeField, fontSizeStepper])
-        sizeRow.orientation = .horizontal
-        sizeRow.spacing = 4
+    override var sections: [SettingsSection] {
+        [
+            SettingsSection(title: String(localized: "Font"), items: [
+                SettingsItem(
+                    id: "font",
+                    title: String(localized: "Font"),
+                    caption: String(localized: "Only installed monospace fonts are listed."),
+                    icon: "textformat",
+                    kind: .popup(Self.fontChoice())),
+                SettingsItem(
+                    id: "fontSize",
+                    title: String(localized: "Size"),
+                    icon: "textformat.size",
+                    kind: .stepper(.settings(\.editor.fontSize), range: Self.fontSizeRange, unit: String(localized: "pt"))),
+            ]),
 
-        tabSizePopup.addItems(withTitles: [
-            String(localized: "2 spaces"), String(localized: "4 spaces"), String(localized: "8 spaces"),
-        ])
-        tabSizePopup.target = self
-        tabSizePopup.action = #selector(tabSizeChanged)
-        tabSizePopup.setAccessibilityIdentifier("settings.editor.tabSize")
+            SettingsSection(title: String(localized: "Text"), items: [
+                SettingsItem(
+                    id: "tabSize",
+                    title: String(localized: "Tab size"),
+                    icon: "arrow.right.to.line",
+                    kind: .popup(.values(\.editor.tabSize, options: [
+                        (title: String(localized: "2 spaces"), value: UInt32(2)),
+                        (title: String(localized: "3 spaces"), value: UInt32(3)),
+                        (title: String(localized: "4 spaces"), value: UInt32(4)),
+                        (title: String(localized: "8 spaces"), value: UInt32(8)),
+                    ]))),
+                SettingsItem(
+                    id: "insertSpacesForTab",
+                    title: String(localized: "Insert spaces for Tab"),
+                    caption: String(localized: "Off writes one tab character instead. Shift-Tab takes back one level either way."),
+                    icon: "space",
+                    kind: .toggle(.settings(\.editor.insertSpacesForTab))),
+                SettingsItem(
+                    id: "autoIndent",
+                    title: String(localized: "Indent new lines automatically"),
+                    caption: String(localized: "Return copies the leading whitespace of the line you are leaving."),
+                    icon: "increase.indent",
+                    kind: .toggle(.settings(\.editor.autoIndent))),
+                SettingsItem(
+                    id: "autoPairBrackets",
+                    title: String(localized: "Close brackets automatically"),
+                    caption: String(localized: "Typing ( or [ also writes the closer, and Backspace over an empty pair takes both away. Typing straight before existing text never pairs."),
+                    icon: "parentheses",
+                    kind: .toggle(.settings(\.editor.autoPairBrackets))),
+                SettingsItem(
+                    id: "autoPairQuotes",
+                    title: String(localized: "Close quotes automatically"),
+                    caption: String(localized: "The same for '. An apostrophe typed after a letter is left alone."),
+                    icon: "quote.opening",
+                    kind: .toggle(.settings(\.editor.autoPairQuotes))),
+                SettingsItem(
+                    id: "wordWrap",
+                    title: String(localized: "Wrap long lines"),
+                    icon: "text.word.spacing",
+                    kind: .toggle(.settings(\.editor.wordWrap))),
+                SettingsItem(
+                    id: "lineNumbers",
+                    title: String(localized: "Show line numbers"),
+                    icon: "list.number",
+                    kind: .toggle(.settings(\.editor.lineNumbers))),
+                SettingsItem(
+                    id: "highlightCurrentLine",
+                    title: String(localized: "Highlight the current line"),
+                    caption: String(localized: "A faint wash behind the line holding the caret."),
+                    icon: "text.line.first.and.arrowtriangle.forward",
+                    kind: .toggle(.settings(\.editor.highlightCurrentLine))),
+                SettingsItem(
+                    id: "showRunButtonsInGutter",
+                    title: String(localized: "Show run buttons in the gutter"),
+                    caption: String(localized: "The band beside each statement, and the play glyph it shows on hover. ⌘Return still runs the statement at the cursor."),
+                    icon: "play.rectangle",
+                    kind: .toggle(.settings(\.editor.showRunButtonsInGutter))),
+                SettingsItem(
+                    id: "codeFolding",
+                    title: String(localized: "Allow code folding"),
+                    caption: String(localized: "The chevrons that collapse a CTE, a subquery, a CASE or a BEGIN block. Turning this off opens everything that is folded."),
+                    icon: "chevron.down.square",
+                    kind: .toggle(.settings(\.editor.codeFolding))),
+                SettingsItem(
+                    id: "minimumLinesToFold",
+                    title: String(localized: "Minimum lines to fold"),
+                    caption: String(localized: "A shorter region gets no chevron."),
+                    icon: "arrow.down.right.and.arrow.up.left",
+                    kind: .stepper(.settings(\.editor.minimumLinesToFold), range: 2...50,
+                                   unit: String(localized: "lines")),
+                    dependsOn: "codeFolding"),
+            ]),
 
-        lineNumbersCheck.target = self
-        lineNumbersCheck.action = #selector(lineNumbersChanged)
-        lineNumbersCheck.setAccessibilityIdentifier("settings.editor.lineNumbers")
+            SettingsSection(title: String(localized: "Completion"), items: [
+                SettingsItem(
+                    id: "completionTrigger",
+                    title: String(localized: "Open the list"),
+                    caption: String(localized: "Control-Space always opens it, whichever this says. It never opens inside a string or a comment."),
+                    icon: "text.append",
+                    kind: .popup(.cases(\.editor.completionTrigger, title: { $0.displayLabel }))),
+                SettingsItem(
+                    id: "completionMinimumCharacters",
+                    title: String(localized: "Characters before suggesting"),
+                    caption: String(localized: "Used only while the list opens “After a dot, and while typing”. A dot opens it whatever this says."),
+                    icon: "character.cursor.ibeam",
+                    kind: .stepper(.settings(\.editor.completionMinimumCharacters), range: 1...5, unit: nil)),
+                SettingsItem(
+                    id: "completionMaximumItems",
+                    title: String(localized: "Maximum suggestions"),
+                    caption: String(localized: "The most rows the list ever holds. A large schema can match thousands; building them all is work nobody sees."),
+                    icon: "list.bullet",
+                    kind: .stepper(.settings(\.editor.completionMaximumItems), range: 5...200, unit: nil)),
+                SettingsItem(
+                    id: "completionKeywordCase",
+                    title: String(localized: "Keyword case"),
+                    caption: String(localized: "Applied as a keyword is inserted. Schema, table and column names always keep the case the database gave them."),
+                    icon: "textformat.abc",
+                    kind: .popup(.cases(\.editor.completionKeywordCase, title: { $0.displayLabel }))),
+            ]),
 
-        wordWrapCheck.target = self
-        wordWrapCheck.action = #selector(wordWrapChanged)
-        wordWrapCheck.setAccessibilityIdentifier("settings.editor.wordWrap")
+            SettingsSection(title: String(localized: "Paste"), items: [
+                SettingsItem(
+                    id: "offerSqlListChip",
+                    title: String(localized: "Offer to format a pasted list"),
+                    caption: String(localized: "A paste that looks like bare values offers a “Format as SQL list” button. Press Tab to take it, Esc to leave it. The paste itself is never changed on its own."),
+                    icon: "list.bullet.rectangle.portrait",
+                    kind: .toggle(.settings(\.editor.offerSqlListChip))),
+                SettingsItem(
+                    id: "sqlListQuoteStyle",
+                    title: String(localized: "Quote values with"),
+                    caption: String(localized: "A list that is all numbers, all booleans or all NULL is left bare whichever this says — quoting it would change what it means."),
+                    icon: "quote.bubble",
+                    kind: .popup(.cases(\.editor.sqlListQuoteStyle, title: { $0.displayLabel }))),
+            ]),
 
-        let grid = NSGridView(views: [
-            [NSTextField.formLabel(String(localized: "Font")), fontPopup],
-            [NSTextField.formLabel(String(localized: "Font Size")), sizeRow],
-            [NSTextField.formLabel(String(localized: "Tab Size")), tabSizePopup],
-            [NSGridCell.emptyContentView, lineNumbersCheck],
-            [NSGridCell.emptyContentView, wordWrapCheck],
-        ])
-        SettingsForm.configureGrid(grid)
+            SettingsSection(title: String(localized: "Format SQL"), items: [
+                SettingsItem(
+                    id: "formatIndentWidth",
+                    title: String(localized: "Indent width"),
+                    caption: String(localized: "Spaces per level in what the Format button writes. Separate from Tab size above, which is what the Tab key types."),
+                    icon: "arrow.right.to.line",
+                    kind: .stepper(.settings(\.editor.formatIndentWidth), range: Self.formatIndentRange,
+                                   unit: String(localized: "spaces"))),
+                SettingsItem(
+                    id: "formatUppercaseKeywords",
+                    title: String(localized: "Raise keywords to capitals"),
+                    caption: String(localized: "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote."),
+                    icon: "textformat.abc",
+                    kind: .toggle(.settings(\.editor.formatUppercaseKeywords))),
+                SettingsItem(
+                    id: "formatLinesBetweenStatements",
+                    title: String(localized: "Blank lines between statements"),
+                    caption: String(localized: "How far apart two statements are left after a semicolon."),
+                    icon: "arrow.up.and.down.text.horizontal",
+                    kind: .stepper(.settings(\.editor.formatLinesBetweenStatements),
+                                   range: Self.formatBlankLinesRange,
+                                   unit: String(localized: "lines"))),
+            ]),
 
-        view = SettingsForm.wrap(grid)
-        populate()
-        preferredContentSize = SettingsWindowController.paneSize(for: view)
-    }
-
-    override func reloadFromSettings() { populate() }
-
-    private func populate() {
-        let s = stateManager.settings
-        populating {
-            selectFont(s.editor.fontFamily)
-            fontSizeField.integerValue = Int(s.editor.fontSize)
-            fontSizeStepper.integerValue = Int(s.editor.fontSize)
-            switch s.editor.tabSize {
-            case 4: tabSizePopup.selectItem(at: 1)
-            case 8: tabSizePopup.selectItem(at: 2)
-            default: tabSizePopup.selectItem(at: 0)
-            }
-            lineNumbersCheck.state = s.editor.lineNumbers ? .on : .off
-            wordWrapCheck.state = s.editor.wordWrap ? .on : .off
-        }
-    }
-
-    override func wireKeyLoop() {
-        view.window?.initialFirstResponder = fontPopup
-        fontPopup.nextKeyView = fontSizeField
-        fontSizeField.nextKeyView = fontSizeStepper
-        fontSizeStepper.nextKeyView = tabSizePopup
-        tabSizePopup.nextKeyView = lineNumbersCheck
-        lineNumbersCheck.nextKeyView = wordWrapCheck
-        wordWrapCheck.nextKeyView = fontPopup
-    }
-
-    // MARK: - Actions
-
-    @objc private func fontChanged() {
-        guard let selected = fontPopup.titleOfSelectedItem else { return }
-        apply { $0.editor.fontFamily = selected }
-    }
-
-    @objc private func stepperChanged() {
-        fontSizeField.integerValue = fontSizeStepper.integerValue
-        commitFontSize()
-    }
-
-    @objc private func tabSizeChanged() {
-        apply { s in
-            switch tabSizePopup.indexOfSelectedItem {
-            case 1: s.editor.tabSize = 4
-            case 2: s.editor.tabSize = 8
-            default: s.editor.tabSize = 2
-            }
-        }
-    }
-
-    @objc private func lineNumbersChanged() {
-        apply { $0.editor.lineNumbers = lineNumbersCheck.state == .on }
-    }
-
-    @objc private func wordWrapChanged() {
-        apply { $0.editor.wordWrap = wordWrapCheck.state == .on }
-    }
-
-    override func commitTextField(_ field: NSTextField) {
-        guard field === fontSizeField else { return }
-        commitFontSize()
-    }
-
-    /// The field's formatter rejects an out-of-range value only when editing
-    /// ends, so the size is clamped here as well — mid-typing "1" must not be
-    /// stored as a 1pt editor font.
-    private func commitFontSize() {
-        let typed = fontSizeField.integerValue
-        guard typed >= Self.fontSizeRange.min, typed <= Self.fontSizeRange.max else { return }
-        fontSizeStepper.integerValue = typed
-        apply { $0.editor.fontSize = UInt32(typed) }
+            SettingsSection(title: String(localized: "Colours"), items: [
+                SettingsItem(
+                    id: "syntaxTheme",
+                    title: String(localized: "Syntax colours"),
+                    caption: String(localized: "System follows the macOS palette. Every theme reads in both light and dark appearance."),
+                    icon: "paintpalette",
+                    kind: .popup(.values(\.editor.syntaxTheme, options: SQLTheme.catalog.map {
+                        (title: $0.displayLabel, value: $0.name)
+                    }))),
+            ]),
+        ]
     }
 
     // MARK: - Fonts
@@ -144,6 +196,8 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         let displayName: String
         let postScriptName: String
     }
+
+    static let systemMonospaceTitle = "System Monospace"
 
     private static let monoFonts: [MonoFont] = [
         MonoFont(displayName: "Menlo", postScriptName: "Menlo-Regular"),
@@ -155,23 +209,20 @@ final class EditorSettingsPaneVC: SettingsPaneVC {
         MonoFont(displayName: "Courier New", postScriptName: "CourierNewPSMT"),
     ]
 
-    private func populateFontPopup() {
-        fontPopup.removeAllItems()
-        fontPopup.addItem(withTitle: "System Monospace")
-        fontPopup.menu?.addItem(.separator())
-
-        for mono in Self.monoFonts where NSFont(name: mono.postScriptName, size: 13) != nil {
-            fontPopup.addItem(withTitle: mono.displayName)
-        }
-    }
-
-    private func selectFont(_ family: String) {
-        let firstName = family.components(separatedBy: ",").first?
-            .trimmingCharacters(in: .whitespaces) ?? family
-        for i in 0..<fontPopup.numberOfItems where fontPopup.itemTitle(at: i) == firstName {
-            fontPopup.selectItem(at: i)
-            return
-        }
-        fontPopup.selectItem(at: 0)
+    /// The installed monospace fonts, System Monospace first. The stored
+    /// `fontFamily` may be a CSS-style list ("JetBrains Mono, Monaco, …"):
+    /// its first name selects the row; a name that is not installed shows as
+    /// System Monospace and is left unchanged until the user picks one.
+    @MainActor
+    private static func fontChoice() -> SettingsChoice {
+        var titles = [systemMonospaceTitle]
+        titles += monoFonts.filter { NSFont(name: $0.postScriptName, size: 13) != nil }.map(\.displayName)
+        let binding = SettingsBinding<String>.settings(\.editor.fontFamily).map(
+            to: { family -> String in
+                let first = family.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? family
+                return titles.contains(first) ? first : systemMonospaceTitle
+            },
+            from: { $0 })
+        return SettingsChoice(options: titles.map { (title: $0, value: $0) }, binding: binding)
     }
 }

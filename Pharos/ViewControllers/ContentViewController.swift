@@ -156,7 +156,7 @@ class ContentViewController: NSViewController {
     /// ensure it only consumes Esc while a selection is actually staged.
     private var escKeyMonitor: Any?
     private var hasSetInitialSplit = false
-    private static let splitRatioKey = "PharosEditorSplitRatio"
+
 
     /// Query IDs that the user has cancelled. Checked in the error handler to
     /// suppress the "Query failed" notification for user-initiated cancellations.
@@ -656,6 +656,24 @@ class ContentViewController: NSViewController {
         errorPresenter.showCancelledDialog = { [weak self] in
             self?.stateManager.settings.query.showCancelledQueryDialog ?? true
         }
+        errorPresenter.failureAlertStyle = { [weak self] in
+            self?.stateManager.settings.query.failureAlertStyle ?? .sheet
+        }
+        errorPresenter.errorSheetTrigger = { [weak self] in
+            self?.stateManager.settings.query.errorSheetTrigger ?? .secondFailure
+        }
+        // The Notification style of Settings ▸ Query ▸ Errors. The same
+        // system banner `announceFailure` posts for a background tab, asked
+        // for here because the user chose it instead of the sheet.
+        errorPresenter.postNotification = { failure in
+            QueryNotifier.shared.notifyQueryFailed(
+                failureId: failure.id,
+                tabId: failure.tabId,
+                subheader: failure.subheader,
+                message: failure.message,
+                connectionName: failure.connectionName
+            )
+        }
         errorPresenter.showSheet = { [weak self] sheet in self?.presentAsSheet(sheet) }
         errorPresenter.closeSheet = { [weak self] sheet in self?.dismiss(sheet) }
         errorPresenter.showBanner = { [weak self] failure in self?.showErrorBanner(failure) }
@@ -681,8 +699,11 @@ class ContentViewController: NSViewController {
         // Restore saved split ratio once the content area has real height
         if !hasSetInitialSplit, editorResultsSplit.bounds.height > 0 {
             hasSetInitialSplit = true
-            let saved = UserDefaults.standard.double(forKey: Self.splitRatioKey)
-            savedSplitRatio = saved > 0 ? saved : 0.6
+            // Settings ▸ General ▸ Session. A stored 0 is not a ratio —
+            // it is what `UserDefaults.double` returns for an absent key —
+            // so the model's own default stands in for it.
+            let stored = stateManager.settings.session.defaultEditorSplitRatio
+            savedSplitRatio = CGFloat(stored > 0 ? stored : 0.6)
             applyExpandState()
         }
     }
@@ -1432,7 +1453,15 @@ class ContentViewController: NSViewController {
 
     private func persistSplitRatio() {
         guard expandState == .normal else { return }
-        UserDefaults.standard.set(Double(savedSplitRatio), forKey: Self.splitRatioKey)
+        // Rounded to three decimals: the divider reports a new fraction on
+        // every frame of a drag, and an unrounded value would write — and
+        // republish — the settings on each of them.
+        let rounded = (Double(savedSplitRatio) * 1000).rounded() / 1000
+        guard rounded > 0, rounded < 1 else { return }
+        var updated = stateManager.settings
+        guard updated.session.defaultEditorSplitRatio != rounded else { return }
+        updated.session.defaultEditorSplitRatio = rounded
+        stateManager.saveSettings(updated)
     }
 
     // MARK: - Rename Tab
@@ -1481,7 +1510,9 @@ class ContentViewController: NSViewController {
         sql: String,
         kind: NameSuggestion.Kind
     ) {
-        guard ModelAvailability.shared.isAvailable else { return }
+        // The same switch as the Save Query sheet: both fill a name field the
+        // user is looking at and about to accept or overwrite.
+        guard ModelAvailability.shared.isAvailable(for: .suggestSavedQueryNames) else { return }
         guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         // The text on screen now. A suggestion only replaces THIS — anything
@@ -1517,7 +1548,7 @@ class ContentViewController: NSViewController {
     /// a session arrives with the name it was saved under, which is not
     /// "Query <n>" once it has been suggested, so restoring never re-names.
     private func suggestEditorTabNameIfAutomatic(forEditorTab tabId: String, sql: String) {
-        guard ModelAvailability.shared.isAvailable else { return }
+        guard ModelAvailability.shared.isAvailable(for: .nameTabsAutomatically) else { return }
         guard let tab = session.tabs.first(where: { $0.id == tabId }),
               !AppStateManager.isCustomTabName(tab.name),
               !nameSuggestionAsked.contains(tabId) else { return }
@@ -1597,12 +1628,28 @@ class ContentViewController: NSViewController {
             // Explicit SQL passed (e.g., from context menu, saved query) — use direct execution
             executeDirectSQL(sql)
         } else {
-            // Cmd+Return — execute the segment at the cursor
-            if let segment = editorPane.editorVC.getSegmentSQLAtCursor() {
-                executeSegment(segment)
-            } else {
-                // Fallback: no segments parsed, execute full editor text
-                executeDirectSQL(editorPane.getSQL())
+            // Cmd+Return — what it runs is Settings ▸ Query ▸ Run. The default
+            // is the statement at the cursor, which is what it has always done.
+            let segment = editorPane.editorVC.getSegmentSQLAtCursor()
+            let resolution = RunScopeResolver.resolve(
+                mode: stateManager.settings.query.runScope,
+                selectedText: editorPane.editorVC.selectedSQL(),
+                segmentAtCursor: segment.map {
+                    RunScopeResolver.Segment(index: $0.index, sql: $0.sql,
+                                             lineRange: $0.startLine...$0.endLine)
+                },
+                fullText: editorPane.getSQL()
+            )
+            switch resolution {
+            case .segment:
+                // The resolver only returns `.segment` for the one it was
+                // given, so the real `SQLSegment` — with its editor range for
+                // the gutter bar — is the one to run.
+                if let segment { executeSegment(segment) }
+            case .direct(let sql):
+                executeDirectSQL(sql)
+            case .nothing:
+                break
             }
         }
     }
@@ -1724,7 +1771,11 @@ class ContentViewController: NSViewController {
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
         if stateManager.settings.query.confirmDestructive {
-            let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
+            // Which KINDS still ask is Settings ▸ Query ▸ Safety. Every kind
+            // is on by default, so this filter changes nothing until the user
+            // turns one off.
+            let keywords = stateManager.settings.query.destructiveConfirmations
+                .filtered(DestructiveSQLScanner.destructiveKeywords(in: sql))
             if !keywords.isEmpty {
                 // On confirm, run the exact SQL the sheet displayed against the
                 // captured tab/connection — never re-derive from the active tab,
@@ -1912,9 +1963,14 @@ class ContentViewController: NSViewController {
                         tabId: tabId,
                         tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
-                        timestamp: Date()
+                        timestamp: Date(),
+                        // The two things only this run knows, and the reason
+                        // the Query History record is driven from here rather
+                        // than from the core's failure site.
+                        rawSQL: rawSQL,
+                        lineRange: lineRange.lowerBound > 0 ? lineRange : nil
                     )
-                    self.recordFailure(failure)
+                    self.recordFailure(failure, connectionId: connectionId)
                 }
             }
         }
@@ -2014,6 +2070,9 @@ class ContentViewController: NSViewController {
         // session, nor the work a TRUNCATE did while the lock was held. So a
         // destructive statement is refused outright rather than confirmed.
         if analyze {
+            // NOT filtered by Settings ▸ Query ▸ Safety. That setting chooses
+            // which kinds raise a CONFIRMATION; this is a refusal, and a
+            // refusal the user can switch off is not a safety rule.
             let keywords = DestructiveSQLScanner.destructiveKeywords(in: sql)
             if !keywords.isEmpty {
                 presentExplainAnalyzeRefusal(keywords: keywords)
@@ -2054,9 +2113,11 @@ class ContentViewController: NSViewController {
                         tabId: tabId,
                         tabName: self.session.tabs.first { $0.id == tabId }?.name ?? "Query",
                         connectionName: self.stateManager.connections.first { $0.id == connectionId }?.name,
-                        timestamp: Date()
+                        timestamp: Date(),
+                        rawSQL: rawSQL,
+                        lineRange: lineRange.lowerBound > 0 ? lineRange : nil
                     )
-                    self.recordFailure(failure)
+                    self.recordFailure(failure, connectionId: connectionId)
                 }
             }
         }
@@ -2218,6 +2279,10 @@ class ContentViewController: NSViewController {
             // grid or the focused pane's gutter. The gutter color and grid are
             // restored from the store when the user switches back
             // (activeTabChanged → reResolveAllResultTabs).
+            if let evicted = Self.resultTabToEvict(from: session.resultStore[editorTabId].tabs,
+                                                   limit: resultTabLimit) {
+                evictResultTab(evicted, fromBackgroundEditorTab: editorTabId)
+            }
             session.resultStore[editorTabId].tabs.append(tab)
             session.resultStore[editorTabId].activeId = tab.id
             // A background tab still needs its surface refreshed. The old
@@ -2258,8 +2323,14 @@ class ContentViewController: NSViewController {
             captureChartConfig(intoTabAt: outgoingIdx)
         }
 
+        if let evicted = Self.resultTabToEvict(from: resultTabs, limit: resultTabLimit) {
+            evictResultTab(evicted, fromBackgroundEditorTab: nil)
+        }
+
         resultTabs.append(tab)
         activeResultTabId = tab.id
+        // It is on screen from here, so it is never a candidate for eviction.
+        markResultTabViewed(tab.id)
         refreshResultTabViews()
 
         // Set segment color in gutter
@@ -2321,6 +2392,7 @@ class ContentViewController: NSViewController {
         }
 
         activeResultTabId = tabId
+        markResultTabViewed(tabId)
         refreshResultTabViews()
 
         guard let tab = resultTabs.first(where: { $0.id == tabId }) else { return }
@@ -2351,6 +2423,53 @@ class ContentViewController: NSViewController {
 
         // History banner follows the selected result tab.
         applyResultBanner(from: tab)
+    }
+
+    // MARK: - The result-tab limit (Settings ▸ Results)
+
+    /// Most result tabs one editor tab keeps. 0 is unlimited, which is what
+    /// the app did before the setting existed.
+    private var resultTabLimit: UInt32 {
+        AppStateManager.shared.settings.results.maximumResultTabs
+    }
+
+    /// Which tab must go to make room for one more, or nil for none.
+    ///
+    /// The OLDEST tab — the list is in arrival order — that the user has
+    /// neither viewed nor named. When every tab is one of those two, nothing
+    /// is evicted and the list is allowed past the limit: silently closing a
+    /// result somebody is using would be worse than keeping one too many.
+    ///
+    /// Static and pure so both deposit paths, foreground and background, ask
+    /// exactly the same question.
+    static func resultTabToEvict(from tabs: [ResultTab], limit: UInt32) -> String? {
+        guard limit > 0, tabs.count >= Int(limit) else { return nil }
+        return tabs.first { !$0.hasBeenViewed && $0.customLabel == nil }?.id
+    }
+
+    /// Note that the user has seen this result, so the limit will not take it.
+    private func markResultTabViewed(_ tabId: String) {
+        _ = mutateResultTab(id: tabId) { $0.hasBeenViewed = true }
+    }
+
+    /// Close an evicted tab and say so. `editorTabId` is nil for the active
+    /// editor tab, where the full close path (segment colour, selection) has
+    /// to run; a background tab's entry is only a list.
+    private func evictResultTab(_ tabId: String, fromBackgroundEditorTab editorTabId: String?) {
+        let name = resultTab(withId: tabId).map {
+            $0.customLabel ?? ResultTabName.derived(lineRange: $0.lineRange, sql: $0.sql)
+        } ?? tabId
+        if let editorTabId {
+            session.resultStore[editorTabId].tabs.removeAll { $0.id == tabId }
+            if session.resultStore[editorTabId].activeId == tabId {
+                session.resultStore[editorTabId].activeId = session.resultStore[editorTabId].tabs.last?.id
+            }
+        } else {
+            closeResultTab(tabId)
+        }
+        Toast.show(in: view,
+                   message: String(localized: "Closed “\(name)” — the result tab limit was reached."),
+                   style: .info)
     }
 
     private func closeResultTab(_ tabId: String) {
@@ -2773,6 +2892,22 @@ class ContentViewController: NSViewController {
     /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
     /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
+        // Plan §5.2 L: ask before the tab takes an unsaved edit with it.
+        // Nothing below runs until the answer is in — Cancel leaves the tab
+        // exactly as it was.
+        let unsaved = unsavedWorkTabs(forTabId: id)
+        guard unsaved.isEmpty else {
+            confirmClosing(unsaved) { [weak self] proceed in
+                guard let self, proceed else { return }
+                self.performCloseTab(id: id)
+            }
+            return
+        }
+        performCloseTab(id: id)
+    }
+
+    /// The close itself, once there is nothing left to ask about.
+    private func performCloseTab(id: String) {
         // Flush a final editor snapshot for the closing tab's workspace.
         if let tab = session.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
             _ = ensureWorkspace(forEditorTabId: id)
@@ -2794,7 +2929,22 @@ class ContentViewController: NSViewController {
     /// Record a failure on its tab, then decide what the user sees. The sheet and
     /// the editor marker are for the active tab only; a background tab gets the
     /// pulsing button.
-    private func recordFailure(_ failure: QueryFailure) {
+    /// - Parameter connectionId: the connection the query ran on, when the
+    ///   caller knows it. Passing it lets a failure that means the CONNECTION
+    ///   is gone move that connection to Error — see
+    ///   `AppStateManager.markConnectionLost`. Every failure path that has a
+    ///   connection in scope should pass it; the classifier ignores the ones
+    ///   that are merely a bad query.
+    private func recordFailure(_ failure: QueryFailure, connectionId: String? = nil) {
+        if let connectionId, failure.kind == .error {
+            stateManager.markConnectionLost(id: connectionId, reason: failure.message)
+        }
+
+        // Query History, before anything is shown. This is the single funnel
+        // every failure crosses, which is why the record is made here and not
+        // at the half-dozen sites that build a QueryFailure.
+        recordFailedQueryInHistory(failure, connectionId: connectionId)
+
         // Read BEFORE the append: the presenter's banner rule asks how many
         // unread failures the tab had before this one, and the append would
         // have already counted it.
@@ -2817,6 +2967,62 @@ class ContentViewController: NSViewController {
         announceFailure(failure)
 
         refreshErrorBadge(forTabId: failure.tabId)
+    }
+
+    /// Put a failed run in Query History, when it is one worth keeping.
+    ///
+    /// Two gates, and they are not the same gate:
+    ///
+    /// 1. Settings ▸ Library & History ▸ **Record failed queries** — the
+    ///    user's answer to whether they want failures at all.
+    /// 2. `HistoryFailureFilter.shouldRecord` — whether THIS failure is one a
+    ///    history can be asked about. A server's answer is; a refusal that
+    ///    never left this Mac ("connect to a database first") is not, and a
+    ///    history full of those buries the real failures.
+    ///
+    /// The connection is needed to name the row, so a failure with no
+    /// connection in scope — and none on its tab either — is not recorded.
+    /// That is the same class of failure gate 2 already drops.
+    private func recordFailedQueryInHistory(_ failure: QueryFailure, connectionId: String?) {
+        guard stateManager.settings.history.recordFailedQueries else { return }
+        guard HistoryFailureFilter.shouldRecord(failure.message) else { return }
+
+        let tab = session.tabs.first { $0.id == failure.tabId }
+        guard let connectionId = connectionId ?? tab?.connectionId else { return }
+
+        let record = PharosCore.FailedQueryRecord(
+            connectionId: connectionId,
+            sql: failure.sql,
+            rawSql: failure.rawSQL,
+            message: failure.message,
+            status: failure.kind == .cancelled
+                ? QueryHistoryStatus.cancelled
+                : QueryHistoryStatus.error,
+            schema: tab?.schemaName,
+            // The workspace and the line range are the two things the core
+            // cannot know; both are nil for a run that has neither, and the
+            // row is still recorded.
+            workspaceId: tab?.workspaceId,
+            lineStart: failure.lineRange?.lowerBound,
+            lineEnd: failure.lineRange?.upperBound,
+            executionTimeMs: 0
+        )
+
+        // Off the main thread: this is SQLite IO on the way out of a failure,
+        // and the user is already looking at a sheet.
+        Task.detached(priority: .utility) {
+            do {
+                _ = try PharosCore.recordFailedQuery(record)
+                await MainActor.run {
+                    NotificationCoalescer.post(.queryHistoryDidChange)
+                    NotificationCoalescer.post(.workspaceHistoryDidChange)
+                }
+            } catch {
+                // A history row is never worth a second error on top of the
+                // one the user is already reading.
+                Log.query.error("Failed to record a failed query in history: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Inline Error Banner
@@ -3217,13 +3423,33 @@ extension ContentViewController {
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
         guard ownsBroadcast(notification) else { return }
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
+        // Settings ▸ Library & History ▸ On double-click, decided by the
+        // sender. Absent means "just open", which every other sender wants.
+        let run = notification.userInfo?["run"] as? Bool ?? false
         if let existingTab = session.tabs.first(where: { $0.savedQueryId == query.id }) {
             session.selectTab(id: existingTab.id)
+            if run { runSavedQuery(query) }
             return
         }
         let tab = session.createTab(sql: query.sql, name: query.name)
         session.updateTab(id: tab.id) {
             $0.savedQueryId = query.id
+        }
+        if run { runSavedQuery(query) }
+    }
+
+    /// Run a saved query in the tab that has just been opened for it.
+    ///
+    /// Deferred one turn of the run loop: `createTab`/`selectTab` publish the
+    /// new active tab, and `performQuery` reads `session.activeTab` and its
+    /// connection. Running inside the same turn would read the tab the user
+    /// was on before. The query still has to reach a CONNECTED tab —
+    /// `performQuery` returns quietly when it does not — so a double-click
+    /// on a query whose tab has no connection opens it and stops there,
+    /// which is what the plain Open action does anyway.
+    private func runSavedQuery(_ query: SavedQuery) {
+        DispatchQueue.main.async { [weak self] in
+            self?.performQuery(query.sql, segmentIndex: -1, lineRange: 0...0, customLabel: query.name)
         }
     }
 
@@ -3233,6 +3459,11 @@ extension ContentViewController {
 
         let tabName = entry.tableNames ?? "History"
         let tab = session.createTab(sql: entry.sql, name: tabName)
+
+        // A failed entry has no result to restore. Its SQL is now in the tab,
+        // which is the useful thing: read the message in the navigator, fix
+        // the statement, run it again.
+        guard entry.isSucceeded else { return }
 
         do {
             guard let resultData = try PharosCore.getQueryHistoryResult(id: entry.id) else { return }
@@ -3310,6 +3541,12 @@ extension ContentViewController {
             // results that have them, leave "SQL only" ones as re-runnable stubs.
             var restored: [ResultTab] = []
             for meta in detail.results {
+                // A workspace holds the failures its tab produced as well as
+                // its results. A failed run has no result to restore — no
+                // rows, no columns, no cached blob — so it gets no result tab.
+                // Its record stays in the Results History navigator, which is
+                // where the user goes to read it.
+                guard meta.isSucceeded else { continue }
                 let color = ResultTab.palette[(meta.colorIndex ?? 0) % ResultTab.palette.count]
                 var rt = ResultTab(
                     id: UUID().uuidString,
@@ -4259,41 +4496,83 @@ extension ContentViewController {
     @objc func menuSaveQuery(_: Any?) {
         guard let tab = session.activeTab else { return }
 
-        // File-backed tab: write back to the source URL.
-        if let url = tab.sourceURL {
-            let currentSQL = editorPane.getSQL()
-            do {
-                try SQLFileWriter.write(currentSQL, to: url)
-                session.updateTab(id: tab.id) {
-                    $0.sql = currentSQL
-                    $0.isDirty = false
-                }
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "Couldn't save \(url.lastPathComponent)"
-                alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
-            return
-        }
-
-        // Saved-query-backed tab: update the saved query in place.
-        if let savedId = tab.savedQueryId {
-            let currentSQL = editorPane.getSQL()
-            do {
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: nil)
-                _ = try PharosCore.updateSavedQuery(update)
-                session.updateTab(id: tab.id) { $0.sql = currentSQL }
-                NotificationCoalescer.post(.savedQueriesDidChange)
-            } catch {
-                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
-            }
+        // A bound tab writes back where it came from. A scratch tab has
+        // nowhere to write to, so it asks.
+        if UnsavedWorkPolicy.canSaveInPlace(unsavedWorkTab(tab)) {
+            saveTabInPlace(id: tab.id)
             return
         }
 
         // New tab: prompt to save into the saved-queries store.
         presentSaveQuerySheet(tab: tab)
+    }
+
+    /// Write one tab's edits back to whatever binds it — its file, or its saved
+    /// query — and mark it clean. Returns false when the tab is bound to
+    /// nothing (the caller must present the Save Query sheet instead) or the
+    /// write failed.
+    ///
+    /// Works for ANY tab, not only the one on screen: the SQL comes from the
+    /// editor for the visible tab and from the tab's own `sql` otherwise, and
+    /// `QueryEditorVC.textDidChange` writes every keystroke into the tab, so a
+    /// background tab's `sql` is current. That is what lets the close and quit
+    /// warnings save tabs the user is not looking at.
+    ///
+    /// Clearing `isDirty` is the point of the "in place" in the name: before
+    /// this existed, only the FILE branch cleared it, so a tab bound to a
+    /// saved query stayed dirty for the rest of its life after one edit.
+    @discardableResult
+    func saveTabInPlace(id: String, reportErrors: Bool = true) -> Bool {
+        guard let tab = session.tabs.first(where: { $0.id == id }) else { return false }
+        let currentSQL = editorPane.showsTab(id) ? editorPane.getSQL() : tab.sql
+
+        if let url = tab.sourceURL {
+            do {
+                try SQLFileWriter.write(currentSQL, to: url)
+                session.updateTab(id: id) {
+                    $0.sql = currentSQL
+                    $0.isDirty = false
+                }
+                return true
+            } catch {
+                Log.query.error("Failed to save \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                if reportErrors {
+                    let alert = NSAlert()
+                    alert.messageText = "Couldn't save \(url.lastPathComponent)"
+                    alert.informativeText = error.localizedDescription
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                return false
+            }
+        }
+
+        if let savedId = tab.savedQueryId {
+            do {
+                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: currentSQL, variables: nil)
+                _ = try PharosCore.updateSavedQuery(update)
+                session.updateTab(id: id) {
+                    $0.sql = currentSQL
+                    // The bug this line fixes: the saved query HAS been
+                    // written, so the tab is no longer dirty.
+                    $0.isDirty = false
+                }
+                NotificationCoalescer.post(.savedQueriesDidChange)
+                return true
+            } catch {
+                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
+                if reportErrors {
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "Couldn't save “\(tab.name)”")
+                    alert.informativeText = error.localizedDescription
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+                return false
+            }
+        }
+
+        return false
     }
 
     @objc func menuSaveQueryAs(_: Any?) {
@@ -4328,20 +4607,40 @@ extension ContentViewController {
         }
     }
 
-    private func presentSaveQuerySheet(tab: QueryTab) {
+    /// Ask for a name and a folder, then put this tab's SQL in the library.
+    ///
+    /// `onFinish` reports whether the tab came out of the sheet SAVED. The
+    /// close/quit warning needs that answer: a cancelled sheet has to cancel
+    /// the close rather than drop the tab the user just declined to save. The
+    /// SQL is taken from the editor for the visible tab and from the tab's own
+    /// `sql` otherwise, so the sheet can serve a background tab too.
+    func presentSaveQuerySheet(tab: QueryTab, onFinish: ((Bool) -> Void)? = nil) {
+        var didSave = false
         let sheet = SaveQuerySheet(
             tabName: tab.name,
-            sql: editorPane.getSQL()
+            sql: editorPane.showsTab(tab.id) ? editorPane.getSQL() : tab.sql
         ) { [weak self] action in
+            didSave = true
             guard let self else { return }
             let savedQuery: SavedQuery
             switch action {
             case .created(let q): savedQuery = q
             case .replaced(let q): savedQuery = q
             }
-            self.session.updateTab(id: tab.id) { $0.savedQueryId = savedQuery.id }
+            self.session.updateTab(id: tab.id) {
+                $0.savedQueryId = savedQuery.id
+                // The sheet wrote this tab's SQL into the store, so the tab
+                // matches what is saved: it is no longer dirty. Recording the
+                // SQL as well keeps `tab.sql` and the store in step for the
+                // next comparison.
+                $0.sql = savedQuery.sql
+                $0.isDirty = false
+            }
             NotificationCoalescer.post(.savedQueriesDidChange)
         }
+        // Fires however the sheet ends — Save, Cancel or Escape — and after
+        // the save callback above, so `didSave` is settled by now.
+        sheet.onDismiss = { onFinish?(didSave) }
         presentAsSheet(sheet)
     }
 }

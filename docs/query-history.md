@@ -38,7 +38,18 @@ Below the workspaces, an **"Earlier history"** disclosure holds individual query
 
 ## What Gets Recorded
 
-Successful queries are recorded automatically; failed queries are not. History is retained for **90 days** — older workspaces and entries are pruned automatically.
+Every query you run is recorded automatically — the ones that worked and, by default, the ones that failed. History is retained for **90 days** — older workspaces and entries are pruned automatically.
+
+## Failed Queries
+
+A query that the server refused leaves a row of its own: a warning glyph, the word **Failed**, and the server's message in the row's tooltip. Cancelled runs read **Cancelled**. Screen readers hear the word, not the glyph.
+
+- **Scope** — the control at the top of the panel chooses what the list shows: **All**, **Succeeded**, or **Failed**. **Failed** is a flat, newest-first list of every failure, whatever workspace it came from; the workspace rows step aside for it.
+- **What is kept** — the SQL that ran, the connection, the time, and the message. There are no rows and no columns to keep: the query never produced any, so the row shows no counts.
+- **Reopening** — double-click a failed row to put its SQL in a new tab, ready to correct and run again. Nothing is restored to the results grid, because nothing was returned.
+- **Not every failure** — only answers from the server. A refusal Pharos makes on its own — no connection yet, a variable still unset, an empty editor, a tunnel that closed before anything was sent — says nothing about your SQL, and a history full of those buries the real failures, so they are not recorded.
+- **Workspaces** — a failure belongs to the workspace its tab was in, and is counted among that workspace's queries. It is not a result: reopening the workspace rebuilds only the results, and the preview pane lists only those.
+- **Turning it off** — **Settings ▸ Library & History ▸ Record failed queries**. Off stops new failures being recorded; rows already in the history stay until you clear them.
 
 ## Filtering
 
@@ -46,4 +57,4 @@ The sidebar's **Filter** field — along the bottom of the sidebar, **Cmd+Opt+J*
 
 ## Nothing Recorded Yet
 
-Before you have run anything, the panel shows **No History** — "Queries you run appear here." A filter that happens to match nothing does not replace the list: the field is still live, so the empty list is the filter's own answer.
+Before you have run anything, the panel shows **No History** — "Queries you run appear here." Under the **Failed** scope an empty list says **No Failures** instead, which is a different thing from having no history at all. A filter that happens to match nothing does not replace either message: the field is still live, so the empty list is the filter's own answer.

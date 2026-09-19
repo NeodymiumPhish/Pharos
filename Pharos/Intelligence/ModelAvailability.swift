@@ -33,6 +33,18 @@ final class ModelAvailability: ObservableObject {
         didSet { shared.refresh() }
     }
 
+    /// The same seam one level lower: force what the SYSTEM says, and leave
+    /// the Pharos settings to answer for themselves.
+    ///
+    /// `overrideForTesting` cannot stand in for this. It replaces the composed
+    /// answer, so a test written with it cannot tell "this Mac cannot run the
+    /// model" apart from "the user cleared the switch" — and the per-feature
+    /// rule has to refuse in the first case whatever the flags say. Production
+    /// code never sets it.
+    static var systemOverrideForTesting: Bool? {
+        didSet { shared.refresh() }
+    }
+
     /// True only when the model is usable AND the Pharos setting is on.
     @Published private(set) var isAvailable: Bool = false
 
@@ -41,7 +53,7 @@ final class ModelAvailability: ObservableObject {
 
     /// Whether the MODEL is usable, ignoring the Pharos setting.
     ///
-    /// Settings ▸ General needs this on its own: a checkbox that the user
+    /// Settings ▸ Intelligence needs this on its own: a switch that the user
     /// cleared must stay clickable so they can set it again, while a Mac that
     /// cannot run the model disables it outright. Features want `isAvailable`.
     @Published private(set) var systemModelIsAvailable: Bool = false
@@ -55,6 +67,30 @@ final class ModelAvailability: ObservableObject {
     /// at that moment, and every later reader wants the same value.
     private var enabledInSettings = true
 
+    /// The seven per-feature switches, as last PUBLISHED.
+    ///
+    /// Published in its own right so a view can follow one feature without
+    /// polling, and cached for the same `willSet` reason as
+    /// `enabledInSettings` above. Read through `isAvailable(for:)`, never on
+    /// its own: a flag that is on still means nothing on a Mac that cannot run
+    /// the model.
+    @Published private(set) var features = IntelligenceSettings()
+
+    /// The two stored fields this object follows, as one value.
+    ///
+    /// A named struct rather than a tuple: `removeDuplicates` over a tuple
+    /// needs a hand-written comparator, and that expression defeated the
+    /// type-checker outright ("unable to type-check in reasonable time").
+    private struct StoredInputs: Equatable {
+        let master: Bool
+        let features: IntelligenceSettings
+
+        init(_ settings: AppSettings) {
+            master = settings.useAppleIntelligence
+            features = settings.intelligence
+        }
+    }
+
     private var settingsCancellable: AnyCancellable?
     private var activeObserver: NSObjectProtocol?
 
@@ -63,10 +99,11 @@ final class ModelAvailability: ObservableObject {
         // seeds `enabledInSettings` — one code path for launch and change, as
         // `ThemeApplier` does it.
         settingsCancellable = AppStateManager.shared.$settings
-            .map(\.useAppleIntelligence)
+            .map(StoredInputs.init)
             .removeDuplicates()
-            .sink { [weak self] enabled in
-                self?.enabledInSettings = enabled
+            .sink { [weak self] inputs in
+                self?.enabledInSettings = inputs.master
+                self?.features = inputs.features
                 self?.refresh()
             }
 
@@ -93,8 +130,12 @@ final class ModelAvailability: ObservableObject {
             }
         }
 
-        let availability = SystemLanguageModel.default.availability
-        let systemReason = Self.reason(for: availability)
+        let systemReason: String?
+        if let forcedSystem = Self.systemOverrideForTesting {
+            systemReason = forcedSystem ? nil : Self.genericUnavailableReason
+        } else {
+            systemReason = Self.reason(for: SystemLanguageModel.default.availability)
+        }
         systemModelIsAvailable = systemReason == nil
 
         if let forced = Self.overrideForTesting {
@@ -126,6 +167,10 @@ final class ModelAvailability: ObservableObject {
 
     static let settingOffReason = String(localized: "Turned off in Pharos settings.")
 
+    /// The sentence for a Mac that cannot run the model and will not say why.
+    static let genericUnavailableReason = String(
+        localized: "Apple Intelligence is not available on this Mac right now.")
+
     /// The user-readable reason, or nil when the model is available.
     ///
     /// `UnavailableReason` is not frozen, so a case added by a later macOS
@@ -144,8 +189,79 @@ final class ModelAvailability: ObservableObject {
             case .modelNotReady:
                 return String(localized: "The on-device model is still downloading. Try again shortly.")
             @unknown default:
-                return String(localized: "Apple Intelligence is not available on this Mac right now.")
+                return genericUnavailableReason
             }
         }
+    }
+}
+
+// MARK: - The per-feature switches
+
+extension ModelAvailability {
+
+    /// One Apple Intelligence feature, as Settings ▸ Intelligence lists them.
+    ///
+    /// Every feature site asks `isAvailable(for:)` rather than `isAvailable`,
+    /// so turning one feature off cannot be mistaken for turning the model off.
+    enum Feature: String, CaseIterable {
+        /// The editor toolbar's "Describe the query…" button.
+        case describeQuery
+        /// The explanation block on the query-error sheet.
+        case explainErrors
+        /// A suggested name in the Save Query sheet and the rename dialogs.
+        case suggestSavedQueryNames
+        /// Naming an unnamed editor tab from its SQL on its first run.
+        case nameTabsAutomatically
+        /// The plan summary above an EXPLAIN result.
+        case summarisePlans
+        /// "Suggest chart" asking the model instead of the recommender.
+        case suggestCharts
+        /// Whether a draft that is not a plain read may be offered at all.
+        case draftWriteStatements
+    }
+
+    /// Whether `feature` may run right now.
+    ///
+    /// Three things have to hold, and this is the only place they are put
+    /// together: the Mac can run the model, the master switch is on (those two
+    /// are `isAvailable`), and the feature's own switch is on.
+    func isAvailable(for feature: Feature) -> Bool {
+        Self.isAvailable(feature, modelIsOffered: isAvailable, flags: features)
+    }
+
+    /// The composition rule on its own.
+    ///
+    /// Pure, so every combination — including "this Mac cannot run the model",
+    /// which no assertion could otherwise reach on a Mac that can — is
+    /// testable. `modelIsOffered` is `systemModelIsAvailable && the master
+    /// switch`, which is exactly what `refresh()` leaves in `isAvailable`.
+    static func isAvailable(_ feature: Feature, modelIsOffered: Bool, flags: IntelligenceSettings) -> Bool {
+        modelIsOffered && flag(feature, in: flags)
+    }
+
+    /// One feature's own switch, ignoring everything else.
+    static func flag(_ feature: Feature, in flags: IntelligenceSettings) -> Bool {
+        switch feature {
+        case .describeQuery: return flags.describeQuery
+        case .explainErrors: return flags.explainErrors
+        case .suggestSavedQueryNames: return flags.suggestSavedQueryNames
+        case .nameTabsAutomatically: return flags.nameTabsAutomatically
+        case .summarisePlans: return flags.summarisePlans
+        case .suggestCharts: return flags.suggestCharts
+        case .draftWriteStatements: return flags.allowDraftingWriteStatements
+        }
+    }
+
+    /// One feature's answer, whenever anything that decides it changes.
+    ///
+    /// The value is DELIVERED rather than left to be read back. `@Published`
+    /// notifies on `willSet`, so a sink that reaches for `isAvailable(for:)`
+    /// reads the value it is being told is about to be replaced — the bug this
+    /// object's own header describes, once per feature site.
+    func publisher(for feature: Feature) -> AnyPublisher<Bool, Never> {
+        Publishers.CombineLatest($isAvailable, $features)
+            .map { Self.isAvailable(feature, modelIsOffered: $0, flags: $1) }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 }

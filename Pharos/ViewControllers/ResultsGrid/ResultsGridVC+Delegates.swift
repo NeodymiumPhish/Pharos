@@ -55,6 +55,25 @@ extension ResultsGridVC: ResultsDataSourceDelegate {
         let indices = tableView.selectedRowIndexes
         onSelectionChanged?(indices)
     }
+
+    func dataSourceGridSettingsDidChange(_ settings: ResultsGridSettings) {
+        let styleChanged = settings.style != lastAppliedGridStyle
+        lastAppliedGridStyle = settings.style
+        applyGridSettings(settings)
+
+        // A new font means every measured width is a width for text nobody
+        // draws any more, so fit-to-content columns are measured again. Fixed
+        // columns already took their width in `applyGridSettings`, and a
+        // change that left the fonts alone leaves the user's own column widths
+        // exactly where they put them.
+        if styleChanged, settings.columnWidthMode == .fitContent {
+            for (index, column) in tableView.tableColumns.enumerated()
+            where column.identifier.rawValue != "__rownum__" && !column.isHidden {
+                autoFitColumn(at: index)
+            }
+        }
+        tableView.headerView?.needsDisplay = true
+    }
 }
 
 // MARK: - ResultsSortControllerDelegate

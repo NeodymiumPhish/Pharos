@@ -12,16 +12,25 @@ class ImportDataSheet: NSViewController {
 
     private let schema: String
     private let table: String
-    private var onImport: ((String, Bool) -> Void)?
+    /// Settings ▸ Export & Import, the import half. Passed IN rather than
+    /// read from `AppStateManager`, so this sheet stays host-agnostic and
+    /// `scripts/test-import-data-sheet.sh` can build it standalone. The
+    /// caller supplies the real settings; nothing here defaults them.
+    private let settings: DataImportSettings
+    /// The whole request, so the dialect, the error policy and the batch
+    /// size travel with the file rather than being reassembled by the caller.
+    private var onImport: ((ImportCsvOptions) -> Void)?
     private var selectedFilePath: String?
 
     /// `preselectedFileURL` is the file a drop on the table node carried: the
     /// sheet then opens with that file already chosen, so the drop does not
     /// ask the user to find the same file again in an open panel.
     init(schema: String, table: String, preselectedFileURL: URL? = nil,
-         onImport: @escaping (String, Bool) -> Void) {
+         settings: DataImportSettings,
+         onImport: @escaping (ImportCsvOptions) -> Void) {
         self.schema = schema
         self.table = table
+        self.settings = settings
         self.onImport = onImport
         self.selectedFilePath = preselectedFileURL?.path
         self.preselectedFileName = preselectedFileURL?.lastPathComponent
@@ -198,6 +207,12 @@ class ImportDataSheet: NSViewController {
             return
         }
         dismiss(nil)
-        onImport?(filePath, hasHeadersCheckbox.state == .on)
+        onImport?(ImportCsvOptions(
+            schemaName: schema, tableName: table,
+            filePath: filePath,
+            hasHeaders: hasHeadersCheckbox.state == .on,
+            csv: settings.dialect,
+            onError: settings.onError,
+            commitEvery: settings.commitEvery))
     }
 }

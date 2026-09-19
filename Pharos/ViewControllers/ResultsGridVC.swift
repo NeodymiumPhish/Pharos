@@ -36,6 +36,15 @@ class ResultsGridVC: NSViewController {
     var sortController: ResultsSortController!
     var columnFilterController: ResultsColumnFilterController!
     var filterableHeaderView: FilterableHeaderView!
+
+    /// The live Settings ▸ Results snapshot. One owner — the data source's
+    /// settings sink — so the grid and its cells can never be reading two
+    /// different generations of the same setting.
+    var gridSettings: ResultsGridSettings { dataSource?.gridSettings ?? ResultsGridSettings() }
+
+    /// The style the columns were last measured in; see
+    /// `dataSourceGridSettingsDidChange`.
+    var lastAppliedGridStyle: ResultsGridStyle = .default
     var cellSelectionController: CellSelectionController!
     /// The temporary files behind the open Quick Look panel, while this grid is
     /// the one driving it; nil the rest of the time. See
@@ -81,6 +90,9 @@ class ResultsGridVC: NSViewController {
     /// text, the Inspector and the removal sheet. Keeping one bake is what
     /// makes band, tooltip and tint appear and disappear in a single repaint.
     var matchesByRow: [Int: [TagRowMatch]] = [:]
+
+    /// Holds the Settings ▸ Tags subscription. See `observeTagSettings`.
+    private var tagSettingsCancellable: AnyCancellable?
     /// The force-show toggle: tagged rows survive the data filters (stages 2
     /// and 3-as-wired). Transient, per grid, by scope decision. The flag
     /// latches while the button is hidden, so a newly-tagged row can bring it
@@ -256,10 +268,16 @@ class ResultsGridVC: NSViewController {
         filterableHeaderView.frame = hf
         tableView.headerView = filterableHeaderView
 
+        // The literals above are the ship defaults; this puts the user's own
+        // Settings ▸ Results choices over them before the first draw. The
+        // data source primed its snapshot in its initializer, so this reads a
+        // real value rather than waiting for the sink's first delivery.
+        applyGridSettings(dataSource.gridSettings)
+
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        // Legacy-and-pinned or follow-the-system, per Settings ▸ General.
+        // Legacy-and-pinned or follow-the-system, per Settings ▸ Appearance.
         scrollBarPolicy = ScrollBarPolicy(
             scrollView: scrollView,
             alwaysVisible: AppStateManager.shared.$settings.map(\.alwaysShowScrollBars).eraseToAnyPublisher())
@@ -301,6 +319,7 @@ class ResultsGridVC: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        observeTagSettings()
 
         // Stable names for the two things a UI test — or a person driving the
         // app through the accessibility API — has to find by name rather than
@@ -423,6 +442,89 @@ class ResultsGridVC: NSViewController {
         sortController.delegate = self
         resetSortButton.target = sortController
         resetSortButton.action = #selector(ResultsSortController.resetSort)
+
+        // `copyExport` and `findController` are born here, after `loadView`
+        // already applied the snapshot to the table itself — so they take
+        // their share of it now rather than starting on the ship defaults
+        // until the user next changes a setting.
+        copyExport.onIncludeHeadersChanged = { newValue in
+            var updated = AppStateManager.shared.settings
+            guard updated.results.copyIncludeHeaders != newValue else { return }
+            updated.results.copyIncludeHeaders = newValue
+            AppStateManager.shared.saveSettings(updated)
+        }
+        applyGridSettings(dataSource.gridSettings)
+    }
+
+    // MARK: - Settings ▸ Results
+
+    /// Apply one delivered Settings ▸ Results snapshot to the grid.
+    ///
+    /// Everything that reads those settings is written here and nowhere else,
+    /// so there is one order of application: fonts and row height, then the
+    /// column widths that are measured in those fonts.
+    func applyGridSettings(_ settings: ResultsGridSettings) {
+        lastAppliedGridStyle = settings.style
+        tableView.usesAlternatingRowBackgroundColors = settings.alternatingRowColors
+        tableView.rowHeight = settings.style.rowHeight
+        switch settings.gridLines {
+        case .none: tableView.gridStyleMask = []
+        case .horizontal: tableView.gridStyleMask = [.solidHorizontalGridLineMask]
+        case .both: tableView.gridStyleMask = [.solidHorizontalGridLineMask, .solidVerticalGridLineMask]
+        }
+        filterableHeaderView?.showsColumnTypeIcons = settings.showColumnTypeIcons
+
+        // The `#` column is HIDDEN, never removed: the tag gutter's geometry,
+        // the cell-selection controller's column offset and the saved column
+        // state all count it, and taking it out of `tableColumns` would move
+        // every one of those by one.
+        if let rowNumCol = tableView.tableColumns.first(where: { $0.identifier.rawValue == "__rownum__" }) {
+            rowNumCol.isHidden = !settings.showRowNumbers
+        }
+
+        applyColumnWidthSettings(settings)
+
+        copyExport?.includeHeaders = settings.copyIncludeHeaders
+        copyExport?.writesRichText = settings.copyRichText
+        applyDefaultCopyFormat(settings.defaultCopyFormat)
+        findController?.setMatching(mode: settings.findMode, matchCase: settings.findMatchCase)
+    }
+
+    /// The `maxWidth` every data column carries, and — in fixed mode — the
+    /// width they take. Applied to the live columns as well as to the ones
+    /// `rebuildColumns` makes next, or a change would not be visible until the
+    /// next query.
+    private func applyColumnWidthSettings(_ settings: ResultsGridSettings) {
+        for column in tableView.tableColumns {
+            let colId = column.identifier.rawValue
+            guard colId != "__rownum__" else { continue }
+            column.maxWidth = max(column.minWidth, settings.maximumColumnWidth)
+            if settings.columnWidthMode == .fixed {
+                column.width = min(max(settings.fixedColumnWidth, column.minWidth), column.maxWidth)
+            } else if column.width > column.maxWidth {
+                column.width = column.maxWidth
+            }
+        }
+    }
+
+    /// What ⌘C does, handed over as a plain closure.
+    ///
+    /// `ResultsCopyExport` never learns the settings enum on purpose: four
+    /// standalone harnesses compile that class without the settings model
+    /// behind it, and a reference to `CopyFormat` would drag it in.
+    private func applyDefaultCopyFormat(_ format: CopyFormat) {
+        // `[weak self]`, not a captured `copyExport`: the closure is stored ON
+        // copyExport, so a strong capture of it would be a cycle.
+        copyExport?.defaultCopyAction = { [weak self] sender in
+            guard let copyExport = self?.copyExport else { return }
+            switch format {
+            case .tsv: copyExport.copyAsTSV(sender)
+            case .csv: copyExport.copyAsCSV(sender)
+            case .markdown: copyExport.copyAsMarkdown(sender)
+            case .sqlInsert: copyExport.copyAsSQLInsert(sender)
+            case .sqlWith: copyExport.copyAsSQLWith(sender)
+            }
+        }
     }
 
     // MARK: - Public API
@@ -758,6 +860,8 @@ class ResultsGridVC: NSViewController {
         rowNumCol.width = 40
         rowNumCol.minWidth = 30
         rowNumCol.maxWidth = 60
+        // Hidden, not absent — see `applyGridSettings`.
+        rowNumCol.isHidden = !gridSettings.showRowNumbers
         tableView.addTableColumn(rowNumCol)
 
         var types: [String: String] = [:]
@@ -774,9 +878,12 @@ class ResultsGridVC: NSViewController {
             // for the header, and the two cannot fall out of step.
             col.title = DisplayEscape.escaped(colDef.name)
             col.minWidth = 50
-            col.maxWidth = 1000
+            // Settings ▸ Results ▸ Columns. Was a hard-coded 1000.
+            col.maxWidth = max(col.minWidth, gridSettings.maximumColumnWidth)
             types[colId] = colDef.dataType.uppercased()
-            col.width = measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
+            col.width = gridSettings.columnWidthMode == .fixed
+                ? min(max(gridSettings.fixedColumnWidth, col.minWidth), col.maxWidth)
+                : measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
             col.sortDescriptorPrototype = NSSortDescriptor(key: colId, ascending: true)
             tableView.addTableColumn(col)
         }
@@ -1098,6 +1205,24 @@ class ResultsGridVC: NSViewController {
     }
 
     /// The single landing point for a computed tag map, sync or async.
+    /// Re-bake when Settings ▸ Tags changes, so a new band count or tint
+    /// shows on the result already on screen rather than at the next run.
+    /// The sink uses the DELIVERED value only to decide THAT something
+    /// changed; `applyTagMap` reads the current settings itself, so there is
+    /// one place the numbers enter the render state.
+    func observeTagSettings() {
+        tagSettingsCancellable = AppStateManager.shared.$settings
+            .map(\.tags)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, !self.matchesByRow.isEmpty else { return }
+                self.applyTagMap(self.matchesByRow)
+                self.tableView.needsDisplay = true
+            }
+    }
+
     func applyTagMap(_ map: [Int: [TagRowMatch]]) {
         // Any landed map supersedes an in-flight match: a stale async result
         // must fail its generation check even when the landing came from
@@ -1107,7 +1232,14 @@ class ResultsGridVC: NSViewController {
         // Bands, tooltips and tints are baked HERE, once, and the data source
         // only looks them up. One bake also means one survivor rule: a deleted
         // tag leaves all three together.
-        let state = TagPalette.bake(tags: TagStore.shared.tags, matchesByRow: map)
+        // Settings ▸ Tags. Read at bake time rather than held: a change
+        // re-bakes through this same path, so there is one place the numbers
+        // enter the render state.
+        let tagSettings = AppStateManager.shared.settings.tags
+        let state = TagPalette.bake(
+            tags: TagStore.shared.tags, matchesByRow: map,
+            maxSegments: Int(tagSettings.maximumColourSegments),
+            tintAlpha: CGFloat(tagSettings.cellTintOpacity))
         dataSource.segmentsByRow = state.segmentsByRow
         dataSource.tooltipByRow = state.tooltipByRow
         dataSource.tintByRow = state.tintByRow
@@ -1342,7 +1474,8 @@ class ResultsGridVC: NSViewController {
     // MARK: - Auto-Fit Column
 
     /// Content-aware column width: the max of the header name row, the header type
-    /// row, and the rendered cell contents (sampled), clamped to [minWidth, 1000].
+    /// row, and the rendered cell contents (sampled), clamped to
+    /// [minWidth, Settings ▸ Results ▸ Maximum column width].
     /// No funnel/sort reserve — those overlay row 2 (two-row header). Pass
     /// `includeVisibleSample: true` for on-demand auto-fit (adds on-screen rows);
     /// the initial default passes false (reloadData hasn't run, visible rect stale).
@@ -1363,6 +1496,7 @@ class ResultsGridVC: NSViewController {
         let typeStr = (idx < columns.count ? columns[idx].dataType : "").uppercased()
         let nameW = (nameStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.nameFont]).width
         let typeW = (typeStr as NSString).size(withAttributes: [.font: SortAwareHeaderCell.typeFont]).width
+            + (typeStr.isEmpty ? 0 : FilterableHeaderView.typeIconSlot(enabled: gridSettings.showColumnTypeIcons))
         var maxW = ceil(max(nameW, typeW)) + pad
 
         var sampleIndices = Set<Int>()
@@ -1373,19 +1507,18 @@ class ResultsGridVC: NSViewController {
             let vr = tableView.rows(in: tableView.visibleRect)
             if vr.length > 0 { for i in vr.location..<(vr.location + vr.length) { sampleIndices.insert(i) } }
         }
-        let attrs: [NSAttributedString.Key: Any] = [.font: ResultsGridMetrics.cellFont]
+        let attrs: [NSAttributedString.Key: Any] = [.font: dataSource.gridStyle.cellFont]
         for r in sampleIndices {
             guard r < displayRows.count else { continue }
             let d = displayRows[r]
             guard d < rows.count, idx < rows[d].count else { continue }
             let cat = idx < columnCategories.count ? columnCategories[idx] : .string
-            let text = ResultCellText.rendered(value: rows[d][idx], category: cat,
-                                               boolTrue: dataSource.boolDisplayTrue,
-                                               boolFalse: dataSource.boolDisplayFalse,
-                                               nullString: dataSource.nullDisplay)
+            // The data source's OWN renderer, options and all, so a truncated
+            // cell is measured truncated.
+            let text = dataSource.renderedText(value: rows[d][idx], category: cat, columnIndex: idx)
             maxW = max(maxW, ceil((text as NSString).size(withAttributes: attrs).width) + pad)
         }
-        return min(max(maxW, column.minWidth), 1000)
+        return min(max(maxW, column.minWidth), max(column.minWidth, gridSettings.maximumColumnWidth))
     }
 
     func autoFitColumn(at columnIndex: Int) {

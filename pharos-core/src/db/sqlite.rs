@@ -330,6 +330,28 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
+    // Migration: the five per-connection fields of the Connections slice, in
+    // ONE block. Each default is what every existing record already does:
+    // writes allowed, password remembered, no connect at launch, the server's
+    // own time zone, the system trust store. Guarded by `pragma_table_info`
+    // like every migration above, so a second launch is a no-op.
+    for (column, ddl) in [
+        ("read_only", "ALTER TABLE connections ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0"),
+        ("remember_password", "ALTER TABLE connections ADD COLUMN remember_password INTEGER NOT NULL DEFAULT 1"),
+        ("connect_on_launch", "ALTER TABLE connections ADD COLUMN connect_on_launch INTEGER NOT NULL DEFAULT 0"),
+        ("session_time_zone", "ALTER TABLE connections ADD COLUMN session_time_zone TEXT"),
+        ("ssl_root_cert_path", "ALTER TABLE connections ADD COLUMN ssl_root_cert_path TEXT"),
+    ] {
+        let present: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = ?1")?
+            .query_row([column], |row| row.get::<_, i64>(0))
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !present {
+            conn.execute(ddl, [])?;
+        }
+    }
+
     conn.execute_batch(
         r#"
 
@@ -388,6 +410,16 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             id INTEGER PRIMARY KEY CHECK (id = 1),
             settings_json TEXT NOT NULL,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- A settings blob that failed to parse is copied here before the app
+        -- falls back to defaults, so the user's values are never overwritten
+        -- silently by the next save. Newest first; `load_settings` keeps five.
+        CREATE TABLE IF NOT EXISTS app_settings_backup (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            settings_json TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         -- Query history
@@ -722,6 +754,30 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         conn.execute_batch("ALTER TABLE query_history ADD COLUMN result_row_identity TEXT;")?;
     }
 
+    // Migration: a query that FAILED now leaves a row too, so every row says
+    // how its run ended.
+    //
+    // `DEFAULT 'ok'` is not a taste: every row already in this table is a
+    // success, because a failure was never recorded before this column
+    // existed. So the default is the truth about the old rows, and they read
+    // back unchanged. The index is on `status` because the Results History
+    // navigator's scope control filters on it, and a failure list must not
+    // scan the whole history.
+    let has_status_col: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'status'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+
+    if !has_status_col {
+        conn.execute_batch(
+            "ALTER TABLE query_history ADD COLUMN status TEXT NOT NULL DEFAULT 'ok';
+             ALTER TABLE query_history ADD COLUMN error_message TEXT;
+             CREATE INDEX IF NOT EXISTS idx_query_history_status
+                 ON query_history(status);"
+        )?;
+    }
+
     // Migration: one main window became many, so every session row now names
     // the window it belongs to. The old table's primary key was `tab_index`
     // alone, and SQLite cannot change a primary key in place, so the table is
@@ -807,8 +863,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -820,9 +876,14 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             default_schema = excluded.default_schema,
             requires_authentication = excluded.requires_authentication,
             ssh_tunnel = excluded.ssh_tunnel,
+            read_only = excluded.read_only,
+            remember_password = excluded.remember_password,
+            connect_on_launch = excluded.connect_on_launch,
+            session_time_zone = excluded.session_time_zone,
+            ssl_root_cert_path = excluded.ssl_root_cert_path,
             updated_at = CURRENT_TIMESTAMP
         "#,
-        (
+        rusqlite::params![
             &config.id,
             &config.name,
             &config.host,
@@ -835,7 +896,14 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.default_schema,
             config.requires_authentication,
             ssh_tunnel_column(config.ssh_tunnel.as_ref()),
-        ),
+            config.read_only,
+            config.remember_password,
+            config.connect_on_launch,
+            // An empty string is not a time zone; store SQL NULL for it, so
+            // "" and absent read back the same way.
+            config.session_time_zone.as_deref().filter(|s| !s.trim().is_empty()),
+            config.ssl_root_cert_path.as_deref().filter(|s| !s.trim().is_empty()),
+        ],
     )?;
     Ok(())
 }
@@ -867,16 +935,14 @@ fn parse_ssh_tunnel_column(raw: Option<String>, connection_id: &str) -> Option<S
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel FROM connections ORDER BY sort_order, name",
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
+         COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path \
+         FROM connections ORDER BY sort_order, name",
     )?;
 
     let configs = stmt.query_map([], |row| {
         let ssl_mode_str: String = row.get(6)?;
-        let ssl_mode = match ssl_mode_str.as_str() {
-            "disable" => SslMode::Disable,
-            "require" => SslMode::Require,
-            _ => SslMode::Prefer,
-        };
+        let ssl_mode = SslMode::from_wire(&ssl_mode_str);
         let id: String = row.get(0)?;
         Ok(ConnectionConfig {
             id: id.clone(),
@@ -891,6 +957,11 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             default_schema: row.get(8)?,
             requires_authentication: row.get(9)?,
             ssh_tunnel: parse_ssh_tunnel_column(row.get::<_, Option<String>>(10)?, &id),
+            read_only: row.get(11)?,
+            remember_password: row.get(12)?,
+            connect_on_launch: row.get(13)?,
+            session_time_zone: row.get(14)?,
+            ssl_root_cert_path: row.get(15)?,
         })
     })?;
 
@@ -941,6 +1012,11 @@ mod connection_auth_flag_tests {
             default_schema: None,
             requires_authentication,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1042,6 +1118,11 @@ mod connection_ssh_tunnel_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -1577,7 +1658,16 @@ pub fn delete_tag_tuples(conn: &Connection, tuple_ids: &[String]) -> SqliteResul
 
 // ==================== App Settings ====================
 
-/// Load app settings from the database, returns default if none exist
+/// How many unreadable blobs `load_settings` keeps in `app_settings_backup`.
+const SETTINGS_BACKUP_KEEP: i64 = 5;
+
+/// Load app settings from the database. Returns the default when there is no
+/// row.
+///
+/// A row that does not parse ALSO returns the default — the app must start —
+/// but the raw blob is copied into `app_settings_backup` first and an error
+/// is logged, so the next save (which overwrites the row) does not destroy
+/// the user's values without a trace.
 pub fn load_settings(conn: &Connection) -> SqliteResult<AppSettings> {
     let mut stmt = conn.prepare("SELECT settings_json FROM app_settings WHERE id = 1")?;
     let mut rows = stmt.query([])?;
@@ -1586,11 +1676,34 @@ pub fn load_settings(conn: &Connection) -> SqliteResult<AppSettings> {
         let json: String = row.get(0)?;
         match serde_json::from_str(&json) {
             Ok(settings) => Ok(settings),
-            Err(_) => Ok(AppSettings::default()),
+            Err(e) => {
+                log::error!("Settings blob does not parse ({}); backing it up and using defaults", e);
+                backup_unreadable_settings(conn, &json, &e.to_string())?;
+                Ok(AppSettings::default())
+            }
         }
     } else {
         Ok(AppSettings::default())
     }
+}
+
+/// Copy an unreadable blob into `app_settings_backup`, then trim the table
+/// to the newest `SETTINGS_BACKUP_KEEP` rows.
+fn backup_unreadable_settings(conn: &Connection, json: &str, reason: &str) -> SqliteResult<()> {
+    conn.execute(
+        "INSERT INTO app_settings_backup (settings_json, reason) VALUES (?1, ?2)",
+        rusqlite::params![json, reason],
+    )?;
+    conn.execute(
+        r#"
+        DELETE FROM app_settings_backup
+        WHERE id NOT IN (
+            SELECT id FROM app_settings_backup ORDER BY id DESC LIMIT ?1
+        )
+        "#,
+        [SETTINGS_BACKUP_KEEP],
+    )?;
+    Ok(())
 }
 
 /// Save app settings to the database
@@ -1867,7 +1980,82 @@ pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
 
 // ==================== Query History ====================
 
-const HISTORY_RETENTION_DAYS: i64 = 90;
+/// How long Query History is kept, and how many entries at most.
+///
+/// Replaces the hardcoded `HISTORY_RETENTION_DAYS: i64 = 90` at
+/// `sqlite.rs`. Both limits apply: whichever removes a row first wins, so a
+/// user who asks for "forever, at most 500 entries" gets exactly that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryPrunePolicy {
+    /// Days to keep. 0 means forever.
+    pub retention_days: u32,
+    /// Most entries to keep, newest first. 0 means no ceiling.
+    pub max_entries: u32,
+}
+
+impl Default for HistoryPrunePolicy {
+    /// The values the app had before this was a setting, so an existing
+    /// installation prunes exactly as it did.
+    fn default() -> Self {
+        HistoryPrunePolicy { retention_days: 90, max_entries: 0 }
+    }
+}
+
+impl HistoryPrunePolicy {
+    /// Whether anything at all would be removed. A policy that removes
+    /// nothing must not run the DELETEs: they are the expensive part of
+    /// `save_query_history`, and running them to delete nothing is the
+    /// whole cost with none of the benefit.
+    pub fn prunes_anything(&self) -> bool {
+        self.retention_days > 0 || self.max_entries > 0
+    }
+
+    /// The SQLite modifier for the age cut-off, or None when forever.
+    pub fn cutoff_modifier(&self) -> Option<String> {
+        if self.retention_days == 0 {
+            None
+        } else {
+            Some(format!("-{} days", self.retention_days))
+        }
+    }
+}
+
+#[cfg(test)]
+mod history_prune_tests {
+    use super::*;
+
+    /// The default must be the literal the code had before the setting
+    /// existed, or an upgrade silently changes how much history a user keeps.
+    #[test]
+    fn default_matches_the_old_hardcoded_value() {
+        let policy = HistoryPrunePolicy::default();
+        assert_eq!(policy.retention_days, 90, "90 days is what sqlite.rs had");
+        assert_eq!(policy.max_entries, 0, "there was no count ceiling before");
+        assert_eq!(policy.cutoff_modifier().as_deref(), Some("-90 days"));
+        assert!(policy.prunes_anything());
+    }
+
+    #[test]
+    fn forever_with_no_ceiling_prunes_nothing() {
+        let policy = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        assert!(!policy.prunes_anything());
+        assert_eq!(policy.cutoff_modifier(), None);
+    }
+
+    #[test]
+    fn a_count_ceiling_alone_still_prunes() {
+        let policy = HistoryPrunePolicy { retention_days: 0, max_entries: 500 };
+        assert!(policy.prunes_anything(), "forever, but at most 500 entries");
+        assert_eq!(policy.cutoff_modifier(), None, "and no age cut-off");
+    }
+
+    #[test]
+    fn cutoff_modifier_is_the_sqlite_form() {
+        let policy = HistoryPrunePolicy { retention_days: 7, max_entries: 0 };
+        assert_eq!(policy.cutoff_modifier().as_deref(), Some("-7 days"));
+    }
+}
+
 
 /// Save a query history entry with optional cached results (and prune entries older than 90 days)
 pub fn save_query_history(
@@ -1877,6 +2065,27 @@ pub fn save_query_history(
     result_rows_json: Option<&str>,
     result_row_identity_json: Option<&str>,
 ) -> SqliteResult<()> {
+    save_query_history_with_policy(
+        conn, entry, result_columns_json, result_rows_json, result_row_identity_json,
+        HistoryPrunePolicy::default(),
+    )
+}
+
+/// `save_query_history`, pruning by the USER's policy rather than the
+/// built-in default.
+///
+/// The default overload exists for the dozens of tests that do not care, but
+/// production must call THIS one: passing `HistoryPrunePolicy::default()`
+/// from the call site is the hardcoded 90-day literal wearing a struct, which
+/// is the thing the policy was written to remove.
+pub fn save_query_history_with_policy(
+    conn: &Connection,
+    entry: &QueryHistoryEntry,
+    result_columns_json: Option<&str>,
+    result_rows_json: Option<&str>,
+    result_row_identity_json: Option<&str>,
+    policy: HistoryPrunePolicy,
+) -> SqliteResult<()> {
     // Compress result data if present
     let compressed_columns = result_columns_json.and_then(|s| compress_data(s).ok());
     let compressed_rows = result_rows_json.and_then(|s| compress_data(s).ok());
@@ -1884,8 +2093,8 @@ pub fn save_query_history(
 
     conn.execute(
         r#"
-        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source, result_row_identity)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, result_columns, result_rows, schema, column_count, table_names, source, result_row_identity, status, error_message)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
         "#,
         (
             &entry.id,
@@ -1902,14 +2111,107 @@ pub fn save_query_history(
             &entry.table_names,
             &entry.source,
             &compressed_identity.as_deref(),
+            &entry.status,
+            &entry.error_message,
         ),
     )?;
 
-    // Prune old entries roughly every 100 queries to reduce write overhead
+    prune_query_history(conn, policy)?;
+
+    Ok(())
+}
+
+/// What `clear_query_history` removes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearHistoryScope {
+    /// Everything.
+    All,
+    /// Entries older than this many days.
+    OlderThanDays(u32),
+}
+
+/// Clear Query History, and return how many history rows went.
+///
+/// History rows are deleted first, then the workspaces that have none left.
+/// That order matters: a workspace is the parent, and deleting it first would
+/// leave its rows orphaned rather than removed. The FTS triggers on
+/// `query_history` keep `query_history_fts` in step on their own, so the
+/// search index needs no separate pass.
+pub fn clear_query_history(conn: &Connection, scope: ClearHistoryScope) -> SqliteResult<usize> {
+    let deleted = match scope {
+        ClearHistoryScope::All => conn.execute("DELETE FROM query_history", [])?,
+        ClearHistoryScope::OlderThanDays(days) => {
+            let cutoff = format!("-{} days", days);
+            // A row belongs to its workspace's last activity when it has one,
+            // and to its own timestamp when it does not (legacy rows). Using
+            // `executed_at` for a workspace row would strand old rows under a
+            // workspace the user is still using.
+            let by_workspace = conn.execute(
+                "DELETE FROM query_history WHERE workspace_id IN
+                     (SELECT id FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1))",
+                [&cutoff],
+            )?;
+            let legacy = conn.execute(
+                "DELETE FROM query_history
+                  WHERE workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1)",
+                [&cutoff],
+            )?;
+            by_workspace + legacy
+        }
+    };
+
+    // Workspaces with nothing left in them. `workspaces` is not touched for
+    // any other reason: a workspace the user still has open keeps its row.
+    conn.execute(
+        "DELETE FROM workspaces WHERE id NOT IN
+             (SELECT DISTINCT workspace_id FROM query_history WHERE workspace_id IS NOT NULL)",
+        [],
+    )?;
+
+    Ok(deleted)
+}
+
+/// How many history rows a clear would remove, without removing them. The
+/// confirmation dialog says the number before the user agrees to it.
+pub fn count_query_history(conn: &Connection, scope: ClearHistoryScope) -> SqliteResult<usize> {
+    let count: i64 = match scope {
+        ClearHistoryScope::All => conn.query_row("SELECT COUNT(*) FROM query_history", [], |r| r.get(0))?,
+        ClearHistoryScope::OlderThanDays(days) => {
+            let cutoff = format!("-{} days", days);
+            conn.query_row(
+                "SELECT COUNT(*) FROM query_history
+                  WHERE (workspace_id IN
+                            (SELECT id FROM workspaces WHERE datetime(last_activity_at) < datetime('now', ?1)))
+                     OR (workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1))",
+                [&cutoff],
+                |r| r.get(0),
+            )?
+        }
+    };
+    Ok(count.max(0) as usize)
+}
+
+/// Drop history the policy says is past keeping. Runs roughly every 100
+/// queries, because the DELETEs are the expensive part of saving one.
+///
+/// Separate from `save_query_history` so a test can drive it directly rather
+/// than saving a hundred rows to make the counter come round.
+fn prune_query_history(conn: &Connection, policy: HistoryPrunePolicy) -> SqliteResult<()> {
     use std::sync::atomic::{AtomicU32, Ordering};
     static PRUNE_COUNTER: AtomicU32 = AtomicU32::new(0);
-    if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 == 0 {
-        let cutoff = format!("-{} days", HISTORY_RETENTION_DAYS);
+    if PRUNE_COUNTER.fetch_add(1, Ordering::Relaxed) % 100 != 0 {
+        return Ok(());
+    }
+    prune_query_history_now(conn, policy)
+}
+
+/// The prune itself, with no sampling. `prune_query_history` is this behind
+/// the counter.
+pub fn prune_query_history_now(conn: &Connection, policy: HistoryPrunePolicy) -> SqliteResult<()> {
+    if !policy.prunes_anything() {
+        return Ok(());
+    }
+    if let Some(cutoff) = policy.cutoff_modifier() {
         // Drop stale workspaces (by last activity) and their children.
         conn.execute(
             "DELETE FROM query_history WHERE workspace_id IN
@@ -1924,6 +2226,24 @@ pub fn save_query_history(
         conn.execute(
             "DELETE FROM query_history WHERE workspace_id IS NULL AND datetime(executed_at) < datetime('now', ?1)",
             [&cutoff],
+        )?;
+    }
+
+    // The count ceiling, newest kept. Applied after the age cut-off so the
+    // two compose: "90 days, and at most 500 of those".
+    if policy.max_entries > 0 {
+        conn.execute(
+            "DELETE FROM query_history WHERE id NOT IN (
+                 SELECT id FROM query_history ORDER BY datetime(executed_at) DESC LIMIT ?1
+             )",
+            [policy.max_entries as i64],
+        )?;
+        // A workspace with no history rows left is an empty shell.
+        conn.execute(
+            "DELETE FROM workspaces WHERE id NOT IN (
+                 SELECT DISTINCT workspace_id FROM query_history WHERE workspace_id IS NOT NULL
+             )",
+            [],
         )?;
     }
 
@@ -2195,7 +2515,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
                 execution_time_ms, executed_at, chart_view_state_json, raw_sql,
-                line_start, line_end
+                line_start, line_end, status, error_message
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -2218,6 +2538,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 raw_sql: row.get(13)?,
                 line_start: row.get(14)?,
                 line_end: row.get(15)?,
+                status: row.get(16)?,
+                error_message: row.get(17)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2327,7 +2649,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
         "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                 result_columns, result_rows, schema, column_count, table_names,
                 result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                line_start, line_end
+                line_start, line_end, status, error_message
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -2340,6 +2662,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<i64>>(11)?, r.get::<_, Option<i64>>(12)?, r.get::<_, Option<String>>(13)?,
                 r.get::<_, Option<String>>(14)?, r.get::<_, Option<String>>(15)?,
                 r.get::<_, Option<i64>>(16)?, r.get::<_, Option<i64>>(17)?,
+                r.get::<_, String>(18)?, r.get::<_, Option<String>>(19)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2350,13 +2673,13 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                  result_columns, result_rows, schema, column_count, table_names,
                  workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                 line_start, line_end)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                 line_start, line_end, status, error_message)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
             rusqlite::params![
                 child_id, row.0, row.1, row.2, row.3, row.4, row.5,
                 row.6, row.7, row.8, row.9, row.10,
                 new_id, row.11, row.12, row.13, row.14, row.15,
-                row.16, row.17,
+                row.16, row.17, row.18, row.19,
             ],
         )?;
     }
@@ -2371,15 +2694,22 @@ pub fn load_query_history(
     limit: i64,
     offset: i64,
     only_legacy: bool,
+    status_scope: crate::models::HistoryStatusScope,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source, status, error_message FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
 
     if only_legacy {
         sql.push_str(" AND workspace_id IS NULL");
+    }
+
+    // No bound parameter: the only value in the fragment is this crate's own
+    // `HISTORY_STATUS_OK`. See `HistoryStatusScope::sql_predicate`.
+    if let Some(predicate) = status_scope.sql_predicate() {
+        sql.push_str(predicate);
     }
 
     if let Some(cid) = connection_id {
@@ -2426,6 +2756,8 @@ pub fn load_query_history(
             column_count: row.get(9)?,
             table_names: row.get(10)?,
             source: row.get(11)?,
+            status: row.get(12)?,
+            error_message: row.get(13)?,
         })
     })?;
 
@@ -2578,6 +2910,8 @@ mod workspace_roundtrip_tests {
             column_count: Some(2),
             table_names: Some("t".to_string()),
             source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         }
     }
 
@@ -2637,10 +2971,194 @@ mod workspace_roundtrip_tests {
         let h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
         save_query_history(&conn, &h1, None, None, None).expect("save h1");
 
-        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false)
+        let entries = load_query_history(&conn, None, Some("   "), 50, 0, false, crate::models::HistoryStatusScope::All)
             .expect("a whitespace-only filter must not error");
         assert_eq!(entries.len(), 1, "the filter must be ignored, not applied");
         assert_eq!(entries[0].id, "h1");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---------------------------------------------------------------------
+    // Failed queries in history (plan §5.2 D)
+    // ---------------------------------------------------------------------
+
+    /// The migration's whole promise: a database written before the `status`
+    /// column existed opens, and the rows already in it are UNCHANGED and read
+    /// back as successes.
+    ///
+    /// The old database is built by hand, with the `query_history` shape this
+    /// file created before any of the later migrations, so the test exercises
+    /// the real ALTER path rather than a fresh `CREATE TABLE`.
+    #[test]
+    fn an_old_database_migrates_and_its_rows_are_unchanged() {
+        let dir = temp_db_dir("history_status_migration");
+        std::fs::create_dir_all(&dir).expect("create dir");
+
+        {
+            let old = Connection::open(dir.join("pharos.db")).expect("open old db");
+            old.execute_batch(
+                "CREATE TABLE query_history (
+                     id TEXT PRIMARY KEY,
+                     connection_id TEXT NOT NULL,
+                     connection_name TEXT NOT NULL,
+                     sql TEXT NOT NULL,
+                     row_count INTEGER,
+                     execution_time_ms INTEGER NOT NULL,
+                     executed_at TEXT NOT NULL
+                 );",
+            )
+            .expect("old schema");
+            old.execute(
+                "INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
+                 VALUES ('legacy', 'c1', 'prod-db', 'SELECT 1', 7, 42, ?1)",
+                [now_offset(0)],
+            )
+            .expect("old row");
+        }
+
+        let conn = init_database(&dir).expect("init_database migrates the old file");
+
+        let has_status: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'status'", [], |r| r.get(0))
+            .expect("pragma");
+        assert_eq!(has_status, 1, "the migration must add `status`");
+        let has_error: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pragma_table_info('query_history') WHERE name = 'error_message'", [], |r| r.get(0))
+            .expect("pragma");
+        assert_eq!(has_error, 1, "the migration must add `error_message`");
+        let has_index: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_query_history_status'", [], |r| r.get(0))
+            .expect("sqlite_master");
+        assert_eq!(has_index, 1, "the migration must index `status`");
+
+        let loaded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("load after migration");
+        assert_eq!(loaded.len(), 1);
+        let row = &loaded[0];
+        assert_eq!(row.id, "legacy");
+        assert_eq!(row.status, crate::models::HISTORY_STATUS_OK, "an existing row is a success");
+        assert_eq!(row.error_message, None);
+        // Unchanged, field by field: a migration that rewrote a row would be
+        // the failure this test exists to catch.
+        assert_eq!(row.sql, "SELECT 1");
+        assert_eq!(row.row_count, Some(7));
+        assert_eq!(row.execution_time_ms, 42);
+        assert_eq!(row.connection_name, "prod-db");
+
+        // …and it is still there under "Succeeded", which is what the scope
+        // control will ask for.
+        let succeeded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Succeeded)
+            .expect("load succeeded");
+        assert_eq!(succeeded.len(), 1);
+        let failed = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Failed)
+            .expect("load failed");
+        assert!(failed.is_empty(), "a migrated row must never read as a failure");
+
+        // Running the migration a second time must not fail or duplicate.
+        drop(conn);
+        let conn = init_database(&dir).expect("init_database is idempotent");
+        assert_eq!(
+            load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+                .expect("reload").len(),
+            1
+        );
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A failed row round-trips its status and its message, and each scope
+    /// answers with exactly its own rows.
+    #[test]
+    fn status_scope_splits_successes_from_failures() {
+        let dir = temp_db_dir("history_status_scope");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ok = history_entry("h_ok", "c1", "prod-db", &now_offset(0));
+        let mut boom = history_entry("h_error", "c1", "prod-db", &now_offset(1));
+        boom.status = crate::models::HISTORY_STATUS_ERROR.to_string();
+        boom.error_message = Some("relation \"nope\" does not exist".to_string());
+        boom.row_count = None;
+        let mut stopped = history_entry("h_cancelled", "c1", "prod-db", &now_offset(2));
+        stopped.status = crate::models::HISTORY_STATUS_CANCELLED.to_string();
+        stopped.error_message = Some("cancelled".to_string());
+
+        save_query_history(&conn, &ok, None, None, None).expect("save ok");
+        save_query_history(&conn, &boom, None, None, None).expect("save error");
+        save_query_history(&conn, &stopped, None, None, None).expect("save cancelled");
+
+        let all = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("all");
+        assert_eq!(all.len(), 3);
+
+        let succeeded = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Succeeded)
+            .expect("succeeded");
+        assert_eq!(succeeded.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["h_ok"]);
+
+        let failed = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::Failed)
+            .expect("failed");
+        let mut ids: Vec<&str> = failed.iter().map(|e| e.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["h_cancelled", "h_error"], "cancelled is a failure, not a success");
+
+        let decoded = failed.iter().find(|e| e.id == "h_error").expect("the error row");
+        assert_eq!(decoded.status, crate::models::HISTORY_STATUS_ERROR);
+        assert_eq!(decoded.error_message.as_deref(), Some("relation \"nope\" does not exist"));
+        assert_eq!(decoded.row_count, None, "a failed run produced no rows, which is not zero rows");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A workspace holds the failures its tab produced beside its results, and
+    /// `load_workspace` says which is which — the rebuild in
+    /// `ContentViewController` reads exactly this field to skip them.
+    #[test]
+    fn load_workspace_marks_a_failed_child() {
+        let dir = temp_db_dir("workspace_failed_child");
+        let conn = init_database(&dir).expect("init_database");
+
+        upsert_workspace(&conn, &WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: Some(0),
+        })
+        .expect("upsert_workspace");
+
+        let ok = history_entry("h_ok", "c1", "prod-db", &now_offset(0));
+        let mut boom = history_entry("h_error", "c1", "prod-db", &now_offset(1));
+        boom.status = crate::models::HISTORY_STATUS_ERROR.to_string();
+        boom.error_message = Some("syntax error at or near \"SELCT\"".to_string());
+        save_query_history(&conn, &ok, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save ok");
+        save_query_history(&conn, &boom, None, None, None).expect("save error");
+        associate_result_to_workspace(&conn, &assoc("h_ok", "ws1", 0, 0, None)).expect("associate ok");
+        // -1 is the order `record_failed_query` uses: a failure takes no
+        // result-tab slot.
+        associate_result_to_workspace(&conn, &assoc("h_error", "ws1", -1, 0, None)).expect("associate error");
+
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        assert_eq!(detail.results.len(), 2, "the failure is a child of the workspace too");
+        let failed = detail.results.iter().find(|r| r.id == "h_error").expect("failed child present");
+        assert_eq!(failed.status, crate::models::HISTORY_STATUS_ERROR);
+        assert_eq!(failed.error_message.as_deref(), Some("syntax error at or near \"SELCT\""));
+        assert!(!failed.has_results, "a failed run cached nothing");
+        let good = detail.results.iter().find(|r| r.id == "h_ok").expect("ok child present");
+        assert_eq!(good.status, crate::models::HISTORY_STATUS_OK);
+
+        // A duplicate keeps each child's status — a copied failure must not
+        // become a copied success.
+        let copy_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("duplicated");
+        let copy = load_workspace(&conn, &copy_id).expect("load copy").expect("copy exists");
+        let mut statuses: Vec<&str> = copy.results.iter().map(|r| r.status.as_str()).collect();
+        statuses.sort();
+        assert_eq!(statuses, vec!["error", "ok"]);
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
@@ -3438,6 +3956,8 @@ mod history_source_tests {
             column_count: Some(2),
             table_names: None,
             source: source.map(|s| s.to_string()),
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
         }
     }
 
@@ -3451,7 +3971,7 @@ mod history_source_tests {
         save_query_history(&conn, &tagged, None, None, None).expect("save tagged");
         save_query_history(&conn, &untagged, None, None, None).expect("save untagged");
 
-        let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false).expect("load_query_history");
+        let loaded = load_query_history(&conn, Some("c1"), None, 10, 0, false, crate::models::HistoryStatusScope::All).expect("load_query_history");
         let loaded_tagged = loaded.iter().find(|e| e.id == "h_tagged").expect("tagged entry present");
         let loaded_untagged = loaded.iter().find(|e| e.id == "h_untagged").expect("untagged entry present");
 
@@ -4214,5 +4734,416 @@ mod session_roundtrip_tests {
 
         drop(conn);
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod settings_backup_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn put_raw(conn: &Connection, json: &str) {
+        conn.execute(
+            "INSERT INTO app_settings (id, settings_json) VALUES (1, ?1)
+             ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json",
+            [json],
+        )
+        .unwrap();
+    }
+
+    fn backups(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT settings_json FROM app_settings_backup ORDER BY id DESC")
+            .unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    /// The point of the table: a blob that does not parse comes back as the
+    /// default AND is kept, byte for byte, with the parser's reason.
+    #[test]
+    fn unreadable_blob_is_backed_up_and_defaults_returned() {
+        let conn = db();
+        put_raw(&conn, "{\"theme\": 42}");
+        let loaded = load_settings(&conn).unwrap();
+        assert_eq!(loaded, AppSettings::default());
+        assert_eq!(backups(&conn), vec!["{\"theme\": 42}".to_string()]);
+        let reason: String = conn
+            .query_row("SELECT reason FROM app_settings_backup", [], |r| r.get(0))
+            .unwrap();
+        assert!(!reason.is_empty(), "the parse error is recorded");
+    }
+
+    /// A blob that parses leaves the backup table alone.
+    #[test]
+    fn readable_blob_is_not_backed_up() {
+        let conn = db();
+        save_settings(&conn, &AppSettings::default()).unwrap();
+        load_settings(&conn).unwrap();
+        assert!(backups(&conn).is_empty());
+    }
+
+    /// Only the newest five are kept, so a blob that is broken at every launch
+    /// does not grow the database without bound.
+    #[test]
+    fn keeps_the_newest_five_backups() {
+        let conn = db();
+        for i in 0..7 {
+            put_raw(&conn, &format!("{{\"theme\": {}}}", i));
+            load_settings(&conn).unwrap();
+        }
+        let kept = backups(&conn);
+        assert_eq!(kept.len(), 5);
+        assert_eq!(kept[0], "{\"theme\": 6}", "newest first");
+        assert_eq!(kept[4], "{\"theme\": 2}", "the two oldest are gone");
+    }
+}
+
+/// Clearing Query History, and the prune policy that replaced the hardcoded
+/// 90-day literal. Both delete rows the user cannot get back, so the shape of
+/// what goes — and what must NOT go — is pinned here rather than in a live run.
+#[cfg(test)]
+mod clear_history_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    fn days_ago(days: i64) -> String {
+        (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339()
+    }
+
+    fn entry(id: &str, executed_at: &str) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: "c1".to_string(),
+            connection_name: "c1".to_string(),
+            sql: format!("SELECT {}", id),
+            row_count: Some(1),
+            execution_time_ms: 1,
+            executed_at: executed_at.to_string(),
+            has_results: false,
+            schema: None,
+            column_count: None,
+            table_names: None,
+            source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
+        }
+    }
+
+    /// Insert a legacy (no workspace) history row directly, so its own
+    /// `executed_at` is what the age rule reads.
+    fn put_legacy(conn: &Connection, id: &str, executed_at: &str) {
+        save_query_history(conn, &entry(id, executed_at), None, None, None).unwrap();
+    }
+
+    fn history_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM query_history", [], |r| r.get(0)).unwrap()
+    }
+
+    fn workspace_count(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM workspaces", [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn clear_all_removes_every_row_and_reports_the_count() {
+        let conn = db();
+        for i in 0..3 {
+            put_legacy(&conn, &format!("h{i}"), &days_ago(1));
+        }
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::All).unwrap(), 3,
+                   "the preview count is what the dialog shows");
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::All).unwrap(), 3);
+        assert_eq!(history_count(&conn), 0);
+    }
+
+    /// The age rule keeps what is inside the window. A clear that took
+    /// everything would be a different button.
+    #[test]
+    fn clear_older_than_keeps_recent_rows() {
+        let conn = db();
+        put_legacy(&conn, "old", &days_ago(100));
+        put_legacy(&conn, "new", &days_ago(1));
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::OlderThanDays(30)).unwrap(), 1);
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::OlderThanDays(30)).unwrap(), 1);
+        let left: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT id FROM query_history").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(left, vec!["new".to_string()]);
+    }
+
+    /// The count is a preview, not a side effect.
+    #[test]
+    fn counting_removes_nothing() {
+        let conn = db();
+        put_legacy(&conn, "h", &days_ago(1));
+        count_query_history(&conn, ClearHistoryScope::All).unwrap();
+        count_query_history(&conn, ClearHistoryScope::OlderThanDays(0)).unwrap();
+        assert_eq!(history_count(&conn), 1);
+    }
+
+    #[test]
+    fn clearing_an_empty_history_is_not_an_error() {
+        let conn = db();
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::All).unwrap(), 0);
+        assert_eq!(count_query_history(&conn, ClearHistoryScope::All).unwrap(), 0);
+    }
+
+    /// A workspace with rows left must SURVIVE. The sweep that removes empty
+    /// shells is the one place this could take an open tab's workspace away.
+    #[test]
+    fn a_workspace_with_rows_left_survives() {
+        let conn = db();
+        let w = crate::models::WorkspaceUpsert {
+            id: "w1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "c1".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: Some(0),
+        };
+        upsert_workspace(&conn, &w).unwrap();
+        assert_eq!(workspace_count(&conn), 1);
+
+        // No history rows point at it, so an "All" clear takes the shell.
+        clear_query_history(&conn, ClearHistoryScope::All).unwrap();
+        assert_eq!(workspace_count(&conn), 0, "a workspace with no rows is a shell");
+    }
+
+    /// The prune policy's two limits compose, and the count ceiling keeps the
+    /// NEWEST rows — keeping the oldest would be the opposite of the point.
+    #[test]
+    fn the_count_ceiling_keeps_the_newest() {
+        let conn = db();
+        for i in 0..5 {
+            put_legacy(&conn, &format!("h{i}"), &days_ago(5 - i as i64));
+        }
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 0, max_entries: 2 }).unwrap();
+        let left: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT id FROM query_history ORDER BY datetime(executed_at) DESC")
+                .unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(left, vec!["h4".to_string(), "h3".to_string()], "the two newest are kept");
+    }
+
+    /// "Forever, no ceiling" must run no DELETE at all.
+    /// "Forever, no ceiling" must run no DELETE at all.
+    ///
+    /// The row is inserted with a FOREVER policy, not the default one. This
+    /// test failed until that was so: `save_query_history` prunes on a
+    /// sampled counter that is global to the process, so whether the insert
+    /// itself deleted the 5000-day-old row depended on how many history rows
+    /// other tests had written first. The defect it exposed was real and is
+    /// fixed — the production call site now passes the user's policy, and
+    /// `HistoryPrunePolicy::default()` at a call site is the 90-day literal
+    /// wearing a struct.
+    #[test]
+    fn a_policy_that_prunes_nothing_leaves_everything() {
+        let conn = db();
+        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+            .unwrap();
+        prune_query_history_now(&conn, forever).unwrap();
+        assert_eq!(history_count(&conn), 1, "forever means forever");
+    }
+
+    /// The other half of the same defect: a policy handed to the SAVE must be
+    /// the one that runs, not the default. Sampling makes the age rule fire
+    /// only sometimes, so this drives the prune directly after an insert that
+    /// used a forever policy.
+    #[test]
+    fn the_save_path_uses_the_policy_it_is_given() {
+        let conn = db();
+        let forever = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+        save_query_history_with_policy(&conn, &entry("ancient", &days_ago(5000)), None, None, None, forever)
+            .unwrap();
+        assert_eq!(history_count(&conn), 1, "a forever policy kept it");
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
+        assert_eq!(history_count(&conn), 0, "and a 90-day policy takes it");
+    }
+
+    /// The age rule on its own, through the prune path.
+    #[test]
+    fn the_age_rule_drops_only_what_is_past_the_window() {
+        let conn = db();
+        put_legacy(&conn, "old", &days_ago(200));
+        put_legacy(&conn, "new", &days_ago(2));
+        prune_query_history_now(&conn, HistoryPrunePolicy { retention_days: 90, max_entries: 0 }).unwrap();
+        assert_eq!(history_count(&conn), 1);
+    }
+}
+
+/// The five per-connection columns of the Connections slice: the migration,
+/// the round trip, and the rule that an untouched record keeps doing exactly
+/// what it did before the columns existed.
+///
+/// Same shape as `connection_ssh_tunnel_tests` above: a real database in a
+/// temp directory, `init_database` twice to prove the guard, and a `config`
+/// helper in which no field takes its default value, so a column dropped from
+/// the upsert or the SELECT fails.
+#[cfg(test)]
+mod connection_slice_column_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    /// Every new field moved off its default.
+    fn config(id: &str) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: format!("conn-{}", id),
+            host: "db.internal".to_string(),
+            port: 5432,
+            database: "nbt".to_string(),
+            username: "app".to_string(),
+            password: String::new(),
+            ssl_mode: SslMode::VerifyFull,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: true,
+            remember_password: false,
+            connect_on_launch: true,
+            session_time_zone: Some("Asia/Tokyo".to_string()),
+            ssl_root_cert_path: Some("/etc/ssl/root.crt".to_string()),
+        }
+    }
+
+    fn loaded(conn: &Connection, id: &str) -> ConnectionConfig {
+        load_connections(conn)
+            .expect("load_connections")
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    #[test]
+    fn every_new_field_round_trips() {
+        let dir = temp_db_dir("conn_slice_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &config("c1")).expect("save");
+
+        let back = loaded(&conn, "c1");
+        assert!(back.read_only, "read_only");
+        assert!(!back.remember_password, "remember_password");
+        assert!(back.connect_on_launch, "connect_on_launch");
+        assert_eq!(back.session_time_zone.as_deref(), Some("Asia/Tokyo"));
+        assert_eq!(back.ssl_root_cert_path.as_deref(), Some("/etc/ssl/root.crt"));
+        assert_eq!(back.ssl_mode, SslMode::VerifyFull, "verify-full survives the column");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The conflict branch of the upsert updates all five. A save that
+    /// inserted them and then never wrote them again would look right on the
+    /// first save and silently keep the old values on every later one.
+    #[test]
+    fn a_second_save_updates_every_new_field() {
+        let dir = temp_db_dir("conn_slice_update");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &config("c1")).expect("save 1");
+
+        let mut changed = config("c1");
+        changed.read_only = false;
+        changed.remember_password = true;
+        changed.connect_on_launch = false;
+        changed.session_time_zone = None;
+        changed.ssl_root_cert_path = None;
+        changed.ssl_mode = SslMode::VerifyCa;
+        save_connection(&conn, &changed).expect("save 2");
+
+        let back = loaded(&conn, "c1");
+        assert!(!back.read_only);
+        assert!(back.remember_password);
+        assert!(!back.connect_on_launch);
+        assert_eq!(back.session_time_zone, None);
+        assert_eq!(back.ssl_root_cert_path, None);
+        assert_eq!(back.ssl_mode, SslMode::VerifyCa);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An empty string is not a time zone and not a path: both store SQL NULL,
+    /// so "" and absent read back identically and the session builder has one
+    /// case to handle instead of two.
+    #[test]
+    fn empty_strings_are_stored_as_null() {
+        let dir = temp_db_dir("conn_slice_empty");
+        let conn = init_database(&dir).expect("init_database");
+        let mut c = config("c1");
+        c.session_time_zone = Some("   ".to_string());
+        c.ssl_root_cert_path = Some(String::new());
+        save_connection(&conn, &c).expect("save");
+
+        let back = loaded(&conn, "c1");
+        assert_eq!(back.session_time_zone, None, "a blank time zone is no time zone");
+        assert_eq!(back.ssl_root_cert_path, None, "a blank path is no path");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The migration runs once, and a record written before it keeps today's
+    /// behaviour: writes allowed, password remembered, no connect at launch.
+    #[test]
+    fn the_migration_is_idempotent_and_leaves_old_records_unchanged() {
+        let dir = temp_db_dir("conn_slice_migration");
+        let conn = init_database(&dir).expect("init 1");
+        // Write the row the way a build before this slice did: the five new
+        // columns are left to their SQL defaults.
+        conn.execute(
+            "INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order) \
+             VALUES ('legacy', 'legacy', 'db', 5432, 'nbt', 'app', 'prefer', 0)",
+            [],
+        )
+        .expect("insert a legacy row");
+        drop(conn);
+
+        let conn = init_database(&dir).expect("init 2 idempotent");
+        for column in [
+            "read_only",
+            "remember_password",
+            "connect_on_launch",
+            "session_time_zone",
+            "ssl_root_cert_path",
+        ] {
+            let count: i64 = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = ?1")
+                .expect("prepare")
+                .query_row([column], |r| r.get(0))
+                .expect("query_row");
+            assert_eq!(count, 1, "{} present exactly once after two inits", column);
+        }
+
+        let back = loaded(&conn, "legacy");
+        assert!(!back.read_only, "an untouched record still writes");
+        assert!(back.remember_password, "an untouched record still remembers its password");
+        assert!(!back.connect_on_launch, "an untouched record does not connect at launch");
+        assert_eq!(back.session_time_zone, None);
+        assert_eq!(back.ssl_root_cert_path, None);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -21,6 +21,10 @@ nav_order: 17
 | Action | Shortcut |
 |--------|----------|
 | Settings… | Cmd+, |
+| Settings: previous pane | Cmd+[ |
+| Settings: next pane | Cmd+] |
+
+The app's own **Settings ▸ Shortcuts** pane lists every one of these at run time, with a search field. To change one, use **System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ App Shortcuts** and enter the menu command's exact title.
 | Hide Pharos | Cmd+H |
 | Hide Others | Cmd+Opt+H |
 | Quit Pharos | Cmd+Q |

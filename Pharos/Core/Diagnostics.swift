@@ -23,6 +23,22 @@ enum Diagnostics {
         MXMetricManager.shared.add(sub)
     }
 
+    /// Unsubscribe from MetricKit. Safe to call twice, and safe to call
+    /// having never started — both do nothing.
+    ///
+    /// The subscriber is removed AND released: `MXMetricManager` does not
+    /// retain it, so holding it after removing it would keep an object alive
+    /// that receives nothing, and `start()` could not tell it apart from a
+    /// live one.
+    static func stop() {
+        guard let sub = subscriber else { return }
+        MXMetricManager.shared.remove(sub)
+        subscriber = nil
+    }
+
+    /// Whether payloads are being collected right now.
+    static var isRunning: Bool { subscriber != nil }
+
     /// Held for the app's life: `MXMetricManager` does not retain its
     /// subscribers, and a released one silently stops receiving payloads.
     private static var subscriber: PayloadWriter?

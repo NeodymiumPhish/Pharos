@@ -1,5 +1,8 @@
 import Foundation
 
+// `SqlListQuoteStyle` lives in `Pharos/Models/Settings.swift`, beside every
+// other settings enum.
+
 /// Pure helpers for the "Format as SQL list" feature: detecting when pasted
 /// text looks like a bare value list, and transforming it into a quoted,
 /// comma-separated SQL list. No AppKit dependencies — unit-tested standalone
@@ -67,7 +70,7 @@ enum SQLListFormatter {
     /// comma after every value except the last, leading indentation kept.
     /// Values are normalized (existing commas/quotes stripped) then quoted
     /// unless the whole list is numeric, boolean, or NULL.
-    static func sqlize(_ text: String) -> String {
+    static func sqlize(_ text: String, quoteStyle: SqlListQuoteStyle = .single) -> String {
         struct Item {
             let indent: String
             let token: String
@@ -82,13 +85,23 @@ enum SQLListFormatter {
         }
         guard !items.isEmpty else { return text }
 
-        let quote = shouldQuote(items.map { $0.token })
+        // A list that needs no quoting (all numeric, all boolean, all NULL) is
+        // left bare whatever the style says — quoting it would change what it
+        // means to Postgres.
+        let quote = quoteStyle != .none && shouldQuote(items.map { $0.token })
 
         var outLines: [String] = []
         for (i, item) in items.enumerated() {
             var value = item.token
             if quote {
-                value = "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+                switch quoteStyle {
+                case .single:
+                    value = "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+                case .double:
+                    value = "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+                case .none:
+                    break  // unreachable: `quote` is false for .none
+                }
             }
             let comma = i < items.count - 1 ? "," : ""
             outLines.append(item.indent + value + comma)

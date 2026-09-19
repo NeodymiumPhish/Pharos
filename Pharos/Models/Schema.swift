@@ -134,39 +134,9 @@ struct FunctionInfo: Codable {
 
 // MARK: - Table Operations
 
-enum ExportFormat: String, Codable, CaseIterable {
-    case csv = "csv"
-    case tsv = "tsv"
-    case json = "json"
-    case jsonLines = "jsonLines"
-    case sqlInsert = "sqlInsert"
-    case markdown = "markdown"
-    case xlsx = "xlsx"
-
-    var displayLabel: String {
-        switch self {
-        case .csv: return "CSV"
-        case .tsv: return "TSV"
-        case .json: return "JSON"
-        case .jsonLines: return "JSON Lines"
-        case .sqlInsert: return "SQL INSERT"
-        case .markdown: return "Markdown"
-        case .xlsx: return "Excel (XLSX)"
-        }
-    }
-
-    var fileExtension: String {
-        switch self {
-        case .csv: return "csv"
-        case .tsv: return "tsv"
-        case .json: return "json"
-        case .jsonLines: return "jsonl"
-        case .sqlInsert: return "sql"
-        case .markdown: return "md"
-        case .xlsx: return "xlsx"
-        }
-    }
-}
+// `ExportFormat` lives in `Models/Settings.swift`: `AppSettings.dataExport`
+// names it, and a type `AppSettings` names has to compile with that file
+// alone — see the eight standalone harnesses under `scripts/`.
 
 struct CloneTableOptions: Codable {
     let sourceSchema: String
@@ -189,11 +159,17 @@ struct ExportTableOptions: Codable {
     let nullAsEmpty: Bool
     let filePath: String
     let format: ExportFormat
+    /// The CSV shape this export asks for, from `AppSettings.dataExport`.
+    /// Read by the CSV/TSV branch of `stream_export` in pharos-core.
+    let csv: CsvDialect
 }
 
 struct ExportTableResult: Codable {
     let success: Bool
     let rowsExported: UInt64
+    /// Characters the chosen encoding could not carry and wrote as `?`.
+    /// Always 0 for UTF-8 and UTF-16 LE, which carry anything.
+    let charactersSubstituted: UInt64
 }
 
 struct ImportCsvOptions: Codable {
@@ -201,9 +177,23 @@ struct ImportCsvOptions: Codable {
     let tableName: String
     let filePath: String
     let hasHeaders: Bool
+    /// The CSV shape to read, from `AppSettings.dataImport`.
+    let csv: CsvDialect
+    /// What a failing row does to the rest of the file.
+    let onError: ImportErrorPolicy
+    /// Rows per transaction. 0 is one transaction for the whole file.
+    let commitEvery: UInt32
 }
 
 struct ImportCsvResult: Codable {
     let success: Bool
     let rowsImported: UInt64
+    /// Rows rolled back to their savepoint and passed over. Always 0 under
+    /// `.abort`, which has no way to reach the next row.
+    let rowsSkipped: UInt64
+    /// The first twenty failures, one line each. `rowsSkipped` is the
+    /// complete count; this is a sample.
+    let errors: [String]
+    /// Transactions committed before the end of the file.
+    let committedBatches: UInt64
 }

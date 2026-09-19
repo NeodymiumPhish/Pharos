@@ -311,7 +311,10 @@ enum PharosCoreError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .rustError(let msg): return msg
+        // The ONE funnel every core error passes through, so a read-only
+        // refusal reads the same whichever command met it: a query, an
+        // import, a clone or a row edit.
+        case .rustError(let msg): return ReadOnlyConnectionError.humanised(msg)
         case .decodingError(let json, let error): return "Failed to decode: \(error). JSON: \(json.prefix(200))"
         case .nullResult: return "Unexpected null result from Rust"
         }

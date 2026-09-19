@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/sql-list-formatter-tests \
   Pharos/Editor/SQLListFormatter.swift \
+  Pharos/Models/Settings.swift \
+  Pharos/Models/Charts/ChartPalette.swift \
   PharosTests/SQLListFormatterTests.swift \
   PharosTests/main.swift
 /tmp/sql-list-formatter-tests

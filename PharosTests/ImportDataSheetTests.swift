@@ -35,7 +35,8 @@ private func findLabel(reading text: String, in view: NSView) -> NSTextField? {
 }
 
 func runTests() {
-    let sheet = ImportDataSheet(schema: "public", table: "users", onImport: { _, _ in })
+    let sheet = ImportDataSheet(schema: "public", table: "users",
+                               settings: DataImportSettings(), onImport: { _ in })
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = sheet.view
@@ -71,7 +72,8 @@ func runTests() {
     // the user must drive again would make the drop pointless.
     let dropped = URL(fileURLWithPath: "/tmp/pharos-drop-test/indicators.csv")
     let droppedSheet = ImportDataSheet(schema: "public", table: "users",
-                                       preselectedFileURL: dropped, onImport: { _, _ in })
+                                       preselectedFileURL: dropped,
+                                       settings: DataImportSettings(), onImport: { _ in })
     let droppedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
                                  styleMask: [.borderless], backing: .buffered, defer: false)
     droppedWindow.contentView = droppedSheet.view
@@ -90,6 +92,33 @@ func runTests() {
     if let importButton = findButton(titled: "Import", in: sheet.view) {
         expectTrue(!importButton.isEnabled, "with no file chosen Import is disabled")
     }
+
+    // MARK: The request carries the dialect Settings holds (§2.10)
+    //
+    // The sheet has no delimiter control: the dialect is a standing
+    // preference. What it must do is CARRY it, or an import would silently
+    // read every file as plain comma-separated UTF-8.
+    var chosen = DataImportSettings()
+    chosen.dialect.delimiter = .semicolon
+    chosen.dialect.nullLiteral = "(null)"
+    chosen.onError = .skipRow
+    chosen.commitEvery = 500
+    var request: ImportCsvOptions?
+    let carrying = ImportDataSheet(schema: "public", table: "users",
+                                   preselectedFileURL: URL(fileURLWithPath: "/tmp/pharos/x.csv"),
+                                   settings: chosen, onImport: { request = $0 })
+    let carryingWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 180),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+    carryingWindow.contentView = carrying.view
+    carrying.view.layoutSubtreeIfNeeded()
+    findButton(titled: "Import", in: carrying.view)?.performClick(nil)
+
+    expectTrue(request?.csv.delimiter == .semicolon, "the request carries the delimiter Settings holds")
+    expectTrue(request?.csv.nullLiteral == "(null)", "and the NULL literal")
+    expectTrue(request?.onError == .skipRow, "and the error policy")
+    expectTrue(request?.commitEvery == 500, "and the commit size")
+    expectTrue(request?.schemaName == "public" && request?.tableName == "users",
+               "and names the table it was opened for")
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

@@ -13,6 +13,7 @@ swiftc -o /tmp/result-tabs-panel-vc-tests \
   Pharos/Views/ResultTabContextMenu.swift \
   Pharos/Core/ResultTabRowText.swift \
   Pharos/Core/DisplayEscape.swift \
+  Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Core/HistoryRowText.swift \
   PharosTests/ResultTabsPanelVCTests.swift \
   PharosTests/main.swift

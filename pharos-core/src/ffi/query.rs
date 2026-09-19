@@ -6,6 +6,39 @@ use super::*;
 // Query execution
 // ---------------------------------------------------------------------------
 
+/// The `sqlformat` options a set of Editor settings asks for.
+///
+/// Pure, so the mapping is testable without an `AppState` and without the
+/// FFI. `EditorSettings::default()` reproduces the three values
+/// `pharos_format_sql` was hard-coded to — 2-space indent, uppercase
+/// keywords, 2 blank lines between statements — so the default settings
+/// format byte for byte as the button always has.
+///
+/// The clamps keep a stored value that is out of the pane's range from
+/// reaching `sqlformat` as a nonsense `u8`: the indent stays inside 1..=8 and
+/// the blank-line count inside 0..=2, which are the ranges the Settings pane
+/// offers.
+pub(crate) fn format_options_for(
+    editor: &crate::models::EditorSettings,
+) -> sqlformat::FormatOptions<'static> {
+    sqlformat::FormatOptions {
+        indent: sqlformat::Indent::Spaces(editor.format_indent_width.clamp(1, 8) as u8),
+        uppercase: Some(editor.format_uppercase_keywords),
+        lines_between_queries: editor.format_lines_between_statements.min(2) as u8,
+        ..Default::default()
+    }
+}
+
+/// The Editor settings as they stand, or the defaults before `pharos_init`
+/// has run. `app_state()` panics when the core is not up, and formatting text
+/// is not a reason to take the app down with it.
+fn editor_settings() -> crate::models::EditorSettings {
+    APP_STATE
+        .get()
+        .map(|state| state.settings().editor.clone())
+        .unwrap_or_default()
+}
+
 /// Format SQL with PostgreSQL conventions. Returns formatted SQL. Caller must free.
 #[no_mangle]
 pub extern "C" fn pharos_format_sql(sql: *const c_char) -> *mut c_char {
@@ -14,12 +47,8 @@ pub extern "C" fn pharos_format_sql(sql: *const c_char) -> *mut c_char {
             Some(s) => s,
             None => return to_c_string(""),
         };
-        let options = sqlformat::FormatOptions {
-            indent: sqlformat::Indent::Spaces(2),
-            uppercase: Some(true),
-            lines_between_queries: 2,
-            ..Default::default()
-        };
+        let editor = editor_settings();
+        let options = format_options_for(&editor);
         let (masked, tokens, prefix) = mask_variable_tokens(&sql_str);
         let formatted = sqlformat::format(&masked, &sqlformat::QueryParams::None, &options);
         to_c_string(&restore_variable_tokens(&formatted, &tokens, &prefix))
@@ -349,12 +378,7 @@ mod variable_token_tests {
     /// The same options `pharos_format_sql` uses, so a test failure means the
     /// button is broken and not that the test drifted.
     fn format(sql: &str) -> String {
-        let options = sqlformat::FormatOptions {
-            indent: sqlformat::Indent::Spaces(2),
-            uppercase: Some(true),
-            lines_between_queries: 2,
-            ..Default::default()
-        };
+        let options = format_options_for(&crate::models::EditorSettings::default());
         let (masked, tokens, prefix) = mask_variable_tokens(sql);
         let formatted = sqlformat::format(&masked, &sqlformat::QueryParams::None, &options);
         restore_variable_tokens(&formatted, &tokens, &prefix)
@@ -433,5 +457,98 @@ mod variable_token_tests {
         let sql = "select '日本語' from t where id = {{v}}";
         let (masked, tokens, prefix) = mask_variable_tokens(sql);
         assert_eq!(restore_variable_tokens(&masked, &tokens, &prefix), sql);
+    }
+}
+
+#[cfg(test)]
+mod format_options_tests {
+    use super::*;
+    use crate::models::EditorSettings;
+    use sqlformat::Indent;
+
+    /// One representative statement: several clauses, a function, a join, an
+    /// interval literal, and a second statement after the semicolon, so every
+    /// one of the three options shows in the output.
+    const SQL: &str = "select a.id, a.name, count(*) as n from public.users a join orders o on o.user_id = a.id where a.created_at > now() - interval '7 days' group by 1, 2 order by n desc limit 10; select 1;";
+
+    /// What `pharos_format_sql` produced BEFORE the Format SQL settings
+    /// existed, captured from the hard-coded options it carried
+    /// (`Indent::Spaces(2)`, `uppercase: Some(true)`,
+    /// `lines_between_queries: 2`).
+    ///
+    /// This is the test that matters: the defaults must leave the Format
+    /// button byte for byte as it was, or an existing user's editor changes
+    /// under them at the next launch.
+    const TODAYS_OUTPUT: &str = "SELECT\n  a.id,\n  a.name,\n  count(*) AS n\nFROM\n  public.users a\n  JOIN orders o ON o.user_id = a.id\nWHERE\n  a.created_at > NOW() - INTERVAL '7 days'\nGROUP BY\n  1,\n  2\nORDER BY\n  n DESC\nLIMIT\n  10;\n\nSELECT\n  1;";
+
+    fn format_with(editor: &EditorSettings) -> String {
+        let options = format_options_for(editor);
+        let (masked, tokens, prefix) = mask_variable_tokens(SQL);
+        let formatted = sqlformat::format(&masked, &sqlformat::QueryParams::None, &options);
+        restore_variable_tokens(&formatted, &tokens, &prefix)
+    }
+
+    #[test]
+    fn the_defaults_reproduce_todays_output_byte_for_byte() {
+        assert_eq!(format_with(&EditorSettings::default()), TODAYS_OUTPUT);
+    }
+
+    #[test]
+    fn the_defaults_are_the_options_that_were_hard_coded() {
+        let options = format_options_for(&EditorSettings::default());
+        assert!(matches!(options.indent, Indent::Spaces(2)), "{:?}", options.indent);
+        assert_eq!(options.uppercase, Some(true));
+        assert_eq!(options.lines_between_queries, 2);
+    }
+
+    #[test]
+    fn the_indent_width_maps_through() {
+        for width in 1u32..=8 {
+            let editor = EditorSettings { format_indent_width: width, ..Default::default() };
+            assert!(
+                matches!(format_options_for(&editor).indent, Indent::Spaces(n) if n == width as u8),
+                "width {width} did not reach sqlformat"
+            );
+        }
+    }
+
+    #[test]
+    fn an_indent_width_outside_the_pane_range_is_clamped() {
+        let low = EditorSettings { format_indent_width: 0, ..Default::default() };
+        assert!(matches!(format_options_for(&low).indent, Indent::Spaces(1)));
+        let high = EditorSettings { format_indent_width: 999, ..Default::default() };
+        assert!(matches!(format_options_for(&high).indent, Indent::Spaces(8)));
+    }
+
+    #[test]
+    fn the_keyword_case_maps_through() {
+        let lower = EditorSettings { format_uppercase_keywords: false, ..Default::default() };
+        assert_eq!(format_options_for(&lower).uppercase, Some(false));
+        let out = format_with(&lower);
+        assert!(out.starts_with("select"), "keywords were still raised: {out}");
+        assert!(!out.contains("SELECT"), "keywords were still raised: {out}");
+    }
+
+    #[test]
+    fn the_blank_lines_between_statements_map_through() {
+        for lines in 0u32..=2 {
+            let editor =
+                EditorSettings { format_lines_between_statements: lines, ..Default::default() };
+            assert_eq!(format_options_for(&editor).lines_between_queries, lines as u8);
+        }
+    }
+
+    #[test]
+    fn a_blank_line_count_above_the_pane_range_is_clamped() {
+        let editor = EditorSettings { format_lines_between_statements: 9, ..Default::default() };
+        assert_eq!(format_options_for(&editor).lines_between_queries, 2);
+    }
+
+    #[test]
+    fn the_blank_line_count_reaches_the_output() {
+        let none = EditorSettings { format_lines_between_statements: 0, ..Default::default() };
+        // 0 leaves one newline between the two statements, 2 leaves three.
+        assert!(format_with(&none).contains("10;\nSELECT"), "{}", format_with(&none));
+        assert!(format_with(&EditorSettings::default()).contains("10;\n\nSELECT"));
     }
 }

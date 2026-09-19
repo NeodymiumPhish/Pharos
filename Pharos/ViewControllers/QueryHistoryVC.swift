@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 
 extension Notification.Name {
@@ -24,8 +25,27 @@ private class HistoryRowCell: NSTableCellView {
     let primaryLabel = NSTextField(labelWithString: "")
     let trailingLabel = NSTextField(labelWithString: "")
 
+    /// Shown only on a row whose run did not produce a result. The glyph is a
+    /// SECOND signal, never the only one: `HistoryRowText.legacyRow` puts the
+    /// word "Failed" in the visible text and in the spoken label, because a
+    /// glyph is invisible to a screen reader.
+    let statusIcon = NSImageView()
+
+    /// Both collapse to 0 on a row with no glyph, so the text keeps the same
+    /// 8pt inset it has always had. Toggling constants beats activating and
+    /// deactivating constraints on a cell the table reuses.
+    private var iconWidth: NSLayoutConstraint!
+    private var iconGap: NSLayoutConstraint!
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+
+        statusIcon.translatesAutoresizingMaskIntoConstraints = false
+        statusIcon.imageScaling = .scaleProportionallyDown
+        statusIcon.contentTintColor = .systemOrange
+        // The cell speaks for the whole row; the glyph must not be a second
+        // stop on the way through it.
+        statusIcon.setAccessibilityElement(false)
 
         primaryLabel.lineBreakMode = .byTruncatingTail
         primaryLabel.textColor = .labelColor
@@ -43,11 +63,21 @@ private class HistoryRowCell: NSTableCellView {
         trailingLabel.setContentHuggingPriority(.required, for: .horizontal)
         trailingLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
+        addSubview(statusIcon)
         addSubview(primaryLabel)
         addSubview(trailingLabel)
 
+        iconWidth = statusIcon.widthAnchor.constraint(equalToConstant: 0)
+        iconGap = primaryLabel.leadingAnchor.constraint(
+            equalTo: statusIcon.trailingAnchor, constant: 0)
+
         NSLayoutConstraint.activate([
-            primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            statusIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            statusIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusIcon.heightAnchor.constraint(equalToConstant: 13),
+            iconWidth,
+            iconGap,
+
             primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             trailingLabel.leadingAnchor.constraint(
@@ -55,15 +85,34 @@ private class HistoryRowCell: NSTableCellView {
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             trailingLabel.firstBaselineAnchor.constraint(equalTo: primaryLabel.firstBaselineAnchor),
         ])
+
+        showsFailure = false
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
 
+    /// Whether this row carries the warning glyph. Setting it lays the row out
+    /// either way, so a reused cell can never keep the last row's glyph.
+    var showsFailure: Bool = false {
+        didSet {
+            statusIcon.isHidden = !showsFailure
+            statusIcon.image = showsFailure
+                ? NSImage(systemSymbolName: "exclamationmark.triangle.fill",
+                          accessibilityDescription: nil)
+                : nil
+            iconWidth.constant = showsFailure ? 13 : 0
+            iconGap.constant = showsFailure ? 4 : 8
+            primaryLabel.textColor = .labelColor
+        }
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         toolTip = nil
+        showsFailure = false
+        setAccessibilityLabel(nil)
     }
 }
 
@@ -113,6 +162,20 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private let splitView = NSSplitView()
     private let emptyState = EmptyStateView()
 
+    /// All / Succeeded / Failed. Failures are recorded now (Settings ▸ Library
+    /// & History ▸ Record failed queries), so the list has to be able to leave
+    /// them out — and, more usefully, to show nothing else.
+    private let scopeControl = NSSegmentedControl(
+        labels: QueryHistoryStatusScope.allCases.map(\.displayLabel),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+
+    /// Which rows the list is showing. `.all` is what it showed before the
+    /// control existed.
+    private var statusScope: QueryHistoryStatusScope = .all
+
     private var rows: [HistoryRow] = []
     private var workspaces: [WorkspaceSummary] = []
     private var legacyEntries: [QueryHistoryEntry] = []
@@ -130,6 +193,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private static let previewSplitAutosave = "PharosHistoryPreviewSplit"
 
     private var connectionFilter: String?
+
+    /// Re-fetches when Settings ▸ Library & History changes how many entries
+    /// the list loads. Mapped and de-duplicated so no other settings change
+    /// reaches it.
+    private var settingsCancellable: AnyCancellable?
     private var filterText: String?
 
     /// Result IDs whose SQL matched the active filter, keyed by workspace.
@@ -232,16 +300,33 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         emptyState.translatesAutoresizingMaskIntoConstraints = false
 
+        scopeControl.translatesAutoresizingMaskIntoConstraints = false
+        scopeControl.segmentStyle = .automatic
+        scopeControl.controlSize = .small
+        scopeControl.selectedSegment = 0
+        scopeControl.target = self
+        scopeControl.action = #selector(scopeChanged(_:))
+        scopeControl.setAccessibilityLabel(String(localized: "Show"))
+        for (index, scope) in QueryHistoryStatusScope.allCases.enumerated() {
+            scopeControl.setWidth(0, forSegment: index) // width from the label
+            scopeControl.setToolTip(Self.scopeTooltip(scope), forSegment: index)
+        }
+
+        container.addSubview(scopeControl)
         container.addSubview(splitView)
         container.addSubview(emptyState)
 
         NSLayoutConstraint.activate([
-            splitView.topAnchor.constraint(equalTo: container.topAnchor),
+            scopeControl.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            scopeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            scopeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
+
+            splitView.topAnchor.constraint(equalTo: scopeControl.bottomAnchor, constant: 6),
             splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
-            emptyState.topAnchor.constraint(equalTo: container.topAnchor),
+            emptyState.topAnchor.constraint(equalTo: splitView.topAnchor),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             emptyState.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             emptyState.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -287,6 +372,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     func reload(connectionId: String? = nil) {
         self.connectionFilter = connectionId
+        if settingsCancellable == nil {
+            settingsCancellable = AppStateManager.shared.$settings
+                .map(\.history.maximumEntries)
+                .removeDuplicates()
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in self?.requery() }
+        }
         requery()
     }
 
@@ -294,6 +387,32 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     func applyFilter(_ text: String) {
         filterText = text
+        requery()
+    }
+
+    // MARK: - Scope
+
+    /// What each segment promises, on hover.
+    private static func scopeTooltip(_ scope: QueryHistoryStatusScope) -> String {
+        switch scope {
+        case .all:
+            return String(localized: "Every workspace and every earlier query.")
+        case .succeeded:
+            return String(localized: "Only queries that returned a result.")
+        case .failed:
+            return String(localized: "Only queries that failed or were cancelled, newest first, whatever workspace they belong to.")
+        }
+    }
+
+    @objc private func scopeChanged(_ sender: NSSegmentedControl) {
+        let index = sender.selectedSegment
+        guard index >= 0, index < QueryHistoryStatusScope.allCases.count else { return }
+        let scope = QueryHistoryStatusScope.allCases[index]
+        guard scope != statusScope else { return }
+        statusScope = scope
+        // Failures do not belong to the workspace list, so the preview pane's
+        // selection is meaningless under the Failed scope.
+        if scope == .failed { clearPreview() }
         requery()
     }
 
@@ -349,16 +468,32 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         let generation = requeryGeneration
         let search = (filterText?.isEmpty ?? true) ? nil : filterText
         let connectionId = connectionFilter
+        // Settings ▸ Library & History ▸ Entries to load. There is no paging
+        // here — the list is this one fetch — and 200, the default, is the
+        // number both calls were hard-coded to. Read on the main actor before
+        // the detached task, which cannot touch the store.
+        let entryLimit = Int(AppStateManager.shared.settings.history.maximumEntries)
         // Hop the FFI roundtrip (SQLite IO + JSON decode) off the main thread
         // so typing in the sidebar filter — which can fire this several times
         // a second — never stalls the UI.
+        // Under `Failed` the list is the failures themselves, so the workspace
+        // rows go and the query rows are NOT limited to the pre-workspace ones:
+        // a failure recorded today belongs to the workspace its tab was in, and
+        // `onlyLegacy` would hide every one of them.
+        let scope = statusScope
+        let wantsWorkspaces = scope != .failed
+        let onlyLegacy = scope != .failed
         Task.detached(priority: .userInitiated) { [weak self] in
             let ws: [WorkspaceSummary]
             let legacy: [QueryHistoryEntry]
             do {
-                ws = try PharosCore.loadWorkspaces(filter: .init(search: search, limit: 200, offset: 0))
+                ws = wantsWorkspaces
+                    ? try PharosCore.loadWorkspaces(filter: .init(search: search, limit: entryLimit, offset: 0))
+                    : []
                 legacy = try PharosCore.loadQueryHistory(
-                    filter: QueryHistoryFilter(connectionId: connectionId, search: search, limit: 200, onlyLegacy: true)
+                    filter: QueryHistoryFilter(connectionId: connectionId, search: search,
+                                               limit: entryLimit, onlyLegacy: onlyLegacy,
+                                               status: scope)
                 )
             } catch {
                 Log.ui.error("Failed to load workspace history: \(error.localizedDescription, privacy: .public)")
@@ -407,6 +542,15 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     /// any legacy rows) an "Earlier history" disclosure row, then the legacy
     /// entries themselves when expanded.
     private func rebuildRows() {
+        // Under `Failed` there are no workspace rows and nothing is "earlier":
+        // the list IS the failures, so a disclosure row in front of them would
+        // hide the only thing the scope was chosen to show.
+        if statusScope == .failed {
+            rows = legacyEntries.map { .legacy($0) }
+            updateEmptyState()
+            return
+        }
+
         var out: [HistoryRow] = workspaces.map { .workspace($0) }
         if !legacyEntries.isEmpty {
             out.append(.earlierHeader(count: legacyEntries.count, expanded: earlierExpanded))
@@ -423,14 +567,30 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     /// still live and the user can see their own typing caused it, so the
     /// empty state must not cover the list they are filtering.
     private func updateEmptyState() {
-        if workspaces.isEmpty, legacyEntries.isEmpty, !isFiltering {
+        guard workspaces.isEmpty, legacyEntries.isEmpty, !isFiltering else {
+            emptyState.isHidden = true
+            return
+        }
+        switch statusScope {
+        case .all:
             emptyState.show(
                 symbol: "clock.arrow.circlepath",
                 title: String(localized: "No History"),
                 message: String(localized: "Queries you run appear here.")
             )
-        } else {
-            emptyState.isHidden = true
+        case .succeeded:
+            emptyState.show(
+                symbol: "clock.arrow.circlepath",
+                title: String(localized: "Nothing Succeeded Yet"),
+                message: String(localized: "Queries that return a result appear here.")
+            )
+        case .failed:
+            // Not "no history": there may be plenty, all of it successful.
+            emptyState.show(
+                symbol: "checkmark.circle",
+                title: String(localized: "No Failures"),
+                message: String(localized: "Queries that fail appear here, unless you turn that off in Settings.")
+            )
         }
     }
 
@@ -714,39 +874,6 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             cell.identifier = cellId
         }
 
-        // Line 1: "6 Columns - users" or "SELECT ..." fallback
-        let colText: String
-        if let count = entry.columnCount {
-            colText = "\(count) Column\(count == 1 ? "" : "s")"
-        } else {
-            colText = ""
-        }
-        let tableText = DisplayEscape.escaped(entry.tableNames ?? "")
-
-        if !colText.isEmpty && !tableText.isEmpty {
-            cell.primaryLabel.stringValue = "\(colText) – \(tableText)"
-        } else if !tableText.isEmpty {
-            cell.primaryLabel.stringValue = tableText
-        } else if !colText.isEmpty {
-            cell.primaryLabel.stringValue = colText
-        } else {
-            // Fallback: first line of SQL
-            let firstLine = entry.sql.components(separatedBy: .newlines).first ?? entry.sql
-            cell.primaryLabel.stringValue = DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces))
-        }
-
-        // Trailing: when it ran. The rest of what the old second line carried —
-        // the row count, the connection, and the SQL itself — is the tooltip's
-        // now; the row has one line to give.
-        cell.trailingLabel.stringValue = formatDate(entry.executedAt)
-
-        let rowText: String
-        if let count = entry.rowCount {
-            rowText = "\(HistoryRowText.rowCountText(count)) Row\(count == 1 ? "" : "s")"
-        } else {
-            rowText = ""
-        }
-        let connName = DisplayEscape.escaped(entry.connectionName)
         // The SQL is flattened to one line and clipped: a tooltip holding a
         // 200-line query is a wall, not a hint.
         let flatSql = entry.sql
@@ -755,11 +882,33 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         let clippedSql = flatSql.count > 200 ? String(flatSql.prefix(200)) + "\u{2026}" : flatSql
-        var tipParts: [String] = []
-        if !rowText.isEmpty { tipParts.append(rowText) }
-        tipParts.append(connName)
-        if !clippedSql.isEmpty { tipParts.append(DisplayEscape.escaped(clippedSql)) }
-        cell.toolTip = tipParts.joined(separator: " – ")
+        let firstLine = entry.sql.components(separatedBy: .newlines).first ?? entry.sql
+        let relativeTime = formatDate(entry.executedAt)
+
+        // Every string is escaped HERE: `HistoryRowText` is pure Foundation
+        // and six standalone harnesses compile it without DisplayEscape.
+        let text = HistoryRowText.legacyRow(
+            status: entry.status,
+            errorMessage: entry.errorMessage.map(DisplayEscape.escaped),
+            columnCount: entry.columnCount,
+            tableNames: DisplayEscape.escaped(entry.tableNames ?? ""),
+            firstSQLLine: DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces)),
+            flatSQL: DisplayEscape.escaped(clippedSql),
+            rowCount: entry.rowCount,
+            connectionName: DisplayEscape.escaped(entry.connectionName),
+            relativeTime: relativeTime
+        )
+
+        cell.primaryLabel.stringValue = text.primary
+        // Trailing: when it ran. The rest of what the old second line carried —
+        // the row count, the connection, and the SQL itself — is the tooltip's
+        // now; the row has one line to give.
+        cell.trailingLabel.stringValue = relativeTime
+        cell.toolTip = text.tooltip
+        cell.showsFailure = text.isFailed
+        // The glyph says "this failed" to everyone who can see it; this says it
+        // to everyone else. See the project lesson on glyph-only state.
+        cell.setAccessibilityLabel(text.accessibilityLabel)
 
         return cell
     }
@@ -834,7 +983,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             await MainActor.run {
                 // Discard a stale response if the selection moved on before this returned.
                 guard let self, self.selectedWorkspaceId == workspaceId else { return }
-                self.previewResults = detail?.results ?? []
+                // A workspace holds the failures its tab produced as well as
+                // its results. This pane lists RESULTS — a failed run has no
+                // rows, no columns and nothing to open — and the failures are
+                // read in the list above, under the Failed scope.
+                self.previewResults = (detail?.results ?? []).filter(\.isSucceeded)
                 self.previewTable.reloadData()
             }
         }

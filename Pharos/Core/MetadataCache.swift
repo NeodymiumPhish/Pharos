@@ -21,6 +21,20 @@ final class MetadataCache: ObservableObject {
         var tables: [String: [TableInfo]] = [:]
         var columnsByTable: [String: [ColumnInfo]] = [:]
         var isLoaded: Bool = false
+        /// When the load that set `isLoaded` finished, for the TTL below. Nil
+        /// while the entry is still filling.
+        var loadedAt: Date?
+    }
+
+    /// Whether a cached entry is too old to be restored.
+    ///
+    /// `metadataCacheTtlMinutes` is 0 by default, which means never expire —
+    /// what this cache did before the setting existed: an entry lived until
+    /// its connection closed or the user refreshed by hand.
+    private func isStale(_ cached: ConnectionMetadata) -> Bool {
+        let minutes = AppStateManager.shared.settings.diagnostics.metadataCacheTtlMinutes
+        guard minutes > 0, let loadedAt = cached.loadedAt else { return false }
+        return Date().timeIntervalSince(loadedAt) > TimeInterval(minutes) * 60
     }
 
     private var activeConnectionId: String?
@@ -33,7 +47,7 @@ final class MetadataCache: ObservableObject {
     /// Load metadata for a connection. Restores from cache if available; fetches from network only when forced or uncached.
     func load(connectionId: String, force: Bool = false) {
         // Cache-hit: restore instantly with no FFI calls
-        if !force, let cached = connectionCaches[connectionId], cached.isLoaded {
+        if !force, let cached = connectionCaches[connectionId], cached.isLoaded, !isStale(cached) {
             activeConnectionId = connectionId
             schemas = cached.schemas
             tables = cached.tables
@@ -73,6 +87,7 @@ final class MetadataCache: ObservableObject {
 
                 // Mark as fully loaded
                 self.connectionCaches[connectionId]?.isLoaded = true
+                self.connectionCaches[connectionId]?.loadedAt = Date()
             } catch {
                 self.isLoading = false
                 Log.schema.error("MetadataCache: Failed to load metadata: \(error.localizedDescription, privacy: .public)")

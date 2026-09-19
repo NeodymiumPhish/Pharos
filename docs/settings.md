@@ -18,7 +18,11 @@ nav_order: 16
 
 ## Overview
 
-Open Settings with **Cmd+,** or **Pharos > Settings…**. Settings is a window of its own, so it opens even when no query window is on screen. A toolbar across the top selects one of four panes — **General**, **Editor**, **Query**, and **Charts** — and the window resizes to the pane you select. Close it with **Cmd+W**; it reopens in the pane you left.
+Open Settings with **Cmd+,** or **Pharos > Settings…**. Settings is a window of its own, so it opens even when no query window is on screen.
+
+A list down the left side selects the pane. The pane's name is shown in bold at the top of the right side, with **Back** and **Forward** chevrons beside it; **Cmd+[** and **Cmd+]** do the same. The window keeps one size whichever pane you are in, and remembers the size you give it. Close it with **Cmd+W**; it reopens in the pane you left.
+
+The panes are **General**, **Appearance**, **Editor**, **Query**, **Results**, **Navigator**, **Library & History**, **Connections**, **Security & Privacy**, **Export & Import**, **Charts**, **Tags**, **Intelligence**, **Notifications**, **Shortcuts** and **Advanced**. A pane that shows **No Items** has no settings in it yet.
 
 There is no Save button. **Every change applies at once**: a checkbox, popup, or radio applies the moment you click it, and a number field applies as you type (and again when you leave the field). Change the editor font size and the editor text changes behind the window. Settings are stored in the local SQLite database and persist across launches.
 
@@ -26,40 +30,417 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Appearance | Auto, Light, Dark | Auto | Application color scheme; Auto follows the system. |
-| NULL Display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
-| Bool Display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
+| Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+| Restore window positions | On/Off | On | Puts a restored window back where it was. Off still restores the tabs and lets macOS place the window, which is what you want after your displays change. Only applies while **Restore open tabs** is on. |
+| Autosave the session | Every 10 seconds, Every 30 seconds, Every minute, Off | Every 30 seconds | How often the open tabs are written down. **Off still saves at quit**, so turning it off does not lose the session. |
+| Warn before closing unsaved tabs | On/Off | On | Asks before closing a tab, closing a window or quitting Pharos when a tab has edits that have not been written back. **Save** writes each one back to its saved query or its file and then closes; **Don't Save** closes and loses the edits; **Cancel** leaves everything as it was. A tab bound to a [saved query](saved-queries.md) or to a file always counts. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text. An empty tab never counts. Off is exactly what Pharos did before this setting existed: no warning at all. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
-| Show leaf partitions in the Database Navigator | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
-| Show result tabs in a vertical panel, not a horizontal bar | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
-| Always show scroll bars in the editor and results | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
+| Frequency | On launch only, Daily, Weekly | Daily | How often the background check repeats. It also sets how stale a stored answer may be before the next check asks GitHub again. |
+| Channel | Stable, Pre-release | Stable | Stable follows GitHub's own latest release. Pre-release takes the newest release marked pre-release that is not a draft. |
+| Check Now | Button | — | Checks at once, whatever the frequency says, and puts the answer under the button. The caption otherwise shows when the last check ran. |
+
+## Appearance Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Appearance | Auto, Light, Dark | Auto | Application color scheme; Auto follows the system. |
+| NULL display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
+| Boolean display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
+| NULL style | Italic, Dimmed, Plain | Italic | How a NULL is set apart from a real value in the grid. **Differentiate Without Color** (System Settings ▸ Accessibility ▸ Display) keeps the italic face whatever this says, because a colour-only difference is no difference with that option on. |
+| Show result tabs in a vertical panel | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
+| Always show scroll bars | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
+
+## Navigator Pane
+
+The [Database Navigator](schema-browser.md): what it shows, in what order, and
+what a double-click on a row does. Every default is what the Navigator did
+before the setting existed, so nothing changes until you touch a control.
+
+### Schemas
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Order schemas by | Name, Default schema first | Name | Name is the order the server returns, which is what the Navigator has always shown. Default schema first lifts the schema the connection names to the top and leaves the rest by name; a connection that names none is unchanged. |
+| Show system schemas | On/Off | Off | Lists `pg_catalog` and `information_schema` in the tree and in the schema pull-down, beside your own schemas. The storage schemas stay hidden whichever way this is set: `pg_toast` holds the out-of-line halves of wide rows and the `pg_temp_` ones are a namespace per backend that has made a temporary table, so there can be thousands and none of them holds anything to read. Changing this refetches the schema list and clears the cached metadata, so the tree and completion both answer with the new list at once. |
+
+### Objects
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Order objects by | Kind, then name; Name; Size; Row estimate | Kind, then name | Kind, then name lists the tables by name, then the views by name. Name mixes views in among the tables. Size and Row estimate put the largest first; an object that has not been measured yet goes to the END, by name, never to the front — an unmeasured table is not a small one, and sorting it as zero would reshuffle the list as the measurements arrived. |
+| Show leaf partitions | On/Off | Off | Shows a nested Partitions folder under [partitioned tables](schema-browser.md#partitioned-tables). |
+| Order partitions by | Partition bound, Name, Size | Name | The order inside that Partitions folder. Partition bound reads each partition's own FROM or IN value, so a range-partitioned table reads in date order; MINVALUE comes first, MAXVALUE after the real keys, and DEFAULT last. |
+| Open the default schema | On/Off | On | Expands the schema the connection names — or `public`, when it names none — as soon as the tree is built. |
+| Only below | 0–100,000 objects | 500 | The ceiling for the row above. Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle. |
+
+### Actions
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| On double-click | Expand or collapse, View contents, Describe, Insert the name in the editor | Expand or collapse | Every action but Expand runs exactly what the row's own context menu runs. A row the action means nothing for — a schema, a column — still expands. Describe opens the table's DDL sheet, and only a plain table has one. |
+| Limit the rows View contents fetches | On/Off | On | Uses Query ▸ **Default row limit**. Off selects every row, as the context menu's **View All Contents** does. Read only while the double-click action is View contents. |
+| Row counts in the Limit menu | 10 / 100 / 1,000 / 10,000 · 10 / 50 / 100 / 500 · 100 / 1,000 / 10,000 / 100,000 · 1,000 only | 10 / 100 / 1,000 / 10,000 | The rows the Navigator's **View Contents (Limit…)** submenu offers on a table, a view or a partition. A whole set at a time, not a list you edit. |
+
+## Library & History Pane
+
+The [Query Library](saved-queries.md) navigator and the Save Query sheet, then
+the [Results History](query-history.md) navigator.
+
+### Query Library
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default folder | Any folder name, or empty | *(empty)* | The folder the Save Query sheet opens on. Empty opens on **No Folder**, which is what the sheet has always done. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and **New Folder…** still makes one. |
+| Order queries by | Folder, then name; Name; Recently updated | Folder, then name | Folder, then name is the grouped tree with a row per folder, then the unfiled queries. Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden. Recently updated puts the newest first and breaks a tie by name. |
+| On double-click | Open in a tab, Open in a tab and run it | Open in a tab | Open in a tab and run it runs the query as soon as its tab is there. A tab with no connection opens the query and stops. The context menu's **Open in Tab** always just opens, whichever this says. |
+
+### History
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Entries to load | 10–5,000 entries | 200 | How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer. |
+| Record failed queries | On, Off | On | A query that fails leaves a row in the history, with the server's message, beside the ones that worked. The Results History navigator's **Failed** scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection or with a variable still unset, is never recorded. Turning this off stops new failures being recorded; rows already there stay until you clear them. See [History & Workspaces](query-history.md#failed-queries). |
+
+**Clear Query History…** deletes every entry and the cached results of each, and removes any workspace left with no entries. The confirmation names the exact number first, read from the store with the same rule the deletion uses, so it can never take more than it said. It cannot be undone, and Cancel is the default button.
+
 
 ## Editor Pane
+
+Everything about the SQL editor itself. Every default is what the editor did
+before the setting existed, so nothing changes until you touch a control.
+
+### Font
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Font | System Monospace, plus installed monospace fonts (Menlo, Monaco, SF Mono, JetBrains Mono, Fira Code, Source Code Pro, Courier New) | System Monospace | SQL editor font; only installed fonts are listed. |
-| Font Size | 9–24 | 13 | Editor font size in points. |
-| Tab Size | 2, 4, or 8 spaces | 2 spaces | Spaces inserted per Tab press. |
-| Show line numbers | On/Off | On | Line numbers in the editor gutter. |
+| Size | 8–36 | 13 | Editor font size in points. Pinch to zoom, or ⌘+ / ⌘−, writes this too. |
+
+### Text
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Tab size | 2, 3, 4, or 8 spaces | 2 spaces | One indent level. |
+| Insert spaces for Tab | On/Off | On | Off writes one tab character instead. Shift-Tab takes back one level either way. |
+| Indent new lines automatically | On/Off | On | Return copies the leading whitespace of the line you are leaving. |
+| Close brackets automatically | On/Off | On | Typing `(` or `[` also writes the closer, and Backspace over an empty pair takes both away. Typing straight before existing text never pairs. Typing an opener with text selected wraps the selection. |
+| Close quotes automatically | On/Off | On | The same for `'`. An apostrophe typed after a letter is left alone. |
 | Wrap long lines | On/Off | Off | Soft-wrap long lines. |
+| Show line numbers | On/Off | On | Line numbers in the editor gutter. |
+| Highlight the current line | On/Off | On | A faint wash behind the line holding the caret. The band follows the line as laid out, so a collapsed fold above it never moves it off. |
+| Show run buttons in the gutter | On/Off | On | The band beside each statement, and the play glyph it shows on hover. Off leaves the band unclickable as well as undrawn; **⌘↩** still runs the statement at the cursor. |
+| Allow code folding | On/Off | On | The chevrons that collapse a CTE, a subquery, a `CASE` or a `BEGIN` block. Turning this off opens everything that is folded, so no text stays hidden behind a switch you have just turned off. |
+| Minimum lines to fold | 2–50 | 3 | A shorter region gets no chevron. Used only while code folding is on. |
+
+### Completion
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Open the list | Never, After a dot, After a dot and while typing | After a dot | When the completion list opens on its own. **Control-Space** always opens it, whichever this says. The list never opens inside a string literal or a comment. The typing trigger waits 120 ms after the last keystroke. |
+| Characters before suggesting | 1–5 | 1 | How much of an identifier must be typed before the typing trigger fires. Used only while the list opens **After a dot and while typing**; a dot opens it whatever this says. |
+| Maximum suggestions | 5–200 | 200 | The most rows the list ever holds. A large schema can match thousands, and building them all is work nobody sees. |
+| Keyword case | UPPERCASE, lowercase, Match what I type | UPPERCASE | The case a keyword takes as it is inserted. **Match what I type** follows the word you have started: all capitals gives capitals, lowercase gives lowercase, and mixed leaves the keyword as the list spells it. Schema, table and column names always keep the case the database gave them. |
+
+### Paste
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Offer to format a pasted list | On/Off | On | A paste that looks like bare values offers a **Format as SQL list** button. Press Tab to take it, Esc to leave it. The paste itself is never changed on its own, and **Format as SQL list** stays in the editor's context menu whatever this says. |
+| Quote values with | Single quotes, Double quotes, No quotes | Single quotes | How that formatter wraps a value. A list that is all numbers, all booleans or all `NULL` is left bare whichever this says, because quoting it would change what it means. |
+
+### Format SQL
+
+These three are the only settings the **Format** button reads. They do not touch what you type — **Tab size** above is the Tab key, this indent is the formatter's output.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Indent width | 1–8 spaces | 2 | Spaces per level in what **Format** writes. |
+| Raise keywords to capitals | On/Off | On | `SELECT` rather than `select`. Only reserved words are touched; your table and column names keep the case you wrote, and a `{{variable}}` token is carried through whole. |
+| Blank lines between statements | 0–2 lines | 2 | How far apart two statements are left after a semicolon. |
+
+### Colours
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Syntax colours | System, Vivid, Dusk | System | The colours the editor gives keywords, functions, strings, numbers, comments, types and `{{variable}}` tokens. System follows the macOS palette and is the editor you have always seen. Every theme reads in both light and dark appearance. |
 
 ## Query Pane
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Row Limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
-| Timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
+| ⌘↩ runs | The statement at the cursor, The selection else the statement, The whole editor | The statement at the cursor | What **Cmd+Return** sends. The statement at the cursor is what Pharos has always run. With the second, a selection wins and a whitespace-only selection falls back to the statement. **Run All Queries** always runs every statement, whatever this says. |
+| Row limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
+| Statement timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
 | Confirm queries that change the database | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations) and before running SQL containing DROP, DELETE, TRUNCATE, UPDATE, ALTER, INSERT or GRANT from the editor. |
-| Notify when query completes and app is in background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
-| Notify when query completes in a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
-| Notification minimum | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
-| Restore open tabs at launch | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+| DROP, ALTER, TRUNCATE, DELETE, UPDATE, INSERT, GRANT and REVOKE | On/Off each | On | Which kinds still ask, while the switch above is on. A keyword Pharos learns later always asks until it is given a switch of its own, so a new kind can never run unannounced. These do not affect **Explain Analyze**, which refuses a destructive statement outright rather than confirming it. |
+| When a query fails | Open the error sheet, Show a banner, Post a notification, Say nothing | Open the error sheet | How loudly a failure interrupts. The failure is recorded on its tab whatever this says, and the tab's error badge always opens the full list. |
+| Open the error sheet on | The first failure, The second failure, Never | The second failure | The second failure is what Pharos has always done: the first one gets an inline banner instead, so the editor stays usable. |
+| Show details when you cancel a query | On/Off | On | Opens the error sheet for a query you cancelled. The failure is recorded on its tab either way. |
+
+## Results Pane
+
+Everything about the [results grid](results-grid.md). NULL display, boolean display and NULL style are in the Appearance pane instead: those are value rendering, and they reach the Inspector too.
+
+### Grid
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Density | Compact, Normal, Comfortable | Normal | Row height, and a point off or on the text size. |
+| Text size | 9–18 pt | 12 | Body cell font size. Density is added to it, and the result is held inside 9–18. |
+| Use a monospaced font | On/Off | On | Digits share one advance, so a numeric column lines up on its last digit. Off uses the system font at the same size. |
+| Alternating row colours | On/Off | On | The striped row background. |
+| Grid lines | None, Horizontal, Both | Both | The rules drawn between cells. |
+| Show row numbers | On/Off | On | The leading `#` column. Hiding it leaves the tag gutter beside it where it is. |
+| Show column type icons | On/Off | Off | A glyph for the data type beside its name in the column header. Off is the header as it has always been: the type as text only. |
+
+### Columns
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Column width | Fit to content, Fixed width | Fit to content | Fit to content measures the header and a sample of the rows. Double-clicking a column's right edge always re-fits that column, whichever this says. |
+| Fixed width | 40–1,000 pt | 200 | The width every column starts at in Fixed width mode. Dimmed in Fit to content mode. |
+| Maximum column width | 100–4,000 pt | 1,000 | No column is ever made wider than this, by fitting or by dragging. |
+
+### Cells
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Maximum characters per cell | 0–10,000 | 0 | Longer values are drawn cut short with an ellipsis; 0 draws all of them. Counted in characters, so an accented letter or an emoji is one. Display only — copy, export, find, filter and sort always use the whole value. |
+| Escape control characters | On/Off | On | Shows invisible and direction-changing characters as `<U+XXXX>`. Turning it off lets a value **display as something it is not**: a right-to-left override can make a filename ending `gpj.exe` read as one ending `.jpg`. Leave it on unless you are reading text you trust. Display only, whichever this says. |
+
+### Formatting
+
+Every value arrives from PostgreSQL as text, so these two settings work by
+**parsing** that text and writing it out again. Anything Pharos cannot read
+with certainty is drawn exactly as it arrived — an `interval`, a `BC` date,
+`infinity`, `NaN`, a number written in exponent form, or any value in a column
+whose declared type is not one of those listed below.
+
+Both are **display only**, and in two senses. Copy, find, filter and sort all
+read the value the server sent, never the drawn one. And an **export is never
+reformatted**. The grid's own CSV, TSV, JSON, Markdown and SQL exports write
+the value the server sent, and an XLSX export decodes the values again in the
+engine — a separate path these settings do not reach at all. So a grid showing
+`1,234.50` exports `1234.50`.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Dates and times | As returned, ISO 8601, Short, Medium | As returned | Applies to `date`, `time`, `timetz`, `timestamp` and `timestamptz` columns. As returned draws the server's own text. ISO 8601 puts a `T` between the date and the time and writes a zero offset as `Z`; a value with only a date or only a time is unchanged, because there is no `T` to insert. Short and Medium use your region's format, keep the wall clock the server sent, and leave the time-zone offset off — choose ISO 8601 or As returned when you need the offset. |
+| Numbers | As returned, Grouped | As returned | Applies to `int2`, `int4`, `int8`, `numeric`, `float4` and `float8` columns. Grouped adds your region's thousands separators and keeps the exact number of decimal places the server sent, so a `numeric(12,4)` money value still reads `1,234.5000` and is never rounded. `money` columns are left alone: the server has already formatted those itself. |
+
+### Find
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Match | Contains, Whole word, Regular expression | Contains | How the [find field](results-grid.md#find-in-results) matches a cell. Whole word does not match inside a longer word. A regular expression that cannot be read turns the field red and matches nothing, rather than matching everything. |
+| Match case | On/Off | Off | Applies to all three match modes. |
+
+### Copy
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Copy with ⌘C | TSV, CSV, Markdown, SQL INSERT, SQL WITH | TSV | The Copy menu still offers every format. A copy also carries the TSV form, so a paste into a spreadsheet lands as a table whichever this says. |
+| Include column headers | On/Off | On | The same switch as "Include Headers" in the grid's own Copy menu; changing it in either place changes it in both. |
+| Also copy as rich text | On/Off | On | Writes an HTML table beside the text, so a paste into Mail or Notes arrives as a table. Off leaves plain text only — and a drag out of the grid offers the same flavours. |
+
+### Editing
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Allow editing cells in the grid | On/Off | On | Off makes every result read-only. An [edit](results-grid.md#editing-cells) is never written until you review and apply it, whichever this says. |
+
+### Result tabs
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Maximum result tabs | 0–50 | 0 | Per editor tab. Reaching the limit closes the oldest result you have not looked at and have not renamed, and says so; a result you have viewed or named is never taken away. 0 keeps them all. |
+| Open new tabs with the result-tabs panel | On/Off | On | The value a *new* editor tab starts from. Toggling the panel in a tab also sets this. Only used while Appearance ▸ **Show result tabs in a vertical panel** is on. |
+
+## Notifications Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Notify when the app is in the background | On/Off | On | System notification when a query finishes while Pharos isn't frontmost. |
+| Notify for a background tab | On/Off | On | Notification when a query finishes in a tab you're not viewing. |
+| Minimum duration | 0–3,600 seconds | 5 | Minimum query duration before a notification fires; prevents spam from fast queries. |
+| Play a sound | On/Off | On | Whether a posted notification carries the system's default notification sound. Off posts the same notification silently. Notification Centre can silence Pharos entirely, whatever this says. |
+| Badge the Dock icon | On/Off | On | Counts the queries that finished while you were in another app and shows the count on the Dock tile, whatever the three gates above say — a fast query that never reaches the duration threshold is still counted. The count clears the moment you come back to Pharos. Off counts nothing. |
+
+### In the window
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Message duration | Short (1 second), Normal (2 seconds), Long (5 seconds) | Normal | How long a message at the foot of the window stays before it fades. Normal is the 2 seconds these messages have always used. A few messages ask for longer on their own — a rejected edit, a sanitised label — and keep the time they ask for whatever this says. |
+
+## Intelligence Pane
+
+The on-device model, and the seven features that use it. The master switch is
+first; each feature below it is indented and takes effect only while the
+master is on. Every default is On — all seven ran whenever Apple Intelligence
+was allowed before the switches existed — so nothing changes until you clear
+one. Nothing here sends anything anywhere.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Use Apple Intelligence features | On/Off | On | Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac. The row is dimmed, with the reason in its place, on a Mac that cannot run the model. |
+| Describe the query | On/Off | On | The editor toolbar's **Describe the query…** button, which drafts SQL from a sentence. Off takes the button away. |
+| Allow drafts that write | On/Off | On | Off drafts reads only: a draft that is not a plain `SELECT` — or that contains `DELETE`, `DROP`, `UPDATE` and the rest — is refused with a sentence saying so, instead of being offered behind its confirmation. Pharos never runs a draft either way. |
+| Explain query errors | On/Off | On | The explanation block on the [query-error sheet](query-errors.md). Off leaves the error's own text, which is unchanged. |
+| Summarise query plans | On/Off | On | The generated sentence above an `EXPLAIN` result. The plan tree itself is not generated and is always shown. |
+| Suggest charts | On/Off | On | Whether **Suggest chart** asks the model. Off, the button stays and applies the chart Pharos recommends for these columns from the column shapes alone. |
+| Suggest names | On/Off | On | Fills the name field in the **Save Query** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
+| Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs. A tab you have named yourself is never touched. |
+
+### Feedback
+
+The thumbs under a generated answer are recorded on this Mac, with a digest of
+the prompt rather than the prompt itself. The Intelligence pane reports how
+many of each you have given. There is no button to clear them yet.
+
+## Shortcuts Pane
+
+A read-only list of every key Pharos answers: the command, the menu it lives in, and the shortcut. The search field filters on all three, so `⌘T`, `tab` and `File` each narrow the list. The menu entries are read from the live menu bar when the pane opens, so a command added to a menu appears here with nothing else to update; the keys that belong to a view and never appear in a menu — Escape in the completion list, Return in the results grid — are listed beside them.
+
+Nothing here can be rebound, and that is on purpose: macOS already does it. **System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ App Shortcuts** takes a menu command's exact title for Pharos and gives it whatever key you like, and a second rebinding mechanism inside the app would fight it.
+
+## Export & Import Pane
+
+One CSV dialect, shared by writing a file and reading one back, plus what the
+Export Data sheet opens on and what an import does with a row the server
+refuses.
+
+Every default below is what Pharos did before the setting existed. With the
+pane untouched, an exported CSV is byte for byte the file earlier versions
+wrote — a test in `pharos-core` pins those exact bytes.
+
+### Export
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default format | CSV, TSV, JSON, JSON Lines, SQL INSERT, Markdown, Excel (XLSX) | CSV | The format the **Export Data…** sheet opens on. Any single export can still pick another. |
+| Include a header row | On/Off | On | Writes the column names as the first row. CSV, TSV and Excel only — the other formats name every column on every row. |
+| Default folder | A folder | Empty | Where the save panel opens. Empty opens wherever you saved last. A folder that is no longer there is ignored. |
+| Remember last choices | On/Off | Off | Writes the format, the header row, the NULL text and the folder you chose back into these settings when an export runs, so the next one opens where the last left off. |
+| Rows per batch | 100–100,000 | 5,000 | How many rows an export fetches per round trip. Larger is fewer round trips and more memory at once. |
+
+### CSV format
+
+These apply to writing a CSV file **and** to reading one back, so a file
+Pharos exported imports again without a second set of choices. A TSV export
+always uses a tab, whatever the delimiter says.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Delimiter | Comma, Semicolon, Tab, Pipe, Custom | Comma | What separates fields. |
+| Custom delimiter | One ASCII character | `,` | Used when the delimiter is **Custom**. Anything else falls back to a comma. |
+| Quote character | One ASCII character | `"` | A quote inside a quoted field is written twice, which is what every CSV reader expects. |
+| Quote fields | Only when needed, Always, Never | Only when needed | **Only when needed** quotes a field that holds the delimiter, a quote or a line break. **Never** writes nothing around a field, so it suits only data that cannot hold any of those. |
+| NULL is written as | Any text | Empty | What a NULL becomes in an exported file, and what a field must equal in an imported one to become a real NULL. |
+| Encoding | UTF-8, UTF-8 with BOM, UTF-16 LE, Latin-1 | UTF-8 | **UTF-8 with BOM** is what Excel on Windows expects. **Latin-1** cannot carry every character: the alert after an export says how many it replaced with `?`. |
+
+{: .note }
+An imported file that starts with a byte-order mark is read in the encoding
+that mark names, whatever the setting says. That is what lets a UTF-16 LE
+export go straight back in.
+
+### Import
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| When a row fails | Stop and undo everything, Skip the row and carry on | Stop and undo everything | **Stop** is what Pharos has always done: one refused row and the whole file is rolled back. **Skip the row** runs every row inside its own savepoint, so a bad row is undone on its own and the import carries on. The alert afterwards names how many rows were skipped and why, listing at most twenty reasons. |
+| Commit every | 0–1,000,000 rows | 0 | Rows per transaction. 0 is one transaction for the whole file: nothing lands until everything does. A number commits as it goes, so the batches that finished stay on the server even if a later row stops the import. |
+
+## Tags Pane
+
+How a [tagged](tags.md) row is drawn. The tag colours themselves are set in the Tag Manager.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Colour bands per row | 1–6 | 3 | How many tag colours the bar at the left edge of a row may show. A row with more tags is not hiding them: the tooltip and the Inspector always list every one. |
+| Cell tint | 0.05–0.6 | 0.2 | How strongly a matched cell is washed with its tag's colour. The wash always stays lighter than the find match you are looking at, so the two can be told apart. |
+
+Both apply to the result already on screen, not only to the next one.
 
 ## Charts Pane
 
 The default series palette used by every chart: one color well per slot, **Add color** and the minus button to change how many slots there are, and **Reset to defaults** for the built-in set. See [Charts](charts.md#colors) for how a chart chooses between this palette and its own override.
 
+## Connections Pane
+
+What a **new** connection starts as, and how every connection pool Pharos
+opens is tuned. Nothing here changes a connection you already have on screen:
+a pool is built when a connection opens, so a change reaches a connection the
+next time you connect it. Both the pool and the keepalive groups say so.
+
+Per-connection settings — read-only, the connection's own time zone, the root
+certificate — live in the [Connections Manager](connections.md), not here.
+
+### New connections
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Default port | 1–65535 | 5432 | The port the Connections Manager fills in when you press **+**. Connections you have already saved keep their own port. |
+
+### Session
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Application name | Free text | Empty | What Pharos calls itself to the server — the `application_name` column of `pg_stat_activity`, and the name in the server log. Empty sends `Pharos` and the version number. |
+| Time zone | Server default, or any time zone this Mac knows | Server default | The `TimeZone` every session asks for, which is what a `timestamp with time zone` is displayed in. **Server default** leaves the server's own alone, which is what Pharos did before this setting existed. A connection can override it in the Connections Manager. |
+| Search path after the schema | Free text, comma separated | `public` | What follows the chosen schema in `search_path`, so an unqualified name can still find an object outside that schema. Empty means the chosen schema and nothing else. Every element is quoted, so `$user` works the way PostgreSQL writes it. |
+| Idle transaction timeout | 0–86,400 seconds | 30 | `idle_in_transaction_session_timeout`: how long the server lets a transaction of yours sit open and idle before it ends the session, so a forgotten transaction cannot hold locks. 0 turns it off. |
+
+### Connection pool
+
+Applies to connections opened after the change.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Connections per database | 1–50 | 5 | How many server connections one open database may use at once. More lets queries, metadata and exports run side by side; fewer is kinder to a server with a low `max_connections`. |
+| Connect timeout | 1–120 seconds | 10 | How long a connect attempt may take before it is reported as a failure. An `sslmode=prefer` connection spends three fifths of this trying TLS and the rest retrying without it, so the two together never exceed the budget. |
+| Close idle connections after | 0–86,400 seconds | 600 | How long an unused pooled connection is kept before it is closed. |
+| Retire connections after | 0–86,400 seconds | 1800 | The longest a pooled connection lives before it is replaced, however busy it is. |
+
+### Keepalive
+
+Applies to connections opened after the change. These ask the **server** to
+probe an idle connection, which stops a firewall, a NAT or an SSH tunnel
+dropping it silently. They are the `tcp_keepalives_*` settings; 0 in all three
+leaves the server's own values alone, which is the default.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Probe after idle for | 0–7,200 seconds | 0 | `tcp_keepalives_idle`: how long a connection may be quiet before the first probe. |
+| Between probes | 0–600 seconds | 0 | `tcp_keepalives_interval`: how long the server waits between probes that go unanswered. |
+| Probes before giving up | 0–20 | 0 | `tcp_keepalives_count`: how many unanswered probes end the connection. |
+
+## Security & Privacy Pane
+
+Nothing leaves this Mac. Pharos has no account, no telemetry and no analytics;
+everything below is written to your own disk and read by your own Mac. Both
+switches take effect at once — neither needs a relaunch.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Find saved queries in Spotlight | On/Off | On | Puts each saved query's name, folder and SQL in the system index, so Spotlight finds it and opens it in Pharos. Turning this off does not merely stop indexing: it removes everything Pharos has already put in Spotlight. |
+| Collect performance reports | On/Off | On | Subscribes to the system's daily MetricKit payloads and writes them to `~/Library/Logs/Pharos` as `metrickit-*.json`, for you to read or attach to a bug report. Nothing is uploaded. Off unsubscribes at once. |
+
+Passwords are held in the macOS Keychain and are not settings; see
+[Connections](connections.md).
+
+## Advanced Pane
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Refetch metadata after | 0–1,440 minutes | 0 | How old a connection's cached schema may be before Pharos fetches it again when you next switch to that connection. 0 means never expire, which is what the cache has always done: an entry lives until the connection closes or you refresh it by hand. |
+| Engine log level | Errors only, Warnings and errors, Information, Debug | Warnings and errors | How much the database engine writes to the system log, which **Reveal Logs in Finder** below leads to. Warnings and errors is what Pharos has always written. The louder levels are for working out why a connection or a query misbehaves; they take effect at once, with no relaunch. Setting `RUST_LOG` in the shell that starts Pharos overrides this outright, and the engine then ignores this row. |
+
+| Button | What it does |
+|--------|--------------|
+| Clear Metadata Cache | Drops every connection's cached schemas, tables and columns. The next use of a connection fetches them again. Completion has nothing to offer until it does. |
+| Reveal Logs in Finder | Opens `~/Library/Logs/Pharos` in the Finder — the crash logs, and the performance reports if they are being collected. |
+| Reset All Settings… | Asks once, then puts every preference in this window back to its default and forgets where the windows, panels and split views were left. Your connections, saved queries, history, variables and tags are not touched. |
+
 ## Update Checks
 
-With background update checks enabled, Pharos checks the GitHub Releases feed shortly after launch and periodically afterwards. When a newer stable version is found you get a single notification per version — clicking it opens the release page, and a "Copy brew command" button copies the Homebrew upgrade command. Pharos never downloads or installs updates on its own.
+With background update checks enabled, Pharos checks the GitHub Releases feed shortly after launch and then at the **Frequency** you chose. When a newer stable version is found you get a single notification per version — clicking it opens the release page, and a "Copy brew command" button copies the Homebrew upgrade command. Pharos never downloads or installs updates on its own.

@@ -40,7 +40,7 @@ Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers.
 - **Query history** -- Search and browse past queries with date grouping.
 - **Connections** -- SSL support (disable/prefer/require), color-coded server icons, and Keychain password storage.
 - **SSH tunnels** -- Reach a database behind a bastion. Runs the system `ssh`, so `~/.ssh/config` aliases, `ProxyJump` and a 1Password agent key all apply. Strict host keys by default.
-- **Settings** -- Theme, font, tab size, word wrap, and row limit configuration.
+- **Settings** -- A sidebar of sixteen panes covering appearance, the editor, query behaviour, the results grid, the navigators, connections, privacy, notifications and more. Every control applies at once; there is no Save button.
 
 ## Build from Source
 

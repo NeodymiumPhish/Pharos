@@ -227,7 +227,13 @@ pub async fn connect_postgres(
         }
     };
 
-    match postgres::create_pool(&pool_config(&config, tunnel.as_ref())).await {
+    // The session and the pool tuning, from the settings CACHE — one `Arc`
+    // clone, never a read of SQLite per connect (plan §5.2 K).
+    let settings = state.settings();
+    let session = postgres::SessionOptions::from_settings(&settings.connections, &config);
+    let tuning = postgres::PoolTuning::from(&settings.connections);
+
+    match postgres::create_pool_with(&pool_config(&config, tunnel.as_ref()), &session, &tuning).await {
         Ok(pool) => {
             let latency = start.elapsed().as_millis() as u64;
             state.add_pool(connection_id.clone(), pool);
@@ -361,6 +367,11 @@ mod failed_connect_state_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         };
         let id = config.id.clone();
         state.set_config(config);
@@ -434,6 +445,11 @@ mod tunnel_connect_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: tunnel,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -649,6 +665,11 @@ mod live_connect_tests {
                 secret: String::new(),
                 accept_new_host_keys: false,
             }),
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 

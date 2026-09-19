@@ -1,5 +1,16 @@
 use serde::{Deserialize, Serialize};
 
+/// The `sslmode` the connection asks for.
+///
+/// `VerifyCa` and `VerifyFull` are the two libpq modes that actually CHECK the
+/// server's certificate: `verify-ca` that a trusted CA signed it, `verify-full`
+/// that and that the host name matches. Both need a root certificate, which is
+/// `ConnectionConfig::ssl_root_cert_path`, or the system store when that is
+/// empty.
+///
+/// The wire form is `rename_all = "lowercase"`, which would give `verifyca` —
+/// so both new arms are renamed by hand to the hyphenated names libpq and
+/// Swift's `SslMode` both use.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SslMode {
@@ -7,6 +18,10 @@ pub enum SslMode {
     #[default]
     Prefer,
     Require,
+    #[serde(rename = "verify-ca")]
+    VerifyCa,
+    #[serde(rename = "verify-full")]
+    VerifyFull,
 }
 
 impl std::fmt::Display for SslMode {
@@ -15,7 +30,30 @@ impl std::fmt::Display for SslMode {
             SslMode::Disable => write!(f, "disable"),
             SslMode::Prefer => write!(f, "prefer"),
             SslMode::Require => write!(f, "require"),
+            SslMode::VerifyCa => write!(f, "verify-ca"),
+            SslMode::VerifyFull => write!(f, "verify-full"),
         }
+    }
+}
+
+impl SslMode {
+    /// Read a stored `ssl_mode` column, or any other string form. An unknown
+    /// value takes the default, which is what the SQLite reader has always
+    /// done for this column.
+    pub fn from_wire(raw: &str) -> SslMode {
+        match raw {
+            "disable" => SslMode::Disable,
+            "require" => SslMode::Require,
+            "verify-ca" => SslMode::VerifyCa,
+            "verify-full" => SslMode::VerifyFull,
+            _ => SslMode::Prefer,
+        }
+    }
+
+    /// True for the two modes that verify the server's certificate, so the
+    /// form can insist on a root certificate for them.
+    pub fn verifies_certificate(self) -> bool {
+        matches!(self, SslMode::VerifyCa | SslMode::VerifyFull)
     }
 }
 
@@ -103,7 +141,31 @@ pub struct ConnectionConfig {
     /// tunnel, so a connection without one is byte-for-byte unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_tunnel: Option<SshTunnelConfig>,
+    /// Open this connection's pool with `default_transaction_read_only=on`, so
+    /// the SERVER refuses every write with SQLSTATE 25006. The core also
+    /// refuses its own write commands up front (`AppState::require_writable`),
+    /// which is a clearer message for a button than a server error is.
+    #[serde(default)]
+    pub read_only: bool,
+    /// Keep this connection's password in the Keychain. Off means the user is
+    /// asked for it each time.
+    #[serde(default = "yes")]
+    pub remember_password: bool,
+    /// Connect to this database when Pharos starts.
+    #[serde(default)]
+    pub connect_on_launch: bool,
+    /// `TimeZone` for this connection's sessions. It overrides
+    /// `ConnectionSettings::default_time_zone`; None (or empty) falls back to
+    /// it, and then to the server's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_time_zone: Option<String>,
+    /// A PEM root certificate for `verify-ca` and `verify-full`. None uses the
+    /// system trust store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssl_root_cert_path: Option<String>,
 }
+
+fn yes() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -243,6 +305,11 @@ mod ssh_tunnel_json_tests {
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: tunnel,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
         }
     }
 
@@ -289,5 +356,103 @@ mod ssh_tunnel_json_tests {
         tunnel.secret = "s3cret".to_string();
         let filled = serde_json::to_string(&tunnel).expect("serialize");
         assert!(filled.contains("\"secret\":\"s3cret\""), "got {filled}");
+    }
+}
+
+/// The Connections slice's five new fields, and the two new SSL modes, as they
+/// cross the FFI.
+///
+/// Same reasoning as `ssh_tunnel_json_tests` above: Swift decodes each of
+/// these with `decodeIfPresent`, so a MIS-CASED key fails silently — it reads
+/// as "the caller omitted it" and the default is used. The first test decodes
+/// a literal document with every key present and asserts every value, which is
+/// the only test that can catch a rename.
+#[cfg(test)]
+mod connection_slice_json_tests {
+    use super::*;
+
+    fn base() -> &'static str {
+        r#"{"id":"c1","name":"c1","host":"db","port":5432,"database":"nbt","username":"app""#
+    }
+
+    #[test]
+    fn a_full_document_pins_every_new_key_name() {
+        let json = format!(
+            "{}{}",
+            base(),
+            r#","readOnly":true,"rememberPassword":false,"connectOnLaunch":true,
+               "sessionTimeZone":"Asia/Tokyo","sslRootCertPath":"/etc/ssl/root.crt",
+               "sslMode":"verify-full"}"#
+        );
+        let config: ConnectionConfig = serde_json::from_str(&json).expect("decode");
+        assert!(config.read_only, "`readOnly` key name");
+        assert!(!config.remember_password, "`rememberPassword` key name");
+        assert!(config.connect_on_launch, "`connectOnLaunch` key name");
+        assert_eq!(config.session_time_zone.as_deref(), Some("Asia/Tokyo"), "`sessionTimeZone`");
+        assert_eq!(
+            config.ssl_root_cert_path.as_deref(),
+            Some("/etc/ssl/root.crt"),
+            "`sslRootCertPath`"
+        );
+        assert_eq!(config.ssl_mode, SslMode::VerifyFull);
+    }
+
+    /// A record written before this slice takes the defaults that keep it
+    /// behaving exactly as it did.
+    #[test]
+    fn a_document_from_before_this_slice_keeps_todays_behaviour() {
+        let config: ConnectionConfig =
+            serde_json::from_str(&format!("{}{}", base(), "}")).expect("decode");
+        assert!(!config.read_only, "writes stay allowed");
+        assert!(config.remember_password, "the password stays remembered");
+        assert!(!config.connect_on_launch);
+        assert_eq!(config.session_time_zone, None);
+        assert_eq!(config.ssl_root_cert_path, None);
+        assert_eq!(config.ssl_mode, SslMode::Prefer);
+    }
+
+    /// The two verifying modes use the HYPHENATED names, which is what libpq
+    /// reads and what Swift's `SslMode` raw values spell. `rename_all =
+    /// "lowercase"` alone would have produced `verifyca`.
+    #[test]
+    fn the_verifying_modes_use_hyphenated_wire_names() {
+        for (wire, mode) in [("verify-ca", SslMode::VerifyCa), ("verify-full", SslMode::VerifyFull)]
+        {
+            let json = format!("{}{}", base(), format!(r#","sslMode":"{}"}}"#, wire));
+            let config: ConnectionConfig = serde_json::from_str(&json).expect("decode");
+            assert_eq!(config.ssl_mode, mode);
+            assert_eq!(mode.to_string(), wire, "Display must match the wire form");
+            assert_eq!(SslMode::from_wire(wire), mode, "and so must the column reader");
+            assert!(serde_json::to_string(&config).unwrap().contains(wire));
+        }
+        // The un-hyphenated spelling must NOT decode: reading it as Prefer
+        // would silently drop certificate verification.
+        let bad = format!("{}{}", base(), r#","sslMode":"verifyca"}"#);
+        assert!(serde_json::from_str::<ConnectionConfig>(&bad).is_err());
+    }
+
+    /// An empty `sessionTimeZone` or `sslRootCertPath` is absent on the wire,
+    /// so a connection that sets neither is byte-for-byte what it was.
+    #[test]
+    fn the_optional_fields_are_omitted_when_unset() {
+        let config: ConnectionConfig =
+            serde_json::from_str(&format!("{}{}", base(), "}")).expect("decode");
+        let json = serde_json::to_string(&config).expect("serialize");
+        assert!(!json.contains("sessionTimeZone"), "got {json}");
+        assert!(!json.contains("sslRootCertPath"), "got {json}");
+        // The three flags are always written, so the false case stays visible
+        // on the wire, exactly as `requiresAuthentication` does.
+        assert!(json.contains("\"readOnly\":false"), "got {json}");
+        assert!(json.contains("\"rememberPassword\":true"), "got {json}");
+        assert!(json.contains("\"connectOnLaunch\":false"), "got {json}");
+    }
+
+    #[test]
+    fn verifies_certificate_is_true_for_exactly_the_two_verifying_modes() {
+        assert!(SslMode::VerifyCa.verifies_certificate());
+        assert!(SslMode::VerifyFull.verifies_certificate());
+        for mode in [SslMode::Prefer, SslMode::Require, SslMode::Disable] {
+            assert!(!mode.verifies_certificate(), "{mode}");
+        }
     }
 }

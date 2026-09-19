@@ -75,7 +75,14 @@ final class AppStateManager: ObservableObject {
 
     @Published private(set) var connections: [ConnectionConfig] = []
     @Published private(set) var connectionStatuses: [String: ConnectionStatus] = [:]
-    @Published private(set) var settings: AppSettings = AppSettings()
+    @Published private(set) var settings: AppSettings = AppSettings() {
+        didSet {
+            // The model layer's mirror of one settings field — see
+            // `ResultTabsPanelPrefs.visibleByDefault` for why it cannot read
+            // this object itself. One writer, here, so the two cannot drift.
+            ResultTabsPanelPrefs.visibleByDefault = settings.results.showResultTabsPanelByDefault
+        }
+    }
 
     /// Last error from a state operation (save, delete, load). Observed by UI to show alerts.
     @Published var lastError: String?
@@ -420,15 +427,48 @@ final class AppStateManager: ObservableObject {
 
     // MARK: - Settings
 
+    /// Set when the settings the core sent could not be decoded at launch.
+    /// While it is set `saveSettings` refuses to write: `settings` holds the
+    /// Swift default, not the user's values, and saving it would overwrite the
+    /// stored blob with defaults. The core keeps its own copy of an unreadable
+    /// blob (`app_settings_backup`); this guards the OTHER failure, a Swift
+    /// field with no Rust mirror, which the core cannot see.
+    private(set) var settingsLoadFailed = false
+
+    /// The message shown when a save is refused. One string so the pane and
+    /// the log say the same thing.
+    static let settingsNotSavedMessage = String(
+        localized: "Settings could not be read at launch; changes are not saved so the stored settings are kept.")
+
     func loadSettings() {
         do {
             settings = try PharosCore.loadSettings()
+            settingsLoadFailed = false
         } catch {
+            settingsLoadFailed = true
             Log.state.error("Failed to load settings: \(error.localizedDescription, privacy: .public)")
+            // No migration on this path: `settings` holds the Swift defaults,
+            // not the user's values, so folding the legacy keys in and saving
+            // would write those defaults over the stored blob — the very thing
+            // `settingsLoadFailed` exists to prevent.
+            return
+        }
+
+        // Only after a successful load. The legacy keys are removed as they
+        // are read, so this does nothing on every launch after the first.
+        var migrated = settings
+        if SettingsMigration.migrate(from: .standard, into: &migrated) {
+            Log.state.info("Migrated legacy UserDefaults preferences into AppSettings")
+            saveSettings(migrated)
         }
     }
 
     func saveSettings(_ newSettings: AppSettings) {
+        guard !settingsLoadFailed else {
+            Log.state.error("Refusing to save settings: \(Self.settingsNotSavedMessage, privacy: .public)")
+            lastError = Self.settingsNotSavedMessage
+            return
+        }
         do {
             try PharosCore.saveSettings(newSettings)
             settings = newSettings
@@ -536,16 +576,33 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    /// Start the 30-second autosave. Idempotent.
+    /// Start the session autosave at the interval the user chose
+    /// (Settings ▸ General ▸ Session). Idempotent.
+    ///
+    /// An interval of 0 is "off": no timer runs, and the session is written
+    /// only at quit and on the other explicit snapshots. Turning it off does
+    /// NOT mean losing the session.
     func startSessionAutosave() {
         guard sessionAutosaveTimer == nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        restartSessionAutosave()
+    }
+
+    /// Put the timer on the current interval. Called when the interval
+    /// changes, so a new value takes effect without a relaunch.
+    func restartSessionAutosave() {
+        sessionAutosaveTimer?.invalidate()
+        sessionAutosaveTimer = nil
+        let interval = TimeInterval(settings.session.autosaveIntervalSeconds)
+        guard interval > 0 else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.sessionDirty else { return }
                 self.snapshotSession()
             }
         }
-        timer.tolerance = 5
+        // A sixth of the period, so a short interval keeps its shape and a
+        // long one still lets the system coalesce wake-ups.
+        timer.tolerance = interval / 6
         sessionAutosaveTimer = timer
     }
 
@@ -563,7 +620,11 @@ final class AppStateManager: ObservableObject {
     /// The stored window the first main window should adopt — its frame, before
     /// that window is shown. Nil when nothing is being restored.
     var pendingFirstWindowFrame: NSRect? {
-        pendingSession?.windows.min { $0.windowIndex < $1.windowIndex }?
+        // Settings ▸ General ▸ Session. Off restores the TABS but lets the
+        // window manager place the window, which is what a user with a
+        // changed display arrangement wants.
+        guard settings.session.restoreWindowFrames else { return nil }
+        return pendingSession?.windows.min { $0.windowIndex < $1.windowIndex }?
             .frame.flatMap(SessionWindow.rect(from:))
     }
 
@@ -672,6 +733,34 @@ final class AppStateManager: ObservableObject {
 
     func status(for connectionId: String) -> ConnectionStatus {
         connectionStatuses[connectionId] ?? .disconnected
+    }
+
+    /// A query failed in a way that means the CONNECTION is gone, not that
+    /// the SQL was wrong. Move it to Error so the toolbar glyph tells the
+    /// truth and Connect becomes available again.
+    ///
+    /// This closes a gap recorded during the SSH tunnel work: nothing in the
+    /// app ever moved a connection to Error because of a failed QUERY — only
+    /// the connect path did — so a dead tunnel showed a green glyph, and
+    /// Connect then did nothing because `canConnect` treats `.connected` as
+    /// busy and the user had to press Disconnect first.
+    ///
+    /// Deliberately narrow: `ConnectionLossClassifier` refuses to call a
+    /// statement timeout or a cancellation a loss, because dropping the pool
+    /// on the single most common failure in this app would disconnect the
+    /// user every time a query ran long.
+    func markConnectionLost(id: String, reason: String) {
+        guard ConnectionLossClassifier.isConnectionLoss(reason) else { return }
+        guard connectionStatuses[id] != .error else { return }
+        connectionStatuses[id] = .error
+        connectionErrors[id] = reason
+        // The pool on the Rust side is already unusable; drop ours so a
+        // reconnect builds a new one rather than handing back the dead pool.
+        for session in sessions where session.activeConnectionId == id {
+            session.activeConnectionId = nil
+        }
+        postStatusChange(id)
+        Log.state.error("Connection \(id, privacy: .public) marked lost: \(reason, privacy: .public)")
     }
 
     private func postStatusChange(_ connectionId: String) {

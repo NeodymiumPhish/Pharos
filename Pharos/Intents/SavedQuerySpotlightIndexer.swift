@@ -26,18 +26,43 @@ final class SavedQuerySpotlightIndexer {
     /// overlapping passes would race on `indexedIds`.
     private var pending: Task<Void, Never>?
 
+    /// Whether the change observer is registered. `start()` is no longer
+    /// called exactly once at launch: Settings ▸ Security & Privacy can turn
+    /// indexing off and on again while the app runs, and a second
+    /// registration would reindex twice for every saved-query change.
+    private var isFollowing = false
+
     private init() {}
 
-    /// Index once now, and follow every later change.
+    /// Index once now, and follow every later change. Calling it again
+    /// reindexes but does not register a second observer.
     /// Call after `pharos_init` — it reads the saved queries out of the core.
     func start() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(savedQueriesChanged),
-            name: .savedQueriesDidChange,
-            object: nil
-        )
+        if !isFollowing {
+            isFollowing = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(savedQueriesChanged),
+                name: .savedQueriesDidChange,
+                object: nil
+            )
+        }
         reindex()
+    }
+
+    /// Stop following changes, and take back everything this app put in
+    /// Spotlight.
+    ///
+    /// The removal is NOT conditional on having started: the app can launch
+    /// with the setting already off and a previous run's items still in the
+    /// index, and those have to go too.
+    func stop() async {
+        if isFollowing {
+            isFollowing = false
+            NotificationCenter.default.removeObserver(
+                self, name: .savedQueriesDidChange, object: nil)
+        }
+        await removeAll()
     }
 
     @objc private func savedQueriesChanged() {

@@ -24,27 +24,37 @@ func expectFalse(_ actual: Bool, _ name: String) {
 }
 
 private let widthKey = "ResultTabsPanelWidth"
-private let visibleKey = "ResultTabsPanelVisibleByDefault"
+
+/// The key `visibleByDefault` used to live under. It is `SettingsMigration`'s
+/// business now; this suite only pins that nothing here reads or writes it.
+private let legacyVisibleKey = "ResultTabsPanelVisibleByDefault"
 
 private func clearKeys() {
     UserDefaults.standard.removeObject(forKey: widthKey)
-    UserDefaults.standard.removeObject(forKey: visibleKey)
+    UserDefaults.standard.removeObject(forKey: legacyVisibleKey)
 }
 
 func runTests() {
     clearKeys()
 
-    // First run: an absent key must mean "open" — the panel ships visible.
-    // object(forKey:) rather than bool(forKey:), which returns false when absent.
-    expectTrue(ResultTabsPanelPrefs.visibleByDefault, "absent key defaults to visible")
+    // `visibleByDefault` is the model layer's MIRROR of
+    // `AppSettings.results.showResultTabsPanelByDefault` since the Settings ▸
+    // Results slice; `AppStateManager` is its only writer in the app. The
+    // value it starts at is what a harness and a first launch both see, and
+    // it must still be the one the panel shipped with.
+    expectTrue(ResultTabsPanelPrefs.visibleByDefault, "the mirror starts at visible")
 
-    // Stickiness: an explicit false must survive and not be mistaken for absent.
     ResultTabsPanelPrefs.visibleByDefault = false
     expectFalse(ResultTabsPanelPrefs.visibleByDefault, "an explicit false is honoured")
     ResultTabsPanelPrefs.visibleByDefault = true
     expectTrue(ResultTabsPanelPrefs.visibleByDefault, "an explicit true is honoured")
-    UserDefaults.standard.removeObject(forKey: visibleKey)
-    expectTrue(ResultTabsPanelPrefs.visibleByDefault, "clearing the key restores the default")
+
+    // The legacy key is dead to this file: writing it must change nothing,
+    // or the preference would have two homes again.
+    UserDefaults.standard.set(false, forKey: legacyVisibleKey)
+    expectTrue(ResultTabsPanelPrefs.visibleByDefault,
+               "the legacy UserDefaults key no longer feeds visibleByDefault")
+    UserDefaults.standard.removeObject(forKey: legacyVisibleKey)
 
     // Width: absent key yields the default rather than 0.
     clearKeys()
