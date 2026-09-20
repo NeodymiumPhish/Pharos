@@ -19,8 +19,6 @@ enum SettingsMetrics {
     static let sectionSpacing: CGFloat = 24
     /// Gap between a section header and the box below it.
     static let headerToBoxGap: CGFloat = 8
-    /// Height of the detail pane's navigation title bar.
-    static let headerHeight: CGFloat = 44
 
     // MARK: Group box
 
@@ -50,7 +48,7 @@ enum SettingsMetrics {
     static let titleFontSize: CGFloat = 13
     /// Bold.
     static let headerFontSize: CGFloat = 13
-    /// Bold.
+    /// The pane name in the window's toolbar. Bold.
     static let navTitleFontSize: CGFloat = 15
 
     // MARK: Colours

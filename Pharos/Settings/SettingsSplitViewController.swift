@@ -17,6 +17,10 @@ final class SettingsSplitViewController: NSSplitViewController {
 
     let sidebar = SettingsSidebarVC()
     let detail = SettingsDetailVC()
+    /// Back / Forward and the pane title, which live in the window's toolbar.
+    /// Owned here rather than by the window controller because this is what
+    /// knows when the history or the pane changed.
+    let toolbar = SettingsToolbarController()
     private(set) var history = SettingsNavigationHistory()
     private var panes: [SettingsPaneID: SettingsPaneVC] = [:]
     private(set) var currentPaneId: SettingsPaneID?
@@ -43,7 +47,7 @@ final class SettingsSplitViewController: NSSplitViewController {
         splitView.dividerStyle = .thin
 
         sidebar.onSelect = { [weak self] id in self?.navigate(to: id, source: .user) }
-        detail.header.onNavigate = { [weak self] direction in self?.step(direction) }
+        toolbar.onNavigate = { [weak self] direction in self?.step(direction) }
     }
 
     override func viewDidAppear() {
@@ -52,6 +56,11 @@ final class SettingsSplitViewController: NSSplitViewController {
         view.window?.initialFirstResponder = sidebar.tableView
         if let window = view.window as? SettingsWindow {
             window.navigationHandler = { [weak self] direction in self?.step(direction) }
+            // Once. The window survives a close, so this runs again on every
+            // re-open, and a second `install` would hand the window a brand
+            // new NSToolbar — dropping the one whose controls are already
+            // wired and showing an empty bar.
+            if window.toolbar == nil { toolbar.install(on: window) }
         }
     }
 
@@ -67,7 +76,10 @@ final class SettingsSplitViewController: NSSplitViewController {
             // the second pane returns to it.
             history.visit(id)
         }
-        detail.show(pane, title: spec.title, canGoBack: history.canGoBack, canGoForward: history.canGoForward)
+        detail.show(pane)
+        toolbar.update(title: spec.title,
+                       canGoBack: history.canGoBack,
+                       canGoForward: history.canGoForward)
         sidebar.select(id)
         view.window?.title = String(localized: "Pharos Settings — \(spec.title)")
         if source != .restore { SettingsPanePrefs.setLastPane(id) }

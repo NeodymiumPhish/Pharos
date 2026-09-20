@@ -140,6 +140,7 @@
 		5B583901BAB1668E5CEC8B52 /* SettingsGroupBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58ECF13A7BEA2B9DEE53C8 /* SettingsGroupBox.swift */; };
 		5C3CCF03D9E5B9FE79F803B3 /* NSTextField+AuthoredLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */; };
 		5E762A4EA65505BED13E97AB /* TagCommitWriting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */; };
+		5E8E55DC65C082356BE08768 /* SettingsToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */; };
 		60583C76A34589B8A9F81380 /* ModelFeedbackEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F670324A3284FA21DE1DEBF /* ModelFeedbackEntry.swift */; };
 		613E5793FBC83289A0D307D4 /* SavedQueryCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96C6665DAA0DA6F127AEC96 /* SavedQueryCellView.swift */; };
 		62B0D5879E818278B570C216 /* ResultTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C7DA2B08EF8B2BEB36867C /* ResultTab.swift */; };
@@ -210,7 +211,6 @@
 		94D9056A0BA23965F5B58D3E /* SettingsPaneRegistry+Factories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3CAF3E2DBC07E5EB977E87 /* SettingsPaneRegistry+Factories.swift */; };
 		957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51B7E42D0E3720183013836 /* VariableValuePreview.swift */; };
 		95A33984D8A036AFD8CA4EB6 /* AppearanceSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAAA38815EB77E7D80DE74B /* AppearanceSettingsPaneVC.swift */; };
-		95D49BF4B019A2319F25C9F8 /* SettingsDetailHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D926B0D55E4E2B7B3E6C6EA5 /* SettingsDetailHeaderView.swift */; };
 		96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F92E5CA3CD3F9F34190FFD0 /* TagManagerCommitting.swift */; };
 		96F8B81C319801D4E045CF43 /* ResultsTagController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F4997A1B526AF0B5B07BB2 /* ResultsTagController.swift */; };
 		97E54C924094DDE82999F054 /* ChartSorter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1154372FFE011857B1F28F1B /* ChartSorter.swift */; };
@@ -576,6 +576,7 @@
 		AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTextField+AuthoredLabel.swift"; sourceTree = "<group>"; };
 		AF4CAE487D00DB3B88F1E892 /* GeneratedContentLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedContentLabel.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
+		AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsToolbarController.swift; sourceTree = "<group>"; };
 		B003B95C484C25F932A8DEAB /* SecuritySettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecuritySettingsPaneVC.swift; sourceTree = "<group>"; };
 		B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSyntaxHighlighter.swift; sourceTree = "<group>"; };
 		B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRemovalModel.swift; sourceTree = "<group>"; };
@@ -629,7 +630,6 @@
 		D809169AEDF8481975797949 /* RunScopeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunScopeResolver.swift; sourceTree = "<group>"; };
 		D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockMenu.swift"; sourceTree = "<group>"; };
 		D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterableHeaderView.swift; sourceTree = "<group>"; };
-		D926B0D55E4E2B7B3E6C6EA5 /* SettingsDetailHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailHeaderView.swift; sourceTree = "<group>"; };
 		DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		DB08AF0466A63392DBF9F6B9 /* PlanSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanSummary.swift; sourceTree = "<group>"; };
 		DB64B2BF2E18E915B3D81878 /* ResultTabName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabName.swift; sourceTree = "<group>"; };
@@ -1097,7 +1097,6 @@
 				34618FDCA4B9560D330BC7D6 /* ResultsSettingsPaneVC.swift */,
 				B003B95C484C25F932A8DEAB /* SecuritySettingsPaneVC.swift */,
 				6F8928E8407D9B4E9F361CFD /* SettingsBinding+AppSettings.swift */,
-				D926B0D55E4E2B7B3E6C6EA5 /* SettingsDetailHeaderView.swift */,
 				A3979604AF599EDCF7C0B789 /* SettingsDetailVC.swift */,
 				3CE51A8F7670566FF89A8DAA /* SettingsFormPaneVC.swift */,
 				EB8CF31DB8DF6DA4D6EC3DB6 /* SettingsMigration.swift */,
@@ -1109,6 +1108,7 @@
 				A37DAEDE02644288DA49F1E0 /* SettingsPaneVC.swift */,
 				02A96A71AC4D54E03F4A8B52 /* SettingsSidebarVC.swift */,
 				9389401FF1FEE1ACFA9432A0 /* SettingsSplitViewController.swift */,
+				AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */,
 				8FE635091CB4D36F3459CD1B /* SettingsWindow.swift */,
 				A1D9C70AAE70474C6A9171C2 /* SettingsWindowController.swift */,
 				1F8F238B8B24412B49DBFDE0 /* ShortcutCatalog.swift */,
@@ -1570,7 +1570,6 @@
 				34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */,
 				05F20C740A8ECDF7C7A9FC30 /* SettingsBinding+AppSettings.swift in Sources */,
 				5B33582736CE82D0A5734389 /* SettingsControlFactory.swift in Sources */,
-				95D49BF4B019A2319F25C9F8 /* SettingsDetailHeaderView.swift in Sources */,
 				F4D804ED3667D25B6FC3A731 /* SettingsDetailVC.swift in Sources */,
 				9425B40246C4D1311B2F6775 /* SettingsEffects.swift in Sources */,
 				936F4F50716A76BC5D3E48A5 /* SettingsEmptyRow.swift in Sources */,
@@ -1594,6 +1593,7 @@
 				27452EF9D5F7BA5E65733EAA /* SettingsSidebarVC.swift in Sources */,
 				ABC59F560A2FE279D883466F /* SettingsSplitViewController.swift in Sources */,
 				B108442C53E2482CA3A4FD28 /* SettingsSymbolBadge.swift in Sources */,
+				5E8E55DC65C082356BE08768 /* SettingsToolbarController.swift in Sources */,
 				944461494322FDC1ADB4BBF1 /* SettingsWindow.swift in Sources */,
 				D8B646F76DBFA6FAED2EC3C4 /* SettingsWindowController.swift in Sources */,
 				5297D5CAC6DFD3D31076CA0E /* ShortcutCatalog.swift in Sources */,

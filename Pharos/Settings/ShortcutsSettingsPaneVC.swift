@@ -83,7 +83,11 @@ final class ShortcutsSettingsPaneVC: SettingsPaneVC, NSTableViewDataSource, NSTa
 
         let inset = SettingsMetrics.paneInsetH
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: root.topAnchor, constant: SettingsMetrics.paneInsetTop),
+            // The safe area, unlike every other pane: this one is a search
+            // field above a table rather than a scroll view that insets
+            // itself, so nothing else here would clear the toolbar.
+            searchField.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor,
+                                             constant: SettingsMetrics.paneInsetTop),
             searchField.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: inset),
             searchField.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -inset),
 

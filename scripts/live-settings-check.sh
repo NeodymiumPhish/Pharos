@@ -103,6 +103,12 @@ if tables:
     print("PANE_IDS=" + ",".join(seen))
     f = tables[0].get("frame") or {}
     print("SIDEBAR_FRAME=%s,%s,%s,%s" % (f.get("x"), f.get("y"), f.get("w"), f.get("h")))
+    # The FIRST ROW, not the table. The table now spans the full window height
+    # so its rows can scroll under the toolbar, which makes its own top edge
+    # useless as "where content starts" — the first row is the real answer.
+    if rows:
+        r = rows[0].get("frame") or {}
+        print("FIRST_ROW_FRAME=%s,%s,%s,%s" % (r.get("x"), r.get("y"), r.get("w"), r.get("h")))
 
 for ident in ("settings.title", "settings.nav"):
     hits = find(lambda n, i=ident: n.get("identifier") == i)
@@ -142,7 +148,7 @@ case "${PANE_IDS:-}" in
   settings.pane.general,settings.pane.appearance,settings.pane.editor,settings.pane.query,*settings.pane.advanced) pass "sidebar rows are in registry order" ;;
   *) fail "sidebar rows are in registry order — got [${PANE_IDS:-}]" ;;
 esac
-[ "${SETTINGS_TITLE_FRAME:-MISSING}" != "MISSING" ] && pass "the header title is on screen" || fail "the header title is on screen"
+[ "${SETTINGS_TITLE_FRAME:-MISSING}" != "MISSING" ] && pass "the pane title is on screen" || fail "the pane title is on screen"
 [ "${SETTINGS_NAV_FRAME:-MISSING}" != "MISSING" ] && pass "the back/forward control is on screen" || fail "the back/forward control is on screen"
 
 python3 - "$WORK/report1.txt" <<'PY'
@@ -155,20 +161,42 @@ def frame(key):
     except ValueError:
         return None
 side = frame("SIDEBAR_FRAME"); title = frame("SETTINGS_TITLE_FRAME"); win = frame("SETTINGS_WINDOW_FRAME")
-nav = frame("SETTINGS_NAV_FRAME")
+nav = frame("SETTINGS_NAV_FRAME"); row0 = frame("FIRST_ROW_FRAME")
 ok = 0
 if side and nav:
     gap = nav[0] - (side[0] + side[2])
-    print(("PASS" if 0 <= gap <= 40 else "FAIL") + " the header starts just right of the sidebar (gap %.1f)" % gap)
+    print(("PASS" if 0 <= gap <= 40 else "FAIL") + " the back/forward starts just right of the sidebar (gap %.1f)" % gap)
     ok += 0 if 0 <= gap <= 40 else 1
 if nav and title:
     order = title[0] > nav[0] + nav[2] - 1
     print(("PASS" if order else "FAIL") + " the title follows the back/forward control")
     ok += 0 if order else 1
-if win and title:
-    below = title[1] - win[1]
-    print(("PASS" if below >= 20 else "FAIL") + " the header title sits below the title bar (%.1f pt down)" % below)
-    ok += 0 if below >= 20 else 1
+# The whole point of the 2026-09-20 chrome change: this furniture is in the
+# TITLE BAR now, not in a row inside the detail pane. Measured against the
+# FIRST SIDEBAR ROW rather than a magic title-bar height: the row is the first
+# thing the user reads, so furniture above it is in the bar. The old assertion
+# here was the opposite (title >= 20 pt BELOW the window top) and had to
+# invert, not relax.
+for label, f in (("the pane title", title), ("the back/forward", nav)):
+    if f and row0 and win:
+        centre = f[1] + f[3] / 2
+        inbar = win[1] <= centre < row0[1]
+        print(("PASS" if inbar else "FAIL")
+              + " %s sits in the title bar (centre %.1f, first row at %.1f)" % (label, centre, row0[1]))
+        ok += 0 if inbar else 1
+
+# No dead band between the toolbar and the first row.
+#
+# The scroll-under itself is NOT assertable here: the sidebar's scroll view
+# insets its own content by the titlebar, so the clip runs full height while
+# the TABLE — which is what accessibility reports a frame for — still starts
+# below the inset. What is observable, and is what the reader actually sees,
+# is that no empty strip is left between the chevrons and the first row.
+if nav and row0:
+    band = row0[1] - (nav[1] + nav[3])
+    print(("PASS" if 0 <= band <= 12 else "FAIL")
+          + " the first sidebar row sits right under the toolbar (%.1f pt gap)" % band)
+    ok += 0 if 0 <= band <= 12 else 1
 if win:
     big = win[2] >= 880 and win[3] >= 620
     print(("PASS" if big else "FAIL") + " the window opens at its default size (%.0fx%.0f, want >= 880x620)" % (win[2], win[3]))
@@ -178,7 +206,7 @@ PY
 [ $? -eq 0 ] || failures=$((failures + 1))
 
 # --- Selecting each pane changes both titles ---
-for spec in "1:Appearance" "3:Query" "10:Charts" "15:Advanced"; do
+for spec in "1:Appearance" "3:Query" "8:Security & Privacy" "10:Charts" "15:Advanced"; do
   idx="${spec%%:*}"; want="${spec##*:}"
   osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
   "$WORK/ax-do" "$PID" select-row settings.sidebar "$idx" "Settings" >/dev/null
@@ -195,6 +223,17 @@ ns=nodes(w['tree'])
 t=[n for n in ns if n.get('identifier')=='settings.title']
 print((t[0].get('value') or t[0].get('title') or '') if t else 'MISSING')
 ")
+  got_width=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+t=[n for n in nodes(w['tree']) if n.get('identifier')=='settings.title']
+print(int((t[0].get('frame') or {}).get('w') or 0) if t else 0)
+")
   got_window=$(walk | python3 -c "
 import json,sys
 w=json.load(sys.stdin)
@@ -205,9 +244,55 @@ def nodes(n,acc=None):
     return acc
 print('|'.join(n.get('title','') for n in nodes(w['tree']) if n.get('role')=='AXWindow' and 'Settings' in (n.get('title') or '')))
 ")
-  check "selecting row $idx shows the $want header" "$got_title" "$want"
+  check "selecting row $idx shows the $want title" "$got_title" "$want"
+  # The item must re-measure: a title wider than "General" (59 pt) proves it,
+  # and a title stuck at 59 pt for a long name proves the opposite.
+  want_len=${#want}
+  if [ "$want_len" -ge 10 ]; then
+    if [ "${got_width:-0}" -gt 62 ]; then
+      pass "the toolbar title grew to fit [$want] (${got_width}pt)"
+    else
+      fail "the toolbar title grew to fit [$want] — stuck at ${got_width}pt"
+    fi
+  fi
   check "selecting row $idx retitles the window" "$got_window" "Pharos Settings — $want"
 done
+
+# --- The Shortcuts pane clears the toolbar ---
+#
+# Every other pane is a scroll view that insets itself by the titlebar. This
+# one is a search field above a table, laid out by hand, so it is the single
+# pane that has to ask for the safe area itself — and the only one where
+# getting it wrong hides a control behind the toolbar rather than merely
+# shifting it.
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+"$WORK/ax-do" "$PID" select-row settings.sidebar 14 "Settings" >/dev/null
+sleep 0.6
+SHORTCUT_SEARCH_Y=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+t=[n for n in nodes(w['tree']) if n.get('identifier')=='settings.shortcuts.search']
+print((t[0].get('frame') or {}).get('y') if t else 'MISSING')
+")
+if [ "${SHORTCUT_SEARCH_Y:-MISSING}" = "MISSING" ]; then
+  fail "the Shortcuts search field is on screen"
+else
+  python3 - "$SHORTCUT_SEARCH_Y" "$(val FIRST_ROW_FRAME | cut -d, -f2)" <<'PY2'
+import sys
+y = float(sys.argv[1]); content = float(sys.argv[2])
+# At or below where the sidebar's first row starts: both are the first thing
+# under the toolbar on their side of the window.
+print(("PASS" if y >= content - 4 else "FAIL")
+      + " the Shortcuts search field clears the toolbar (y %.1f, content starts %.1f)" % (y, content))
+sys.exit(0 if y >= content - 4 else 1)
+PY2
+  [ $? -eq 0 ] || failures=$((failures + 1))
+fi
 
 # --- A setting survives navigation and a relaunch ---
 osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
