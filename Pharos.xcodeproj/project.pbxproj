@@ -185,6 +185,7 @@
 		8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7353499DAF1364777E974B1F /* TagConditionRowView.swift */; };
 		8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
+		89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
 		8AC4C0DDF61DB3754364C4C2 /* QueryErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6617C742EBFE1DEA3B133567 /* QueryErrorBanner.swift */; };
 		8B0F974C2C9AFF4237E83D67 /* SchemaTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */; };
@@ -251,6 +252,7 @@
 		AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */; };
 		ACF2CD9A55853B329D46FFF3 /* ErrorExplanationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54101B9C807A769AD63E25B /* ErrorExplanationView.swift */; };
 		AE9E1AADFD64575AB3CDC9ED /* SQLDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615D52B308F7A0AB7B3567C9 /* SQLDraft.swift */; };
+		AF6387630B41E2D40CC58647 /* SettingsThemeThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF920C9B0103A63894C479DE /* SettingsThemeThumbnail.swift */; };
 		B0EB5E848C3BA0450A2EDF6E /* PharosCore+Query.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */; };
 		B108442C53E2482CA3A4FD28 /* SettingsSymbolBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20224A859D952B4956729A32 /* SettingsSymbolBadge.swift */; };
 		B10BAE7114021E9CC8BB03F5 /* TagRuleMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */; };
@@ -575,11 +577,13 @@
 		AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillSqlTranslator.swift; sourceTree = "<group>"; };
 		AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSTextField+AuthoredLabel.swift"; sourceTree = "<group>"; };
 		AF4CAE487D00DB3B88F1E892 /* GeneratedContentLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedContentLabel.swift; sourceTree = "<group>"; };
+		AF920C9B0103A63894C479DE /* SettingsThemeThumbnail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsThemeThumbnail.swift; sourceTree = "<group>"; };
 		AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveQuerySheet.swift; sourceTree = "<group>"; };
 		AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsToolbarController.swift; sourceTree = "<group>"; };
 		B003B95C484C25F932A8DEAB /* SecuritySettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecuritySettingsPaneVC.swift; sourceTree = "<group>"; };
 		B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSyntaxHighlighter.swift; sourceTree = "<group>"; };
 		B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRemovalModel.swift; sourceTree = "<group>"; };
+		B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTilePicker.swift; sourceTree = "<group>"; };
 		B1E8FAEB6C42EFBE17142B4C /* SettingsMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsMetrics.swift; sourceTree = "<group>"; };
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
@@ -1075,6 +1079,8 @@
 				701AA341698935A8B9804F9B /* SettingsRow.swift */,
 				923392DA36283E6B6414BCE3 /* SettingsSectionHeader.swift */,
 				20224A859D952B4956729A32 /* SettingsSymbolBadge.swift */,
+				AF920C9B0103A63894C479DE /* SettingsThemeThumbnail.swift */,
+				B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */,
 			);
 			path = Furniture;
 			sourceTree = "<group>";
@@ -1593,6 +1599,8 @@
 				27452EF9D5F7BA5E65733EAA /* SettingsSidebarVC.swift in Sources */,
 				ABC59F560A2FE279D883466F /* SettingsSplitViewController.swift in Sources */,
 				B108442C53E2482CA3A4FD28 /* SettingsSymbolBadge.swift in Sources */,
+				AF6387630B41E2D40CC58647 /* SettingsThemeThumbnail.swift in Sources */,
+				89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */,
 				5E8E55DC65C082356BE08768 /* SettingsToolbarController.swift in Sources */,
 				944461494322FDC1ADB4BBF1 /* SettingsWindow.swift in Sources */,
 				D8B646F76DBFA6FAED2EC3C4 /* SettingsWindowController.swift in Sources */,

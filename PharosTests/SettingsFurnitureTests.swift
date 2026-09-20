@@ -484,6 +484,107 @@ func runTests() {
         expectEqual(info.isBordered, false, "info button is borderless")
     }
 
+    // MARK: 14. The appearance tile picker
+
+    do {
+        let tiles: [SettingsTilePicker.Tile] = [
+            .init(title: "System",
+                  image: SettingsThemeThumbnail.image(.system, size: SettingsTilePicker.tileSize)),
+            .init(title: "Light",
+                  image: SettingsThemeThumbnail.image(.light, size: SettingsTilePicker.tileSize)),
+            .init(title: "Dark",
+                  image: SettingsThemeThumbnail.image(.dark, size: SettingsTilePicker.tileSize)),
+        ]
+        let picker = SettingsTilePicker(tiles: tiles, selectedIndex: 1)
+        picker.frame = NSRect(origin: .zero, size: picker.intrinsicContentSize)
+
+        // Geometry: three tiles in a row, left to right, none overlapping, and
+        // every one inside the control.
+        expectTrue(picker.tileRect(0).maxX <= picker.tileRect(1).minX, "tile 0 is left of tile 1")
+        expectTrue(picker.tileRect(1).maxX <= picker.tileRect(2).minX, "tile 1 is left of tile 2")
+        expectTrue(picker.tileRect(2).maxX <= picker.bounds.maxX, "the last tile is inside the control")
+        // The caption is part of the target, so the hit box is taller than the
+        // picture — otherwise the word under a tile would not be clickable.
+        expectTrue(picker.hitRect(0).height > picker.tileRect(0).height,
+                   "the hit box includes the caption")
+
+        // The light and dark tiles are PICTURES of two appearances, so they
+        // must differ from each other no matter which appearance the window is
+        // in. A dynamic system colour here would make them identical, which is
+        // exactly the mistake this checks for.
+        for (label, name) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+            guard let appearance = NSAppearance(named: name),
+                  let r = render(picker, appearance: appearance) else {
+                failures += 1
+                print("FAIL could not render the tile picker in \(label)")
+                continue
+            }
+            let lightTile = picker.tileRect(1)
+            let darkTile = picker.tileRect(2)
+            // The middle of each picture's window area, clear of the ring.
+            guard let onLight = r.pixel(Int(lightTile.midX), Int(lightTile.midY)),
+                  let onDark = r.pixel(Int(darkTile.midX), Int(darkTile.midY)) else {
+                failures += 1
+                print("FAIL could not sample the tiles in \(label)")
+                continue
+            }
+            let gap = luminance(onLight) - luminance(onDark)
+            expectTrue(gap > 0.3,
+                       "\(label): the Light tile is lighter than the Dark tile "
+                           + "(\(hex(onLight)) vs \(hex(onDark)), gap \(String(format: "%.2f", gap)))")
+
+            // The selection ring is on the chosen tile and not on the others.
+            // Sampled just outside the picture's left edge, where only a ring
+            // paints.
+            let ringX = Int(lightTile.minX) - 2
+            let bareX = Int(darkTile.minX) - 2
+            if let ringPixel = r.pixel(ringX, Int(lightTile.midY)),
+               let barePixel = r.pixel(bareX, Int(darkTile.midY)) {
+                let delta = abs(ringPixel.redComponent - barePixel.redComponent)
+                    + abs(ringPixel.greenComponent - barePixel.greenComponent)
+                    + abs(ringPixel.blueComponent - barePixel.blueComponent)
+                expectTrue(delta > 0.15,
+                           "\(label): the chosen tile is ringed and the others are not "
+                               + "(\(hex(ringPixel)) vs \(hex(barePixel)))")
+            }
+        }
+
+        // The child elements must be the SAME objects from one call to the
+        // next. They are not retained by the accessibility server, so a fresh
+        // array per call is released as soon as the call returns and the
+        // server reports a radio group with no children at all — right role,
+        // nothing inside. Caught live on 2026-09-20; this is the unit-level
+        // shape of it.
+        do {
+            let host = Host()
+            host.mount(picker)
+            let first = picker.accessibilityChildren() as? [NSAccessibilityElement] ?? []
+            let second = picker.accessibilityChildren() as? [NSAccessibilityElement] ?? []
+            expectEqual(first.count, 3, "the radio group has one child per tile")
+            expectTrue(first.count == second.count && !first.isEmpty
+                        && zip(first, second).allSatisfy { $0 === $1 },
+                       "the child elements are kept, not rebuilt on every query")
+            expectEqual(first.first?.accessibilityRole()?.rawValue,
+                        NSAccessibility.Role.radioButton.rawValue, "each child is a radio button")
+            expectEqual(first.first?.accessibilityLabel(), "System", "the first child is the System tile")
+        }
+
+        // Selection moves by keyboard, and only a USER gesture writes back.
+        var fired = 0
+        let sink = ActionSink { fired += 1 }
+        picker.target = sink
+        picker.action = #selector(ActionSink.fire)
+        picker.selectedIndex = 0
+        expectEqual(fired, 0, "setting selectedIndex does not fire the action")
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// Counts action messages, so a test can tell a user gesture from a refresh.
+private final class ActionSink: NSObject {
+    private let onFire: () -> Void
+    init(onFire: @escaping () -> Void) { self.onFire = onFire }
+    @objc func fire() { onFire() }
 }

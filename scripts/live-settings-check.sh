@@ -258,6 +258,35 @@ print('|'.join(n.get('title','') for n in nodes(w['tree']) if n.get('role')=='AX
   check "selecting row $idx retitles the window" "$got_window" "Pharos Settings — $want"
 done
 
+# --- The Appearance tiles are a real radio group ---
+#
+# A hand-drawn NSControl publishes nothing to accessibility unless it is asked
+# to. Three tiles that a screen reader cannot see, or cannot tell apart, would
+# look perfect and be unusable.
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+"$WORK/ax-do" "$PID" select-row settings.sidebar 1 "Settings" >/dev/null
+sleep 0.6
+TILES=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+t=[n for n in nodes(w['tree']) if n.get('identifier')=='settings.appearance.appearance']
+if not t:
+    print('MISSING')
+else:
+    kids=[c for c in (t[0].get('children') or []) if c.get('role')=='AXRadioButton']
+    print('%s|%d|%s' % (t[0].get('role'), len(kids), ','.join(c.get('title') or c.get('description') or '?' for c in kids)))
+")
+check "the appearance chooser is a radio group of three tiles" "$(echo "$TILES" | cut -d'|' -f1-2)" "AXRadioGroup|3"
+case "$TILES" in
+  *System,Light,Dark*) pass "the tiles are named System, Light and Dark" ;;
+  *) fail "the tiles are named System, Light and Dark — got [$TILES]" ;;
+esac
+
 # --- The Shortcuts pane clears the toolbar ---
 #
 # Every other pane is a scroll view that insets itself by the titlebar. This

@@ -164,6 +164,23 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
             }
             return segmented
 
+        case .tiles(let choice, let art):
+            let size = SettingsTilePicker.tileSize
+            let picker = SettingsTilePicker(
+                tiles: choice.options.map { .init(title: $0.title, image: art($0, size)) })
+            wire(picker)
+            writers[ObjectIdentifier(picker)] = { control in
+                guard let picker = control as? SettingsTilePicker else { return }
+                let index = picker.selectedIndex
+                guard choice.options.indices.contains(index) else { return }
+                choice.binding.set(choice.options[index].value)
+            }
+            refreshers[item.id] = {
+                let value = choice.binding.get()
+                picker.selectedIndex = choice.options.firstIndex { $0.value == value } ?? 0
+            }
+            return picker
+
         case .stepper(let binding, let range, let unit):
             let group = SettingsControlFactory.stepperGroup(range: range, unit: unit)
             let field = group.field

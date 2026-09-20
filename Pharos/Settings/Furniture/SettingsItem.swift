@@ -93,6 +93,9 @@ enum SettingsItemKind {
     case popup(SettingsChoice)
     /// Trailing `NSSegmentedControl`.
     case segmented(SettingsChoice)
+    /// Trailing row of picture tiles — a radio group shown rather than named,
+    /// as the Appearance chooser is. `art` draws one option at the given size.
+    case tiles(SettingsChoice, art: (SettingsChoice.Option, NSSize) -> NSImage)
     /// Number field + stepper, range-checked on commit.
     case stepper(SettingsBinding<Int>, range: ClosedRange<Int>, unit: String?)
     /// Free text, committed after a typing pause and when editing ends.
