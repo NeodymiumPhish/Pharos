@@ -76,5 +76,26 @@ func runTests() {
         ["p_low", "p_mid", "p_high", "p_def"],
         "MINVALUE first, MAXVALUE after reals, DEFAULT last")
 
+    // A legacy inheritance child has NO bound to read: relpartbound is null.
+    // Bound order must not throw them into an arbitrary heap — they rank
+    // last together and read by name, and a YYYYMMDD name is date order.
+    let inherited = [
+        part("logs_20130301", bound: nil),
+        part("logs_20130101", bound: nil),
+        part("logs_20130201", bound: nil),
+    ]
+    expectEqualNames(PartitionOrdering.sorted(inherited, by: .bound),
+        ["logs_20130101", "logs_20130201", "logs_20130301"],
+        "a nil bound falls back to name order")
+
+    // Mixed: a bound one still beats a bound-less one, whatever its name.
+    let mixed = [
+        part("aaa_inherited", bound: nil),
+        part("zzz_declarative", bound: "FOR VALUES FROM ('2024-01-01') TO ('2024-02-01')"),
+    ]
+    expectEqualNames(PartitionOrdering.sorted(mixed, by: .bound),
+        ["zzz_declarative", "aaa_inherited"],
+        "a readable bound sorts before no bound at all")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -145,9 +145,15 @@ class SchemaTreeNode: NSObject {
         return f
     }()
 
-    /// Uppercase strategy badge (RANGE/LIST/HASH) for a partitioned parent, else nil.
+    /// Uppercase badge for a parent: the strategy (RANGE/LIST/HASH) for a
+    /// declarative one, INHERITS for a legacy inheritance tree — which has no
+    /// strategy to read, so without this it would carry no badge at all and
+    /// the two mechanisms would look the same.
     var partitionBadge: String? {
         if case .table(let info) = kind, info.isPartitioned {
+            if info.partitionMechanism == .inheritance {
+                return PartitionMechanism.inheritance.badgeLabel
+            }
             return info.partitionStrategy?.badgeLabel
         }
         return nil

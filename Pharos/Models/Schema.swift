@@ -20,9 +20,15 @@ enum PartitionMechanism: String, Codable {
     case declarative
     case inheritance
 
-    /// Short uppercase badge label. Declarative shows its strategy instead,
-    /// so only inheritance ever reads this.
-    var badgeLabel: String { rawValue.uppercased() }
+    /// Short uppercase badge label. Declarative shows its strategy instead
+    /// (RANGE / LIST / HASH), so only inheritance ever reads this — and it
+    /// reads the SQL keyword that made the tree, not the enum's own name.
+    var badgeLabel: String {
+        switch self {
+        case .declarative: return "PARTITION"
+        case .inheritance: return "INHERITS"
+        }
+    }
 }
 
 enum PartitionStrategy: String, Codable {
@@ -92,6 +98,23 @@ struct TableInfo: Codable {
         self.partitionStrategy = partitionStrategy; self.partitionKey = partitionKey
         self.partitionBound = partitionBound; self.partitionCount = partitionCount
         self.partitionMechanism = partitionMechanism
+    }
+}
+
+extension TableInfo {
+    /// Whether this parent is given a Partitions folder in the Navigator.
+    ///
+    /// A declarative parent is gated by Settings ▸ Navigator ▸ Show leaf
+    /// partitions, as it always was. An inheritance parent is NOT: with
+    /// Group inherited tables on, its children have already left the top
+    /// level of the schema, so the folder is the only way to reach them.
+    ///
+    /// The same test decides whether the parent is given the filter index —
+    /// a name that cannot be opened must not be findable either.
+    func hasPartitionsFolder(showLeafPartitions: Bool) -> Bool {
+        guard isPartitioned else { return false }
+        if partitionMechanism == .inheritance { return true }
+        return showLeafPartitions
     }
 }
 

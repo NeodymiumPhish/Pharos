@@ -2935,6 +2935,7 @@ mod live_inheritance_tests {
     const FLAT: &str = "pharos_inh_flat";
     const GROUPED: &str = "pharos_inh_grouped";
     const NESTED: &str = "pharos_inh_nested";
+    const AWKWARD: &str = "pharos_inh_awkward";
 
     fn url() -> String {
         std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
@@ -3130,6 +3131,84 @@ mod live_inheritance_tests {
             assert!(map_off.is_empty(), "{map_off:?}");
 
             drop_tree(&pool, NESTED).await;
+        });
+    }
+
+    /// The three cases that are easy to get wrong: a child of two parents, a
+    /// child whose parent is in another schema, and a declarative tree in the
+    /// same schema that must not be touched at all.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_awkward_cases_are_counted_once_and_stay_reachable() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            let elsewhere = format!("{AWKWARD}_elsewhere");
+            let sql = format!(
+                "DROP SCHEMA IF EXISTS {s} CASCADE; \
+                 DROP SCHEMA IF EXISTS {e} CASCADE; \
+                 CREATE SCHEMA {s}; CREATE SCHEMA {e}; \
+                 CREATE TABLE {s}.logs (id integer); \
+                 CREATE TABLE {s}.logs_a () INHERITS ({s}.logs); \
+                 CREATE TABLE {s}.logs_b () INHERITS ({s}.logs); \
+                 CREATE TABLE {s}.logs_both () INHERITS ({s}.logs_a, {s}.logs_b); \
+                 CREATE TABLE {e}.over_there (id integer); \
+                 CREATE TABLE {s}.orphan () INHERITS ({e}.over_there); \
+                 CREATE TABLE {s}.events (id integer, seen date) PARTITION BY RANGE (seen); \
+                 CREATE TABLE {s}.events_2013 PARTITION OF {s}.events \
+                     FOR VALUES FROM ('2013-01-01') TO ('2014-01-01'); \
+                 INSERT INTO {s}.logs_both (id) SELECT generate_series(1, 4); \
+                 INSERT INTO {s}.orphan (id) VALUES (1); \
+                 INSERT INTO {s}.events_2013 (id, seen) VALUES (1, '2013-06-01'); \
+                 ANALYZE {s}.logs; ANALYZE {s}.logs_a; ANALYZE {s}.logs_b; \
+                 ANALYZE {s}.logs_both; ANALYZE {s}.orphan; ANALYZE {s}.events;",
+                s = AWKWARD,
+                e = elsewhere
+            );
+            sqlx::raw_sql(&sql).execute(&pool).await.expect("build the awkward tree");
+
+            let tables = get_tables(&pool, AWKWARD, true).await.expect("get_tables");
+            let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(
+                names,
+                vec!["events", "logs", "orphan"],
+                "the root, the declarative parent, and the child whose parent is elsewhere"
+            );
+
+            // PostgreSQL expands an inheritance tree once per descendant, and
+            // so must the walk: logs_both is reached through logs_a AND
+            // logs_b, but its four rows are four rows.
+            let counted: i64 = sqlx::raw_sql(&format!("SELECT count(*) AS n FROM {}.logs", AWKWARD))
+                .fetch_one(&pool)
+                .await
+                .expect("count")
+                .try_get("n")
+                .expect("n");
+            assert_eq!(counted, 4);
+            let root = tables.iter().find(|t| t.name == "logs").unwrap();
+            assert_eq!(root.row_count_estimate, Some(counted), "not 8");
+            assert_eq!(root.partition_count, Some(2), "logs_a and logs_b");
+
+            // The declarative tree is exactly as it was.
+            let events = tables.iter().find(|t| t.name == "events").unwrap();
+            assert_eq!(events.table_type, TableType::PartitionedTable);
+            assert_eq!(events.partition_mechanism, Some(PartitionMechanism::Declarative));
+            assert_eq!(events.partition_strategy, Some(PartitionStrategy::Range));
+            assert_eq!(events.partition_count, Some(1));
+            assert_eq!(events.row_count_estimate, Some(1), "summed over its leaves");
+
+            // The stranger is listed, and is not mistaken for a parent.
+            let orphan = tables.iter().find(|t| t.name == "orphan").unwrap();
+            assert!(!orphan.is_partitioned);
+            assert_eq!(orphan.row_count_estimate, Some(1));
+
+            sqlx::raw_sql(&format!(
+                "DROP SCHEMA IF EXISTS {} CASCADE; DROP SCHEMA IF EXISTS {} CASCADE",
+                AWKWARD, elsewhere
+            ))
+            .execute(&pool)
+            .await
+            .expect("drop");
         });
     }
 }
