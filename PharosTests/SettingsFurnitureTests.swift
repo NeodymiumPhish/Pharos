@@ -640,6 +640,48 @@ func runTests() {
         expectEqual(withEmpty.count, 1, "an empty-state row is not indexed")
     }
 
+    // MARK: 16. The tile row fits the NARROWEST pane
+
+    // Three tiles in a row's trailing slot is the widest control this kit
+    // carries, and the detail pane can be dragged down to 520 pt
+    // (`SettingsSplitViewController` sets that as the minimum). Widening the
+    // tiles later would push the text column to nothing, or the tiles off the
+    // plate, with nothing else to catch it.
+    do {
+        let narrowestPane: CGFloat = 520
+        let plate = narrowestPane - SettingsMetrics.paneInsetH * 2
+        let tiles: [SettingsTilePicker.Tile] = ["System", "Light", "Dark"].map {
+            .init(title: $0,
+                  image: SettingsThemeThumbnail.image(.light, size: SettingsTilePicker.tileSize))
+        }
+        let picker = SettingsTilePicker(tiles: tiles)
+        let icon = NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: nil)!
+        let row = SettingsRow(icon: icon, title: "Appearance",
+                              caption: "System follows the Mac's own setting.",
+                              control: picker)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: plate, height: 400))
+        host.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            row.topAnchor.constraint(equalTo: host.topAnchor),
+        ])
+        host.layoutSubtreeIfNeeded()
+
+        let tileFrame = picker.convert(picker.bounds, to: row)
+        let titleFrame = row.titleLabel.convert(row.titleLabel.bounds, to: row)
+        let captionFrame = row.captionLabel.convert(row.captionLabel.bounds, to: row)
+
+        expectTrue(tileFrame.maxX <= plate + 0.5,
+                   "the tiles stay on the plate at the narrowest pane (\(tileFrame.maxX) of \(plate))")
+        expectTrue(abs(tileFrame.width - picker.intrinsicContentSize.width) < 0.5,
+                   "the tiles are not squashed to fit")
+        expectTrue(max(titleFrame.maxX, captionFrame.maxX) <= tileFrame.minX + 0.5,
+                   "the text column stays clear of the tiles")
+        expectTrue(titleFrame.width > 40,
+                   "the title still has room to read (\(titleFrame.width) pt)")
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
