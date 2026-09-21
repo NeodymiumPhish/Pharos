@@ -4,7 +4,7 @@ use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionMechanism, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
 use crate::models::ConnectionSettings;
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
@@ -1012,6 +1012,17 @@ pub async fn get_tables(
                     .as_deref()
                     .and_then(|s| s.chars().next())
                     .and_then(PartitionStrategy::from_pg_char);
+                // relkind='p' is the only thing the statement maps to
+                // PARTITIONED TABLE, so the type already says which mechanism
+                // a parent uses — no second column needed, and the shape the
+                // `tables_sql` test pins stays as it is.
+                let partition_mechanism = if !is_partitioned {
+                    None
+                } else if table_type_str == "PARTITIONED TABLE" {
+                    Some(PartitionMechanism::Declarative)
+                } else {
+                    Some(PartitionMechanism::Inheritance)
+                };
                 TableInfo {
                     name: row.get("table_name"),
                     schema_name: schema_name.to_string(),
@@ -1029,6 +1040,7 @@ pub async fn get_tables(
                     partition_key: row.try_get("part_key").ok().flatten(),
                     partition_bound: None,
                     partition_count: row.try_get("part_count").ok().flatten(),
+                    partition_mechanism,
                 }
             })
             .collect();
@@ -1067,6 +1079,7 @@ pub async fn get_tables(
                 partition_key: None,
                 partition_bound: None,
                 partition_count: None,
+                partition_mechanism: None,
             })
         })
         .collect();
@@ -1149,6 +1162,7 @@ pub async fn get_partitions(
                 partition_key: row.try_get("part_key").ok().flatten(),
                 partition_bound: row.try_get("part_bound").ok().flatten(),
                 partition_count: row.try_get("part_count").ok().flatten(),
+                partition_mechanism: is_partitioned.then_some(PartitionMechanism::Declarative),
             }
         })
         .collect();
@@ -2921,6 +2935,11 @@ mod live_inheritance_tests {
             let root = tables.iter().find(|t| t.name == "logs").unwrap();
             assert!(root.is_partitioned, "the root is a parent now");
             assert_eq!(root.partition_count, Some(2), "two DIRECT children, not five");
+            assert_eq!(
+                root.partition_mechanism,
+                Some(PartitionMechanism::Inheritance),
+                "the pill says INHERITS, not RANGE"
+            );
             assert!(root.partition_strategy.is_none(), "there is no strategy to read");
             assert!(root.partition_key.is_none(), "there is no key to read");
 

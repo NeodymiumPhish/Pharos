@@ -38,6 +38,17 @@ impl PartitionStrategy {
     }
 }
 
+/// Which mechanism gives a parent its children. Declarative partitioning
+/// (PostgreSQL 10 and later) has a strategy, a key and a bound per child;
+/// legacy inheritance has none of the three, so the two cannot share a
+/// badge, an inspector field, or a DDL clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PartitionMechanism {
+    Declarative,
+    Inheritance,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
@@ -46,7 +57,10 @@ pub struct TableInfo {
     pub table_type: TableType,
     pub row_count_estimate: Option<i64>,
     pub total_size_bytes: Option<i64>,
-    /// True when this relation is a partitioned parent (relkind='p').
+    /// True when this relation is a parent with a Partitions folder: a
+    /// declarative parent (relkind='p'), or — with Settings ▸ Navigator ▸
+    /// Group inherited tables on — a table that other tables INHERIT from.
+    /// `partition_mechanism` says which.
     #[serde(default)]
     pub is_partitioned: bool,
     /// True when this relation is itself a partition of some parent.
@@ -64,6 +78,10 @@ pub struct TableInfo {
     /// Number of direct child partitions. Present when `is_partitioned`.
     #[serde(default)]
     pub partition_count: Option<i64>,
+    /// Which mechanism gives this relation its children. Present when
+    /// `is_partitioned`.
+    #[serde(default)]
+    pub partition_mechanism: Option<PartitionMechanism>,
 }
 
 /// Minimal parent→child pairing used to populate the sidebar filter index
@@ -152,5 +170,42 @@ mod tests {
         assert_eq!(PartitionStrategy::from_pg_char('l'), Some(PartitionStrategy::List));
         assert_eq!(PartitionStrategy::from_pg_char('h'), Some(PartitionStrategy::Hash));
         assert_eq!(PartitionStrategy::from_pg_char('x'), None);
+    }
+
+    /// Swift's `JSONDecoder.pharos` applies no key strategy and soft-decodes
+    /// this one from a string, so the spelling on the wire is the contract.
+    #[test]
+    fn the_mechanism_crosses_the_wire_in_lower_case() {
+        let json = serde_json::to_string(&PartitionMechanism::Inheritance).unwrap();
+        assert_eq!(json, "\"inheritance\"");
+        let json = serde_json::to_string(&PartitionMechanism::Declarative).unwrap();
+        assert_eq!(json, "\"declarative\"");
+    }
+
+    /// A parent with no mechanism leaves the key out, and an older core that
+    /// never sends it still decodes here.
+    #[test]
+    fn the_mechanism_is_optional_in_both_directions() {
+        let table = TableInfo {
+            name: "logs".into(),
+            schema_name: "public".into(),
+            table_type: TableType::Table,
+            row_count_estimate: Some(5),
+            total_size_bytes: Some(8192),
+            is_partitioned: true,
+            is_partition: false,
+            partition_strategy: None,
+            partition_key: None,
+            partition_bound: None,
+            partition_count: Some(2),
+            partition_mechanism: Some(PartitionMechanism::Inheritance),
+        };
+        let json = serde_json::to_string(&table).unwrap();
+        assert!(json.contains("\"partitionMechanism\":\"inheritance\""), "{json}");
+        // The key is absent: `#[serde(default)]` fills it in.
+        let older = json.replace(",\"partitionMechanism\":\"inheritance\"", "");
+        let back: TableInfo = serde_json::from_str(&older).unwrap();
+        assert_eq!(back.partition_mechanism, None);
+        assert!(back.is_partitioned);
     }
 }

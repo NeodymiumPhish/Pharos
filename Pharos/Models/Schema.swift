@@ -12,6 +12,19 @@ enum TableType: String, Codable {
     case partitionedTable = "partitioned-table"
 }
 
+/// Which mechanism gives a parent its children. Declarative partitioning
+/// (PostgreSQL 10 and later) has a strategy, a key and a bound per child;
+/// legacy inheritance has none of the three, so the two cannot share a
+/// badge, an inspector field, or a DDL clause.
+enum PartitionMechanism: String, Codable {
+    case declarative
+    case inheritance
+
+    /// Short uppercase badge label. Declarative shows its strategy instead,
+    /// so only inheritance ever reads this.
+    var badgeLabel: String { rawValue.uppercased() }
+}
+
 enum PartitionStrategy: String, Codable {
     case range
     case list
@@ -34,11 +47,14 @@ struct TableInfo: Codable {
     let partitionKey: String?       // raw pg_get_partkeydef, e.g. "RANGE (created_at)"
     let partitionBound: String?     // pg_get_expr(relpartbound) or "DEFAULT"
     let partitionCount: Int64?
+    /// Which mechanism gives this row its children, when it has any.
+    let partitionMechanism: PartitionMechanism?
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 
     enum CodingKeys: String, CodingKey {
         case name, schemaName, tableType, rowCountEstimate, totalSizeBytes
         case isPartitioned, isPartition, partitionStrategy, partitionKey, partitionBound, partitionCount
+        case partitionMechanism
     }
 
     init(from decoder: Decoder) throws {
@@ -57,6 +73,10 @@ struct TableInfo: Codable {
         partitionKey = try c.decodeIfPresent(String.self, forKey: .partitionKey)
         partitionBound = try c.decodeIfPresent(String.self, forKey: .partitionBound)
         partitionCount = try c.decodeIfPresent(Int64.self, forKey: .partitionCount)
+        // Soft-decode, as with the strategy above: an unknown mechanism must
+        // not fail the whole table-list decode.
+        partitionMechanism = (try c.decodeIfPresent(String.self, forKey: .partitionMechanism))
+            .flatMap(PartitionMechanism.init(rawValue:))
     }
 
     /// Memberwise init for tests / in-code construction.
@@ -64,12 +84,14 @@ struct TableInfo: Codable {
          rowCountEstimate: Int64?, totalSizeBytes: Int64?,
          isPartitioned: Bool = false, isPartition: Bool = false,
          partitionStrategy: PartitionStrategy? = nil, partitionKey: String? = nil,
-         partitionBound: String? = nil, partitionCount: Int64? = nil) {
+         partitionBound: String? = nil, partitionCount: Int64? = nil,
+         partitionMechanism: PartitionMechanism? = nil) {
         self.name = name; self.schemaName = schemaName; self.tableType = tableType
         self.rowCountEstimate = rowCountEstimate; self.totalSizeBytes = totalSizeBytes
         self.isPartitioned = isPartitioned; self.isPartition = isPartition
         self.partitionStrategy = partitionStrategy; self.partitionKey = partitionKey
         self.partitionBound = partitionBound; self.partitionCount = partitionCount
+        self.partitionMechanism = partitionMechanism
     }
 }
 
