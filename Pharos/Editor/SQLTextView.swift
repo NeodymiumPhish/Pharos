@@ -1247,13 +1247,17 @@ class SQLTextView: NSTextView {
             lineRect.origin.y += textContainerInset.height
             lineRect.origin.x += textContainerOrigin.x
 
-            // `quaternaryLabelColor` already carries the system's own "barely
-            // there" alpha; 0.35 of it lands within 0.005 of the
-            // `labelColor` × 0.04 this line used before the setting existed,
-            // so an existing user sees the same wash. The rect comes from the
+            // The wash must stay barely there: the caret line still carries
+            // syntax colors, and a band any darker drops the contrast of the
+            // string green below what a user can read. `withAlphaComponent`
+            // REPLACES a color's alpha, it does not scale it, so
+            // `quaternaryLabelColor.withAlphaComponent(0.35)` was opaque black
+            // at 0.35 — a mid-gray band — not 0.35 of a faint gray. Set the
+            // alpha on `labelColor`, whose own alpha is 1, so the number here
+            // is the alpha that reaches the screen. The rect comes from the
             // LAYOUT MANAGER, never from the font metrics, so a collapsed fold
             // above the caret cannot put the band on the wrong line.
-            let highlightColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.35)
+            let highlightColor = NSColor.labelColor.withAlphaComponent(0.04)
             highlightColor.setFill()
             lineRect.fill()
         }
