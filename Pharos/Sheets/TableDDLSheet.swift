@@ -1,5 +1,62 @@
 import AppKit
 
+/// The one line the clone section says about a shape the copy cannot simply
+/// reproduce. Pure, so the wording is pinned by the suite rather than read
+/// off a screenshot.
+enum CloneShapeNote {
+    /// Nil when there is nothing to warn about — an ordinary table, or a
+    /// parent whose only consequence is the row-scope choice, which the radio
+    /// labels already state.
+    static func text(for shape: TableShape) -> String? {
+        var sentences: [String] = []
+
+        // A partitioned copy is created with no partitions, so PostgreSQL
+        // answers any row with "no partition of relation found for row".
+        if let key = shape.partitionBy {
+            sentences.append(
+                "Partitioned by \(key). The copy keeps the partition key and is created "
+                + "with no partitions, so it cannot take rows."
+            )
+        }
+
+        // LIKE copies every inherited column, so the copy is complete — but
+        // it stands alone. Saying so is the point: the alternative would
+        // change what the source tree returns.
+        if !shape.inheritsFrom.isEmpty {
+            // Per-part escaping: see DisplayEscape.escapedQualified's doc comment.
+            let parents = shape.inheritsFrom
+                .map { DisplayEscape.escapedQualified(schema: $0.schema, table: $0.table) }
+                .joined(separator: ", ")
+            let tree = shape.inheritsFrom.count == 1 ? "inheritance tree" : "inheritance trees"
+            sentences.append(
+                "The copy will be a standalone table, not part of \(parents)'s \(tree)."
+            )
+        }
+
+        return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+    }
+}
+
+/// What the alert says after a clone succeeds. Pure, for the same reason
+/// `CloneShapeNote` is.
+enum CloneOutcomeText {
+    /// `rowsCopied` is nil when the structure alone was cloned.
+    /// `partitionBy` is the source's partition clause, which the copy now
+    /// carries — and which comes with no partitions, so the copy holds
+    /// nothing until one is attached. The core refuses rows in that case, so
+    /// the two arguments are never both present.
+    static func message(rowsCopied: Int64?, partitionBy: String?) -> String {
+        if let rows = rowsCopied {
+            return "Table cloned with \(CountedNounText.phrase(Int(rows), "row"))."
+        }
+        if let key = partitionBy {
+            return "Table structure cloned. The copy is partitioned by \(key) "
+                + "and has no partitions yet, so it holds no rows."
+        }
+        return "Table structure cloned."
+    }
+}
+
 /// Modal showing a table's reconstructed CREATE TABLE DDL at selectable detail
 /// levels (sidebar), with copy-to-clipboard and an inline Clone Table action.
 /// Modeled on QueryDetailSheet.
@@ -8,7 +65,7 @@ class TableDDLSheet: NSViewController {
     private let schema: String
     private let table: String
     private let ddl: TableDDL
-    private var onClone: ((String, Bool) -> Void)?
+    private var onClone: ((String, Bool, CloneRowScope) -> Void)?
 
     private let levels = DDLDetailLevel.allCases
     private var selectedLevel: DDLDetailLevel = .columns
@@ -17,6 +74,10 @@ class TableDDLSheet: NSViewController {
     private let textView = TableDDLSheet.makeDisclosingTextView()
     private let cloneNameField = NSTextField()
     private let includeRowsCheckbox = NSButton(checkboxWithTitle: "Include table rows", target: nil, action: nil)
+    /// Shown only when the source has descendants: without it "include rows"
+    /// would mean two very different amounts of data under one name.
+    private var scopeRadios: [CloneRowScope: NSButton] = [:]
+    private var scopeStack: NSStackView?
     private var cloneSection: NSView!
     // Stored, not local to `loadView`, so `viewWillAppear` can reach them.
     private let copyButton = NSButton()
@@ -25,7 +86,7 @@ class TableDDLSheet: NSViewController {
     private let cloneCancelButton = NSButton()
     private let cloneButton = NSButton()
 
-    init(schema: String, table: String, ddl: TableDDL, onClone: @escaping (String, Bool) -> Void) {
+    init(schema: String, table: String, ddl: TableDDL, onClone: @escaping (String, Bool, CloneRowScope) -> Void) {
         self.schema = schema
         self.table = table
         self.ddl = ddl
@@ -187,6 +248,53 @@ class TableDDLSheet: NSViewController {
         cloneNameField.stringValue = AuthoredLabelSanitizer.sanitized("\(table)_copy")
         cloneNameField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         includeRowsCheckbox.state = .off
+        includeRowsCheckbox.target = self
+        includeRowsCheckbox.action = #selector(includeRowsChanged)
+        includeRowsCheckbox.setAccessibilityIdentifier("sheet.tableddl.includeRows")
+
+        // A partitioned copy has no partitions, so PostgreSQL refuses every
+        // row. The core refuses it too; disabling it here means the analyst
+        // never asks for something that can only fail.
+        if ddl.shape.isPartitionedParent {
+            includeRowsCheckbox.isEnabled = false
+        }
+
+        var rows: [[NSView]] = [[nameLabel, cloneNameField]]
+
+        if let note = CloneShapeNote.text(for: ddl.shape) {
+            let noteLabel = NSTextField(labelWithString: note)
+            noteLabel.font = .systemFont(ofSize: 11)
+            noteLabel.textColor = .secondaryLabelColor
+            noteLabel.lineBreakMode = .byWordWrapping
+            noteLabel.maximumNumberOfLines = 3
+            noteLabel.cell?.wraps = true
+            noteLabel.preferredMaxLayoutWidth = 320
+            noteLabel.setAccessibilityIdentifier("sheet.tableddl.shapeNote")
+            rows.append([NSGridCell.emptyContentView, noteLabel])
+        }
+
+        rows.append([NSGridCell.emptyContentView, includeRowsCheckbox])
+
+        // The scope only exists when there IS a tree below this table. On an
+        // ordinary table both radios would mean the same thing, and a choice
+        // with one answer is noise.
+        if ddl.shape.hasChildTables {
+            let stack = NSStackView(views: CloneRowScope.allCases.map { scope in
+                let radio = NSButton(radioButtonWithTitle: scope.title, target: self,
+                                     action: #selector(rowScopeChanged))
+                radio.state = scope == .ownRows ? .on : .off
+                radio.setAccessibilityIdentifier("sheet.tableddl.rowScope.\(scope.rawValue)")
+                scopeRadios[scope] = radio
+                return radio
+            })
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 4
+            scopeStack = stack
+            rows.append([NSGridCell.emptyContentView, stack])
+        }
+        // Enabled only while rows are being copied at all.
+        updateScopeEnablement()
 
         cloneCancelButton.title = "Cancel"
         cloneCancelButton.target = self
@@ -200,11 +308,8 @@ class TableDDLSheet: NSViewController {
         let buttonStack = NSStackView(views: [cloneCancelButton, cloneButton])
         buttonStack.spacing = 8
 
-        let grid = NSGridView(views: [
-            [nameLabel, cloneNameField],
-            [NSGridCell.emptyContentView, includeRowsCheckbox],
-            [NSGridCell.emptyContentView, buttonStack],
-        ])
+        rows.append([NSGridCell.emptyContentView, buttonStack])
+        let grid = NSGridView(views: rows)
         grid.column(at: 0).xPlacement = .trailing
         grid.rowSpacing = 8
         grid.columnSpacing = 8
@@ -252,7 +357,16 @@ class TableDDLSheet: NSViewController {
         // which does not match the row-by-row reading order the clone
         // section is laid out in.
         cloneNameField.nextKeyView = includeRowsCheckbox
-        includeRowsCheckbox.nextKeyView = cloneCancelButton
+        // The radios sit between the checkbox and the buttons in reading
+        // order; the grid's own subview order does not, which is why this
+        // chain is explicit.
+        var afterCheckbox: NSView = cloneCancelButton
+        if let radios = scopeStack?.views as? [NSButton], let first = radios.first {
+            for (a, b) in zip(radios, radios.dropFirst()) { a.nextKeyView = b }
+            radios.last?.nextKeyView = cloneCancelButton
+            afterCheckbox = first
+        }
+        includeRowsCheckbox.nextKeyView = afterCheckbox
         cloneCancelButton.nextKeyView = cloneButton
         cloneButton.nextKeyView = doneButton
     }
@@ -274,6 +388,27 @@ class TableDDLSheet: NSViewController {
         cloneSection.isHidden.toggle()
     }
 
+    @objc private func includeRowsChanged() {
+        updateScopeEnablement()
+    }
+
+    /// Radios in one superview sharing a target/action are a group already;
+    /// this exists so the selection can be read back and asserted.
+    @objc private func rowScopeChanged() {}
+
+    /// The scope is a choice about rows, so it follows the checkbox.
+    private func updateScopeEnablement() {
+        let on = includeRowsCheckbox.state == .on && includeRowsCheckbox.isEnabled
+        for radio in scopeRadios.values { radio.isEnabled = on }
+    }
+
+    /// The selected scope, or the safe one when there are no radios — an
+    /// ordinary table has nothing below it, so `ONLY` and no `ONLY` read the
+    /// same rows.
+    var selectedRowScope: CloneRowScope {
+        scopeRadios.first(where: { $0.value.state == .on })?.key ?? .ownRows
+    }
+
     @objc private func doClone() {
         // Sanitised again here, after controlTextDidChange has already done it
         // per keystroke: this is the only line that reaches the clone action,
@@ -284,10 +419,11 @@ class TableDDLSheet: NSViewController {
         let name = AuthoredLabelSanitizer.sanitized(cloneNameField.stringValue)
             .trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        let include = includeRowsCheckbox.state == .on
+        let include = includeRowsCheckbox.state == .on && includeRowsCheckbox.isEnabled
+        let scope = selectedRowScope
         let callback = onClone
         dismiss(nil)
-        callback?(name, include)
+        callback?(name, include, scope)
     }
 
     @objc private func dismissSheet() {
