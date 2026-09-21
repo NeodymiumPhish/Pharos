@@ -178,17 +178,24 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                 )
                 await MainActor.run {
                     guard let self else { return }
-                    let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl) { [weak self] targetName, includeData in
+                    let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl) { [weak self] targetName, includeData, rowScope in
                         Task {
                             do {
                                 let options = CloneTableOptions(
                                     sourceSchema: schemaName, sourceTable: tableName,
                                     targetSchema: schemaName, targetTable: targetName,
-                                    includeData: includeData
+                                    includeData: includeData, rowScope: rowScope
                                 )
                                 let result = try await PharosCore.cloneTable(connectionId: connectionId, options: options)
                                 await MainActor.run {
-                                    let msg = result.rowsCopied.map { "Table cloned with \($0) rows." } ?? "Table structure cloned."
+                                    // A partitioned copy is the one outcome that
+                                    // is not what it looks like: it has the shape
+                                    // and none of the partitions, so say so here
+                                    // rather than leave it to be discovered.
+                                    let msg = CloneOutcomeText.message(
+                                        rowsCopied: result.rowsCopied,
+                                        partitionBy: ddl.shape.partitionBy
+                                    )
                                     self?.showInfoAlert(title: "Clone Successful", message: msg)
                                     self?.delegate?.contextMenuDidRequestReload()
                                 }

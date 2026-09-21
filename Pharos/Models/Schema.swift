@@ -190,12 +190,36 @@ struct FunctionInfo: Codable {
 // names it, and a type `AppSettings` names has to compile with that file
 // alone — see the eight standalone harnesses under `scripts/`.
 
+/// Which rows a clone takes when the source has descendants.
+///
+/// The copy is always a standalone table, so on a parent these two are very
+/// different amounts of data: measured on PostgreSQL 16.14, a three-level
+/// inheritance parent answered 1 row under `ownRows` and 4 under `wholeTree`.
+/// On the archive that prompted this the second reads 4,700 tables. Mirrors
+/// `CloneRowScope` in pharos-core's `table.rs`; the raw values are what
+/// `JSONEncoder.pharos` puts on the wire, and it sets no key strategy.
+enum CloneRowScope: String, Codable, CaseIterable {
+    /// `FROM ONLY` — the rows stored in this table itself.
+    case ownRows
+    /// This table's rows and every descendant's, flattened into the copy.
+    case wholeTree
+
+    var title: String {
+        switch self {
+        case .ownRows: return "This table's rows only"
+        case .wholeTree: return "The whole tree, flattened"
+        }
+    }
+}
+
 struct CloneTableOptions: Codable {
     let sourceSchema: String
     let sourceTable: String
     let targetSchema: String
     let targetTable: String
     let includeData: Bool
+    /// Ignored unless `includeData`.
+    let rowScope: CloneRowScope
 }
 
 struct CloneTableResult: Codable {
