@@ -8,7 +8,11 @@ enum MainMenu {
         // App menu
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: String(localized: "About Pharos"), action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        // Settings ▸ About, not `orderFrontStandardAboutPanel`: that panel is
+        // AppKit's own window, built from Info.plist, and nothing can be added
+        // to it.
+        let aboutItem = appMenu.addItem(withTitle: String(localized: "About Pharos"), action: #selector(AppDelegate.openAbout(_:)), keyEquivalent: "")
+        aboutItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
         appMenu.addItem(.separator())
 
         let settingsItem = appMenu.addItem(withTitle: String(localized: "Settings…"), action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
@@ -336,5 +340,12 @@ extension AppDelegate {
     @MainActor
     @objc func openSettings(_: Any?) {
         SettingsWindowController.shared.show()
+    }
+
+    /// Pharos ▸ About Pharos. A deep link, so it does not change which pane
+    /// ⌘, opens next time.
+    @MainActor
+    @objc func openAbout(_: Any?) {
+        SettingsWindowController.shared.show(pane: .about)
     }
 }

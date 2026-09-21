@@ -42,6 +42,19 @@ enum SettingsMetrics {
     static let textFieldWidth: CGFloat = 200
     static let sliderWidth: CGFloat = 180
 
+    // MARK: About header
+
+    /// The app icon in the About pane's hero.
+    static let aboutIconSize: CGFloat = 96
+    /// Icon to name.
+    static let aboutHeaderSpacing: CGFloat = 12
+    /// Name to version line — tighter, so the two read as one block.
+    static let aboutNameToVersionGap: CGFloat = 2
+    static let aboutHeaderInsetTop: CGFloat = 16
+    /// Bigger than the top inset: the hero has to stand clear of the first
+    /// section header below it.
+    static let aboutHeaderInsetBottom: CGFloat = 20
+
     // MARK: Type
 
     static let captionFontSize: CGFloat = 11
@@ -50,6 +63,9 @@ enum SettingsMetrics {
     static let headerFontSize: CGFloat = 13
     /// The pane name in the window's toolbar. Bold.
     static let navTitleFontSize: CGFloat = 15
+    /// The app's name in the About pane's hero. Semibold.
+    static let aboutNameFontSize: CGFloat = 22
+    static let aboutVersionFontSize: CGFloat = 12
 
     // MARK: Colours
 

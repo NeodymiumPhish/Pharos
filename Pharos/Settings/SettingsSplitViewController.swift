@@ -6,14 +6,9 @@ import AppKit
 @MainActor
 final class SettingsSplitViewController: NSSplitViewController {
 
-    enum NavigationSource {
-        /// The user clicked a sidebar row: recorded in history and remembered.
-        case user
-        /// Back or Forward: moves within history, remembered.
-        case history
-        /// The window opening in the remembered pane: recorded nowhere.
-        case restore
-    }
+    /// Declared in `SettingsPanePrefs.swift`, so the two rules it carries are
+    /// testable with no window. Spelled as before at every call site.
+    typealias NavigationSource = SettingsNavigationSource
 
     let sidebar = SettingsSidebarVC()
     let detail = SettingsDetailVC()
@@ -75,7 +70,7 @@ final class SettingsSplitViewController: NSSplitViewController {
         let spec = SettingsPaneRegistry.spec(for: id)
         let pane = self.pane(for: id)
         currentPaneId = id
-        if source == .user { history.visit(id) }
+        if source.recordsHistory { history.visit(id) }
         if history.current == nil && source == .restore {
             // The first pane shown is the root of the history, so Back from
             // the second pane returns to it.
@@ -90,7 +85,7 @@ final class SettingsSplitViewController: NSSplitViewController {
         // loaded and therefore that its rows exist.
         if let itemId = revealTarget(for: id) { pane.reveal(itemId: itemId) }
         view.window?.title = String(localized: "Pharos Settings — \(spec.title)")
-        if source != .restore { SettingsPanePrefs.setLastPane(id) }
+        if source.isRemembered { SettingsPanePrefs.setLastPane(id) }
     }
 
     func step(_ direction: SettingsWindow.NavigationDirection) {

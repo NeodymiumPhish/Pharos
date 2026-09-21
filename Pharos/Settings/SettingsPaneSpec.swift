@@ -21,6 +21,8 @@ enum SettingsPaneID: String, CaseIterable {
     case notifications
     case shortcuts
     case advanced
+    /// Last, and deliberately so: it is the end of the list, not a setting.
+    case about
 
     /// The accessibility identifier of this pane's sidebar row. The four
     /// panes that existed before the sidebar keep the identifiers the AX

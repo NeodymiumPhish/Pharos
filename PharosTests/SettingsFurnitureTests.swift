@@ -87,6 +87,14 @@ private func textEdge(of label: NSTextField, in ancestor: NSView) -> CGFloat {
     label.alignmentRect(forFrame: frame(of: label, in: ancestor)).minX
 }
 
+/// The rect Auto Layout actually positioned. An `NSImageView` holding an SF
+/// Symbol reports insets of its own — a 96pt height constraint gave a 103pt
+/// frame — so a constant set in the metrics is compared with this, not with
+/// the frame.
+private func alignmentFrame(of view: NSView, in ancestor: NSView) -> NSRect {
+    view.alignmentRect(forFrame: frame(of: view, in: ancestor))
+}
+
 // MARK: - Offscreen rendering
 
 private final class Rendered {
@@ -713,6 +721,96 @@ func runTests() {
         expectEqual(label?.stringValue, help, "the popover shows the help it was given")
         popover?.performClose(nil)
         host.window.orderOut(nil)
+    }
+
+    // MARK: 18. The About hero: centred, and never the thing that widens the pane
+
+    do {
+        let host = Host()
+        let icon = NSImage(systemSymbolName: "sun.max", accessibilityDescription: nil)!
+        let header = SettingsAboutHeader(icon: icon, name: "Pharos", versionLine: "Version 0.1.0 (1)")
+        host.mount(header)
+
+        let iconFrame = alignmentFrame(of: header.iconView, in: header)
+        let nameFrame = alignmentFrame(of: header.nameLabel, in: header)
+        let versionFrame = alignmentFrame(of: header.versionLabel, in: header)
+        let mid = header.bounds.midX
+
+        expectNear(iconFrame.width, SettingsMetrics.aboutIconSize, "the icon is aboutIconSize wide")
+        expectNear(iconFrame.height, SettingsMetrics.aboutIconSize, "the icon is aboutIconSize tall")
+
+        expectNear(iconFrame.midX, mid, "the icon is centred in the header")
+        expectNear(nameFrame.midX, mid, "the name is centred in the header")
+        expectNear(versionFrame.midX, mid, "the version line is centred in the header")
+
+        // A flipped document view is what the pane scrolls, but a bare NSView
+        // is not flipped, so "under" here is a SMALLER maxY. Compare the two
+        // labels with each other rather than assuming a direction: the name
+        // and the version must be adjacent, and the icon on the far side.
+        let nameToVersion = abs(nameFrame.minY - versionFrame.maxY)
+        let iconToName = abs(iconFrame.minY - nameFrame.maxY)
+        expectNear(nameToVersion, SettingsMetrics.aboutNameToVersionGap,
+                   "the version sits aboutNameToVersionGap from the name")
+        expectNear(iconToName, SettingsMetrics.aboutHeaderSpacing,
+                   "the name sits aboutHeaderSpacing from the icon")
+
+        let expectedHeight = SettingsMetrics.aboutHeaderInsetTop
+            + SettingsMetrics.aboutIconSize + SettingsMetrics.aboutHeaderSpacing
+            + nameFrame.height + SettingsMetrics.aboutNameToVersionGap
+            + versionFrame.height + SettingsMetrics.aboutHeaderInsetBottom
+        expectNear(header.frame.height, expectedHeight,
+                   "the header is exactly its insets, its icon and its two labels")
+
+        expectTrue(header.versionLabel.isSelectable,
+                   "the version line can be selected, so a fault report can copy it")
+
+        // The icon is hidden from the accessibility tree — the name label
+        // already says "Pharos" — so a live AX walk cannot prove it is drawn.
+        // Render it and read the pixels instead. A flat red stand-in makes the
+        // assertion unambiguous: the centre of the icon box must be red, and
+        // that is only true if the image reached the screen.
+        let red = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor.red.setFill(); rect.fill(); return true
+        }
+        let painted = SettingsAboutHeader(icon: red, name: "Pharos", versionLine: "Version 0.1.0 (1)")
+        painted.frame = NSRect(x: 0, y: 0, width: hostWidth, height: 200)
+        painted.layoutSubtreeIfNeeded()
+        let iconBox = alignmentFrame(of: painted.iconView, in: painted)
+        // `pixel` counts from the TOP, a plain NSView's coordinates from the
+        // bottom, so the icon's midY has to be flipped to reach its pixel.
+        let iconPixelY = Int((painted.bounds.height - iconBox.midY).rounded())
+        if let rendered = render(painted, appearance: NSAppearance(named: .aqua)!),
+           let centre = rendered.pixel(Int(iconBox.midX.rounded()), iconPixelY) {
+            expectTrue(channelsWithin(centre, .red, 0.15),
+                       "the icon is actually drawn in the hero (centre pixel \(hex(centre)))")
+        } else {
+            failures += 1
+            print("FAIL the icon is actually drawn in the hero — could not render")
+        }
+
+        // A build with no icon must not leave a 96pt hole where one would be.
+        let iconless = SettingsAboutHeader(icon: nil, name: "Pharos", versionLine: "Version 0.1.0 (1)")
+        let host2 = Host()
+        host2.mount(iconless)
+        expectTrue(iconless.iconView.isHidden, "no icon → the image view is hidden")
+        expectNear(iconless.frame.height,
+                   header.frame.height - SettingsMetrics.aboutIconSize - SettingsMetrics.aboutHeaderSpacing,
+                   tolerance: 2,
+                   "no icon → the hero closes up by the icon and its gap")
+        expectTrue(!header.iconView.isAccessibilityElement(),
+                   "the icon is decoration; the name label already says it")
+
+        // The pane hands the header its width. A name far longer than the pane
+        // must truncate, not push the header wider than what it was given.
+        header.update(name: String(repeating: "Pharos ", count: 40),
+                      versionLine: "Version 99.99.99 (123456)")
+        host.layout()
+        expectNear(header.frame.width, hostWidth, "an absurd name leaves the header at the pane's width")
+        let longName = alignmentFrame(of: header.nameLabel, in: header)
+        expectTrue(longName.maxX <= hostWidth - SettingsMetrics.rowInsetH + 0.5,
+                   "the truncated name stops at the row text margin (\(longName.maxX) of \(hostWidth))")
+        expectEqual(header.versionLabel.stringValue, "Version 99.99.99 (123456)",
+                    "update() replaces the version line")
     }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
