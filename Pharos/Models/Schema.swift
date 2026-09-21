@@ -125,6 +125,45 @@ extension TableInfo {
     }
 }
 
+/// What a row inside the Navigator's Partitions folder actually IS, for the
+/// purpose of deciding which table actions it offers.
+///
+/// The folder holds two different objects. They are told apart by the
+/// partition BOUND: `partitions_sql` fills it from
+/// `pg_get_expr(c.relpartbound, c.oid)`, which every declarative partition
+/// has at every level — including a sub-partitioned one — and no INHERITS
+/// child ever has.
+enum PartitionRole {
+    /// Storage owned by a declarative parent. It never reaches the top level
+    /// of a schema under any setting.
+    case declarative
+    /// An ordinary table that happens to have a parent. With Settings ▸
+    /// Navigator ▸ Group inherited tables OFF it lists at the top level as a
+    /// plain table row.
+    case inheritsChild
+    /// Not a partition at all.
+    case none
+}
+
+extension TableInfo {
+    var partitionRole: PartitionRole {
+        guard isPartition else { return .none }
+        return partitionBound == nil ? .inheritsChild : .declarative
+    }
+
+    /// Whether the Navigator offers this row the whole table menu — Describe,
+    /// Import, Export, Truncate, Drop — or only the read-only subset.
+    ///
+    /// An INHERITS child gets the lot, because the SAME table gets the lot at
+    /// the top level with the grouping setting off: a display toggle must not
+    /// take actions away from an object. A declarative partition does not:
+    /// per-partition Truncate / Drop / Import is a deliberate non-goal, and
+    /// dropping one silently changes what its parent returns.
+    var offersFullTableActions: Bool {
+        partitionRole != .declarative
+    }
+}
+
 struct PartitionRef: Codable {
     let parentName: String
     let name: String

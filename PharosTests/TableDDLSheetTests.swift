@@ -49,11 +49,13 @@ func expectContains(_ haystack: String, _ needle: String, _ name: String) {
 
 private func ddl(partitionBy: String? = nil,
                  inheritsFrom: [QualifiedTableName] = [],
-                 hasChildTables: Bool = false) -> TableDDL {
+                 hasChildTables: Bool = false,
+                 partitionOf: QualifiedTableName? = nil) -> TableDDL {
     let json = """
     {"columnsOnly":"c","withConstraints":"c","full":"c","shape":{
       "partitionBy":\(partitionBy.map { "\"\($0)\"" } ?? "null"),
       "inheritsFrom":[\(inheritsFrom.map { "{\"schema\":\"\($0.schema)\",\"table\":\"\($0.table)\"}" }.joined(separator: ","))],
+      "partitionOf":\(partitionOf.map { "{\"schema\":\"\($0.schema)\",\"table\":\"\($0.table)\"}" } ?? "null"),
       "hasChildTables":\(hasChildTables)}}
     """
     // Built by decoding, exactly as the app gets it: the model has no
@@ -97,6 +99,7 @@ private extension NSView {
 
 func runTests() {
     testShapeNoteWording()
+    testTheLongestNoteFitsItsLabel()
     testOutcomeWording()
     testPlainTableHasNoCloneChrome()
     testPartitionedSourceCannotAskForRows()
@@ -142,6 +145,63 @@ func testShapeNoteWording() {
                  inheritsFrom: [QualifiedTableName(schema: "a", table: "p")]).shape) ?? ""
     expectContains(both, "LIST (region)", "both sentences: the key")
     expectContains(both, "standalone", "both sentences: the standalone copy")
+
+    // A declarative partition reaches its parent by ALTER TABLE, not
+    // INHERITS, and `LIKE` carries neither — so the copy stands alone the
+    // same way, and the note says so the same way.
+    let partition = CloneShapeNote.text(
+        for: ddl(partitionOf: QualifiedTableName(schema: "archive", table: "events")).shape) ?? ""
+    expectContains(partition, "standalone table", "a partition's copy stands alone too")
+    expectContains(partition, "not a partition of archive.events", "the note names the parent")
+    expectTrue(!partition.contains("inheritance"),
+               "a declarative partition is not an inheritance child")
+
+    // The longest note a real table can produce: a SUB-partitioned partition,
+    // which is both a parent with a key and a child with a bound. Three
+    // sentences is impossible — a declarative partition has no INHERITS
+    // parents — so this pair is the worst case the label has to fit.
+    let subPartition = CloneShapeNote.text(
+        for: ddl(partitionBy: "RANGE (seen)",
+                 partitionOf: QualifiedTableName(schema: "archive", table: "events")).shape) ?? ""
+    expectContains(subPartition, "RANGE (seen)", "both sentences: the key")
+    expectContains(subPartition, "not a partition of", "both sentences: the standalone copy")
+}
+
+/// The note is a wrapping label with a line cap. A sentence added to it is
+/// worth nothing if the cap silently truncates the one before it, and the
+/// truncation is invisible in a screenshot at the wrong width.
+func testTheLongestNoteFitsItsLabel() {
+    // The two shapes that produce two sentences: a sub-partitioned partition
+    // (a key and a bound), and an inheritance child that is itself a
+    // declarative parent.
+    expectNoteFits(ddl(partitionBy: "RANGE (seen)",
+                       partitionOf: QualifiedTableName(schema: "archive", table: "events")),
+                   "a sub-partitioned partition")
+    expectNoteFits(ddl(partitionBy: "RANGE (created_at)",
+                       inheritsFrom: [QualifiedTableName(schema: "archive", table: "dns_log_2013")]),
+                   "a partitioned inheritance child")
+}
+
+private func expectNoteFits(_ ddl: TableDDL, _ name: String) {
+    let sheet = TableDDLSheet(schema: "s", table: "t", ddl: ddl) { _, _, _ in }
+    let window = host(sheet)
+    defer { window.close() }
+
+    guard let label = window.contentView?.descendant(id: "sheet.tableddl.shapeNote") as? NSTextField else {
+        failures += 1
+        print("FAIL \(name) has a note label")
+        return
+    }
+    // What the cap allows against what the text actually needs at the label's
+    // own width. `maximumNumberOfLines` clamps the first; the second is what
+    // an uncapped measure of the same string returns.
+    let width = label.preferredMaxLayoutWidth
+    let needed = (label.attributedStringValue as NSAttributedString).boundingRect(
+        with: NSSize(width: width, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading]).height
+    let allowed = label.fittingSize.height
+    expectTrue(allowed + 0.5 >= needed,
+               "\(name)'s note fits: \(allowed) allowed vs \(needed) needed at \(width)pt")
 }
 
 func testOutcomeWording() {

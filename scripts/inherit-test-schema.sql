@@ -31,6 +31,23 @@
 --   `dns_log_2013` — both at once: radios, AND the note that the copy will be
 --                  standalone, not part of inherittest.dns_log's tree.
 --   `settings_flat` — no note and no radios at all.
+--
+-- What to look for on a row INSIDE a Partitions folder (Group inherited
+-- tables ON, and Show leaf partitions ON to open `events`):
+--   `dns_log_2013` — an INHERITS child is an ordinary table that happens to
+--                  have a parent, so it offers the SAME menu it offers at the
+--                  top level with the grouping OFF: Describe, Import, Export,
+--                  Truncate, Drop. Its DDL carries `INHERITS
+--                  ("public"."dns_log")` and no ATTACH.
+--   `events_2013`  — a declarative partition is storage owned by its parent,
+--                  so it offers "View Table DDL…" and Export and nothing that
+--                  writes: no Import, no Truncate, no Drop. Its DDL ends in
+--                  `ALTER TABLE ... ATTACH PARTITION ... FOR VALUES FROM ...`,
+--                  and the clone note reads "not a partition of
+--                  inherittest.events".
+--   Either one    — with Settings ▸ Navigator ▸ On double-click set to
+--                  "Describe", a double-click opens the DDL sheet. It used to
+--                  expand the row instead.
 
 DROP SCHEMA IF EXISTS inherittest CASCADE;
 DROP SCHEMA IF EXISTS inherittest_elsewhere CASCADE;

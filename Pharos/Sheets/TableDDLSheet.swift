@@ -33,6 +33,16 @@ enum CloneShapeNote {
             )
         }
 
+        // The same fact for a declarative child, which reaches it by ALTER
+        // TABLE rather than INHERITS. `LIKE` carries no attachment either, so
+        // the copy is a free-standing table with the partition's columns.
+        if let parent = shape.partitionOf {
+            let name = DisplayEscape.escapedQualified(schema: parent.schema, table: parent.table)
+            sentences.append(
+                "The copy will be a standalone table, not a partition of \(name)."
+            )
+        }
+
         return sentences.isEmpty ? nil : sentences.joined(separator: " ")
     }
 }
@@ -266,7 +276,14 @@ class TableDDLSheet: NSViewController {
             noteLabel.font = .systemFont(ofSize: 11)
             noteLabel.textColor = .secondaryLabelColor
             noteLabel.lineBreakMode = .byWordWrapping
-            noteLabel.maximumNumberOfLines = 3
+            // Five, not three. Two sentences is the worst case a real table
+            // reaches — a partitioned child, or a sub-partitioned partition,
+            // which is a parent with a key AND a child with a bound — and at
+            // 320pt that pair needs four lines. Three silently truncated the
+            // second sentence. The cap stays only to stop a pathologically
+            // long name growing the sheet without limit; the suite measures
+            // the longest real note against it.
+            noteLabel.maximumNumberOfLines = 5
             noteLabel.cell?.wraps = true
             noteLabel.preferredMaxLayoutWidth = 320
             noteLabel.setAccessibilityIdentifier("sheet.tableddl.shapeNote")

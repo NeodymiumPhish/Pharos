@@ -26,6 +26,10 @@ struct TableShape: Codable, Equatable {
     /// Whether descendants exist, and so whether the row scope is a real
     /// choice rather than one answer under two names.
     let hasChildTables: Bool
+    /// The parent this table is a declarative partition of. The copy will NOT
+    /// be attached to it — `LIKE ... INCLUDING ALL` carries no attachment,
+    /// exactly as it carries no `INHERITS`, so the copy stands alone.
+    let partitionOf: QualifiedTableName?
 
     /// A declarative parent: the copy keeps the partition key and starts with
     /// no partitions, so rows cannot go into it at all.

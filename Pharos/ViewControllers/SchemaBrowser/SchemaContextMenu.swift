@@ -152,14 +152,22 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     /// Open `node`'s DDL sheet — how this app describes an object's
     /// structure, and what Settings ▸ Navigator's "Describe" double-click
-    /// runs. Only a plain table has DDL to show, exactly as the context menu
-    /// has always had it, so anything else gives `false` and the caller falls
-    /// back to expanding the row.
+    /// runs.
+    ///
+    /// A partition describes as well as a table does, whichever kind it is: an
+    /// INHERITS child is an ordinary table that happens to have a parent, and
+    /// a declarative partition's DDL names the parent it attaches to and the
+    /// bound it takes. Everything else — a schema, a column, the folder
+    /// itself — gives `false`, and the caller falls back to expanding the row.
     @discardableResult
     func describe(node: SchemaTreeNode) -> Bool {
-        guard case .table = node.kind else { return false }
-        presentTableDDLSheet(for: node)
-        return true
+        switch node.kind {
+        case .table, .partition:
+            presentTableDDLSheet(for: node)
+            return true
+        default:
+            return false
+        }
     }
 
     @objc private func contextViewTableDDL(_: Any?) {
@@ -337,7 +345,9 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         let isView: Bool
         let tableName: String
         switch node.kind {
-        case .table(let t): tableName = t.name; isView = false
+        // `.partition` is here for an INHERITS child, which is the only kind
+        // the menu offers this on — a declarative partition gets no Drop item.
+        case .table(let t), .partition(let t): tableName = t.name; isView = false
         case .view(let t): tableName = t.name; isView = true
         default: return
         }
@@ -441,57 +451,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
         switch node.kind {
         case .table:
-            // Query actions
-            let viewAll = NSMenuItem(title: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
-            viewAll.target = self
-            menu.addItem(viewAll)
-
-            menu.addItem(limitSubmenuItem())
-
-            let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
-            copyName.target = self
-            menu.addItem(copyName)
-
-            let pasteName = NSMenuItem(title: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
-            pasteName.target = self
-            menu.addItem(pasteName)
-
-            // Data operations
-            menu.addItem(.separator())
-
-            let viewDDL = NSMenuItem(title: "View Table DDL\u{2026}", action: #selector(contextViewTableDDL), keyEquivalent: "")
-            viewDDL.target = self
-            menu.addItem(viewDDL)
-
-            let importItem = NSMenuItem(title: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
-            importItem.target = self
-            menu.addItem(importItem)
-
-            let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
-            exportItem.target = self
-            menu.addItem(exportItem)
-
-            // Destructive
-            menu.addItem(.separator())
-
-            let truncate = NSMenuItem(title: "Truncate Table", action: #selector(contextTruncateTable), keyEquivalent: "")
-            truncate.target = self
-            menu.addItem(truncate)
-
-            let drop = NSMenuItem(title: "Drop Table", action: #selector(contextDropTable), keyEquivalent: "")
-            drop.target = self
-            menu.addItem(drop)
-
-            // Inspection
-            menu.addItem(.separator())
-
-            let indexes = NSMenuItem(title: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
-            indexes.target = self
-            menu.addItem(indexes)
-
-            let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
-            constraints.target = self
-            menu.addItem(constraints)
+            addTableItems(to: menu)
 
         case .view:
             // Query actions
@@ -530,43 +490,18 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             constraints.target = self
             menu.addItem(constraints)
 
-        case .partition:
-            // Partitions are real, queryable tables — offer the same read-only
-            // subset the `.table` case offers (query/export/copy/inspect), but
-            // WITHOUT destructive/DDL actions (Truncate, Drop) or bulk data ops
-            // (Clone, Import): per-partition DDL is an explicit non-goal. The
-            // partitioned *parent* remains a `.table` node and keeps the full menu.
-            let viewAll = NSMenuItem(title: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
-            viewAll.target = self
-            menu.addItem(viewAll)
-
-            menu.addItem(limitSubmenuItem())
-
-            let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
-            copyName.target = self
-            menu.addItem(copyName)
-
-            let pasteName = NSMenuItem(title: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
-            pasteName.target = self
-            menu.addItem(pasteName)
-
-            // Data operations
-            menu.addItem(.separator())
-
-            let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
-            exportItem.target = self
-            menu.addItem(exportItem)
-
-            // Inspection
-            menu.addItem(.separator())
-
-            let indexes = NSMenuItem(title: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
-            indexes.target = self
-            menu.addItem(indexes)
-
-            let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
-            constraints.target = self
-            menu.addItem(constraints)
+        // The Partitions folder holds two different objects. An INHERITS
+        // child is an ordinary table that happens to have a parent — with
+        // Group inherited tables OFF the SAME row lists at the top level with
+        // the full menu, and a display toggle must not take actions away. A
+        // declarative partition is storage owned by its parent and keeps the
+        // read-only subset.
+        case .partition(let info):
+            if info.offersFullTableActions {
+                addTableItems(to: menu)
+            } else {
+                addPartitionItems(to: menu)
+            }
 
         case .schema:
             let functions = NSMenuItem(title: "View Functions", action: #selector(contextViewFunctions), keyEquivalent: "")
@@ -587,6 +522,109 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         default:
             break
         }
+    }
+
+    /// The full table menu: query, clipboard, data operations, destructive,
+    /// inspection. Shared by a `.table` row and by an INHERITS child inside
+    /// the Partitions folder, which is the same object seen from a different
+    /// place in the tree.
+    private func addTableItems(to menu: NSMenu) {
+        // Query actions
+        let viewAll = NSMenuItem(title: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
+        viewAll.target = self
+        menu.addItem(viewAll)
+
+        menu.addItem(limitSubmenuItem())
+
+        let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
+        copyName.target = self
+        menu.addItem(copyName)
+
+        let pasteName = NSMenuItem(title: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
+        pasteName.target = self
+        menu.addItem(pasteName)
+
+        // Data operations
+        menu.addItem(.separator())
+
+        let viewDDL = NSMenuItem(title: "View Table DDL\u{2026}", action: #selector(contextViewTableDDL), keyEquivalent: "")
+        viewDDL.target = self
+        menu.addItem(viewDDL)
+
+        let importItem = NSMenuItem(title: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
+        importItem.target = self
+        menu.addItem(importItem)
+
+        let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
+        exportItem.target = self
+        menu.addItem(exportItem)
+
+        // Destructive
+        menu.addItem(.separator())
+
+        let truncate = NSMenuItem(title: "Truncate Table", action: #selector(contextTruncateTable), keyEquivalent: "")
+        truncate.target = self
+        menu.addItem(truncate)
+
+        let drop = NSMenuItem(title: "Drop Table", action: #selector(contextDropTable), keyEquivalent: "")
+        drop.target = self
+        menu.addItem(drop)
+
+        // Inspection
+        menu.addItem(.separator())
+
+        let indexes = NSMenuItem(title: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
+        indexes.target = self
+        menu.addItem(indexes)
+
+        let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
+        constraints.target = self
+        menu.addItem(constraints)
+    }
+
+    /// A declarative partition's menu: everything that reads, nothing that
+    /// writes. It is a real, queryable table, so it describes, exports and
+    /// inspects — its DDL names the parent it attaches to and the bound it
+    /// takes. Truncate, Drop and Import stay off it: they are the parent's to
+    /// offer, and dropping a partition silently changes what the parent
+    /// returns. The partitioned PARENT is a `.table` node and keeps the lot.
+    private func addPartitionItems(to menu: NSMenu) {
+        // Query actions
+        let viewAll = NSMenuItem(title: "View All Contents", action: #selector(contextViewAllContents), keyEquivalent: "")
+        viewAll.target = self
+        menu.addItem(viewAll)
+
+        menu.addItem(limitSubmenuItem())
+
+        let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
+        copyName.target = self
+        menu.addItem(copyName)
+
+        let pasteName = NSMenuItem(title: "Paste Name to Query Editor", action: #selector(contextPasteToEditor), keyEquivalent: "")
+        pasteName.target = self
+        menu.addItem(pasteName)
+
+        // Data operations
+        menu.addItem(.separator())
+
+        let viewDDL = NSMenuItem(title: "View Table DDL\u{2026}", action: #selector(contextViewTableDDL), keyEquivalent: "")
+        viewDDL.target = self
+        menu.addItem(viewDDL)
+
+        let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
+        exportItem.target = self
+        menu.addItem(exportItem)
+
+        // Inspection
+        menu.addItem(.separator())
+
+        let indexes = NSMenuItem(title: "View Indexes", action: #selector(contextViewIndexes), keyEquivalent: "")
+        indexes.target = self
+        menu.addItem(indexes)
+
+        let constraints = NSMenuItem(title: "View Constraints", action: #selector(contextViewConstraints), keyEquivalent: "")
+        constraints.target = self
+        menu.addItem(constraints)
     }
 
     /// The "View Contents (Limit\u{2026})" item, with one row per preset from

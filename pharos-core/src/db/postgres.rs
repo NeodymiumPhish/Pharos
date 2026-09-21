@@ -1769,6 +1769,40 @@ pub async fn get_table_ddl_parts(
         })
         .collect();
 
+    // The parent this table is a declarative PARTITION OF, with its bound.
+    // The INHERITS read above excludes these rows on purpose — a declarative
+    // partition is attached with ALTER TABLE, not INHERITS — so without this
+    // second read the child's DDL names no parent at all.
+    let partition_of_sql = format!(
+        "SELECT pn.nspname AS parent_schema, p.relname AS parent_name, \
+                pg_get_expr(c.relpartbound, c.oid) AS part_bound \
+         FROM pg_catalog.pg_inherits i \
+         JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         JOIN pg_catalog.pg_class p ON p.oid = i.inhparent \
+         JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace \
+         WHERE n.nspname = '{}' AND c.relname = '{}' AND c.relispartition = true",
+        escaped_schema, escaped_table
+    );
+    let partition_of_row = sqlx::raw_sql(&partition_of_sql)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .next();
+    // Both or neither: a bound with no parent (or the reverse) would render
+    // half an ALTER TABLE, so the pair is taken together or dropped together.
+    let (partition_of, partition_bound) = match partition_of_row {
+        Some(row) => match (
+            raw_str(&row, "parent_schema"),
+            raw_str(&row, "parent_name"),
+            raw_str(&row, "part_bound"),
+        ) {
+            (Some(ps), Some(pt), Some(bound)) => (Some((ps, pt)), Some(bound)),
+            _ => (None, None),
+        },
+        None => (None, None),
+    };
+
     Ok(TableDdlParts {
         columns,
         constraints,
@@ -1776,6 +1810,8 @@ pub async fn get_table_ddl_parts(
         partition_by: shape.partition_by,
         inherits,
         has_child_tables: shape.has_child_tables,
+        partition_of,
+        partition_bound,
     })
 }
 

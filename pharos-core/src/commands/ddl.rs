@@ -45,6 +45,17 @@ pub struct TableDdlParts {
     /// nothing about its children — but a clone of this table depends on it,
     /// so the sheet that offers the clone needs it.
     pub has_child_tables: bool,
+    /// The (schema, table) this one is a declarative PARTITION OF. A
+    /// declarative partition is attached with ALTER TABLE, not INHERITS, so
+    /// it appears in neither `inherits` above nor anywhere in the CREATE —
+    /// without this the child's DDL reads as an unrelated standalone table
+    /// that can be pasted and run to produce exactly that.
+    pub partition_of: Option<(String, String)>,
+    /// This partition's bound, as `pg_get_expr(relpartbound)` spells it:
+    /// "FOR VALUES FROM (...) TO (...)", "FOR VALUES IN (...)",
+    /// "FOR VALUES WITH (...)" or the bare word "DEFAULT". Present exactly
+    /// when `partition_of` is.
+    pub partition_bound: Option<String>,
 }
 
 /// One schema-qualified name, sent to Swift RAW: unquoted and unescaped.
@@ -78,6 +89,11 @@ pub struct TableShape {
     /// Whether descendants exist, and therefore whether the row scope is a
     /// real choice rather than one answer under two names.
     pub has_child_tables: bool,
+    /// The parent this table is a declarative partition of. `LIKE ...
+    /// INCLUDING ALL` carries no attachment, so the copy stands alone —
+    /// the same fact `inherits_from` states for a legacy child, and the
+    /// sheet says it the same way.
+    pub partition_of: Option<QualifiedName>,
 }
 
 /// The three ready-to-display DDL variants sent to Swift.
@@ -158,14 +174,47 @@ fn render_create_table(
     )
 }
 
+/// Render the `ALTER TABLE ... ATTACH PARTITION` that puts a declarative
+/// partition back under its parent.
+///
+/// `CREATE TABLE ... PARTITION OF` is the form pg_dump writes, but the
+/// grammar forbids a column list in it, and the sheet's "Columns" and
+/// "+ Constraints" levels exist to show exactly that list. ATTACH says the
+/// same thing as a separate statement, so all three levels keep their
+/// content and the pair is still runnable end to end.
+///
+/// `bound` arrives from `pg_get_expr(relpartbound)` already carrying its own
+/// keywords — "FOR VALUES ..." or the bare word "DEFAULT". A one-word bound
+/// stays on the line; a long one gets its own, as the CREATE's clauses do.
+fn render_attach_partition(
+    parent: &(String, String),
+    schema: &str,
+    table: &str,
+    bound: &str,
+) -> String {
+    let head = format!(
+        "ALTER TABLE \"{}\".\"{}\" ATTACH PARTITION \"{}\".\"{}\"",
+        escape_identifier(&parent.0),
+        escape_identifier(&parent.1),
+        escape_identifier(schema),
+        escape_identifier(table)
+    );
+    let bound = bound.trim();
+    if bound.contains(' ') {
+        format!("{}\n    {};", head, bound)
+    } else {
+        format!("{} {};", head, bound)
+    }
+}
+
 /// Compose the three DDL variants from raw parts. Pure — no I/O.
 pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> TableDdl {
     let col_lines: Vec<String> = parts.columns.iter().map(render_column).collect();
     let constraint_lines: Vec<String> = parts.constraints.iter().map(render_constraint).collect();
 
-    let columns_only = render_create_table(
+    let mut columns_only = render_create_table(
         schema, table, &col_lines, &[], parts.partition_by.as_deref(), &parts.inherits);
-    let with_constraints = render_create_table(
+    let mut with_constraints = render_create_table(
         schema, table, &col_lines, &constraint_lines, parts.partition_by.as_deref(), &parts.inherits);
 
     let shape = TableShape {
@@ -176,6 +225,10 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
             .map(|(s, t)| QualifiedName { schema: s.clone(), table: t.clone() })
             .collect(),
         has_child_tables: parts.has_child_tables,
+        partition_of: parts
+            .partition_of
+            .as_ref()
+            .map(|(s, t)| QualifiedName { schema: s.clone(), table: t.clone() }),
     };
 
     let mut full = with_constraints.clone();
@@ -189,6 +242,19 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
+    }
+
+    // The attachment is a statement, not a clause, so every variant carries
+    // it: a CREATE without it produces a DETACHED table at any detail level.
+    // It goes last, after the indexes in `full`, because ATTACH matches the
+    // child's existing indexes to the parent's partitioned ones — run the
+    // other way round it leaves a duplicate pair behind.
+    if let (Some(parent), Some(bound)) = (&parts.partition_of, &parts.partition_bound) {
+        let attach = render_attach_partition(parent, schema, table, bound);
+        for variant in [&mut columns_only, &mut with_constraints, &mut full] {
+            variant.push_str("\n\n");
+            variant.push_str(&attach);
+        }
     }
 
     TableDdl {
@@ -267,6 +333,8 @@ mod tests {
             partition_by: None,
             inherits: vec![],
             has_child_tables: false,
+            partition_of: None,
+            partition_bound: None,
         }
     }
 
@@ -392,6 +460,120 @@ mod tests {
             .starts_with("CREATE TABLE \"9d56a337-0e17-4c6e-8ebc-ea490bef2923\".\"9d56a337-0e17-4c6e-8ebc-ea490bef2923\" ("));
     }
 
+    // ---- a declarative partition's attachment ----
+
+    fn partition_parts() -> TableDdlParts {
+        let mut parts = sample_parts();
+        parts.partition_of = Some(("public".into(), "events".into()));
+        parts.partition_bound =
+            Some("FOR VALUES FROM ('2013-01-01') TO ('2014-01-01')".into());
+        parts
+    }
+
+    #[test]
+    fn every_variant_carries_the_attach_statement() {
+        // A CREATE alone produces a DETACHED table, whichever detail level
+        // the analyst copied it from.
+        let ddl = compose_table_ddl("public", "events_2013", &partition_parts());
+        for variant in [&ddl.columns_only, &ddl.with_constraints, &ddl.full] {
+            assert!(
+                variant.contains(
+                    "ALTER TABLE \"public\".\"events\" ATTACH PARTITION \"public\".\"events_2013\"\n    FOR VALUES FROM ('2013-01-01') TO ('2014-01-01');"
+                ),
+                "{variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_attach_comes_after_the_indexes() {
+        // ATTACH matches the child's existing indexes to the parent's
+        // partitioned ones; run before them it leaves a duplicate pair.
+        let ddl = compose_table_ddl("public", "events_2013", &partition_parts());
+        let idx = ddl.full.find("CREATE INDEX").unwrap();
+        let attach = ddl.full.find("ATTACH PARTITION").unwrap();
+        assert!(idx < attach, "{}", ddl.full);
+    }
+
+    #[test]
+    fn a_default_partition_keeps_its_bound_on_one_line() {
+        let mut parts = partition_parts();
+        parts.partition_bound = Some("DEFAULT".into());
+        let ddl = compose_table_ddl("public", "events_rest", &parts);
+        assert!(
+            ddl.columns_only.contains(
+                "ALTER TABLE \"public\".\"events\" ATTACH PARTITION \"public\".\"events_rest\" DEFAULT;"
+            ),
+            "{}",
+            ddl.columns_only
+        );
+    }
+
+    #[test]
+    fn the_attach_quotes_every_name_it_prints() {
+        let mut parts = partition_parts();
+        parts.partition_of = Some(("od\"d".into(), "pa\"rent".into()));
+        let ddl = compose_table_ddl("sc\"h", "ch\"ild", &parts);
+        assert!(
+            ddl.columns_only.contains(
+                "ALTER TABLE \"od\"\"d\".\"pa\"\"rent\" ATTACH PARTITION \"sc\"\"h\".\"ch\"\"ild\""
+            ),
+            "{}",
+            ddl.columns_only
+        );
+    }
+
+    #[test]
+    fn a_half_read_attachment_renders_nothing() {
+        // The pair is taken together or dropped together — half an ALTER
+        // TABLE is worse than none.
+        let mut parts = partition_parts();
+        parts.partition_bound = None;
+        assert!(!compose_table_ddl("public", "events_2013", &parts)
+            .full
+            .contains("ATTACH PARTITION"));
+        let mut parts = partition_parts();
+        parts.partition_of = None;
+        assert!(!compose_table_ddl("public", "events_2013", &parts)
+            .full
+            .contains("ATTACH PARTITION"));
+    }
+
+    #[test]
+    fn a_plain_table_and_an_inherits_child_render_no_attach() {
+        assert!(!compose_table_ddl("public", "orders", &sample_parts())
+            .full
+            .contains("ATTACH PARTITION"));
+        let mut parts = sample_parts();
+        parts.inherits = vec![("public".into(), "dns_log".into())];
+        let ddl = compose_table_ddl("public", "dns_log_2013", &parts);
+        assert!(!ddl.full.contains("ATTACH PARTITION"), "{}", ddl.full);
+        assert!(ddl.full.contains("INHERITS (\"public\".\"dns_log\")"), "{}", ddl.full);
+    }
+
+    #[test]
+    fn the_shape_names_the_parent_raw_for_the_clone_note() {
+        // RAW, for the same reason `inherits_from` is: the sheet escapes it
+        // for display, and pre-escaping would save the tokens into the name.
+        let mut parts = partition_parts();
+        parts.partition_of = Some(("other".into(), "b\"evil".into()));
+        let shape = compose_table_ddl("public", "events_2013", &parts).shape;
+        assert_eq!(
+            shape.partition_of,
+            Some(QualifiedName { schema: "other".into(), table: "b\"evil".into() })
+        );
+        // A declarative partition is not an INHERITS child.
+        assert!(shape.inherits_from.is_empty());
+    }
+
+    #[test]
+    fn a_table_that_is_not_a_partition_reports_no_parent() {
+        assert_eq!(
+            compose_table_ddl("public", "orders", &sample_parts()).shape.partition_of,
+            None
+        );
+    }
+
     // ---- the clone shape carried alongside the DDL ----
 
     #[test]
@@ -451,7 +633,7 @@ mod tests {
         let json = serde_json::to_string(&ddl).expect("serialise");
         // JSONDecoder.pharos sets no key strategy, so each of these names has
         // to be on the wire exactly as Swift spells its property.
-        for key in ["\"shape\"", "\"partitionBy\"", "\"inheritsFrom\"", "\"hasChildTables\"", "\"schema\"", "\"table\""] {
+        for key in ["\"shape\"", "\"partitionBy\"", "\"inheritsFrom\"", "\"hasChildTables\"", "\"partitionOf\"", "\"schema\"", "\"table\""] {
             assert!(json.contains(key), "{} missing from {}", key, json);
         }
     }

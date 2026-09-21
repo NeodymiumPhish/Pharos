@@ -1983,6 +1983,7 @@ mod live_clone_tests {
     const WHOLE_TREE: &str = "pharos_clone_whole_tree";
     const STANDALONE: &str = "pharos_clone_standalone";
     const SHAPE: &str = "pharos_clone_shape";
+    const ATTACH: &str = "pharos_clone_attach";
 
     fn url() -> String {
         std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
@@ -2235,6 +2236,69 @@ mod live_clone_tests {
             assert_eq!(leaf.shape.partition_by, None);
 
             drop_fixture(&pool, SHAPE).await;
+        });
+    }
+
+    /// A declarative partition's DDL says which parent it hangs off.
+    ///
+    /// The unit tests pin what the composer does with a bound; this pins that
+    /// a bound is READ at all — the seam between the catalog query and the
+    /// composer, which no pure test touches (see `tasks/lessons.md`). Without
+    /// it the sheet shows a CREATE that produces a DETACHED table.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn a_partitions_ddl_names_the_parent_it_attaches_to() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, ATTACH).await;
+            let state = state_with(&pool, "live-clone-attach");
+
+            let ddl_of = |table: &str| {
+                let state = &state;
+                let table = table.to_string();
+                async move {
+                    generate_table_ddl("live-clone-attach".into(), ATTACH.into(), table, state)
+                        .await
+                        .expect("generate the DDL")
+                }
+            };
+
+            // The declarative partition: a parent, a bound, in every variant.
+            let ev13 = ddl_of("ev_2013").await;
+            assert_eq!(
+                ev13.shape.partition_of,
+                Some(crate::commands::ddl::QualifiedName {
+                    schema: ATTACH.to_string(),
+                    table: "ev".to_string(),
+                }),
+                "named raw, for the sheet to escape per part"
+            );
+            assert!(ev13.shape.inherits_from.is_empty(), "a partition is not an INHERITS child");
+            let expected_head = format!(
+                "ALTER TABLE \"{s}\".\"ev\" ATTACH PARTITION \"{s}\".\"ev_2013\"",
+                s = ATTACH
+            );
+            for variant in [&ev13.columns_only, &ev13.with_constraints, &ev13.full] {
+                assert!(variant.contains(&expected_head), "{variant}");
+                assert!(variant.contains("FOR VALUES FROM ("), "{variant}");
+            }
+
+            // The INHERITS child: a clause, not a statement. Unchanged.
+            let lg13 = ddl_of("lg_2013").await;
+            assert_eq!(lg13.shape.partition_of, None);
+            assert!(!lg13.full.contains("ATTACH PARTITION"), "{}", lg13.full);
+            assert!(
+                lg13.full.contains(&format!("INHERITS (\"{}\".\"lg\")", ATTACH)),
+                "{}",
+                lg13.full
+            );
+
+            // Neither parent is a partition of anything.
+            assert_eq!(ddl_of("ev").await.shape.partition_of, None);
+            assert_eq!(ddl_of("lg").await.shape.partition_of, None);
+
+            drop_fixture(&pool, ATTACH).await;
         });
     }
 
