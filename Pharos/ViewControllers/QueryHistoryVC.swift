@@ -301,7 +301,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         emptyState.translatesAutoresizingMaskIntoConstraints = false
 
         scopeControl.translatesAutoresizingMaskIntoConstraints = false
-        scopeControl.segmentStyle = .automatic
+        // The same two lines the editor tab bar and the Grid/Chart toggle use,
+        // so all three share one idiom: a neutral lit segment, not an
+        // accent-filled one that reads as a call to action.
+        scopeControl.segmentStyle = .capsule
+        scopeControl.selectedSegmentBezelColor = .controlColor
         scopeControl.controlSize = .small
         scopeControl.selectedSegment = 0
         scopeControl.target = self
@@ -317,7 +321,15 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         container.addSubview(emptyState)
 
         NSLayoutConstraint.activate([
-            scopeControl.topAnchor.constraint(equalTo: container.topAnchor, constant: 6),
+            // The SAFE-AREA top, not the view's top, the way the Variables
+            // navigator pins its content area. This view runs up under the
+            // toolbar glass, and only an NSScrollView insets itself for that
+            // automatically: pinned to the plain top, the scope control drew
+            // behind the titlebar and the traffic lights. Everything below it
+            // hangs off this control, so the lists move down with it.
+            scopeControl.topAnchor.constraint(
+                equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 6
+            ),
             scopeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             scopeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
 
