@@ -763,6 +763,40 @@ func runTests() {
 
         expectTrue(header.versionLabel.isSelectable,
                    "the version line can be selected, so a fault report can copy it")
+
+        // The icon is hidden from the accessibility tree — the name label
+        // already says "Pharos" — so a live AX walk cannot prove it is drawn.
+        // Render it and read the pixels instead. A flat red stand-in makes the
+        // assertion unambiguous: the centre of the icon box must be red, and
+        // that is only true if the image reached the screen.
+        let red = NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+            NSColor.red.setFill(); rect.fill(); return true
+        }
+        let painted = SettingsAboutHeader(icon: red, name: "Pharos", versionLine: "Version 0.1.0 (1)")
+        painted.frame = NSRect(x: 0, y: 0, width: hostWidth, height: 200)
+        painted.layoutSubtreeIfNeeded()
+        let iconBox = alignmentFrame(of: painted.iconView, in: painted)
+        // `pixel` counts from the TOP, a plain NSView's coordinates from the
+        // bottom, so the icon's midY has to be flipped to reach its pixel.
+        let iconPixelY = Int((painted.bounds.height - iconBox.midY).rounded())
+        if let rendered = render(painted, appearance: NSAppearance(named: .aqua)!),
+           let centre = rendered.pixel(Int(iconBox.midX.rounded()), iconPixelY) {
+            expectTrue(channelsWithin(centre, .red, 0.15),
+                       "the icon is actually drawn in the hero (centre pixel \(hex(centre)))")
+        } else {
+            failures += 1
+            print("FAIL the icon is actually drawn in the hero — could not render")
+        }
+
+        // A build with no icon must not leave a 96pt hole where one would be.
+        let iconless = SettingsAboutHeader(icon: nil, name: "Pharos", versionLine: "Version 0.1.0 (1)")
+        let host2 = Host()
+        host2.mount(iconless)
+        expectTrue(iconless.iconView.isHidden, "no icon → the image view is hidden")
+        expectNear(iconless.frame.height,
+                   header.frame.height - SettingsMetrics.aboutIconSize - SettingsMetrics.aboutHeaderSpacing,
+                   tolerance: 2,
+                   "no icon → the hero closes up by the icon and its gap")
         expectTrue(!header.iconView.isAccessibilityElement(),
                    "the icon is decoration; the name label already says it")
 

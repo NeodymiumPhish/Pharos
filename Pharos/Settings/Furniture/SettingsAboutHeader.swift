@@ -32,6 +32,9 @@ final class SettingsAboutHeader: NSView {
         // `applicationIconImage` is larger than the box here — but a stand-in
         // smaller than 96pt must still fill it rather than float in the middle.
         iconView.imageScaling = .scaleProportionallyUpOrDown
+        // No image is not an empty 96pt box: a hidden arranged subview is
+        // dropped from the stack's layout, so the hero closes up instead.
+        iconView.isHidden = icon == nil
         iconView.translatesAutoresizingMaskIntoConstraints = false
         // The name label says the same thing, so the image is decoration.
         iconView.setAccessibilityElement(false)

@@ -143,9 +143,9 @@ case "$WINDOW_TITLES" in
   *) fail "window title follows the pane — got [$WINDOW_TITLES]" ;;
 esac
 check "the sidebar table exists" "$SIDEBAR_FOUND" "1"
-check "the sidebar has 16 rows" "${SIDEBAR_ROWS:-0}" "16"
+check "the sidebar has 17 rows" "${SIDEBAR_ROWS:-0}" "17"
 case "${PANE_IDS:-}" in
-  settings.pane.general,settings.pane.appearance,settings.pane.editor,settings.pane.query,*settings.pane.advanced) pass "sidebar rows are in registry order" ;;
+  settings.pane.general,settings.pane.appearance,settings.pane.editor,settings.pane.query,*settings.pane.advanced,settings.pane.about) pass "sidebar rows are in registry order, About last" ;;
   *) fail "sidebar rows are in registry order — got [${PANE_IDS:-}]" ;;
 esac
 [ "${SETTINGS_TITLE_FRAME:-MISSING}" != "MISSING" ] && pass "the pane title is on screen" || fail "the pane title is on screen"
@@ -296,8 +296,8 @@ else:
   # one, and that the list shrank.
   FILTERED_COUNT=${FILTERED%%|*}
   FILTERED_FIRST=$(echo "${FILTERED#*|}" | cut -d, -f1)
-  if [ "${FILTERED_COUNT:-16}" -lt 16 ] && [ "${FILTERED_COUNT:-0}" -ge 1 ]; then
-    pass "a query narrows the sidebar ($FILTERED_COUNT of 16)"
+  if [ "${FILTERED_COUNT:-17}" -lt 17 ] && [ "${FILTERED_COUNT:-0}" -ge 1 ]; then
+    pass "a query narrows the sidebar ($FILTERED_COUNT of 17)"
   else
     fail "a query narrows the sidebar — got [$FILTERED]"
   fi
@@ -317,7 +317,7 @@ def nodes(n,acc=None):
 t=[n for n in nodes(w['tree']) if n.get('identifier')=='settings.sidebar']
 print(len([n for n in nodes(t[0]) if n.get('role')=='AXRow']) if t else 0)
 ")
-  check "clearing the search restores every pane" "$RESTORED" "16"
+  check "clearing the search restores every pane" "$RESTORED" "17"
 else
   fail "the search field is in the toolbar and can take focus"
 fi
@@ -350,6 +350,112 @@ case "$TILES" in
   *System,Light,Dark*) pass "the tiles are named System, Light and Dark" ;;
   *) fail "the tiles are named System, Light and Dark — got [$TILES]" ;;
 esac
+
+# --- Settings ▸ About: the hero, the links, and the deep link from the menu ---
+#
+# About replaced the system About panel, which means three things have to be
+# true in a running app and none of them is testable in a harness: the pane is
+# reachable from the menu bar, the hero it opens with is on screen, and the
+# deep link does NOT become the pane ⌘, opens next time.
+about_report() {
+  walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+ns=nodes(w['tree'])
+def one(ident):
+    hits=[n for n in ns if n.get('identifier')==ident]
+    if not hits: return 'MISSING'
+    n=hits[0]; f=n.get('frame') or {}
+    text=(n.get('value') or n.get('title') or '')
+    return '%s@%s,%s,%s,%s' % (text, f.get('x'), f.get('y'), f.get('w'), f.get('h'))
+for ident in ('settings.about.name','settings.about.version',
+              'settings.about.repository','settings.about.help','settings.about.releaseNotes'):
+    print('%s=%s' % (ident, one(ident)))
+t=[n for n in ns if n.get('identifier')=='settings.title']
+print('TITLE=%s' % ((t[0].get('value') or t[0].get('title') or '') if t else 'MISSING'))
+print('WINDOW=%s' % '|'.join(n.get('title','') for n in ns if n.get('role')=='AXWindow' and 'Settings' in (n.get('title') or '')))
+"
+}
+
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+"$WORK/ax-do" "$PID" select-row settings.sidebar 16 "Settings" >/dev/null
+sleep 0.8
+about_report > "$WORK/about1.txt"
+cat "$WORK/about1.txt"
+aval() { grep -E "^$1=" "$WORK/about1.txt" | head -1 | cut -d= -f2-; }
+
+check "selecting the last row shows the About title" "$(aval TITLE)" "About"
+[ "$(aval settings.about.name)" != "MISSING" ] && pass "the app name is on screen" || fail "the app name is on screen"
+case "$(aval settings.about.name)" in
+  Pharos@*) pass "the hero names the app" ;;
+  *) fail "the hero names the app — got [$(aval settings.about.name)]" ;;
+esac
+case "$(aval settings.about.version)" in
+  "Version "*) pass "the hero reports a version ($(aval settings.about.version | cut -d@ -f1))" ;;
+  *) fail "the hero reports a version — got [$(aval settings.about.version)]" ;;
+esac
+for ident in settings.about.repository settings.about.help settings.about.releaseNotes; do
+  if [ "$(aval $ident)" != "MISSING" ]; then pass "$ident is on screen"; else fail "$ident is on screen"; fi
+done
+# The hero is ABOVE the first row, which is what `headerViews` promises.
+python3 - "$WORK/about1.txt" <<'PY3'
+import sys
+vals = dict(l.strip().split("=", 1) for l in open(sys.argv[1]) if "=" in l)
+def frame(key):
+    v = vals.get(key, "MISSING")
+    if "@" not in v: return None
+    try: return [float(x) for x in v.split("@", 1)[1].split(",")]
+    except ValueError: return None
+name = frame("settings.about.name"); version = frame("settings.about.version")
+repo = frame("settings.about.repository")
+bad = 0
+if name and version:
+    print(("PASS" if version[1] > name[1] else "FAIL")
+          + " the version line sits under the name (%.1f under %.1f)" % (version[1], name[1]))
+    bad += 0 if version[1] > name[1] else 1
+if version and repo:
+    print(("PASS" if repo[1] > version[1] else "FAIL")
+          + " the hero sits above the first row (%.1f above %.1f)" % (version[1], repo[1]))
+    bad += 0 if repo[1] > version[1] else 1
+sys.exit(1 if bad else 0)
+PY3
+[ $? -eq 0 ] || failures=$((failures + 1))
+
+# Leave the window on a pane the user would be WORKING in, so the deep link
+# below has something to fail to overwrite.
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+"$WORK/ax-do" "$PID" select-row settings.sidebar 3 "Settings" >/dev/null
+sleep 0.6
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+"$WORK/ax-do" "$PID" menu "About Pharos" >/dev/null
+sleep 1
+about_report > "$WORK/about2.txt"
+aval2() { grep -E "^$1=" "$WORK/about2.txt" | head -1 | cut -d= -f2-; }
+check "Pharos ▸ About Pharos opens the About pane" "$(aval2 TITLE)" "About"
+check "…and retitles the window" "$(aval2 WINDOW)" "Pharos Settings — About"
+
+# The rule the deep link exists for: About is read once, so ⌘, must still
+# open the pane the user was working in.
+REMEMBERED=$(defaults read "$BUNDLE" PharosSettingsPane 2>/dev/null || echo MISSING)
+check "the deep link does not become the remembered pane" "$REMEMBERED" "query"
+stop
+launch
+after_about=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+print('|'.join(n.get('title','') for n in nodes(w['tree']) if n.get('role')=='AXWindow' and 'Settings' in (n.get('title') or '')))
+")
+check "after About, the window still reopens in the working pane" "$after_about" "Pharos Settings — Query"
 
 # --- The Shortcuts pane clears the toolbar ---
 #
