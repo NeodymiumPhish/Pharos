@@ -1,19 +1,19 @@
 import AppKit
 
 /// Help menu actions — Pharos Help, Keyboard Shortcuts, Release Notes.
+///
+/// The addresses live in `AppInfo`, which Settings ▸ About also reads, so the
+/// menu and the pane cannot drift apart.
 extension AppDelegate {
     @objc func openPharosHelp(_ sender: Any?) {
-        guard let url = URL(string: "https://neodymiumphish.github.io/Pharos/") else { return }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(AppInfo.helpURL)
     }
 
     @objc func openKeyboardShortcuts(_ sender: Any?) {
-        guard let url = URL(string: "https://neodymiumphish.github.io/Pharos/keyboard-shortcuts") else { return }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(AppInfo.keyboardShortcutsURL)
     }
 
     @objc func openReleaseNotes(_ sender: Any?) {
-        guard let url = URL(string: "https://github.com/NeodymiumPhish/Pharos/releases") else { return }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(AppInfo.releaseNotesURL)
     }
 }
