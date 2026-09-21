@@ -25,8 +25,11 @@ pub async fn get_tables(
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
     let pool = state.require_pool(&connection_id)?;
+    // Settings ▸ Navigator ▸ Group inherited tables, from the cached blob the
+    // state holds — never a fresh read of SQLite per call.
+    let inheritance = state.settings().navigator.inheritance_grouping;
 
-    postgres::get_tables(&pool, &schema_name)
+    postgres::get_tables(&pool, &schema_name, inheritance)
         .await
         .map_err(|e| e.to_string())
 }
@@ -67,8 +70,9 @@ pub async fn analyze_schema(
     let pool = state.require_pool(&connection_id)?;
 
     let cached_denied = state.get_analyze_denied(&connection_id, &schema_name);
+    let inheritance = state.settings().navigator.inheritance_grouping;
 
-    let result = postgres::analyze_schema(&pool, &schema_name, &cached_denied)
+    let result = postgres::analyze_schema(&pool, &schema_name, &cached_denied, inheritance)
         .await
         .map_err(|e| e.to_string())?;
 

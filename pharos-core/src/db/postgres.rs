@@ -760,6 +760,7 @@ pub async fn analyze_schema(
     pool: &PgPool,
     schema_name: &str,
     skip_denied: &HashSet<String>,
+    inheritance: bool,
 ) -> Result<AnalyzeResult, sqlx::Error> {
     let escaped_schema = escape_sql_literal(schema_name);
     let sql = format!(
@@ -825,7 +826,7 @@ pub async fn analyze_schema(
     // Re-fetch tables so callers get the post-ANALYZE row count estimates in
     // the same FFI round-trip. Falls back to an empty vec on read failure —
     // the caller still gets a valid AnalyzeResult.
-    let tables = get_tables(pool, schema_name).await.unwrap_or_default();
+    let tables = get_tables(pool, schema_name, inheritance).await.unwrap_or_default();
 
     Ok(AnalyzeResult {
         had_unanalyzed,
@@ -838,9 +839,101 @@ pub async fn analyze_schema(
 /// in one place the way `schemas_sql` is: a shape this exact has to be
 /// pinned by a test, not read out of a `format!` in the middle of a
 /// function. `escaped_schema` is already through `escape_sql_literal`.
-pub(crate) fn tables_sql(escaped_schema: &str) -> String {
+pub(crate) fn tables_sql(escaped_schema: &str, inheritance: bool) -> String {
+    // Settings ▸ Navigator ▸ Group inherited tables. Off, every fragment
+    // below is empty and the statement is the one Pharos has always sent.
+    //
+    // On, a recursive walk of `pg_inherits` treats a legacy inheritance tree
+    // the way `pg_partition_tree` already treats a declarative one: the root
+    // reports the whole tree's rows and size, and the children come out of
+    // the top level, because they belong under their parent.
+    //
+    // Only TRUE roots seed the walk. Seeding every relation would give the
+    // mid-level tables their own sums, but `pg_total_relation_size` would
+    // then be called once per level of depth rather than once per relation,
+    // and those sums are not needed here: `get_partitions` computes them one
+    // parent at a time, as a folder is opened.
+    //
+    // `UNION`, not `UNION ALL`: a relation that inherits from two tables in
+    // the same tree must not be counted twice.
+    let prelude = if inheritance {
+        format!(
+            "WITH RECURSIVE inh_root AS ( \
+                 SELECT c.oid \
+                 FROM pg_catalog.pg_class c \
+                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+                 WHERE n.nspname = '{schema}' \
+                   AND c.relkind IN ('r', 'f', 'm') \
+                   AND c.relispartition = false \
+                   AND NOT EXISTS ( \
+                       SELECT 1 FROM pg_catalog.pg_inherits i \
+                       JOIN pg_catalog.pg_class p ON p.oid = i.inhparent \
+                       JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace \
+                       WHERE i.inhrelid = c.oid AND pn.nspname = '{schema}' \
+                         AND p.relkind <> 'p') \
+             ), inh(root, relid) AS ( \
+                 SELECT oid, oid FROM inh_root \
+                 UNION \
+                 SELECT t.root, i.inhrelid \
+                 FROM pg_catalog.pg_inherits i \
+                 JOIN inh t ON i.inhparent = t.relid \
+             ), inh_tree AS ( \
+                 SELECT t.root, \
+                        count(*) FILTER (WHERE t.relid <> t.root)::bigint as desc_count, \
+                        SUM(CASE WHEN ic.reltuples >= 0 THEN ic.reltuples::bigint \
+                                 ELSE COALESCE(ist.n_live_tup, 0) END)::bigint as sum_tuples, \
+                        SUM(CASE WHEN ic.relkind IN ('r', 'm') \
+                                 THEN pg_total_relation_size(ic.oid) \
+                                 ELSE 0 END)::bigint as sum_bytes \
+                 FROM inh t \
+                 JOIN pg_catalog.pg_class ic ON ic.oid = t.relid \
+                 LEFT JOIN pg_catalog.pg_stat_all_tables ist ON ist.relid = t.relid \
+                 GROUP BY t.root \
+             ), inh_child AS ( \
+                 SELECT DISTINCT i.inhrelid as oid \
+                 FROM pg_catalog.pg_inherits i \
+                 JOIN pg_catalog.pg_class p ON p.oid = i.inhparent \
+                 JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace \
+                 WHERE pn.nspname = '{schema}' AND p.relkind <> 'p' \
+             ) ",
+            schema = escaped_schema
+        )
+    } else {
+        String::new()
+    };
+    let tree_rows = if inheritance {
+        "WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_tuples "
+    } else {
+        ""
+    };
+    let tree_size = if inheritance {
+        "WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_bytes "
+    } else {
+        ""
+    };
+    let parent_test = if inheritance {
+        "(c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0)"
+    } else {
+        "(c.relkind = 'p')"
+    };
+    let count_test = if inheritance {
+        "c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0"
+    } else {
+        "c.relkind = 'p'"
+    };
+    let tree_joins = if inheritance {
+        "LEFT JOIN inh_tree st ON st.root = c.oid \
+         LEFT JOIN inh_child ihc ON ihc.oid = c.oid "
+    } else {
+        ""
+    };
+    // The test is deliberately schema-local: a child whose parent lives in
+    // another schema stays visible here, because hiding it would leave no
+    // way to reach it at all.
+    let child_filter = if inheritance { "AND ihc.oid IS NULL " } else { "" };
+
     format!(
-        "SELECT \
+        "{prelude}SELECT \
             c.relname as table_name, \
             CASE c.relkind \
                 WHEN 'r' THEN 'BASE TABLE' \
@@ -856,6 +949,7 @@ pub(crate) fn tables_sql(escaped_schema: &str) -> String {
                     FROM pg_partition_tree(c.oid) pt \
                     JOIN pg_class lc ON lc.oid = pt.relid \
                     WHERE pt.isleaf) \
+                {tree_rows}\
                 WHEN c.reltuples >= 0 THEN c.reltuples::bigint \
                 WHEN s.n_live_tup IS NOT NULL THEN s.n_live_tup \
                 ELSE NULL \
@@ -864,22 +958,25 @@ pub(crate) fn tables_sql(escaped_schema: &str) -> String {
                 WHEN c.relkind = 'p' THEN ( \
                     SELECT COALESCE(SUM(pg_total_relation_size(pt.relid)), 0)::bigint \
                     FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf) \
+                {tree_size}\
                 WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) \
                 ELSE NULL \
             END as total_size_bytes, \
-            (c.relkind = 'p') as is_partitioned, \
+            {parent_test} as is_partitioned, \
             CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
-            CASE WHEN c.relkind = 'p' THEN ( \
+            CASE WHEN {count_test} THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
                 ELSE NULL END as part_count \
          FROM pg_catalog.pg_class c \
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
          LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid \
          LEFT JOIN pg_catalog.pg_partitioned_table pt2 ON pt2.partrelid = c.oid \
-         WHERE n.nspname = '{}' \
+         {tree_joins}\
+         WHERE n.nspname = '{schema}' \
            AND c.relkind IN ('r', 'v', 'm', 'f', 'p') \
            AND c.relispartition = false \
+           {child_filter}\
          ORDER BY \
             CASE c.relkind \
                 WHEN 'r' THEN 1 \
@@ -889,16 +986,20 @@ pub(crate) fn tables_sql(escaped_schema: &str) -> String {
                 WHEN 'm' THEN 4 \
             END, \
             c.relname",
-        escaped_schema
+        schema = escaped_schema
     )
 }
 
 /// Get all tables and views in a schema
-pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
+pub async fn get_tables(
+    pool: &PgPool,
+    schema_name: &str,
+    inheritance: bool,
+) -> Result<Vec<TableInfo>, sqlx::Error> {
     let escaped = escape_sql_literal(schema_name);
 
     // Try pg_catalog first for full metadata (row estimates, sizes, foreign tables)
-    let pg_catalog_sql = tables_sql(&escaped);
+    let pg_catalog_sql = tables_sql(&escaped, inheritance);
 
     if let Ok(rows) = sqlx::raw_sql(&pg_catalog_sql).fetch_all(pool).await {
         let tables = rows
@@ -2710,35 +2811,265 @@ mod live_key_info_tests {
     }
 }
 
+/// Live tests for legacy inheritance grouping. They need a real PostgreSQL,
+/// so they are `#[ignore]`d:
+/// `cargo test --lib live_inheritance_tests -- --ignored --nocapture`.
+///
+/// The default URL is a local Postgres.app; `PHAROS_TEST_DATABASE_URL`
+/// overrides it. The tests make and drop their OWN schema.
+#[cfg(test)]
+mod live_inheritance_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+    /// One schema per test: the tests run in parallel, and a shared name
+    /// means one test drops the schema another is reading.
+    const FLAT: &str = "pharos_inh_flat";
+    const GROUPED: &str = "pharos_inh_grouped";
+    const NESTED: &str = "pharos_inh_nested";
+
+    fn url() -> String {
+        std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
+    }
+
+    async fn live_pool() -> PgPool {
+        let u = url();
+        PgPoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&u)
+            .await
+            .unwrap_or_else(|e| panic!("cannot connect to {u}: {e}. Set PHAROS_TEST_DATABASE_URL."))
+    }
+
+    /// A root, two year children, one month under the first year, two day
+    /// tables holding the rows, and one unrelated table for company. Three
+    /// levels below the root, which is what the database that prompted this
+    /// looks like.
+    async fn build_tree(pool: &PgPool, schema: &str) {
+        let sql = format!(
+            "DROP SCHEMA IF EXISTS {s} CASCADE; \
+             CREATE SCHEMA {s}; \
+             CREATE TABLE {s}.logs (id integer, seen timestamptz); \
+             CREATE TABLE {s}.logs_2013 () INHERITS ({s}.logs); \
+             CREATE TABLE {s}.logs_2014 () INHERITS ({s}.logs); \
+             CREATE TABLE {s}.logs_201301 () INHERITS ({s}.logs_2013); \
+             CREATE TABLE {s}.logs_20130101 () INHERITS ({s}.logs_201301); \
+             CREATE TABLE {s}.logs_20130102 () INHERITS ({s}.logs_201301); \
+             CREATE TABLE {s}.unrelated (id integer); \
+             INSERT INTO {s}.logs_20130101 (id) SELECT generate_series(1, 3); \
+             INSERT INTO {s}.logs_20130102 (id) SELECT generate_series(4, 5); \
+             INSERT INTO {s}.unrelated (id) VALUES (1); \
+             ANALYZE {s}.logs; ANALYZE {s}.logs_2013; ANALYZE {s}.logs_2014; \
+             ANALYZE {s}.logs_201301; ANALYZE {s}.logs_20130101; \
+             ANALYZE {s}.logs_20130102; ANALYZE {s}.unrelated;",
+            s = schema
+        );
+        sqlx::raw_sql(&sql).execute(pool).await.expect("build the tree");
+    }
+
+    async fn drop_tree(pool: &PgPool, schema: &str) {
+        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema);
+        sqlx::raw_sql(&sql).execute(pool).await.expect("drop the schema");
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_flag_off_lists_every_table_in_the_tree_flat() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_tree(&pool, FLAT).await;
+
+            let tables = get_tables(&pool, FLAT, false).await.expect("get_tables");
+            let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(
+                names,
+                vec![
+                    "logs",
+                    "logs_2013",
+                    "logs_201301",
+                    "logs_20130101",
+                    "logs_20130102",
+                    "logs_2014",
+                    "unrelated"
+                ],
+                "the flat list is what Pharos has always shown"
+            );
+            let root = tables.iter().find(|t| t.name == "logs").unwrap();
+            assert!(!root.is_partitioned, "nothing is a parent while the flag is off");
+            assert_eq!(root.row_count_estimate, Some(0), "the root holds no rows itself");
+
+            drop_tree(&pool, FLAT).await;
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_flag_on_lifts_the_root_and_sums_the_tree() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_tree(&pool, GROUPED).await;
+
+            let tables = get_tables(&pool, GROUPED, true).await.expect("get_tables");
+            let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(names, vec!["logs", "unrelated"], "only the root and the stranger");
+
+            let root = tables.iter().find(|t| t.name == "logs").unwrap();
+            assert!(root.is_partitioned, "the root is a parent now");
+            assert_eq!(root.partition_count, Some(2), "two DIRECT children, not five");
+            assert!(root.partition_strategy.is_none(), "there is no strategy to read");
+            assert!(root.partition_key.is_none(), "there is no key to read");
+
+            // What a query on the parent returns, which is the point.
+            let counted: i64 = sqlx::raw_sql(&format!("SELECT count(*) AS n FROM {}.logs", GROUPED))
+                .fetch_one(&pool)
+                .await
+                .expect("count")
+                .try_get("n")
+                .expect("n");
+            assert_eq!(counted, 5);
+            assert_eq!(root.row_count_estimate, Some(counted), "the root reports its tree");
+            assert!(
+                root.total_size_bytes.unwrap_or(0) > 0,
+                "the size is the tree's, and the leaves hold pages"
+            );
+
+            let stranger = tables.iter().find(|t| t.name == "unrelated").unwrap();
+            assert!(!stranger.is_partitioned, "a table with no children is untouched");
+            assert_eq!(stranger.row_count_estimate, Some(1));
+
+            drop_tree(&pool, GROUPED).await;
+        });
+    }
+
+    /// The mid-level tables are reached through the parent, and each one must
+    /// carry its own sums and its own child count — without them the tree is
+    /// a dead end one level down.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn a_year_table_is_itself_a_parent() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_tree(&pool, NESTED).await;
+
+            let children = get_partitions(&pool, NESTED, "logs").await.expect("get_partitions");
+            let names: Vec<&str> = children.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(names, vec!["logs_2013", "logs_2014"]);
+            assert!(children.iter().all(|c| c.is_partition));
+
+            drop_tree(&pool, NESTED).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tables_sql_tests {
     use super::tables_sql;
 
     #[test]
-    fn the_shape_is_the_statement_pharos_has_always_sent() {
-        let sql = tables_sql("public");
+    fn the_default_shape_is_the_statement_pharos_has_always_sent() {
+        let sql = tables_sql("public", false);
+        assert!(sql.starts_with("SELECT c.relname as table_name,"), "{sql}");
         assert!(sql.contains("(c.relkind = 'p') as is_partitioned"), "{sql}");
         assert!(sql.contains("AND c.relispartition = false"), "{sql}");
         assert!(sql.contains("AND c.relkind IN ('r', 'v', 'm', 'f', 'p')"), "{sql}");
         assert!(sql.ends_with("c.relname"), "the order is kind then name: {sql}");
+        // Not one trace of the inheritance walk while the setting is off.
+        assert!(!sql.contains("inh_"), "{sql}");
+        assert!(!sql.contains("RECURSIVE"), "{sql}");
+        assert!(!sql.contains("desc_count"), "{sql}");
     }
 
     #[test]
-    fn the_schema_arrives_already_escaped_and_only_once() {
+    fn the_schema_arrives_already_escaped_and_is_written_once_per_mention() {
         // The caller runs `escape_sql_literal`; a second pass here would
         // double the quotes. O'Hara must appear exactly as it was handed in.
-        let sql = tables_sql("O''Hara");
-        assert_eq!(sql.matches("O''Hara").count(), 1, "{sql}");
-        assert!(sql.contains("WHERE n.nspname = 'O''Hara'"), "{sql}");
+        let off = tables_sql("O''Hara", false);
+        assert_eq!(off.matches("O''Hara").count(), 1, "{off}");
+        assert!(off.contains("WHERE n.nspname = 'O''Hara'"), "{off}");
+        // On: the two `inh_root` mentions, `inh_child`, and the main statement.
+        let on = tables_sql("O''Hara", true);
+        assert_eq!(on.matches("O''Hara").count(), 4, "{on}");
+        assert!(!on.contains("O''''Hara"), "no second escaping pass: {on}");
     }
 
     #[test]
     fn the_declarative_totals_come_from_the_partition_tree() {
         // A partitioned parent holds no rows of its own: both figures are the
         // sum over its leaves. Legacy inheritance has no such function.
-        let sql = tables_sql("public");
+        let sql = tables_sql("public", false);
         assert_eq!(sql.matches("pg_partition_tree(c.oid)").count(), 2, "{sql}");
         assert!(sql.contains("WHERE pt.isleaf"), "{sql}");
+    }
+
+    #[test]
+    fn the_walk_is_seeded_with_true_roots_only() {
+        let sql = tables_sql("public", true);
+        assert!(sql.starts_with("WITH RECURSIVE inh_root AS ("), "{sql}");
+        // A seed must have no non-declarative parent in this schema.
+        assert!(sql.contains("AND NOT EXISTS ("), "{sql}");
+        assert!(sql.contains("AND p.relkind <> 'p')"), "{sql}");
+        // One walk per relation, so one size call per relation.
+        assert_eq!(sql.matches("SELECT oid, oid FROM inh_root").count(), 1, "{sql}");
+    }
+
+    #[test]
+    fn a_diamond_is_counted_once() {
+        let sql = tables_sql("public", true);
+        assert!(sql.contains("UNION SELECT t.root, i.inhrelid"), "{sql}");
+        assert!(!sql.contains("UNION ALL"), "a relation must not be summed twice: {sql}");
+    }
+
+    #[test]
+    fn an_inheritance_root_reports_its_whole_tree() {
+        let sql = tables_sql("public", true);
+        assert!(sql.contains("WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_tuples"), "{sql}");
+        assert!(sql.contains("WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_bytes"), "{sql}");
+        assert!(
+            sql.contains("(c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0) as is_partitioned"),
+            "{sql}"
+        );
+        // The declarative arm still comes first, so a declarative parent is
+        // unaffected by the walk.
+        let leaves = sql.find("SELECT COALESCE(SUM(lc.reltuples), 0)").unwrap();
+        let tree = sql.find("THEN st.sum_tuples").unwrap();
+        assert!(leaves < tree, "the partition-tree arm must win: {sql}");
+    }
+
+    #[test]
+    fn an_inheritance_child_leaves_the_top_level() {
+        let sql = tables_sql("public", true);
+        assert!(sql.contains("LEFT JOIN inh_child ihc ON ihc.oid = c.oid"), "{sql}");
+        assert!(sql.contains("AND ihc.oid IS NULL"), "{sql}");
+        // Both filters stand: a declarative child is already excluded by the
+        // older one, and the two test different things.
+        assert!(sql.contains("AND c.relispartition = false"), "{sql}");
+    }
+
+    #[test]
+    fn the_partition_count_is_the_direct_children_either_way() {
+        // The subtitle says "N partitions" and the folder holds exactly those,
+        // so the count is of direct children, not of the whole tree.
+        for on in [false, true] {
+            let sql = tables_sql("public", on);
+            assert!(
+                sql.contains("SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid"),
+                "{sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unanalyzed_child_falls_back_to_the_live_tuple_count() {
+        // reltuples is -1 until ANALYZE runs; summing that as it stands would
+        // report fewer rows than the tree holds.
+        let sql = tables_sql("public", true);
+        assert!(sql.contains("ELSE COALESCE(ist.n_live_tup, 0) END"), "{sql}");
     }
 }
 
