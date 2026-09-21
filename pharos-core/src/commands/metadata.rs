@@ -42,7 +42,9 @@ pub async fn get_partitions(
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
     let pool = state.require_pool(&connection_id)?;
-    postgres::get_partitions(&pool, &schema_name, &parent_table)
+    let inheritance = state.settings().navigator.inheritance_grouping;
+
+    postgres::get_partitions(&pool, &schema_name, &parent_table, inheritance)
         .await
         .map_err(|e| e.to_string())
 }
@@ -54,7 +56,9 @@ pub async fn get_partition_map(
     state: &AppState,
 ) -> Result<Vec<PartitionRef>, String> {
     let pool = state.require_pool(&connection_id)?;
-    postgres::get_partition_map(&pool, &schema_name)
+    let inheritance = state.settings().navigator.inheritance_grouping;
+
+    postgres::get_partition_map(&pool, &schema_name, inheritance)
         .await
         .map_err(|e| e.to_string())
 }

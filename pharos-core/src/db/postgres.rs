@@ -1087,17 +1087,81 @@ pub async fn get_tables(
     Ok(tables)
 }
 
-/// Get the direct child partitions of a partitioned parent table.
-pub async fn get_partitions(
-    pool: &PgPool,
-    schema_name: &str,
-    parent_table: &str,
-) -> Result<Vec<TableInfo>, sqlx::Error> {
-    let escaped_schema = escape_sql_literal(schema_name);
-    let escaped_parent = escape_sql_literal(parent_table);
+/// The statement behind `get_partitions`, kept beside `tables_sql` and
+/// pinned by a test for the same reason. Both names arrive already through
+/// `escape_sql_literal`.
+///
+/// With `inheritance` on, the walk is seeded with the parent's DIRECT
+/// children, whose subtrees are disjoint — so each descendant is measured
+/// once, and a mid-level table (a year, a month) reports the rows and size
+/// of everything under it, exactly as the root does in the table list.
+pub(crate) fn partitions_sql(
+    escaped_schema: &str,
+    escaped_parent: &str,
+    inheritance: bool,
+) -> String {
+    let prelude = if inheritance {
+        format!(
+            "WITH RECURSIVE kin AS ( \
+                 SELECT c.oid \
+                 FROM pg_catalog.pg_inherits i \
+                 JOIN pg_catalog.pg_class parent ON parent.oid = i.inhparent \
+                 JOIN pg_catalog.pg_namespace pn ON pn.oid = parent.relnamespace \
+                 JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+                 WHERE pn.nspname = '{schema}' AND parent.relname = '{parent}' \
+             ), inh(root, relid) AS ( \
+                 SELECT oid, oid FROM kin \
+                 UNION \
+                 SELECT t.root, i.inhrelid \
+                 FROM pg_catalog.pg_inherits i \
+                 JOIN inh t ON i.inhparent = t.relid \
+             ), inh_tree AS ( \
+                 SELECT t.root, \
+                        count(*) FILTER (WHERE t.relid <> t.root)::bigint as desc_count, \
+                        SUM(CASE WHEN ic.reltuples >= 0 THEN ic.reltuples::bigint \
+                                 ELSE COALESCE(ist.n_live_tup, 0) END)::bigint as sum_tuples, \
+                        SUM(CASE WHEN ic.relkind IN ('r', 'm') \
+                                 THEN pg_total_relation_size(ic.oid) \
+                                 ELSE 0 END)::bigint as sum_bytes \
+                 FROM inh t \
+                 JOIN pg_catalog.pg_class ic ON ic.oid = t.relid \
+                 LEFT JOIN pg_catalog.pg_stat_all_tables ist ON ist.relid = t.relid \
+                 GROUP BY t.root \
+             ) ",
+            schema = escaped_schema,
+            parent = escaped_parent
+        )
+    } else {
+        String::new()
+    };
+    let tree_rows = if inheritance {
+        "WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_tuples "
+    } else {
+        ""
+    };
+    let tree_size = if inheritance {
+        "WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_bytes "
+    } else {
+        ""
+    };
+    let parent_test = if inheritance {
+        "(c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0)"
+    } else {
+        "(c.relkind = 'p')"
+    };
+    let count_test = if inheritance {
+        "c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0"
+    } else {
+        "c.relkind = 'p'"
+    };
+    let tree_join = if inheritance {
+        "LEFT JOIN inh_tree st ON st.root = c.oid "
+    } else {
+        ""
+    };
 
-    let sql = format!(
-        "SELECT \
+    format!(
+        "{prelude}SELECT \
             c.relname as table_name, \
             c.relkind::text as relkind, \
             CASE \
@@ -1105,6 +1169,7 @@ pub async fn get_partitions(
                     SELECT COALESCE(SUM(lc.reltuples), 0)::bigint \
                     FROM pg_partition_tree(c.oid) pt \
                     JOIN pg_class lc ON lc.oid = pt.relid WHERE pt.isleaf) \
+                {tree_rows}\
                 WHEN c.reltuples >= 0 THEN c.reltuples::bigint \
                 ELSE NULL \
             END as row_estimate, \
@@ -1112,14 +1177,15 @@ pub async fn get_partitions(
                 WHEN c.relkind = 'p' THEN ( \
                     SELECT COALESCE(SUM(pg_total_relation_size(pt.relid)), 0)::bigint \
                     FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf) \
+                {tree_size}\
                 WHEN c.relkind = 'r' THEN pg_total_relation_size(c.oid) \
                 ELSE NULL \
             END as total_size_bytes, \
             pg_get_expr(c.relpartbound, c.oid) as part_bound, \
-            (c.relkind = 'p') as is_partitioned, \
+            {parent_test} as is_partitioned, \
             CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
-            CASE WHEN c.relkind = 'p' THEN ( \
+            CASE WHEN {count_test} THEN ( \
                 SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid)::bigint \
                 ELSE NULL END as part_count, \
             cn.nspname as child_schema \
@@ -1129,10 +1195,25 @@ pub async fn get_partitions(
          JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
          JOIN pg_catalog.pg_namespace cn ON cn.oid = c.relnamespace \
          LEFT JOIN pg_catalog.pg_partitioned_table pt2 ON pt2.partrelid = c.oid \
-         WHERE pn.nspname = '{}' AND parent.relname = '{}' \
+         {tree_join}\
+         WHERE pn.nspname = '{schema}' AND parent.relname = '{parent}' \
          ORDER BY c.relname",
-        escaped_schema, escaped_parent
-    );
+        schema = escaped_schema,
+        parent = escaped_parent
+    )
+}
+
+/// Get the direct child partitions of a partitioned parent table.
+pub async fn get_partitions(
+    pool: &PgPool,
+    schema_name: &str,
+    parent_table: &str,
+    inheritance: bool,
+) -> Result<Vec<TableInfo>, sqlx::Error> {
+    let escaped_schema = escape_sql_literal(schema_name);
+    let escaped_parent = escape_sql_literal(parent_table);
+
+    let sql = partitions_sql(&escaped_schema, &escaped_parent, inheritance);
 
     let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
     let partitions = rows
@@ -1162,7 +1243,13 @@ pub async fn get_partitions(
                 partition_key: row.try_get("part_key").ok().flatten(),
                 partition_bound: row.try_get("part_bound").ok().flatten(),
                 partition_count: row.try_get("part_count").ok().flatten(),
-                partition_mechanism: is_partitioned.then_some(PartitionMechanism::Declarative),
+                partition_mechanism: if !is_partitioned {
+                    None
+                } else if relkind == "p" {
+                    Some(PartitionMechanism::Declarative)
+                } else {
+                    Some(PartitionMechanism::Inheritance)
+                },
             }
         })
         .collect();
@@ -1175,16 +1262,21 @@ pub async fn get_partitions(
 pub async fn get_partition_map(
     pool: &PgPool,
     schema_name: &str,
+    inheritance: bool,
 ) -> Result<Vec<PartitionRef>, sqlx::Error> {
     let escaped = escape_sql_literal(schema_name);
+    // The index is what lets the sidebar filter find a name that is hidden
+    // inside a collapsed folder, so it must cover exactly the parents that
+    // HAVE a folder. Indexing an inheritance child while the setting is off
+    // would point a match at a row with nothing to open.
+    let declarative_only = if inheritance { "" } else { " AND parent.relkind = 'p'" };
     let sql = format!(
         "SELECT parent.relname as parent_name, c.relname as name \
          FROM pg_catalog.pg_inherits i \
          JOIN pg_catalog.pg_class parent ON parent.oid = i.inhparent \
          JOIN pg_catalog.pg_namespace pn ON pn.oid = parent.relnamespace \
          JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
-         WHERE pn.nspname = '{}' AND parent.relkind = 'p'",
-        escaped
+         WHERE pn.nspname = '{escaped}'{declarative_only}"
     );
     let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
     let refs = rows
@@ -2965,9 +3057,10 @@ mod live_inheritance_tests {
         });
     }
 
-    /// The mid-level tables are reached through the parent, and each one must
-    /// carry its own sums and its own child count — without them the tree is
-    /// a dead end one level down.
+    /// The mid-level tables are reached through the parent, and each one
+    /// carries its own sums and its own child count — without them the tree
+    /// is a dead end one level down, because the Navigator decides whether to
+    /// give a child a folder of its own from exactly those numbers.
     #[test]
     #[ignore = "needs a live PostgreSQL"]
     fn a_year_table_is_itself_a_parent() {
@@ -2976,10 +3069,65 @@ mod live_inheritance_tests {
             let pool = live_pool().await;
             build_tree(&pool, NESTED).await;
 
-            let children = get_partitions(&pool, NESTED, "logs").await.expect("get_partitions");
-            let names: Vec<&str> = children.iter().map(|t| t.name.as_str()).collect();
+            let years = get_partitions(&pool, NESTED, "logs", true).await.expect("get_partitions");
+            let names: Vec<&str> = years.iter().map(|t| t.name.as_str()).collect();
             assert_eq!(names, vec!["logs_2013", "logs_2014"]);
-            assert!(children.iter().all(|c| c.is_partition));
+            assert!(years.iter().all(|c| c.is_partition));
+            assert!(years.iter().all(|c| c.partition_bound.is_none()), "no bounds to read");
+
+            let y13 = years.iter().find(|t| t.name == "logs_2013").unwrap();
+            assert!(y13.is_partitioned, "1 direct child, so it opens");
+            assert_eq!(y13.partition_count, Some(1));
+            assert_eq!(y13.partition_mechanism, Some(PartitionMechanism::Inheritance));
+            assert_eq!(y13.row_count_estimate, Some(5), "its own subtree, not the root's");
+
+            let y14 = years.iter().find(|t| t.name == "logs_2014").unwrap();
+            assert!(!y14.is_partitioned, "no children, so it is a leaf");
+            assert_eq!(y14.partition_count, None);
+            assert_eq!(y14.partition_mechanism, None);
+            assert_eq!(y14.row_count_estimate, Some(0));
+
+            // Level 3: the month opens into two days, and they are leaves.
+            let months = get_partitions(&pool, NESTED, "logs_2013", true).await.expect("months");
+            assert_eq!(months.len(), 1);
+            assert!(months[0].is_partitioned);
+            assert_eq!(months[0].partition_count, Some(2));
+            assert_eq!(months[0].row_count_estimate, Some(5));
+
+            let days = get_partitions(&pool, NESTED, "logs_201301", true).await.expect("days");
+            let day_names: Vec<&str> = days.iter().map(|t| t.name.as_str()).collect();
+            assert_eq!(day_names, vec!["logs_20130101", "logs_20130102"]);
+            assert!(days.iter().all(|d| !d.is_partitioned), "the leaves stop here");
+            assert_eq!(days[0].row_count_estimate, Some(3));
+            assert_eq!(days[1].row_count_estimate, Some(2));
+
+            // With the setting off, the children still come back — nothing
+            // reads them, because the parent gets no folder — but not one of
+            // them is a parent, and each reports only its own rows.
+            let off = get_partitions(&pool, NESTED, "logs", false).await.expect("off");
+            assert_eq!(off.len(), 2);
+            assert!(off.iter().all(|c| !c.is_partitioned));
+            assert!(off.iter().all(|c| c.partition_mechanism.is_none()));
+            assert_eq!(off.iter().find(|t| t.name == "logs_2013").unwrap().row_count_estimate, Some(0));
+
+            // The filter index covers every pair in the tree, so a name
+            // inside a collapsed folder is still findable.
+            let map = get_partition_map(&pool, NESTED, true).await.expect("map on");
+            let mut pairs: Vec<String> = map.iter().map(|r| format!("{}>{}", r.parent_name, r.name)).collect();
+            pairs.sort();
+            assert_eq!(
+                pairs,
+                vec![
+                    "logs>logs_2013",
+                    "logs>logs_2014",
+                    "logs_201301>logs_20130101",
+                    "logs_201301>logs_20130102",
+                    "logs_2013>logs_201301",
+                ]
+            );
+            // Off, the index holds nothing: there is no folder to look into.
+            let map_off = get_partition_map(&pool, NESTED, false).await.expect("map off");
+            assert!(map_off.is_empty(), "{map_off:?}");
 
             drop_tree(&pool, NESTED).await;
         });
@@ -3089,6 +3237,61 @@ mod tables_sql_tests {
         // report fewer rows than the tree holds.
         let sql = tables_sql("public", true);
         assert!(sql.contains("ELSE COALESCE(ist.n_live_tup, 0) END"), "{sql}");
+    }
+}
+
+#[cfg(test)]
+mod partitions_sql_tests {
+    use super::partitions_sql;
+
+    #[test]
+    fn the_default_shape_is_the_statement_pharos_has_always_sent() {
+        let sql = partitions_sql("public", "logs", false);
+        assert!(sql.starts_with("SELECT c.relname as table_name,"), "{sql}");
+        assert!(sql.contains("(c.relkind = 'p') as is_partitioned"), "{sql}");
+        assert!(sql.contains("WHERE pn.nspname = 'public' AND parent.relname = 'logs'"), "{sql}");
+        assert!(!sql.contains("RECURSIVE"), "{sql}");
+        assert!(!sql.contains("desc_count"), "{sql}");
+    }
+
+    #[test]
+    fn the_walk_is_seeded_with_the_parents_direct_children() {
+        // Sibling subtrees are disjoint, so each descendant is measured once.
+        let sql = partitions_sql("public", "logs", true);
+        assert!(sql.starts_with("WITH RECURSIVE kin AS ("), "{sql}");
+        assert!(sql.contains("SELECT oid, oid FROM kin"), "{sql}");
+        assert!(!sql.contains("UNION ALL"), "{sql}");
+    }
+
+    #[test]
+    fn a_mid_level_child_reports_its_own_subtree_and_its_direct_children() {
+        let sql = partitions_sql("public", "logs", true);
+        assert!(sql.contains("WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_tuples"), "{sql}");
+        assert!(sql.contains("WHEN COALESCE(st.desc_count, 0) > 0 THEN st.sum_bytes"), "{sql}");
+        assert!(
+            sql.contains("(c.relkind = 'p' OR COALESCE(st.desc_count, 0) > 0) as is_partitioned"),
+            "{sql}"
+        );
+        assert!(sql.contains("SELECT count(*) FROM pg_inherits WHERE inhparent = c.oid"), "{sql}");
+    }
+
+    #[test]
+    fn both_names_arrive_already_escaped() {
+        let on = partitions_sql("O''Hara", "l''ogs", true);
+        assert_eq!(on.matches("O''Hara").count(), 2, "the seed and the statement: {on}");
+        assert_eq!(on.matches("l''ogs").count(), 2, "{on}");
+        assert!(!on.contains("O''''Hara"), "{on}");
+    }
+
+    #[test]
+    fn the_strategy_and_the_key_stay_declarative_whichever_way_the_flag_points() {
+        // An inheritance parent has neither, and a nil strategy is what makes
+        // the inspector print the mechanism instead of an em-dash.
+        for on in [false, true] {
+            let sql = partitions_sql("public", "logs", on);
+            assert!(sql.contains("CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text"), "{sql}");
+            assert!(sql.contains("CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid)"), "{sql}");
+        }
     }
 }
 
