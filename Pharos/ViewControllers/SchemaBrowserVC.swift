@@ -52,6 +52,7 @@ class SchemaBrowserVC: NSViewController {
         let schemaSort: SchemaSortMode
         let objectSort: ObjectSortMode
         let partitionSort: PartitionSortMode
+        let inheritanceGrouping: Bool
 
         init(_ settings: AppSettings) {
             showLeafPartitions = settings.showLeafPartitions
@@ -59,6 +60,7 @@ class SchemaBrowserVC: NSViewController {
             schemaSort = settings.navigator.schemaSort
             objectSort = settings.navigator.objectSort
             partitionSort = settings.navigator.partitionSort
+            inheritanceGrouping = settings.navigator.inheritanceGrouping
         }
     }
 
@@ -292,11 +294,16 @@ class SchemaBrowserVC: NSViewController {
     /// Columns are lazy-loaded when a table is expanded.
     private func loadTablesForSchema(_ schemaNode: SchemaTreeNode, connectionId: String) async {
         guard let schemaName = schemaNode.schemaName else { return }
-        let showLeaf = await MainActor.run { self.stateManager.settings.showLeafPartitions }
+        // Either setting can put a name inside a collapsed folder, and the
+        // index is what lets the filter find it there.
+        let wantsPartitionIndex = await MainActor.run {
+            self.stateManager.settings.showLeafPartitions
+                || self.stateManager.settings.navigator.inheritanceGrouping
+        }
         do {
             let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
             var partitionMap: [PartitionRef] = []
-            if showLeaf {
+            if wantsPartitionIndex {
                 do {
                     partitionMap = try await PharosCore.getPartitionMap(connectionId: connectionId, schema: schemaName)
                 } catch {
@@ -322,6 +329,7 @@ class SchemaBrowserVC: NSViewController {
                 // schema — they share a namespace — so the name is a safe key.
                 let byName = Dictionary(objects.map { ($0.name, $0) },
                                         uniquingKeysWith: { first, _ in first })
+                let showLeaf = self.stateManager.settings.showLeafPartitions
                 let ordered = NavigatorOrdering.sorted(
                     objects.map {
                         NavigatorOrdering.Object(
@@ -344,10 +352,8 @@ class SchemaBrowserVC: NSViewController {
                         continue
                     }
                     let tableNode = SchemaTreeNode(.table(t), parent: schemaNode)
-                    if showLeaf {
+                    if t.hasPartitionsFolder(showLeafPartitions: showLeaf) {
                         tableNode.knownPartitionNames = namesByParent[t.name] ?? []
-                    }
-                    if t.isPartitioned && showLeaf {
                         // Partitions group first, then columns — both lazy.
                         let group = SchemaTreeNode(.partitionGroup(t), parent: tableNode)
                         group.addChild(SchemaTreeNode(.loading, parent: group))
@@ -855,8 +861,10 @@ class SchemaBrowserVC: NSViewController {
                     for p in sorted {
                         let node = SchemaTreeNode(.partition(p), parent: group)
                         node.hasRowCount = p.rowCountEstimate != nil
-                        // Sub-partitioned partition → nested Partitions group (recursion).
-                        if p.isPartitioned && showLeaf {
+                        // A partition that is itself a parent → nested Partitions
+                        // group (the recursion, and how a year table opens into
+                        // its months).
+                        if p.hasPartitionsFolder(showLeafPartitions: showLeaf) {
                             let sub = SchemaTreeNode(.partitionGroup(p), parent: node)
                             sub.addChild(SchemaTreeNode(.loading, parent: sub))
                             node.addChild(sub)

@@ -28,5 +28,31 @@ func runTests() {
     expectEqualStr(PartitionDisplay.boundSummary("DEFAULT"), "DEFAULT", "default passthrough")
     expectEqualStr(PartitionDisplay.boundSummary(nil), nil, "nil bound")
 
+    // The inspector's heading names the mechanism, because a legacy tree has
+    // no strategy, key or bound to tell it apart by.
+    expectEqualStr(PartitionDisplay.parentHeading(mechanism: .declarative),
+        "Partitioned Table", "declarative heading")
+    expectEqualStr(PartitionDisplay.parentHeading(mechanism: .inheritance),
+        "Inherited Table", "inheritance heading")
+    expectEqualStr(PartitionDisplay.parentHeading(mechanism: nil),
+        "Partitioned Table", "an absent mechanism reads as it always did")
+
+    // subParentNote must never print a question mark.
+    expectEqualStr(PartitionDisplay.subParentNote(
+        isParent: false, strategy: nil, mechanism: nil, childCount: nil),
+        nil, "a leaf gets no note")
+    expectEqualStr(PartitionDisplay.subParentNote(
+        isParent: true, strategy: .range, mechanism: .declarative, childCount: 4),
+        "Sub-partitioned by RANGE", "a sub-partitioned partition names its strategy")
+    expectEqualStr(PartitionDisplay.subParentNote(
+        isParent: true, strategy: nil, mechanism: .inheritance, childCount: 31),
+        "Inherited by 31 more", "an inheritance child counts its own children")
+    expectEqualStr(PartitionDisplay.subParentNote(
+        isParent: true, strategy: nil, mechanism: .inheritance, childCount: nil),
+        "Inherited by 0 more", "and says 0 rather than nothing")
+    expectEqualStr(PartitionDisplay.subParentNote(
+        isParent: true, strategy: nil, mechanism: nil, childCount: nil),
+        nil, "no strategy and no mechanism prints no note, never a ?")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

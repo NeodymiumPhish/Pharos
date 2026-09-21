@@ -1064,6 +1064,13 @@ pub struct NavigatorSettings {
     pub object_sort: ObjectSortMode,
     #[serde(default)]
     pub partition_sort: PartitionSortMode,
+    /// Whether a table joined to others by `INHERITS` reads as a partitioned
+    /// table: the children move under the parent, and the parent's row and
+    /// size figures become the sum over the whole tree. Off is what the
+    /// Navigator has always shown — every table in the tree, flat, because
+    /// Pharos tested `relkind = 'p'` and legacy inheritance does not set it.
+    #[serde(default)]
+    pub inheritance_grouping: bool,
     #[serde(default = "yes")]
     pub auto_expand_default_schema: bool,
     #[serde(default = "default_auto_expand_threshold")]
@@ -1086,6 +1093,7 @@ impl Default for NavigatorSettings {
             show_system_schemas: false,
             object_sort: ObjectSortMode::default(),
             partition_sort: PartitionSortMode::default(),
+            inheritance_grouping: false,
             auto_expand_default_schema: true,
             auto_expand_threshold: default_auto_expand_threshold(),
             double_click_action: NavigatorDoubleClickAction::default(),
@@ -1346,6 +1354,7 @@ pub(crate) mod fixture {
                     show_system_schemas: true,
                     object_sort: ObjectSortMode::Size,
                     partition_sort: PartitionSortMode::Bound,
+                    inheritance_grouping: true,
                     auto_expand_default_schema: false,
                     auto_expand_threshold: 501,
                     double_click_action: NavigatorDoubleClickAction::ViewContents,

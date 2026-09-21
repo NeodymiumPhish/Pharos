@@ -41,6 +41,7 @@ The tree is a **source list**: one line per row, at the row height you set in Sy
 
 - **Tables and views** — an estimated row count (e.g., "1.2K rows"), populated in the background after connecting
 - **Partitioned tables** — the partition key and partition count (e.g., "by (created_at) · 12 partitions"), plus a colored RANGE/LIST/HASH badge
+- **Inherited tables** — the child count, plus an INHERITS badge, and the row count and size of the whole tree (see below)
 - **Columns** — the data type, plus "PK" and "NOT NULL" markers where applicable
 - **Partitions** — the partition bound (e.g., "FOR VALUES FROM … TO …", or "DEFAULT")
 
@@ -57,6 +58,21 @@ With no connection on the current tab, the panel shows **No Connection** — "Co
 ## Partitioned Tables
 
 Partitioned tables are marked with a split-square icon and a RANGE/LIST/HASH badge. When **Show leaf partitions** is enabled in [Settings](settings.md), expanding a partitioned table reveals a **Partitions** folder listing each partition; sub-partitioned tables nest recursively, and each partition can be expanded to its own columns. Partitions get a read-only context menu (view contents, export, indexes, constraints) — destructive operations are intentionally reserved for the parent table.
+
+## Inherited Tables
+
+Before PostgreSQL 10 there was no `PARTITION BY`. A table was partitioned by hand: a parent table, one child per period joined to it with `INHERITS`, and the application choosing the child to write to. PostgreSQL sees those children as ordinary tables, so Pharos lists them flat — which for one table per day over a decade is thousands of rows under one schema.
+
+**Group inherited tables** in [Settings](settings.md) changes that. It is off by default; with it on:
+
+- The root of each tree carries the split-square icon and an **INHERITS** badge in the place of RANGE/LIST/HASH.
+- Its children move into the same **Partitions** folder, and nest as deep as the tree goes — a year opens into its months, a month into its days. This folder does **not** need Show leaf partitions: the children have left the top level, so it is the only way to reach them.
+- The root's row count and size are the sum over the whole tree, which is what `SELECT count(*)` on the parent returns. A declarative parent already reads this way.
+- The order comes from **Order partitions by**. There are no bounds to read in a tree like this, so Partition bound falls back to name order — and a `YYYYMMDD` name is already date order.
+
+Two cases stay where they are: a child whose parent is in another schema keeps its place at the top level, because hiding it would leave no way to reach it; and a child of two parents is listed under both, though its rows are counted once.
+
+`TRUNCATE` on such a parent empties every table below it. The confirmation says so, whether or not this setting is on — see [Table Operations](table-operations.md).
 
 ## Schema Selector
 
@@ -99,6 +115,8 @@ Views (including materialized views) get: **View All Contents**, **View Contents
 ### Partition Context Menu
 
 Partitions get a read-only subset: **View All Contents**, **View Contents (Limit…)**, **Copy Table Name**, **Paste Name to Query Editor**, **Export Data…**, **View Indexes**, and **View Constraints**.
+
+An inherited child table inside a **Partitions** folder gets the same read-only subset. It is a real table, so it can also be reached at the top level whenever **Group inherited tables** is off, where it has the full table menu.
 
 ### Schema Context Menu
 

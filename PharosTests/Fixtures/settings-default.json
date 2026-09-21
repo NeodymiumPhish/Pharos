@@ -106,6 +106,7 @@
     "autoExpandDefaultSchema": true,
     "autoExpandThreshold": 500,
     "doubleClickAction": "expand",
+    "inheritanceGrouping": false,
     "limitPresets": [
       10,
       100,

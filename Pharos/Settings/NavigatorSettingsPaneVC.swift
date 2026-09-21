@@ -51,6 +51,13 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                     icon: "arrow.up.arrow.down",
                     kind: .popup(.cases(\.navigator.objectSort, title: { $0.displayLabel }))),
                 SettingsItem(
+                    id: "inheritanceGrouping",
+                    title: String(localized: "Group inherited tables"),
+                    caption: String(localized: "Tables joined by INHERITS read as a partitioned table."),
+                    icon: "arrow.triangle.branch",
+                    help: String(localized: "The way partitioning was done before PostgreSQL 10: a parent table, children joined to it by INHERITS, and the application choosing the child to write to. There are no bounds to read, so the Partitions folder lists the children by name. The parent's row count and size become the sum over the whole tree, which is what a query on the parent returns. This setting carries the folder on its own — “Show leaf partitions” does not gate it."),
+                    kind: .toggle(.settings(\.navigator.inheritanceGrouping))),
+                SettingsItem(
                     id: "showLeafPartitions",
                     title: String(localized: "Show leaf partitions"),
                     caption: String(localized: "A Partitions folder under each partitioned table."),

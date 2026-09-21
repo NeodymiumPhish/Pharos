@@ -101,6 +101,7 @@
     "autoExpandDefaultSchema": false,
     "autoExpandThreshold": 501,
     "doubleClickAction": "viewContents",
+    "inheritanceGrouping": true,
     "limitPresets": [
       5,
       50

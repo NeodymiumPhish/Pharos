@@ -246,13 +246,26 @@ class InspectorViewController: NSViewController {
     /// Also used for a selected `.partitionGroup` node — it shares the same
     /// parent `TableInfo`, so its detail is identical.
     func showPartitionedTableDetail(_ info: TableInfo) {
-        beginDetailSection(title: "Partitioned Table", subtitle: info.name, owner: .schemaBrowser)
+        // A legacy inheritance tree has no strategy, no key and no bounds:
+        // three em-dashes tell a person nothing, so name the mechanism and
+        // leave the two declarative-only rows out.
+        let inherits = info.partitionMechanism == .inheritance
+        beginDetailSection(
+            title: PartitionDisplay.parentHeading(mechanism: info.partitionMechanism),
+            subtitle: info.name, owner: .schemaBrowser)
 
-        addDetailField("Strategy", info.partitionStrategy?.badgeLabel ?? "\u{2014}")
-        addDetailField("Partition key", PartitionDisplay.keyColumns(fromPartKeyDef: info.partitionKey) ?? "\u{2014}")
-        addDetailField("Partitions", info.partitionCount.map(String.init) ?? "\u{2014}")
+        if inherits {
+            addDetailField("Children", info.partitionCount.map(String.init) ?? "\u{2014}")
+        } else {
+            addDetailField("Strategy", info.partitionStrategy?.badgeLabel ?? "\u{2014}")
+            addDetailField("Partition key", PartitionDisplay.keyColumns(fromPartKeyDef: info.partitionKey) ?? "\u{2014}")
+            addDetailField("Partitions", info.partitionCount.map(String.init) ?? "\u{2014}")
+        }
         addDetailField("Rows", formatRowCount(info.rowCountEstimate))
         addDetailField("Size", formatByteSize(info.totalSizeBytes))
+        if inherits {
+            addDetailNote("Rows and size are the whole tree's")
+        }
     }
 
     /// Shows detail for a selected partition (`TableInfo.isPartition`).
@@ -261,15 +274,25 @@ class InspectorViewController: NSViewController {
         beginDetailSection(title: "Partition", subtitle: info.name, owner: .schemaBrowser)
 
         addDetailField("Parent", parentName ?? "\u{2014}")
+        // An inheritance child has no bound at all — relpartbound is null —
+        // so the row is left out rather than shown empty.
         let bound = PartitionDisplay.boundSummary(info.partitionBound)
-        addDetailField("Bound", bound ?? "\u{2014}")
-        if bound == "DEFAULT" {
-            addDetailNote("DEFAULT partition")
+        if let bound {
+            addDetailField("Bound", bound)
+            if bound == "DEFAULT" {
+                addDetailNote("DEFAULT partition")
+            }
         }
         addDetailField("Rows", formatRowCount(info.rowCountEstimate))
         addDetailField("Size", formatByteSize(info.totalSizeBytes))
-        if info.isPartitioned {
-            addDetailNote("Sub-partitioned by \(info.partitionStrategy?.badgeLabel ?? "?")")
+        // A child that is itself a parent says so, and never with a question
+        // mark: an inheritance child has no strategy to read.
+        if let note = PartitionDisplay.subParentNote(
+            isParent: info.isPartitioned,
+            strategy: info.partitionStrategy,
+            mechanism: info.partitionMechanism,
+            childCount: info.partitionCount) {
+            addDetailNote(note)
         }
         // A partition's columns are the parent's, but a partition is a real
         // relation with its own entry in the cache, so it is looked up by its

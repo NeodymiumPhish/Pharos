@@ -27,6 +27,24 @@ enum DestructiveConfirmationText {
         "Truncate \"\(DisplayEscape.escaped(table))\"?"
     }
 
+    /// The body of the truncate confirmation.
+    ///
+    /// `TRUNCATE TABLE x` carries no `ONLY`, and PostgreSQL empties every
+    /// table that inherits from `x` as well — measured, on PostgreSQL 16: two
+    /// rows in a child were gone after truncating the parent, and survived
+    /// `TRUNCATE ONLY`. The old wording promised "all rows in the table",
+    /// which for a legacy partitioning root is every row in the whole
+    /// archive. No count is given because the count that is known is of the
+    /// DIRECT children, and the statement reaches all the way down.
+    static func truncateConfirmMessage(hasInheritedChildren: Bool) -> String {
+        guard hasInheritedChildren else {
+            return "This will permanently delete all rows in the table. This cannot be undone."
+        }
+        return "Other tables inherit from this one, and PostgreSQL empties the whole tree: "
+            + "every row in every table below it goes too, not only this table's. "
+            + "This cannot be undone."
+    }
+
     static func truncatedInfoMessage(table: String) -> String {
         "\"\(DisplayEscape.escaped(table))\" has been truncated."
     }

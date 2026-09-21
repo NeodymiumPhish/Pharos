@@ -34,6 +34,12 @@ pub struct TableDdlParts {
     /// The partition clause from pg_get_partkeydef (e.g. "RANGE (created_at)"),
     /// or None for a non-partitioned table.
     pub partition_by: Option<String>,
+    /// The (schema, table) pairs this table INHERITS from, in inhseqno
+    /// order. Empty for almost every table; legacy partitioning is built out
+    /// of these, and without the clause a child's DDL reads as an unrelated
+    /// standalone table. A declarative partition is NOT listed here: its
+    /// parent is attached with ALTER TABLE, not INHERITS.
+    pub inherits: Vec<(String, String)>,
 }
 
 /// The three ready-to-display DDL variants sent to Swift.
@@ -82,6 +88,7 @@ fn render_create_table(
     col_lines: &[String],
     constraint_lines: &[String],
     partition_by: Option<&str>,
+    inherits: &[(String, String)],
 ) -> String {
     let mut body: Vec<String> = col_lines.to_vec();
     body.extend_from_slice(constraint_lines);
@@ -89,11 +96,25 @@ fn render_create_table(
         Some(p) => format!(" PARTITION BY {}", p),
         None => String::new(),
     };
+    // INHERITS comes before PARTITION BY, which is the order the grammar
+    // takes them in. The inherited columns stay in the list above: naming a
+    // column the parent already has is legal — PostgreSQL merges the two —
+    // and a reader wants to see what the table holds.
+    let inherit_clause = if inherits.is_empty() {
+        String::new()
+    } else {
+        let parents: Vec<String> = inherits
+            .iter()
+            .map(|(s, t)| format!("\"{}\".\"{}\"", escape_identifier(s), escape_identifier(t)))
+            .collect();
+        format!(" INHERITS ({})", parents.join(", "))
+    };
     format!(
-        "CREATE TABLE \"{}\".\"{}\" (\n{}\n){};",
+        "CREATE TABLE \"{}\".\"{}\" (\n{}\n){}{};",
         escape_identifier(schema),
         escape_identifier(table),
         body.join(",\n"),
+        inherit_clause,
         partition
     )
 }
@@ -103,9 +124,10 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
     let col_lines: Vec<String> = parts.columns.iter().map(render_column).collect();
     let constraint_lines: Vec<String> = parts.constraints.iter().map(render_constraint).collect();
 
-    let columns_only = render_create_table(schema, table, &col_lines, &[], parts.partition_by.as_deref());
-    let with_constraints =
-        render_create_table(schema, table, &col_lines, &constraint_lines, parts.partition_by.as_deref());
+    let columns_only = render_create_table(
+        schema, table, &col_lines, &[], parts.partition_by.as_deref(), &parts.inherits);
+    let with_constraints = render_create_table(
+        schema, table, &col_lines, &constraint_lines, parts.partition_by.as_deref(), &parts.inherits);
 
     let mut full = with_constraints.clone();
     if !parts.index_defs.is_empty() {
@@ -193,6 +215,7 @@ mod tests {
                 "CREATE INDEX orders_cust_idx ON public.orders USING btree (cust_id)".into(),
             ],
             partition_by: None,
+            inherits: vec![],
         }
     }
 
@@ -257,6 +280,53 @@ mod tests {
         assert!(ddl.columns_only.contains(") PARTITION BY RANGE (created_at);"));
         assert!(ddl.with_constraints.contains(") PARTITION BY RANGE (created_at);"));
         assert!(ddl.full.contains(") PARTITION BY RANGE (created_at);"));
+    }
+
+    #[test]
+    fn an_inherited_table_renders_its_inherits_clause() {
+        let mut parts = sample_parts();
+        parts.inherits = vec![("public".into(), "dns_log_201301".into())];
+        let ddl = compose_table_ddl("public", "dns_log_20130101", &parts);
+        for variant in [&ddl.columns_only, &ddl.with_constraints, &ddl.full] {
+            assert!(
+                variant.contains(") INHERITS (\"public\".\"dns_log_201301\");"),
+                "{variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn several_parents_are_listed_in_order_and_quoted() {
+        let mut parts = sample_parts();
+        parts.inherits = vec![
+            ("public".into(), "a".into()),
+            ("other".into(), "b\"evil".into()),
+        ];
+        let ddl = compose_table_ddl("public", "both", &parts);
+        assert!(
+            ddl.columns_only.contains(") INHERITS (\"public\".\"a\", \"other\".\"b\"\"evil\");"),
+            "{}",
+            ddl.columns_only
+        );
+    }
+
+    #[test]
+    fn inherits_comes_before_partition_by() {
+        // The grammar takes them in that order. Both at once is a strange
+        // table, but the renderer must not invent invalid SQL for it.
+        let mut parts = sample_parts();
+        parts.inherits = vec![("public".into(), "parent".into())];
+        parts.partition_by = Some("RANGE (created_at)".into());
+        let ddl = compose_table_ddl("public", "orders", &parts);
+        let i = ddl.columns_only.find("INHERITS").unwrap();
+        let p = ddl.columns_only.find("PARTITION BY").unwrap();
+        assert!(i < p, "{}", ddl.columns_only);
+    }
+
+    #[test]
+    fn a_table_with_no_parents_renders_no_clause() {
+        let ddl = compose_table_ddl("public", "orders", &sample_parts());
+        assert!(!ddl.full.contains("INHERITS"), "{}", ddl.full);
     }
 
     #[test]

@@ -12,6 +12,25 @@ enum TableType: String, Codable {
     case partitionedTable = "partitioned-table"
 }
 
+/// Which mechanism gives a parent its children. Declarative partitioning
+/// (PostgreSQL 10 and later) has a strategy, a key and a bound per child;
+/// legacy inheritance has none of the three, so the two cannot share a
+/// badge, an inspector field, or a DDL clause.
+enum PartitionMechanism: String, Codable {
+    case declarative
+    case inheritance
+
+    /// Short uppercase badge label. Declarative shows its strategy instead
+    /// (RANGE / LIST / HASH), so only inheritance ever reads this — and it
+    /// reads the SQL keyword that made the tree, not the enum's own name.
+    var badgeLabel: String {
+        switch self {
+        case .declarative: return "PARTITION"
+        case .inheritance: return "INHERITS"
+        }
+    }
+}
+
 enum PartitionStrategy: String, Codable {
     case range
     case list
@@ -34,11 +53,18 @@ struct TableInfo: Codable {
     let partitionKey: String?       // raw pg_get_partkeydef, e.g. "RANGE (created_at)"
     let partitionBound: String?     // pg_get_expr(relpartbound) or "DEFAULT"
     let partitionCount: Int64?
+    /// Which mechanism gives this row its children, when it has any.
+    let partitionMechanism: PartitionMechanism?
+    /// True when other tables INHERIT from this one, whatever the Navigator
+    /// is set to show. `TRUNCATE` has no `ONLY`, so it empties every one of
+    /// them: the confirmation reads this, not the display fact above.
+    let hasChildTables: Bool
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 
     enum CodingKeys: String, CodingKey {
         case name, schemaName, tableType, rowCountEstimate, totalSizeBytes
         case isPartitioned, isPartition, partitionStrategy, partitionKey, partitionBound, partitionCount
+        case partitionMechanism, hasChildTables
     }
 
     init(from decoder: Decoder) throws {
@@ -57,6 +83,11 @@ struct TableInfo: Codable {
         partitionKey = try c.decodeIfPresent(String.self, forKey: .partitionKey)
         partitionBound = try c.decodeIfPresent(String.self, forKey: .partitionBound)
         partitionCount = try c.decodeIfPresent(Int64.self, forKey: .partitionCount)
+        // Soft-decode, as with the strategy above: an unknown mechanism must
+        // not fail the whole table-list decode.
+        partitionMechanism = (try c.decodeIfPresent(String.self, forKey: .partitionMechanism))
+            .flatMap(PartitionMechanism.init(rawValue:))
+        hasChildTables = try c.decodeIfPresent(Bool.self, forKey: .hasChildTables) ?? false
     }
 
     /// Memberwise init for tests / in-code construction.
@@ -64,12 +95,33 @@ struct TableInfo: Codable {
          rowCountEstimate: Int64?, totalSizeBytes: Int64?,
          isPartitioned: Bool = false, isPartition: Bool = false,
          partitionStrategy: PartitionStrategy? = nil, partitionKey: String? = nil,
-         partitionBound: String? = nil, partitionCount: Int64? = nil) {
+         partitionBound: String? = nil, partitionCount: Int64? = nil,
+         partitionMechanism: PartitionMechanism? = nil,
+         hasChildTables: Bool = false) {
         self.name = name; self.schemaName = schemaName; self.tableType = tableType
         self.rowCountEstimate = rowCountEstimate; self.totalSizeBytes = totalSizeBytes
         self.isPartitioned = isPartitioned; self.isPartition = isPartition
         self.partitionStrategy = partitionStrategy; self.partitionKey = partitionKey
         self.partitionBound = partitionBound; self.partitionCount = partitionCount
+        self.partitionMechanism = partitionMechanism
+        self.hasChildTables = hasChildTables
+    }
+}
+
+extension TableInfo {
+    /// Whether this parent is given a Partitions folder in the Navigator.
+    ///
+    /// A declarative parent is gated by Settings ▸ Navigator ▸ Show leaf
+    /// partitions, as it always was. An inheritance parent is NOT: with
+    /// Group inherited tables on, its children have already left the top
+    /// level of the schema, so the folder is the only way to reach them.
+    ///
+    /// The same test decides whether the parent is given the filter index —
+    /// a name that cannot be opened must not be findable either.
+    func hasPartitionsFolder(showLeafPartitions: Bool) -> Bool {
+        guard isPartitioned else { return false }
+        if partitionMechanism == .inheritance { return true }
+        return showLeafPartitions
     }
 }
 

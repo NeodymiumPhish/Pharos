@@ -28,6 +28,8 @@ Right-click a table and choose **View Table DDL…** to open the DDL sheet. It s
 - **+ Constraints** — adds primary key, foreign key, unique, and check constraints
 - **Full (+ Indexes)** — adds index definitions
 
+A partitioned table's statement ends with its `PARTITION BY` clause, and a table that other tables inherit from ends with `INHERITS (…)`, naming every parent. Inherited columns stay in the column list: naming a column the parent already has is legal, and it is what the table holds.
+
 Click **Copy DDL** to copy the displayed statement to the clipboard.
 
 ## Clone Table
@@ -85,3 +87,6 @@ Two destructive operations are available from the table context menu:
 
 {: .warning }
 Both operations are irreversible. When **Confirm queries that change the database** is enabled in [Settings](settings.md) (the default), Pharos shows a confirmation dialog first; with the setting off, they execute immediately.
+
+{: .warning }
+**Truncating a table that others inherit from empties every one of them.** `TRUNCATE` reaches the whole tree unless it is asked for `ONLY`, and Pharos does not ask: truncating the root of an inheritance tree (see [Inherited Tables](schema-browser.md#inherited-tables)) removes every row below it as well. The confirmation says so, whether or not **Group inherited tables** is on. Dropping such a parent is refused by PostgreSQL itself while a child still inherits from it.
