@@ -19,6 +19,18 @@
 --         opens three levels deep. `events` is unchanged, with its RANGE
 --         badge. `orphan_child` stays at the top level, because its parent
 --         lives in another schema.
+--
+-- What to look for in Describe ▸ Clone Table (either way the setting points):
+--   `events`     — "Include table rows" is DISABLED, with a note naming
+--                  RANGE (seen). The copy comes out relkind 'p' with the same
+--                  key and no partitions.
+--   `dns_log`    — two row-scope radios. The default copies 0 rows (the root
+--                  holds none of its own); "The whole tree, flattened" copies
+--                  all 6. Either way `dns_log` still has exactly 3 direct
+--                  children afterwards: the copy does not join the tree.
+--   `dns_log_2013` — both at once: radios, AND the note that the copy will be
+--                  standalone, not part of inherittest.dns_log's tree.
+--   `settings_flat` — no note and no radios at all.
 
 DROP SCHEMA IF EXISTS inherittest CASCADE;
 DROP SCHEMA IF EXISTS inherittest_elsewhere CASCADE;
