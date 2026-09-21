@@ -19,6 +19,7 @@ swiftc -o "$BIN" \
   Pharos/Core/PharosCore.swift \
   Pharos/Core/PharosCore+QueryVariables.swift \
   Pharos/Core/QueryVariableStore.swift \
+  Pharos/Models/Connection.swift \
   Pharos/Models/QueryVariable.swift \
   PharosTests/QueryVariableStoreTests.swift \
   PharosTests/main.swift
