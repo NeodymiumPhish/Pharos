@@ -98,13 +98,21 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
         let control = makeControl(for: item, placement: &placement)
 
         var slot: NSView? = control
-        if let help = item.help, let control {
+        if let help = item.help {
             let info = SettingsInfoButton(help: help)
-            let pair = NSStackView(views: [control, info])
-            pair.orientation = .horizontal
-            pair.spacing = 6
-            pair.translatesAutoresizingMaskIntoConstraints = false
-            slot = pair
+            if let control {
+                let pair = NSStackView(views: [control, info])
+                pair.orientation = .horizontal
+                pair.spacing = 6
+                pair.translatesAutoresizingMaskIntoConstraints = false
+                slot = pair
+            } else {
+                // A row with no control still gets its ⓘ. This used to be
+                // dropped on the floor: `.display` rows report rather than
+                // ask, so they have no control, and they are exactly the rows
+                // whose caption is most likely to need the long version.
+                slot = info
+            }
         }
 
         let row = SettingsRow(icon: icon, title: item.title, caption: item.caption, control: slot,

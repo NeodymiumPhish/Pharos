@@ -137,8 +137,9 @@ final class AdvancedSettingsPaneVC: SettingsFormPaneVC {
                     SettingsItem(
                         id: "metadataCacheTtlMinutes",
                         title: String(localized: "Refetch metadata after"),
-                        caption: String(localized: "How old a connection's cached schema may be before Pharos fetches it again. 0 keeps it until the connection closes, which is what Pharos has always done."),
+                        caption: String(localized: "How old a connection's cached schema may be before Pharos fetches it again."),
                         icon: "clock.arrow.circlepath",
+                        help: String(localized: "0 keeps it until the connection closes, which is what Pharos has always done."),
                         kind: .stepper(.settings(\.diagnostics.metadataCacheTtlMinutes),
                                        range: Self.cacheTtlRange,
                                        unit: String(localized: "minutes"))),
@@ -156,8 +157,9 @@ final class AdvancedSettingsPaneVC: SettingsFormPaneVC {
                     SettingsItem(
                         id: "logLevel",
                         title: String(localized: "Engine log level"),
-                        caption: String(localized: "How much the database engine writes to the system log. Warnings and errors is what Pharos has always written; the louder levels are for working out why a connection or a query misbehaves, and they slow nothing down when nobody is reading. Setting RUST_LOG in the shell that starts Pharos overrides this."),
+                        caption: String(localized: "How much the database engine writes to the system log."),
                         icon: "text.alignleft",
+                        help: String(localized: "Warnings and errors is what Pharos has always written; the louder levels are for working out why a connection or a query misbehaves, and they slow nothing down when nobody is reading. Setting RUST_LOG in the shell that starts Pharos overrides this."),
                         kind: .popup(.cases(\.diagnostics.logLevel, title: { $0.displayLabel }))),
                 ]),
             SettingsSection(
@@ -183,8 +185,9 @@ final class AdvancedSettingsPaneVC: SettingsFormPaneVC {
                     SettingsItem(
                         id: "resetNote",
                         title: String(localized: "Start again"),
-                        caption: String(localized: "Puts every preference back to its default and forgets where the windows and panels were left. Connections, saved queries, history and tags stay."),
+                        caption: String(localized: "Puts every preference back to its default and forgets where the windows and panels were left."),
                         icon: "arrow.counterclockwise",
+                        help: String(localized: "Connections, saved queries, history and tags stay."),
                         kind: .display),
                 ],
                 footerButtons: [

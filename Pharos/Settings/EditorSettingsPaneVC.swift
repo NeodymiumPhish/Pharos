@@ -64,8 +64,9 @@ final class EditorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "autoPairBrackets",
                     title: String(localized: "Close brackets automatically"),
-                    caption: String(localized: "Typing ( or [ also writes the closer, and Backspace over an empty pair takes both away. Typing straight before existing text never pairs."),
+                    caption: String(localized: "Typing ( or [ also writes the closer, and Backspace over an empty pair takes both away."),
                     icon: "parentheses",
+                    help: String(localized: "Typing straight before existing text never pairs."),
                     kind: .toggle(.settings(\.editor.autoPairBrackets))),
                 SettingsItem(
                     id: "autoPairQuotes",
@@ -142,8 +143,9 @@ final class EditorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "offerSqlListChip",
                     title: String(localized: "Offer to format a pasted list"),
-                    caption: String(localized: "A paste that looks like bare values offers a “Format as SQL list” button. Press Tab to take it, Esc to leave it. The paste itself is never changed on its own."),
+                    caption: String(localized: "A paste that looks like bare values offers a “Format as SQL list” button."),
                     icon: "list.bullet.rectangle.portrait",
+                    help: String(localized: "Press Tab to take it, Esc to leave it. The paste itself is never changed on its own."),
                     kind: .toggle(.settings(\.editor.offerSqlListChip))),
                 SettingsItem(
                     id: "sqlListQuoteStyle",

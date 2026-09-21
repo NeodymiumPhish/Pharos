@@ -48,8 +48,9 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "restoreWindowFrames",
                     title: String(localized: "Restore window positions"),
-                    caption: String(localized: "Puts a restored window back where it was. Off still restores the tabs, and lets macOS place the window — which is what you want after the displays change."),
+                    caption: String(localized: "Puts a restored window back where it was."),
                     icon: "macwindow",
+                    help: String(localized: "Off still restores the tabs, and lets macOS place the window — which is what you want after the displays change."),
                     kind: .toggle(.settings(\.session.restoreWindowFrames)),
                     dependsOn: "restoreOpenTabs"),
                 SettingsItem(
@@ -72,8 +73,9 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "warnBeforeClosingUnsavedTabs",
                     title: String(localized: "Warn before closing unsaved tabs"),
-                    caption: String(localized: "Asks before closing a tab, a window or Pharos itself when a tab has edits that have not been written back to its saved query or its file. A tab that has never been saved is only mentioned while Restore open tabs is off."),
+                    caption: String(localized: "Asks before closing a tab, a window or Pharos itself when a tab has edits that have not been written back to its saved query or its file."),
                     icon: "exclamationmark.triangle",
+                    help: String(localized: "A tab that has never been saved is only mentioned while Restore open tabs is off."),
                     kind: .toggle(.settings(\.session.warnBeforeClosingUnsavedTabs))),
             ]),
 

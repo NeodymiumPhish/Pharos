@@ -38,8 +38,9 @@ final class NotificationsSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "badgeDockIcon",
                     title: String(localized: "Badge the Dock icon"),
-                    caption: String(localized: "Counts the queries that finished while you were in another app, whatever the gates above say. Cleared when you come back."),
+                    caption: String(localized: "Counts the queries that finished while you were in another app, whatever the gates above say."),
                     icon: "app.badge.fill",
+                    help: String(localized: "Cleared when you come back."),
                     kind: .toggle(.settings(\.notifications.badgeDockIcon))),
             ]),
             SettingsSection(title: String(localized: "In the window"), items: [

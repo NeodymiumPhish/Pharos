@@ -17,8 +17,9 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "runScope",
                     title: String(localized: "⌘↩ runs"),
-                    caption: String(localized: "The statement at the cursor is what Pharos has always run. Run All Queries always runs every statement, whatever this says."),
+                    caption: String(localized: "The statement at the cursor is what Pharos has always run."),
                     icon: "play.rectangle",
+                    help: String(localized: "Run All Queries always runs every statement, whatever this says."),
                     kind: .popup(.cases(\.query.runScope, title: { $0.displayLabel }))),
             ]),
 
@@ -41,8 +42,9 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "confirmDestructive",
                     title: String(localized: "Confirm queries that change the database"),
-                    caption: String(localized: "Also guards the destructive actions in the Database Navigator. Detection ignores keywords inside strings, comments and quoted identifiers."),
+                    caption: String(localized: "Also guards the destructive actions in the Database Navigator."),
                     icon: "exclamationmark.shield",
+                    help: String(localized: "Detection ignores keywords inside strings, comments and quoted identifiers."),
                     kind: .toggle(.settings(\.query.confirmDestructive))),
                 SettingsItem(
                     id: "confirmDrop",

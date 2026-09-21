@@ -51,8 +51,9 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "appleIntelligence",
                     title: String(localized: "Use Apple Intelligence features"),
-                    caption: String(localized: "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac."),
+                    caption: String(localized: "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model."),
                     icon: "sparkles",
+                    help: String(localized: "Nothing leaves this Mac."),
                     kind: .toggle(.settings(\.useAppleIntelligence)),
                     availability: {
                         let availability = ModelAvailability.shared
@@ -70,8 +71,9 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "allowDraftingWriteStatements",
                     title: String(localized: "Allow drafts that write"),
-                    caption: String(localized: "Off drafts reads only: a draft that is not a plain SELECT is refused instead of offered. Pharos never runs a draft either way."),
+                    caption: String(localized: "Off drafts reads only: a draft that is not a plain SELECT is refused instead of offered."),
                     icon: "exclamationmark.shield",
+                    help: String(localized: "Pharos never runs a draft either way."),
                     kind: .toggle(.settings(\.intelligence.allowDraftingWriteStatements)),
                     dependsOn: "appleIntelligence"),
                 SettingsItem(
@@ -105,8 +107,9 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "nameTabsAutomatically",
                     title: String(localized: "Name tabs automatically"),
-                    caption: String(localized: "Renames a tab still called \u{201C}Query 1\u{201D} from its SQL the first time it runs. A tab you have named is never touched."),
+                    caption: String(localized: "Renames a tab still called \u{201C}Query 1\u{201D} from its SQL the first time it runs."),
                     icon: "rectangle.and.pencil.and.ellipsis",
+                    help: String(localized: "A tab you have named is never touched."),
                     kind: .toggle(.settings(\.intelligence.nameTabsAutomatically)),
                     dependsOn: "appleIntelligence"),
             ]),

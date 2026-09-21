@@ -30,14 +30,16 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "schemaSort",
                     title: String(localized: "Order schemas by"),
-                    caption: String(localized: "Default schema first lifts the schema the connection names to the top, and leaves the rest by name. A connection that names none keeps every schema by name."),
+                    caption: String(localized: "Default schema first lifts the schema the connection names to the top, and leaves the rest by name."),
                     icon: "list.bullet.indent",
+                    help: String(localized: "A connection that names none keeps every schema by name."),
                     kind: .popup(.cases(\.navigator.schemaSort, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "showSystemSchemas",
                     title: String(localized: "Show system schemas"),
-                    caption: String(localized: "Lists pg_catalog and information_schema beside your own. The storage schemas — pg_toast and the per-session pg_temp ones — stay hidden whichever way this is set: there can be thousands, and none of them holds anything to read."),
+                    caption: String(localized: "Lists pg_catalog and information_schema beside your own."),
                     icon: "gearshape.2",
+                    help: String(localized: "The storage schemas — pg_toast and the per-session pg_temp ones — stay hidden whichever way this is set: there can be thousands, and none of them holds anything to read."),
                     kind: .toggle(.settings(\.navigator.showSystemSchemas))),
             ]),
 
@@ -70,8 +72,9 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "autoExpandThreshold",
                     title: String(localized: "Only below"),
-                    caption: String(localized: "Objects. Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle."),
+                    caption: String(localized: "Objects."),
                     icon: "number.square",
+                    help: String(localized: "Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle."),
                     kind: .stepper(.settings(\.navigator.autoExpandThreshold), range: 0...100000,
                                    unit: String(localized: "objects")),
                     dependsOn: "autoExpandDefaultSchema"),
@@ -81,14 +84,16 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "doubleClickAction",
                     title: String(localized: "On double-click"),
-                    caption: String(localized: "Every action but Expand runs exactly what the row's context menu runs. A row the action means nothing for — a schema, a column — still expands. Describe opens the table's DDL sheet, and only a plain table has one."),
+                    caption: String(localized: "Every action but Expand runs exactly what the row's context menu runs."),
                     icon: "cursorarrow.click.2",
+                    help: String(localized: "A row the action means nothing for — a schema, a column — still expands. Describe opens the table's DDL sheet, and only a plain table has one."),
                     kind: .popup(.cases(\.navigator.doubleClickAction, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "viewContentsUsesRowLimit",
                     title: String(localized: "Limit the rows View contents fetches"),
-                    caption: String(localized: "Uses Settings ▸ Query ▸ Default row limit. Off selects every row, which is what the context menu's View All Contents does."),
+                    caption: String(localized: "Uses Settings ▸ Query ▸ Default row limit."),
                     icon: "arrow.down.to.line",
+                    help: String(localized: "Off selects every row, which is what the context menu's View All Contents does."),
                     kind: .toggle(.settings(\.navigator.viewContentsUsesRowLimit)),
                     availability: {
                         AppStateManager.shared.settings.navigator.doubleClickAction == .viewContents

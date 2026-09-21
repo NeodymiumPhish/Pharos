@@ -19,20 +19,23 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "defaultFolder",
                     title: String(localized: "Default folder"),
-                    caption: String(localized: "The folder the Save Query sheet opens on. Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and New Folder… still makes one."),
+                    caption: String(localized: "The folder the Save Query sheet opens on."),
                     icon: "folder",
+                    help: String(localized: "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and New Folder… still makes one."),
                     kind: .text(.settings(\.library.defaultFolder), width: 180)),
                 SettingsItem(
                     id: "sortMode",
                     title: String(localized: "Order queries by"),
-                    caption: String(localized: "Folder, then name is the grouped tree with a row per folder. Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden."),
+                    caption: String(localized: "Folder, then name is the grouped tree with a row per folder."),
                     icon: "arrow.up.arrow.down",
+                    help: String(localized: "Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden."),
                     kind: .popup(.cases(\.library.sortMode, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "doubleClickAction",
                     title: String(localized: "On double-click"),
-                    caption: String(localized: "Open in a tab and run it runs the query as soon as its tab is there. A tab with no connection opens the query and stops, and the context menu's Open in Tab always just opens."),
+                    caption: String(localized: "Open in a tab and run it runs the query as soon as its tab is there."),
                     icon: "cursorarrow.click.2",
+                    help: String(localized: "A tab with no connection opens the query and stops, and the context menu's Open in Tab always just opens."),
                     kind: .popup(.cases(\.library.doubleClickAction, title: { $0.displayLabel }))),
             ]),
 
@@ -40,8 +43,9 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "maximumEntries",
                     title: String(localized: "Entries to load"),
-                    caption: String(localized: "How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer."),
+                    caption: String(localized: "How many of the newest entries the Results History navigator fetches."),
                     icon: "clock.arrow.circlepath",
+                    help: String(localized: "The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer."),
                     kind: .stepper(.settings(\.history.maximumEntries), range: 10...5000,
                                    unit: String(localized: "entries"))),
                 SettingsItem(
@@ -59,8 +63,9 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "recordFailedQueries",
                     title: String(localized: "Record failed queries"),
-                    caption: String(localized: "A query that fails leaves a row in the history, with the server's message, beside the ones that worked. The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded."),
+                    caption: String(localized: "A query that fails leaves a row in the history, with the server's message, beside the ones that worked."),
                     icon: "exclamationmark.triangle",
+                    help: String(localized: "The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded."),
                     kind: .toggle(.settings(\.history.recordFailedQueries))),
                 SettingsItem(
                     id: "maximumStoredEntries",

@@ -18,32 +18,36 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "privacyNote",
                     title: String(localized: "Nothing leaves this Mac."),
-                    caption: String(localized: "Pharos has no account, no telemetry and no analytics. Everything below is written to your own disk and read by your own Mac."),
+                    caption: String(localized: "Pharos has no account, no telemetry and no analytics."),
                     icon: "lock.shield",
+                    help: String(localized: "Everything below is written to your own disk and read by your own Mac."),
                     kind: .display),
             ]),
             SettingsSection(title: String(localized: "Spotlight"), items: [
                 SettingsItem(
                     id: "indexSavedQueriesInSpotlight",
                     title: String(localized: "Find saved queries in Spotlight"),
-                    caption: String(localized: "Puts each saved query's name, folder and SQL in the system index, so Spotlight opens it. Turning this off removes them again."),
+                    caption: String(localized: "Puts each saved query's name, folder and SQL in the system index, so Spotlight opens it."),
                     icon: "magnifyingglass",
+                    help: String(localized: "Turning this off removes them again."),
                     kind: .toggle(.settings(\.security.indexSavedQueriesInSpotlight))),
             ]),
             SettingsSection(title: String(localized: "Passwords"), items: [
                 SettingsItem(
                     id: "clearPasswordCacheOnSleep",
                     title: String(localized: "Forget typed passwords when this Mac sleeps"),
-                    caption: String(localized: "A password you type into a connection that does not remember it is held until Pharos quits. This drops it when the Mac goes to sleep instead, so you are asked again on waking. Passwords kept in your keychain are not affected."),
+                    caption: String(localized: "A password you type into a connection that does not remember it is held until Pharos quits."),
                     icon: "moon.zzz",
+                    help: String(localized: "This drops it when the Mac goes to sleep instead, so you are asked again on waking. Passwords kept in your keychain are not affected."),
                     kind: .toggle(.settings(\.security.clearPasswordCacheOnSleep))),
             ]),
             SettingsSection(title: String(localized: "Diagnostics"), items: [
                 SettingsItem(
                     id: "collectPerformanceMetrics",
                     title: String(localized: "Collect performance reports"),
-                    caption: String(localized: "Writes the system's daily hang and performance payloads to ~/Library/Logs/Pharos, for you to read or attach to a bug report. Nothing is uploaded."),
+                    caption: String(localized: "Writes the system's daily hang and performance payloads to ~/Library/Logs/Pharos, for you to read or attach to a bug report."),
                     icon: "waveform.path.ecg",
+                    help: String(localized: "Nothing is uploaded."),
                     kind: .toggle(.settings(\.security.collectPerformanceMetrics))),
             ]),
         ]

@@ -18,15 +18,17 @@ final class TagsSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "maximumColourSegments",
                     title: String(localized: "Colour bands per row"),
-                    caption: String(localized: "How many tag colours the bar at the left edge of a row may show. A row with more tags is not hiding them: the tooltip and the Inspector always list every one."),
+                    caption: String(localized: "How many tag colours the bar at the left edge of a row may show."),
                     icon: "square.stack.3d.up",
+                    help: String(localized: "A row with more tags is not hiding them: the tooltip and the Inspector always list every one."),
                     kind: .stepper(.settings(\.tags.maximumColourSegments), range: 1...6,
                                    unit: String(localized: "bands"))),
                 SettingsItem(
                     id: "cellTintOpacity",
                     title: String(localized: "Cell tint"),
-                    caption: String(localized: "How strongly a matched cell is washed with its tag's colour. The wash always stays lighter than the find match you are looking at, so the two can be told apart."),
+                    caption: String(localized: "How strongly a matched cell is washed with its tag's colour."),
                     icon: "drop",
+                    help: String(localized: "The wash always stays lighter than the find match you are looking at, so the two can be told apart."),
                     kind: .slider(.settings(\.tags.cellTintOpacity), range: 0.05...0.6)),
             ]),
         ]
