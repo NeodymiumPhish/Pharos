@@ -1982,6 +1982,7 @@ mod live_clone_tests {
     const OWN_ROWS: &str = "pharos_clone_own_rows";
     const WHOLE_TREE: &str = "pharos_clone_whole_tree";
     const STANDALONE: &str = "pharos_clone_standalone";
+    const SHAPE: &str = "pharos_clone_shape";
 
     fn url() -> String {
         std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
@@ -2174,6 +2175,63 @@ mod live_clone_tests {
             assert_eq!(result.rows_copied, Some(4), "the root's row and the leaf's three");
 
             drop_fixture(&pool, WHOLE_TREE).await;
+        });
+    }
+
+    /// The shape that reaches the sheet, read from a real server.
+    ///
+    /// The unit tests pin what `compose_table_ddl` does with parts; this pins
+    /// that the parts are right — the sheet disables its checkbox and shows
+    /// its radios on the strength of these three fields.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_ddl_reports_the_shape_the_sheet_reads() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, SHAPE).await;
+            let state = state_with(&pool, "live-clone-shape");
+
+            let ddl_of = |table: &str| {
+                let state = &state;
+                let table = table.to_string();
+                async move {
+                    generate_table_ddl("live-clone-shape".into(), SHAPE.into(), table, state)
+                        .await
+                        .expect("generate the DDL")
+                }
+            };
+
+            // The declarative parent: a key, no INHERITS children.
+            let ev = ddl_of("ev").await;
+            assert_eq!(ev.shape.partition_by.as_deref(), Some("RANGE (seen)"));
+            assert!(!ev.shape.has_child_tables, "a partition is not an INHERITS child");
+            assert!(ev.shape.inherits_from.is_empty());
+
+            // The inheritance root: children, no key, no parents.
+            let lg = ddl_of("lg").await;
+            assert_eq!(lg.shape.partition_by, None);
+            assert!(lg.shape.has_child_tables, "the root has children");
+            assert!(lg.shape.inherits_from.is_empty());
+
+            // A middle node: both a parent and a child.
+            let mid = ddl_of("lg_2013").await;
+            assert!(mid.shape.has_child_tables, "lg_201301 hangs off it");
+            assert_eq!(
+                mid.shape.inherits_from,
+                vec![crate::commands::ddl::QualifiedName {
+                    schema: SHAPE.to_string(),
+                    table: "lg".to_string(),
+                }],
+                "named raw, for the sheet to escape per part"
+            );
+
+            // A leaf: nothing either way, so the sheet shows no chrome.
+            let leaf = ddl_of("lg_201301").await;
+            assert!(!leaf.shape.has_child_tables);
+            assert_eq!(leaf.shape.partition_by, None);
+
+            drop_fixture(&pool, SHAPE).await;
         });
     }
 
