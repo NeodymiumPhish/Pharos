@@ -55,12 +55,16 @@ struct TableInfo: Codable {
     let partitionCount: Int64?
     /// Which mechanism gives this row its children, when it has any.
     let partitionMechanism: PartitionMechanism?
+    /// True when other tables INHERIT from this one, whatever the Navigator
+    /// is set to show. `TRUNCATE` has no `ONLY`, so it empties every one of
+    /// them: the confirmation reads this, not the display fact above.
+    let hasChildTables: Bool
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
 
     enum CodingKeys: String, CodingKey {
         case name, schemaName, tableType, rowCountEstimate, totalSizeBytes
         case isPartitioned, isPartition, partitionStrategy, partitionKey, partitionBound, partitionCount
-        case partitionMechanism
+        case partitionMechanism, hasChildTables
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +87,7 @@ struct TableInfo: Codable {
         // not fail the whole table-list decode.
         partitionMechanism = (try c.decodeIfPresent(String.self, forKey: .partitionMechanism))
             .flatMap(PartitionMechanism.init(rawValue:))
+        hasChildTables = try c.decodeIfPresent(Bool.self, forKey: .hasChildTables) ?? false
     }
 
     /// Memberwise init for tests / in-code construction.
@@ -91,13 +96,15 @@ struct TableInfo: Codable {
          isPartitioned: Bool = false, isPartition: Bool = false,
          partitionStrategy: PartitionStrategy? = nil, partitionKey: String? = nil,
          partitionBound: String? = nil, partitionCount: Int64? = nil,
-         partitionMechanism: PartitionMechanism? = nil) {
+         partitionMechanism: PartitionMechanism? = nil,
+         hasChildTables: Bool = false) {
         self.name = name; self.schemaName = schemaName; self.tableType = tableType
         self.rowCountEstimate = rowCountEstimate; self.totalSizeBytes = totalSizeBytes
         self.isPartitioned = isPartitioned; self.isPartition = isPartition
         self.partitionStrategy = partitionStrategy; self.partitionKey = partitionKey
         self.partitionBound = partitionBound; self.partitionCount = partitionCount
         self.partitionMechanism = partitionMechanism
+        self.hasChildTables = hasChildTables
     }
 }
 

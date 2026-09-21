@@ -42,8 +42,12 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     }
 
     private func tableNameFromNode(_ node: SchemaTreeNode) -> String? {
+        tableInfoFromNode(node)?.name
+    }
+
+    private func tableInfoFromNode(_ node: SchemaTreeNode) -> TableInfo? {
         switch node.kind {
-        case .table(let t), .view(let t), .partition(let t): return t.name
+        case .table(let t), .view(let t), .partition(let t): return t
         default: return nil
         }
     }
@@ -305,9 +309,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         }
 
         if stateManager.settings.query.confirmDestructive {
+            // TRUNCATE carries no ONLY, so a table other tables inherit from
+            // takes its whole tree with it. The dialog has to say so.
+            let inherited = tableInfoFromNode(node)?.hasChildTables ?? false
             showDestructiveConfirmation(
                 title: DestructiveConfirmationText.truncateConfirmTitle(table: tableName),
-                message: "This will permanently delete all rows in the table. This cannot be undone.",
+                message: DestructiveConfirmationText.truncateConfirmMessage(
+                    hasInheritedChildren: inherited),
                 buttonTitle: "Truncate",
                 onConfirm: execute
             )

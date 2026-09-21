@@ -235,6 +235,16 @@ func runTests() {
                 "Save changes to \"<U+202E>x\"?",
                 "unsaved-changes title trims before it escapes")
 
+    // The truncate body tells the truth about an inheritance tree: the
+    // statement has no ONLY, so it empties every descendant table.
+    expectEqual(DestructiveConfirmationText.truncateConfirmMessage(hasInheritedChildren: false),
+                "This will permanently delete all rows in the table. This cannot be undone.",
+                "a plain table keeps the wording it had")
+    let tree = DestructiveConfirmationText.truncateConfirmMessage(hasInheritedChildren: true)
+    expectEqual(tree.contains("the whole tree"), true, "a parent's body names the tree")
+    expectEqual(tree.contains("not only this table's"), true, "and says what that means")
+    expectEqual(tree.contains("cannot be undone"), true, "and still says it cannot be undone")
+
     if failures == 0 { print("\nAll tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)

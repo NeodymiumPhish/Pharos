@@ -962,6 +962,8 @@ pub(crate) fn tables_sql(escaped_schema: &str, inheritance: bool) -> String {
                 WHEN c.relkind IN ('r', 'm') THEN pg_total_relation_size(c.oid) \
                 ELSE NULL \
             END as total_size_bytes, \
+            (c.relkind <> 'p' AND EXISTS ( \
+                SELECT 1 FROM pg_catalog.pg_inherits ci WHERE ci.inhparent = c.oid)) as has_child_tables, \
             {parent_test} as is_partitioned, \
             CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
@@ -1041,6 +1043,7 @@ pub async fn get_tables(
                     partition_bound: None,
                     partition_count: row.try_get("part_count").ok().flatten(),
                     partition_mechanism,
+                    has_child_tables: row.try_get("has_child_tables").unwrap_or(false),
                 }
             })
             .collect();
@@ -1080,6 +1083,7 @@ pub async fn get_tables(
                 partition_bound: None,
                 partition_count: None,
                 partition_mechanism: None,
+                has_child_tables: false,
             })
         })
         .collect();
@@ -1182,6 +1186,8 @@ pub(crate) fn partitions_sql(
                 ELSE NULL \
             END as total_size_bytes, \
             pg_get_expr(c.relpartbound, c.oid) as part_bound, \
+            (c.relkind <> 'p' AND EXISTS ( \
+                SELECT 1 FROM pg_catalog.pg_inherits ci WHERE ci.inhparent = c.oid)) as has_child_tables, \
             {parent_test} as is_partitioned, \
             CASE WHEN c.relkind = 'p' THEN pt2.partstrat::text ELSE NULL END as part_strat, \
             CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE NULL END as part_key, \
@@ -1250,6 +1256,7 @@ pub async fn get_partitions(
                 } else {
                     Some(PartitionMechanism::Inheritance)
                 },
+                has_child_tables: row.try_get("has_child_tables").unwrap_or(false),
             }
         })
         .collect();
@@ -1700,11 +1707,34 @@ pub async fn get_table_ddl_parts(
     let part_rows = sqlx::raw_sql(&part_sql).fetch_all(pool).await?;
     let partition_by: Option<String> = part_rows.into_iter().next().and_then(|row| raw_str(&row, "def"));
 
+    // The tables this one INHERITS from, in the order PostgreSQL merges
+    // their columns. Legacy partitioning is built out of these, and without
+    // the clause the DDL of a child reads as an unrelated standalone table.
+    let inherits_sql = format!(
+        "SELECT pn.nspname AS parent_schema, p.relname AS parent_name \
+         FROM pg_catalog.pg_inherits i \
+         JOIN pg_catalog.pg_class c ON c.oid = i.inhrelid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
+         JOIN pg_catalog.pg_class p ON p.oid = i.inhparent \
+         JOIN pg_catalog.pg_namespace pn ON pn.oid = p.relnamespace \
+         WHERE n.nspname = '{}' AND c.relname = '{}' AND c.relispartition = false \
+         ORDER BY i.inhseqno",
+        escaped_schema, escaped_table
+    );
+    let inherits_rows = sqlx::raw_sql(&inherits_sql).fetch_all(pool).await?;
+    let inherits: Vec<(String, String)> = inherits_rows
+        .into_iter()
+        .filter_map(|row| {
+            Some((raw_str(&row, "parent_schema")?, raw_str(&row, "parent_name")?))
+        })
+        .collect();
+
     Ok(TableDdlParts {
         columns,
         constraints,
         index_defs,
         partition_by,
+        inherits,
     })
 }
 
@@ -3008,6 +3038,13 @@ mod live_inheritance_tests {
             let root = tables.iter().find(|t| t.name == "logs").unwrap();
             assert!(!root.is_partitioned, "nothing is a parent while the flag is off");
             assert_eq!(root.row_count_estimate, Some(0), "the root holds no rows itself");
+            // TRUNCATE would still empty the whole tree, so this must be
+            // true whichever way the setting points.
+            assert!(root.has_child_tables, "the truncate warning does not read the setting");
+            let leaf = tables.iter().find(|t| t.name == "logs_20130101").unwrap();
+            assert!(!leaf.has_child_tables, "a leaf takes nothing with it");
+            let stranger = tables.iter().find(|t| t.name == "unrelated").unwrap();
+            assert!(!stranger.has_child_tables);
 
             drop_tree(&pool, FLAT).await;
         });
@@ -3191,6 +3228,10 @@ mod live_inheritance_tests {
 
             // The declarative tree is exactly as it was.
             let events = tables.iter().find(|t| t.name == "events").unwrap();
+            assert!(
+                !events.has_child_tables,
+                "a declarative parent's partitions are not INHERITS children"
+            );
             assert_eq!(events.table_type, TableType::PartitionedTable);
             assert_eq!(events.partition_mechanism, Some(PartitionMechanism::Declarative));
             assert_eq!(events.partition_strategy, Some(PartitionStrategy::Range));
@@ -3225,10 +3266,27 @@ mod tables_sql_tests {
         assert!(sql.contains("AND c.relispartition = false"), "{sql}");
         assert!(sql.contains("AND c.relkind IN ('r', 'v', 'm', 'f', 'p')"), "{sql}");
         assert!(sql.ends_with("c.relname"), "the order is kind then name: {sql}");
+        // The one thing the off shape gained: TRUNCATE has no ONLY, so the
+        // confirmation must know about child tables whatever the Navigator
+        // is set to show. It is an EXISTS, not the walk.
+        assert!(sql.contains("as has_child_tables"), "{sql}");
         // Not one trace of the inheritance walk while the setting is off.
         assert!(!sql.contains("inh_"), "{sql}");
         assert!(!sql.contains("RECURSIVE"), "{sql}");
         assert!(!sql.contains("desc_count"), "{sql}");
+    }
+
+    /// The danger is not a display fact: it is there whichever way the
+    /// setting points, and a declarative parent is not an INHERITS parent.
+    #[test]
+    fn the_child_table_test_is_in_both_shapes_and_skips_declarative() {
+        for on in [false, true] {
+            let sql = tables_sql("public", on);
+            assert!(
+                sql.contains("(c.relkind <> 'p' AND EXISTS ( SELECT 1 FROM pg_catalog.pg_inherits ci WHERE ci.inhparent = c.oid)) as has_child_tables"),
+                "{sql}"
+            );
+        }
     }
 
     #[test]
@@ -3328,6 +3386,7 @@ mod partitions_sql_tests {
         let sql = partitions_sql("public", "logs", false);
         assert!(sql.starts_with("SELECT c.relname as table_name,"), "{sql}");
         assert!(sql.contains("(c.relkind = 'p') as is_partitioned"), "{sql}");
+        assert!(sql.contains("as has_child_tables"), "the truncate warning needs it: {sql}");
         assert!(sql.contains("WHERE pn.nspname = 'public' AND parent.relname = 'logs'"), "{sql}");
         assert!(!sql.contains("RECURSIVE"), "{sql}");
         assert!(!sql.contains("desc_count"), "{sql}");

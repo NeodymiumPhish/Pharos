@@ -82,6 +82,14 @@ pub struct TableInfo {
     /// `is_partitioned`.
     #[serde(default)]
     pub partition_mechanism: Option<PartitionMechanism>,
+    /// True when other tables INHERIT from this one — whatever Settings ▸
+    /// Navigator ▸ Group inherited tables says, because this is not a
+    /// display fact. `TRUNCATE` carries no `ONLY`, so it empties every one
+    /// of them, and the confirmation has to say so even when the Navigator
+    /// is listing the tree flat. A declarative parent is excluded: its
+    /// partitions are not INHERITS children.
+    #[serde(default)]
+    pub has_child_tables: bool,
 }
 
 /// Minimal parent→child pairing used to populate the sidebar filter index
@@ -199,6 +207,7 @@ mod tests {
             partition_bound: None,
             partition_count: Some(2),
             partition_mechanism: Some(PartitionMechanism::Inheritance),
+            has_child_tables: true,
         };
         let json = serde_json::to_string(&table).unwrap();
         assert!(json.contains("\"partitionMechanism\":\"inheritance\""), "{json}");
