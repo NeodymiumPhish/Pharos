@@ -209,6 +209,30 @@ private extension NSView {
     }
 }
 
+@MainActor
+private func testDisplayRowKeepsItsInfoButton() {
+    // The builder used to attach the info button only when the row had a
+    // control, so `help:` on a display row was silently dropped — and a
+    // display row, which reports rather than asks, is the kind most likely to
+    // need the long version of its caption.
+    let builder = SettingsFormBuilder()
+    _ = builder.buildSectionViews([
+        SettingsSection(title: "S", items: [
+            SettingsItem(id: "count", title: "Stored queries",
+                         caption: "How many are kept.",
+                         help: "The long version.", kind: .display),
+        ]),
+    ], paneId: "library")
+    guard let row = builder.row(for: "count") else {
+        failures += 1
+        print("FAIL the display row was built")
+        return
+    }
+    let info = row.control as? SettingsInfoButton
+    expectTrue(info != nil, "a display row with help gets an info button in its slot")
+    expectEqual(info?.help, "The long version.", "…carrying the help text")
+}
+
 func runTests() {
     _ = NSApplication.shared
     MainActor.assumeIsolated {
@@ -220,6 +244,7 @@ func runTests() {
         testOutOfRangeTextIsIgnored()
         testAccessibility()
         testFooterButtonsTrailing()
+        testDisplayRowKeepsItsInfoButton()
     }
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

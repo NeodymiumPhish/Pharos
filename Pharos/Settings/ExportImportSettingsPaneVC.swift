@@ -48,8 +48,9 @@ final class ExportImportSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "batchSize",
                     title: String(localized: "Rows per batch"),
-                    caption: String(localized: "How many rows an export fetches per round trip. A larger batch is fewer round trips and more memory at once. 5000 is what every export used before this was a setting."),
+                    caption: String(localized: "How many rows an export fetches per round trip."),
                     icon: "square.stack.3d.down.right",
+                    help: String(localized: "A larger batch is fewer round trips and more memory at once. 5000 is what every export used before this was a setting."),
                     kind: .stepper(.settings(\.dataExport.batchSize), range: 100...100_000,
                                    unit: String(localized: "rows"))),
             ]),
@@ -58,8 +59,9 @@ final class ExportImportSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "delimiter",
                     title: String(localized: "Delimiter"),
-                    caption: String(localized: "What separates fields in a CSV file, on the way out and on the way in. A TSV export always uses a tab, whatever this says."),
+                    caption: String(localized: "What separates fields in a CSV file, on the way out and on the way in."),
                     icon: "text.justify.left",
+                    help: String(localized: "A TSV export always uses a tab, whatever this says."),
                     kind: .popup(.cases(\.dataExport.dialect.delimiter, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "customDelimiter",
@@ -76,20 +78,23 @@ final class ExportImportSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "quoteStyle",
                     title: String(localized: "Quote fields"),
-                    caption: String(localized: "Only when needed quotes a field that holds the delimiter, a quote or a line break — this is what Pharos has always written. Never writes nothing around a field, so it suits only data that cannot hold any of those."),
+                    caption: String(localized: "Only when needed quotes a field that holds the delimiter, a quote or a line break — this is what Pharos has always written."),
                     icon: "quote.bubble",
+                    help: String(localized: "Never writes nothing around a field, so it suits only data that cannot hold any of those."),
                     kind: .popup(.cases(\.dataExport.dialect.quoteStyle, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "nullLiteral",
                     title: String(localized: "NULL is written as"),
-                    caption: String(localized: "What a NULL becomes in an exported file, and what a field must equal in an imported one to become a real NULL. Empty is what Pharos has always used."),
+                    caption: String(localized: "What a NULL becomes in an exported file, and what a field must equal in an imported one to become a real NULL."),
                     icon: "questionmark.square.dashed",
+                    help: String(localized: "Empty is what Pharos has always used."),
                     kind: .text(.settings(\.dataExport.dialect.nullLiteral), width: 120)),
                 SettingsItem(
                     id: "encoding",
                     title: String(localized: "Encoding"),
-                    caption: String(localized: "UTF-8 is what Pharos has always written. UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says."),
+                    caption: String(localized: "UTF-8 is what Pharos has always written."),
                     icon: "textformat",
+                    help: String(localized: "UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says."),
                     kind: .popup(.cases(\.dataExport.dialect.encoding, title: { $0.displayLabel }))),
             ]),
 
@@ -97,14 +102,16 @@ final class ExportImportSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "onError",
                     title: String(localized: "When a row fails"),
-                    caption: String(localized: "Stop and undo everything is what Pharos has always done: one refused row and the whole file is rolled back. Skip the row runs every row inside its own savepoint, so a bad row is undone on its own and the import carries on; the alert afterwards names how many were skipped and why."),
+                    caption: String(localized: "Stop and undo everything is what Pharos has always done: one refused row and the whole file is rolled back."),
                     icon: "exclamationmark.triangle",
+                    help: String(localized: "Skip the row runs every row inside its own savepoint, so a bad row is undone on its own and the import carries on; the alert afterwards names how many were skipped and why."),
                     kind: .popup(.cases(\.dataImport.onError, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "commitEvery",
                     title: String(localized: "Commit every"),
-                    caption: String(localized: "Rows per transaction. 0 is one transaction for the whole file, which is what Pharos has always done — nothing lands until everything does. A number commits as it goes, so the batches that finished stay on the server even if a later row stops the import."),
+                    caption: String(localized: "Rows per transaction."),
                     icon: "checkmark.seal",
+                    help: String(localized: "0 is one transaction for the whole file, which is what Pharos has always done — nothing lands until everything does. A number commits as it goes, so the batches that finished stay on the server even if a later row stops the import."),
                     kind: .stepper(.settings(\.dataImport.commitEvery), range: 0...1_000_000,
                                    unit: String(localized: "rows"))),
                 SettingsItem(

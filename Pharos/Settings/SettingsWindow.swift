@@ -1,8 +1,9 @@
 import AppKit
 
 /// The Settings window itself. One remembered frame for every pane, no
-/// minimize (HIG: dim it), no zoom, no toolbar: the detail header draws its
-/// own title row under a transparent title bar.
+/// minimize (HIG: dim it), no zoom, and a real toolbar: Back, Forward and the
+/// pane title live in the TITLE BAR, as they do in Xcode and System Settings.
+/// `SettingsToolbarController` builds it.
 ///
 /// The only keys it claims are plain ⌘[ and ⌘] for Back and Forward, and only
 /// while it is key — the View menu owns ⌘⇧[ / ⌘⇧] for the editor tabs.
@@ -33,9 +34,16 @@ final class SettingsWindow: NSWindow {
         // opened on demand, and its frame is remembered by the autosave name.
         isRestorable = false
         tabbingMode = .disallowed
+        // The toolbar draws the pane's name, so the window's own centred title
+        // would say it twice. `title` itself is still set on every navigation:
+        // the Window menu and the accessibility tree read it.
         titleVisibility = .hidden
-        titlebarAppearsTransparent = true
-        titlebarSeparatorStyle = .none
+        // Matches the main window (`MainWindowController`), which is the point
+        // of the exercise. `titlebarAppearsTransparent` and a `.none`
+        // separator are deliberately NOT set: both existed to hide a title bar
+        // that had nothing in it, and with a toolbar they would stop the
+        // separator appearing when content scrolls under it.
+        toolbarStyle = .unified
         standardWindowButton(.zoomButton)?.isEnabled = false
         setFrameAutosaveName(Self.frameAutosaveName)
     }

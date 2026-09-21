@@ -19,8 +19,11 @@ enum SettingsFormScroll {
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsetsZero
+        // The scroll view insets itself by the window's titlebar and toolbar,
+        // which is what lets a pane scroll UNDER them. Its host must therefore
+        // pin it to the window's top edge, not to the safe area, or the inset
+        // lands twice.
+        scroll.automaticallyAdjustsContentInsets = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         let document = SettingsFormDocumentView()
