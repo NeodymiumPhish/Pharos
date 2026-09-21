@@ -27,10 +27,20 @@ class SettingsFormPaneVC: SettingsPaneVC {
     /// `get`, which `SettingsBinding.settings(_:)` does.
     var sections: [SettingsSection] { [] }
 
+    /// Views stacked ABOVE the first section — a pane that opens with a hero
+    /// rather than with a row. Empty for every pane but About.
+    ///
+    /// A hero is not a section: it has no header, no plate and no rows, so it
+    /// cannot be described as a `SettingsSection`. It needs no container of
+    /// its own either, because `SettingsFormScroll.makePane` stacks whatever
+    /// views it is given with the pane's insets and spacing. Read once, in
+    /// `loadView`, like `sections`.
+    var headerViews: [NSView] { [] }
+
     override func loadView() {
         builder.isPopulating = { [unowned self] in self.isPopulating }
         let sectionViews = builder.buildSectionViews(sections, paneId: paneId.rawValue)
-        view = SettingsFormScroll.makePane(sections: sectionViews)
+        view = SettingsFormScroll.makePane(sections: headerViews + sectionViews)
         view.setAccessibilityIdentifier("settings.form.\(paneId.rawValue)")
         reloadFromSettings()
 
