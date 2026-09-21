@@ -51,6 +51,25 @@ func runTests() {
         "decode inheritsFrom, unquoted and unescaped"
     )
 
+    expectTrue(parent.shape.partitionOf == nil, "a parent is not a partition of anything")
+
+    // A declarative partition's shape. `partitionOf` is the key that breaks
+    // silently: it is Optional, so a misspelling on either side decodes to
+    // nil and the clone note simply never appears.
+    let partitionJSON = """
+    {"columnsOnly":"c","withConstraints":"c","full":"c","shape":{\
+    "partitionBy":null,"inheritsFrom":[],"hasChildTables":false,\
+    "partitionOf":{"schema":"archive","table":"events"}}}
+    """.data(using: .utf8)!
+    let partition = try! JSONDecoder().decode(TableDDL.self, from: partitionJSON)
+    expectTrue(
+        partition.shape.partitionOf == QualifiedTableName(schema: "archive", table: "events"),
+        "decode partitionOf, unquoted and unescaped"
+    )
+    // A declarative partition reaches its parent by ALTER TABLE, not INHERITS.
+    expectTrue(partition.shape.inheritsFrom.isEmpty, "a partition lists no INHERITS parents")
+    expectTrue(!partition.shape.isPartitionedParent, "a leaf partition is not a partitioned parent")
+
     // Level → variant mapping.
     expectEqual(DDLDetailLevel.columns.ddl(from: decoded), "CT cols", "columns → columnsOnly")
     expectEqual(DDLDetailLevel.constraints.ddl(from: decoded), "CT cons", "constraints → withConstraints")
