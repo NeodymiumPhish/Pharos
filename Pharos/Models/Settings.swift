@@ -841,6 +841,14 @@ struct NavigatorSettings: Codable, Equatable {
     var objectSort: ObjectSortMode = .kindThenName
     /// The order the Partitions group lists a table's partitions in.
     var partitionSort: PartitionSortMode = .name
+    /// Whether a table joined to others by `INHERITS` reads as a partitioned
+    /// table: the children move under the parent, and the parent's row and
+    /// size figures become the sum over the whole tree. Off is what the
+    /// Navigator has always shown — every table in the tree, flat, because
+    /// Pharos tested `relkind = 'p'` and legacy inheritance does not set it.
+    /// Unlike `showLeafPartitions`, this one carries the Partitions folder on
+    /// its own: without it the children would be both hidden and unreachable.
+    var inheritanceGrouping: Bool = false
     /// Whether the default schema is opened for you when the tree is built.
     var autoExpandDefaultSchema: Bool = true
     /// Most children that schema may have and still be opened. Above it,

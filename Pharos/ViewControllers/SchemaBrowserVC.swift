@@ -52,6 +52,7 @@ class SchemaBrowserVC: NSViewController {
         let schemaSort: SchemaSortMode
         let objectSort: ObjectSortMode
         let partitionSort: PartitionSortMode
+        let inheritanceGrouping: Bool
 
         init(_ settings: AppSettings) {
             showLeafPartitions = settings.showLeafPartitions
@@ -59,6 +60,7 @@ class SchemaBrowserVC: NSViewController {
             schemaSort = settings.navigator.schemaSort
             objectSort = settings.navigator.objectSort
             partitionSort = settings.navigator.partitionSort
+            inheritanceGrouping = settings.navigator.inheritanceGrouping
         }
     }
 
