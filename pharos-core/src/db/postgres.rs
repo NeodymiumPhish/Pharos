@@ -1607,6 +1607,53 @@ pub async fn get_table_constraints(
     Ok(constraints)
 }
 
+/// The two facts about a table's shape that change what a clone of it must be:
+/// whether it is a declarative partitioned parent, and whether anything
+/// INHERITS from it.
+#[derive(Debug, Clone, Default)]
+pub struct TableShapeFacts {
+    /// `pg_get_partkeydef`, e.g. "RANGE (created_at)". `Some` only for a
+    /// declarative parent (`relkind = 'p'`).
+    pub partition_by: Option<String>,
+    /// Has at least one INHERITS child. False for a declarative parent, whose
+    /// partitions are attached with ALTER TABLE, not INHERITS.
+    pub has_child_tables: bool,
+}
+
+/// Read a table's shape facts in one `pg_class` row.
+///
+/// Both callers need the partition key and neither wants a second round trip:
+/// `get_table_ddl_parts` renders it, and `clone_table` refuses to copy rows
+/// into a partitionless copy because of it. The child test is the SAME
+/// expression `tables_sql` uses for the TRUNCATE warning, so the two cannot
+/// drift apart.
+pub async fn get_table_shape_facts(
+    pool: &PgPool,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<TableShapeFacts, sqlx::Error> {
+    let sql = format!(
+        "SELECT pg_get_partkeydef(t.oid) AS part_key, \
+            (t.relkind <> 'p' AND EXISTS ( \
+                SELECT 1 FROM pg_catalog.pg_inherits ci WHERE ci.inhparent = t.oid)) AS has_children \
+         FROM pg_class t \
+         JOIN pg_namespace n ON n.oid = t.relnamespace \
+         WHERE n.nspname = '{}' AND t.relname = '{}'",
+        escape_sql_literal(schema_name),
+        escape_sql_literal(table_name)
+    );
+    let rows = sqlx::raw_sql(&sql).fetch_all(pool).await?;
+    Ok(match rows.into_iter().next() {
+        // raw_sql hands every value back in the text format, so a boolean
+        // arrives as "t"/"f" — the same read the columns above use.
+        Some(row) => TableShapeFacts {
+            partition_by: raw_str(&row, "part_key"),
+            has_child_tables: raw_str(&row, "has_children").as_deref() == Some("t"),
+        },
+        None => TableShapeFacts::default(),
+    })
+}
+
 /// Read the raw parts (columns, constraints, non-constraint indexes) needed to
 /// reconstruct a table's CREATE TABLE DDL.
 pub async fn get_table_ddl_parts(
@@ -1696,16 +1743,9 @@ pub async fn get_table_ddl_parts(
         .filter_map(|row| raw_str(&row, "def"))
         .collect();
 
-    // Partition clause (NULL for non-partitioned tables).
-    let part_sql = format!(
-        "SELECT pg_get_partkeydef(t.oid) AS def \
-         FROM pg_class t \
-         JOIN pg_namespace n ON n.oid = t.relnamespace \
-         WHERE n.nspname = '{}' AND t.relname = '{}'",
-        escaped_schema, escaped_table
-    );
-    let part_rows = sqlx::raw_sql(&part_sql).fetch_all(pool).await?;
-    let partition_by: Option<String> = part_rows.into_iter().next().and_then(|row| raw_str(&row, "def"));
+    // Partition clause (NULL for non-partitioned tables) and whether anything
+    // inherits from this table. Both come from the one pg_class row.
+    let shape = get_table_shape_facts(pool, schema_name, table_name).await?;
 
     // The tables this one INHERITS from, in the order PostgreSQL merges
     // their columns. Legacy partitioning is built out of these, and without
@@ -1733,8 +1773,9 @@ pub async fn get_table_ddl_parts(
         columns,
         constraints,
         index_defs,
-        partition_by,
+        partition_by: shape.partition_by,
         inherits,
+        has_child_tables: shape.has_child_tables,
     })
 }
 

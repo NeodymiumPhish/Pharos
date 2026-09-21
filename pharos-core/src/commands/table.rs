@@ -143,6 +143,23 @@ fn map_data_type_for_cast(data_type: &str) -> &str {
 // Clone Table
 // ============================================================================
 
+/// Which rows a clone takes when the source has descendants.
+///
+/// The copy is always a standalone table, so on a parent these two are very
+/// different amounts of data: `SELECT *` on an inheritance parent reads every
+/// descendant, which on a 4,700-table archive is the whole archive. The
+/// default is the small, obvious one; the other is offered by name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CloneRowScope {
+    /// `FROM ONLY` — the rows stored in this table itself.
+    #[default]
+    OwnRows,
+    /// No `ONLY` — this table's rows and every descendant's, flattened into
+    /// the copy.
+    WholeTree,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneTableOptions {
@@ -151,6 +168,10 @@ pub struct CloneTableOptions {
     pub target_schema: String,
     pub target_table: String,
     pub include_data: bool,
+    /// Ignored unless `include_data`. `#[serde(default)]` so the safe scope is
+    /// what an older or partial caller gets.
+    #[serde(default)]
+    pub row_scope: CloneRowScope,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +179,77 @@ pub struct CloneTableOptions {
 pub struct CloneTableResult {
     pub success: bool,
     pub rows_copied: Option<u64>,
+}
+
+/// Build the CREATE statement for a clone.
+///
+/// `LIKE ... INCLUDING ALL` copies columns, constraints, indexes and defaults,
+/// but it carries NEITHER `PARTITION BY` nor `INHERITS`, so a clone of a
+/// parent came out flat. `partition_by` — `pg_get_partkeydef` text, as
+/// `render_create_table` in `ddl.rs` also treats it — puts the partition
+/// clause back. Measured on PostgreSQL 16.14: the result is `relkind = 'p'`
+/// with the source's primary key and indexes carried across.
+///
+/// `INHERITS` is deliberately NOT put back. `LIKE` already copies every
+/// column a parent contributed, so the copy is complete, and attaching a new
+/// child to a live tree would change what every query on the source root
+/// returns. A clone must not alter the thing it copies.
+///
+/// Identifiers are interpolated raw because `validate_identifier` has already
+/// held each one to an ASCII whitelist that cannot contain a quote.
+pub(crate) fn build_clone_create_sql(
+    options: &CloneTableOptions,
+    partition_by: Option<&str>,
+) -> String {
+    let partition = match partition_by {
+        Some(key) => format!(" PARTITION BY {}", key),
+        None => String::new(),
+    };
+    format!(
+        r#"CREATE TABLE "{}"."{}" (LIKE "{}"."{}" INCLUDING ALL){}"#,
+        options.target_schema,
+        options.target_table,
+        options.source_schema,
+        options.source_table,
+        partition
+    )
+}
+
+/// Build the INSERT ... SELECT that fills a clone.
+///
+/// `ONLY` is the difference between a table's own rows and its whole tree:
+/// measured on PostgreSQL 16.14, a three-level inheritance parent answered 1
+/// row with it and 4 without. The copy is flat either way, so without `ONLY`
+/// an archive's every descendant lands in one table — which is what the
+/// caller has to ask for by name.
+pub(crate) fn build_clone_insert_sql(options: &CloneTableOptions) -> String {
+    let only = match options.row_scope {
+        CloneRowScope::OwnRows => "ONLY ",
+        CloneRowScope::WholeTree => "",
+    };
+    format!(
+        r#"INSERT INTO "{}"."{}" SELECT * FROM {}"{}"."{}""#,
+        options.target_schema,
+        options.target_table,
+        only,
+        options.source_schema,
+        options.source_table
+    )
+}
+
+/// The message for the one clone that cannot be made to work.
+///
+/// A copy of a partitioned parent is created with no partitions of its own, so
+/// PostgreSQL answers any row with `ERROR: no partition of relation ... found
+/// for row`. Said here, before anything is created, rather than left as a
+/// half-built table and a server error.
+pub(crate) fn partitioned_rows_refusal(options: &CloneTableOptions, partition_by: &str) -> String {
+    format!(
+        "\"{}\".\"{}\" is partitioned by {}: its rows live in its partitions, \
+         and the copy is created with no partitions of its own, so no row can go \
+         into it. Clone the structure without rows, or clone one partition.",
+        options.source_schema, options.source_table, partition_by
+    )
 }
 
 /// Clone a table structure with optional data
@@ -177,16 +269,20 @@ pub async fn clone_table(
     validate_identifier(&options.target_schema)?;
     validate_identifier(&options.target_table)?;
 
-    // Create the table structure using LIKE INCLUDING ALL
-    // This copies columns, constraints, indexes, defaults, etc.
-    let create_sql = format!(
-        r#"CREATE TABLE "{}"."{}" (LIKE "{}"."{}" INCLUDING ALL)"#,
-        options.target_schema,
-        options.target_table,
-        options.source_schema,
-        options.source_table
-    );
+    // The source's shape decides what the copy can be. Read BEFORE anything is
+    // created, so the one impossible combination is refused with nothing left
+    // behind.
+    let shape = postgres::get_table_shape_facts(&pool, &options.source_schema, &options.source_table)
+        .await
+        .map_err(|e| format!("Failed to read the table's shape: {}", e))?;
 
+    if options.include_data {
+        if let Some(key) = &shape.partition_by {
+            return Err(partitioned_rows_refusal(&options, key));
+        }
+    }
+
+    let create_sql = build_clone_create_sql(&options, shape.partition_by.as_deref());
     sqlx::query(&create_sql)
         .execute(&pool)
         .await
@@ -196,14 +292,7 @@ pub async fn clone_table(
 
     // Copy data if requested
     if options.include_data {
-        let insert_sql = format!(
-            "INSERT INTO \"{}\".\"{}\" SELECT * FROM \"{}\".\"{}\"",
-            options.target_schema,
-            options.target_table,
-            options.source_schema,
-            options.source_table
-        );
-
+        let insert_sql = build_clone_insert_sql(&options);
         let result = sqlx::query(&insert_sql)
             .execute(&pool)
             .await
@@ -1775,6 +1864,360 @@ mod live_import_tests {
 
             sqlx::raw_sql("DROP TABLE public.pharos_import_batch").execute(&pool).await.ok();
             remove_csv("pharos_import_batch.csv");
+        });
+    }
+}
+
+/// The clone SQL, built without a server so the two statements that decide
+/// what a copy IS can be read in one place.
+#[cfg(test)]
+mod clone_sql_tests {
+    use super::*;
+
+    fn options() -> CloneTableOptions {
+        CloneTableOptions {
+            source_schema: "archive".into(),
+            source_table: "dns_log".into(),
+            target_schema: "archive".into(),
+            target_table: "dns_log_copy".into(),
+            include_data: false,
+            row_scope: CloneRowScope::OwnRows,
+        }
+    }
+
+    #[test]
+    fn a_plain_table_clones_exactly_as_it_always_did() {
+        assert_eq!(
+            build_clone_create_sql(&options(), None),
+            r#"CREATE TABLE "archive"."dns_log_copy" (LIKE "archive"."dns_log" INCLUDING ALL)"#
+        );
+    }
+
+    #[test]
+    fn a_partitioned_source_carries_its_partition_clause() {
+        // Without this the copy is relkind 'r' — a flat table wearing the
+        // name of an archive's root.
+        assert_eq!(
+            build_clone_create_sql(&options(), Some("RANGE (seen)")),
+            r#"CREATE TABLE "archive"."dns_log_copy" (LIKE "archive"."dns_log" INCLUDING ALL) PARTITION BY RANGE (seen)"#
+        );
+    }
+
+    #[test]
+    fn the_create_never_carries_inherits() {
+        // There is no argument for it on purpose: a copy that joined the
+        // source's tree would change what the source root returns.
+        let sql = build_clone_create_sql(&options(), Some("LIST (region)"));
+        assert!(!sql.contains("INHERITS"), "{}", sql);
+    }
+
+    #[test]
+    fn the_default_row_scope_reads_only_the_table_itself() {
+        assert_eq!(
+            build_clone_insert_sql(&options()),
+            r#"INSERT INTO "archive"."dns_log_copy" SELECT * FROM ONLY "archive"."dns_log""#
+        );
+    }
+
+    #[test]
+    fn the_whole_tree_scope_drops_only_and_nothing_else() {
+        let mut opts = options();
+        opts.row_scope = CloneRowScope::WholeTree;
+        assert_eq!(
+            build_clone_insert_sql(&opts),
+            r#"INSERT INTO "archive"."dns_log_copy" SELECT * FROM "archive"."dns_log""#
+        );
+    }
+
+    #[test]
+    fn own_rows_is_what_a_caller_that_says_nothing_gets() {
+        // The Swift side sends `rowScope`, but a partial or older caller must
+        // not fall into the copy-the-whole-archive branch by omission.
+        let json = r#"{"sourceSchema":"a","sourceTable":"b","targetSchema":"a","targetTable":"c","includeData":true}"#;
+        let opts: CloneTableOptions = serde_json::from_str(json).expect("decode without rowScope");
+        assert_eq!(opts.row_scope, CloneRowScope::OwnRows);
+        assert!(build_clone_insert_sql(&opts).contains("FROM ONLY "));
+    }
+
+    #[test]
+    fn the_scope_crosses_the_ffi_as_the_camel_case_name_swift_spells() {
+        // JSONEncoder.pharos sets no key strategy, so these two strings are
+        // the contract with Swift's `CloneRowScope`.
+        assert_eq!(serde_json::to_string(&CloneRowScope::OwnRows).unwrap(), "\"ownRows\"");
+        assert_eq!(serde_json::to_string(&CloneRowScope::WholeTree).unwrap(), "\"wholeTree\"");
+        let round: CloneRowScope = serde_json::from_str("\"wholeTree\"").expect("decode");
+        assert_eq!(round, CloneRowScope::WholeTree);
+    }
+
+    #[test]
+    fn the_refusal_names_the_table_the_key_and_the_way_out() {
+        let text = partitioned_rows_refusal(&options(), "RANGE (seen)");
+        assert!(text.contains("\"archive\".\"dns_log\""), "{}", text);
+        assert!(text.contains("RANGE (seen)"), "{}", text);
+        assert!(text.contains("without rows"), "{}", text);
+        assert!(text.contains("clone one partition"), "{}", text);
+    }
+}
+
+/// Live clone tests against a real PostgreSQL. Ignored by default:
+/// `cargo test --lib live_clone_tests -- --ignored --nocapture`.
+///
+/// These drive the REAL `clone_table`, not a copy of its SQL, so the shape
+/// read, the refusal and the two statements are all under test together.
+/// The default URL is a local Postgres.app; `PHAROS_TEST_DATABASE_URL`
+/// overrides it. ONE SCHEMA PER TEST: `cargo test` runs them on separate
+/// threads, and a shared name means one test drops what another is reading.
+#[cfg(test)]
+mod live_clone_tests {
+    use super::*;
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::Row;
+    use std::time::Duration;
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+    const DECLARATIVE: &str = "pharos_clone_declarative";
+    const REFUSAL: &str = "pharos_clone_refusal";
+    const OWN_ROWS: &str = "pharos_clone_own_rows";
+    const WHOLE_TREE: &str = "pharos_clone_whole_tree";
+    const STANDALONE: &str = "pharos_clone_standalone";
+
+    fn url() -> String {
+        std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
+    }
+
+    async fn live_pool() -> sqlx::PgPool {
+        let u = url();
+        PgPoolOptions::new()
+            .max_connections(4)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&u)
+            .await
+            .unwrap_or_else(|e| panic!("cannot connect to {u}: {e}. Set PHAROS_TEST_DATABASE_URL."))
+    }
+
+    /// A declarative parent with a partition holding rows, and beside it a
+    /// three-level inheritance tree whose root holds one row of its own and
+    /// whose leaves hold three more.
+    async fn build_fixture(pool: &sqlx::PgPool, schema: &str) {
+        let sql = format!(
+            "DROP SCHEMA IF EXISTS {s} CASCADE; \
+             CREATE SCHEMA {s}; \
+             CREATE TABLE {s}.ev (id bigint, seen timestamptz NOT NULL, note text DEFAULT 'x', \
+                 PRIMARY KEY (id, seen)) PARTITION BY RANGE (seen); \
+             CREATE INDEX ev_note_idx ON {s}.ev (note); \
+             CREATE TABLE {s}.ev_2013 PARTITION OF {s}.ev \
+                 FOR VALUES FROM ('2013-01-01') TO ('2014-01-01'); \
+             INSERT INTO {s}.ev (id, seen) VALUES (1, '2013-06-01'), (2, '2013-07-01'); \
+             CREATE TABLE {s}.lg (id integer, seen timestamptz); \
+             CREATE TABLE {s}.lg_2013 () INHERITS ({s}.lg); \
+             CREATE TABLE {s}.lg_201301 () INHERITS ({s}.lg_2013); \
+             INSERT INTO {s}.lg (id) VALUES (100); \
+             INSERT INTO {s}.lg_201301 (id) SELECT generate_series(1, 3);",
+            s = schema
+        );
+        sqlx::raw_sql(&sql).execute(pool).await.expect("build the fixture");
+    }
+
+    async fn drop_fixture(pool: &sqlx::PgPool, schema: &str) {
+        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema);
+        sqlx::raw_sql(&sql).execute(pool).await.expect("drop the schema");
+    }
+
+    fn state_with(pool: &sqlx::PgPool, id: &str) -> AppState {
+        let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+        state.add_pool(id.to_string(), pool.clone());
+        state
+    }
+
+    fn clone_options(schema: &str, source: &str, target: &str) -> CloneTableOptions {
+        CloneTableOptions {
+            source_schema: schema.to_string(),
+            source_table: source.to_string(),
+            target_schema: schema.to_string(),
+            target_table: target.to_string(),
+            include_data: false,
+            row_scope: CloneRowScope::OwnRows,
+        }
+    }
+
+    /// Every query below casts its one column to text and names it `v`, so
+    /// the read is the same for all of them. (`raw_sql` hands values back in
+    /// the text format; an uncast internal type such as `relkind` would not
+    /// decode — hence the `||` and `::text` in the queries.)
+    async fn scalar(pool: &sqlx::PgPool, sql: &str) -> String {
+        sqlx::raw_sql(sql)
+            .fetch_one(pool)
+            .await
+            .expect("scalar query")
+            .try_get::<String, _>("v")
+            .expect("one text column named v")
+    }
+
+    /// The bug itself: before this change the copy came out `relkind = 'r'`.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn a_declarative_parents_copy_is_partitioned_the_same_way() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, DECLARATIVE).await;
+            let state = state_with(&pool, "live-clone");
+
+            clone_table("live-clone".into(), clone_options(DECLARATIVE, "ev", "ev_copy"), &state)
+                .await
+                .expect("the clone should succeed");
+
+            let shape = format!(
+                // relkind is pg's internal "char": without ::text the || is
+                // ambiguous ("operator is not unique").
+                "SELECT relkind::text || ' ' || coalesce(pg_get_partkeydef(oid), '-') AS v \
+                 FROM pg_class WHERE oid = '{}.ev_copy'::regclass",
+                DECLARATIVE
+            );
+            assert_eq!(scalar(&pool, &shape).await, "p RANGE (seen)");
+
+            // INCLUDING ALL still carried the key and the plain index across.
+            let idx = format!(
+                "SELECT count(*)::text AS v FROM pg_indexes \
+                 WHERE schemaname = '{}' AND tablename = 'ev_copy'",
+                DECLARATIVE
+            );
+            assert_eq!(scalar(&pool, &idx).await, "2", "pkey and note index");
+
+            // And it has no partitions of its own, which is why rows are refused.
+            let parts = format!(
+                "SELECT count(*)::text AS v FROM pg_inherits \
+                 WHERE inhparent = '{}.ev_copy'::regclass",
+                DECLARATIVE
+            );
+            assert_eq!(scalar(&pool, &parts).await, "0");
+
+            drop_fixture(&pool, DECLARATIVE).await;
+        });
+    }
+
+    /// Rows into a partitioned copy are refused with nothing left behind.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn rows_into_a_partitioned_copy_are_refused_before_anything_is_created() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, REFUSAL).await;
+            let state = state_with(&pool, "live-clone-refusal");
+
+            let mut options = clone_options(REFUSAL, "ev", "ev_copy");
+            options.include_data = true;
+            let err = clone_table("live-clone-refusal".into(), options, &state)
+                .await
+                .expect_err("PostgreSQL can only answer this with an error");
+            println!("refusal: {err}");
+            assert!(err.contains("RANGE (seen)"), "{err}");
+            assert!(err.contains("clone one partition"), "{err}");
+
+            // Refused BEFORE the CREATE: no half-built table is left over.
+            let exists = format!(
+                "SELECT count(*)::text AS v FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                 WHERE n.nspname = '{}' AND c.relname = 'ev_copy'",
+                REFUSAL
+            );
+            assert_eq!(scalar(&pool, &exists).await, "0");
+
+            drop_fixture(&pool, REFUSAL).await;
+        });
+    }
+
+    /// The default takes the parent's own row and leaves the archive alone.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_default_scope_copies_only_the_parents_own_rows() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, OWN_ROWS).await;
+            let state = state_with(&pool, "live-clone-own");
+
+            let mut options = clone_options(OWN_ROWS, "lg", "lg_copy");
+            options.include_data = true;
+            let result = clone_table("live-clone-own".into(), options, &state)
+                .await
+                .expect("the clone should succeed");
+
+            // The tree holds 4; the root itself holds 1.
+            assert_eq!(result.rows_copied, Some(1), "own rows only");
+            let n = format!("SELECT count(*)::text AS v FROM {}.lg_copy", OWN_ROWS);
+            assert_eq!(scalar(&pool, &n).await, "1");
+
+            drop_fixture(&pool, OWN_ROWS).await;
+        });
+    }
+
+    /// The flatten case, which the caller has to ask for by name.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn the_whole_tree_scope_flattens_every_descendant_into_the_copy() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, WHOLE_TREE).await;
+            let state = state_with(&pool, "live-clone-tree");
+
+            let mut options = clone_options(WHOLE_TREE, "lg", "lg_copy");
+            options.include_data = true;
+            options.row_scope = CloneRowScope::WholeTree;
+            let result = clone_table("live-clone-tree".into(), options, &state)
+                .await
+                .expect("the clone should succeed");
+
+            assert_eq!(result.rows_copied, Some(4), "the root's row and the leaf's three");
+
+            drop_fixture(&pool, WHOLE_TREE).await;
+        });
+    }
+
+    /// A copy of a child keeps every inherited column and joins no tree.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn a_childs_copy_is_complete_and_standalone() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool().await;
+            build_fixture(&pool, STANDALONE).await;
+            let state = state_with(&pool, "live-clone-standalone");
+
+            let before = format!(
+                "SELECT count(*)::text AS v FROM pg_inherits WHERE inhparent = '{}.lg_2013'::regclass",
+                STANDALONE
+            );
+            assert_eq!(scalar(&pool, &before).await, "1");
+
+            clone_table(
+                "live-clone-standalone".into(),
+                clone_options(STANDALONE, "lg_201301", "lg_201301_copy"),
+                &state,
+            )
+            .await
+            .expect("the clone should succeed");
+
+            // Every column the parents contributed is present.
+            let cols = format!(
+                "SELECT string_agg(attname, ',' ORDER BY attnum) AS v FROM pg_attribute \
+                 WHERE attrelid = '{}.lg_201301_copy'::regclass AND attnum > 0 AND NOT attisdropped",
+                STANDALONE
+            );
+            assert_eq!(scalar(&pool, &cols).await, "id,seen");
+
+            // And the source tree is exactly as it was: the copy did not join it.
+            assert_eq!(scalar(&pool, &before).await, "1", "no new child");
+            let parents = format!(
+                "SELECT count(*)::text AS v FROM pg_inherits WHERE inhrelid = '{}.lg_201301_copy'::regclass",
+                STANDALONE
+            );
+            assert_eq!(scalar(&pool, &parents).await, "0", "standalone");
+
+            drop_fixture(&pool, STANDALONE).await;
         });
     }
 }

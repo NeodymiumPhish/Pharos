@@ -40,6 +40,44 @@ pub struct TableDdlParts {
     /// standalone table. A declarative partition is NOT listed here: its
     /// parent is attached with ALTER TABLE, not INHERITS.
     pub inherits: Vec<(String, String)>,
+    /// Whether anything INHERITS from this table. False for a declarative
+    /// parent. It is not in the rendered DDL — a parent's own DDL says
+    /// nothing about its children — but a clone of this table depends on it,
+    /// so the sheet that offers the clone needs it.
+    pub has_child_tables: bool,
+}
+
+/// One schema-qualified name, sent to Swift RAW: unquoted and unescaped.
+///
+/// The DDL strings above are SQL, so they quote and double-quote their
+/// identifiers. These are not — they are shown in the sheet's own prose, where
+/// the per-part display escaping (`DisplayEscape.escapedQualified`) is what
+/// makes an invisible scalar in a name visible. Escaping here would save the
+/// escape tokens into the SQL-quoted form and defeat it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualifiedName {
+    pub schema: String,
+    pub table: String,
+}
+
+/// What a table's shape means for CLONING it, sent alongside the DDL.
+///
+/// `LIKE ... INCLUDING ALL` carries neither `PARTITION BY` nor `INHERITS`, so
+/// these three facts decide what the copy can be and which rows it may take.
+/// The sheet reads them to say so before the analyst commits to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableShape {
+    /// The partition clause the copy must carry, e.g. "RANGE (created_at)".
+    /// `Some` means the copy is created with NO partitions and can hold no rows.
+    pub partition_by: Option<String>,
+    /// The parents this table inherits from. The copy will NOT inherit from
+    /// them — it is standalone — and the sheet says so, naming them.
+    pub inherits_from: Vec<QualifiedName>,
+    /// Whether descendants exist, and therefore whether the row scope is a
+    /// real choice rather than one answer under two names.
+    pub has_child_tables: bool,
 }
 
 /// The three ready-to-display DDL variants sent to Swift.
@@ -49,6 +87,7 @@ pub struct TableDdl {
     pub columns_only: String,
     pub with_constraints: String,
     pub full: String,
+    pub shape: TableShape,
 }
 
 /// Render a single column definition line (indented, no trailing comma).
@@ -129,6 +168,16 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
     let with_constraints = render_create_table(
         schema, table, &col_lines, &constraint_lines, parts.partition_by.as_deref(), &parts.inherits);
 
+    let shape = TableShape {
+        partition_by: parts.partition_by.clone(),
+        inherits_from: parts
+            .inherits
+            .iter()
+            .map(|(s, t)| QualifiedName { schema: s.clone(), table: t.clone() })
+            .collect(),
+        has_child_tables: parts.has_child_tables,
+    };
+
     let mut full = with_constraints.clone();
     if !parts.index_defs.is_empty() {
         full.push_str("\n\n");
@@ -146,6 +195,7 @@ pub fn compose_table_ddl(schema: &str, table: &str, parts: &TableDdlParts) -> Ta
         columns_only,
         with_constraints,
         full,
+        shape,
     }
 }
 
@@ -216,6 +266,7 @@ mod tests {
             ],
             partition_by: None,
             inherits: vec![],
+            has_child_tables: false,
         }
     }
 
@@ -339,5 +390,79 @@ mod tests {
         assert!(ddl
             .columns_only
             .starts_with("CREATE TABLE \"9d56a337-0e17-4c6e-8ebc-ea490bef2923\".\"9d56a337-0e17-4c6e-8ebc-ea490bef2923\" ("));
+    }
+
+    // ---- the clone shape carried alongside the DDL ----
+
+    #[test]
+    fn a_plain_table_reports_a_shape_with_nothing_in_it() {
+        let shape = compose_table_ddl("public", "orders", &sample_parts()).shape;
+        assert_eq!(shape.partition_by, None);
+        assert!(shape.inherits_from.is_empty());
+        assert!(!shape.has_child_tables);
+    }
+
+    #[test]
+    fn the_shape_carries_the_partition_key_the_copy_must_keep() {
+        let mut parts = sample_parts();
+        parts.partition_by = Some("RANGE (created_at)".into());
+        let shape = compose_table_ddl("public", "orders", &parts).shape;
+        assert_eq!(shape.partition_by.as_deref(), Some("RANGE (created_at)"));
+        // A declarative parent's partitions are not INHERITS children.
+        assert!(!shape.has_child_tables);
+    }
+
+    #[test]
+    fn the_shape_lists_parents_raw_and_in_order() {
+        // RAW: no quotes and no doubled quotes. The DDL string above is SQL
+        // and quotes them; this is prose the sheet escapes for display, and
+        // pre-escaping here would save the escape tokens into the name.
+        let mut parts = sample_parts();
+        parts.inherits = vec![
+            ("public".into(), "a".into()),
+            ("other".into(), "b\"evil".into()),
+        ];
+        let shape = compose_table_ddl("public", "orders", &parts).shape;
+        assert_eq!(
+            shape.inherits_from,
+            vec![
+                QualifiedName { schema: "public".into(), table: "a".into() },
+                QualifiedName { schema: "other".into(), table: "b\"evil".into() },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_parent_reports_its_children_although_its_own_ddl_never_names_them() {
+        let mut parts = sample_parts();
+        parts.has_child_tables = true;
+        let ddl = compose_table_ddl("public", "orders", &parts);
+        assert!(ddl.shape.has_child_tables);
+        assert!(!ddl.full.contains("INHERITS"), "a parent's DDL names no child: {}", ddl.full);
+    }
+
+    #[test]
+    fn the_shape_serialises_camel_case_for_swift() {
+        let mut parts = sample_parts();
+        parts.partition_by = Some("RANGE (created_at)".into());
+        parts.inherits = vec![("public".into(), "logs_2013".into())];
+        parts.has_child_tables = true;
+        let ddl = compose_table_ddl("public", "orders", &parts);
+        let json = serde_json::to_string(&ddl).expect("serialise");
+        // JSONDecoder.pharos sets no key strategy, so each of these names has
+        // to be on the wire exactly as Swift spells its property.
+        for key in ["\"shape\"", "\"partitionBy\"", "\"inheritsFrom\"", "\"hasChildTables\"", "\"schema\"", "\"table\""] {
+            assert!(json.contains(key), "{} missing from {}", key, json);
+        }
+    }
+
+    #[test]
+    fn a_shape_with_no_partition_key_sends_null_not_a_missing_key() {
+        // Swift decodes it into `String?`; a missing key would also work for
+        // an Optional, but null is what the struct promises and what the
+        // fixture in TableDDLTests.swift pins.
+        let json = serde_json::to_string(&compose_table_ddl("public", "orders", &sample_parts()))
+            .expect("serialise");
+        assert!(json.contains("\"partitionBy\":null"), "{}", json);
     }
 }
