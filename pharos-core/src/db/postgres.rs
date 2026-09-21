@@ -834,12 +834,12 @@ pub async fn analyze_schema(
     })
 }
 
-/// Get all tables and views in a schema
-pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
-    let escaped = escape_sql_literal(schema_name);
-
-    // Try pg_catalog first for full metadata (row estimates, sizes, foreign tables)
-    let pg_catalog_sql = format!(
+/// The statement the table list sends when `pg_catalog` is readable, kept
+/// in one place the way `schemas_sql` is: a shape this exact has to be
+/// pinned by a test, not read out of a `format!` in the middle of a
+/// function. `escaped_schema` is already through `escape_sql_literal`.
+pub(crate) fn tables_sql(escaped_schema: &str) -> String {
+    format!(
         "SELECT \
             c.relname as table_name, \
             CASE c.relkind \
@@ -889,8 +889,16 @@ pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInf
                 WHEN 'm' THEN 4 \
             END, \
             c.relname",
-        escaped
-    );
+        escaped_schema
+    )
+}
+
+/// Get all tables and views in a schema
+pub async fn get_tables(pool: &PgPool, schema_name: &str) -> Result<Vec<TableInfo>, sqlx::Error> {
+    let escaped = escape_sql_literal(schema_name);
+
+    // Try pg_catalog first for full metadata (row estimates, sizes, foreign tables)
+    let pg_catalog_sql = tables_sql(&escaped);
 
     if let Ok(rows) = sqlx::raw_sql(&pg_catalog_sql).fetch_all(pool).await {
         let tables = rows
@@ -2699,6 +2707,38 @@ mod live_key_info_tests {
                 println!("  {} oid={} candidates={:?}", entry.display, oid, entry.candidates);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tables_sql_tests {
+    use super::tables_sql;
+
+    #[test]
+    fn the_shape_is_the_statement_pharos_has_always_sent() {
+        let sql = tables_sql("public");
+        assert!(sql.contains("(c.relkind = 'p') as is_partitioned"), "{sql}");
+        assert!(sql.contains("AND c.relispartition = false"), "{sql}");
+        assert!(sql.contains("AND c.relkind IN ('r', 'v', 'm', 'f', 'p')"), "{sql}");
+        assert!(sql.ends_with("c.relname"), "the order is kind then name: {sql}");
+    }
+
+    #[test]
+    fn the_schema_arrives_already_escaped_and_only_once() {
+        // The caller runs `escape_sql_literal`; a second pass here would
+        // double the quotes. O'Hara must appear exactly as it was handed in.
+        let sql = tables_sql("O''Hara");
+        assert_eq!(sql.matches("O''Hara").count(), 1, "{sql}");
+        assert!(sql.contains("WHERE n.nspname = 'O''Hara'"), "{sql}");
+    }
+
+    #[test]
+    fn the_declarative_totals_come_from_the_partition_tree() {
+        // A partitioned parent holds no rows of its own: both figures are the
+        // sum over its leaves. Legacy inheritance has no such function.
+        let sql = tables_sql("public");
+        assert_eq!(sql.matches("pg_partition_tree(c.oid)").count(), 2, "{sql}");
+        assert!(sql.contains("WHERE pt.isleaf"), "{sql}");
     }
 }
 
