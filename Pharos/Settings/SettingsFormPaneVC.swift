@@ -43,4 +43,24 @@ class SettingsFormPaneVC: SettingsPaneVC {
     override func reloadFromSettings() {
         populating { builder.refreshAll() }
     }
+
+    /// Straight off `sections`, so what is searchable is exactly what is on
+    /// screen. Reading `sections` builds no views.
+    override func searchEntries(paneTitle: String) -> [SettingsSearchEntry] {
+        SettingsSearchIndex.entries(for: sections, paneId: paneId.rawValue, paneTitle: paneTitle)
+    }
+
+    override func reveal(itemId: String) {
+        // Reading `view` first: the builder's rows do not exist until
+        // `loadView` has run, and a search can send the user to a pane that
+        // has never been shown.
+        loadViewIfNeeded()
+        guard let row = builder.row(for: itemId) else { return }
+        // A little above the row, so it does not land hard against the
+        // toolbar with its section header out of sight.
+        row.scrollToVisible(row.bounds.insetBy(dx: 0, dy: -SettingsMetrics.sectionSpacing))
+        if let control = builder.control(for: itemId) as? NSControl, control.acceptsFirstResponder {
+            view.window?.makeFirstResponder(control)
+        }
+    }
 }

@@ -312,6 +312,7 @@
 		DD4B5437E848E45EA5D1F6C4 /* ResultsFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DEE8A90621927B4A546E936 /* ResultsFindController.swift */; };
 		E02EA8A440A656E0CFDE8093 /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */; };
 		E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */; };
+		E1D926BA02E4F6533E2D564D /* SettingsSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB145E84466583565F196D2B /* SettingsSearchIndex.swift */; };
 		E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */; };
 		E2E9BBE587E2EC05CE695784 /* SavedQuerySpotlightIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */; };
 		E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */; };
@@ -572,6 +573,7 @@
 		A846DAE04C447D3AE1792991 /* TagFamilyLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFamilyLabel.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
+		AB145E84466583565F196D2B /* SettingsSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndex.swift; sourceTree = "<group>"; };
 		AB1E5037B8F3B1BB2DA446A4 /* ExportImportOutcomeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportImportOutcomeText.swift; sourceTree = "<group>"; };
 		AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthoredLabelTextField.swift; sourceTree = "<group>"; };
 		AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillSqlTranslator.swift; sourceTree = "<group>"; };
@@ -1077,6 +1079,7 @@
 				EC36595DD6A1FE2966DC1132 /* SettingsItem.swift */,
 				B1E8FAEB6C42EFBE17142B4C /* SettingsMetrics.swift */,
 				701AA341698935A8B9804F9B /* SettingsRow.swift */,
+				AB145E84466583565F196D2B /* SettingsSearchIndex.swift */,
 				923392DA36283E6B6414BCE3 /* SettingsSectionHeader.swift */,
 				20224A859D952B4956729A32 /* SettingsSymbolBadge.swift */,
 				AF920C9B0103A63894C479DE /* SettingsThemeThumbnail.swift */,
@@ -1595,6 +1598,7 @@
 				708B9715947B1F79CD9079E3 /* SettingsPaneSpec.swift in Sources */,
 				26B110DCD2D759CF4A76BCF1 /* SettingsPaneVC.swift in Sources */,
 				6B3F20CB05956211382A7BA8 /* SettingsRow.swift in Sources */,
+				E1D926BA02E4F6533E2D564D /* SettingsSearchIndex.swift in Sources */,
 				D33D96EDFA3FA62EFBA1A3AC /* SettingsSectionHeader.swift in Sources */,
 				27452EF9D5F7BA5E65733EAA /* SettingsSidebarVC.swift in Sources */,
 				ABC59F560A2FE279D883466F /* SettingsSplitViewController.swift in Sources */,

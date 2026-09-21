@@ -258,6 +258,70 @@ print('|'.join(n.get('title','') for n in nodes(w['tree']) if n.get('role')=='AX
   check "selecting row $idx retitles the window" "$got_window" "Pharos Settings — $want"
 done
 
+# --- The toolbar search filters the sidebar ---
+#
+# Typed, not set. `AXUIElementSetAttributeValue(kAXValueAttribute)` writes a
+# field's string WITHOUT going through the field editor, so no
+# controlTextDidChange, no action, no filtering — tasks/lessons.md records
+# exactly this trap for a toolbar filter field. System Events keystrokes go
+# through the real input path.
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $PID) to true" >/dev/null
+if "$WORK/ax-do" "$PID" focus AXTextField settings.search "Settings" >/dev/null 2>&1; then
+  osascript -e 'tell application "System Events" to keystroke "boolean"' >/dev/null
+  sleep 0.8
+  FILTERED=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+ns=nodes(w['tree'])
+t=[n for n in ns if n.get('identifier')=='settings.sidebar']
+if not t:
+    print('MISSING')
+else:
+    rows=[n for n in nodes(t[0]) if n.get('role')=='AXRow']
+    ids=[]
+    for n in nodes(t[0]):
+        i=n.get('identifier') or ''
+        if i.startswith('settings.pane.') and i not in ids: ids.append(i)
+    print('%d|%s' % (len(rows), ','.join(ids)))
+")
+  # Asserted as "narrowed, best match first" rather than as an exact list.
+  # "boolean" legitimately hits Appearance's `Boolean display` ROW and the
+  # Editor pane's caption about quoting lists of booleans — and a caption is a
+  # real match. What must hold is that the title match ranks above the caption
+  # one, and that the list shrank.
+  FILTERED_COUNT=${FILTERED%%|*}
+  FILTERED_FIRST=$(echo "${FILTERED#*|}" | cut -d, -f1)
+  if [ "${FILTERED_COUNT:-16}" -lt 16 ] && [ "${FILTERED_COUNT:-0}" -ge 1 ]; then
+    pass "a query narrows the sidebar ($FILTERED_COUNT of 16)"
+  else
+    fail "a query narrows the sidebar — got [$FILTERED]"
+  fi
+  check "the pane whose ROW title matches is listed first" "$FILTERED_FIRST" "settings.pane.appearance"
+
+  # Clearing it puts all 16 back.
+  osascript -e 'tell application "System Events" to key code 53' >/dev/null   # esc
+  sleep 0.8
+  RESTORED=$(walk | python3 -c "
+import json,sys
+w=json.load(sys.stdin)
+def nodes(n,acc=None):
+    acc=[] if acc is None else acc
+    acc.append(n)
+    for c in n.get('children',[]) or []: nodes(c,acc)
+    return acc
+t=[n for n in nodes(w['tree']) if n.get('identifier')=='settings.sidebar']
+print(len([n for n in nodes(t[0]) if n.get('role')=='AXRow']) if t else 0)
+")
+  check "clearing the search restores every pane" "$RESTORED" "16"
+else
+  fail "the search field is in the toolbar and can take focus"
+fi
+
 # --- The Appearance tiles are a real radio group ---
 #
 # A hand-drawn NSControl publishes nothing to accessibility unless it is asked

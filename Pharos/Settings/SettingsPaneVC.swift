@@ -49,6 +49,20 @@ class SettingsPaneVC: NSViewController {
     /// and whenever the pane appears.
     func reloadFromSettings() {}
 
+    // MARK: - Search
+
+    /// What this pane contributes to the toolbar search.
+    ///
+    /// A hook rather than a check at the call site, so a hand-built pane is
+    /// not a special case there. The default is nothing; `SettingsFormPaneVC`
+    /// derives it from the declaration, so it can never drift from the rows on
+    /// screen.
+    func searchEntries(paneTitle: String) -> [SettingsSearchEntry] { [] }
+
+    /// Scroll a row into view and put focus on it, after the search sends the
+    /// user to this pane.
+    func reveal(itemId: String) {}
+
     // MARK: - Lifecycle
 
     override func viewWillAppear() {

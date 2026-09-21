@@ -24,6 +24,10 @@ final class SettingsSplitViewController: NSSplitViewController {
     private(set) var history = SettingsNavigationHistory()
     private var panes: [SettingsPaneID: SettingsPaneVC] = [:]
     private(set) var currentPaneId: SettingsPaneID?
+    /// Built on the first keystroke and kept. See `searchEntries()`.
+    private var searchIndex: [SettingsSearchEntry]?
+    /// True while a query is filtering the sidebar.
+    private(set) var isSearching = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -48,6 +52,7 @@ final class SettingsSplitViewController: NSSplitViewController {
 
         sidebar.onSelect = { [weak self] id in self?.navigate(to: id, source: .user) }
         toolbar.onNavigate = { [weak self] direction in self?.step(direction) }
+        toolbar.onSearch = { [weak self] query in self?.search(query) }
     }
 
     override func viewDidAppear() {
@@ -81,6 +86,9 @@ final class SettingsSplitViewController: NSSplitViewController {
                        canGoBack: history.canGoBack,
                        canGoForward: history.canGoForward)
         sidebar.select(id)
+        // After `detail.show`, which is what guarantees the pane's view has
+        // loaded and therefore that its rows exist.
+        if let itemId = revealTarget(for: id) { pane.reveal(itemId: itemId) }
         view.window?.title = String(localized: "Pharos Settings — \(spec.title)")
         if source != .restore { SettingsPanePrefs.setLastPane(id) }
     }
@@ -105,4 +113,48 @@ final class SettingsSplitViewController: NSSplitViewController {
 
     /// The panes made so far, for `reloadFromSettings()` when the window opens.
     var instantiatedPanes: [SettingsPaneVC] { Array(panes.values) }
+
+    // MARK: - Search
+
+    /// Every searchable entry in the window, built once.
+    ///
+    /// Built through `pane(for:)`, so the panes it constructs are CACHED and
+    /// are the same instances the user then navigates to — nothing is made
+    /// and thrown away. Reading a pane's `sections` builds no views, and the
+    /// index is built on the first keystroke rather than at launch, because
+    /// one pane (Connections) enumerates every time zone this Mac knows when
+    /// its sections are read.
+    func searchEntries() -> [SettingsSearchEntry] {
+        if let searchIndex { return searchIndex }
+        let built = SettingsPaneRegistry.all.flatMap { spec in
+            pane(for: spec.id).searchEntries(paneTitle: spec.title)
+        }
+        searchIndex = built
+        return built
+    }
+
+    /// Filter the sidebar to the panes matching `query`. An empty query puts
+    /// all 16 back.
+    func search(_ query: String) {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            isSearching = false
+            sidebar.setFilter(nil, keeping: currentPaneId)
+            return
+        }
+        isSearching = true
+        let hits = SettingsSearchIndex.hits(in: searchEntries(), query: trimmed)
+        sidebar.setFilter(hits, keeping: currentPaneId)
+        lastHits = hits
+    }
+
+    /// The hits behind the sidebar as it stands, so navigating to one of them
+    /// knows which row to reveal.
+    private var lastHits: [SettingsSearchIndex.Hit] = []
+
+    /// The row to reveal in `id`, if the current search named one.
+    private func revealTarget(for id: SettingsPaneID) -> String? {
+        guard isSearching else { return nil }
+        return lastHits.first { $0.paneId == id.rawValue }?.itemId
+    }
 }

@@ -578,6 +578,68 @@ func runTests() {
         expectEqual(fired, 0, "setting selectedIndex does not fire the action")
     }
 
+    // MARK: 15. The search index
+
+    do {
+        func item(_ id: String, _ title: String, _ caption: String? = nil) -> SettingsItem {
+            SettingsItem(id: id, title: title, caption: caption,
+                         kind: .toggle(SettingsBinding(get: { false }, set: { _ in })))
+        }
+        let appearance = SettingsSearchIndex.entries(
+            for: [SettingsSection(title: "Values", items: [
+                item("nullDisplay", "NULL display", "How NULL renders in the grid."),
+                item("boolDisplay", "Boolean display"),
+            ])],
+            paneId: "appearance", paneTitle: "Appearance")
+        let editor = SettingsSearchIndex.entries(
+            for: [SettingsSection(title: "Typing", items: [
+                item("tabWidth", "Tab width", "Spaces per tab stop."),
+            ])],
+            paneId: "editor", paneTitle: "Editor")
+        let all = appearance + editor
+
+        expectEqual(appearance.count, 3, "the pane itself plus one entry per row")
+
+        // An empty query matches NOTHING — the caller reads that as "show
+        // everything", so a blank field must not be an all-panes match.
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "").count, 0, "an empty query matches nothing")
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "   ").count, 0, "whitespace matches nothing")
+
+        // A row title match names the row to reveal.
+        let nullHits = SettingsSearchIndex.hits(in: all, query: "null")
+        expectEqual(nullHits.count, 1, "\"null\" matches one pane")
+        expectEqual(nullHits.first?.paneId, "appearance", "…the Appearance pane")
+        expectEqual(nullHits.first?.itemId, "nullDisplay", "…and names the row to reveal")
+
+        // A pane-name match reveals no row.
+        let paneHits = SettingsSearchIndex.hits(in: all, query: "editor")
+        expectEqual(paneHits.count, 1, "a pane name matches its pane")
+        expectTrue(paneHits.first?.itemId == nil, "a pane-name match names no row")
+
+        // A row title outranks a caption, so the hit shown is the useful one.
+        let displayHits = SettingsSearchIndex.hits(in: all, query: "display")
+        expectEqual(displayHits.first?.itemId, "nullDisplay",
+                    "the first row whose TITLE matches wins over one whose caption does")
+
+        // Every word must land, but they may land in different fields.
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "null grid").count, 1,
+                    "two words, one in the title and one in the caption, still match")
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "null zebra").count, 0,
+                    "a word that matches nothing rules the entry out")
+
+        // Case and accents are ignored.
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "BOOLEAN").count, 1, "case is ignored")
+        expectEqual(SettingsSearchIndex.hits(in: all, query: "édîtor").count, 1, "accents are ignored")
+
+        // A placeholder row is not a setting and is not indexed.
+        let withEmpty = SettingsSearchIndex.entries(
+            for: [SettingsSection(title: nil, items: [
+                SettingsItem(id: "none", title: "None", kind: .empty("No Items")),
+            ])],
+            paneId: "tags", paneTitle: "Tags")
+        expectEqual(withEmpty.count, 1, "an empty-state row is not indexed")
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

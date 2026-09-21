@@ -113,6 +113,29 @@ final class ShortcutsSettingsPaneVC: SettingsPaneVC, NSTableViewDataSource, NSTa
     /// The catalogue is read from the LIVE menu bar every time the pane is
     /// shown, so an item added to a menu appears here with no second list to
     /// maintain.
+    /// What this pane offers the toolbar search.
+    ///
+    /// Hand-written, because this pane has no `sections` to derive from — and
+    /// deliberately NOT the shortcut catalogue itself. `ShortcutCatalog.all`
+    /// is read from the LIVE menu bar, so folding it in here would make the
+    /// index depend on what the menus happened to hold when it was built.
+    /// What a user searching Settings wants from this pane is the pane.
+    override func searchEntries(paneTitle: String) -> [SettingsSearchEntry] {
+        let terms = [
+            String(localized: "Keyboard shortcut"),
+            String(localized: "Key binding"),
+            String(localized: "Rebind a command"),
+        ]
+        return [SettingsSearchEntry(paneId: SettingsPaneID.shortcuts.rawValue,
+                                    paneTitle: paneTitle, sectionTitle: nil,
+                                    itemId: nil, itemTitle: nil, itemCaption: nil)]
+            + terms.map {
+                SettingsSearchEntry(paneId: SettingsPaneID.shortcuts.rawValue,
+                                    paneTitle: paneTitle, sectionTitle: nil,
+                                    itemId: nil, itemTitle: $0, itemCaption: nil)
+            }
+    }
+
     override func reloadFromSettings() {
         allEntries = ShortcutCatalog.all(menuBar: NSApp.mainMenu)
         applyFilter()
