@@ -25,7 +25,10 @@ final class SettingsInfoButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("SettingsInfoButton is built in code") }
 
-    private var popover: NSPopover?
+    private(set) var popover: NSPopover?
+
+    /// Test seam: pop the help without a mouse.
+    func presentHelp() { showPopover(nil) }
 
     @objc private func showPopover(_ sender: Any?) {
         if let popover, popover.isShown {
@@ -45,7 +48,13 @@ final class SettingsInfoButton: NSButton {
             content.trailingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
             label.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
             content.bottomAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
-            label.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
+            // A FIXED width, not a ceiling. A wrapping label resists
+            // horizontal compression only weakly, so the layout pass the
+            // popover runs on its own content view after `show` squeezed the
+            // label down to a few points wide — the popover kept the height
+            // measured here and lost the text, which is the blank popover
+            // every ⓘ used to give.
+            label.widthAnchor.constraint(equalToConstant: 260),
         ])
         let vc = NSViewController()
         vc.view = content

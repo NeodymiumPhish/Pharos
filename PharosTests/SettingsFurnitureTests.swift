@@ -682,6 +682,39 @@ func runTests() {
                    "the title still has room to read (\(titleFrame.width) pt)")
     }
 
+    // MARK: 17. The ⓘ popover still holds its text after it opens
+
+    // The popover measures its content BEFORE `show`, and AppKit lays that
+    // content out again once the popover owns it. A wrapping label with only a
+    // width CEILING collapsed in that second pass: the popover kept the
+    // measured height and showed a few points of empty width. Measure after
+    // the pass that used to break it, not before.
+
+    do {
+        let help = "Off still restores the tabs, and lets macOS place the window — "
+            + "which is what you want after the displays change."
+        let host = Host()
+        let info = SettingsInfoButton(help: help)
+        host.mount(info)
+        host.window.makeKeyAndOrderFront(nil)
+        info.presentHelp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        let popover = info.popover
+        let content = popover?.contentViewController?.view
+        let label = content?.subviews.compactMap { $0 as? NSTextField }.first
+        expectTrue(popover?.isShown == true, "the ⓘ opens a popover")
+        expectTrue((popover?.contentSize.width ?? 0) > 200,
+                   "the popover keeps a readable width after show (\(popover?.contentSize.width ?? 0) pt)")
+        expectTrue((label?.frame.width ?? 0) > 200,
+                   "the help label keeps its width after show (\(label?.frame.width ?? 0) pt)")
+        expectTrue((label?.frame.height ?? 0) > 20,
+                   "the help wraps to more than one line (\(label?.frame.height ?? 0) pt)")
+        expectEqual(label?.stringValue, help, "the popover shows the help it was given")
+        popover?.performClose(nil)
+        host.window.orderOut(nil)
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
