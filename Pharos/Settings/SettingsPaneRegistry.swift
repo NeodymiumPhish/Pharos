@@ -38,6 +38,8 @@ enum SettingsPaneRegistry {
                          symbol: "keyboard", tint: .systemGray),
         SettingsPaneSpec(id: .advanced, title: String(localized: "Advanced"),
                          symbol: "wrench.and.screwdriver", tint: .systemGray),
+        SettingsPaneSpec(id: .about, title: String(localized: "About"),
+                         symbol: "info.circle", tint: .systemBlue),
     ]
 
     static func spec(for id: SettingsPaneID) -> SettingsPaneSpec {

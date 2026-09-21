@@ -60,9 +60,13 @@ final class SettingsWindowController: NSWindowController {
 
     /// Open Settings in a given pane (a menu item or a "Settings…" button in
     /// a sheet that knows which pane it means).
+    ///
+    /// `.deepLink`, not `.user`: Back still returns to the pane the window
+    /// opened in, because `show()` ran first — but the named pane does not
+    /// become the pane ⌘, opens next time. See `SettingsNavigationSource`.
     func show(pane: SettingsPaneID) {
         show()
-        splitVC.navigate(to: pane, source: .user)
+        splitVC.navigate(to: pane, source: .deepLink)
     }
 
     /// ⌘W in this app is File ▸ Close Tab, and only the editor's content

@@ -23,6 +23,7 @@ extension SettingsPaneRegistry {
         case .notifications: return NotificationsSettingsPaneVC()
         case .shortcuts: return ShortcutsSettingsPaneVC()
         case .advanced: return AdvancedSettingsPaneVC()
+        case .about: return AboutSettingsPaneVC()
         }
     }
 }

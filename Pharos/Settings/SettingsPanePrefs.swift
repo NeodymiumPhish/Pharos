@@ -29,3 +29,46 @@ enum SettingsPanePrefs {
         defaults.set(id.rawValue, forKey: key)
     }
 }
+
+/// What made the Settings window change pane, and therefore what the change
+/// should leave behind: an entry in the Back/Forward history, and the
+/// remembered pane ⌘, will open next time.
+///
+/// Here rather than beside `SettingsSplitViewController`, which is the one
+/// place that acts on it: the two rules below are the whole of the policy, and
+/// here they are Foundation-only and `scripts/test-settings-navigation.sh`
+/// pins them. `SettingsSplitViewController.NavigationSource` is a typealias
+/// for this.
+enum SettingsNavigationSource {
+    /// The user clicked a sidebar row.
+    case user
+    /// Back or Forward moved within the history.
+    case history
+    /// The window opening in the pane it was left in.
+    case restore
+    /// A menu item that names one pane — Pharos ▸ About Pharos, or a sheet's
+    /// "Settings…" button.
+    case deepLink
+
+    /// Whether this navigation becomes a Back/Forward entry. `restore` does
+    /// not: it IS the history's root, which `navigate` seeds separately.
+    var recordsHistory: Bool {
+        switch self {
+        case .user, .deepLink: return true
+        case .history, .restore: return false
+        }
+    }
+
+    /// Whether ⌘, should open this pane next time.
+    ///
+    /// A deep link does NOT make the pane the remembered one. About, which is
+    /// the first pane reached that way, is read once; the pane the user works
+    /// in is the one ⌘, must go back to. Restoring remembers nothing either,
+    /// because it is only reading what was already written down.
+    var isRemembered: Bool {
+        switch self {
+        case .user, .history: return true
+        case .restore, .deepLink: return false
+        }
+    }
+}

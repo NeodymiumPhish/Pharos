@@ -89,12 +89,36 @@ private func testRegistry() {
     expectEqual(SettingsPaneID.general.rowIdentifier, "settings.pane.general", "the General row keeps its identifier")
     expectEqual(SettingsPaneID.charts.rowIdentifier, "settings.pane.charts", "the Charts row keeps its identifier")
     expectEqual(SettingsPaneRegistry.spec(for: .advanced).id, .advanced, "spec(for:) finds the pane")
+
+    // About is the end of the list, not a setting, so it must stay last.
+    expectEqual(SettingsPaneID.allCases.last, .about, "About is the last row in the sidebar")
+    expectEqual(SettingsPaneRegistry.all.last?.id, .about, "…and the last spec in the registry")
+    expectEqual(SettingsPaneID.about.rowIdentifier, "settings.pane.about", "the About row's identifier")
+    expectEqual(SettingsPaneRegistry.spec(for: .about).title, "About", "the About row is titled About")
+}
+
+/// The two rules `SettingsSplitViewController.navigate(to:source:)` reads off
+/// the source. They live here because that controller pulls in the whole app.
+private func testNavigationSources() {
+    expectTrue(SettingsNavigationSource.user.recordsHistory, "a sidebar click is a history entry")
+    expectTrue(SettingsNavigationSource.deepLink.recordsHistory,
+               "a deep link is a history entry, so Back returns to where the window opened")
+    expectTrue(!SettingsNavigationSource.history.recordsHistory, "Back/Forward moves within the history")
+    expectTrue(!SettingsNavigationSource.restore.recordsHistory, "restoring is the root, seeded separately")
+
+    expectTrue(SettingsNavigationSource.user.isRemembered, "a sidebar click is remembered")
+    expectTrue(SettingsNavigationSource.history.isRemembered, "Back/Forward is remembered")
+    expectTrue(!SettingsNavigationSource.restore.isRemembered, "restoring writes nothing back")
+    // The whole point of the case: About Pharos must not become the pane ⌘,
+    // opens next time.
+    expectTrue(!SettingsNavigationSource.deepLink.isRemembered, "a deep link is NOT remembered")
 }
 
 func runTests() {
     testHistory()
     testPrefs()
     testRegistry()
+    testNavigationSources()
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
