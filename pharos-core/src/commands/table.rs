@@ -1991,8 +1991,11 @@ mod live_clone_tests {
     async fn live_pool() -> sqlx::PgPool {
         let u = url();
         PgPoolOptions::new()
-            .max_connections(4)
-            .acquire_timeout(Duration::from_secs(5))
+            // Each test acquires strictly one at a time, and six of them run
+            // in parallel. A small pool and a patient timeout: one run
+            // straight after a release build hit the 5s acquire timeout.
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(15))
             .connect(&u)
             .await
             .unwrap_or_else(|e| panic!("cannot connect to {u}: {e}. Set PHAROS_TEST_DATABASE_URL."))
