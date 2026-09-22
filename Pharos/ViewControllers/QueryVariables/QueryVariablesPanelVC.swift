@@ -233,14 +233,30 @@ final class QueryVariablesPanelVC: NSViewController {
         refreshList()
     }
 
+    /// Assign a level's frame, but NEVER a degenerate one.
+    ///
+    /// `contentArea` has no size until the first real layout pass, and both
+    /// levels hold required edge pins and minimum widths. At 0 pt Auto Layout
+    /// has to break one of them, and logs a runtime issue for every child it
+    /// breaks — measured at 5 per launch before this guard. The callers that
+    /// hit this are the ones that run BEFORE layout: `SidebarViewController`
+    /// builds this panel in its own `loadView`, which reaches `setVariables`
+    /// and then `dismissDetail` while `contentArea.bounds` is still empty.
+    /// Skipping the assignment leaves the level at the non-zero size it was
+    /// born with; `viewDidLayout` delivers the real frame a pass later.
+    private func setLevelFrame(_ view: NSView, to rect: NSRect) {
+        guard !rect.isEmpty else { return }
+        view.frame = rect
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
         // Levels are frame-laid-out so they can slide; skip while a slide is in
         // flight or it would snap them to their final frames mid-animation.
         guard !isAnimating else { return }
         let bounds = contentArea.bounds
-        listView.frame = bounds
-        detailVC?.view.frame = bounds
+        setLevelFrame(listView, to: bounds)
+        if let detail = detailVC { setLevelFrame(detail.view, to: bounds) }
         listView.isHidden = detailVC != nil
     }
 
@@ -313,7 +329,7 @@ final class QueryVariablesPanelVC: NSViewController {
     private func dismissDetail(animated: Bool) {
         guard let detail = detailVC else {
             listView.isHidden = false
-            listView.frame = contentArea.bounds
+            setLevelFrame(listView, to: contentArea.bounds)
             return
         }
 
@@ -361,7 +377,7 @@ final class QueryVariablesPanelVC: NSViewController {
 
         guard animated, animatesLevelTransitions, bounds.width > 0 else {
             outgoing.removeFromSuperview()
-            listView.frame = bounds
+            setLevelFrame(listView, to: bounds)
             return
         }
 

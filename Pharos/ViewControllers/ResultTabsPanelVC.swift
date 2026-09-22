@@ -86,7 +86,16 @@ final class ResultTabsPanelVC: NSViewController, NSTableViewDataSource, NSTableV
     // MARK: - View
 
     override func loadView() {
-        let container = PanelBackground()
+        // Sized, not `.zero`. `EditorPaneVC.layout()` assigns the real frame,
+        // but only one pass after the children below are constrained. At zero
+        // the autoresizing mask contributes a REQUIRED `width == 0` (and
+        // `height == 0`) that the header label and table cannot fit inside, so
+        // Auto Layout breaks a child constraint and logs a runtime issue.
+        // Only non-degeneracy matters — the layout pass overwrites this size.
+        // 220x400 is `ResultTabsPanelPrefs.defaultWidth` by a nominal height,
+        // written as a literal on purpose: `scripts/test-result-tabs-panel-vc.sh`
+        // compiles this file without `ResultTabsPanelPrefs.swift`.
+        let container = PanelBackground(frame: NSRect(x: 0, y: 0, width: 220, height: 400))
         container.wantsLayer = true
         self.view = container
 

@@ -63,7 +63,12 @@ class ContentViewController: NSViewController {
     /// Editor above, results area below. See `EditorResultsSplitView`.
     private let editorResultsSplit = EditorResultsSplitView()
     /// Bottom pane of `editorResultsSplit`: action bar, result tab bar, grid/chart.
-    private let resultsArea = NSView()
+    /// Sized, not `.zero`: the split view assigns the real frame, but only one
+    /// pass after the children below are constrained. At zero the autoresizing
+    /// mask contributes a REQUIRED `width == 0`, and the action bar's six 28 pt
+    /// buttons cannot fit inside it, so Auto Layout breaks a child constraint
+    /// and logs a runtime issue.
+    private let resultsArea = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
     /// One line above the action bar, for the first unread failure on the
     /// active tab. Zero height and hidden when there is nothing to say.
     private let errorBanner = QueryErrorBanner()
@@ -2629,7 +2634,7 @@ class ContentViewController: NSViewController {
 
         let body: () -> Void = { [weak self] in
             guard let self else { return }
-            let text = self.editorPane.getSQL() ?? ""
+            let text = self.editorPane.getSQL()
             let segments = SQLSegmentParser.parse(text)
 
             for i in self.resultTabs.indices {
@@ -3588,7 +3593,12 @@ extension ContentViewController {
                 restored.append(rt)
             }
 
-            await MainActor.run {
+            // Hand the finished array over as a `let`. Reading the mutable
+            // `restored` from inside the main-actor closure below would be a
+            // reference to a captured var from concurrently-executing code.
+            let restoredTabs = restored
+
+            await MainActor.run { [weak self] in
                 guard let self else { return }
 
                 // Re-check already-open: another reopen request could have
@@ -3611,12 +3621,12 @@ extension ContentViewController {
                 // Seed the store entry, then apply it: the live surface already
                 // switched to the new tab inside `createTab` (synchronous
                 // delivery) and read it empty.
-                let focus = focusResultId.flatMap { fid in restored.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restored.last
+                let focus = focusResultId.flatMap { fid in restoredTabs.first(where: { $0.queryResult?.historyEntryId == fid }) } ?? restoredTabs.last
                 // Subsequently-executed queries in this tab append AFTER the restored
                 // results. Seed from MAX(result_order)+1 (not count) so a workspace whose
                 // middle results were deleted can't collide a new result's order.
                 self.session.resultStore[tab.id] = EditorTabResults(
-                    tabs: restored,
+                    tabs: restoredTabs,
                     activeId: focus?.id,
                     nextOrder: (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1)
                 self.applySeededResultState(forTabId: tab.id)
@@ -3630,7 +3640,9 @@ extension ContentViewController {
     /// have to read the same way: a result that genuinely came from none (a
     /// browse action, a whole-editor run, a drill), a row recorded before the
     /// range was stored, and a stored pair that is not a usable 1-based range.
-    private static func restoredLineRange(_ meta: WorkspaceResultMeta) -> ClosedRange<Int> {
+    /// `nonisolated`: a pure function of `meta` that touches no actor state, and
+    /// the workspace-restore task calls it from off the main actor.
+    nonisolated private static func restoredLineRange(_ meta: WorkspaceResultMeta) -> ClosedRange<Int> {
         guard let start = meta.lineStart, let end = meta.lineEnd,
               start > 0, end >= start else { return 0...0 }
         return start...end
