@@ -8,8 +8,12 @@ use crate::state::AppState;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryHistoryResultData {
-    pub columns: serde_json::Value,
-    pub rows: serde_json::Value,
+    /// The stored JSON text, passed through verbatim. `RawValue` checks that
+    /// the text is well-formed JSON and serializes it as-is, so a reopen does
+    /// not build a value tree of every cached cell only to write it out again.
+    /// Swift is the only reader of these bytes.
+    pub columns: Box<serde_json::value::RawValue>,
+    pub rows: Box<serde_json::value::RawValue>,
     /// The saved row identity block, so a reopened workspace restores its tags.
     /// None for an entry saved before that column existed.
     ///
@@ -18,7 +22,7 @@ pub struct QueryHistoryResultData {
     /// the snake_case keys `execute_query` wrote (`table_key`, `key_columns`,
     /// ...). That mixture is deliberate: Swift's `RowIdentity` carries
     /// snake_case CodingKeys while the tag models carry none. Do not unify it.
-    pub row_identity: Option<serde_json::Value>,
+    pub row_identity: Option<Box<serde_json::value::RawValue>>,
 }
 
 /// Load query history entries with optional filtering
@@ -158,14 +162,14 @@ pub async fn get_query_history_result(
 
     match result {
         Some((columns_json, rows_json, identity_json)) => {
-            let columns: serde_json::Value = serde_json::from_str(&columns_json)
+            let columns = serde_json::value::RawValue::from_string(columns_json)
                 .map_err(|e| format!("Failed to parse cached columns: {}", e))?;
-            let rows: serde_json::Value = serde_json::from_str(&rows_json)
+            let rows = serde_json::value::RawValue::from_string(rows_json)
                 .map_err(|e| format!("Failed to parse cached rows: {}", e))?;
             // A stored block that will not parse is not worth failing a reopen
             // over: the result then falls to the fingerprint tier.
             let row_identity = identity_json
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+                .and_then(|s| serde_json::value::RawValue::from_string(s).ok());
             Ok(Some(QueryHistoryResultData { columns, rows, row_identity }))
         }
         None => Ok(None),
@@ -200,10 +204,11 @@ mod tests {
             }],
         };
 
+        let raw = |s: &str| serde_json::value::RawValue::from_string(s.to_string()).unwrap();
         let payload = QueryHistoryResultData {
-            columns: serde_json::json!([{"name": "id", "data_type": "int4"}]),
-            rows: serde_json::json!([["42"]]),
-            row_identity: Some(serde_json::to_value(&identity).unwrap()),
+            columns: raw(r#"[{"name": "id", "data_type": "int4"}]"#),
+            rows: raw(r#"[["42"]]"#),
+            row_identity: Some(raw(&serde_json::to_string(&identity).unwrap())),
         };
         let json = serde_json::to_string(&payload).unwrap();
 
@@ -225,9 +230,10 @@ mod tests {
     /// than an error, so the result falls to the fingerprint tier.
     #[test]
     fn absent_identity_serializes_as_null() {
+        let raw = |s: &str| serde_json::value::RawValue::from_string(s.to_string()).unwrap();
         let payload = QueryHistoryResultData {
-            columns: serde_json::json!([]),
-            rows: serde_json::json!([]),
+            columns: raw("[]"),
+            rows: raw("[]"),
             row_identity: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
@@ -235,7 +241,7 @@ mod tests {
 
         // The lenient parse the command performs on a corrupt block.
         let salvaged = Some("{not json".to_string())
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            .and_then(|s| serde_json::value::RawValue::from_string(s).ok());
         assert!(salvaged.is_none());
     }
 }

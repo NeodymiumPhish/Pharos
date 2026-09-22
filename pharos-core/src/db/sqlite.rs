@@ -2122,6 +2122,36 @@ pub fn save_query_history_with_policy(
     Ok(())
 }
 
+/// Attach the cached result blobs to a history row that was inserted without
+/// them. Compresses here, so the caller can run this off the query's critical
+/// path: `execute_query` inserts the row first — Swift attaches the new id to
+/// a workspace the moment it has it, so the row must exist by then — and hands
+/// the gzip and this write to a blocking task.
+///
+/// Returns how many rows changed. Zero is not an error: the row may have been
+/// pruned between the insert and this write, and a blob for a row that is gone
+/// has nowhere to go.
+pub fn attach_query_history_result(
+    conn: &Connection,
+    entry_id: &str,
+    result_columns_json: &str,
+    result_rows_json: &str,
+    result_row_identity_json: Option<&str>,
+) -> SqliteResult<usize> {
+    let compressed_columns = compress_data(result_columns_json).ok();
+    let compressed_rows = compress_data(result_rows_json).ok();
+    let compressed_identity = result_row_identity_json.and_then(|s| compress_data(s).ok());
+    conn.execute(
+        "UPDATE query_history SET result_columns = ?2, result_rows = ?3, result_row_identity = ?4 WHERE id = ?1",
+        (
+            entry_id,
+            &compressed_columns.as_deref(),
+            &compressed_rows.as_deref(),
+            &compressed_identity.as_deref(),
+        ),
+    )
+}
+
 /// What `clear_query_history` removes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClearHistoryScope {
@@ -3283,6 +3313,50 @@ mod workspace_roundtrip_tests {
             .expect("get_query_history_result")
             .expect("entry should have cached results");
         assert_eq!(loaded_identity, None);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `execute_query` inserts the row first and attaches the blobs from a
+    /// blocking task. The two halves must add up to exactly what one save with
+    /// blobs stored: same text back, gzip applied, and `has_results` flipping
+    /// from false to true at the attach.
+    #[test]
+    fn blobs_attached_after_the_insert_read_back_like_a_single_save() {
+        let dir = temp_db_dir("attach_after_insert");
+        let conn = init_database(&dir).expect("init_database");
+
+        let entry = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        save_query_history(&conn, &entry, None, None, None).expect("insert row only");
+        assert!(
+            get_query_history_result(&conn, "h1").expect("get before attach").is_none(),
+            "no blobs yet"
+        );
+
+        let columns = r#"[{"name":"id","data_type":"int4"}]"#;
+        let rows = r#"[["42"],["43"]]"#;
+        let identity = r#"{"table_key":"oid:1"}"#;
+        let changed = attach_query_history_result(&conn, "h1", columns, rows, Some(identity))
+            .expect("attach");
+        assert_eq!(changed, 1);
+
+        let (c, r, i) = get_query_history_result(&conn, "h1")
+            .expect("get after attach")
+            .expect("blobs present");
+        assert_eq!(c, columns);
+        assert_eq!(r, rows);
+        assert_eq!(i.as_deref(), Some(identity));
+
+        // Stored compressed, as the single-save path stores them.
+        let raw: Vec<u8> = conn
+            .query_row("SELECT result_rows FROM query_history WHERE id = 'h1'", [], |row| row.get(0))
+            .expect("raw blob");
+        assert_eq!(&raw[..2], &[0x1f, 0x8b], "rows blob is gzip");
+
+        // A row that was pruned before the task ran: nothing to attach to, not an error.
+        let orphan = attach_query_history_result(&conn, "gone", columns, rows, None).expect("attach to a missing row");
+        assert_eq!(orphan, 0);
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

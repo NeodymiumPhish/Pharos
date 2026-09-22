@@ -24,8 +24,13 @@ pub struct AppState {
     /// Saved connection configurations (cached from SQLite)
     pub connection_configs: Mutex<HashMap<String, ConnectionConfig>>,
 
-    /// Local SQLite database for storing connection configs and metadata cache
-    pub metadata_db: Mutex<SqliteConnection>,
+    /// Local SQLite database for storing connection configs and metadata cache.
+    ///
+    /// Behind an `Arc` so a command can hand the connection to a blocking task
+    /// that outlives its own borrow of `AppState` — `execute_query` does this
+    /// for the gzip + write of a result's cached rows — without asking the
+    /// tests that build a local `AppState` for a `'static` one.
+    pub metadata_db: Arc<Mutex<SqliteConnection>>,
 
     /// Currently running queries, keyed by query ID
     pub running_queries: Mutex<HashMap<String, RunningQuery>>,
@@ -85,7 +90,7 @@ impl AppState {
         Self {
             connections: Mutex::new(HashMap::new()),
             connection_configs: Mutex::new(HashMap::new()),
-            metadata_db: Mutex::new(metadata_db),
+            metadata_db: Arc::new(Mutex::new(metadata_db)),
             running_queries: Mutex::new(HashMap::new()),
             settings: RwLock::new(Arc::new(AppSettings::default())),
             password_cache: Mutex::new(HashMap::new()),

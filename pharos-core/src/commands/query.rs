@@ -2,6 +2,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Executor, Row, ValueRef};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::db::sqlite;
@@ -415,7 +416,12 @@ pub async fn execute_query(
 
     let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
 
-    // Auto-save to query history with cached results (fire-and-forget)
+    // Auto-save to query history. The ROW is inserted here, synchronously: Swift
+    // attaches `history_entry_id` to a workspace the moment the callback fires,
+    // so the id must already exist. The cached result blobs are attached by a
+    // blocking task afterwards — the gzip and the blob write are the only part
+    // of this path whose cost grows with the result, and the caller does not
+    // need them to show the grid.
     let history_id = uuid::Uuid::new_v4().to_string();
     {
         let connection_name = state
@@ -440,7 +446,9 @@ pub async fn execute_query(
             error_message: None,
         };
 
-        // Serialize results for caching (skip if too large)
+        // Serialize results for caching (skip if too large). The strings are
+        // built here rather than in the task so the task owns plain text and
+        // the row tree is moved into the result once, not cloned.
         let result_data = if !json_rows.is_empty() {
             let columns_json = serde_json::to_string(&columns).unwrap_or_default();
             let rows_json = serde_json::to_string(&json_rows).unwrap_or_default();
@@ -457,17 +465,39 @@ pub async fn execute_query(
             None
         };
 
-        if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history_with_policy(
+        let inserted = match state.metadata_db.lock() {
+            Ok(db) => match sqlite::save_query_history_with_policy(
                 &db,
                 &entry,
-                result_data.as_ref().map(|(c, _, _)| c.as_str()),
-                result_data.as_ref().map(|(_, r, _)| r.as_str()),
-                result_data.as_ref().and_then(|(_, _, i)| i.as_deref()),
+                None,
+                None,
+                None,
                 history_prune_policy(state),
             ) {
-                log::warn!("Failed to save query history: {}", e);
-            }
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("Failed to save query history: {}", e);
+                    false
+                }
+            },
+            Err(_) => false,
+        };
+
+        if let (true, Some((columns_json, rows_json, identity_json))) = (inserted, result_data) {
+            let db = Arc::clone(&state.metadata_db);
+            let entry_id = history_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let Ok(db) = db.lock() else { return };
+                if let Err(e) = sqlite::attach_query_history_result(
+                    &db,
+                    &entry_id,
+                    &columns_json,
+                    &rows_json,
+                    identity_json.as_deref(),
+                ) {
+                    log::warn!("Failed to cache query history result: {}", e);
+                }
+            });
         }
     }
 

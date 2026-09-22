@@ -183,7 +183,12 @@ extension PharosCore {
     /// Decode a JSON C-string without an extra full-string allocation.
     /// `Data(bytesNoCopy:)` is safe here because the FFI pointer outlives the
     /// synchronous decode and is freed by the caller's `defer`.
-    private static func decodeNoCopy<T: Decodable>(_ ptr: UnsafeMutablePointer<CChar>) throws -> T {
+    ///
+    /// Internal, not private: `getQueryHistoryResult` calls it directly, because
+    /// that wrapper must turn a DECODE failure into nil (an old cached format)
+    /// while still throwing the core's error object — a split `callSync` cannot
+    /// express.
+    static func decodeNoCopy<T: Decodable>(_ ptr: UnsafeMutablePointer<CChar>) throws -> T {
         // Read the failure side of the channel first, or a real core failure would
         // be reported as a decode complaint that quotes `{"error": ...}` instead
         // of naming the locked database. The byte test comes first so that a

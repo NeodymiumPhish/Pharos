@@ -65,16 +65,20 @@ extension PharosCore {
 
     /// Get cached result data for a history entry.
     ///
-    /// This cannot use `jsonResult`: a decode failure here means an old cached
+    /// This cannot use `callSync`: a decode failure here means an old cached
     /// format, which must give nil rather than throw. Only the error object
     /// throws.
+    ///
+    /// Decodes straight from the C buffer. This payload can be a 10 MB result,
+    /// and the `String(cString:)` + `Data(json.utf8)` route made two full copies
+    /// of it before the decoder saw a byte.
     static func getQueryHistoryResult(id: String) throws -> QueryHistoryResultData? {
         // NULL = no cached results.
-        guard let json = try checkedText({ id.withCString { pharos_get_query_history_result($0) } })
-        else { return nil }
+        guard let ptr = id.withCString({ pharos_get_query_history_result($0) }) else { return nil }
+        defer { pharos_free_string(ptr) }
         do {
-            return try JSONDecoder.pharos.decode(QueryHistoryResultData.self, from: Data(json.utf8))
-        } catch {
+            return try decodeNoCopy(ptr)
+        } catch PharosCoreError.decodingError {
             // Old cached results were name-keyed objects; new format is index-based arrays.
             // Gracefully return nil so the history entry is still visible but without cached result preview.
             return nil
