@@ -30,7 +30,9 @@ private final class ValidatingViewToolbarItem: NSToolbarItem {
 ///
 /// Default set, left to right: navigator group | tracking separator |
 /// connection pull-down, schema pull-down, Run, Cancel | flexible space |
-/// tracking separator | inspector toggle. The navigator group stands where the
+/// tracking separator | flexible space | inspector toggle. The inspector
+/// toggle holds the window's right edge whether the inspector is open or
+/// closed. The navigator group stands where the
 /// sidebar toggle used to: it both picks the sidebar's list and, when the lit
 /// segment is pressed again, collapses the pane — the way Calendar's
 /// Calendars/Invites control behaves. The connection and schema pull-downs
@@ -674,6 +676,12 @@ extension MainToolbarController: NSToolbarDelegate {
             .pharosCancelQuery,
             .flexibleSpace,
             .inspectorTrackingSeparator,
+            // The separator is pinned to the inspector's divider, so a second
+            // flexible space after it pushes the toggle to the window's right
+            // edge — where Xcode keeps it. Without it the toggle sits against
+            // the divider and walks left and right as the inspector opens
+            // and closes.
+            .flexibleSpace,
             .toggleInspector,
         ]
     }
