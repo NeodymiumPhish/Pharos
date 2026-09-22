@@ -227,31 +227,40 @@ class ContentViewController: NSViewController {
     }
 
     override func loadView() {
-        // The root extends the content's edges under the toolbar and under the
-        // sidebar / inspector glass where they overlay this pane (the split
-        // view item has `automaticallyAdjustsSafeAreaInsets`). `container` is
-        // the extension view's content and is placed inside the safe area, so
-        // every child below pins to `container`'s own edges.
-        let extensionView = NSBackgroundExtensionView()
+        // A plain root, NOT an `NSBackgroundExtensionView`.
+        //
+        // That class fills itself with a private hosting view that paints a
+        // vertically FLIPPED, blurred copy of its content view. The real
+        // content is pinned inside the safe area, so the only strip the copy
+        // shows through is the one below the toolbar — and a flipped pane puts
+        // its BOTTOM edge there. Measured 2026-09-22: the grid's horizontal
+        // scroll bar appeared as a grey pill in the toolbar, at the knob's own
+        // x-range, moving with it. The class is made for artwork whose edges
+        // may be extended; this pane is chrome. Its last remaining job here was
+        // that one strip, because the sidebar and inspector insets went off on
+        // 2026-09-16 (design_requirements/HIG Implementation Plan 2026-09.md).
+        // The strip now shows the standard window material, as Xcode's does.
+        //
+        // `container` still sits inside the safe area, so every child below
+        // pins to `container`'s own edges.
+        let root = NSView()
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        // Explicit placement against the safe-area guide: the guide follows
-        // the sidebar and inspector as they collapse and expand, so the
-        // content grows into the space a hidden pane leaves.
-        extensionView.automaticallyPlacesContentView = false
-        extensionView.contentView = container
-        // A plain NSBackgroundExtensionView is accessibility-ignored by
-        // default and its identifier would never surface — force it to be
-        // a real element.
-        extensionView.setAccessibilityElement(true)
-        extensionView.setAccessibilityIdentifier("pane.content")
+        root.addSubview(container)
+        // A plain NSView is accessibility-ignored by default and its identifier
+        // would never surface — force it to be a real element.
+        root.setAccessibilityElement(true)
+        root.setAccessibilityIdentifier("pane.content")
+        // The safe-area guide, not the view's own edges: the guide follows the
+        // sidebar and inspector as they collapse and expand, so the content
+        // grows into the space a hidden pane leaves.
         NSLayoutConstraint.activate([
-            container.topAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.topAnchor),
-            container.leadingAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.trailingAnchor),
-            container.bottomAnchor.constraint(equalTo: extensionView.safeAreaLayoutGuide.bottomAnchor),
+            container.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            container.leadingAnchor.constraint(equalTo: root.safeAreaLayoutGuide.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: root.safeAreaLayoutGuide.trailingAnchor),
+            container.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor),
         ])
-        self.view = extensionView
+        self.view = root
 
         editorPane.delegate = self
         addChild(editorPane)

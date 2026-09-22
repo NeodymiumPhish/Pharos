@@ -58,10 +58,12 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         let contentItem = NSSplitViewItem(viewController: contentVC)
         contentItem.minimumThickness = 400
         contentItem.holdingPriority = .defaultLow
-        // Deliberately OFF. With it on, the content's `NSBackgroundExtensionView`
-        // grows into the safe-area inset the glass sidebar creates and paints
-        // its own plate UNDER the sidebar, so the two panes read as one sheet.
-        // Xcode's navigator keeps a visible boundary; so does this.
+        // Deliberately OFF. With it on, the content pane grows into the
+        // safe-area inset the glass sidebar creates and paints its own plate
+        // UNDER the sidebar, so the two panes read as one sheet. Xcode's
+        // navigator keeps a visible boundary; so does this. (The pane root was
+        // an `NSBackgroundExtensionView` until 2026-09-22 — see
+        // `ContentViewController.loadView` for why it is a plain view now.)
         contentItem.automaticallyAdjustsSafeAreaInsets = false
 
         let inspectorItem = NSSplitViewItem(inspectorWithViewController: inspectorVC)
