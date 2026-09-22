@@ -239,15 +239,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Flush final editor snapshots for open workspaces before shutting down core.
         AppStateManager.shared.snapshotWorkspaces()
 
-        // Watchdog: never hold termination longer than this even if the worker wedges.
-        let watchdog = DispatchWorkItem {
+        // Watchdog: never hold termination longer than this even if the worker
+        // wedges. A `Task` rather than a `DispatchWorkItem` because the shutdown
+        // task below has to capture it to cancel it, and only `Task` is
+        // `Sendable`. Cancelling throws out of the sleep, so the cancelled
+        // watchdog never reaches its reply.
+        let watchdog = Task { @MainActor in
+            try await Task.sleep(for: .seconds(5))
             NSApp.reply(toApplicationShouldTerminate: true)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: watchdog)
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task.detached(priority: .userInitiated) {
             pharos_shutdown()
-            DispatchQueue.main.async {
+            await MainActor.run {
                 watchdog.cancel()
                 NSApp.reply(toApplicationShouldTerminate: true)
             }
