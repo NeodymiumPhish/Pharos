@@ -264,8 +264,11 @@ class SchemaBrowserVC: NSViewController {
                 // Load ALL schemas' tables concurrently (tables only — columns are lazy)
                 await withTaskGroup(of: Void.self) { group in
                     for schemaNode in schemaNodes {
-                        group.addTask { [weak self] in
-                            await self?.loadTablesForSchema(schemaNode, connectionId: connectionId)
+                        // No `[weak self]`: the group is awaited inline, so the
+                        // enclosing task already holds `self` strongly for
+                        // longer than any of these child tasks can live.
+                        group.addTask {
+                            await self.loadTablesForSchema(schemaNode, connectionId: connectionId)
                         }
                     }
                 }

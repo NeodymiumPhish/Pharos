@@ -151,7 +151,11 @@ extension SchemaSnapshot {
     /// been fetched yet contributes its name with no columns, so the model can
     /// still see that it exists and ask about it.
     @MainActor
-    static func fromMetadataCache(_ cache: MetadataCache = .shared) -> SchemaSnapshot {
+    /// The cache is passed, never defaulted: a `= .shared` default argument is
+    /// evaluated in the CALLER's context, which is not the main actor, while
+    /// `MetadataCache.shared` is main-actor isolated. The one caller already
+    /// passes its own cache.
+    static func fromMetadataCache(_ cache: MetadataCache) -> SchemaSnapshot {
         var schemas: [String: [TableSummary]] = [:]
         for schema in cache.schemas {
             let tables = cache.tables[schema.name] ?? []

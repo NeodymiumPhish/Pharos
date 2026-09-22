@@ -126,18 +126,23 @@ final class SettingsEffects {
         sleepObserver = centre.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { _ in
-            let dropped = PharosCore.clearSessionPasswords()
-            // The front end's own record of which connections have one, in the
-            // same breath. If the two drifted apart, the next failure would be
-            // read as "it has a password" and dial straight back into it
-            // instead of asking.
-            PasswordPromptCoordinator.shared.forgetSessionPasswords()
-            guard dropped > 0 else { return }
-            // The proof that the owner was present goes with the passwords:
-            // keeping it would let the next connect skip the gate on a Mac
-            // that has just been asleep.
-            AppStateManager.shared.forgetGatePasses()
-            Log.state.info("Sleep: forgot \(dropped, privacy: .public) typed secret(s)")
+            // `addObserver`'s block is `@Sendable`, so the compiler cannot see
+            // that `queue: .main` already guarantees main-actor execution.
+            // Asserting it is the pattern the sidebar's observers use.
+            MainActor.assumeIsolated {
+                let dropped = PharosCore.clearSessionPasswords()
+                // The front end's own record of which connections have one, in the
+                // same breath. If the two drifted apart, the next failure would be
+                // read as "it has a password" and dial straight back into it
+                // instead of asking.
+                PasswordPromptCoordinator.shared.forgetSessionPasswords()
+                guard dropped > 0 else { return }
+                // The proof that the owner was present goes with the passwords:
+                // keeping it would let the next connect skip the gate on a Mac
+                // that has just been asleep.
+                AppStateManager.shared.forgetGatePasses()
+                Log.state.info("Sleep: forgot \(dropped, privacy: .public) typed secret(s)")
+            }
         }
     }
 }

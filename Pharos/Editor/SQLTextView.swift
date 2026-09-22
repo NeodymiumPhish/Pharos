@@ -176,8 +176,8 @@ class SQLTextView: NSTextView {
     @objc func redo(_ sender: Any?) { editorUndoManager.redo() }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
-        if item.action == Selector(("undo:")) { return editorUndoManager.canUndo }
-        if item.action == Selector(("redo:")) { return editorUndoManager.canRedo }
+        if item.action == #selector(SQLTextView.undo(_:)) { return editorUndoManager.canUndo }
+        if item.action == #selector(SQLTextView.redo(_:)) { return editorUndoManager.canRedo }
         return super.validateUserInterfaceItem(item)
     }
 
@@ -1084,7 +1084,10 @@ class SQLTextView: NSTextView {
             )
 
             // ---- On-main application ----
-            await MainActor.run {
+            // Its OWN `[weak self]`: without one this closure reads the weak
+            // `self` variable captured by the enclosing detached task, which is
+            // a reference to a captured var from concurrently-executing code.
+            await MainActor.run { [weak self] in
                 guard let self, generation == self.highlightGeneration else { return }
                 self.applyHighlightAttributes(attrs, layoutManager: layoutManager)
             }
@@ -1220,7 +1223,10 @@ class SQLTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard highlightCurrentLine, let layoutManager, let textContainer else { return }
+        // `textContainer` is checked, not bound: the body below uses
+        // `textContainerInset` and `textContainerOrigin`, which are different
+        // symbols on the text view itself.
+        guard highlightCurrentLine, let layoutManager, textContainer != nil else { return }
 
         // Highlight current line
         let cursorRange = selectedRange()

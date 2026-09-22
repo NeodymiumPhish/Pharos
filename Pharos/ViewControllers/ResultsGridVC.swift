@@ -206,8 +206,13 @@ class ResultsGridVC: NSViewController {
     private var tagStoreObserver: NSObjectProtocol?
     /// Token for the accessibility-display observer; see `viewDidLoad`.
     private var accessibilityDisplayObserver: NSObjectProtocol?
-    /// Key-window and accent-colour observers; see `viewDidLoad`.
+    /// Key-window observers; see `viewDidLoad`.
     private var appearanceObservers: [NSObjectProtocol] = []
+    /// Accent-colour observation. KVO on `NSApp.effectiveAppearance`, which is
+    /// what replaced `NSColor.currentControlTintDidChangeNotification`
+    /// (deprecated in macOS 11). It is a different token type from the
+    /// notification observers above, so it is held on its own.
+    private var accentObservation: NSKeyValueObservation?
 
     // Formatters
     static let rowCountFormatter: NumberFormatter = {
@@ -387,14 +392,20 @@ class ResultsGridVC: NSViewController {
         appearanceObservers = [
             center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: keyChanged),
             center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main, using: keyChanged),
-            center.addObserver(forName: NSColor.currentControlTintDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.dataSource.invalidateAppearanceColors()
-                    self.filterableHeaderView.invalidateIconCache()
-                }
-            },
         ]
+
+        // The accent colour. `currentControlTintDidChangeNotification` is
+        // deprecated; the accent is part of the effective appearance, so
+        // observing that is the documented replacement. KVO delivers on the
+        // thread that changed the value — AppKit changes this one on the main
+        // thread — so assert the actor as the observers above do.
+        accentObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.dataSource.invalidateAppearanceColors()
+                self.filterableHeaderView.invalidateIconCache()
+            }
+        }
     }
 
     deinit {
@@ -407,6 +418,7 @@ class ResultsGridVC: NSViewController {
         for observer in appearanceObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        accentObservation?.invalidate()
     }
 
     /// Called by ContentViewController after setting contentVC and toolbar buttons.

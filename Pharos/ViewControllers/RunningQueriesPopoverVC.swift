@@ -4,6 +4,11 @@ import Combine
 /// Delegate for popover row actions. The owning `EditorPaneVC` forwards
 /// cancel requests to its own delegate so the `ContentViewController`
 /// stays the single owner of cancellation logic.
+/// `@MainActor`: a UI delegate, called from the popover's own view code, and
+/// its one conformer (`MainToolbarController`) is main-actor isolated. Without
+/// this the conformance crosses into main-actor code, which is a data race in
+/// the Swift 6 language mode.
+@MainActor
 protocol RunningQueriesPopoverDelegate: AnyObject {
     func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String)
 }

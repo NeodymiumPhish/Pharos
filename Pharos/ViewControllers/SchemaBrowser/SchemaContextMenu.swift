@@ -270,10 +270,14 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         guard let tableName = tableNameFromNode(node) else { return }
 
         // Fetch columns for the column picker
-        Task {
+        // Weak all the way down. The sheet STORES its completion closure and
+        // calls it whenever the user confirms, which can be long after this
+        // task has returned, so that closure must not hold this menu. An
+        // implicit strong capture out here would contradict it.
+        Task { [weak self] in
             do {
                 let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
-                await MainActor.run {
+                await MainActor.run { [weak self] in
                     let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
                                                 settings: AppStateManager.shared.settings.dataExport) { [weak self] options in
                         DataExportSettings.rememberIfAsked(options)
@@ -291,7 +295,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                             }
                         }
                     }
-                    self.delegate?.contextMenuPresentSheet(sheet)
+                    self?.delegate?.contextMenuPresentSheet(sheet)
                 }
             } catch {
                 Log.schema.error("Failed to load columns for export: \(error.localizedDescription, privacy: .public)")

@@ -176,10 +176,16 @@ class SidebarViewController: NSViewController {
             NotificationCenter.default.addObserver(
                 forName: .savedQueriesDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                self?.savedQueries.reload()
-                // Re-apply highlight (savedQueryId may have changed after save)
-                let savedQueryId = self?.session.activeTab?.savedQueryId
-                self?.savedQueries.highlightQuery(id: savedQueryId)
+                // Same reason as the `QueryVariableStore.didChange` observer
+                // below: the block is `@Sendable`, so `queue: .main` does not
+                // tell the compiler this runs on the main actor.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.savedQueries.reload()
+                    // Re-apply highlight (savedQueryId may have changed after save)
+                    let savedQueryId = self.session.activeTab?.savedQueryId
+                    self.savedQueries.highlightQuery(id: savedQueryId)
+                }
             }
         )
 
@@ -219,11 +225,15 @@ class SidebarViewController: NSViewController {
             NotificationCenter.default.addObserver(
                 forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
             ) { [weak self] _ in
-                guard let self,
-                      let activeId = self.session.activeConnectionId,
-                      self.stateManager.status(for: activeId) == .connected else { return }
-                self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
-                self.applyActiveSchemaToBrowser()
+                // `@Sendable` block again — assert the main actor `queue: .main`
+                // already guarantees, as the two observers above do.
+                MainActor.assumeIsolated {
+                    guard let self,
+                          let activeId = self.session.activeConnectionId,
+                          self.stateManager.status(for: activeId) == .connected else { return }
+                    self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
+                    self.applyActiveSchemaToBrowser()
+                }
             }
         )
     }

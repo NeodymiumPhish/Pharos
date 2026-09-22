@@ -511,7 +511,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 Log.ui.error("Failed to load workspace history: \(error.localizedDescription, privacy: .public)")
                 return
             }
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self, generation == self.requeryGeneration else { return }
                 self.workspaces = ws
                 self.appliedFilterText = search
@@ -992,7 +992,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private func showPreview(for workspaceId: String) {
         Task.detached(priority: .userInitiated) { [weak self] in
             let detail = try? PharosCore.loadWorkspace(id: workspaceId)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 // Discard a stale response if the selection moved on before this returned.
                 guard let self, self.selectedWorkspaceId == workspaceId else { return }
                 // A workspace holds the failures its tab produced as well as

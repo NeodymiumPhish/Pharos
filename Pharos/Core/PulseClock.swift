@@ -9,7 +9,7 @@ import QuartzCore
 /// All three surfaces subscribe to the same publisher so their animations stay
 /// phase-locked.
 ///
-/// The underlying `CVDisplayLink` is reference-counted: it starts on the first
+/// The underlying `CADisplayLink` is reference-counted: it starts on the first
 /// `observe()` call and stops when the observer count returns to zero, so idle
 /// sessions have zero CPU cost.
 ///
@@ -28,7 +28,7 @@ final class PulseClock {
 
     // MARK: - Internals
 
-    private var displayLink: CVDisplayLink?
+    private var displayLink: CADisplayLink?
     private var observerCount: Int = 0
     private let lock = NSLock()
     private let startTime = CACurrentMediaTime()
@@ -69,22 +69,20 @@ final class PulseClock {
         observerCount += 1
         guard observerCount == 1, displayLink == nil else { return }
 
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let link else {
-            // Creation failed — roll back the refcount so a future observe() can retry.
+        // `NSScreen.displayLink` replaces `CVDisplayLink`, deprecated in macOS
+        // 15. The callback arrives on the run loop the link is added to — the
+        // main one — instead of on a CV thread, so the callback publishes straight
+        // to the subject rather than hopping through `DispatchQueue.main.async`.
+        guard let screen = NSScreen.main else {
+            // No screen — roll back the refcount so a future observe() can retry.
             observerCount -= 1
             return
         }
 
-        let callback: CVDisplayLinkOutputCallback = { _, _, _, _, _, userInfo in
-            guard let userInfo else { return kCVReturnSuccess }
-            let clock = Unmanaged<PulseClock>.fromOpaque(userInfo).takeUnretainedValue()
-            clock.tick()
-            return kCVReturnSuccess
-        }
-        CVDisplayLinkSetOutputCallback(link, callback, Unmanaged.passUnretained(self).toOpaque())
-        CVDisplayLinkStart(link)
+        let link = screen.displayLink(target: self, selector: #selector(displayTick(_:)))
+        // `.common`, so the pulse keeps running while a menu or a resize has
+        // the run loop in a tracking mode.
+        link.add(to: .main, forMode: .common)
         displayLink = link
     }
 
@@ -94,18 +92,19 @@ final class PulseClock {
 
         observerCount = max(0, observerCount - 1)
         guard observerCount == 0, let link = displayLink else { return }
-        CVDisplayLinkStop(link)
+        link.invalidate()
         displayLink = nil
     }
 
     // MARK: - Tick
 
-    private func tick() {
+    /// Display-link callback. Runs on the main run loop, so it publishes
+    /// directly — the `DispatchQueue.main.async` hops the `CVDisplayLink`
+    /// version needed are gone with it.
+    @objc private func displayTick(_ link: CADisplayLink) {
         if reduceMotion {
             // Static peak — publish only once per change, not every frame.
-            if value.value != 1.0 {
-                DispatchQueue.main.async { [weak self] in self?.value.send(1.0) }
-            }
+            if value.value != 1.0 { value.send(1.0) }
             return
         }
 
@@ -114,7 +113,7 @@ final class PulseClock {
         let sine = sin(phase * 2 * .pi)
         let normalized = CGFloat(0.5 + 0.5 * sine)  // [0, 1]
 
-        DispatchQueue.main.async { [weak self] in self?.value.send(normalized) }
+        value.send(normalized)
     }
 
     @objc private func reduceMotionChanged() {
