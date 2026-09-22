@@ -42,24 +42,19 @@ enum AppInfo {
         (info["CFBundleShortVersionString"] as? String) ?? "0.0.0"
     }
 
-    /// The build number — "1". Empty when the key is missing, which is what
-    /// drops the parentheses from `versionLine(from:)`.
-    static func build(from info: [String: Any]) -> String {
-        (info["CFBundleVersion"] as? String) ?? ""
-    }
-
-    /// "Version 0.1.0 (1)", or "Version 0.1.0" when there is no build number.
+    /// "Version 0.1.0".
+    ///
+    /// The marketing version alone. `CFBundleVersion` is NOT appended: the
+    /// release process gives both keys the same number, so the parenthetical
+    /// only ever repeated what the line already said ("Version 2.6.205
+    /// (2.6.205)").
     static func versionLine(from info: [String: Any]) -> String {
-        let version = self.version(from: info)
-        let build = self.build(from: info)
-        guard !build.isEmpty else { return String(localized: "Version \(version)") }
-        return String(localized: "Version \(version) (\(build))")
+        String(localized: "Version \(version(from: info))")
     }
 
     // MARK: - This build
 
     static var name: String { name(from: Bundle.main.infoDictionary ?? [:]) }
     static var version: String { version(from: Bundle.main.infoDictionary ?? [:]) }
-    static var build: String { build(from: Bundle.main.infoDictionary ?? [:]) }
     static var versionLine: String { versionLine(from: Bundle.main.infoDictionary ?? [:]) }
 }

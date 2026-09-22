@@ -27,33 +27,34 @@ private let shipping: [String: Any] = [
 
 private func testVersionStrings() {
     expectEqual(AppInfo.version(from: shipping), "0.1.0", "the marketing version is read")
-    expectEqual(AppInfo.build(from: shipping), "1", "the build number is read")
-    expectEqual(AppInfo.versionLine(from: shipping), "Version 0.1.0 (1)",
-                "the version line names both numbers")
+
+    // The marketing version ALONE. The release workflow sets CFBundleVersion
+    // to the same string as CFBundleShortVersionString, so a parenthetical
+    // build number only repeated the line ("Version 2.6.205 (2.6.205)").
+    expectEqual(AppInfo.versionLine(from: shipping), "Version 0.1.0",
+                "the build number is not appended")
+    expectEqual(AppInfo.versionLine(from: ["CFBundleVersion": "77"]),
+                "Version 0.0.0", "a build number alone adds nothing")
 
     // A build with no version must still produce a line. The fallback is the
     // one UpdateChecker uses, so an unversioned build reads as older than
     // every release instead of crashing the pane.
     expectEqual(AppInfo.version(from: [:]), "0.0.0", "no version key → 0.0.0")
-    expectEqual(AppInfo.build(from: [:]), "", "no build key → empty")
-    expectEqual(AppInfo.versionLine(from: [:]), "Version 0.0.0",
-                "no build number → no parentheses")
+    expectEqual(AppInfo.versionLine(from: [:]), "Version 0.0.0", "no keys → the fallback line")
 
     expectEqual(AppInfo.versionLine(from: ["CFBundleShortVersionString": "2.3.4"]),
-                "Version 2.3.4", "a version with no build number stands alone")
-    expectEqual(AppInfo.versionLine(from: ["CFBundleVersion": "77"]),
-                "Version 0.0.0 (77)", "a build number with no version keeps the fallback")
+                "Version 2.3.4", "the version stands alone")
 
     // A pre-release tag is part of the string, not something to strip: that
     // is UpdateCheckPolicy's job, and About reports what the build says.
     expectEqual(AppInfo.versionLine(from: ["CFBundleShortVersionString": "0.2.0-beta.1",
                                            "CFBundleVersion": "12"]),
-                "Version 0.2.0-beta.1 (12)", "a pre-release version is shown as it is")
+                "Version 0.2.0-beta.1", "a pre-release version is shown as it is")
 
     // A number written as a number rather than a string is not a String and
-    // must not become "Optional(1)" on screen.
-    expectEqual(AppInfo.build(from: ["CFBundleVersion": 1]), "",
-                "a non-string build value is ignored, not interpolated")
+    // must not become "Optional(2)" on screen.
+    expectEqual(AppInfo.versionLine(from: ["CFBundleShortVersionString": 2]),
+                "Version 0.0.0", "a non-string version value is ignored, not interpolated")
 }
 
 private func testName() {
