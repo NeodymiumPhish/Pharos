@@ -581,6 +581,21 @@ private func testTokenClicks() {
     drainEvents()
     expectEqual(e.chosen, ["user_id", "zone"], "double-click: the second click opens nothing more")
 
+    // The hand shows over a token, the I-beam elsewhere — through the two
+    // events NSTextView sets its own cursor from.
+    e.textView.mouseMoved(with: mouse(.mouseMoved, at: userMid, in: e))
+    expectTrue(NSCursor.current == NSCursor.pointingHand, "cursor: a hand over a token (mouseMoved)")
+    e.textView.mouseMoved(with: mouse(.mouseMoved, at: plain, in: e))
+    expectTrue(NSCursor.current == NSCursor.iBeam, "cursor: the I-beam over plain text (mouseMoved)")
+    func cursorEvent(at point: NSPoint) -> NSEvent {
+        NSEvent.enterExitEvent(with: .cursorUpdate, location: e.textView.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                               windowNumber: e.window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
+    }
+    e.textView.cursorUpdate(with: cursorEvent(at: zoneMid))
+    expectTrue(NSCursor.current == NSCursor.pointingHand, "cursor: a hand over a token (cursorUpdate)")
+    e.textView.cursorUpdate(with: cursorEvent(at: plain))
+    expectTrue(NSCursor.current == NSCursor.iBeam, "cursor: the I-beam over plain text (cursorUpdate)")
+
     // Editing moves the chips with the text.
     e.textView.setSelectedRange(NSRange(location: 0, length: 0))
     e.type("--")

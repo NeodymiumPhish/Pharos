@@ -192,6 +192,9 @@ class SQLCompletionProvider: NSObject {
     /// Test seam: the rows the list shows, in order.
     var visibleCompletionsForTesting: [Completion] { filteredCompletions }
 
+    /// Room for the overlay scroller at a row's trailing edge.
+    static let detailTrailingInset: CGFloat = 18
+
     // MARK: - Show/Hide
 
     func attachTo(_ textView: SQLTextView) {
@@ -482,7 +485,9 @@ extension SQLCompletionProvider: NSTableViewDelegate {
                 label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
                 label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
 
-                detail.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                // Clear of the overlay scroller, which draws over the cell's
+                // trailing edge: at -4 the type sat behind the scroll bar.
+                detail.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -Self.detailTrailingInset),
                 detail.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
         }

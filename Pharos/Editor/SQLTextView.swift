@@ -377,12 +377,32 @@ class SQLTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
+    /// A hand over each `{{name}}` chip: it is a button. NSTextView sets its
+    /// own I-beam from these two events, over any cursor rect, so the hand
+    /// has to be set here, after it.
+    override func cursorUpdate(with event: NSEvent) {
+        super.cursorUpdate(with: event)
+        setHandIfOverToken(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        setHandIfOverToken(event)
+    }
+
+    /// The hand over a token, the I-beam anywhere else — set here rather
+    /// than left to NSTextView, which does not always put the I-beam back
+    /// once the pointer leaves a token.
+    private func setHandIfOverToken(_ event: NSEvent) {
+        if variableToken(at: convert(event.locationInWindow, from: nil)) != nil {
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.iBeam.set()
+        }
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
-        // A hand over each `{{name}}` chip: it is a button.
-        for hit in variableTokenHits() {
-            addCursorRect(hit.rect, cursor: .pointingHand)
-        }
         // Show pointing hand cursor over fold pills
         guard !foldState.entries.isEmpty,
               let foldingLM = layoutManager as? FoldingLayoutManager,
@@ -1293,16 +1313,15 @@ class SQLTextView: NSTextView {
         }
     }
 
-    /// Re-place the tooltips and cursor rects on the tokens, and redraw the
-    /// chips. Called when the text has settled, the values change, or the
-    /// view is resized (a new width re-wraps the lines).
+    /// Re-place the tooltips on the tokens and redraw the chips. Called when
+    /// the text has settled, the values change, or the view is resized (a
+    /// new width re-wraps the lines).
     private func refreshVariableTokenChrome() {
         for tag in tokenToolTipTags.keys { removeToolTip(tag) }
         tokenToolTipTags.removeAll()
         for hit in variableTokenHits() {
             tokenToolTipTags[addToolTip(hit.rect, owner: self, userData: nil)] = hit.name
         }
-        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
