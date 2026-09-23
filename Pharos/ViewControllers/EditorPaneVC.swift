@@ -16,8 +16,8 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
-    /// A `{{` completion row was accepted: show that variable (creating it
-    /// when no variable has the name).
+    /// A `{{` completion row was accepted, or a `{{name}}` token was clicked:
+    /// show that variable (creating it when no variable has the name).
     func editorPane(_ pane: EditorPaneVC, didChooseVariable name: String)
 }
 

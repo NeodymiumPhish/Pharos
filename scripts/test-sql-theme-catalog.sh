@@ -9,6 +9,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-sql-theme-catalog-tests \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
+  Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLThemeCatalog.swift \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLLexSnapshot.swift \

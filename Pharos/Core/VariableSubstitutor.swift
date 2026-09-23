@@ -30,9 +30,28 @@ enum VariableSubstitutor {
     /// would block a query that runs today (`ContentViewController` refuses to
     /// execute while any token is unresolved). Requiring one letter or
     /// underscore somewhere keeps every all-digit token out.
-    private static let tokenRegex = try! NSRegularExpression(
+    static let tokenRegex = try! NSRegularExpression(
         pattern: #"\{\{\s*([A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
     )
+
+    /// One `{{name}}` in a text: the name, and the range of the whole token
+    /// including the braces.
+    struct Token: Equatable {
+        let name: String
+        let range: NSRange
+    }
+
+    /// Every token in `sql`, in order. The same regex `render` substitutes
+    /// with, so the editor's chips sit exactly on what will be replaced.
+    static func tokens(in sql: String) -> [Token] {
+        let ns = sql as NSString
+        var tokens: [Token] = []
+        tokenRegex.enumerateMatches(in: sql, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match else { return }
+            tokens.append(Token(name: ns.substring(with: match.range(at: 1)), range: match.range))
+        }
+        return tokens
+    }
 
     /// SQL numeric literal: optional sign, integer/decimal (no exponent).
     ///

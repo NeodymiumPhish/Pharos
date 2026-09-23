@@ -8,6 +8,8 @@ swiftc -o /tmp/query-error-presenter-tests \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
+  Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Editor/FoldState.swift \

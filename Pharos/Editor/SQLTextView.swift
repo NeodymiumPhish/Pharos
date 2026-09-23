@@ -108,6 +108,19 @@ class SQLTextView: NSTextView {
         }
     }
 
+    /// The value of each defined variable, by name; the last definition of a
+    /// name wins, as it does when the query runs. Read by the token tooltips.
+    var variableValues: [String: String] = [:] {
+        didSet {
+            guard variableValues != oldValue else { return }
+            scheduleTokenChromeRefresh()
+        }
+    }
+
+    /// Called when a `{{name}}` token is clicked (a plain click that selects
+    /// nothing), with the name. The variable may not exist.
+    var onVariableTokenClicked: ((String) -> Void)?
+
     /// Called whenever the text changes (after highlighting).
     var onTextChange: ((String) -> Void)?
 
@@ -236,6 +249,20 @@ class SQLTextView: NSTextView {
         // Added to what NSTextView already accepts, never replacing it: the
         // plain-text drop that inserts the dragged string must keep working.
         registerForDraggedTypes(registeredDraggedTypes + [.fileURL])
+
+        // Every change to the text, typed or programmatic (`string =` skips
+        // didChangeText), passes through the storage: the token cache goes
+        // with it.
+        if let textStorage {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(tokenSourceDidChange(_:)),
+                name: NSTextStorage.didProcessEditingNotification, object: textStorage)
+        }
+    }
+
+    @objc private func tokenSourceDidChange(_ note: Notification) {
+        tokenCache = nil
+        scheduleTokenChromeRefresh()
     }
 
     // MARK: - File Drop
@@ -312,7 +339,9 @@ class SQLTextView: NSTextView {
         cancelPendingCompletionOffer()
         completionDelegate?.dismissCompletion()
 
-        // Check if click lands on a fold pill — if so, unfold it
+        // Check if click lands on a fold pill — if so, unfold it. Before the
+        // token check: a token hidden inside the fold must not answer a
+        // click meant for the pill.
         if !foldState.entries.isEmpty, let foldingLM = layoutManager as? FoldingLayoutManager, let textContainer {
             let localPoint = convert(event.locationInWindow, from: nil)
             let textOrigin = textContainerOrigin
@@ -324,12 +353,36 @@ class SQLTextView: NSTextView {
             }
         }
 
+        // A plain click on a `{{name}}` chip opens the variable — after the
+        // click has done its ordinary work. `super.mouseDown` tracks the
+        // mouse until it is released, so when it returns a drag has either
+        // selected text (not a click on a button: nothing opens) or the
+        // caret has landed. Shift/⌘/⌥-clicks extend selections and never
+        // open. The FIRST click of a double-click opens too; the second only
+        // selects the word, which is harmless: nothing takes the focus.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.clickCount == 1, flags.isEmpty,
+           let token = variableToken(at: convert(event.locationInWindow, from: nil)) {
+            window?.makeFirstResponder(self)
+            super.mouseDown(with: event)
+            let caret = selectedRange()
+            if caret.length == 0, caret.location >= token.range.location,
+               caret.location <= token.range.location + token.range.length {
+                onVariableTokenClicked?(token.name)
+            }
+            return
+        }
+
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        // A hand over each `{{name}}` chip: it is a button.
+        for hit in variableTokenHits() {
+            addCursorRect(hit.rect, cursor: .pointingHand)
+        }
         // Show pointing hand cursor over fold pills
         guard !foldState.entries.isEmpty,
               let foldingLM = layoutManager as? FoldingLayoutManager,
@@ -1175,6 +1228,118 @@ class SQLTextView: NSTextView {
             }
         }
         CATransaction.commit()
+        // The text settled (this pass is debounced behind the edits): the
+        // chips' tooltips and cursor rects follow it here.
+        scheduleTokenChromeRefresh()
+    }
+
+    // MARK: - Variable Token Chips
+
+    /// A `{{name}}` token and where it is drawn, in view coordinates.
+    struct VariableTokenHit {
+        let name: String
+        let range: NSRange
+        let rect: NSRect
+    }
+
+    /// Tokens computed once per text change (cleared by the text storage's
+    /// edit notification): every draw and every cursor pass reads them, and
+    /// the regex over a long document is not free.
+    private var tokenCache: [VariableSubstitutor.Token]?
+
+    private var variableTokens: [VariableSubstitutor.Token] {
+        if let tokenCache { return tokenCache }
+        let tokens = VariableSubstitutor.tokens(in: string)
+        tokenCache = tokens
+        return tokens
+    }
+
+    /// Every token with its rect, or only those that touch `characterRange`.
+    /// Asking the layout manager for a rect lays the range out if needed.
+    func variableTokenHits(in characterRange: NSRange? = nil) -> [VariableTokenHit] {
+        guard let layoutManager, let textContainer else { return [] }
+        let origin = textContainerOrigin
+        return variableTokens.compactMap { token in
+            if let characterRange, NSIntersectionRange(characterRange, token.range).length == 0 { return nil }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: token.range, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            guard !rect.isEmpty else { return nil }
+            return VariableTokenHit(name: token.name, range: token.range,
+                                    rect: rect.offsetBy(dx: origin.x, dy: origin.y))
+        }
+    }
+
+    /// The token under `point` (view coordinates), if any.
+    func variableToken(at point: NSPoint) -> VariableTokenHit? {
+        variableTokenHits().first { $0.rect.contains(point) }
+    }
+
+    /// Tool-tip tags this view added for its tokens, by token name.
+    private var tokenToolTipTags: [NSView.ToolTipTag: String] = [:]
+
+    private var tokenChromeRefreshPending = false
+
+    /// Refresh on the next turn of the run loop, once for any number of
+    /// requests. The callers run inside text-storage editing, layout (a
+    /// resize) and a CATransaction — none of them a place to ask the layout
+    /// manager for glyph rects.
+    private func scheduleTokenChromeRefresh() {
+        guard !tokenChromeRefreshPending else { return }
+        tokenChromeRefreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.tokenChromeRefreshPending = false
+            self.refreshVariableTokenChrome()
+        }
+    }
+
+    /// Re-place the tooltips and cursor rects on the tokens, and redraw the
+    /// chips. Called when the text has settled, the values change, or the
+    /// view is resized (a new width re-wraps the lines).
+    private func refreshVariableTokenChrome() {
+        for tag in tokenToolTipTags.keys { removeToolTip(tag) }
+        tokenToolTipTags.removeAll()
+        for hit in variableTokenHits() {
+            tokenToolTipTags[addToolTip(hit.rect, owner: self, userData: nil)] = hit.name
+        }
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { scheduleTokenChromeRefresh() }
+    }
+
+    /// NSToolTipOwner: the text for one token's tooltip, looked up by tag.
+    @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
+                    point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        guard let name = tokenToolTipTags[tag] else { return toolTip ?? "" }
+        return Self.tokenToolTip(name: name, value: variableValues[name])
+    }
+
+    /// What the tooltip over `{{name}}` says: the value's first line, or why
+    /// there is none.
+    static func tokenToolTip(name: String, value: String?) -> String {
+        guard let value else { return "\(name) — undefined. Click to create it." }
+        let snippet = VariableValuePreview.snippet(for: value)
+        return snippet.isEmpty ? "\(name) — no value" : "\(name) = \(snippet)"
+    }
+
+    /// A rounded wash behind each token on screen, in its own color: the
+    /// token reads as a button, and undefined ones stay red.
+    private func drawVariableTokenChips(in rect: NSRect) {
+        guard let layoutManager, let textContainer, !variableTokens.isEmpty else { return }
+        let origin = textContainerOrigin
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: rect.offsetBy(dx: -origin.x, dy: -origin.y), in: textContainer)
+        let visible = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        for hit in variableTokenHits(in: visible) {
+            let color = variableNames.contains(hit.name) ? theme.variable : theme.variableUnresolved
+            color.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: hit.rect.insetBy(dx: -1, dy: 0), xRadius: 3, yRadius: 3).fill()
+        }
     }
 
     // MARK: - Bracket Matching
@@ -1281,6 +1446,7 @@ class SQLTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawVariableTokenChips(in: rect)
         // `textContainer` is checked, not bound: the body below uses
         // `textContainerInset` and `textContainerOrigin`, which are different
         // symbols on the text view itself.

@@ -183,6 +183,7 @@ private final class Editor {
         host.provider.variables = variables.map { .init(name: $0, preview: "v") }
         textView.completionDelegate = host
         host.provider.onVariableChosen = { [unowned self] in self.chosen.append($0) }
+        textView.onVariableTokenClicked = { [unowned self] in self.chosen.append($0) }
     }
 
     func type(_ s: String) {
@@ -338,6 +339,100 @@ private func testTypedIntoEditor() {
     }
 }
 
+// MARK: - Variable token chips (click, tooltip, one token rule)
+
+private func testTokenRule() {
+    let tokens = VariableSubstitutor.tokens(in: "SELECT {{ip}} FROM t WHERE d = '{{ 185_domains }}' AND {{123}}")
+    expectEqual(tokens.map(\.name), ["ip", "185_domains"], "tokens: every resolvable token, none for all digits")
+    expectEqual(tokens.first?.range, NSRange(location: 7, length: 6), "tokens: the range covers the braces")
+
+    // The highlighter colors exactly what the substitutor replaces.
+    let spans = SQLSyntaxHighlighter.spans(for: "x = {{185_domains}}", variableNames: ["185_domains"])
+    expectTrue(spans.contains { $0.range == NSRange(location: 4, length: 15) && $0.color == SQLTheme.default.variable },
+               "highlighter: a leading-digit token is colored as defined")
+    let red = SQLSyntaxHighlighter.spans(for: "x = {{zone}}", variableNames: [])
+    expectTrue(red.contains { $0.range == NSRange(location: 4, length: 8) && $0.color == SQLTheme.default.variableUnresolved },
+               "highlighter: an undefined token is colored unresolved")
+
+    expectEqual(SQLTextView.tokenToolTip(name: "ip", value: "10.0.0.1"), "ip = 10.0.0.1", "tooltip: name and value")
+    expectEqual(SQLTextView.tokenToolTip(name: "ids", value: "\n  1, 2, 3\n4"), "ids = 1, 2, 3", "tooltip: the first line with content")
+    expectEqual(SQLTextView.tokenToolTip(name: "ip", value: ""), "ip — no value", "tooltip: empty value")
+    expectEqual(SQLTextView.tokenToolTip(name: "zone", value: nil), "zone — undefined. Click to create it.", "tooltip: undefined")
+}
+
+private func mouse(_ type: NSEvent.EventType, at point: NSPoint, in e: Editor, clickCount: Int = 1) -> NSEvent {
+    NSEvent.mouseEvent(
+        with: type, location: e.textView.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+        windowNumber: e.window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: 0)!
+}
+
+private func drainEvents() {
+    while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
+}
+
+private func testTokenClicks() {
+    let e = Editor()
+    e.textView.variableNames = ["user_id"]
+    e.textView.variableValues = ["user_id": "42"]
+    e.textView.string = "SELECT {{user_id}} , {{zone}} FROM t"
+    e.textView.layoutManager?.ensureLayout(for: e.textView.textContainer!)
+
+    let hits = e.textView.variableTokenHits()
+    expectEqual(hits.map(\.name), ["user_id", "zone"], "hits: one per token")
+    expectTrue(hits.allSatisfy { !$0.rect.isEmpty && $0.rect.width > 20 }, "hits: each has a laid-out rect")
+    guard hits.count == 2 else { return }
+    let user = hits[0], zone = hits[1]
+    let userMid = NSPoint(x: user.rect.midX, y: user.rect.midY)
+    let plain = NSPoint(x: 8, y: user.rect.midY)   // on "SELECT"
+    expectTrue(e.textView.variableToken(at: userMid)?.name == "user_id", "hit test: a point in the chip finds the token")
+    expectTrue(e.textView.variableToken(at: plain) == nil, "hit test: a point on plain text finds nothing")
+
+    // A plain click: the tracking loop drains the queued mouse-up.
+    NSApp.postEvent(mouse(.leftMouseUp, at: userMid, in: e), atStart: false)
+    e.textView.mouseDown(with: mouse(.leftMouseDown, at: userMid, in: e))
+    drainEvents()
+    expectEqual(e.chosen, ["user_id"], "click: a plain click on a defined token opens it")
+    let caret = e.textView.selectedRange()
+    expectTrue(caret.length == 0 && caret.location >= user.range.location
+               && caret.location <= user.range.location + user.range.length, "click: the caret lands in the token")
+
+    // An undefined token opens (creates) too.
+    let zoneMid = NSPoint(x: zone.rect.midX, y: zone.rect.midY)
+    NSApp.postEvent(mouse(.leftMouseUp, at: zoneMid, in: e), atStart: false)
+    e.textView.mouseDown(with: mouse(.leftMouseDown, at: zoneMid, in: e))
+    drainEvents()
+    expectEqual(e.chosen, ["user_id", "zone"], "click: an undefined token reports its name")
+
+    // A drag from the token selects text and opens nothing.
+    let farRight = NSPoint(x: zone.rect.maxX + 60, y: zone.rect.midY)
+    NSApp.postEvent(mouse(.leftMouseUp, at: farRight, in: e), atStart: false)
+    NSApp.postEvent(mouse(.leftMouseDragged, at: farRight, in: e), atStart: true)
+    e.textView.mouseDown(with: mouse(.leftMouseDown, at: userMid, in: e))
+    drainEvents()
+    expectTrue(e.textView.selectedRange().length > 0, "drag: text is selected")
+    expectEqual(e.chosen, ["user_id", "zone"], "drag: nothing opens")
+
+    // A click on plain text opens nothing.
+    NSApp.postEvent(mouse(.leftMouseUp, at: plain, in: e), atStart: false)
+    e.textView.mouseDown(with: mouse(.leftMouseDown, at: plain, in: e))
+    drainEvents()
+    expectEqual(e.chosen, ["user_id", "zone"], "click: plain text opens nothing")
+
+    // The second click of a double-click selects a word and opens nothing
+    // more (the first click, clickCount 1, already opened it).
+    NSApp.postEvent(mouse(.leftMouseUp, at: userMid, in: e, clickCount: 2), atStart: false)
+    e.textView.mouseDown(with: mouse(.leftMouseDown, at: userMid, in: e, clickCount: 2))
+    drainEvents()
+    expectEqual(e.chosen, ["user_id", "zone"], "double-click: the second click opens nothing more")
+
+    // Editing moves the chips with the text.
+    e.textView.setSelectedRange(NSRange(location: 0, length: 0))
+    e.type("--")
+    let moved = e.textView.variableTokenHits()
+    expectTrue(moved.first?.range.location == user.range.location + 2, "edit: the token range follows the text")
+    expectTrue((moved.first?.rect.minX ?? 0) > user.rect.minX, "edit: the chip rect follows the text")
+}
+
 func runTests() {
     _ = NSApplication.shared
     testContext()
@@ -345,6 +440,8 @@ func runTests() {
     testBracePairing()
     testDotRule()
     testTypedIntoEditor()
+    testTokenRule()
+    testTokenClicks()
     if failures == 0 { print("\nAll editor completion tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)

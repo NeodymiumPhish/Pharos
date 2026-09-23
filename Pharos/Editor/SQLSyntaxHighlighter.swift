@@ -44,9 +44,6 @@ enum SQLSyntaxHighlighter {
 
     // Cached regex objects (compiled once, reused per highlight call)
     static let numberRegex = try! NSRegularExpression(pattern: "(?<![\\w.])\\d+\\.?\\d*(?![\\w.])")
-    static let variableTokenRegex = try! NSRegularExpression(
-        pattern: #"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"#
-    )
     static let keywordRegex: NSRegularExpression = {
         let keywords = [
             "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
@@ -164,8 +161,11 @@ enum SQLSyntaxHighlighter {
 
         // Phase 3: variable tokens `{{name}}`. Appended last so they win over
         // keyword/number coloring on overlap. Colored regardless of lex state
-        // (variables are commonly written inside quotes, e.g. '{{ip}}').
-        variableTokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+        // (variables are commonly written inside quotes, e.g. '{{ip}}'). The
+        // substitutor's regex, so what is colored is exactly what is replaced
+        // — its own copy once demanded a leading letter and left
+        // `{{185_domains}}` uncolored while the run resolved it.
+        VariableSubstitutor.tokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
             guard let match else { return }
             let name = nsText.substring(with: match.range(at: 1))
             let color = variableNames.contains(name)

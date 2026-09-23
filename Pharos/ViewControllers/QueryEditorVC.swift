@@ -44,8 +44,9 @@ class QueryEditorVC: NSViewController {
     /// Callback fired when editor text changes (for result tab staleness tracking).
     var onTextEdited: (() -> Void)?
 
-    /// Callback fired when a `{{` completion row is accepted, with the
-    /// variable's name. It may not exist yet.
+    /// Callback fired when a `{{` completion row is accepted, or a `{{name}}`
+    /// token in the text is clicked, with the variable's name. It may not
+    /// exist yet.
     var onVariableChosen: ((String) -> Void)?
 
     override func loadView() {
@@ -115,6 +116,9 @@ class QueryEditorVC: NSViewController {
         // Autocomplete
         completionProvider.attachTo(textView)
         completionProvider.onVariableChosen = { [weak self] name in
+            self?.onVariableChosen?(name)
+        }
+        textView.onVariableTokenClicked = { [weak self] name in
             self?.onVariableChosen?(name)
         }
         textView.completionDelegate = self
@@ -261,11 +265,15 @@ class QueryEditorVC: NSViewController {
         textView.variableNames = names
     }
 
-    /// Set the variables the `{{` completion list offers, in list order.
+    /// Set the variables the `{{` completion list offers, in list order, and
+    /// the values the token tooltips show.
     func setCompletionVariables(_ variables: [QueryVariable]) {
         completionProvider.variables = variables.map {
             .init(name: $0.name, preview: VariableValuePreview.snippet(for: $0.value))
         }
+        var values: [String: String] = [:]
+        for variable in variables where !variable.name.isEmpty { values[variable.name] = variable.value }
+        textView.variableValues = values
     }
 
     func getCursorPosition() -> Int {

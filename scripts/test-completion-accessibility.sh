@@ -12,6 +12,7 @@ swiftc -o /tmp/completion-accessibility-tests \
   Pharos/Editor/SQLTextView.swift \
   Pharos/Editor/VariableCompletion.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValuePreview.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
   Pharos/Editor/SQLListFormatter.swift \
