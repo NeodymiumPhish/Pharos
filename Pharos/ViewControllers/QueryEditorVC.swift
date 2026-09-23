@@ -44,6 +44,10 @@ class QueryEditorVC: NSViewController {
     /// Callback fired when editor text changes (for result tab staleness tracking).
     var onTextEdited: (() -> Void)?
 
+    /// Callback fired when a `{{` completion row is accepted, with the
+    /// variable's name. It may not exist yet.
+    var onVariableChosen: ((String) -> Void)?
+
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         self.view = container
@@ -110,6 +114,9 @@ class QueryEditorVC: NSViewController {
 
         // Autocomplete
         completionProvider.attachTo(textView)
+        completionProvider.onVariableChosen = { [weak self] name in
+            self?.onVariableChosen?(name)
+        }
         textView.completionDelegate = self
 
         // Text change handler — sync back to tab state and validate
@@ -252,6 +259,13 @@ class QueryEditorVC: NSViewController {
     /// Set the variable names used for `{{token}}` highlighting.
     func setVariableNames(_ names: Set<String>) {
         textView.variableNames = names
+    }
+
+    /// Set the variables the `{{` completion list offers, in list order.
+    func setCompletionVariables(_ variables: [QueryVariable]) {
+        completionProvider.variables = variables.map {
+            .init(name: $0.name, preview: VariableValuePreview.snippet(for: $0.value))
+        }
     }
 
     func getCursorPosition() -> Int {

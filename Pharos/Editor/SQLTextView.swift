@@ -389,6 +389,14 @@ class SQLTextView: NSTextView {
         }
 
         // Completion triggers after text change
+        refreshCompletion()
+    }
+
+    // MARK: - Completion Offer
+
+    /// Follow the text: refilter a list that is open, or ask whether one
+    /// should open.
+    private func refreshCompletion() {
         if completionDelegate?.isCompletionShown == true {
             completionDelegate?.updateCompletion()
         } else {
@@ -396,7 +404,14 @@ class SQLTextView: NSTextView {
         }
     }
 
-    // MARK: - Completion Offer
+    /// NSTextView's own completion action — ⌥Esc and F5 by default. It opens
+    /// OUR list, not the system word list. With plain Esc (see `keyDown`)
+    /// these are the ways in that need no Control key: Ctrl+Space with a
+    /// trackpad touch is a Control-click, which opens the context menu instead.
+    override func complete(_ sender: Any?) {
+        cancelPendingCompletionOffer()
+        completionDelegate?.triggerCompletion()
+    }
 
     /// Pending debounced identifier-trigger offer, replaced on each keystroke.
     private var completionOfferTask: Task<Void, Never>?
@@ -419,6 +434,18 @@ class SQLTextView: NSTextView {
 
         let text = string as NSString
         let cursor = min(selectedRange().location, text.length)
+
+        // In a `{{` token the variable list opens at once — no debounce, as
+        // `{{` is as unambiguous as a dot — and the SQL list never does. It
+        // opens in a string literal too: a token there is substituted all the
+        // same (`'{{day}}'`).
+        if VariableCompletion.context(in: text, caret: cursor) != nil {
+            if completionTrigger != .off {
+                completionDelegate?.triggerCompletion()
+            }
+            return
+        }
+
         var preceding: Character?
         if cursor > 0, let scalar = UnicodeScalar(text.character(at: cursor - 1)) {
             preceding = Character(scalar)
@@ -502,8 +529,10 @@ class SQLTextView: NSTextView {
             return
         }
 
-        // Escape → dismiss completion if shown, else a pending list-paste offer
-        if event.keyCode == 53 {
+        // Escape → dismiss completion if shown, else a pending list-paste
+        // offer, else open the completion list (Xcode's completion key; the
+        // editor has no other use for a bare Escape).
+        if event.keyCode == 53, flags.isDisjoint(with: [.command, .option, .control, .shift]) {
             cancelPendingCompletionOffer()
             if completionDelegate?.isCompletionShown == true {
                 completionDelegate?.dismissCompletion()
@@ -513,6 +542,8 @@ class SQLTextView: NSTextView {
                 invalidateListPasteOffer()
                 return
             }
+            completionDelegate?.triggerCompletion()
+            return
         }
 
         // Up/Down while completion shown → navigate
@@ -572,6 +603,26 @@ class SQLTextView: NSTextView {
         let cursor = selectedRange().location
         let text = self.string as NSString
         let autoClosePairs = activeAutoClosePairs
+
+        // `{{` → `{{|}}`, and `}` steps over the pair's own braces. The
+        // brackets setting governs these like `(` and `[`.
+        if autoPairBrackets, selectedRange().length == 0 {
+            if str == "{", VariableCompletion.shouldAutoClose(in: text, at: cursor) {
+                super.insertText("{}}", replacementRange: replacementRange)
+                setSelectedRange(NSRange(location: selectedRange().location - 2, length: 0))
+                // The edit reported the caret AFTER `}}`, outside the token;
+                // now that it is inside, give the variable list its chance.
+                refreshCompletion()
+                return
+            }
+            if str == "}", VariableCompletion.shouldStepOver(in: text, at: cursor) {
+                setSelectedRange(NSRange(location: cursor + 1, length: 0))
+                // No edit happened, so nothing else closes the variable list
+                // the caret just stepped out of.
+                refreshCompletion()
+                return
+            }
+        }
 
         // Wrap selection: typing an opener with a non-empty selection wraps
         // it instead of replacing it, with the caret placed after the closing
@@ -739,6 +790,13 @@ class SQLTextView: NSTextView {
     override func deleteBackward(_ sender: Any?) {
         let cursor = selectedRange().location
         let text = self.string as NSString
+
+        // An empty `{{|}}` goes whole, as `(|)` does.
+        if autoPairBrackets, selectedRange().length == 0,
+           let pair = VariableCompletion.emptyPairRange(in: text, at: cursor) {
+            super.insertText("", replacementRange: pair)
+            return
+        }
 
         // If deleting an open bracket and the next char is its matching close, delete both.
         // Only with a caret — with a selection, Backspace deletes the selection.

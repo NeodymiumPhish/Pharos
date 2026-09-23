@@ -24,6 +24,7 @@
 		0B25DA68EEA7AD800FE3EEFF /* EditorResultsSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */; };
 		0BA418AD455AB1B24F34B671 /* ColumnClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */; };
 		0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */; };
+		0D4788B0E6B6E339EC9CB225 /* VariableCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */; };
 		0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */; };
 		0DE389DF03E98881DB46EBA8 /* PlanSummaryPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1181620F4973B4674683C030 /* PlanSummaryPrompt.swift */; };
 		0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */; };
@@ -360,6 +361,7 @@
 
 /* Begin PBXFileReference section */
 		0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCopyScope.swift; sourceTree = "<group>"; };
+		0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableCompletion.swift; sourceTree = "<group>"; };
 		02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningQueriesPopoverVC.swift; sourceTree = "<group>"; };
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		02A96A71AC4D54E03F4A8B52 /* SettingsSidebarVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarVC.swift; sourceTree = "<group>"; };
@@ -1170,6 +1172,7 @@
 				B0156E1F42292C88AFC92F39 /* SQLSyntaxHighlighter.swift */,
 				5CA969614B127DE629649F33 /* SQLTextView.swift */,
 				A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */,
+				0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -1666,6 +1669,7 @@
 				D27A1D46140FEC7E59278CEE /* UpdateCheckPolicy.swift in Sources */,
 				F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */,
 				75791F1BEBAD2E5780C43995 /* ValueCoercion.swift in Sources */,
+				0D4788B0E6B6E339EC9CB225 /* VariableCompletion.swift in Sources */,
 				F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */,
 				915C735DB5EE744A31495822 /* VariableListView.swift in Sources */,
 				CFB3EFEA0CF91443AA21DC63 /* VariableRowView.swift in Sources */,

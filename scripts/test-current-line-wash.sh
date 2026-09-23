@@ -14,6 +14,9 @@ BIN="$(mktemp -t current-line-wash-tests)"
 trap 'rm -f "$BIN"' EXIT
 swiftc -o "$BIN" \
   Pharos/Editor/SQLTextView.swift \
+  Pharos/Editor/VariableCompletion.swift \
+  Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLCompletionProvider.swift \
   Pharos/Editor/CompletionTriggerPolicy.swift \
   Pharos/Editor/KeywordCasing.swift \

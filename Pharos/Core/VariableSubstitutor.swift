@@ -78,6 +78,19 @@ enum VariableSubstitutor {
         return nil
     }
 
+    /// The name part of `tokenRegex`, whole-string: what a `{{name}}` token
+    /// can resolve. The editor's `{{` completion offers to create a variable
+    /// only for a name that passes this.
+    private static let nameRegex = try! NSRegularExpression(
+        pattern: #"\A[A-Za-z0-9_]*[A-Za-z_][A-Za-z0-9_]*\z"#
+    )
+
+    /// True if `name` can appear in a `{{name}}` token (see `tokenRegex`).
+    static func isValidName(_ name: String) -> Bool {
+        let ns = name as NSString
+        return nameRegex.firstMatch(in: name, range: NSRange(location: 0, length: ns.length)) != nil
+    }
+
     /// True if the text contains at least one `{{name}}` token.
     static func containsTokens(_ sql: String) -> Bool {
         let ns = sql as NSString

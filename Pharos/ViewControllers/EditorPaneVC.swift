@@ -16,6 +16,9 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
+    /// A `{{` completion row was accepted: show that variable (creating it
+    /// when no variable has the name).
+    func editorPane(_ pane: EditorPaneVC, didChooseVariable name: String)
 }
 
 /// The editor area: the tab bar, the SQL editor and its toolbar, and the
@@ -172,6 +175,10 @@ class EditorPaneVC: NSViewController {
             // navigator flags.
             self.scheduleReferencedNamesScan()
         }
+        editorVC.onVariableChosen = { [weak self] name in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didChooseVariable: name)
+        }
         editorVC.textView.onListPasteDetected = { [weak self] in
             self?.formatListButton.isHidden = false
         }
@@ -180,9 +187,10 @@ class EditorPaneVC: NSViewController {
         }
         addChild(editorVC)
 
-        // Highlight the app-wide variable names in the editor, and follow the
-        // store: an edit in any window's sidebar recolours every editor.
-        editorVC.setVariableNames(QueryVariableStore.shared.definedNames)
+        // Highlight the app-wide variable names in the editor and offer them
+        // after `{{`, and follow the store: an edit in any window's sidebar
+        // reaches every editor.
+        applyQueryVariables()
         NotificationCenter.default.addObserver(
             self, selector: #selector(queryVariablesDidChange(_:)),
             name: QueryVariableStore.didChange, object: nil)
@@ -707,7 +715,13 @@ class EditorPaneVC: NSViewController {
     /// The app-wide variable list changed (this window's sidebar or another's):
     /// recolour the `{{name}}` tokens the editor highlights.
     @objc private func queryVariablesDidChange(_ note: Notification) {
-        editorVC.setVariableNames(QueryVariableStore.shared.definedNames)
+        applyQueryVariables()
+    }
+
+    private func applyQueryVariables() {
+        let store = QueryVariableStore.shared
+        editorVC.setVariableNames(store.definedNames)
+        editorVC.setCompletionVariables(store.variables)
     }
 
     /// Re-scan the editor text for `{{token}}` references and publish the

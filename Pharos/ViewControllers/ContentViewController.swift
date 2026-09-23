@@ -3416,6 +3416,10 @@ extension ContentViewController: EditorPaneDelegate {
     func editorPaneDidEditText(_ pane: EditorPaneVC) {
         reResolveAllResultTabs()
     }
+
+    func editorPane(_ pane: EditorPaneVC, didChooseVariable name: String) {
+        (parent as? PharosSplitViewController)?.revealVariable(named: name)
+    }
 }
 
 // MARK: - Open Saved Query

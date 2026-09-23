@@ -9,6 +9,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/sql-draft-insert-tests \
   Pharos/Editor/SQLTextView.swift \
+  Pharos/Editor/VariableCompletion.swift \
+  Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLCompletionProvider.swift \
   Pharos/Editor/CompletionTriggerPolicy.swift \
   Pharos/Editor/KeywordCasing.swift \

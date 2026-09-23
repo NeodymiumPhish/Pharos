@@ -59,6 +59,14 @@ func expectAgree(_ a: Bool, _ b: Bool, _ name: String) {
 }
 
 func runTests() {
+    // isValidName: exactly the names a `{{name}}` token resolves.
+    for name in ["ip", "_x", "185_domains", "A1_b2"] {
+        expectEqual(String(VariableSubstitutor.isValidName(name)), "true", "isValidName(\(name))")
+    }
+    for name in ["", "123", "a-b", "a b", "a.b", "é", "a\n"] {
+        expectEqual(String(VariableSubstitutor.isValidName(name)), "false", "isValidName(\(name.debugDescription))")
+    }
+
     // Literal (raw) substitution
     expectEqual(
         VariableSubstitutor.render("orig_h = '{{ip}}'", with: [v("ip", "8.8.4.4", .literal)]).sql,

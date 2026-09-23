@@ -415,6 +415,28 @@ final class QueryVariablesPanelVC: NSViewController {
         detailVC?.focusNameField()
     }
 
+    /// Open the variable called `name` — the last one with that name, which
+    /// is the one a run uses — without moving the keyboard focus. When no
+    /// variable has the name, append one that does, open it, and put the
+    /// caret in its value field so the value can be typed at once. The
+    /// editor's `{{` completion lands here.
+    func openVariable(named name: String) {
+        let existing = variables.last(where: { $0.name == name })
+        if let existing, detailVC?.variable.id == existing.id { return }
+        if detailVC != nil { dismissDetail(animated: false) }
+
+        if let existing {
+            drillIn(to: existing.id)
+            return
+        }
+        let variable = QueryVariable(name: name, value: "", type: .literal)
+        variables.append(variable)
+        onChange?(variables)
+        refreshList()
+        drillIn(to: variable.id)
+        detailVC?.focusValueField()
+    }
+
     private func deleteVariable(_ id: UUID) {
         variables.removeAll { $0.id == id }
         onChange?(variables)

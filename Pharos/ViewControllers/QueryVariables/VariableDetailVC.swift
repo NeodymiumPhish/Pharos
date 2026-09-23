@@ -516,6 +516,12 @@ final class VariableDetailVC: NSViewController {
         view.window?.makeFirstResponder(nameField)
     }
 
+    /// Move focus to the value editor — used right after the editor's `{{`
+    /// completion creates a variable, whose name is already typed.
+    func focusValueField() {
+        view.window?.makeFirstResponder(valueTextView)
+    }
+
     /// Apply the state the panel resolved for this variable: red for a value
     /// that cannot render, and (for legacy duplicate data only — see
     /// `updateDuplicationDisplay`) a note about an inert `.shadowed` row.

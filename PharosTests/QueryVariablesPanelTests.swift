@@ -414,6 +414,77 @@ private func testPlusAppendsFiresOnChangeAndDrillsIn() {
         "+ focuses the new variable's name field (it has an active field editor)")
 }
 
+/// The editor's `{{` completion, existing name: opens the LAST variable with
+/// that name (the one a run uses), adds nothing, and leaves the keyboard
+/// focus where it was — the user keeps typing SQL.
+private func testOpenVariableNamedExistingOpensLastWithoutFocus() {
+    let (window, _, vc) = makeHostedPanel(width: 300)
+    let first = QueryVariable(name: "day", value: "1", type: .literal)
+    let other = QueryVariable(name: "ip", value: "10.0.0.1", type: .literal)
+    let last = QueryVariable(name: "day", value: "2", type: .literal)
+    vc.setVariables([first, other, last], referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+    let sentinel = NSTextField()
+    window.contentView?.addSubview(sentinel)
+    window.makeFirstResponder(sentinel)
+    var changeCount = 0
+    vc.onChange = { _ in changeCount += 1 }
+
+    vc.openVariable(named: "day")
+    vc.view.layoutSubtreeIfNeeded()
+
+    expectTrue(detailVC(in: vc)?.variable.id == last.id, "openVariable(existing) opens the last variable with the name")
+    expectTrue(vc.variables.count == 3, "openVariable(existing) adds nothing")
+    expectTrue(changeCount == 0, "openVariable(existing) fires no onChange")
+    expectTrue(sentinel.currentEditor() != nil, "openVariable(existing) leaves the focus where it was")
+
+    // Already open: nothing changes.
+    let openDetail = detailVC(in: vc)
+    vc.openVariable(named: "day")
+    expectTrue(detailVC(in: vc) === openDetail, "openVariable on the open variable keeps the same detail level")
+
+    // Another variable while one is open: switches to it.
+    vc.openVariable(named: "ip")
+    vc.view.layoutSubtreeIfNeeded()
+    expectTrue(detailVC(in: vc)?.variable.id == other.id, "openVariable switches from an open variable to another")
+    expectTrue(vc.children.count == 1, "openVariable leaves exactly one detail level")
+}
+
+/// The editor's `{{` completion, new name: appends a literal variable with
+/// that name and an empty value, opens it, and puts the caret in its value
+/// editor — the name is already typed.
+private func testOpenVariableNamedNewCreatesAndFocusesValue() {
+    let (_, _, vc) = makeHostedPanel(width: 300)
+    vc.setVariables(makeVariables(1), referenced: [])
+    vc.view.layoutSubtreeIfNeeded()
+    // A detail level for another variable is open: it must give way.
+    vc.openVariable(named: "var0")
+    var lastVars: [QueryVariable] = []
+    vc.onChange = { lastVars = $0 }
+
+    vc.openVariable(named: "start_date")
+    vc.view.layoutSubtreeIfNeeded()
+
+    expectTrue(vc.variables.count == 2, "openVariable(new) appends a variable")
+    expectEqual(vc.variables.last?.name ?? "nil", "start_date", "openVariable(new) names it")
+    expectEqual(vc.variables.last?.value ?? "nil", "", "openVariable(new) leaves the value empty")
+    expectTrue(vc.variables.last?.type == .literal, "openVariable(new) makes a literal")
+    expectTrue(lastVars.count == 2, "openVariable(new) reports the new list through onChange")
+    guard let detail = detailVC(in: vc) else {
+        failures += 1
+        print("FAIL openVariable(new) does not open the new variable")
+        return
+    }
+    expectTrue(detail.variable.id == vc.variables.last?.id, "openVariable(new) opens the new variable")
+    expectTrue(vc.children.count == 1, "openVariable(new) leaves exactly one detail level")
+    let valueView = detailValueTextView(in: detail)
+    expectTrue(valueView.window?.firstResponder === valueView, "openVariable(new) puts the caret in the value editor")
+
+    // Back does not prune it: it has a name.
+    triggerAction(of: backButton(in: detail))
+    expectTrue(vc.variables.contains { $0.name == "start_date" }, "the new variable survives Back with an empty value")
+}
+
 /// Deleting via the list's context-menu path (`onDelete` by id, without
 /// drilling in) removes it and leaves the list showing.
 private func testDeleteViaListContextMenuLeavesListShowing() {
@@ -953,6 +1024,8 @@ func runTests() {
     testSetReferencedNamesUpdatesRowStateInPlace()
     testLayoutUnambiguousOnBothLevels()
     testPlusAppendsFiresOnChangeAndDrillsIn()
+    testOpenVariableNamedExistingOpensLastWithoutFocus()
+    testOpenVariableNamedNewCreatesAndFocusesValue()
     testDeleteViaListContextMenuLeavesListShowing()
     testContentAreaClipsAndFinalFramesUnchanged()
     testDoubleClickOnRowDoesNotDrillInTwice()

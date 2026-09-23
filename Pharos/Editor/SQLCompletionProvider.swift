@@ -6,6 +6,10 @@ class SQLCompletionProvider: NSObject {
     struct Completion {
         enum Kind {
             case keyword, function, snippet, schema, table, column, view
+            /// A `{{name}}` query variable that exists.
+            case variable
+            /// The `{{` list's row that creates a variable with the typed name.
+            case newVariable
 
             /// How the kind reads out. The row's icon is the only *visible*
             /// encoding of the kind, and an icon says nothing to VoiceOver —
@@ -20,6 +24,8 @@ class SQLCompletionProvider: NSObject {
                 case .table: return "Table"
                 case .column: return "Column"
                 case .view: return "View"
+                case .variable: return "Variable"
+                case .newVariable: return "New Variable"
                 }
             }
         }
@@ -37,6 +43,29 @@ class SQLCompletionProvider: NSObject {
     private weak var textView: SQLTextView?
     private var currentWord: String = ""
     private var wordRange: NSRange = NSRange(location: 0, length: 0)
+
+    // MARK: Query variables
+
+    /// A query variable as the `{{` list shows it.
+    struct VariableEntry: Equatable {
+        let name: String
+        /// One line of the value (`VariableValuePreview.snippet`).
+        let preview: String
+    }
+
+    /// The app-wide query variables, in list order. The `{{` list offers these.
+    var variables: [VariableEntry] = []
+
+    /// Called after a `{{` row is accepted and `{{name}}` is written, with
+    /// the name. The owner opens (or creates) that variable in the sidebar.
+    var onVariableChosen: ((String) -> Void)?
+
+    /// The `{{` token the list is completing; nil while it shows the SQL list.
+    private var variableContext: VariableCompletion.Context?
+
+    /// How much of a value preview a row shows. The row is one line, and the
+    /// value is often a long comma-joined list.
+    private static let variablePreviewLimit = 40
 
     /// Schema metadata for context-aware completions. Setters rebuild the
     /// flat-list caches below so the per-keystroke `buildCompletions` path
@@ -166,19 +195,49 @@ class SQLCompletionProvider: NSObject {
     }
 
     func showCompletions(for textView: SQLTextView) {
+        let text = textView.string as NSString
+        let cursor = min(textView.selectedRange().location, text.length)
+
+        // Inside a `{{` token the list is the variable list, whatever the SQL
+        // context around it.
+        if let context = VariableCompletion.context(in: text, caret: cursor) {
+            variableContext = context
+            filteredCompletions = variableCompletions(for: context)
+            present(in: textView)
+            return
+        }
+
+        // The caret left the token (a space, a brace, a deleted `{{`): the
+        // variable list closes rather than turning into the SQL list.
+        let wasVariableList = variableContext != nil && popover.isShown
+        variableContext = nil
+        if wasVariableList {
+            dismiss()
+            return
+        }
+
         if let word = currentWordBeforeCursor(in: textView) {
             self.currentWord = word.text
             self.wordRange = word.range
         } else {
             self.currentWord = ""
-            self.wordRange = NSRange(location: textView.selectedRange().location, length: 0)
+            self.wordRange = NSRange(location: cursor, length: 0)
         }
 
-        // Build completions based on context
-        let context = analyzeContext(textView: textView)
+        // Build completions based on context. No context (a dot with nothing
+        // before it to complete members of) means no list.
+        guard let context = Self.analyzeContext(text: text, cursor: cursor, wordStart: wordRange.location) else {
+            dismiss()
+            return
+        }
         completions = buildCompletions(context: context)
         filterCompletions()
+        present(in: textView)
+    }
 
+    /// Show `filteredCompletions` with the first row selected, or close the
+    /// list when there is nothing to show.
+    private func present(in textView: SQLTextView) {
         guard !filteredCompletions.isEmpty else {
             dismiss()
             return
@@ -186,6 +245,7 @@ class SQLCompletionProvider: NSObject {
 
         tableView.reloadData()
         tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        tableView.scrollRowToVisible(0)
 
         if !popover.isShown {
             let cursorRect = cursorScreenRect(in: textView)
@@ -199,7 +259,27 @@ class SQLCompletionProvider: NSObject {
         }
     }
 
+    /// The `{{` list's rows: `VariableCompletion.items` as completions.
+    private func variableCompletions(for context: VariableCompletion.Context) -> [Completion] {
+        // Last definition wins, as it does when the query runs.
+        var previews: [String: String] = [:]
+        for variable in variables { previews[variable.name] = variable.preview }
+
+        let items = VariableCompletion.items(names: variables.map(\.name), typed: context.typed)
+        return items.prefix(max(1, maximumItems)).map { item in
+            if item.isNew {
+                return Completion(label: item.name, detail: "new variable", insertText: item.name, kind: .newVariable)
+            }
+            var preview = previews[item.name] ?? ""
+            if preview.count > Self.variablePreviewLimit {
+                preview = String(preview.prefix(Self.variablePreviewLimit)) + "…"
+            }
+            return Completion(label: item.name, detail: preview, insertText: item.name, kind: .variable)
+        }
+    }
+
     func dismiss() {
+        variableContext = nil
         if popover.isShown {
             popover.close()
         }
@@ -233,26 +313,30 @@ class SQLCompletionProvider: NSObject {
 
     // MARK: - Context Analysis
 
-    private enum CompletionContext {
+    enum CompletionContext: Equatable {
         case general
-        case afterDot(prefix: String) // schema.table or table.column
+        /// Right after `qualifier.` — the members of a schema or a table.
+        case afterDot(qualifier: String)
         case afterFrom
         case afterJoin
         case afterWhere
         case afterSelect
     }
 
-    private func analyzeContext(textView: SQLTextView) -> CompletionContext {
-        let text = textView.string as NSString
-        let cursor = textView.selectedRange().location
+    /// The SQL context of the word being typed, which starts at `wordStart`
+    /// and ends at `cursor`. Nil means no list belongs here.
+    ///
+    /// A dot directly before the word ALWAYS means members: offering keywords
+    /// there would put `.SELECT` into the text. So a dot with no identifier
+    /// before it (`SELECT .`, `1.`) gets no list at all.
+    static func analyzeContext(text: NSString, cursor: Int, wordStart: Int) -> CompletionContext? {
+        if wordStart > 0, text.character(at: wordStart - 1) == unichar(UInt8(ascii: ".")) {
+            guard let qualifier = qualifier(before: wordStart - 1, in: text) else { return nil }
+            return .afterDot(qualifier: qualifier)
+        }
+
         let beforeCursor = text.substring(to: cursor).lowercased()
         let trimmed = beforeCursor.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check for dot completion
-        if let dotMatch = trimmed.range(of: #"(\w+)\.\w*$"#, options: .regularExpression) {
-            let prefix = String(trimmed[dotMatch].components(separatedBy: ".").first ?? "")
-            return .afterDot(prefix: prefix)
-        }
 
         // Check for keyword context
         let words = trimmed.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
@@ -269,6 +353,29 @@ class SQLCompletionProvider: NSObject {
         return .general
     }
 
+    /// The identifier that ends right before the dot at `dotIndex`: a bare
+    /// name, or the inside of a `"quoted"` one. Nil when there is none, or
+    /// when it is all digits (`1.5` is a number, not a qualifier).
+    private static func qualifier(before dotIndex: Int, in text: NSString) -> String? {
+        let quote = unichar(UInt8(ascii: "\""))
+        var end = dotIndex
+        if end > 0, text.character(at: end - 1) == quote {
+            end -= 1
+            var start = end
+            while start > 0, text.character(at: start - 1) != quote { start -= 1 }
+            guard start > 0, start < end else { return nil }
+            return text.substring(with: NSRange(location: start, length: end - start))
+        }
+        var start = end
+        while start > 0, let scalar = UnicodeScalar(text.character(at: start - 1)),
+              CharacterSet.alphanumerics.contains(scalar) || scalar == UnicodeScalar("_") {
+            start -= 1
+        }
+        guard start < end else { return nil }
+        let name = text.substring(with: NSRange(location: start, length: end - start))
+        return name.allSatisfy(\.isNumber) ? nil : name
+    }
+
     private static let contextKeywords = Set(["select", "from", "where", "join", "into", "update", "table", "and", "or", "on"])
 
     // MARK: - Completion Building
@@ -277,9 +384,11 @@ class SQLCompletionProvider: NSObject {
         var result: [Completion] = []
 
         switch context {
-        case .afterDot(let prefix):
-            // Schema → tables, or table → columns
-            if let schemaTables = tables[prefix] {
+        case .afterDot(let qualifier):
+            // Schema → tables, or table → columns. Case-insensitive: the
+            // typed qualifier need not match the catalog's case.
+            let prefix = qualifier.lowercased()
+            if let schemaTables = tables.first(where: { $0.key.lowercased() == prefix })?.value {
                 for table in schemaTables {
                     let kind: Completion.Kind = table.tableType == .view ? .view : .table
                     result.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
@@ -419,6 +528,11 @@ class SQLCompletionProvider: NSObject {
         guard row >= 0, row < filteredCompletions.count, let textView else { return }
         let completion = filteredCompletions[row]
 
+        if variableContext != nil {
+            acceptVariable(completion, in: textView)
+            return
+        }
+
         // A KEYWORD takes the case the user asked for; everything else — a
         // schema, a table, a column, a function — keeps the name the database
         // gave it, because that name is not ours to re-case.
@@ -429,6 +543,23 @@ class SQLCompletionProvider: NSObject {
         // Replace the current word with the completion
         textView.insertText(insertText, replacementRange: wordRange)
         dismiss()
+    }
+
+    /// Write `{{name}}` over the token, put the caret after it, and report
+    /// the name.
+    private func acceptVariable(_ completion: Completion, in textView: SQLTextView) {
+        // Read the token again: the caret can move without an edit (the
+        // arrow keys), so the context from the last keystroke can be stale.
+        let text = textView.string as NSString
+        let cursor = min(textView.selectedRange().location, text.length)
+        guard let context = VariableCompletion.context(in: text, caret: cursor) else {
+            dismiss()
+            return
+        }
+        let name = completion.insertText
+        textView.insertText(name + "}}", replacementRange: context.replaceRange)
+        dismiss()
+        onVariableChosen?(name)
     }
 
     @objc private func tableClicked() {
@@ -552,6 +683,8 @@ extension SQLCompletionProvider: NSTableViewDelegate {
         case .table: iconName = "tablecells"
         case .column: iconName = "line.3.horizontal"
         case .view: iconName = "eye"
+        case .variable: iconName = "curlybraces"
+        case .newVariable: iconName = "plus.circle"
         }
         cell.imageView?.image = NSImage(
             systemSymbolName: iconName, accessibilityDescription: item.kind.displayName)

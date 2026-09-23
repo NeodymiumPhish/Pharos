@@ -186,6 +186,14 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         sidebarVC.showNavigator(navigator)
     }
 
+    /// Show the Variables navigator open on the variable called `name`, or on
+    /// a new variable with that name, ready for its value. The editor's `{{`
+    /// completion calls this when a row is accepted.
+    func revealVariable(named name: String) {
+        revealNavigator(.variables)
+        sidebarVC.variablesPanel.openVariable(named: name)
+    }
+
     /// View ▸ Filter in Navigator — shows the sidebar if it is hidden, then
     /// puts the caret in its filter field.
     @objc func menuFocusNavigatorFilter(_ sender: Any?) {

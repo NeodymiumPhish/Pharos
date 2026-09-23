@@ -41,10 +41,13 @@ private let items: [Completion] = [
     Completion(label: "orders", detail: "table", insertText: "orders", kind: .table),
     Completion(label: "order_id", detail: "integer PK", insertText: "order_id", kind: .column),
     Completion(label: "active_users", detail: "view", insertText: "active_users", kind: .view),
+    Completion(label: "start_date", detail: "2026-01-01", insertText: "start_date", kind: .variable),
+    Completion(label: "zone", detail: "new variable", insertText: "zone", kind: .newVariable),
 ]
 
 private let expectedKindNames = [
     "Keyword", "Function", "Snippet", "Schema", "Table", "Column", "View",
+    "Variable", "New Variable",
 ]
 
 /// A bare table carrying the same column identifier the provider builds its
@@ -86,6 +89,11 @@ func runTests() {
                 "a column keeps its type detail")
     expectEqual(SQLCompletionProvider.rowLabel(for: items[6]), "active_users, View",
                 "a view's detail repeats its kind and is dropped")
+
+    expectEqual(SQLCompletionProvider.rowLabel(for: items[7]), "start_date, Variable, 2026-01-01",
+                "a variable keeps its value preview")
+    expectEqual(SQLCompletionProvider.rowLabel(for: items[8]), "zone, New Variable",
+                "the new-variable row's detail repeats its kind and is dropped")
 
     // --- Announcement wording ---
     expectEqual(SQLCompletionProvider.announcementText(for: items[0], count: 7),
