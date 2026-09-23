@@ -3,7 +3,7 @@ import AppKit
 /// Provides SQL autocomplete via a popover with a table of suggestions.
 class SQLCompletionProvider: NSObject {
 
-    struct Completion {
+    struct Completion: Equatable {
         enum Kind {
             case keyword, function, snippet, schema, table, column, view
             /// A `{{name}}` query variable that exists.
@@ -68,38 +68,39 @@ class SQLCompletionProvider: NSObject {
     private static let variablePreviewLimit = 40
 
     /// Schema metadata for context-aware completions. Setters rebuild the
-    /// flat-list caches below so the per-keystroke `buildCompletions` path
-    /// doesn't re-iterate every schema × every table on each character.
+    /// catalog snapshot the resolver reads, so the per-keystroke path does
+    /// no conversion.
     var schemas: [SchemaInfo] = [] {
-        didSet { rebuildSchemaCompletionCache() }
+        didSet { rebuildCatalog() }
     }
     var tables: [String: [TableInfo]] = [:] {
-        didSet { rebuildTableCompletionCache() }
+        didSet { rebuildCatalog() }
     }
-    var columnsByTable: [String: [ColumnInfo]] = [:]
-
-    /// Pre-built `(label, detail, kind)` completions for every schema and
-    /// every (schema, table) pair across the connection. Built once per
-    /// metadata change; sliced into the per-context result on each keystroke.
-    private var cachedSchemaCompletions: [Completion] = []
-    private var cachedTableCompletions: [Completion] = []
-
-    private func rebuildSchemaCompletionCache() {
-        cachedSchemaCompletions = schemas.map {
-            Completion(label: $0.name, detail: "schema", insertText: $0.name, kind: .schema)
-        }
+    var columnsByTable: [String: [ColumnInfo]] = [:] {
+        didSet { rebuildCatalog() }
     }
 
-    private func rebuildTableCompletionCache() {
-        var out: [Completion] = []
-        out.reserveCapacity(tables.values.reduce(0) { $0 + $1.count })
-        for (_, schemaTables) in tables {
-            for table in schemaTables {
-                let kind: Completion.Kind = table.tableType == .view ? .view : .table
-                out.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
-            }
+    /// Where an unqualified table is looked for first: the toolbar's schema,
+    /// or the connection's default. nil means `public` alone.
+    var currentSchema: String?
+
+    /// Asked, with a schema name, to have that schema's tables and columns
+    /// loaded (the metadata cache loads per schema, lazily). Called for the
+    /// schemas the statement at the caret refers to.
+    var onSchemaNeeded: ((String) -> Void)?
+
+    private var catalog = CompletionResolver.Catalog()
+
+    private func rebuildCatalog() {
+        var built = CompletionResolver.Catalog()
+        built.schemas = schemas.map(\.name)
+        for (schema, list) in tables {
+            built.tables[schema] = list.map { .init(name: $0.name, isView: $0.tableType == .view) }
         }
-        cachedTableCompletions = out
+        for (key, list) in columnsByTable {
+            built.columns[key] = list.map { .init(name: $0.name, type: $0.dataType, isPrimaryKey: $0.isPrimaryKey) }
+        }
+        catalog = built
     }
 
     override init() {
@@ -188,6 +189,9 @@ class SQLCompletionProvider: NSObject {
         filteredCompletions = items
     }
 
+    /// Test seam: the rows the list shows, in order.
+    var visibleCompletionsForTesting: [Completion] { filteredCompletions }
+
     // MARK: - Show/Hide
 
     func attachTo(_ textView: SQLTextView) {
@@ -216,21 +220,17 @@ class SQLCompletionProvider: NSObject {
             return
         }
 
-        if let word = currentWordBeforeCursor(in: textView) {
-            self.currentWord = word.text
-            self.wordRange = word.range
-        } else {
-            self.currentWord = ""
-            self.wordRange = NSRange(location: cursor, length: 0)
-        }
+        // What the statement around the caret expects, and the rows for it.
+        let scope = SQLStatementScope.analyze(textView.string, caret: cursor)
+        let typedLength = (scope.typed as NSString).length
+        currentWord = scope.typed
+        wordRange = NSRange(location: cursor - typedLength, length: typedLength)
 
-        // Build completions based on context. No context (a dot with nothing
-        // before it to complete members of) means no list.
-        guard let context = Self.analyzeContext(text: text, cursor: cursor, wordStart: wordRange.location) else {
-            dismiss()
-            return
+        let env = CompletionResolver.Environment(catalog: catalog, currentSchema: currentSchema, variables: variables)
+        for schema in CompletionResolver.referencedSchemas(scope, in: env) {
+            onSchemaNeeded?(schema)
         }
-        completions = buildCompletions(context: context)
+        completions = CompletionResolver.rows(for: scope, in: env)
         filterCompletions()
         present(in: textView)
     }
@@ -311,124 +311,6 @@ class SQLCompletionProvider: NSObject {
         acceptCompletion()
     }
 
-    // MARK: - Context Analysis
-
-    enum CompletionContext: Equatable {
-        case general
-        /// Right after `qualifier.` — the members of a schema or a table.
-        case afterDot(qualifier: String)
-        case afterFrom
-        case afterJoin
-        case afterWhere
-        case afterSelect
-    }
-
-    /// The SQL context of the word being typed, which starts at `wordStart`
-    /// and ends at `cursor`. Nil means no list belongs here.
-    ///
-    /// A dot directly before the word ALWAYS means members: offering keywords
-    /// there would put `.SELECT` into the text. So a dot with no identifier
-    /// before it (`SELECT .`, `1.`) gets no list at all.
-    static func analyzeContext(text: NSString, cursor: Int, wordStart: Int) -> CompletionContext? {
-        if wordStart > 0, text.character(at: wordStart - 1) == unichar(UInt8(ascii: ".")) {
-            guard let qualifier = qualifier(before: wordStart - 1, in: text) else { return nil }
-            return .afterDot(qualifier: qualifier)
-        }
-
-        let beforeCursor = text.substring(to: cursor).lowercased()
-        let trimmed = beforeCursor.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Check for keyword context
-        let words = trimmed.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        if let lastKeyword = words.last(where: { SQLCompletionProvider.contextKeywords.contains($0) }) {
-            switch lastKeyword {
-            case "from", "into", "update", "table": return .afterFrom
-            case "join": return .afterJoin
-            case "where", "and", "or", "on": return .afterWhere
-            case "select": return .afterSelect
-            default: break
-            }
-        }
-
-        return .general
-    }
-
-    /// The identifier that ends right before the dot at `dotIndex`: a bare
-    /// name, or the inside of a `"quoted"` one. Nil when there is none, or
-    /// when it is all digits (`1.5` is a number, not a qualifier).
-    private static func qualifier(before dotIndex: Int, in text: NSString) -> String? {
-        let quote = unichar(UInt8(ascii: "\""))
-        var end = dotIndex
-        if end > 0, text.character(at: end - 1) == quote {
-            end -= 1
-            var start = end
-            while start > 0, text.character(at: start - 1) != quote { start -= 1 }
-            guard start > 0, start < end else { return nil }
-            return text.substring(with: NSRange(location: start, length: end - start))
-        }
-        var start = end
-        while start > 0, let scalar = UnicodeScalar(text.character(at: start - 1)),
-              CharacterSet.alphanumerics.contains(scalar) || scalar == UnicodeScalar("_") {
-            start -= 1
-        }
-        guard start < end else { return nil }
-        let name = text.substring(with: NSRange(location: start, length: end - start))
-        return name.allSatisfy(\.isNumber) ? nil : name
-    }
-
-    private static let contextKeywords = Set(["select", "from", "where", "join", "into", "update", "table", "and", "or", "on"])
-
-    // MARK: - Completion Building
-
-    private func buildCompletions(context: CompletionContext) -> [Completion] {
-        var result: [Completion] = []
-
-        switch context {
-        case .afterDot(let qualifier):
-            // Schema → tables, or table → columns. Case-insensitive: the
-            // typed qualifier need not match the catalog's case.
-            let prefix = qualifier.lowercased()
-            if let schemaTables = tables.first(where: { $0.key.lowercased() == prefix })?.value {
-                for table in schemaTables {
-                    let kind: Completion.Kind = table.tableType == .view ? .view : .table
-                    result.append(Completion(label: table.name, detail: table.tableType.rawValue, insertText: table.name, kind: kind))
-                }
-            }
-            // Check as table name
-            for (key, cols) in columnsByTable {
-                let tableName = key.components(separatedBy: ".").last ?? ""
-                if tableName.lowercased() == prefix.lowercased() {
-                    for col in cols {
-                        let pk = col.isPrimaryKey ? " PK" : ""
-                        result.append(Completion(label: col.name, detail: "\(col.dataType)\(pk)", insertText: col.name, kind: .column))
-                    }
-                }
-            }
-
-        case .afterFrom, .afterJoin:
-            result.append(contentsOf: cachedSchemaCompletions)
-            result.append(contentsOf: cachedTableCompletions)
-
-        case .afterWhere, .afterSelect:
-            // Suggest columns from all known tables + keywords
-            for (_, cols) in columnsByTable {
-                for col in cols {
-                    result.append(Completion(label: col.name, detail: col.dataType, insertText: col.name, kind: .column))
-                }
-            }
-            result.append(contentsOf: Self.keywordCompletions)
-            result.append(contentsOf: Self.functionCompletions)
-
-        case .general:
-            result.append(contentsOf: Self.keywordCompletions)
-            result.append(contentsOf: Self.functionCompletions)
-            result.append(contentsOf: cachedSchemaCompletions)
-            result.append(contentsOf: cachedTableCompletions)
-        }
-
-        return result
-    }
-
     /// Hard cap on the result count. The popover only renders a handful of
     /// rows at once; producing thousands of matches just to sort and dedupe
     /// is wasted work on databases with very large schemas.
@@ -447,62 +329,44 @@ class SQLCompletionProvider: NSObject {
         var out: [Completion] = []
         out.reserveCapacity(min(cap, 200))
 
+        // Dedupe on what would be inserted, not on the label: `id` of two
+        // tables in scope inserts as `u.id` and `o.id`, and both belong.
+        func take(_ c: Completion) -> Bool {
+            guard seen.insert(c.insertText).inserted else { return false }
+            out.append(c)
+            return out.count >= cap
+        }
+
         if currentWord.isEmpty {
-            for c in completions where seen.insert(c.label).inserted {
-                out.append(c)
-                if out.count >= cap { break }
-            }
+            for c in completions where take(c) { break }
         } else {
             let lower = currentWord.lowercased()
             // Pass 1: prefix matches (higher relevance).
             for c in completions where c.label.lowercased().hasPrefix(lower) {
-                if seen.insert(c.label).inserted {
-                    out.append(c)
-                    if out.count >= cap { break }
+                if take(c) { break }
+            }
+            // Pass 2: contains matches.
+            if out.count < cap {
+                for c in completions where c.label.lowercased().contains(lower) {
+                    if take(c) { break }
                 }
             }
-            // Pass 2: contains matches (fill remaining capacity).
+            // Pass 3: initials — `uci` finds `user_created_id`.
             if out.count < cap {
-                for c in completions {
-                    let lc = c.label.lowercased()
-                    guard !lc.hasPrefix(lower), lc.contains(lower) else { continue }
-                    if seen.insert(c.label).inserted {
-                        out.append(c)
-                        if out.count >= cap { break }
-                    }
+                for c in completions where Self.initials(of: c.label).hasPrefix(lower) {
+                    if take(c) { break }
                 }
             }
         }
         filteredCompletions = out
     }
 
+    /// The first letter of each `_`-separated word, lower-cased.
+    static func initials(of label: String) -> String {
+        label.split(separator: "_").compactMap { $0.first?.lowercased() }.joined()
+    }
+
     // MARK: - Text Helpers
-
-    private struct WordInfo {
-        let text: String
-        let range: NSRange
-    }
-
-    private func currentWordBeforeCursor(in textView: NSTextView) -> WordInfo? {
-        let text = textView.string as NSString
-        let cursor = textView.selectedRange().location
-        guard cursor > 0 else { return nil }
-
-        var start = cursor
-        while start > 0 {
-            let char = text.character(at: start - 1)
-            let scalar = UnicodeScalar(char)
-            if scalar == nil || (!CharacterSet.alphanumerics.contains(scalar!) && scalar! != UnicodeScalar("_")) {
-                break
-            }
-            start -= 1
-        }
-
-        let length = cursor - start
-        if length == 0 { return nil }
-        let range = NSRange(location: start, length: length)
-        return WordInfo(text: text.substring(with: range), range: range)
-    }
 
     private func cursorScreenRect(in textView: NSTextView) -> NSRect {
         guard let layoutManager = textView.layoutManager else {
@@ -566,48 +430,7 @@ class SQLCompletionProvider: NSObject {
         // Single click just selects
     }
 
-    // MARK: - Static Data
 
-    /// Static keyword/function completions — the keyword and function lists
-    /// never change, so build the `Completion` array once at class load and
-    /// reuse it. Previously this was a computed property that allocated a
-    /// fresh `.map` of ~150 Completions on every keystroke that showed the
-    /// popover.
-    private static let keywordCompletions: [Completion] = sqlKeywords.map {
-        Completion(label: $0, detail: "keyword", insertText: $0, kind: .keyword)
-    }
-    private static let functionCompletions: [Completion] = sqlFunctions.map {
-        Completion(label: $0, detail: "function", insertText: "\($0)()", kind: .function)
-    }
-
-    private static let sqlKeywords = [
-        "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "ILIKE",
-        "BETWEEN", "IS", "NULL", "TRUE", "FALSE",
-        "ORDER", "BY", "ASC", "DESC", "NULLS", "FIRST", "LAST",
-        "GROUP", "HAVING", "LIMIT", "OFFSET",
-        "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "ON",
-        "UNION", "ALL", "INTERSECT", "EXCEPT",
-        "INSERT", "INTO", "VALUES", "DEFAULT",
-        "UPDATE", "SET", "DELETE",
-        "CREATE", "TABLE", "INDEX", "VIEW", "SCHEMA",
-        "ALTER", "ADD", "DROP", "COLUMN", "CONSTRAINT",
-        "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE", "CHECK",
-        "CASCADE", "RESTRICT",
-        "AS", "DISTINCT", "CASE", "WHEN", "THEN", "ELSE", "END",
-        "EXISTS", "ANY", "WITH", "RECURSIVE", "RETURNING",
-        "BEGIN", "COMMIT", "ROLLBACK",
-        "EXPLAIN", "ANALYZE",
-    ]
-
-    private static let sqlFunctions = [
-        "count", "sum", "avg", "min", "max", "array_agg", "string_agg",
-        "length", "lower", "upper", "trim", "substring", "concat", "replace",
-        "now", "current_date", "current_timestamp", "date_trunc", "extract",
-        "abs", "ceil", "floor", "round", "random",
-        "json_build_object", "jsonb_build_object", "json_agg", "jsonb_agg",
-        "coalesce", "nullif", "greatest", "least", "generate_series",
-        "row_number", "rank", "dense_rank", "lag", "lead",
-    ]
 }
 
 // MARK: - NSTableViewDataSource

@@ -290,6 +290,12 @@ class QueryEditorVC: NSViewController {
         view.window?.makeFirstResponder(textView)
     }
 
+    /// The schema an unqualified table is looked for in first: the toolbar's
+    /// pick, else the connection's default.
+    func setCurrentSchema(_ schema: String?) {
+        completionProvider.currentSchema = schema
+    }
+
     func updateSchemaMetadata(
         schemas: [SchemaInfo],
         tables: [String: [TableInfo]],

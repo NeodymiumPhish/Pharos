@@ -305,6 +305,23 @@ class EditorPaneVC: NSViewController {
         }
         .store(in: &cancellables)
 
+        // The schema completion looks in first: the toolbar's pick for this
+        // connection, else the connection's default.
+        Publishers.CombineLatest(session.$activeSchema, session.$activeConnectionId)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] schema, connectionId in
+                guard let self else { return }
+                let fallback = connectionId.flatMap { self.session.hooks.defaultSchema($0) }
+                self.editorVC.setCurrentSchema(schema ?? fallback)
+            }
+            .store(in: &cancellables)
+
+        // Columns load per schema, lazily: the list asks for the schemas the
+        // statement names so they are there by the next keystroke.
+        editorVC.completionProvider.onSchemaNeeded = { schema in
+            MetadataCache.shared.prioritize(schema: schema)
+        }
+
         // "Describe the query…" appears and disappears with Apple
         // Intelligence, and takes its enabled state from whether the tab has
         // a connection whose schema the model could read.

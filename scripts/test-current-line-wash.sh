@@ -19,6 +19,9 @@ swiftc -o "$BIN" \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLCompletionProvider.swift \
+  Pharos/Editor/SQLStatementScope.swift \
+  Pharos/Editor/CompletionResolver.swift \
+  Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Editor/CompletionTriggerPolicy.swift \
   Pharos/Editor/KeywordCasing.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \

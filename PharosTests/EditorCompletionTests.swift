@@ -121,27 +121,109 @@ private func testBracePairing() {
     expectTrue(emptyPair("{{|}") == nil, "emptyPair: not a half pair")
 }
 
-// MARK: - Dot rule (bug A)
+// MARK: - Resolver (pure, made-up catalog)
 
-private func dotContext(_ marked: String) -> SQLCompletionProvider.CompletionContext? {
-    let (text, caret) = at(marked)
-    var wordStart = caret
-    while wordStart > 0, let s = UnicodeScalar(text.character(at: wordStart - 1)),
-          CharacterSet.alphanumerics.contains(s) || s == "_" {
-        wordStart -= 1
-    }
-    return SQLCompletionProvider.analyzeContext(text: text, cursor: caret, wordStart: wordStart)
+private func makeCatalog() -> CompletionResolver.Catalog {
+    var c = CompletionResolver.Catalog()
+    c.schemas = ["public", "Sales", "audit"]
+    c.tables = [
+        "public": [.init(name: "users", isView: false), .init(name: "orders", isView: false), .init(name: "active_users", isView: true)],
+        "Sales": [.init(name: "invoices", isView: false), .init(name: "orders", isView: false)],
+        "audit": [.init(name: "log", isView: false)],
+    ]
+    c.columns = [
+        "public.users": [.init(name: "id", type: "integer", isPrimaryKey: true), .init(name: "email", type: "text", isPrimaryKey: false),
+                         .init(name: "user_created_id", type: "integer", isPrimaryKey: false)],
+        "public.orders": [.init(name: "id", type: "integer", isPrimaryKey: true), .init(name: "user_id", type: "integer", isPrimaryKey: false),
+                          .init(name: "total", type: "numeric", isPrimaryKey: false)],
+        "Sales.invoices": [.init(name: "id", type: "integer", isPrimaryKey: true), .init(name: "amount", type: "numeric", isPrimaryKey: false)],
+        "audit.log": [.init(name: "id", type: "bigint", isPrimaryKey: true)],
+    ]
+    return c
 }
 
-private func testDotRule() {
-    expectEqual(dotContext("SELECT * FROM public.|"), .afterDot(qualifier: "public"), "dot: schema.")
-    expectEqual(dotContext("SELECT users.na|"), .afterDot(qualifier: "users"), "dot: table.partial")
-    expectEqual(dotContext("SELECT \"My Table\".|"), .afterDot(qualifier: "My Table"), "dot: \"quoted\".")
-    expectTrue(dotContext("SELECT .|") == nil, "dot: nothing before the dot → no list")
-    expectTrue(dotContext("SELECT (a).|") == nil, "dot: a bracket before the dot → no list")
-    expectTrue(dotContext("SELECT 1.|") == nil, "dot: a number before the dot → no list")
-    expectEqual(dotContext("SELECT * FROM |"), .afterFrom, "dot: keyword contexts are unchanged")
-    expectEqual(dotContext("SEL|"), .general, "dot: general context unchanged")
+private func env(_ schema: String? = "public") -> CompletionResolver.Environment {
+    .init(catalog: makeCatalog(), currentSchema: schema, variables: [.init(name: "user_id", preview: "42"), .init(name: "day", preview: "1")])
+}
+
+private func rows(_ marked: String, _ e: CompletionResolver.Environment = env()) -> [CompletionResolver.Row] {
+    let caret = (marked as NSString).range(of: "|").location
+    let scope = SQLStatementScope.analyze(marked.replacingOccurrences(of: "|", with: ""), caret: caret)
+    return CompletionResolver.rows(for: scope, in: e)
+}
+
+private func inserts(_ r: [CompletionResolver.Row]) -> [String] { r.map(\.insertText) }
+
+private func testResolver() {
+    typealias Ref = SQLStatementScope.TableRef
+    let e = env()
+    expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "orders", alias: "o"), in: e),
+                .init(schema: "public", table: "orders", qualifier: "o"), "resolve: current schema wins over another schema's same-named table")
+    expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "invoices", alias: nil), in: e),
+                .init(schema: "Sales", table: "invoices", qualifier: "invoices"), "resolve: a unique name is found in any schema")
+    expectEqual(CompletionResolver.resolve(Ref(schema: "sales", table: "ORDERS", alias: nil), in: e),
+                .init(schema: "Sales", table: "orders", qualifier: "ORDERS"), "resolve: qualified, case-insensitive")
+    expectTrue(CompletionResolver.resolve(Ref(schema: nil, table: "nothing", alias: nil), in: e) == nil, "resolve: unknown table → nil")
+    expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "orders", alias: nil), in: env("Sales"))?.schema, "Sales",
+                "resolve: the current schema is searched first")
+    expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "users", alias: nil), in: env("Sales"))?.schema, "public",
+                "resolve: then public")
+
+    // FROM: current schema, then other schemas qualified, then schemas.
+    expectEqual(inserts(rows("SELECT * FROM |")),
+                ["users", "orders", "active_users", "Sales.invoices", "Sales.orders", "audit.log", "public", "Sales", "audit"],
+                "from: current schema bare, others qualified, then schemas")
+    expectEqual(rows("SELECT * FROM |").first { $0.label == "active_users" }?.kind, .view, "from: views keep their kind")
+    expectEqual(inserts(rows("WITH recent AS (SELECT 1) SELECT * FROM |")).first, "recent", "from: CTE names come first")
+    expectEqual(inserts(rows("SELECT * FROM |", env("Sales"))).prefix(5).map { $0 },
+                ["invoices", "orders", "users", "orders", "active_users"], "from: the current schema first, then public")
+
+    // SELECT: * then columns in scope, qualified with two sources.
+    expectEqual(inserts(rows("SELECT | FROM users")).prefix(4).map { $0 }, ["*", "id", "email", "user_created_id"], "select: one table → bare columns")
+    let two = rows("SELECT | FROM users u JOIN orders o ON o.user_id = u.id")
+    expectEqual(inserts(two).prefix(7).map { $0 }, ["*", "u.id", "u.email", "u.user_created_id", "o.id", "o.user_id", "o.total"],
+                "select: two sources → alias-qualified columns")
+    expectEqual(two.first { $0.insertText == "o.total" }?.detail, "o · numeric", "select: the detail names the source")
+    let noFrom = rows("SELECT |")
+    expectEqual(noFrom.first { $0.label == "email" }?.detail, "users · text", "select without FROM: every current-schema column, detail names the table")
+    expectTrue(noFrom.contains { $0.label == "total" } && !noFrom.contains { $0.label == "amount" },
+               "select without FROM: only the current schema's tables")
+
+    // Conditions.
+    expectEqual(inserts(rows("SELECT * FROM users WHERE |")).prefix(3).map { $0 }, ["id", "email", "user_created_id"], "where: columns first")
+    expectEqual(inserts(rows("SELECT * FROM users WHERE id = |")).prefix(2).map { $0 }, ["{{user_id}}", "{{day}}"], "value position: variables first")
+    expectEqual(rows("SELECT * FROM users WHERE id = |").first?.kind, .variable, "value position: variable rows have the variable kind")
+    expectTrue(inserts(rows("SELECT * FROM users WHERE |")).contains("{{user_id}}"), "where: variables offered after the columns")
+
+    // ORDER BY: select aliases first.
+    expectEqual(inserts(rows("SELECT count(*) AS total_rows FROM users ORDER BY |")).prefix(2).map { $0 }, ["total_rows", "id"], "order by: aliases then columns")
+
+    // Targets.
+    expectEqual(inserts(rows("UPDATE orders SET |")), ["id", "user_id", "total"], "set: the target's columns")
+    expectEqual(inserts(rows("INSERT INTO orders (|")), ["id", "user_id", "total"], "insert columns: the target's columns")
+    expectEqual(inserts(rows("INSERT INTO orders (id) VALUES (|")).prefix(2).map { $0 }, ["{{user_id}}", "{{day}}"], "values: variables first")
+
+    // Members.
+    expectEqual(inserts(rows("SELECT * FROM users u JOIN orders o WHERE u.|")), ["id", "email", "user_created_id"], "member: alias → its columns")
+    expectEqual(inserts(rows("SELECT * FROM users u JOIN orders o WHERE orders.|")), ["id", "user_id", "total"], "member: table name in scope")
+    expectEqual(inserts(rows("SELECT * FROM sales.|")), ["invoices", "orders"], "member: schema (case-insensitive) → its tables")
+    expectEqual(inserts(rows("SELECT sales.invoices.|")), ["id", "amount"], "member: schema.table → columns")
+    expectEqual(inserts(rows("SELECT users.|")), ["id", "email", "user_created_id"], "member: a bare table not in scope, by the search path")
+    expectEqual(rows("SELECT .|"), [], "member: nothing before the dot → no rows")
+    expectEqual(rows("SELECT 1.|"), [], "member: a number before the dot → no rows")
+
+    // Keywords after expressions.
+    expectEqual(inserts(rows("SELECT * FROM users |")).first, "WHERE", "after a table: WHERE first")
+    expectEqual(inserts(rows("UPDATE users |")), ["SET"], "after UPDATE's table: SET")
+    expectEqual(inserts(rows("SELECT id |")), ["FROM", "AS"], "after a select expression: FROM, AS")
+    expectEqual(inserts(rows("|")).first, "SELECT", "statement start: SELECT first")
+    expectEqual(rows("SELECT id AS |"), [], "after AS: nothing")
+
+    // Schemas to load.
+    expectEqual(CompletionResolver.referencedSchemas(SQLStatementScope.analyze("SELECT * FROM audit.log l JOIN users u WHERE ", caret: 44), in: e),
+                ["audit", "public"], "referenced schemas: the statement's, then the search path")
+
+    expectEqual(SQLCompletionProvider.initials(of: "user_created_id"), "uci", "initials: first letters of the words")
 }
 
 // MARK: - Typed into the real editor
@@ -159,6 +241,14 @@ private final class Host: SQLTextViewCompletionDelegate {
     func acceptCompletion() -> Bool { guard provider.isShown else { return false }; provider.acceptSelected(); return true }
     unowned var textView: SQLTextView
     init(textView: SQLTextView) { self.textView = textView }
+}
+
+private func table(_ name: String, _ schema: String) -> TableInfo {
+    TableInfo(name: name, schemaName: schema, tableType: .table, rowCountEstimate: nil, totalSizeBytes: nil)
+}
+
+private func column(_ name: String, _ type: String, pk: Bool = false) -> ColumnInfo {
+    ColumnInfo(name: name, dataType: type, isNullable: !pk, isPrimaryKey: pk, ordinalPosition: 1, columnDefault: nil)
 }
 
 private final class Editor {
@@ -181,6 +271,16 @@ private final class Editor {
         host = Host(textView: textView)
         host.provider.attachTo(textView)
         host.provider.variables = variables.map { .init(name: $0, preview: "v") }
+        host.provider.currentSchema = "public"
+        host.provider.tables = [
+            "public": [table("users", "public"), table("orders", "public")],
+            "Sales": [table("invoices", "Sales")],
+        ]
+        host.provider.columnsByTable = [
+            "public.users": [column("id", "integer", pk: true), column("email", "text"), column("user_created_id", "integer")],
+            "public.orders": [column("id", "integer", pk: true), column("user_id", "integer"), column("total", "numeric")],
+            "Sales.invoices": [column("id", "integer", pk: true), column("amount", "numeric")],
+        ]
         textView.completionDelegate = host
         host.provider.onVariableChosen = { [unowned self] in self.chosen.append($0) }
         textView.onVariableTokenClicked = { [unowned self] in self.chosen.append($0) }
@@ -205,6 +305,7 @@ private final class Editor {
     var text: String { textView.string }
     var caret: Int { textView.selectedRange().location }
     var shown: Bool { host.provider.isShown }
+    var visible: [String] { host.provider.visibleCompletionsForTesting.map(\.insertText) }
 }
 
 private func testTypedIntoEditor() {
@@ -300,21 +401,76 @@ private func testTypedIntoEditor() {
         e.type("123")
         expectTrue(!e.shown, "editor: all-digit name in a token → no list (and no SQL list)")
     }
-    // Bug A: a bare dot opens nothing.
+    // Context through the real provider.
     do {
         let e = Editor()
         e.type("SELECT .")
         expectTrue(!e.shown, "editor: SELECT . opens no list")
     }
-    // Bug A: schema lookup ignores case.
     do {
         let e = Editor()
-        e.host.provider.tables = ["Sales": [TableInfo(name: "orders", schemaName: "Sales", tableType: .table,
-                                                      rowCountEstimate: nil, totalSizeBytes: nil)]]
         e.type("SELECT * FROM sales.")
         expectTrue(e.shown, "editor: sales. lists the tables of schema Sales")
         e.tab()
-        expectEqual(e.text, "SELECT * FROM sales.orders", "editor: the member goes after the dot")
+        expectEqual(e.text, "SELECT * FROM sales.invoices", "editor: the member goes after the dot")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT * FROM users u JOIN orders o ON u.")
+        expectEqual(e.visible, ["id", "email", "user_created_id"], "editor: alias. → that table's columns")
+        e.tab()
+        expectEqual(e.text, "SELECT * FROM users u JOIN orders o ON u.id", "editor: the alias's column is inserted bare")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT * FROM users u JOIN orders o WHERE ")
+        e.escape()   // explicit trigger, nothing typed
+        expectEqual(Array(e.visible.prefix(6)), ["u.id", "u.email", "u.user_created_id", "o.id", "o.user_id", "o.total"],
+                    "editor: WHERE with two sources → qualified columns, both ids kept")
+        e.down(); e.down(); e.down()
+        e.tab()
+        expectEqual(e.text, "SELECT * FROM users u JOIN orders o WHERE o.id", "editor: Down×3 + Tab inserts the qualified column")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT * FROM users WHERE id = ")
+        e.escape()
+        expectEqual(Array(e.visible.prefix(3)), ["{{start_date}}", "{{user_id}}", "{{user}}"], "editor: a value position offers the variables first")
+        e.tab()
+        expectEqual(e.text, "SELECT * FROM users WHERE id = {{start_date}}", "editor: Tab inserts the variable token")
+        expectEqual(e.chosen, [], "editor: a variable chosen as a value does not open the sidebar")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT * FROM users WHERE uci")
+        e.escape()   // the identifier trigger is debounced; ask explicitly
+        expectTrue(e.shown, "editor: initials open the list")
+        expectEqual(e.visible.first, "user_created_id", "editor: uci → user_created_id")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT * FROM users ")
+        e.escape()
+        expectEqual(e.visible.first, "WHERE", "editor: after a table the clause keywords come")
+        e.tab()
+        expectEqual(e.text, "SELECT * FROM users WHERE", "editor: Tab inserts the keyword")
+    }
+    do {
+        let e = Editor()
+        e.type("SELECT ")
+        e.escape()
+        expectEqual(e.visible.first, "*", "editor: SELECT with no FROM starts with *")
+        expectTrue(e.visible.contains("total") && !e.visible.contains("amount"), "editor: then the current schema's columns")
+        var asked: [String] = []
+        e.host.provider.onSchemaNeeded = { asked.append($0) }
+        e.type("x FROM audit.log WHERE ")
+        expectTrue(asked.contains("public"), "editor: the search path's schemas are asked for")
+    }
+    do {
+        let e = Editor()
+        e.type("UPDATE orders SET ")
+        e.escape()
+        expectEqual(e.visible, ["id", "user_id", "total"], "editor: SET lists the target's columns")
     }
     // Bug B: `complete:` (Esc, ⌥Esc, F5) opens our list.
     do {
@@ -438,7 +594,7 @@ func runTests() {
     testContext()
     testItems()
     testBracePairing()
-    testDotRule()
+    testResolver()
     testTypedIntoEditor()
     testTokenRule()
     testTokenClicks()
