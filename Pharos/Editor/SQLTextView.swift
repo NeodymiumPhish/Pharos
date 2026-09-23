@@ -342,15 +342,9 @@ class SQLTextView: NSTextView {
         // Check if click lands on a fold pill — if so, unfold it. Before the
         // token check: a token hidden inside the fold must not answer a
         // click meant for the pill.
-        if !foldState.entries.isEmpty, let foldingLM = layoutManager as? FoldingLayoutManager, let textContainer {
-            let localPoint = convert(event.locationInWindow, from: nil)
-            let textOrigin = textContainerOrigin
-            let pointInText = NSPoint(x: localPoint.x - textOrigin.x, y: localPoint.y - textOrigin.y)
-
-            if let entry = foldingLM.foldEntry(at: pointInText, in: textContainer) {
-                onPlaceholderClicked?(entry.id)
-                return
-            }
+        if let entry = foldPill(at: convert(event.locationInWindow, from: nil)) {
+            onPlaceholderClicked?(entry.id)
+            return
         }
 
         // A plain click on a `{{name}}` chip opens the variable — after the
@@ -377,42 +371,37 @@ class SQLTextView: NSTextView {
         super.mouseDown(with: event)
     }
 
-    /// A hand over each `{{name}}` chip: it is a button. NSTextView sets its
-    /// own I-beam from these two events, over any cursor rect, so the hand
-    /// has to be set here, after it.
+    /// A hand over each `{{name}}` chip and each fold pill: they are
+    /// buttons. NSTextView sets its own I-beam from these two events, over
+    /// any cursor rect (`addCursorRect` never showed), so the cursor is set
+    /// here, after it — and the I-beam is set here too, because NSTextView
+    /// does not always put it back once the pointer leaves a button.
     override func cursorUpdate(with event: NSEvent) {
         super.cursorUpdate(with: event)
-        setHandIfOverToken(event)
+        updateCursor(for: event)
     }
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        setHandIfOverToken(event)
+        updateCursor(for: event)
     }
 
-    /// The hand over a token, the I-beam anywhere else — set here rather
-    /// than left to NSTextView, which does not always put the I-beam back
-    /// once the pointer leaves a token.
-    private func setHandIfOverToken(_ event: NSEvent) {
-        if variableToken(at: convert(event.locationInWindow, from: nil)) != nil {
+    private func updateCursor(for event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if variableToken(at: point) != nil || foldPill(at: point) != nil {
             NSCursor.pointingHand.set()
         } else {
             NSCursor.iBeam.set()
         }
     }
 
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        // Show pointing hand cursor over fold pills
+    /// The fold whose pill is under `point` (view coordinates), if any.
+    private func foldPill(at point: NSPoint) -> FoldEntry? {
         guard !foldState.entries.isEmpty,
               let foldingLM = layoutManager as? FoldingLayoutManager,
-              let textContainer else { return }
-        let textOrigin = textContainerOrigin
-        for entry in foldState.entries {
-            guard let rect = foldingLM.pillRect(for: entry, in: textContainer) else { continue }
-            let adjustedRect = rect.offsetBy(dx: textOrigin.x, dy: textOrigin.y)
-            addCursorRect(adjustedRect, cursor: .pointingHand)
-        }
+              let textContainer else { return nil }
+        let origin = textContainerOrigin
+        return foldingLM.foldEntry(at: NSPoint(x: point.x - origin.x, y: point.y - origin.y), in: textContainer)
     }
 
     // MARK: - Text Changes

@@ -596,6 +596,28 @@ private func testTokenClicks() {
     e.textView.cursorUpdate(with: cursorEvent(at: plain))
     expectTrue(NSCursor.current == NSCursor.iBeam, "cursor: the I-beam over plain text (cursorUpdate)")
 
+    // A fold pill gets the hand too.
+    do {
+        let f = Editor()
+        f.textView.string = "SELECT 1\nFROM t\nWHERE a = 1\nORDER BY 1"
+        f.textView.layoutManager?.ensureLayout(for: f.textView.textContainer!)
+        let text = f.textView.string as NSString
+        let foldRange = NSRange(location: text.range(of: "FROM").location, length: text.range(of: "ORDER").location - text.range(of: "FROM").location - 1)
+        guard let entry = f.textView.fold(range: foldRange, placeholder: "…"),
+              let lm = f.textView.layoutManager as? FoldingLayoutManager,
+              let pill = lm.pillRect(for: entry, in: f.textView.textContainer!) else {
+            failures += 1; print("FAIL fold: could not fold a region for the cursor test"); return
+        }
+        let origin = f.textView.textContainerOrigin
+        let pillMid = NSPoint(x: pill.midX + origin.x, y: pill.midY + origin.y)
+        f.textView.mouseMoved(with: mouse(.mouseMoved, at: pillMid, in: f))
+        expectTrue(NSCursor.current == NSCursor.pointingHand, "cursor: a hand over a fold pill")
+        // The first line is plain text the fold does not touch.
+        let firstLine = lm.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        f.textView.mouseMoved(with: mouse(.mouseMoved, at: NSPoint(x: firstLine.midX + origin.x, y: firstLine.midY + origin.y), in: f))
+        expectTrue(NSCursor.current == NSCursor.iBeam, "cursor: the I-beam on an unfolded line")
+    }
+
     // Editing moves the chips with the text.
     e.textView.setSelectedRange(NSRange(location: 0, length: 0))
     e.type("--")
